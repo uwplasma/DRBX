@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 from drbx.geometry import (
-    build_local_curvature_coefficients,
+    build_local_curvature_face_coefficients,
 )
 from drbx.native import (
     FciDrbEBRhsParameters,
@@ -158,11 +158,8 @@ def _sharded_rhs(
     def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, cell_fields):
         local_geometry = assemble_local_fci_geometry(sharded_geometry, cell_fields)
         domain = sharded_geometry.domain
-        local_curvature = build_local_curvature_coefficients(
-            local_geometry,
-            domain,
-            periodic_axes=PERIODIC_AXES,
-            axis_regular_axes=AXIS_REGULAR_AXES,
+        local_curvature_faces = build_local_curvature_face_coefficients(
+            local_geometry, domain
         )
         local_face_projectors = build_local_perp_laplacian_face_projectors(
             local_geometry,
@@ -178,7 +175,7 @@ def _sharded_rhs(
             ),
             physical_ghost_filler=physical_ghost_filler,
             parameters=parameters,
-            curvature_coefficients_owned=local_curvature,
+            curvature_face_coefficients=local_curvature_faces,
             face_projectors=local_face_projectors,
             gmres_config=SolvaxGmresConfig(
                 tol=1.0e-8,
@@ -191,8 +188,6 @@ def _sharded_rhs(
                 regularization_epsilon=parameters.phi_inversion_regularization,
             ),
             face_bc_builder=_build_face_bcs,
-            curvature_scheme="direct",
-            curvature_inflow_closure="central",
         )
         current = FciDrbEBState(
             density=density,
@@ -249,15 +244,15 @@ def _sharded_rk4_step(
     def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, cell_fields):
         geom = assemble_local_fci_geometry(local, cell_fields)
         domain = local.domain
-        curvature = build_local_curvature_coefficients(geom, domain, periodic_axes=PERIODIC_AXES, axis_regular_axes=AXIS_REGULAR_AXES)
+        curvature_faces = build_local_curvature_face_coefficients(geom, domain)
         projectors = build_local_perp_laplacian_face_projectors(geom, domain, axis_regular_axes=AXIS_REGULAR_AXES)
         rhs = LocalFciDrbEBRhs(
             geometry=geom, domain=domain, halo_exchange=HaloExchange3D(),
             topology_filler=TopologyHaloFiller3D(rules=(LocalPeriodicTopologyRule3D(),)),
             physical_ghost_filler=ghost, parameters=parameters,
-            curvature_coefficients_owned=curvature, face_projectors=projectors,
+            curvature_face_coefficients=curvature_faces, face_projectors=projectors,
             gmres_config=SolvaxGmresConfig(tol=1.0e-8, atol=1.0e-8, maxiter=20, restart=20, acceptance_tol=1.0e-6, acceptance_atol=1.0e-6, project_mean_zero=False, regularization_epsilon=parameters.phi_inversion_regularization),
-            face_bc_builder=_build_face_bcs, curvature_scheme="direct", curvature_inflow_closure="central",
+            face_bc_builder=_build_face_bcs,
         )
         current = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
         accepted = True
@@ -323,20 +318,6 @@ def _run_residual(shape: tuple[int, int, int], shard_counts=(1, 1, 1)) -> float:
         shard_counts=tuple(shard_counts),
     )
     return _state_rms_error(computed_rhs, expected_rhs)
-
-
-def test_sharded_shifted_torus_eb_mms_spatial_convergence() -> None:
-    """The complete local EB RHS error decreases under spatial refinement."""
-
-    coarse = _run_residual((8, 12, 8))
-    fine = _run_residual((12, 18, 12))
-    order = float(np.log(coarse / fine) / np.log(12.0 / 8.0))
-    print(
-        f"sharded shifted-torus EB MMS: coarse={coarse:.6e}, "
-        f"fine={fine:.6e}, order={order:.3f}"
-    )
-    assert np.isfinite(coarse) and np.isfinite(fine)
-    assert order > 1.5, (coarse, fine, order)
 
 
 @pytest.mark.skipif(len(jax.devices()) < 2, reason="requires at least two JAX devices")

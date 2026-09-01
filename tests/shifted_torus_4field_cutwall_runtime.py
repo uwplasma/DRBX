@@ -41,7 +41,6 @@ from drbx.native.fci_operators import (
     LocalPerpLaplacianInverseSolver,
     _apply_local_face_flux_bc,
     _apply_local_face_value_dirichlet_bc,
-    _local_axis_face_values_from_stencil,
     _take_stencil_finite_difference,
     build_local_control_volume_field_closure,
     build_local_control_volume_polynomial_from_field,

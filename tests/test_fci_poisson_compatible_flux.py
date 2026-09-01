@@ -1,4 +1,4 @@
-"""Focused tests for the experimental compatible-flux Poisson bracket."""
+"""Focused tests for the compatible-flux Poisson bracket."""
 
 from __future__ import annotations
 
@@ -20,13 +20,9 @@ from drbx.geometry import (  # noqa: E402
     build_local_stencil_from_field,
 )
 from drbx.native.fci_boundaries import (  # noqa: E402
-    CV_FACE_INTERIOR,
     CoordinateFaceValues3D,
     FaceFluxStencil3D,
     LocalBoundaryFaceTrace3D,
-    LocalControlVolumeFieldClosure3D,
-    LocalEmbeddedControlVolumeGeometry3D,
-    LocalMomentReconstruction3D,
 )
 from drbx.native.fci_operators import (  # noqa: E402
     _compatible_characteristic_regular_flux,
@@ -38,12 +34,6 @@ from drbx.native.fci_operators import (  # noqa: E402
 )
 from axis_regular_operator_support import owned, polar_fixture, scalar_field_halo  # noqa: E402
 from test_fci_operators_domain_decomp import _build_domain, _build_local_geometry  # noqa: E402
-from test_fci_gmres_control_volume_owner_space import _merged_control_volume  # noqa: E402
-from test_fci_cutwall_slab_operators import (  # noqa: E402
-    _cubic_face_functionals,
-    _uniform_control_volume_cells,
-    _unit_control_volume_face_rows,
-)
 
 
 def _conservative(field, geometry, context):
@@ -115,7 +105,7 @@ def test_constants_return_zero_in_either_argument_on_axis_regular_grid():
         geometry,
         domain=domain,
         axis_regular_axes=(True, False, False),
-        characteristic_scheme="third-order-upwind",
+        characteristic_scheme="scalar-third-order-upwind",
         g_field_halo=constant,
         g_positivity_floor=1.0e-12,
     )
@@ -370,103 +360,6 @@ def test_third_order_characteristic_correction_damps_periodic_fourier_modes():
     assert productions[-1] > 0.0
 
 
-def test_third_order_selector_is_unified_compatible_characteristic_bracket():
-    """The selector replaces the physical action inside one compatible bracket."""
-
-    shape = (6, 8, 4)
-    geometry = _build_local_geometry(shape, 2, global_shape=shape)
-    domain = _build_domain(shape, 2)
-    context = StencilBuilderContext(layout=geometry.layout, domain=domain)
-    x = geometry.grid.x.centers_halo[:, None, None]
-    y = geometry.grid.y.centers_halo[None, :, None]
-    z = geometry.grid.z.centers_halo[None, None, :]
-    x, y, z = jnp.broadcast_arrays(x, y, z)
-    f = 0.3 * x * x + jnp.sin(y) + 0.2 * jnp.cos(z)
-    g = 1.2 + 0.1 * x + 0.15 * jnp.sin(2.0 * y - z)
-    fs = _conservative(f, geometry, context)
-    gs = _conservative(g, geometry, context)
-
-    actual = jax.jit(
-        lambda f_stencil, g_stencil, g_halo: (
-            local_poisson_bracket_compatible_flux_op(
-                f_stencil,
-                g_stencil,
-                geometry,
-                domain=domain,
-                characteristic_scheme="third-order-upwind",
-                g_field_halo=g_halo,
-                g_positivity_floor=1.0e-12,
-            )
-        )
-    )(fs, gs, g)
-
-    def manual_action(generator, argument, argument_halo, positivity_floor):
-        velocity = _compatible_flux_generator(
-            generator,
-            geometry,
-            domain=domain,
-            axis_regular_axes=(False, False, False),
-            b_floor=1.0e-30,
-        )
-        left, right, _ = _third_order_scalar_face_states_from_halo(
-            argument_halo,
-            geometry,
-            boundary_trace=None,
-            axis_regular_axes=(False, False, False),
-            positivity_floor=positivity_floor,
-        )
-        upwind = CoordinateFaceValues3D(
-            x=jnp.where(velocity.x >= 0.0, left.x, right.x),
-            y=jnp.where(velocity.y >= 0.0, left.y, right.y),
-            z=jnp.where(velocity.z >= 0.0, left.z, right.z),
-        )
-        weighted = FaceFluxStencil3D(
-            x=velocity.x * upwind.x,
-            y=velocity.y * upwind.y,
-            z=velocity.z * upwind.z,
-        )
-        return (
-            _compatible_flux_divergence(
-                weighted, geometry, jacobian_floor=1.0e-30
-            )
-            - argument.x.center
-            * _compatible_flux_divergence(
-                velocity, geometry, jacobian_floor=1.0e-30
-            )
-        ) / geometry.cell_metric.J_owned
-
-    centered = local_poisson_bracket_compatible_flux_op(
-        fs, gs, geometry, domain=domain
-    )
-    velocity = _compatible_flux_generator(
-        fs,
-        geometry,
-        domain=domain,
-        axis_regular_axes=(False, False, False),
-        b_floor=1.0e-30,
-    )
-    centered_weighted = FaceFluxStencil3D(
-        x=velocity.x * gs.face_values.x,
-        y=velocity.y * gs.face_values.y,
-        z=velocity.z * gs.face_values.z,
-    )
-    centered_f_action = (
-        _compatible_flux_divergence(
-            centered_weighted, geometry, jacobian_floor=1.0e-30
-        )
-        - gs.x.center
-        * _compatible_flux_divergence(
-            velocity, geometry, jacobian_floor=1.0e-30
-        )
-    ) / geometry.cell_metric.J_owned
-    manual = (
-        centered
-        + manual_action(fs, gs, g, 1.0e-12)
-        - centered_f_action
-    )
-    np.testing.assert_allclose(actual, manual, atol=2.0e-13, rtol=2.0e-13)
-
-
 def test_third_order_characteristic_scheme_validates_halo_and_selector():
     geometry, domain, context, f, g = _polar_pair(shape=(4, 8, 2))
     fs = _conservative(f, geometry, context)
@@ -481,129 +374,8 @@ def test_third_order_characteristic_scheme_validates_halo_and_selector():
             gs,
             geometry,
             domain=domain,
-            characteristic_scheme="third-order-upwind",
+            characteristic_scheme="scalar-third-order-upwind",
         )
-
-
-def test_third_order_characteristic_action_uses_control_volume_owner_space():
-    shape = (4, 6, 3)
-    geometry = _build_local_geometry(shape, 2, global_shape=shape)
-    domain = _build_domain(shape, 2)
-    context = StencilBuilderContext(layout=geometry.layout, domain=domain)
-    x = geometry.grid.x.centers_halo[:, None, None]
-    y = geometry.grid.y.centers_halo[None, :, None]
-    z = geometry.grid.z.centers_halo[None, None, :]
-    x, y, z = jnp.broadcast_arrays(x, y, z)
-    f = x + 0.2 * jnp.sin(y) - 0.1 * jnp.cos(z)
-    g = 1.0 + 0.05 * x + 0.02 * jnp.sin(y - z)
-    control_volume = _merged_control_volume(
-        geometry,
-        source=(0, 1, 0),
-        owner=(0, 0, 0),
-    )
-    empty = LocalControlVolumeFieldClosure3D.empty(max_rows=0)
-
-    result = local_poisson_bracket_compatible_flux_op(
-        _conservative(f, geometry, context),
-        _conservative(g, geometry, context),
-        geometry,
-        domain=domain,
-        control_volume_geometry=control_volume,
-        f_field_closure=empty,
-        g_field_closure=empty,
-        characteristic_scheme="third-order-upwind",
-        g_field_halo=g,
-        g_positivity_floor=1.0e-12,
-    )
-
-    assert bool(jnp.all(jnp.isfinite(result)))
-    assert float(result[0, 1, 0]) == 0.0
-
-
-def test_unified_characteristic_bracket_uses_active_compact_face_fluxes():
-    shape = (6, 6, 6)
-    geometry = _build_local_geometry(shape, 2, global_shape=shape)
-    domain = _build_domain(shape, 2)
-    context = StencilBuilderContext(layout=geometry.layout, domain=domain)
-    x = geometry.grid.x.centers_halo[:, None, None]
-    y = geometry.grid.y.centers_halo[None, :, None]
-    z = geometry.grid.z.centers_halo[None, None, :]
-    x, y, z = jnp.broadcast_arrays(x, y, z)
-    f = x
-    g = 1.0 + y
-    faces = _unit_control_volume_face_rows(
-        geometry,
-        (
-            (CV_FACE_INTERIOR, (1, 1, 1), (1, 2, 1), 1, (0.0, 0.0, 0.0), 1.0),
-        ),
-    )
-    cells = _uniform_control_volume_cells(geometry)
-    control_volume = LocalEmbeddedControlVolumeGeometry3D(
-        cells=cells,
-        regular_faces=geometry.regular_face_geometry,
-        irregular_faces=faces,
-        reconstruction=LocalMomentReconstruction3D.empty(geometry.layout),
-        face_functionals=_cubic_face_functionals(cells, faces),
-    )
-    quadrature_active = jnp.asarray(faces.quadrature_active, dtype=bool)
-
-    def closure(*, face_value, gradient):
-        rows = faces.max_rows
-        patch_shape = quadrature_active.shape
-        face_values = jnp.broadcast_to(
-            jnp.asarray(face_value, dtype=jnp.float64)[:, None, None], patch_shape
-        )
-        face_gradients = jnp.broadcast_to(
-            jnp.asarray(gradient, dtype=jnp.float64)[:, None, None, :],
-            patch_shape + (3,),
-        )
-        return LocalControlVolumeFieldClosure3D(
-            projected_flux=jnp.zeros((rows,), dtype=jnp.float64),
-            parallel_flux=jnp.zeros((rows,), dtype=jnp.float64),
-            parallel_gradient_flux=jnp.zeros((rows,), dtype=jnp.float64),
-            valid=jnp.ones((rows,), dtype=bool),
-            active=jnp.ones((rows,), dtype=bool),
-            max_rows=rows,
-            max_patches=faces.max_patches,
-            face_value=face_values,
-            face_gradient=face_gradients,
-            face_value_valid=quadrature_active,
-            face_gradient_valid=quadrature_active,
-        )
-
-    f_closure = closure(
-        face_value=jnp.asarray((0.5,)),
-        gradient=jnp.asarray(((1.0, 0.0, 0.0),)),
-    )
-    g_closure = closure(
-        face_value=jnp.asarray((2.0,)),
-        gradient=jnp.asarray(((0.0, 1.0, 0.0),)),
-    )
-    kwargs = dict(
-        domain=domain,
-        control_volume_geometry=control_volume,
-        f_field_closure=f_closure,
-        g_field_closure=g_closure,
-    )
-    fs = _conservative(f, geometry, context)
-    gs = _conservative(g, geometry, context)
-    centered = local_poisson_bracket_compatible_flux_op(
-        fs, gs, geometry, **kwargs
-    )
-    characteristic = local_poisson_bracket_compatible_flux_op(
-        fs,
-        gs,
-        geometry,
-        characteristic_scheme="third-order-upwind",
-        g_field_halo=g,
-        g_positivity_floor=1.0e-12,
-        **kwargs,
-    )
-
-    delta = characteristic - centered
-    assert bool(jnp.all(jnp.isfinite(characteristic)))
-    assert float(jnp.max(jnp.abs(delta))) > 0.0
-    assert float(jnp.abs(delta[1, 1, 1])) > 0.0
 
 
 def test_argument_antisymmetry_is_explicit_on_axis_regular_grid():

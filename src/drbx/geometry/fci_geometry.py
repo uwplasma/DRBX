@@ -7911,64 +7911,6 @@ def build_fci_maps_from_b_contravariant(
     }
 
 
-def trace_fci_eta_plane_from_cell_centers(
-    grid: CellCenteredGrid3D,
-    B_contra_cell: jnp.ndarray,
-    Bmag_cell: jnp.ndarray,
-    *,
-    eta_index: int,
-    direction: int,
-    substeps: int = 4,
-    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
-    min_abs_bz: float = 1.0e-30,
-    boundary_value: float = jnp.nan,
-) -> dict[str, jnp.ndarray]:
-    """Return one mapped eta-plane trace from every cell center.
-
-    ``direction`` must be ``+1`` or ``-1`` and selects the forward or
-    backward neighboring eta-plane trace.  The returned ``x_index`` and
-    ``y_index`` arrays are fractional cell-centered indices for linear
-    (second-order) endpoint interpolation.  Endpoint coordinates and
-    connection lengths are retained for both interior and physical-wall
-    traces; ``boundary`` identifies the latter.
-
-    This convenience API intentionally delegates to
-    :func:`build_fci_maps_from_b_contravariant`, so its axis, periodic seam,
-    boundary-hit, and interpolation semantics cannot diverge from the full
-    map builder.  The full builder is still the preferred path when maps for
-    every eta plane are required.
-    """
-
-    if int(direction) not in (-1, 1):
-        raise ValueError(f"direction must be +1 or -1, got {direction}")
-    eta_index = int(eta_index)
-    if eta_index < 0 or eta_index >= grid.z.n:
-        raise ValueError(f"eta_index must be in [0, {grid.z.n}), got {eta_index}")
-
-    maps = build_fci_maps_from_b_contravariant(
-        grid,
-        B_contra_cell,
-        Bmag_cell,
-        substeps=substeps,
-        periodic_axes=periodic_axes,
-        axis_regular_axes=axis_regular_axes,
-        min_abs_bz=min_abs_bz,
-        boundary_value=boundary_value,
-    )
-    prefix = "forward" if int(direction) > 0 else "backward"
-    return {
-        "x_index": maps[f"{prefix}_x"][..., eta_index],
-        "y_index": maps[f"{prefix}_y"][..., eta_index],
-        "endpoint_x": maps[f"{prefix}_endpoint_x"][..., eta_index],
-        "endpoint_y": maps[f"{prefix}_endpoint_y"][..., eta_index],
-        "endpoint_z": maps[f"{prefix}_endpoint_z"][..., eta_index],
-        "length": maps[f"{prefix}_length"][..., eta_index],
-        "boundary": maps[f"{prefix}_boundary"][..., eta_index],
-        "eta_index": jnp.asarray(eta_index, dtype=jnp.int32),
-        "direction": jnp.asarray(int(direction), dtype=jnp.int32),
-    }
-
 def _callback_fci_field_values(
     field_evaluator: Callable[[np.ndarray], object],
     points: np.ndarray,

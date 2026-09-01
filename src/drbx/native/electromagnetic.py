@@ -5,7 +5,6 @@ from typing import Mapping
 
 import numpy as np
 
-from ..config.boutinp import BoutConfig, NumericResolver
 from .mesh import StructuredMesh, apply_neumann_x_guards
 from .metrics import StructuredMetrics
 
@@ -35,39 +34,6 @@ class ChargedSpeciesMetadata:
 
 def compute_beta_em(*, Nnorm: float, Tnorm: float, Bnorm: float) -> float:
     return float(VACUUM_PERMEABILITY * 1.602176634e-19 * Tnorm * Nnorm / (Bnorm * Bnorm))
-
-
-def extract_charged_species_metadata(config: BoutConfig) -> tuple[ChargedSpeciesMetadata, ...]:
-    resolver = NumericResolver(config)
-    species: list[ChargedSpeciesMetadata] = []
-    for section in config.section_names():
-        if not config.has_option(section, "charge") or not config.has_option(section, "AA"):
-            continue
-        charge = float(resolver.resolve(section, "charge"))
-        if abs(charge) < 1.0e-12:
-            continue
-        species.append(
-            ChargedSpeciesMetadata(
-                section=section,
-                charge=charge,
-                atomic_mass=float(resolver.resolve(section, "AA")),
-            )
-        )
-    return tuple(species)
-
-
-def compute_parallel_current_density(
-    momentum_fields: Mapping[str, np.ndarray],
-    species_metadata: tuple[ChargedSpeciesMetadata, ...],
-) -> np.ndarray:
-    first = next(iter(momentum_fields.values()))
-    current = np.zeros_like(np.asarray(first, dtype=np.float64), dtype=np.float64)
-    for species in species_metadata:
-        name = f"NV{species.section}"
-        if name not in momentum_fields:
-            continue
-        current = current + species.current_factor * np.asarray(momentum_fields[name], dtype=np.float64)
-    return current
 
 
 def compute_alpha_em(

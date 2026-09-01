@@ -30,7 +30,7 @@ import tempfile
 import threading
 import time
 from types import SimpleNamespace
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 import zipfile
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -75,7 +75,6 @@ from drbx.geometry import (  # noqa: E402
     bfield_evaluator_from_makegrid,
     build_fci_maps_from_callbacks,
     build_local_conservative_stencil_from_field,
-    build_local_curvature_coefficients,
     build_local_curvature_face_coefficients,
     build_metric_aware_polar_angular_agglomeration_geometry,
     build_metric_evaluator,
@@ -121,8 +120,6 @@ from drbx.native.fci_boundaries import BC_DIRICHLET, BC_NEUMANN  # noqa: E402
 from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
     RHS_TERM_FIELD_NAMES,
     RHS_TERM_NAMES,
-    UpwindEquilibriumWallProjectors,
-    build_upwind_equilibrium_wall_projectors,
     curvature_component_diagnostic_names,
     parallel_characteristic_matrix,
     prepare_local_fci_drb_eb_state,
@@ -150,12 +147,9 @@ ELECTRON_FORCE_CHARACTERISTIC_PRIMITIVE_FIELD_NAMES = (
     "density", "Te", "Ti", "Vi", "Ve",
 )
 from drbx.native.fci_operators import (  # noqa: E402
-    OUTGOING_FCI_FACE_OWNERSHIP_POLICY,
-    build_local_outgoing_fci_face_topology_from_geometry,
     build_local_perp_laplacian_face_projectors,
     expand_local_control_volume_owner_field,
     local_curvature_conservative_components_op,
-    prolong_local_outgoing_fci_face_owner_field,
 )
 DEFAULT_WORKSPACE_DATA_DIR = SCRIPT_DIR.parent
 DEFAULT_MAKEGRID = DEFAULT_WORKSPACE_DATA_DIR / "mgrid_res2p5cm_180pln.nc"
@@ -2113,18 +2107,10 @@ def _aggregate_initial_owner_state(
             aggregate_volume_flat[owner_flat_ids], np.finfo(float).tiny
         )
         averaged = averaged_flat.reshape(raw.shape)
-        # The explicit mask keeps source slots exactly zero in the runtime state.
-        # Vi/Ve begin as centered physical data.  In the staggered
-        # layout they must remain fine until the local FCI c2f/Re
-        # initialization pass below; applying PcRc here would erase
-        # their source-edge support before that projection.
-        if (
-            os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered"
-            and name in ("Vi", "Ve")
-        ):
-            result[name] = raw
-        else:
-            result[name] = np.where(owner_mask, averaged, 0.0)
+        # The explicit mask keeps source slots exactly zero in the runtime
+        # state.  All production fields, including Vi and Ve, use the
+        # canonical cell-owner basis.
+        result[name] = np.where(owner_mask, averaged, 0.0)
     return FciDrbEBState(**result)
 
 
@@ -2176,28 +2162,12 @@ def _materialize_owner_array(array: np.ndarray, host_geometry) -> np.ndarray:
     owner_index = np.asarray(host_geometry.topology.owner_index, dtype=np.int32)
     return value[(slice(None),) + tuple(np.moveaxis(owner_index, -1, 0))]
 
-def _materialize_face_owner_array(array: np.ndarray, face_topology_host) -> np.ndarray:
-    """Expand a leading-term-axis outgoing-face owner diagnostic array."""
-
-    value = np.asarray(array, dtype=np.float64)
-    if face_topology_host is None or value.ndim != 4:
-        return value
-    result = value[(slice(None),) + (
-        np.asarray(face_topology_host["edge_owner_i"], dtype=np.int32),
-        np.asarray(face_topology_host["edge_owner_j"], dtype=np.int32),
-        np.asarray(face_topology_host["edge_owner_k"], dtype=np.int32),
-    )]
-    return np.where(np.asarray(face_topology_host["edge_active"], dtype=bool)[None], result, 0.0)
-
-
-def _assert_owner_sparse(state: FciDrbEBState, host_geometry, outgoing_face_topology_host=None) -> None:
+def _assert_owner_sparse(state: FciDrbEBState, host_geometry) -> None:
     cell_mask = ~np.asarray(host_geometry.topology.is_active_owner, dtype=bool)
-    face_mask = (cell_mask if outgoing_face_topology_host is None else
-                 ~np.asarray(outgoing_face_topology_host["is_active_owner"], dtype=bool))
     maximum = max(
         float(np.max(np.abs(np.asarray(value)[mask])) if np.any(mask) else 0.0)
         for name, value in state.field_items()
-        for mask in (face_mask if name in ("Vi", "Ve") else cell_mask,)
+        for mask in (cell_mask,)
     )
     if maximum > 1.0e-12:
         raise FloatingPointError(
@@ -2858,33 +2828,13 @@ def build_local_eb_model(
     gmres_restart: int = 100,
     gmres_preconditioner: str = "none",
     gmres_residual_correction_steps: int = 0,
-    curvature_scheme: str = "direct",
-    curvature_scale: float = 1.0,
-    curvature_rlp_face_scheme: str = "projected-fine",
-    curvature_rlp_fine_glue_penalty: float = 1.0,
-    curvature_rlp_fine_glue_transition_face: int | None = None,
-    curvature_equations: tuple[str, ...] = (
-        "density",
-        "Te",
-        "Ti",
-        "vorticity",
-    ),
-    ion_temperature_curvature_self_form: str = "product",
     neumann_ghost_scheme: str = "physical",
     parallel_velocity_wall_bc: str = "neumann",
-    parallel_inflow_closure: str = "central",
-    vorticity_current_inflow_trace: str = "operator",
     parallel_operator_scheme: str = "coordinate",
-    fci_parallel_leg_scheme: str = "centered",
-    parallel_subsystem_only: bool = False,
-    curvature_inflow_closure: str = "central",
     poisson_bracket_scheme: str = "direct",
-    curvature_split_scheme: str | None = None,
     parallel_material_scheme: str | None = None,
-    upwind_equilibrium_wall_projectors: UpwindEquilibriumWallProjectors | None = None,
     control_volume_geometry=None,
     control_volume_boundary_bc=None,
-    outgoing_face_topology=None,
     curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
 ) -> LocalFciDrbEBRhs:
     if gmres_restart < 1:
@@ -2896,22 +2846,6 @@ def build_local_eb_model(
             "parallel_operator_scheme must be 'coordinate' or 'fci', got "
             f"{parallel_operator_scheme!r}"
         )
-    if fci_parallel_leg_scheme not in (
-        "centered",
-        "boundary-characteristic-upwind",
-    ):
-        raise ValueError(
-            "fci_parallel_leg_scheme must be 'centered' or "
-            "'boundary-characteristic-upwind'"
-        )
-    if curvature_scheme not in ("direct", "conservative", "disabled"):
-        raise ValueError(
-            "curvature_scheme must be 'direct', 'conservative', or "
-            "'disabled', got "
-            f"{curvature_scheme!r}"
-        )
-    if curvature_scale < 0.0:
-        raise ValueError("curvature_scale must be nonnegative")
     if neumann_ghost_scheme not in ("logical", "physical"):
         raise ValueError(
             "neumann_ghost_scheme must be 'logical' or 'physical', got "
@@ -2926,31 +2860,6 @@ def build_local_eb_model(
             "parallel_velocity_wall_bc must be 'dirichlet-zero', "
             f"'neumann', or 'bohm', got {parallel_velocity_wall_bc!r}"
         )
-    if parallel_inflow_closure not in (
-        "central",
-        "local-characteristic",
-        "equilibrium-characteristic",
-    ):
-        raise ValueError(
-            "parallel_inflow_closure must be 'central' or "
-            "'local-characteristic' or 'equilibrium-characteristic', got "
-            f"{parallel_inflow_closure!r}"
-        )
-    if vorticity_current_inflow_trace not in (
-        "operator",
-        "parallel-characteristic",
-    ):
-        raise ValueError(
-            "vorticity_current_inflow_trace must be 'operator' or "
-            "'parallel-characteristic', got "
-            f"{vorticity_current_inflow_trace!r}"
-        )
-    if curvature_inflow_closure not in ("central", "upwind-equilibrium"):
-        raise ValueError(
-            "curvature_inflow_closure must be 'central' or "
-            "'upwind-equilibrium', "
-            f"got {curvature_inflow_closure!r}"
-        )
     if poisson_bracket_scheme not in (
         "direct",
         "compatible-flux",
@@ -2963,43 +2872,9 @@ def build_local_eb_model(
             "'material-scalar-third-order-upwind', "
             f"got {poisson_bracket_scheme!r}"
         )
-    if ion_temperature_curvature_self_form not in ("product", "flux"):
-        raise ValueError(
-            "ion_temperature_curvature_self_form must be 'product' or 'flux', "
-            f"got {ion_temperature_curvature_self_form!r}"
-        )
-    if (
-        ion_temperature_curvature_self_form == "flux"
-        and curvature_scheme != "conservative"
-    ):
-        raise ValueError(
-            "ion_temperature_curvature_self_form='flux' requires "
-            "curvature_scheme='conservative'"
-        )
-    # Resolve production selectors here so callers can pass them explicitly;
-    # retain the environment-backed defaults for legacy direct callers.
-    if curvature_split_scheme is None:
-        curvature_split_scheme = os.environ.get(
-            "DRBX_CURVATURE_SPLIT_SCHEME", "legacy"
-        )
     if parallel_material_scheme is None:
         parallel_material_scheme = os.environ.get(
             "DRBX_PARALLEL_MATERIAL_SCHEME", "legacy"
-        )
-    curvature_equations = tuple(curvature_equations)
-    valid_curvature_equations = {"density", "Te", "Ti", "vorticity"}
-    if len(set(curvature_equations)) != len(curvature_equations):
-        raise ValueError(
-            "curvature_equations must not contain duplicates, got "
-            f"{curvature_equations!r}"
-        )
-    invalid_curvature_equations = set(curvature_equations).difference(
-        valid_curvature_equations
-    )
-    if invalid_curvature_equations:
-        raise ValueError(
-            "curvature_equations contains invalid equations: "
-            f"{sorted(invalid_curvature_equations)!r}"
         )
     halo_exchange = HaloExchange3D()
     topology_filler = (
@@ -3072,24 +2947,10 @@ def build_local_eb_model(
         if neumann_ghost_scheme == "physical"
         else PhysicalGhostCellFiller3D(**ghost_filler_kwargs)
     )
-    curvature_coefficients = (
-        build_local_curvature_coefficients(
-            geometry,
-            domain,
-            periodic_axes=domain.periodic_axes,
-            axis_regular_axes=domain.axis_regular_axes,
-        )
-        if curvature_scheme == "direct"
-        else None
-    )
     curvature_face_coefficients = (
-        (
-            curvature_face_coefficients_override
-            if curvature_face_coefficients_override is not None
-            else build_local_curvature_face_coefficients(geometry, domain)
-        )
-        if curvature_scheme == "conservative"
-        else None
+        curvature_face_coefficients_override
+        if curvature_face_coefficients_override is not None
+        else build_local_curvature_face_coefficients(geometry, domain)
     )
     def face_bc_builder(state, local_geometry, local_domain, local_parameters):
         return build_face_bc_bundle(
@@ -3107,7 +2968,6 @@ def build_local_eb_model(
         topology_filler=topology_filler,
         physical_ghost_filler=physical_ghost_filler,
         parameters=parameters,
-        curvature_coefficients_owned=curvature_coefficients,
         face_projectors=build_local_perp_laplacian_face_projectors(
             geometry,
             domain,
@@ -3129,35 +2989,15 @@ def build_local_eb_model(
         ),
         parallel_operator_scheme=str(parallel_operator_scheme),
         parallel_material_scheme=str(parallel_material_scheme),
-        fci_parallel_leg_scheme=str(fci_parallel_leg_scheme),
         face_bc_builder=face_bc_builder,
-        diffusion_only=False,
         axis_regular_axes=domain.axis_regular_axes,
         curvature_face_coefficients=curvature_face_coefficients,
-        upwind_equilibrium_wall_projectors=upwind_equilibrium_wall_projectors,
-        curvature_scheme=curvature_scheme,
-        curvature_scale=float(curvature_scale),
-        curvature_split_scheme=str(curvature_split_scheme),
-        curvature_rlp_face_scheme=curvature_rlp_face_scheme,
-        curvature_rlp_fine_glue_penalty=float(
-            curvature_rlp_fine_glue_penalty
-        ),
-        curvature_rlp_fine_glue_transition_face=(
-            curvature_rlp_fine_glue_transition_face
-        ),
-        curvature_inflow_closure=curvature_inflow_closure,
         poisson_bracket_scheme=poisson_bracket_scheme,
-        curvature_equations=curvature_equations,
-        ion_temperature_curvature_self_form=ion_temperature_curvature_self_form,
         control_volume_geometry=control_volume_geometry,
         control_volume_boundary_bc=control_volume_boundary_bc,
-        outgoing_face_topology=outgoing_face_topology,
     )
     model = LocalFciDrbEBRhs(
         **rhs_kwargs,
-        parallel_inflow_closure=parallel_inflow_closure,
-        vorticity_current_inflow_trace=vorticity_current_inflow_trace,
-        parallel_subsystem_only=parallel_subsystem_only,
     )
     return model
 
@@ -3272,6 +3112,20 @@ def _imex_ssp222_step(current, dt, explicit_rhs, implicit_stage):
         (stage_1, stage_2_base, stage_2),
         (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
     )
+
+
+def _explicit_source_stage_times(
+    time_integrator: str, start_time: float, timestep: float
+) -> tuple[float, ...]:
+    """Return source times in the same order as the compiled advance stages."""
+
+    t = float(start_time)
+    dt = float(timestep)
+    if time_integrator == "rk4":
+        return (t, t + 0.5 * dt, t + 0.5 * dt, t + dt)
+    if time_integrator == "imex-ssp222":
+        return (t, t + dt)
+    raise ValueError(f"unsupported time integrator {time_integrator!r}")
 
 
 def _resolve_execution_mode(requested: str, *, work_items: int) -> str:
@@ -3602,16 +3456,37 @@ def _format_snapshot_time(value: float) -> str:
     return f"{value:.12e}".replace("+", "p").replace("-", "m").replace(".", "d")
 
 
-def _curvature_transition_audit_baseline(
-    candidate: LocalFciDrbEBRhs,
-) -> LocalFciDrbEBRhs:
-    """Return the projected-fine comparator for a selected-face audit."""
+@dataclass(frozen=True)
+class FrozenEbDiagnosticRequest:
+    """Request one production-split frozen-state diagnostic evaluation.
 
-    return replace(
-        candidate,
-        curvature_rlp_face_scheme="projected-fine",
-        curvature_rlp_fine_glue_transition_face=None,
-    )
+    The source is already expressed in owner space.  The two time scales are
+    kept explicit because the local backward-Euler solve uses ``solve_dt``
+    while the production short-leg selector is defined with ``selection_dt``.
+    """
+
+    source_state: FciDrbEBState
+    implicit_solve_dt: float
+    implicit_selection_dt: float
+    execution: str = "compiled"
+
+
+@dataclass(frozen=True)
+class FrozenEbDiagnosticResult:
+    """Globally assembled arrays from a sharded frozen EB evaluation."""
+
+    exact_explicit: FciDrbEBState
+    exact_rhs_term_fields: jax.Array
+    sourced_explicit: FciDrbEBState
+    sourced_rhs_term_fields: jax.Array
+    reconstructed_phi: jax.Array
+    phi_solver_diagnostics: jax.Array
+    reconstructed_explicit: FciDrbEBState
+    reconstructed_rhs_term_fields: jax.Array
+    exact_implicit_complete_residual_owner: jax.Array
+    exact_selected_wall: jax.Array
+    reconstructed_implicit_complete_residual_owner: jax.Array
+    reconstructed_selected_wall: jax.Array
 
 
 def run_full_eb(
@@ -3649,32 +3524,12 @@ def run_full_eb(
     rhs_replay_output: Path | None = None,
     rhs_replay_electron_force_wall_audit: bool = False,
     rhs_replay_execution: str = "compiled",
-    curvature_manufactured_output: Path | None = None,
-    curvature_transition_audit_output: Path | None = None,
     run_metadata: dict[str, object] | None = None,
     reconstruct_initial_phi: bool = True,
-    curvature_scheme: str = "direct",
-    curvature_scale: float = 1.0,
-    curvature_rlp_face_scheme: str = "projected-fine",
-    curvature_rlp_fine_glue_penalty: float = 1.0,
-    curvature_rlp_fine_glue_transition_face: int | None = None,
-    curvature_equations: tuple[str, ...] = (
-        "density",
-        "Te",
-        "Ti",
-        "vorticity",
-    ),
-    ion_temperature_curvature_self_form: str = "product",
     neumann_ghost_scheme: str = "physical",
     parallel_velocity_wall_bc: str = "neumann",
-    parallel_inflow_closure: str = "central",
-    vorticity_current_inflow_trace: str = "operator",
     parallel_operator_scheme: str = "coordinate",
-    fci_parallel_leg_scheme: str = "centered",
-    parallel_subsystem_only: bool = False,
-    curvature_inflow_closure: str = "central",
     poisson_bracket_scheme: str = "direct",
-    curvature_split_scheme: str | None = None,
     parallel_material_scheme: str | None = None,
     track_curvature_chain_rule_defect: bool = False,
     control_volume_descriptor=None,
@@ -3683,9 +3538,11 @@ def run_full_eb(
     control_volume_assembler=None,
     control_volume_field_count: int = RLP_PACKED_FIELD_COUNT,
     owner_host_geometry=None,
-    outgoing_face_topology_host=None,
-) -> FciDrbEBState:
-    """Advance the global seven-field EB state with RK4 or stage-wise IMEX."""
+    source_evaluator: Callable[[float], FciDrbEBState] | None = None,
+    history_dtype: str = "float32",
+    frozen_diagnostic: FrozenEbDiagnosticRequest | None = None,
+) -> FciDrbEBState | FrozenEbDiagnosticResult:
+    """Advance the global EB state or evaluate its sharded frozen diagnostic."""
 
     shard_counts = tuple(int(value) for value in sharded_geometry.shard_counts)
     if shard_counts[0] != 1 or shard_counts[1] != 1:
@@ -3707,6 +3564,30 @@ def run_full_eb(
         raise ValueError("time_integrator must be 'rk4' or 'imex-ssp222'")
     if advance_execution not in ("compiled", "eager"):
         raise ValueError("advance_execution must be 'compiled' or 'eager'")
+    if history_dtype not in ("float32", "float64"):
+        raise ValueError("history_dtype must be 'float32' or 'float64'")
+    if frozen_diagnostic is not None:
+        if not isinstance(frozen_diagnostic, FrozenEbDiagnosticRequest):
+            raise TypeError(
+                "frozen_diagnostic must be FrozenEbDiagnosticRequest or None"
+            )
+        if frozen_diagnostic.execution not in ("compiled", "eager"):
+            raise ValueError(
+                "frozen diagnostic execution must be 'compiled' or 'eager'"
+            )
+        if float(frozen_diagnostic.implicit_solve_dt) <= 0.0:
+            raise ValueError("frozen diagnostic implicit_solve_dt must be positive")
+        if float(frozen_diagnostic.implicit_selection_dt) <= 0.0:
+            raise ValueError(
+                "frozen diagnostic implicit_selection_dt must be positive"
+            )
+        if rhs_replay_history is not None:
+            raise ValueError(
+                "frozen_diagnostic and rhs_replay_history are mutually exclusive"
+            )
+    history_numpy_dtype = (
+        np.float32 if history_dtype == "float32" else np.float64
+    )
     short_leg_treatment = os.environ.get(
         "DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"
     )
@@ -3737,14 +3618,6 @@ def run_full_eb(
             "parallel_operator_scheme must be 'coordinate' or 'fci', got "
             f"{parallel_operator_scheme!r}"
         )
-    if fci_parallel_leg_scheme not in (
-        "centered",
-        "boundary-characteristic-upwind",
-    ):
-        raise ValueError(
-            "fci_parallel_leg_scheme must be 'centered' or "
-            "'boundary-characteristic-upwind'"
-        )
     if parallel_operator_scheme == "fci":
         if not sharded_geometry.domain.axis_regular_axes[0]:
             raise ValueError(
@@ -3757,6 +3630,7 @@ def run_full_eb(
 
     domain = sharded_geometry.domain
     spatial_spec = P("x", "y", "z")
+    source_spec = P(None, "x", "y", "z")
     geometry_spec = P("x", "y", "z", None)
     replicated_spec = P()
     state_spec = initial_state.map_fields(lambda _value: spatial_spec)
@@ -3768,24 +3642,66 @@ def run_full_eb(
             state_sharding,
         )
     )
+    source_stage_count = 4 if time_integrator == "rk4" else 2
+    source_sharding = NamedSharding(mesh, source_spec)
+    zero_source_stages = initial_state.map_fields(
+        lambda value: jax.device_put(
+            np.zeros(
+                (source_stage_count,) + np.asarray(value).shape,
+                dtype=np.float64,
+            ),
+            source_sharding,
+        )
+    )
+
+    def source_stages_for_step(
+        step_start_time: float,
+    ) -> FciDrbEBState:
+        """Evaluate and shard all explicit source stages for one timestep."""
+
+        if source_evaluator is None:
+            return zero_source_stages
+        values_by_name = {name: [] for name in initial_state.field_names()}
+        evaluated_sources: dict[float, FciDrbEBState] = {}
+        for stage_time in _explicit_source_stage_times(
+            time_integrator, step_start_time, float(timestep)
+        ):
+            stage_key = float(stage_time)
+            source = evaluated_sources.get(stage_key)
+            if source is None:
+                source = source_evaluator(stage_key)
+                evaluated_sources[stage_key] = source
+            if not isinstance(source, FciDrbEBState):
+                raise TypeError(
+                    "source_evaluator must return FciDrbEBState, got "
+                    f"{type(source).__name__}"
+                )
+            for name in initial_state.field_names():
+                value = np.asarray(getattr(source, name), dtype=np.float64)
+                expected_shape = tuple(int(v) for v in global_geometry.shape)
+                if value.shape != expected_shape:
+                    raise ValueError(
+                        f"source_evaluator field {name!r} has shape "
+                        f"{value.shape}, expected {expected_shape}"
+                    )
+                if not np.all(np.isfinite(value)):
+                    raise ValueError(
+                        f"source_evaluator field {name!r} contains non-finite values"
+                    )
+                values_by_name[name].append(value)
+        return FciDrbEBState(**{
+            name: jax.device_put(
+                np.stack(values, axis=0), source_sharding
+            )
+            for name, values in values_by_name.items()
+        })
 
     def materialized_state(current_state: FciDrbEBState) -> FciDrbEBState:
         materialized = (
             current_state if owner_host_geometry is None
             else _materialize_owner_state(current_state, owner_host_geometry)
         )
-        if outgoing_face_topology_host is None:
-            return materialized
-        face_active = jnp.asarray(outgoing_face_topology_host["edge_active"], dtype=bool)
-        owner_i = jnp.asarray(outgoing_face_topology_host["edge_owner_i"], dtype=jnp.int32)
-        owner_j = jnp.asarray(outgoing_face_topology_host["edge_owner_j"], dtype=jnp.int32)
-        owner_k = jnp.asarray(outgoing_face_topology_host["edge_owner_k"], dtype=jnp.int32)
-        def materialize_face(values):
-            return jnp.where(face_active, values[owner_i, owner_j, owner_k], 0.0)
-        return materialized.replace(
-            Vi=materialize_face(current_state.Vi),
-            Ve=materialize_face(current_state.Ve),
-        )
+        return materialized
 
     def diagnostic_state(
         current_state: FciDrbEBState,
@@ -3821,57 +3737,55 @@ def run_full_eb(
     cell_fields_host = np.asarray(
         sharded_geometry.cell_fields, dtype=np.float64
     )
-    if curvature_scheme == "conservative":
-        print(
-            "[simulation] precomputing invariant full-torus curvature face "
-            "coefficients",
-            flush=True,
-        )
-        curvature_precompute_start = time.perf_counter()
-        host_sharded_geometry = build_local_fci_geometries(
-            global_geometry,
-            (1, 1, 1),
-            halo_width=int(sharded_geometry.domain.layout.halo_width),
-            periodic_axes=sharded_geometry.domain.periodic_axes,
-            axis_regular_axes=sharded_geometry.domain.axis_regular_axes,
-        )
-        host_local_geometry = assemble_single_device_local_fci_geometry(
-            host_sharded_geometry
-        )
-        host_domain = replace(
-            host_sharded_geometry.domain,
-            mesh_axis_names=(None, None, None),
-        )
-        # Do not run this sizeable JAX geometry calculation primitive by
-        # primitive in eager mode.  It is an invariant, bounded setup kernel
-        # whose three arrays are reused by every later RHS/IMEX stage.
-        curvature_face_setup = jax.jit(
-            lambda: build_local_curvature_face_coefficients(
-                host_local_geometry,
-                host_domain,
-            ).axes
-        )
-        curvature_face_axes = curvature_face_setup()
-        jax.block_until_ready(curvature_face_axes)
-        host_curvature_faces = LocalCurvatureFaceCoefficients3D(
-            layout=host_local_geometry.layout,
-            x=curvature_face_axes[0],
-            y=curvature_face_axes[1],
-            z=curvature_face_axes[2],
-        )
-        curvature_face_fields_host = _pack_curvature_face_coefficients(
-            host_curvature_faces
-        )
-        curvature_face_field_count = int(curvature_face_fields_host.shape[-1])
-        cell_fields_host = np.concatenate(
-            (cell_fields_host, curvature_face_fields_host), axis=-1
-        )
-        print(
-            "[simulation] invariant curvature face coefficients packed into "
-            f"{curvature_face_field_count} shard-local channels in "
-            f"{time.perf_counter() - curvature_precompute_start:.3f} s",
-            flush=True,
-        )
+    print(
+        "[simulation] precomputing invariant full-torus curvature face "
+        "coefficients",
+        flush=True,
+    )
+    curvature_precompute_start = time.perf_counter()
+    host_sharded_geometry = build_local_fci_geometries(
+        global_geometry,
+        (1, 1, 1),
+        halo_width=int(sharded_geometry.domain.layout.halo_width),
+        periodic_axes=sharded_geometry.domain.periodic_axes,
+        axis_regular_axes=sharded_geometry.domain.axis_regular_axes,
+    )
+    host_local_geometry = assemble_single_device_local_fci_geometry(
+        host_sharded_geometry
+    )
+    host_domain = replace(
+        host_sharded_geometry.domain,
+        mesh_axis_names=(None, None, None),
+    )
+    # Do not run this sizeable JAX geometry calculation primitive by primitive
+    # in eager mode. It is an invariant setup kernel reused by every RHS stage.
+    curvature_face_setup = jax.jit(
+        lambda: build_local_curvature_face_coefficients(
+            host_local_geometry,
+            host_domain,
+        ).axes
+    )
+    curvature_face_axes = curvature_face_setup()
+    jax.block_until_ready(curvature_face_axes)
+    host_curvature_faces = LocalCurvatureFaceCoefficients3D(
+        layout=host_local_geometry.layout,
+        x=curvature_face_axes[0],
+        y=curvature_face_axes[1],
+        z=curvature_face_axes[2],
+    )
+    curvature_face_fields_host = _pack_curvature_face_coefficients(
+        host_curvature_faces
+    )
+    curvature_face_field_count = int(curvature_face_fields_host.shape[-1])
+    cell_fields_host = np.concatenate(
+        (cell_fields_host, curvature_face_fields_host), axis=-1
+    )
+    print(
+        "[simulation] invariant curvature face coefficients packed into "
+        f"{curvature_face_field_count} shard-local channels in "
+        f"{time.perf_counter() - curvature_precompute_start:.3f} s",
+        flush=True,
+    )
     cell_fields = jax.device_put(cell_fields_host, geometry_sharding)
     map_fields_host = (
         np.asarray(sharded_geometry.map_fields, dtype=np.float64)
@@ -3896,24 +3810,15 @@ def run_full_eb(
         geometry_sharding,
     )
 
-    def diagnostic_state(current_state: FciDrbEBState, local_control_volume_geometry, outgoing_face_topology=None) -> FciDrbEBState:
+    def diagnostic_state(current_state: FciDrbEBState, local_control_volume_geometry) -> FciDrbEBState:
         if local_control_volume_geometry is None:
             return current_state
         cells = local_control_volume_geometry.cells
         scalar = lambda value: expand_local_control_volume_owner_field(value, cells)
-        face = outgoing_face_topology
-        if face is None:
-            return current_state.replace(
-                density=scalar(current_state.density), phi=scalar(current_state.phi),
-                Te=scalar(current_state.Te), Ti=scalar(current_state.Ti),
-                Vi=scalar(current_state.Vi), Ve=scalar(current_state.Ve),
-                vorticity=scalar(current_state.vorticity),
-            )
         return current_state.replace(
             density=scalar(current_state.density), phi=scalar(current_state.phi),
             Te=scalar(current_state.Te), Ti=scalar(current_state.Ti),
-            Vi=prolong_local_outgoing_fci_face_owner_field(current_state.Vi, face),
-            Ve=prolong_local_outgoing_fci_face_owner_field(current_state.Ve, face),
+            Vi=scalar(current_state.Vi), Ve=scalar(current_state.Ve),
             vorticity=scalar(current_state.vorticity),
         )
 
@@ -3936,9 +3841,7 @@ def run_full_eb(
     def unpack_local_curvature_face_coefficients(
         cell_fields_owned: jax.Array,
         layout,
-    ) -> LocalCurvatureFaceCoefficients3D | None:
-        if curvature_scheme != "conservative":
-            return None
+    ) -> LocalCurvatureFaceCoefficients3D:
         packed = cell_fields_owned[
             ...,
             geometry_field_count : geometry_field_count
@@ -3953,7 +3856,6 @@ def run_full_eb(
         cell_fields_owned: jax.Array,
         map_fields_owned: jax.Array,
         control_volume_fields_owned: jax.Array,
-        wall_projectors: UpwindEquilibriumWallProjectors | None,
     ) -> LocalFciDrbEBRhs:
         geometry_fields_owned = cell_fields_owned[..., :geometry_field_count]
         local_geometry = assemble_local_fci_geometry(
@@ -3976,20 +3878,6 @@ def run_full_eb(
                 local_geometry,
             )
         )
-        local_outgoing_face_topology = None
-        if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered":
-            if local_geometry.maps is None:
-                raise ValueError("fci-staggered requires local FCI maps")
-            if (
-                local_control_volume_geometry is None
-                or not local_control_volume_geometry.has_angular_agglomeration
-            ):
-                raise ValueError("fci-staggered requires angular-RLP control-volume geometry")
-            local_outgoing_face_topology = (
-                build_local_outgoing_fci_face_topology_from_geometry(
-                    local_control_volume_geometry.cells, local_geometry.maps
-                )
-            )
         return build_local_eb_model(
             local_geometry,
             domain,
@@ -4002,178 +3890,43 @@ def run_full_eb(
             gmres_residual_correction_steps=int(
                 gmres_residual_correction_steps
             ),
-            curvature_scheme=curvature_scheme,
-            curvature_scale=float(curvature_scale),
-            curvature_split_scheme=curvature_split_scheme,
-            curvature_rlp_face_scheme=curvature_rlp_face_scheme,
-            curvature_rlp_fine_glue_penalty=float(
-                curvature_rlp_fine_glue_penalty
-            ),
-            curvature_rlp_fine_glue_transition_face=(
-                curvature_rlp_fine_glue_transition_face
-            ),
-            curvature_equations=curvature_equations,
-            ion_temperature_curvature_self_form=ion_temperature_curvature_self_form,
             neumann_ghost_scheme=neumann_ghost_scheme,
             parallel_velocity_wall_bc=parallel_velocity_wall_bc,
-            parallel_inflow_closure=parallel_inflow_closure,
-            vorticity_current_inflow_trace=vorticity_current_inflow_trace,
             parallel_operator_scheme=parallel_operator_scheme,
             parallel_material_scheme=parallel_material_scheme,
-            fci_parallel_leg_scheme=fci_parallel_leg_scheme,
-            parallel_subsystem_only=parallel_subsystem_only,
-            curvature_inflow_closure=curvature_inflow_closure,
             poisson_bracket_scheme=poisson_bracket_scheme,
-            upwind_equilibrium_wall_projectors=wall_projectors,
             control_volume_geometry=local_control_volume_geometry,
             control_volume_boundary_bc=control_volume_boundary_bc,
-            outgoing_face_topology=local_outgoing_face_topology,
             curvature_face_coefficients_override=(
                 local_curvature_face_coefficients
             ),
         )
 
-    wall_projectors = None
-    wall_projector_specs = None
-    if curvature_inflow_closure == "upwind-equilibrium":
-        projector_axis_specs = (
-            P(None, "y", "z"),
-            P("x", None, "z"),
-            P("x", "y", None),
-        )
-        wall_projector_specs = UpwindEquilibriumWallProjectors(
-            axes=tuple(
-                tuple(
-                    projector_axis_specs[axis]
-                    for _side in range(2)
-                )
-                for axis in range(3)
-            )
-        )
-
-        def precompute_wall_projectors(
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-        ) -> UpwindEquilibriumWallProjectors:
-            local_geometry = assemble_local_fci_geometry(
-                sharded_geometry,
-                cell_fields_owned[..., :geometry_field_count],
-                map_fields_owned if parallel_operator_scheme == "fci" else None,
-            )
-            local_domain_coefficients = (
-                unpack_local_curvature_face_coefficients(
-                    cell_fields_owned,
-                    local_geometry.layout,
-                )
-            )
-            if local_domain_coefficients is None:
-                raise ValueError(
-                    "upwind-equilibrium wall projectors require conservative "
-                    "curvature coefficients"
-                )
-            return build_upwind_equilibrium_wall_projectors(
-                local_geometry,
-                domain,
-                local_domain_coefficients,
-                parameters.tau,
-            )
-
-        print(
-            "[simulation] precomputing invariant upwind-equilibrium wall "
-            "projectors",
-            flush=True,
-        )
-        projector_start = time.perf_counter()
-        precompute_projectors_sharded = jax.shard_map(
-            precompute_wall_projectors,
-            mesh=mesh,
-            in_specs=(geometry_spec, geometry_spec),
-            out_specs=wall_projector_specs,
-            check_vma=True,
-        )
-        # Setup transformations stay compiled even when time advancement is
-        # eager.  Disabling JIT here causes the large projector construction
-        # to compile hundreds of individual primitives.
-        precompute_projectors = jax.jit(precompute_projectors_sharded)
-        wall_projectors = precompute_projectors(cell_fields, map_fields)
-        jax.block_until_ready(jax.tree_util.tree_leaves(wall_projectors))
-        print(
-            "[simulation] invariant wall projectors ready in "
-            f"{time.perf_counter() - projector_start:.3f} s",
-            flush=True,
-        )
-
-    if outgoing_face_topology_host is not None:
-        # The host initializer supplies centered physical Vi/Ve.  Do
-        # this conversion after local FCI geometry/halos exist so the
-        # initial staggered values are c2f followed by R_e, not the
-        # generic cell P_cR_c aggregation used by scalar leaves.
-        def project_initial_staggered_velocities(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
-        ) -> FciDrbEBState:
-            model = build_local_model(
-                cell_fields_owned, map_fields_owned,
-                control_volume_fields_owned, local_wall_projectors,
-            )
-            face_bc = model._face_bcs(local_state)
-            context = model._stencil_builder_context()
-            def project(values, bc):
-                return model._owner_face_field(
-                    model._restrict_fine_face_field(
-                        model._center_owned_to_outgoing_face(values, bc, context)
-                    )
-                )
-            return local_state.replace(
-                Vi=project(local_state.Vi, face_bc.Vi),
-                Ve=project(local_state.Ve, face_bc.Ve),
-            )
-        project_initial_staggered_sharded = jax.shard_map(
-            project_initial_staggered_velocities, mesh=mesh,
-            in_specs=(state_spec, geometry_spec, geometry_spec, geometry_spec, wall_projector_specs),
-            out_specs=state_spec, check_vma=False,
-        )
-        project_initial_staggered = (
-            jax.jit(project_initial_staggered_sharded)
-            if setup_execution == "compiled"
-            else project_initial_staggered_sharded
-        )
-        with jax.disable_jit(setup_execution == "eager"):
-            state = project_initial_staggered(
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                wall_projectors,
-            )
-        jax.block_until_ready(state)
-        if owner_host_geometry is not None:
-            _assert_owner_sparse(
-                state, owner_host_geometry, outgoing_face_topology_host
-            )
     phi_start = time.perf_counter()
-    print(
-        "[simulation] compiling and "
-        + ("reconstructing" if reconstruct_initial_phi else "reusing")
-        + " initial sharded phi",
-        flush=True,
-    )
+    if frozen_diagnostic is None:
+        print(
+            "[simulation] compiling and "
+            + ("reconstructing" if reconstruct_initial_phi else "reusing")
+            + " initial sharded phi",
+            flush=True,
+        )
+    else:
+        print(
+            "[frozen-diagnostic] preparing sharded explicit, implicit, and "
+            "phi-reconstruction operators",
+            flush=True,
+        )
 
     def reconstruct_initial_phi_kernel(
         local_state: FciDrbEBState,
         cell_fields_owned: jax.Array,
         map_fields_owned: jax.Array,
         control_volume_fields_owned: jax.Array,
-        local_wall_projectors: UpwindEquilibriumWallProjectors | None,
     ) -> tuple[jax.Array, jax.Array]:
         phi, info = build_local_model(
             cell_fields_owned,
             map_fields_owned,
             control_volume_fields_owned,
-            local_wall_projectors,
         ).reconstruct_phi(local_state, return_diagnostics=True)
         return phi, info.num_steps
 
@@ -4185,761 +3938,211 @@ def run_full_eb(
             geometry_spec,
             geometry_spec,
             geometry_spec,
-            wall_projector_specs,
         ),
         out_specs=(spatial_spec, replicated_spec),
         check_vma=False,
     )
     reconstruct_phi = jax.jit(reconstruct_phi_sharded)
-    if curvature_transition_audit_output is not None:
-        if curvature_scheme != "conservative":
-            raise ValueError(
-                "curvature transition audit requires conservative curvature"
+    if frozen_diagnostic is not None:
+        expected_shape = tuple(int(value) for value in sharded_geometry.global_shape)
+        source_state = frozen_diagnostic.source_state
+        if not isinstance(source_state, FciDrbEBState):
+            raise TypeError(
+                "frozen diagnostic source_state must be FciDrbEBState"
             )
-        if owner_host_geometry is None or control_volume_descriptor is None:
-            raise ValueError(
-                "curvature transition audit requires the toroidal angular RLP"
-            )
-
-        def raw_curvature_pair(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
-            field: jax.Array,
-        ) -> jax.Array:
-            candidate = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                local_wall_projectors,
-            )
-            baseline = _curvature_transition_audit_baseline(candidate)
-            scalar_bc = candidate._face_bcs(local_state).density
-
-            def one(model):
-                field_halo = model._prepare_scalar_halo(field, scalar_bc)
-                stencil = build_local_conservative_stencil_from_field(
-                    field_halo,
-                    model.geometry,
-                    model._stencil_builder_context(),
+        for name, value in source_state.field_items():
+            host_value = np.asarray(value, dtype=np.float64)
+            if host_value.shape != expected_shape:
+                raise ValueError(
+                    f"frozen diagnostic source field {name!r} has shape "
+                    f"{host_value.shape}, expected {expected_shape}"
                 )
-                components = model._conservative_curvature_components(
-                    stencil,
-                    scalar_bc,
-                    field_halo=field_halo,
+            if not np.all(np.isfinite(host_value)):
+                raise ValueError(
+                    f"frozen diagnostic source field {name!r} contains "
+                    "non-finite values"
                 )
-                components = jax.vmap(model._restrict_fine_field)(components)
-                return jax.vmap(model._owner_result)(components)
+        sharded_source = source_state.map_fields(
+            lambda value: jax.device_put(
+                np.asarray(value, dtype=np.float64), state_sharding
+            )
+        )
+        zero_source = state.zeros_like()
+        solve_dt = jnp.asarray(
+            float(frozen_diagnostic.implicit_solve_dt), dtype=jnp.float64
+        )
+        selection_dt = jnp.asarray(
+            float(frozen_diagnostic.implicit_selection_dt), dtype=jnp.float64
+        )
 
-            return jnp.stack((one(candidate), one(baseline)), axis=0)
-
-        def raw_curvature_linearized(
+        def frozen_stage_kernel(
             local_state: FciDrbEBState,
+            local_source: FciDrbEBState,
             cell_fields_owned: jax.Array,
             map_fields_owned: jax.Array,
             control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
-            tangent: jax.Array,
-        ) -> jax.Array:
-            function = lambda value: raw_curvature_pair(
-                local_state,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                local_wall_projectors,
-                value,
-            )
-            return jax.jvp(function, (local_state.density,), (tangent,))[1]
-
-        raw_specs = (
-            state_spec,
-            geometry_spec,
-            geometry_spec,
-            geometry_spec,
-            wall_projector_specs,
-            spatial_spec,
-        )
-        raw_output_spec = P(None, None, "x", "y", "z")
-        raw_affine = jax.jit(
-            jax.shard_map(
-                raw_curvature_pair,
-                mesh=mesh,
-                in_specs=raw_specs,
-                out_specs=raw_output_spec,
-                check_vma=False,
-            )
-        )
-        raw_linearized = jax.jit(
-            jax.shard_map(
-                raw_curvature_linearized,
-                mesh=mesh,
-                in_specs=raw_specs,
-                out_specs=raw_output_spec,
-                check_vma=False,
-            )
-        )
-
-        def bound_raw(tangent):
-            return raw_linearized(
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                wall_projectors,
-                tangent,
-            )
-
-        raw_zero = jax.device_put(
-            jnp.zeros(sharded_geometry.global_shape, dtype=jnp.float64),
-            state_sharding,
-        )
-        raw_transpose = jax.jit(jax.linear_transpose(bound_raw, raw_zero))
-
-        def coupled_curvature_pair(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
-            primitive_fields: jax.Array,
-        ) -> jax.Array:
-            varied_state = local_state.replace(
-                density=primitive_fields[0],
-                Te=primitive_fields[1],
-                Ti=primitive_fields[2],
-                phi=primitive_fields[3],
-            )
-            candidate = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                local_wall_projectors,
-            )
-            baseline = _curvature_transition_audit_baseline(candidate)
-
-            def one(model):
-                _rhs, components = model.evaluate_stage(
-                    varied_state,
-                    phi_owned=varied_state.phi,
-                    return_curvature_component_fields=True,
-                )
-                return components
-
-            return jnp.stack((one(candidate), one(baseline)), axis=0)
-
-        def coupled_curvature_linearized(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
-            tangent: jax.Array,
-        ) -> jax.Array:
-            base = jnp.stack(
-                (local_state.density, local_state.Te, local_state.Ti, local_state.phi),
-                axis=0,
-            )
-            function = lambda value: coupled_curvature_pair(
-                local_state,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                local_wall_projectors,
-                value,
-            )
-            return jax.jvp(function, (base,), (tangent,))[1]
-
-        coupled_input_spec = P(None, "x", "y", "z")
-        coupled_output_spec = P(None, None, None, "x", "y", "z")
-        coupled_specs = (
-            state_spec,
-            geometry_spec,
-            geometry_spec,
-            geometry_spec,
-            wall_projector_specs,
-            coupled_input_spec,
-        )
-        coupled_affine = jax.jit(
-            jax.shard_map(
-                coupled_curvature_pair,
-                mesh=mesh,
-                in_specs=coupled_specs,
-                out_specs=coupled_output_spec,
-                check_vma=False,
-            )
-        )
-        coupled_linearized = jax.jit(
-            jax.shard_map(
-                coupled_curvature_linearized,
-                mesh=mesh,
-                in_specs=coupled_specs,
-                out_specs=coupled_output_spec,
-                check_vma=False,
-            )
-        )
-        coupled_base_input = jnp.stack(
-            (state.density, state.Te, state.Ti, state.phi), axis=0
-        )
-
-        def bound_coupled(tangent):
-            return coupled_linearized(
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                wall_projectors,
-                tangent,
-            )
-
-        coupled_zero = jax.device_put(
-            jnp.zeros((4,) + sharded_geometry.global_shape, dtype=jnp.float64),
-            NamedSharding(mesh, coupled_input_spec),
-        )
-        coupled_transpose = jax.jit(
-            jax.linear_transpose(bound_coupled, coupled_zero)
-        )
-
-        # Optional Stage-1 audit reduction.  The ordinary transition audit is
-        # rectangular in z=(n,Te,Ti,phi) and qdot=(n,Te,Ti,omega), so it cannot
-        # support an energy symmetric-part claim.  This audit-only path maps a
-        # physical q tangent through the exact production polarization solve
-        # before applying the frozen curvature JVP.  It is compiled and used
-        # only by helpers that explicitly advertise the reduced-energy hook.
-        def reduced_curvature_linearized(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
-            tangent_q: jax.Array,
-        ) -> jax.Array:
-            model = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                local_wall_projectors,
-            )
-            zero = jnp.zeros_like(local_state.phi)
-            polarization_tangent = local_state.replace(
-                Ti=tangent_q[2],
-                phi=zero,
-                vorticity=tangent_q[3],
-            )
-            phi_tangent = model.reconstruct_phi(polarization_tangent)
-            tangent_z = jnp.stack(
-                (tangent_q[0], tangent_q[1], tangent_q[2], phi_tangent),
-                axis=0,
-            )
-            return coupled_curvature_linearized(
-                local_state,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                local_wall_projectors,
-                tangent_z,
-            )
-
-        def reduced_energy_metric_gradient(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
-            tangent_q: jax.Array,
-        ) -> jax.Array:
-            model = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                local_wall_projectors,
-            )
-            tau_value = jnp.asarray(model.parameters.tau, dtype=jnp.float64)
-            thermal_hessian = jnp.asarray(
-                (
-                    (1.0 + tau_value, -3.0 * tau_value / 5.0, 3.0 * tau_value / 5.0),
-                    (-3.0 * tau_value / 5.0, 3.0 * (3.0 * tau_value + 5.0) / 10.0, 0.0),
-                    (3.0 * tau_value / 5.0, 0.0, 3.0 * tau_value / 5.0),
-                ),
-                dtype=jnp.float64,
-            )
-            thermal = jnp.einsum("ab,b...->a...", thermal_hessian, tangent_q[:3])
-            bmag_owned = jnp.asarray(
-                model.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64
-            )
-            thermal = thermal * bmag_owned[None, ...] ** 2
-
-            # With Ti=0, the exact production reconstruction returns
-            # chi=-Aphi^dagger*omega.  Therefore -chi is the omega gradient
-            # Aphi^dagger*omega of the quadratic polarization energy.
-            zero = jnp.zeros_like(local_state.phi)
-            omega_tangent = local_state.replace(
-                Ti=zero,
-                phi=zero,
-                vorticity=tangent_q[3],
-            )
-            chi = model.reconstruct_phi(omega_tangent)
-            return jnp.concatenate((thermal, (-chi)[None, ...]), axis=0)
-
-        reduced_linearized = jax.jit(
-            jax.shard_map(
-                reduced_curvature_linearized,
-                mesh=mesh,
-                in_specs=coupled_specs,
-                out_specs=coupled_output_spec,
-                check_vma=False,
-            )
-        )
-        reduced_metric = jax.jit(
-            jax.shard_map(
-                reduced_energy_metric_gradient,
-                mesh=mesh,
-                in_specs=coupled_specs,
-                out_specs=coupled_input_spec,
-                check_vma=False,
-            )
-        )
-
-        print(
-            "[curvature-transition-audit] compiling raw and coupled Jacobians",
-            flush=True,
-        )
-        audit_start = time.perf_counter()
-        raw_base_outputs = raw_affine(
-            state,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
-            wall_projectors,
-            state.density,
-        )
-        coupled_base_outputs = coupled_affine(
-            state,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
-            wall_projectors,
-            coupled_base_input,
-        )
-        raw_warmup = bound_raw(raw_zero)
-        coupled_warmup = bound_coupled(coupled_zero)
-        jax.block_until_ready(
-            (raw_base_outputs, coupled_base_outputs, raw_warmup, coupled_warmup)
-        )
-        print(
-            "[curvature-transition-audit] Jacobians ready; running matrix-free analysis",
-            flush=True,
-        )
-
-        raw_cotangent_sharding = NamedSharding(mesh, raw_output_spec)
-        coupled_cotangent_sharding = NamedSharding(mesh, coupled_output_spec)
-
-        def apply_raw_pair_host(value):
-            tangent = jax.device_put(jnp.asarray(value), state_sharding)
-            result = bound_raw(tangent)
-            jax.block_until_ready(result)
-            return np.asarray(result, dtype=np.float64)
-
-        def transpose_raw_pair_host(value):
-            cotangent = jax.device_put(
-                jnp.asarray(value), raw_cotangent_sharding
-            )
-            (result,) = raw_transpose(cotangent)
-            jax.block_until_ready(result)
-            return np.asarray(result, dtype=np.float64)
-
-        def apply_coupled_pair_host(value):
-            tangent = jax.device_put(
-                jnp.asarray(value), NamedSharding(mesh, coupled_input_spec)
-            )
-            result = bound_coupled(tangent)
-            jax.block_until_ready(result)
-            return np.asarray(result, dtype=np.float64)
-
-        def transpose_coupled_pair_host(value):
-            cotangent = jax.device_put(
-                jnp.asarray(value), coupled_cotangent_sharding
-            )
-            (result,) = coupled_transpose(cotangent)
-            jax.block_until_ready(result)
-            return np.asarray(result, dtype=np.float64)
-
-        def apply_reduced_pair_host(value):
-            tangent = jax.device_put(
-                jnp.asarray(value), NamedSharding(mesh, coupled_input_spec)
-            )
-            result = reduced_linearized(
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                wall_projectors,
-                tangent,
-            )
-            jax.block_until_ready(result)
-            return np.asarray(result, dtype=np.float64)
-
-        def apply_reduced_metric_host(value):
-            tangent = jax.device_put(
-                jnp.asarray(value), NamedSharding(mesh, coupled_input_spec)
-            )
-            result = reduced_metric(
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                wall_projectors,
-                tangent,
-            )
-            jax.block_until_ready(result)
-            return np.asarray(result, dtype=np.float64)
-
-        topology = owner_host_geometry.topology
-        active_owner = np.asarray(topology.is_active_owner, dtype=bool)
-        owner_index = np.asarray(topology.owner_index, dtype=np.int32)
-        raw_volume = np.asarray(owner_host_geometry.raw_volume, dtype=np.float64)
-        aggregate_volume = np.asarray(
-            owner_host_geometry.aggregate_chart_volume, dtype=np.float64
-        )
-        bmag = np.asarray(global_geometry.cell_bfield.Bmag, dtype=np.float64)
-        aggregate_ids = np.asarray(topology.aggregate_id, dtype=np.int64).ravel()
-        natural_flat = np.zeros(active_owner.size, dtype=np.float64)
-        np.add.at(
-            natural_flat,
-            aggregate_ids,
-            (raw_volume / np.maximum(bmag, np.finfo(float).tiny)).ravel(),
-        )
-        natural_volume = natural_flat.reshape(active_owner.shape)
-        natural_volume[~active_owner] = 0.0
-
-        helper_path = (
-            curvature_transition_audit_output.parent
-            / "analyze_transition_operators.py"
-        )
-        if not helper_path.is_file():
-            raise FileNotFoundError(
-                f"curvature transition audit helper is missing: {helper_path}"
-            )
-        import importlib.util
-
-        helper_spec = importlib.util.spec_from_file_location(
-            "hsx_curvature_transition_audit", helper_path
-        )
-        if helper_spec is None or helper_spec.loader is None:
-            raise ImportError(f"cannot load curvature audit helper {helper_path}")
-        helper = importlib.util.module_from_spec(helper_spec)
-        helper_spec.loader.exec_module(helper)
-        audit_metadata = dict(run_metadata or {})
-        audit_metadata.update(
-            {
-                "diagnostic": "curvature-transition-compatibility-audit",
-                "candidate_scheme": curvature_rlp_face_scheme,
-                "baseline_scheme": "projected-fine",
-                "raw_scalar_linearization_state": "frozen density",
-                "coupled_inputs": ["density", "Te", "Ti", "phi"],
-                "coupled_outputs": ["density", "Te", "Ti", "vorticity"],
-            }
-        )
-        audit_kwargs = dict(
-            output=curvature_transition_audit_output,
-            scheme=curvature_rlp_face_scheme,
-            apply_raw_pair=apply_raw_pair_host,
-            transpose_raw_pair=transpose_raw_pair_host,
-            raw_base_outputs=np.asarray(raw_base_outputs, dtype=np.float64),
-            apply_coupled_pair=apply_coupled_pair_host,
-            transpose_coupled_pair=transpose_coupled_pair_host,
-            coupled_base_outputs=np.asarray(coupled_base_outputs, dtype=np.float64),
-            coupled_base_inputs=np.asarray(coupled_base_input, dtype=np.float64),
-            coupled_transfer_state=np.asarray(
-                jnp.stack(
-                    (state.density, state.Te, state.Ti, state.vorticity), axis=0
-                ),
-                dtype=np.float64,
-            ),
-            active=active_owner,
-            owner_index=owner_index,
-            raw_volume=raw_volume,
-            aggregate_volume=aggregate_volume,
-            natural_volume=natural_volume,
-            angular_group_profile=np.asarray(
-                owner_host_geometry.angular_group_size, dtype=np.int32
-            ),
-            metadata=audit_metadata,
-        )
-        if getattr(helper, "SUPPORTS_REDUCED_ENERGY_AUDIT", False):
-            print(
-                "[curvature-transition-audit] compiling exact polarization-reduced "
-                "energy callbacks",
-                flush=True,
-            )
-            reduced_warmup = reduced_linearized(
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                wall_projectors,
-                coupled_zero,
-            )
-            metric_warmup = reduced_metric(
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                wall_projectors,
-                coupled_zero,
-            )
-            jax.block_until_ready((reduced_warmup, metric_warmup))
-            audit_kwargs.update(
-                apply_reduced_pair=apply_reduced_pair_host,
-                apply_reduced_metric=apply_reduced_metric_host,
-            )
-        helper.run_transition_audit(**audit_kwargs)
-        print(
-            f"[curvature-transition-audit] wrote {curvature_transition_audit_output} "
-            f"in {time.perf_counter() - audit_start:.3f} s",
-            flush=True,
-        )
-        return state
-    if curvature_manufactured_output is not None:
-        if curvature_scheme != "conservative":
-            raise ValueError(
-                "manufactured curvature audit requires conservative curvature"
-            )
-
-        u_values = np.asarray(global_geometry.grid.x.centers, dtype=np.float64)
-        theta_values = np.asarray(global_geometry.grid.y.centers, dtype=np.float64)
-        eta_values = np.asarray(global_geometry.grid.z.centers, dtype=np.float64)
-        u_grid, theta_grid, eta_grid = np.meshgrid(
-            u_values, theta_values, eta_values, indexing="ij"
-        )
-        radial = np.cos(np.pi * u_grid)
-        radial_gradient = np.stack(
-            (-np.pi * np.sin(np.pi * u_grid), np.zeros_like(u_grid), np.zeros_like(u_grid)),
-            axis=-1,
-        )
-        poloidal_envelope = np.sin(0.5 * np.pi * u_grid)
-        poloidal = poloidal_envelope * np.cos(theta_grid)
-        poloidal_gradient = np.stack(
-            (
-                0.5 * np.pi * np.cos(0.5 * np.pi * u_grid) * np.cos(theta_grid),
-                -poloidal_envelope * np.sin(theta_grid),
-                np.zeros_like(u_grid),
-            ),
-            axis=-1,
-        )
-        helical_envelope = poloidal_envelope * poloidal_envelope
-        helical_phase = 2.0 * theta_grid - float(nfp) * eta_grid
-        helical = helical_envelope * np.cos(helical_phase)
-        helical_gradient = np.stack(
-            (
-                np.pi
-                * poloidal_envelope
-                * np.cos(0.5 * np.pi * u_grid)
-                * np.cos(helical_phase),
-                -2.0 * helical_envelope * np.sin(helical_phase),
-                float(nfp) * helical_envelope * np.sin(helical_phase),
-            ),
-            axis=-1,
-        )
-        manufactured_names = ("constant", "radial", "poloidal_m1", "helical_m2_nfp")
-        manufactured_fields_host = np.stack(
-            (np.ones_like(u_grid), radial, poloidal, helical), axis=0
-        )
-        manufactured_gradients_host = np.stack(
-            (
-                np.zeros(u_grid.shape + (3,), dtype=np.float64),
-                radial_gradient,
-                poloidal_gradient,
-                helical_gradient,
-            ),
-            axis=0,
-        )
-        manufactured_fields = jax.device_put(
-            jnp.asarray(manufactured_fields_host),
-            NamedSharding(mesh, P(None, "x", "y", "z")),
-        )
-        manufactured_gradients = jax.device_put(
-            jnp.asarray(manufactured_gradients_host),
-            NamedSharding(mesh, P(None, "x", "y", "z", None)),
-        )
-
-        def manufactured_curvature_kernel(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
-            fields_local: jax.Array,
-            gradients_local: jax.Array,
         ):
             model = build_local_model(
                 cell_fields_owned,
                 map_fields_owned,
                 control_volume_fields_owned,
-                local_wall_projectors,
             )
-            scalar_bc = model._face_bcs(local_state).density
-            direct_coefficients = build_local_curvature_coefficients(
-                model.geometry,
-                model.domain,
-                periodic_axes=model.domain.periodic_axes,
-                axis_regular_axes=model.domain.axis_regular_axes,
+            return model.evaluate_stage(
+                local_state,
+                source_owned=local_source,
+                phi_owned=local_state.phi,
+                short_leg_selection_dt=selection_dt,
+                return_rhs_term_fields=True,
             )
-            context = model._stencil_builder_context()
 
-            def one(field, exact_gradient):
-                fine_halo = model._prepare_fine_storage_halo(field, scalar_bc)
-                fine_stencil = build_local_conservative_stencil_from_field(
-                    fine_halo, model.geometry, context
-                )
-                # Keep the fine reference on the unmodified production
-                # operator.  The moment-shared trace is defined from RLP
-                # aggregate averages and is meaningful only for the
-                # projected input below.
-                fine_components = local_curvature_conservative_components_op(
-                    fine_stencil,
-                    model.geometry,
-                    model.curvature_face_coefficients,
-                    domain=model.domain,
-                    face_bc=scalar_bc,
-                    axis_regular_axes=model.axis_regular_axes,
-                )
-                projected_input = model._project_fine_center_to_cell_rlp(field)
-                projected_halo = model._prepare_fine_storage_halo(
-                    projected_input, scalar_bc
-                )
-                projected_stencil = build_local_conservative_stencil_from_field(
-                    projected_halo, model.geometry, context
-                )
-                projected_components = model._conservative_curvature_components(
-                    projected_stencil, scalar_bc, field_halo=projected_halo
-                )
-                fine_operator = jnp.sum(fine_components, axis=0)
-                projected_operator = jnp.sum(projected_components, axis=0)
-                exact_reference = jnp.einsum(
-                    "...i,...i->...", direct_coefficients, exact_gradient
-                )
-                restricted_fine = model._restrict_fine_field(fine_operator)
-                restricted_projected = model._restrict_fine_field(projected_operator)
-                restricted_reference = model._restrict_fine_field(exact_reference)
-                if model.control_volume_geometry is not None:
-                    cells = model.control_volume_geometry.cells
-                    prolong = lambda value: expand_local_control_volume_owner_field(
-                        value, cells
-                    )
-                    restricted_fine = prolong(restricted_fine)
-                    restricted_projected = prolong(restricted_projected)
-                    restricted_reference = prolong(restricted_reference)
-                return (
-                    fine_operator,
-                    projected_operator,
-                    restricted_fine,
-                    restricted_projected,
-                    exact_reference,
-                    restricted_reference,
-                    fine_components,
-                    projected_components,
-                    projected_input,
-                )
-
-            return jax.vmap(one)(fields_local, gradients_local)
-
-        output_specs = (
-            P(None, "x", "y", "z"),
-            P(None, "x", "y", "z"),
-            P(None, "x", "y", "z"),
-            P(None, "x", "y", "z"),
-            P(None, "x", "y", "z"),
-            P(None, "x", "y", "z"),
-            P(None, None, "x", "y", "z"),
-            P(None, None, "x", "y", "z"),
-            P(None, "x", "y", "z"),
-        )
-        audit = jax.jit(
-            jax.shard_map(
-                manufactured_curvature_kernel,
-                mesh=mesh,
-                in_specs=(
-                    state_spec,
-                    geometry_spec,
-                    geometry_spec,
-                    geometry_spec,
-                    wall_projector_specs,
-                    P(None, "x", "y", "z"),
-                    P(None, "x", "y", "z", None),
-                ),
-                out_specs=output_specs,
-                check_vma=False,
-            )
-        )
-        print(
-            "[curvature-manufactured] compiling fine and R A_f P audit",
-            flush=True,
-        )
-        audit_start = time.perf_counter()
-        outputs = audit(
-            state,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
-            wall_projectors,
-            manufactured_fields,
-            manufactured_gradients,
-        )
-        jax.block_until_ready(outputs)
-        arrays = tuple(np.asarray(value, dtype=np.float64) for value in outputs)
-        mass_weights = (
-            np.asarray(owner_host_geometry.raw_volume, dtype=np.float64)
-            if owner_host_geometry is not None
-            else np.asarray(global_geometry.cell_metric.J, dtype=np.float64)
-        )
-        metadata = dict(run_metadata or {})
-        metadata.update(
-            {
-                "diagnostic": "manufactured-conservative-curvature-audit",
-                "manufactured_field_names": list(manufactured_names),
-                "curvature_component_direction_names": ["u", "theta", "eta"],
-                "comparison": [
-                    "A_f f",
-                    "A_f^{shared-trace} P R f",
-                    "R A_f f",
-                    "R A_f^{shared-trace} P R f",
-                    "cell-centered K dot analytic logical gradient",
-                    "R reference",
-                ],
-            }
-        )
-        curvature_manufactured_output.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
-            curvature_manufactured_output,
-            manufactured_fields=manufactured_fields_host,
-            manufactured_gradients=manufactured_gradients_host,
-            fine_operator=arrays[0],
-            projected_operator=arrays[1],
-            restricted_fine_operator=arrays[2],
-            restricted_projected_operator=arrays[3],
-            exact_gradient_reference=arrays[4],
-            restricted_reference=arrays[5],
-            fine_directional_components=arrays[6],
-            projected_directional_components=arrays[7],
-            projected_input=arrays[8],
-            mass_weights=mass_weights,
-            u=u_values,
-            theta=theta_values,
-            eta=eta_values,
-            manufactured_field_names_json=np.asarray(json.dumps(manufactured_names)),
-            curvature_component_direction_names_json=np.asarray(
-                json.dumps(("u", "theta", "eta"))
+        frozen_stage_sharded = jax.shard_map(
+            frozen_stage_kernel,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
             ),
-            run_metadata_json=np.asarray(json.dumps(metadata, sort_keys=True)),
+            out_specs=(state_spec, P(None, None, "x", "y", "z")),
+            check_vma=False,
+        )
+
+        def frozen_implicit_kernel(
+            local_state: FciDrbEBState,
+            cell_fields_owned: jax.Array,
+            map_fields_owned: jax.Array,
+            control_volume_fields_owned: jax.Array,
+        ):
+            model = build_local_model(
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+            _updated, _increment, info = (
+                model.apply_short_leg_implicit_material_step(
+                    local_state,
+                    solve_dt=solve_dt,
+                    selection_dt=selection_dt,
+                    phi_owned=local_state.phi,
+                    return_increment=True,
+                )
+            )
+            return (
+                info["selected_complete_residual_owner"],
+                info["selected_wall"],
+            )
+
+        frozen_implicit_sharded = jax.shard_map(
+            frozen_implicit_kernel,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+            ),
+            out_specs=(P("x", "y", "z", None), spatial_spec),
+            check_vma=False,
+        )
+
+        def frozen_reconstruct_phi_kernel(
+            local_state: FciDrbEBState,
+            cell_fields_owned: jax.Array,
+            map_fields_owned: jax.Array,
+            control_volume_fields_owned: jax.Array,
+        ):
+            phi, info = build_local_model(
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            ).reconstruct_phi(local_state, return_diagnostics=True)
+            return phi, _format_phi_solver_diagnostics(info)
+
+        frozen_reconstruct_phi_sharded = jax.shard_map(
+            frozen_reconstruct_phi_kernel,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+            ),
+            out_specs=(spatial_spec, replicated_spec),
+            check_vma=False,
+        )
+        if frozen_diagnostic.execution == "compiled":
+            frozen_stage = jax.jit(frozen_stage_sharded)
+            frozen_implicit = jax.jit(frozen_implicit_sharded)
+            frozen_reconstruct_phi = jax.jit(frozen_reconstruct_phi_sharded)
+        else:
+            frozen_stage = frozen_stage_sharded
+            frozen_implicit = frozen_implicit_sharded
+            frozen_reconstruct_phi = frozen_reconstruct_phi_sharded
+
+        def execute(callable_, *values):
+            with jax.disable_jit(frozen_diagnostic.execution == "eager"):
+                result = callable_(*values)
+            jax.block_until_ready(result)
+            return result
+
+        common_geometry = (cell_fields, map_fields, control_volume_fields)
+        exact_explicit, exact_terms = execute(
+            frozen_stage,
+            state,
+            zero_source,
+            *common_geometry,
+        )
+        sourced_explicit, sourced_terms = execute(
+            frozen_stage,
+            state,
+            sharded_source,
+            *common_geometry,
+        )
+        exact_implicit, exact_selected_wall = execute(
+            frozen_implicit,
+            state,
+            *common_geometry,
+        )
+        reconstructed_phi, phi_diagnostics = execute(
+            frozen_reconstruct_phi,
+            state,
+            *common_geometry,
+        )
+        reconstructed_state = state.replace(phi=reconstructed_phi)
+        reconstructed_explicit, reconstructed_terms = execute(
+            frozen_stage,
+            reconstructed_state,
+            zero_source,
+            *common_geometry,
+        )
+        reconstructed_implicit, reconstructed_selected_wall = execute(
+            frozen_implicit,
+            reconstructed_state,
+            *common_geometry,
         )
         print(
-            f"[curvature-manufactured] wrote {curvature_manufactured_output} "
-            f"in {time.perf_counter() - audit_start:.3f} s",
+            "[frozen-diagnostic] sharded evaluation completed in "
+            f"{time.perf_counter() - phi_start:.3f} s",
             flush=True,
         )
-        return state
+        return FrozenEbDiagnosticResult(
+            exact_explicit=exact_explicit,
+            exact_rhs_term_fields=exact_terms,
+            sourced_explicit=sourced_explicit,
+            sourced_rhs_term_fields=sourced_terms,
+            reconstructed_phi=reconstructed_phi,
+            phi_solver_diagnostics=phi_diagnostics,
+            reconstructed_explicit=reconstructed_explicit,
+            reconstructed_rhs_term_fields=reconstructed_terms,
+            exact_implicit_complete_residual_owner=exact_implicit,
+            exact_selected_wall=exact_selected_wall,
+            reconstructed_implicit_complete_residual_owner=(
+                reconstructed_implicit
+            ),
+            reconstructed_selected_wall=reconstructed_selected_wall,
+        )
     if rhs_replay_history is not None:
         if rhs_replay_output is None or not rhs_replay_frames:
             raise ValueError(
@@ -4953,13 +4156,11 @@ def run_full_eb(
             cell_fields_owned: jax.Array,
             map_fields_owned: jax.Array,
             control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
         ) -> tuple[jax.Array, ...]:
             model = build_local_model(
                 cell_fields_owned,
                 map_fields_owned,
                 control_volume_fields_owned,
-                local_wall_projectors,
             )
             phi, info = model.reconstruct_phi(local_state, return_diagnostics=True)
             reconstructed = local_state.replace(phi=phi)
@@ -5076,7 +4277,6 @@ def run_full_eb(
                 geometry_spec,
                 geometry_spec,
                 geometry_spec,
-                wall_projector_specs,
             ),
             out_specs=replay_out_specs,
             check_vma=False,
@@ -5135,7 +4335,6 @@ def run_full_eb(
                     cell_fields,
                     map_fields,
                     control_volume_fields,
-                    wall_projectors,
                 )
             jax.block_until_ready(outputs)
             (
@@ -5331,7 +4530,6 @@ def run_full_eb(
             cell_fields,
             map_fields,
             control_volume_fields,
-            wall_projectors,
         )
         jax.block_until_ready((initial_phi, initial_phi_iterations))
         state = state.replace(phi=initial_phi)
@@ -5348,83 +4546,6 @@ def run_full_eb(
         flush=True,
     )
 
-    rhs_term_history_path = os.environ.get("DRBX_RHS_TERM_HISTORY")
-    if rhs_term_history_path is not None:
-        if outgoing_face_topology_host is None or owner_host_geometry is None:
-            raise ValueError("RHS term history diagnostics require staggered cell and face topology")
-        frame_text = os.environ.get("DRBX_RHS_TERM_FRAMES", "")
-        frames = tuple(int(value) for value in frame_text.split(",") if value)
-        output_text = os.environ.get("DRBX_RHS_TERM_OUTPUT")
-        if not frames or output_text is None:
-            raise ValueError("RHS term history diagnostic requires frames and output")
-        with np.load(rhs_term_history_path, allow_pickle=False) as history:
-            frame_count = int(history["Vi"].shape[0])
-            history_times = np.asarray(history["times"], dtype=np.float64)
-            if any(frame < 0 or frame >= frame_count for frame in frames):
-                raise ValueError(f"RHS term frame outside [0, {frame_count})")
-            saved_states = []
-            saved_materialized_vi = []
-            face_owner = tuple(np.asarray(outgoing_face_topology_host[name], dtype=np.int32) for name in ("edge_owner_i", "edge_owner_j", "edge_owner_k"))
-            face_active_owner = np.asarray(outgoing_face_topology_host["is_active_owner"], dtype=bool)
-            for frame in frames:
-                raw = FciDrbEBState(**{name: jnp.asarray(history[name][frame], dtype=jnp.float64) for name in ("density", "phi", "Te", "Ti", "Vi", "Ve", "vorticity")})
-                recovered = _aggregate_initial_owner_state(raw, owner_host_geometry)
-                recovered = recovered.replace(
-                    Vi=jnp.asarray(np.where(face_active_owner, np.asarray(raw.Vi)[face_owner], 0.0)),
-                    Ve=jnp.asarray(np.where(face_active_owner, np.asarray(raw.Ve)[face_owner], 0.0)),
-                )
-                saved_states.append(recovered)
-                saved_materialized_vi.append(np.asarray(raw.Vi, dtype=np.float64))
-        def materialize_rhs_term_fields(local_state, cell_fields_owned, map_fields_owned, control_volume_fields_owned, local_wall_projectors):
-            model = build_local_model(cell_fields_owned, map_fields_owned, control_volume_fields_owned, local_wall_projectors)
-            _, terms = model.evaluate_stage(local_state, phi_owned=local_state.phi, return_rhs_term_fields=True)
-            cells = model.control_volume_geometry.cells
-            materialized = jax.vmap(jax.vmap(lambda value: expand_local_control_volume_owner_field(value, cells)))(terms)
-            vi_face_terms = jax.vmap(lambda value: prolong_local_outgoing_fci_face_owner_field(value, model.outgoing_face_topology))(terms[3])
-            ve_face_terms = jax.vmap(lambda value: prolong_local_outgoing_fci_face_owner_field(value, model.outgoing_face_topology))(terms[4])
-            return materialized.at[3].set(vi_face_terms).at[4].set(ve_face_terms)
-        rhs_term_materializer_sharded = jax.shard_map(
-            materialize_rhs_term_fields, mesh=mesh,
-            in_specs=(state_spec, geometry_spec, geometry_spec, geometry_spec, wall_projector_specs),
-            out_specs=P(None, None, "x", "y", "z"), check_vma=False,
-        )
-        rhs_term_materializer = (
-            jax.jit(rhs_term_materializer_sharded)
-            if advance_execution == "compiled"
-            else rhs_term_materializer_sharded
-        )
-        vi_names = RHS_TERM_NAMES[3]
-        report_frames = []
-        near_start = int(np.ceil(0.75 * (sharded_geometry.global_shape[1] // 2)))
-        for frame, recovered, saved_vi in zip(frames, saved_states, saved_materialized_vi, strict=True):
-            sharded = recovered.map_fields(lambda value: jax.device_put(jnp.asarray(value, dtype=jnp.float64), state_sharding))
-            with jax.disable_jit(advance_execution == "eager"):
-                terms = np.asarray(
-                    rhs_term_materializer(
-                        sharded,
-                        cell_fields,
-                        map_fields,
-                        control_volume_fields,
-                        wall_projectors,
-                    ),
-                    dtype=np.float64,
-                )
-            vi_terms = terms[3, :len(vi_names)]
-            spectral = _vi_near_band_report(vi_terms, saved_vi, near_start)
-            report_frames.append({
-                "frame": int(frame), "time": float(history_times[frame]),
-                "Vi_theta_near_band_start": near_start,
-                "Vi_term_near_band_energy": {name: value for name, value in zip(vi_names, spectral["term_near_band_energy"], strict=True)},
-                "Vi_term_near_band_inner_product_with_saved_Vi": {name: value for name, value in zip(vi_names, spectral["term_near_band_inner_product_with_saved_Vi"], strict=True)},
-                "Vi_sum_term_near_band_energy": spectral["sum_term_near_band_energy"],
-                "Vi_sum_term_near_band_inner_product_with_saved_Vi": spectral["sum_term_near_band_inner_product_with_saved_Vi"],
-                "rfft_normalization": spectral["rfft_normalization"],
-            })
-        output = Path(output_text)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps({"history": rhs_term_history_path, "frames": report_frames, "field": "Vi", "term_names": list(vi_names)}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        print(f"[rhs-term-history] wrote {output}", flush=True)
-        return state
     phase_timer = (
         _JittedPhaseTimer(
             expected_markers=8 if time_integrator == "rk4" else 6,
@@ -5467,10 +4588,12 @@ def run_full_eb(
         stage_state: FciDrbEBState,
         phi: jax.Array,
         model: LocalFciDrbEBRhs,
+        source_owned: FciDrbEBState | None = None,
     ) -> FciDrbEBState:
         with jax.named_scope("operators"):
             rhs = model.evaluate_stage(
                 stage_state,
+                source_owned=source_owned,
                 phi_owned=phi,
                 short_leg_selection_dt=(
                     dt
@@ -5500,7 +4623,6 @@ def run_full_eb(
             diagnostic_state(
                 stage,
                 model.control_volume_geometry,
-                model.outgoing_face_topology,
             )
             for stage in stage_states
         )
@@ -5541,7 +4663,6 @@ def run_full_eb(
             for _, value in diagnostic_state(
                 next_state,
                 model.control_volume_geometry,
-                model.outgoing_face_topology,
             ).field_items()
         )
         field_mins = jnp.stack(tuple(jnp.min(value) for value in field_values))
@@ -5583,7 +4704,7 @@ def run_full_eb(
         cell_fields_owned: jax.Array,
         map_fields_owned: jax.Array,
         control_volume_fields_owned: jax.Array,
-        local_wall_projectors: UpwindEquilibriumWallProjectors | None,
+        source_stages: FciDrbEBState,
         current_time: jax.Array,
     ) -> tuple[FciDrbEBState, jax.Array, jax.Array] | tuple[
         FciDrbEBState, jax.Array, jax.Array, jax.Array
@@ -5593,24 +4714,34 @@ def run_full_eb(
             cell_fields_owned,
             map_fields_owned,
             control_volume_fields_owned,
-            local_wall_projectors,
         )
 
         # `current.phi` was reconstructed at the end of the previous advance,
         # so stage one does not need another identical elliptic solve.
-        k1 = evaluate_operators(current, current.phi, model)
+        def stage_source(index: int) -> FciDrbEBState:
+            return source_stages.replace(
+                density=source_stages.density[index],
+                phi=source_stages.phi[index],
+                Te=source_stages.Te[index],
+                Ti=source_stages.Ti[index],
+                Vi=source_stages.Vi[index],
+                Ve=source_stages.Ve[index],
+                vorticity=source_stages.vorticity[index],
+            )
+
+        k1 = evaluate_operators(current, current.phi, model, stage_source(0))
         stage_2 = current.axpy(k1, scale=0.5 * dt)
 
         phi_2, gmres_info_2 = reconstruct_stage_phi(stage_2, model)
-        k2 = evaluate_operators(stage_2, phi_2, model)
+        k2 = evaluate_operators(stage_2, phi_2, model, stage_source(1))
         stage_3 = current.axpy(k2, scale=0.5 * dt)
 
         phi_3, gmres_info_3 = reconstruct_stage_phi(stage_3, model)
-        k3 = evaluate_operators(stage_3, phi_3, model)
+        k3 = evaluate_operators(stage_3, phi_3, model, stage_source(2))
         stage_4 = current.axpy(k3, scale=dt)
 
         phi_4, gmres_info_4 = reconstruct_stage_phi(stage_4, model)
-        k4 = evaluate_operators(stage_4, phi_4, model)
+        k4 = evaluate_operators(stage_4, phi_4, model, stage_source(3))
         weighted_rhs = k1.axpy(k2, scale=2.0).axpy(
             k3,
             scale=2.0,
@@ -5631,7 +4762,7 @@ def run_full_eb(
         cell_fields_owned: jax.Array,
         map_fields_owned: jax.Array,
         control_volume_fields_owned: jax.Array,
-        local_wall_projectors: UpwindEquilibriumWallProjectors | None,
+        source_stages: FciDrbEBState,
         current_time: jax.Array,
     ):
         """Advance with the complete short-wall residual at every IMEX stage."""
@@ -5641,7 +4772,6 @@ def run_full_eb(
             cell_fields_owned,
             map_fields_owned,
             control_volume_fields_owned,
-            local_wall_projectors,
         )
         gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * dt
 
@@ -5666,7 +4796,21 @@ def run_full_eb(
         # potential.  Solve the complete selected-wall residual before the
         # first explicit evaluation, not after a finished timestep.
         stage_1, implicit_1, gmres_info_1 = implicit_stage(current)
-        explicit_1 = evaluate_operators(stage_1, stage_1.phi, model)
+        source_1 = source_stages.replace(
+            density=source_stages.density[0], phi=source_stages.phi[0],
+            Te=source_stages.Te[0], Ti=source_stages.Ti[0],
+            Vi=source_stages.Vi[0], Ve=source_stages.Ve[0],
+            vorticity=source_stages.vorticity[0],
+        )
+        source_2 = source_stages.replace(
+            density=source_stages.density[1], phi=source_stages.phi[1],
+            Te=source_stages.Te[1], Ti=source_stages.Ti[1],
+            Vi=source_stages.Vi[1], Ve=source_stages.Ve[1],
+            vorticity=source_stages.vorticity[1],
+        )
+        explicit_1 = evaluate_operators(
+            stage_1, stage_1.phi, model, source_1
+        )
 
         stage_2_base = current.axpy(explicit_1, scale=dt).axpy(
             implicit_1,
@@ -5677,7 +4821,9 @@ def run_full_eb(
         )
         stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
         stage_2, implicit_2, gmres_info_2 = implicit_stage(stage_2_base)
-        explicit_2 = evaluate_operators(stage_2, stage_2.phi, model)
+        explicit_2 = evaluate_operators(
+            stage_2, stage_2.phi, model, source_2
+        )
 
         weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
             implicit_1, scale=1.0
@@ -5746,7 +4892,7 @@ def run_full_eb(
             geometry_spec,
             geometry_spec,
             geometry_spec,
-            wall_projector_specs,
+            source_spec,
             replicated_spec,
         ),
         out_specs=advance_out_specs,
@@ -5758,7 +4904,7 @@ def run_full_eb(
             cell_fields,
             map_fields,
             control_volume_fields,
-            wall_projectors,
+            zero_source_stages,
             jnp.asarray(start_time, dtype=jnp.float64),
         ).compile()
         print(
@@ -5785,13 +4931,11 @@ def run_full_eb(
             cell_fields_owned: jax.Array,
             map_fields_owned: jax.Array,
             control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
         ) -> jax.Array:
             model = build_local_model(
                 cell_fields_owned,
                 map_fields_owned,
                 control_volume_fields_owned,
-                local_wall_projectors,
             )
             _, term_fields = model.evaluate_stage(
                 local_state,
@@ -5855,7 +4999,6 @@ def run_full_eb(
                 geometry_spec,
                 geometry_spec,
                 geometry_spec,
-                wall_projector_specs,
             ),
             out_specs=replicated_spec,
             check_vma=False,
@@ -5868,7 +5011,6 @@ def run_full_eb(
                 cell_fields,
                 map_fields,
                 control_volume_fields,
-                wall_projectors,
             ).compile()
             print(
                 "[simulation] compiled all-equation RHS term inspection in "
@@ -5892,7 +5034,6 @@ def run_full_eb(
                 cell_fields,
                 map_fields,
                 control_volume_fields,
-                wall_projectors,
             )
         jax.block_until_ready(result)
         return np.asarray(result, dtype=np.float64)
@@ -5914,20 +5055,18 @@ def run_full_eb(
             cell_fields_owned: jax.Array,
             map_fields_owned: jax.Array,
             control_volume_fields_owned: jax.Array,
-            local_wall_projectors: UpwindEquilibriumWallProjectors | None,
         ):
             model = build_local_model(
                 cell_fields_owned,
                 map_fields_owned,
                 control_volume_fields_owned,
-                local_wall_projectors,
             )
             polarization_terms = model.polarization_balance_terms(
                 local_state,
                 phi_owned=local_state.phi,
             )
             polarization_residual = jnp.sum(polarization_terms, axis=0)
-            diagnostic_local_state = diagnostic_state(local_state, model.control_volume_geometry, model.outgoing_face_topology)
+            diagnostic_local_state = diagnostic_state(local_state, model.control_volume_geometry)
             face_bc = model._face_bcs(local_state)
             state_halo = prepare_local_fci_drb_eb_state(
                 diagnostic_local_state,
@@ -6066,7 +5205,6 @@ def run_full_eb(
                 geometry_spec,
                 geometry_spec,
                 geometry_spec,
-                wall_projector_specs,
             ),
             out_specs=inspection_out_specs,
             check_vma=False,
@@ -6077,7 +5215,6 @@ def run_full_eb(
                 cell_fields,
                 map_fields,
                 control_volume_fields,
-                wall_projectors,
             ).compile()
             inspection_action = "compiled"
         else:
@@ -6098,7 +5235,6 @@ def run_full_eb(
                 cell_fields,
                 map_fields,
                 control_volume_fields,
-                wall_projectors,
             )
         jax.block_until_ready(result)
         return tuple(np.asarray(value) for value in result)
@@ -6129,7 +5265,6 @@ def run_full_eb(
         ),
         "phi_solver_space": np.asarray(solver_space),
         "parallel_operator_scheme": np.asarray(str(parallel_operator_scheme)),
-        "fci_parallel_leg_scheme": np.asarray(str(fci_parallel_leg_scheme)),
         "fci_trace_substeps": np.asarray(
             int((run_metadata or {}).get("fci_trace_substeps", 4)),
             dtype=np.int64,
@@ -6197,11 +5332,6 @@ def run_full_eb(
             ),
         }
     )
-    if outgoing_face_topology_host is not None:
-        base_output_payload.update({
-            f"face_topology_{name}": np.asarray(value)
-            for name, value in outgoing_face_topology_host.items()
-        })
     base_output_payload.update(_snapshot_metric_payload(global_geometry))
     snapshot_schedule = tuple(sorted(float(value) for value in snapshot_times))
     snapshot_root = Path(snapshot_dir) if snapshot_dir is not None else output_path.parent
@@ -6213,12 +5343,9 @@ def run_full_eb(
             "shard_counts": list(sharded_geometry.shard_counts),
             "phi_solver_space": solver_space,
             "parallel_operator_scheme": str(parallel_operator_scheme),
-            "fci_parallel_leg_scheme": str(fci_parallel_leg_scheme),
             "fci_trace_substeps": int(
                 (run_metadata or {}).get("fci_trace_substeps", 4)
             ),
-            "curvature_scale": float(curvature_scale),
-            "parallel_subsystem_only": bool(parallel_subsystem_only),
             "snapshot_term_fields": bool(snapshot_term_fields),
             "checkpoint_every": int(checkpoint_every),
             "track_rhs_terms": bool(track_rhs_terms),
@@ -6314,9 +5441,7 @@ def run_full_eb(
                     wall_ghost_fields,
                     polarization_residual,
                 ) = inspected
-                payload["Ve_rhs_terms"] = _materialize_face_owner_array(
-                    term_fields, outgoing_face_topology_host
-                ).astype(np.float64)
+                payload["Ve_rhs_terms"] = np.asarray(term_fields, dtype=np.float64)
             else:
                 (
                     diagnostic_values,
@@ -6397,7 +5522,7 @@ def run_full_eb(
 
     initial_output_state = materialized_state(state)
     history: dict[str, list[np.ndarray]] = {
-        name: [np.asarray(value, dtype=np.float32)]
+        name: [np.asarray(value, dtype=history_numpy_dtype)]
         for name, value in initial_output_state.field_items()
     }
     saved_times = [float(start_time)]
@@ -6420,6 +5545,8 @@ def run_full_eb(
 
     for step in range(1, int(num_steps) + 1):
         step_start = time.perf_counter()
+        step_time = float(start_time) + (step - 1) * float(timestep)
+        source_stages = source_stages_for_step(step_time)
         if phase_timer is not None:
             phase_timer.begin_step()
         if track_curvature_chain_rule_defect:
@@ -6435,9 +5562,9 @@ def run_full_eb(
                 cell_fields,
                 map_fields,
                 control_volume_fields,
-                wall_projectors,
+                source_stages,
                 jnp.asarray(
-                    float(start_time) + (step - 1) * float(timestep),
+                    step_time,
                     dtype=jnp.float64,
                 ),
             )
@@ -6463,9 +5590,9 @@ def run_full_eb(
                 cell_fields,
                 map_fields,
                 control_volume_fields,
-                wall_projectors,
+                source_stages,
                 jnp.asarray(
-                    float(start_time) + (step - 1) * float(timestep),
+                    step_time,
                     dtype=jnp.float64,
                 ),
             )
@@ -6479,7 +5606,7 @@ def run_full_eb(
                 )
             )
         if owner_host_geometry is not None:
-            _assert_owner_sparse(state, owner_host_geometry, outgoing_face_topology_host)
+            _assert_owner_sparse(state, owner_host_geometry)
         step_seconds = time.perf_counter() - step_start
         if phase_timer is None:
             operator_seconds = None
@@ -6495,7 +5622,9 @@ def run_full_eb(
             saved_times.append(current_time)
             output_state = materialized_state(state)
             for name, value in output_state.field_items():
-                history[name].append(np.asarray(value, dtype=np.float32))
+                history[name].append(
+                    np.asarray(value, dtype=history_numpy_dtype)
+                )
 
         diagnostics_host = np.asarray(diagnostics)
         gmres_stage_diagnostics_host = np.asarray(gmres_stage_diagnostics)
@@ -6729,6 +5858,24 @@ def run_full_eb(
             global_geometry.cell_metric.J,
             dtype=np.float64,
         ),
+        **(
+            {
+                # These are output-only owner measures.  They let a
+                # login-node analyzer compare final production histories at
+                # fixed resolution without rebuilding geometry or replacing
+                # the production advance with a test-specific operator.
+                "owner_active": np.asarray(
+                    owner_host_geometry.topology.is_active_owner,
+                    dtype=bool,
+                ),
+                "owner_aggregate_volume": np.asarray(
+                    owner_host_geometry.aggregate_chart_volume,
+                    dtype=np.float64,
+                ),
+            }
+            if owner_host_geometry is not None
+            else {}
+        ),
         Bmag=np.asarray(
             global_geometry.cell_bfield.Bmag,
             dtype=np.float64,
@@ -6793,23 +5940,16 @@ def run_full_eb(
         parallel_operator_scheme=np.asarray(
             str((metadata or {}).get("parallel_operator_scheme", parallel_operator_scheme))
         ),
-        fci_parallel_leg_scheme=np.asarray(
-            str((metadata or {}).get("fci_parallel_leg_scheme", "centered"))
-        ),
         fci_trace_substeps=np.asarray(
             int((metadata or {}).get("fci_trace_substeps", 4)),
             dtype=np.int64,
         ),
+        history_dtype=np.asarray(history_dtype),
         **{
             name: np.stack(values, axis=0)
             for name, values in history.items()
         },
-        curvature_scale=np.asarray(float(curvature_scale), dtype=np.float64),
         run_metadata_json=np.asarray(json.dumps(metadata, sort_keys=True)),
-        **({
-            f"face_topology_{name}": np.asarray(value)
-            for name, value in outgoing_face_topology_host.items()
-        } if outgoing_face_topology_host is not None else {}),
         **(
             {
                 "rhs_term_times": np.asarray(
@@ -6881,55 +6021,19 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
     """Validate native production/diagnostic selectors before compilation."""
 
     framework = str(args.flux_framework)
-    if (
-        args.characteristic_sat_affine_current_lift == "suppressed"
-        and (
-            framework != "production-split"
-            or args.parallel_boundary_pairing != "characteristic-sat"
-        )
-    ):
-        raise ValueError(
-            "suppressed characteristic-SAT affine current lift requires "
-            "production-split with characteristic-sat boundary pairing"
-        )
-    if (
-        args.parallel_current_phi_pair == "suppressed"
-        and (
-            framework != "production-split"
-            or args.parallel_flux_pairing != "support-core"
-        )
-    ):
-        raise ValueError(
-            "suppressed parallel current/phi pair requires the production "
-            "support-core path"
-        )
     if args.parallel_short_leg_selection == "all-physical-walls":
         if args.parallel_short_leg_treatment != "local-backward-euler":
             raise ValueError(
                 "all-physical-walls short-leg selection requires "
                 "--parallel-short-leg-treatment local-backward-euler"
             )
-        if args.parallel_characteristic_wall_law != "energy-absorbing":
-            raise ValueError(
-                "all-physical-walls short-leg selection requires "
-                "--parallel-characteristic-wall-law energy-absorbing"
-            )
-        if args.parallel_velocity_layout != "cell-centered":
-            raise ValueError("all-physical-walls requires cell-centered parallel velocities")
         if framework != "production-split" or args.parallel_operator_scheme != "fci":
             raise ValueError("all-physical-walls requires production FCI configuration")
         if args.parallel_flux_pairing != "support-core":
             raise ValueError("all-physical-walls requires support-core pairing")
         if args.parallel_boundary_pairing != "characteristic-sat":
             raise ValueError("all-physical-walls requires characteristic-sat pairing")
-        if args.parallel_inflow_closure != "central":
-            raise ValueError("all-physical-walls requires central parallel inflow")
     if args.parallel_characteristic_wall_law == "energy-absorbing":
-        if args.parallel_velocity_layout != "cell-centered":
-            raise ValueError(
-                "energy-absorbing parallel characteristic wall law requires "
-                "cell-centered parallel velocities"
-            )
         if framework != "production-split":
             raise ValueError(
                 "energy-absorbing parallel characteristic wall law requires "
@@ -6939,11 +6043,6 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
             raise ValueError(
                 "energy-absorbing parallel characteristic wall law requires "
                 "characteristic-sat boundary pairing"
-            )
-        if args.parallel_inflow_closure != "central":
-            raise ValueError(
-                "energy-absorbing parallel characteristic wall law requires "
-                "central parallel inflow closure"
             )
     if not np.isfinite(args.parallel_short_leg_cfl_limit) or (
         args.parallel_short_leg_cfl_limit <= 0.0
@@ -6974,100 +6073,9 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
             "--time-integrator imex-ssp222 currently requires "
             "--parallel-short-leg-treatment local-backward-euler"
         )
-    if args.curvature_evolution_component != "full" and framework != "production-split":
-        raise ValueError(
-            "--curvature-evolution-component diagnostic selectors require "
-            "--flux-framework production-split"
-        )
-    if args.curvature_radial_ablation != "none" and framework != "production-split":
-        raise ValueError(
-            "--curvature-radial-ablation requires "
-            "--flux-framework production-split"
-        )
-    if (
-        args.curvature_wall_flux_closure == "bc-characteristic"
-        and framework != "production-split"
-    ):
-        raise ValueError(
-            "--curvature-wall-flux-closure bc-characteristic requires "
-            "--flux-framework production-split"
-        )
     if args.parallel_flux_pairing == "support-core":
-        if args.parallel_velocity_layout != "cell-centered":
-            raise ValueError("support-core requires cell-centered parallel velocities")
         if args.parallel_operator_scheme != "fci":
             raise ValueError("support-core requires --parallel-operator-scheme fci")
-    if args.curvature_component_diagnostic_scheme != "directional" and (
-        args.rhs_replay_history is None
-    ):
-        raise ValueError(
-            "non-directional curvature component diagnostics require "
-            "--rhs-replay-history"
-        )
-    if args.curvature_characteristic_axes == "radial-poloidal":
-        if args.curvature_scheme != "conservative":
-            raise ValueError(
-                "radial-poloidal curvature characteristics require conservative curvature"
-            )
-        if args.curvature_rlp_face_scheme not in (
-            "fine-glue-characteristic",
-            "fine-glue-characteristic-bulk",
-        ):
-            raise ValueError(
-                "radial-poloidal curvature characteristics require a "
-                "fine-glue-characteristic face scheme"
-            )
-    if args.curvature_radial_characteristic_scheme == "third-order-upwind":
-        if args.curvature_scheme != "conservative":
-            raise ValueError("third-order radial curvature requires conservative curvature")
-        if args.topology != "toroidal":
-            raise ValueError("third-order radial curvature requires toroidal topology")
-        if args.curvature_characteristic_axes != "legacy":
-            raise ValueError(
-                "third-order radial curvature requires --curvature-characteristic-axes legacy"
-            )
-        if args.curvature_rlp_face_scheme != "projected-fine":
-            raise ValueError(
-                "third-order radial curvature requires --curvature-rlp-face-scheme projected-fine"
-            )
-    if (
-        args.curvature_poloidal_characteristic_scheme == "third-order-upwind"
-        and args.curvature_radial_characteristic_scheme != "third-order-upwind"
-    ):
-        raise ValueError(
-            "third-order poloidal curvature requires the matching radial scheme"
-        )
-    radial_penalty = float(args.curvature_rlp_fine_glue_penalty)
-    poloidal_penalty = (
-        radial_penalty
-        if args.poloidal_characteristic_penalty is None
-        else float(args.poloidal_characteristic_penalty)
-    )
-    if not np.isfinite(radial_penalty) or radial_penalty < 0.0:
-        raise ValueError("curvature characteristic penalty must be finite and nonnegative")
-    if not np.isfinite(poloidal_penalty) or poloidal_penalty < 0.0:
-        raise ValueError("poloidal characteristic penalty must be finite and nonnegative")
-    if args.parallel_velocity_layout == "fci-staggered":
-        if args.topology != "toroidal" or args.parallel_operator_scheme != "fci":
-            raise ValueError("fci-staggered requires toroidal FCI operators")
-        if args.time_integrator != "rk4" or args.fci_parallel_leg_scheme != "centered":
-            raise ValueError("fci-staggered requires centered-leg RK4")
-        if args.restart_from is not None:
-            raise ValueError("fci-staggered restart is not face-basis aware")
-    if args.rhs_term_history is not None:
-        if args.parallel_velocity_layout != "fci-staggered":
-            raise ValueError("--rhs-term-history requires fci-staggered velocities")
-        if args.rhs_term_output is None:
-            raise ValueError("--rhs-term-history requires --rhs-term-output")
-        try:
-            frames = tuple(
-                int(item) for item in args.rhs_term_frames.split(",") if item
-            )
-        except ValueError as error:
-            raise ValueError("--rhs-term-frames must be comma-separated integers") from error
-        if not frames or any(frame < 0 for frame in frames):
-            raise ValueError("--rhs-term-frames must contain nonnegative indices")
-
     if framework == "legacy":
         return
     if framework != "production-split":
@@ -7078,8 +6086,6 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
         )
     if args.parallel_operator_scheme != "fci":
         raise ValueError("production-split requires --parallel-operator-scheme fci")
-    if args.parallel_velocity_layout != "cell-centered":
-        raise ValueError("production-split requires cell-centered parallel velocities")
     if args.parallel_flux_pairing != "support-core":
         raise ValueError("production-split requires support-core current pairing")
     if (
@@ -7090,34 +6096,12 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
             "production-split trajectories require current-phi or characteristic-sat "
             "boundary pairing"
         )
-    if args.curvature_scheme != "conservative":
-        raise ValueError("production-split requires conservative curvature")
-    if args.curvature_rlp_face_scheme != "projected-fine":
-        raise ValueError("production-split requires projected-fine owner geometry")
     if args.poisson_bracket_scheme not in (
         "compatible-flux",
         "compatible-third-order-upwind",
         "material-scalar-third-order-upwind",
     ):
         raise ValueError("production-split requires compatible Poisson brackets")
-    if args.curvature_characteristic_axes != "legacy":
-        raise ValueError("production-split forbids legacy characteristic-axis selectors")
-    if args.curvature_radial_characteristic_scheme != "legacy":
-        raise ValueError("production-split forbids legacy radial characteristic selectors")
-    if args.curvature_poloidal_characteristic_scheme != "legacy":
-        raise ValueError("production-split forbids legacy poloidal characteristic selectors")
-    if radial_penalty != 1.0 or args.poloidal_characteristic_penalty is not None:
-        raise ValueError("production-split forbids legacy characteristic penalties")
-    if args.fci_parallel_leg_scheme != "centered":
-        raise ValueError("production-split forbids boundary-only parallel correction")
-    if args.parallel_inflow_closure != "central":
-        raise ValueError("production-split requires central parallel inflow")
-    if args.vorticity_current_inflow_trace != "operator" and (
-        args.rhs_replay_history is None
-    ):
-        raise ValueError("production-split forbids boundary-only current correction")
-    if args.curvature_inflow_closure != "central":
-        raise ValueError("production-split requires central curvature inflow")
 
 
 def _configure_runtime_selectors(args: argparse.Namespace) -> None:
@@ -7125,7 +6109,6 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
 
     os.environ["DRBX_FLUX_FRAMEWORK"] = str(args.flux_framework)
     os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] = str(args.parallel_characteristic_wall_law)
-    os.environ["DRBX_PARALLEL_VELOCITY_LAYOUT"] = str(args.parallel_velocity_layout)
     os.environ["DRBX_PARALLEL_FLUX_PAIRING"] = str(args.parallel_flux_pairing)
     os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] = (
         str(args.parallel_boundary_pairing)
@@ -7141,41 +6124,19 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
     os.environ["DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT"] = str(
         args.parallel_short_leg_cfl_limit
     )
-    os.environ["DRBX_CHARACTERISTIC_SAT_AFFINE_CURRENT_LIFT"] = str(
-        args.characteristic_sat_affine_current_lift
-    )
-    os.environ["DRBX_PARALLEL_CURRENT_PHI_PAIR"] = str(
-        args.parallel_current_phi_pair
-    )
-    os.environ["DRBX_CURVATURE_EVOLUTION_COMPONENT"] = str(
-        args.curvature_evolution_component
-    )
-    os.environ["DRBX_CURVATURE_RADIAL_ABLATION"] = str(
-        args.curvature_radial_ablation
-    )
-    os.environ["DRBX_CURVATURE_CHARACTERISTIC_AXES"] = str(
-        args.curvature_characteristic_axes
-    )
-    os.environ["DRBX_CURVATURE_RADIAL_CHARACTERISTIC_SCHEME"] = str(
-        args.curvature_radial_characteristic_scheme
-    )
-    os.environ["DRBX_CURVATURE_POLOIDAL_CHARACTERISTIC_SCHEME"] = str(
-        args.curvature_poloidal_characteristic_scheme
-    )
-    os.environ["DRBX_CURVATURE_COMPONENT_DIAGNOSTIC_SCHEME"] = str(
-        args.curvature_component_diagnostic_scheme
-    )
+    for name in (
+        "DRBX_CHARACTERISTIC_SAT_AFFINE_CURRENT_LIFT",
+        "DRBX_PARALLEL_CURRENT_PHI_PAIR",
+        "DRBX_CURVATURE_EVOLUTION_COMPONENT",
+        "DRBX_CURVATURE_RADIAL_ABLATION",
+        "DRBX_CURVATURE_CHARACTERISTIC_AXES",
+        "DRBX_CURVATURE_RADIAL_CHARACTERISTIC_SCHEME",
+        "DRBX_CURVATURE_POLOIDAL_CHARACTERISTIC_SCHEME",
+        "DRBX_CURVATURE_COMPONENT_DIAGNOSTIC_SCHEME",
+    ):
+        os.environ.pop(name, None)
     if args.flux_framework == "production-split":
-        os.environ["DRBX_CURVATURE_SPLIT_SCHEME"] = "production-path"
         os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] = "production-path"
-        os.environ["DRBX_CURVATURE_WALL_FLUX_CLOSURE"] = {
-            "equilibrium-exterior": (
-                "equilibrium-exterior-canonical-face-state"
-            ),
-            "bc-characteristic": (
-                "bc-characteristic-operator-trace-canonical-face-state"
-            ),
-        }[str(args.curvature_wall_flux_closure)]
         os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] = (
             _parallel_characteristic_wall_metadata(
                 str(args.parallel_characteristic_wall_law)
@@ -7185,35 +6146,18 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
         os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE", None)
     else:
         for name in (
-            "DRBX_CURVATURE_SPLIT_SCHEME",
             "DRBX_PARALLEL_MATERIAL_SCHEME",
-            "DRBX_CURVATURE_WALL_FLUX_CLOSURE",
             "DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE",
         ):
             os.environ.pop(name, None)
-        penalty = (
-            args.curvature_rlp_fine_glue_penalty
-            if args.poloidal_characteristic_penalty is None
-            else args.poloidal_characteristic_penalty
-        )
-        os.environ["DRBX_POLOIDAL_CHARACTERISTIC_PENALTY"] = str(penalty)
-        os.environ["DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE"] = (
-            "simulate_hsx_blob.py:--poloidal-characteristic-penalty"
-            if args.poloidal_characteristic_penalty is not None
-            else "inherited-from-curvature-rlp-fine-glue-penalty"
-        )
-    if args.rhs_term_history is None:
-        for name in (
-            "DRBX_RHS_TERM_HISTORY",
-            "DRBX_RHS_TERM_FRAMES",
-            "DRBX_RHS_TERM_OUTPUT",
-        ):
-            os.environ.pop(name, None)
-    else:
-        frames = tuple(int(item) for item in args.rhs_term_frames.split(",") if item)
-        os.environ["DRBX_RHS_TERM_HISTORY"] = str(args.rhs_term_history)
-        os.environ["DRBX_RHS_TERM_FRAMES"] = ",".join(str(frame) for frame in frames)
-        os.environ["DRBX_RHS_TERM_OUTPUT"] = str(args.rhs_term_output)
+        os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY", None)
+        os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE", None)
+    for name in (
+        "DRBX_RHS_TERM_HISTORY",
+        "DRBX_RHS_TERM_FRAMES",
+        "DRBX_RHS_TERM_OUTPUT",
+    ):
+        os.environ.pop(name, None)
 
 
 def _parallel_characteristic_wall_metadata(wall_law: str) -> dict[str, object]:
@@ -7343,26 +6287,10 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--fci-parallel-leg-scheme",
-        choices=("centered", "boundary-characteristic-upwind"),
-        default="centered",
-        help=(
-            "FCI mapped-leg closure. 'boundary-characteristic-upwind' replaces "
-            "the centered five-field principal operator only on target rows "
-            "whose forward or backward leg terminates at the vessel wall."
-        ),
-    )
-    parser.add_argument(
         "--fci-trace-substeps",
         type=int,
         default=4,
         help="RK4 substeps per toroidal plane used when generating FCI maps.",
-    )
-    parser.add_argument(
-        "--parallel-velocity-layout",
-        choices=("cell-centered", "fci-staggered"),
-        default="cell-centered",
-        help="Storage layout for the parallel ion/electron velocities.",
     )
     parser.add_argument(
         "--parallel-flux-pairing",
@@ -7428,71 +6356,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="CFL threshold selecting short wall legs for the local implicit split.",
     )
     parser.add_argument(
-        "--curvature-evolution-component",
-        choices=("full", "centered-only", "dissipation-only"),
-        default="full",
-        help="Select all or one component of the production curvature flux.",
-    )
-    parser.add_argument(
-        "--curvature-wall-flux-closure",
-        choices=("equilibrium-exterior", "bc-characteristic"),
-        default="equilibrium-exterior",
-        help=(
-            "Physical-wall state for the production curvature flux.  "
-            "bc-characteristic derives incoming data from the primitive "
-            "operator boundary traces and requires no equilibrium reference."
-        ),
-    )
-    parser.add_argument(
-        "--curvature-radial-ablation",
-        choices=(
-            "none",
-            "upper-physical-face",
-            "rlp-transition-faces",
-            "ordinary-interior-faces",
-            "last-interior-face",
-            "within-cell-path",
-        ),
-        default="none",
-        help=(
-            "Analysis-only removal of one radial production-curvature "
-            "contribution; the default leaves the production RHS unchanged."
-        ),
-    )
-    parser.add_argument(
-        "--curvature-characteristic-axes",
-        choices=("legacy", "radial", "radial-poloidal"),
-        default="legacy",
-        help="Diagnostic legacy curvature characteristic-correction axes.",
-    )
-    parser.add_argument(
-        "--curvature-radial-characteristic-scheme",
-        choices=("legacy", "third-order-upwind"),
-        default="legacy",
-        help="Radial coupled-curvature characteristic scheme.",
-    )
-    parser.add_argument(
-        "--curvature-poloidal-characteristic-scheme",
-        choices=("legacy", "third-order-upwind"),
-        default="legacy",
-        help="Poloidal coupled-curvature characteristic scheme.",
-    )
-    parser.add_argument(
-        "--curvature-component-diagnostic-scheme",
-        choices=("directional", "centered-dissipation", "radial-provenance"),
-        default="directional",
-        help="Lane layout used by frozen curvature RHS diagnostics.",
-    )
-    parser.add_argument(
-        "--poloidal-characteristic-penalty",
-        type=float,
-        default=None,
-        help=(
-            "Nonnegative legacy poloidal characteristic multiplier; defaults "
-            "to --curvature-rlp-fine-glue-penalty."
-        ),
-    )
-    parser.add_argument(
         "--shard-counts",
         "--shards",
         nargs=3,
@@ -7507,86 +6370,6 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--halo-width", type=int, default=2)
-    parser.add_argument(
-        "--curvature-scheme",
-        choices=("direct", "conservative", "disabled"),
-        default="conservative",
-        help=(
-            "Regular local curvature discretization. 'conservative' uses "
-            "precomputed shared-face B-field flux coefficients; 'direct' "
-            "uses the existing cell-centered coefficient stencil; 'disabled' "
-            "sets every curvature contribution in the EB RHS to zero."
-        ),
-    )
-    parser.add_argument(
-        "--curvature-scale",
-        type=float,
-        default=1.0,
-        help="Nonnegative multiplier applied to every assembled curvature contribution.",
-    )
-    parser.add_argument(
-        "--curvature-rlp-face-scheme",
-        choices=(
-            "projected-fine",
-            "moment-shared",
-            "bounded-moment-shared",
-            "constrained-flux-shared",
-            "fine-glue-sat",
-            "fine-glue-characteristic",
-            "fine-glue-characteristic-bulk",
-        ),
-        default="projected-fine",
-        help=(
-            "Angular-RLP curvature treatment. 'projected-fine' uses R A_f P; "
-            "'moment-shared' replaces radial group-size transitions by one "
-            "moment-fitted shared flux per physical fine subface; "
-            "'bounded-moment-shared' applies a conservative local-state "
-            "bound to that fitted correction; 'constrained-flux-shared' "
-            "instead constrains the metric-flux correction to zero coarse-"
-            "face integral and non-positive discrete face power; "
-            "'fine-glue-sat' uses the existing physical fine subfaces as a "
-            "common glue grid with a scalar jump penalty; "
-            "'fine-glue-characteristic' applies the coupled H-compatible "
-            "curvature |M| jump flux on that same glue grid only at RLP "
-            "transitions; 'fine-glue-characteristic-bulk' applies that "
-            "same high-order trace-transpose flux at every interior radial "
-            "face."
-        ),
-    )
-    parser.add_argument(
-        "--curvature-rlp-fine-glue-penalty",
-        type=float,
-        default=1.0,
-        help=(
-            "Nonnegative dimensionless jump-penalty multiplier for "
-            "either fine-glue curvature face scheme. A value of one uses "
-            "0.5*abs(Q^u) times the scalar or characteristic jump on each "
-            "active radial subface: RLP transitions for the transition-only "
-            "schemes and every interior radial face for the bulk "
-            "characteristic scheme."
-        ),
-    )
-    parser.add_argument(
-        "--curvature-equations",
-        nargs="+",
-        choices=("density", "Te", "Ti", "vorticity"),
-        default=("density", "Te", "Ti", "vorticity"),
-        help=(
-            "RHS equations receiving their assembled curvature contribution. "
-            "The default enables density, Te, Ti, and vorticity; this setting "
-            "has no effect when --curvature-scheme=disabled."
-        ),
-    )
-    parser.add_argument(
-        "--ion-temperature-curvature-self-form",
-        choices=("product", "flux"),
-        default="product",
-        help=(
-            "Conservative ion-temperature self-curvature form: 'product' "
-            "uses Ti*C(Ti) (default), while 'flux' uses C(Ti**2)/2 and "
-            "requires --curvature-scheme=conservative."
-        ),
-    )
     parser.add_argument(
         "--neumann-ghost-scheme",
         choices=("logical", "physical"),
@@ -7607,80 +6390,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "'neumann' extrapolates both parallel velocities; 'bohm' sets "
             "outward Vi=Ve=sign(B.n)*sqrt(Te+tau*Ti), a zero-current "
             "sheath-entry diagnostic without a magnetic-presheath model."
-        ),
-    )
-    parser.add_argument(
-        "--parallel-inflow-closure",
-        choices=(
-            "central",
-            "local-characteristic",
-            "equilibrium-characteristic",
-        ),
-        default="central",
-        help=(
-            "Parallel physical-wall inflow closure. 'local-characteristic' "
-            "uses local five-field material characteristics for the "
-            "(n, Te, Ti, Vi, Ve) subsystem, excludes phi and vorticity, "
-            "and uses --parallel-velocity-wall-bc as candidate incoming "
-            "data; 'equilibrium-characteristic' instead sets incoming "
-            "perturbations to zero relative to (1,1,1,0,0) while retaining "
-            "owner outgoing/stationary components; 'central' retains the "
-            "centered closure."
-        ),
-    )
-    parser.add_argument(
-        "--vorticity-current-inflow-trace",
-        choices=("operator", "parallel-characteristic"),
-        default="operator",
-        help=(
-            "Trace used by the parallel-current divergence in the vorticity "
-            "equation. 'operator' preserves the production primitive trace; "
-            "'parallel-characteristic' is a closure-consistency ablation that "
-            "reuses the first-order characteristic material current trace."
-        ),
-    )
-    parser.add_argument(
-        "--characteristic-sat-affine-current-lift",
-        choices=("enabled", "suppressed"),
-        default="enabled",
-        help=(
-            "Diagnostic production ablation. 'suppressed' retains the "
-            "homogeneous weighted-adjoint current/phi pair but removes only "
-            "the inhomogeneous characteristic-SAT wall-current lift from "
-            "the vorticity equation."
-        ),
-    )
-    parser.add_argument(
-        "--parallel-current-phi-pair",
-        choices=("enabled", "suppressed"),
-        default="enabled",
-        help=(
-            "Diagnostic production ablation. 'suppressed' removes both "
-            "mu*grad_parallel(phi) from Ve and (B**2/n)*div_parallel(j) "
-            "from vorticity while retaining all other physics."
-        ),
-    )
-    parser.add_argument(
-        "--parallel-subsystem-only",
-        action="store_true",
-        help=(
-            "RK4 diagnostic mode: advance only the production parallel "
-            "subsystem while retaining normal algebraic phi reconstruction; "
-            "exclude Poisson brackets, curvature, perpendicular diffusion, "
-            "and sources."
-        ),
-    )
-    parser.add_argument(
-        "--curvature-inflow-closure",
-        choices=("central", "upwind-equilibrium"),
-        default="central",
-        help=(
-            "Wall closure for conservative curvature fluxes. "
-            "'upwind-equilibrium' retains owner values in outgoing and "
-            "stationary background-linearized characteristics and supplies "
-            "the normalized equilibrium state (n, Te, Ti, omega)=(1,1,1,0) "
-            "to incoming characteristics. Interior and shard faces remain "
-            "centered. 'central' retains the centered compatibility mode."
         ),
     )
     parser.add_argument(
@@ -7908,57 +6617,6 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--rhs-term-history",
-        type=Path,
-        default=None,
-        help=(
-            "Evaluate the staggered Vi RHS decomposition at selected frames "
-            "of an existing history."
-        ),
-    )
-    parser.add_argument(
-        "--rhs-term-frames",
-        default="100,180,225",
-        help="Comma-separated frames for --rhs-term-history.",
-    )
-    parser.add_argument(
-        "--rhs-term-output",
-        type=Path,
-        default=None,
-        help="JSON output for --rhs-term-history.",
-    )
-    parser.add_argument(
-        "--curvature-manufactured-output",
-        type=Path,
-        default=None,
-        help=(
-            "Apply the conservative curvature operator to smooth analytic "
-            "fields and export fine-grid versus R A_f P results without "
-            "advancing time."
-        ),
-    )
-    parser.add_argument(
-        "--curvature-transition-audit-output",
-        type=Path,
-        default=None,
-        help=(
-            "Matrix-free mass-adjoint and frozen coupled-Jacobian audit of "
-            "the angular-RLP curvature transitions, without advancing time."
-        ),
-    )
-    parser.add_argument(
-        "--curvature-transition-audit-face",
-        type=int,
-        default=None,
-        metavar="I",
-        help=(
-            "Audit-only one-based radial face index selecting one fine-glue "
-            "SAT angular-RLP transition. Requires "
-            "--curvature-transition-audit-output and "
-            "--curvature-rlp-face-scheme=fine-glue-sat."
-        ),
-    )
-    parser.add_argument(
         "--blob-initialization",
         choices=("field-aligned", "logical"),
         default="field-aligned",
@@ -8166,14 +6824,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(
         "[simulation] flux_framework="
         f"{args.flux_framework}; "
-        f"parallel_velocity_layout={args.parallel_velocity_layout}; "
+        "parallel_velocities=cell-centered; "
         f"parallel_flux_pairing={args.parallel_flux_pairing}; "
         f"parallel_characteristic_wall_law={args.parallel_characteristic_wall_law}; "
         "parallel_boundary_pairing="
         f"{os.environ['DRBX_PARALLEL_BOUNDARY_PAIRING']}; "
         f"parallel_short_leg_treatment={args.parallel_short_leg_treatment}; "
-        f"parallel_short_leg_selection={args.parallel_short_leg_selection}; "
-        f"curvature_evolution_component={args.curvature_evolution_component}",
+        f"parallel_short_leg_selection={args.parallel_short_leg_selection}",
         flush=True,
     )
     try:
@@ -8216,47 +6873,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--agglomeration-rk4-safety must lie in (0, 1]")
     if args.parallel_operator_scheme == "fci" and args.topology != "toroidal":
         parser.error("--parallel-operator-scheme=fci requires --topology=toroidal")
-    if (
-        args.fci_parallel_leg_scheme != "centered"
-        and args.parallel_operator_scheme != "fci"
-    ):
-        parser.error(
-            "--fci-parallel-leg-scheme=boundary-characteristic-upwind requires "
-            "--parallel-operator-scheme=fci"
-        )
-    if (
-        args.fci_parallel_leg_scheme == "boundary-characteristic-upwind"
-        and args.parallel_inflow_closure != "equilibrium-characteristic"
-    ):
-        parser.error(
-            "--fci-parallel-leg-scheme=boundary-characteristic-upwind requires "
-            "--parallel-inflow-closure=equilibrium-characteristic"
-        )
     if args.fci_trace_substeps < 1:
         parser.error("--fci-trace-substeps must be positive")
-    if (
-        not np.isfinite(args.curvature_rlp_fine_glue_penalty)
-        or args.curvature_rlp_fine_glue_penalty < 0.0
-    ):
-        parser.error("--curvature-rlp-fine-glue-penalty must be finite and nonnegative")
-    if (
-        args.curvature_rlp_face_scheme
-        in ("fine-glue-characteristic", "fine-glue-characteristic-bulk")
-        and frozenset(args.curvature_equations)
-        != frozenset(("density", "Te", "Ti", "vorticity"))
-    ):
-        parser.error(
-            "characteristic fine-glue curvature requires "
-            "all four --curvature-equations"
-        )
-    if (
-        args.curvature_rlp_face_scheme == "fine-glue-characteristic-bulk"
-        and args.curvature_transition_audit_face is not None
-    ):
-        parser.error(
-            "--curvature-transition-audit-face is incompatible with "
-            "--curvature-rlp-face-scheme=fine-glue-characteristic-bulk"
-        )
     shard_counts = tuple(int(value) for value in args.shard_counts)
     if any(value < 1 for value in shard_counts):
         parser.error("--shard-counts entries must be positive")
@@ -8273,25 +6891,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             "material-scalar-third-order-upwind",
         ):
             parser.error("toroidal RLP requires a compatible Poisson-bracket scheme")
-        if args.curvature_scheme != "conservative":
-            parser.error("toroidal RLP requires --curvature-scheme=conservative")
-        if (
-            args.curvature_rlp_face_scheme in (
-                "moment-shared",
-                "bounded-moment-shared",
-                "constrained-flux-shared",
-            )
-            and shard_counts != (1, 1, 1)
-        ):
-            parser.error(
-                "moment-shared RLP curvature currently requires "
-                "--shard-counts 1 1 1"
-            )
-    elif args.curvature_rlp_face_scheme != "projected-fine":
-        parser.error(
-            "moment-shared RLP curvature is only valid for "
-            "toroidal angular RLP"
-        )
     if args.square_agglomeration == "corner-edge":
         if args.time_integrator != "rk4":
             parser.error("square corner-edge agglomeration currently requires --time-integrator=rk4")
@@ -8306,8 +6905,6 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "square corner-edge agglomeration requires a compatible "
                 "Poisson-bracket scheme"
             )
-        if args.curvature_scheme != "conservative":
-            parser.error("square corner-edge agglomeration requires --curvature-scheme=conservative")
     for axis, (cell_count, shard_count) in enumerate(
         zip(resolution, shard_counts)
     ):
@@ -8328,8 +6925,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--save-every must be positive")
     if args.checkpoint_every < 0:
         parser.error("--checkpoint-every must be nonnegative")
-    if args.curvature_scale < 0.0:
-        parser.error("--curvature-scale must be nonnegative")
     if any(float(value) < 0.0 for value in args.snapshot_times):
         parser.error("--snapshot-times must be nonnegative")
     if any(float(value) > float(args.final_time) for value in args.snapshot_times):
@@ -8430,67 +7025,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             "[rhs-replay] auto-selected execution: "
             f"{args.rhs_replay_execution} for {len(rhs_replay_frames)} frame(s)",
             flush=True,
-        )
-    if (
-        args.curvature_manufactured_output is not None
-        and args.rhs_replay_history is not None
-    ):
-        parser.error(
-            "--curvature-manufactured-output cannot be combined with RHS replay"
-        )
-    if (
-        args.curvature_manufactured_output is not None
-        and args.curvature_scheme != "conservative"
-    ):
-        parser.error(
-            "--curvature-manufactured-output requires --curvature-scheme=conservative"
-        )
-    if (
-        args.curvature_transition_audit_output is not None
-        and (
-            args.rhs_replay_history is not None
-            or args.curvature_manufactured_output is not None
-        )
-    ):
-        parser.error(
-            "--curvature-transition-audit-output cannot be combined with "
-            "RHS replay or the manufactured audit"
-        )
-    if (
-        args.curvature_transition_audit_output is not None
-        and args.curvature_scheme != "conservative"
-    ):
-        parser.error(
-            "--curvature-transition-audit-output requires "
-            "--curvature-scheme=conservative"
-        )
-    if args.curvature_transition_audit_face is not None:
-        if args.curvature_transition_audit_output is None:
-            parser.error(
-                "--curvature-transition-audit-face requires "
-                "--curvature-transition-audit-output"
-            )
-        if args.curvature_rlp_face_scheme not in (
-            "fine-glue-sat",
-            "fine-glue-characteristic",
-            "fine-glue-characteristic-bulk",
-        ):
-            parser.error(
-                "--curvature-transition-audit-face requires "
-                "a fine-glue --curvature-rlp-face-scheme"
-            )
-    if args.curvature_scheme != "conservative" and args.curvature_inflow_closure != "central":
-        parser.error(
-            "--curvature-inflow-closure applies only to "
-            "--curvature-scheme=conservative"
-        )
-    if (
-        args.ion_temperature_curvature_self_form == "flux"
-        and args.curvature_scheme != "conservative"
-    ):
-        parser.error(
-            "--ion-temperature-curvature-self-form=flux requires "
-            "--curvature-scheme=conservative"
         )
     if not 0.0 <= args.toroidal_perturbation_amplitude < 1.0:
         parser.error(
@@ -8617,34 +7151,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"minimum_width_ratio={angular_profile_safety_ratio:.6g}",
             flush=True,
         )
-        if args.curvature_transition_audit_face is not None:
-            transition_face = int(args.curvature_transition_audit_face)
-            profile = tuple(
-                int(value) for value in owner_host_geometry.angular_group_size
-            )
-            if not 0 < transition_face < len(profile):
-                parser.error(
-                    "--curvature-transition-audit-face must identify an "
-                    f"interior radial face in [1, {len(profile) - 1}]"
-                )
-            if profile[transition_face - 1] == profile[transition_face]:
-                parser.error(
-                    "--curvature-transition-audit-face must identify an "
-                    "angular-group transition"
-                )
         (
             control_volume_descriptor,
             control_volume_fields,
         ) = build_sharded_polar_angular_agglomeration_payload(
             owner_host_geometry,
             sharded_geometry.domain,
-            compile_compact_transition_faces=(
-                args.curvature_rlp_face_scheme in (
-                    "moment-shared",
-                    "bounded-moment-shared",
-                    "constrained-flux-shared",
-                )
-            ),
+            compile_compact_transition_faces=False,
         )
         compact_transition_face_count = int(
             getattr(control_volume_descriptor, "compact_face_count", 0)
@@ -8667,118 +7180,6 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "FCI parallel operators require finite generated maps; "
                 "map generation or sharded lowering was invalid"
             )
-    staggered_face_provenance = None
-    staggered_face_topology_host = None
-    if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered":
-        if (
-            control_volume_descriptor is None
-            or control_volume_assembler is None
-            or control_volume_fields is None
-            or sharded_geometry.map_fields is None
-        ):
-            raise ValueError("fci-staggered provenance requires angular RLP and FCI maps")
-
-        def staggered_face_preflight(cell_fields_owned, map_fields_owned, cv_fields_owned):
-            local_geometry = assemble_local_fci_geometry(
-                sharded_geometry, cell_fields_owned, map_fields_owned
-            )
-            local_cv = control_volume_assembler(
-                control_volume_descriptor, cv_fields_owned, local_geometry
-            )
-            topology = build_local_outgoing_fci_face_topology_from_geometry(
-                local_cv.cells, local_geometry.maps
-            )
-            return (
-                topology.edge_owner_i + jax.lax.axis_index("x") * topology.shape[0],
-                topology.edge_owner_j + jax.lax.axis_index("y") * topology.shape[1],
-                topology.edge_owner_k + jax.lax.axis_index("z") * topology.shape[2],
-                topology.edge_active, topology.is_active_owner,
-                topology.edge_measure, topology.aggregate_measure,
-                topology.edge_destination_i + jax.lax.axis_index("x") * topology.shape[0],
-                topology.edge_destination_j + jax.lax.axis_index("y") * topology.shape[1],
-                topology.edge_destination_k + jax.lax.axis_index("z") * topology.shape[2],
-                topology.edge_interpolation_provenance, topology.edge_destination_support,
-            )
-
-        staggered_face_preflight_sharded = jax.shard_map(
-            staggered_face_preflight, mesh=mesh,
-            in_specs=(P("x", "y", "z", None),) * 3,
-            out_specs=(P("x", "y", "z"),) * 10 + (P("x", "y", "z", None),) * 2,
-            check_vma=True,
-        )
-        staggered_face_preflight = (
-            jax.jit(staggered_face_preflight_sharded)
-            if setup_execution == "compiled"
-            else staggered_face_preflight_sharded
-        )
-        with jax.disable_jit(setup_execution == "eager"):
-            staggered_face_results = staggered_face_preflight(
-                jax.device_put(jnp.asarray(sharded_geometry.cell_fields, dtype=jnp.float64),
-                               NamedSharding(mesh, P("x", "y", "z", None))),
-                jax.device_put(jnp.asarray(sharded_geometry.map_fields, dtype=jnp.float64),
-                               NamedSharding(mesh, P("x", "y", "z", None))),
-                jax.device_put(jnp.asarray(control_volume_fields, dtype=jnp.float64),
-                               NamedSharding(mesh, P("x", "y", "z", None))),
-            )
-        staggered_face_arrays = tuple(
-            np.asarray(value) for value in staggered_face_results
-        )
-        (face_owner_i, face_owner_j, face_owner_k, face_active, face_owner_active,
-         face_measure, face_aggregate_measure, face_destination_i, face_destination_j,
-         face_destination_k, face_provenance, face_destination_support) = staggered_face_arrays
-        fine_indices = np.indices(face_active.shape, dtype=np.int32)
-        face_alias = face_active & (
-            (face_owner_i != fine_indices[0]) | (face_owner_j != fine_indices[1])
-            | (face_owner_k != fine_indices[2])
-        )
-        face_member_count = np.zeros(face_active.shape, dtype=np.int64)
-        np.add.at(face_member_count,
-                  (face_owner_i[face_active], face_owner_j[face_active], face_owner_k[face_active]), 1)
-
-        def face_sha256(*arrays):
-            digest = hashlib.sha256()
-            for array in arrays:
-                canonical = np.ascontiguousarray(array)
-                digest.update(str(canonical.dtype).encode())
-                digest.update(np.asarray(canonical.shape, dtype=np.int64).tobytes())
-                digest.update(canonical.tobytes())
-            return digest.hexdigest()
-
-        staggered_face_provenance = {
-            "face_basis_policy": OUTGOING_FCI_FACE_OWNERSHIP_POLICY,
-            "face_basis_version": OUTGOING_FCI_FACE_OWNERSHIP_POLICY.rsplit("-v", 1)[-1],
-            "fine_face_count": int(np.count_nonzero(face_active)),
-            "face_owner_count": int(np.count_nonzero(face_owner_active)),
-            "face_alias_count": int(np.count_nonzero(face_alias)),
-            "face_max_fine_edges_per_owner": int(np.max(face_member_count, initial=0)),
-            "face_owner_map_sha256": face_sha256(
-                face_owner_i, face_owner_j, face_owner_k, face_active, face_owner_active
-            ),
-            "face_measure_sha256": face_sha256(face_measure, face_aggregate_measure),
-            "face_provenance_sha256": face_sha256(
-                face_destination_i, face_destination_j, face_destination_k, face_provenance,
-                face_destination_support
-            ),
-        }
-        staggered_face_topology_host = {
-            "edge_owner_i": face_owner_i, "edge_owner_j": face_owner_j,
-            "edge_owner_k": face_owner_k, "edge_active": face_active,
-            "is_active_owner": face_owner_active, "edge_measure": face_measure,
-            "aggregate_measure": face_aggregate_measure,
-            "edge_destination_i": face_destination_i,
-            "edge_destination_j": face_destination_j,
-            "edge_destination_k": face_destination_k,
-            "edge_interpolation_provenance": face_provenance,
-            "edge_destination_support": face_destination_support,
-        }
-        print(
-            "[staggered-face-preflight] "
-            f"fine={staggered_face_provenance['fine_face_count']}, "
-            f"owners={staggered_face_provenance['face_owner_count']}, "
-            f"aliases={staggered_face_provenance['face_alias_count']}, "
-            f"max_edges_per_owner={staggered_face_provenance['face_max_fine_edges_per_owner']}",
-            flush=True,
-        )
     domain = sharded_geometry.domain
     print(
         f"sharded geometry inputs ready in "
@@ -8962,11 +7363,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     if owner_host_geometry is not None:
         reused_materialized_owners = False
-        if (
-            restart_used
-            and os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT")
-            != "fci-staggered"
-        ):
+        if restart_used:
             (
                 initial_state,
                 reused_materialized_owners,
@@ -8978,8 +7375,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             initial_state = _aggregate_initial_owner_state(
                 initial_state, owner_host_geometry
             )
-        if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") != "fci-staggered":
-            _assert_owner_sparse(initial_state, owner_host_geometry, staggered_face_topology_host)
+        _assert_owner_sparse(initial_state, owner_host_geometry)
         print(
             "[simulation] initial cell state "
             + (
@@ -8988,12 +7384,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 else "volume-aggregated into canonical owners"
             )
             + "; "
-            + (
-                "staggered Vi/Ve are projected through FCI faces before evolution"
-                if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT")
-                == "fci-staggered"
-                else "all seven fields use the canonical cell-owner basis"
-            ),
+            + "all seven fields use the canonical cell-owner basis",
             flush=True,
         )
     if restart_used:
@@ -9033,35 +7424,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         flush=True,
     )
     print(
-        f"[simulation] curvature scheme: {str(args.curvature_scheme)}; "
-        f"RLP faces: {str(args.curvature_rlp_face_scheme)}; wall closure: "
-        f"{str(args.curvature_wall_flux_closure)}",
+        "[simulation] curvature: production characteristic owner-face; "
+        "wall closure: BC-characteristic operator trace",
         flush=True,
     )
     print(
         "[simulation] parallel operator scheme: "
-        f"{str(args.parallel_operator_scheme)}; FCI leg scheme: "
-        f"{str(args.fci_parallel_leg_scheme)}; FCI trace substeps: "
+        f"{str(args.parallel_operator_scheme)}; FCI trace substeps: "
         f"{int(args.fci_trace_substeps)}",
         flush=True,
     )
     print(
         "[simulation] Poisson bracket scheme: "
         f"{str(args.poisson_bracket_scheme)}",
-        flush=True,
-    )
-    print(
-        f"[simulation] curvature scale: {float(args.curvature_scale):.6e}",
-        flush=True,
-    )
-    print(
-        "[simulation] curvature equations: "
-        f"{', '.join(str(equation) for equation in args.curvature_equations)}",
-        flush=True,
-    )
-    print(
-        "[simulation] ion-temperature curvature self form: "
-        f"{str(args.ion_temperature_curvature_self_form)}",
         flush=True,
     )
     print(
@@ -9084,49 +7459,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "[simulation] parallel short-leg selection: "
         f"{str(args.parallel_short_leg_selection)} "
         "(all-physical-walls uses no CFL threshold; selected material and "
-        "electron Ti-force are one IMEX stage residual; current/phi pair="
-        f"{str(args.parallel_current_phi_pair)})",
-        flush=True,
-    )
-    parallel_closure_description = {
-        "central": "centered operator traces",
-        "local-characteristic": (
-            "local five-field material characteristics with primitive BC "
-            "incoming data; phi/vorticity excluded"
-        ),
-        "equilibrium-characteristic": (
-            "local five-field material characteristics with incoming "
-            "perturbations zeroed around (1,1,1,0,0); phi/vorticity excluded"
-        ),
-    }[str(args.parallel_inflow_closure)]
-    print(
-        "[simulation] parallel inflow closure: "
-        f"{str(args.parallel_inflow_closure)} ({parallel_closure_description})",
-        flush=True,
-    )
-    print(
-        "[simulation] vorticity-current inflow trace: "
-        f"{str(args.vorticity_current_inflow_trace)}",
-        flush=True,
-    )
-    print(
-        "[simulation] characteristic-SAT affine current lift: "
-        f"{str(args.characteristic_sat_affine_current_lift)}",
-        flush=True,
-    )
-    print(
-        "[simulation] explicit parallel current/phi pair: "
-        f"{str(args.parallel_current_phi_pair)}",
-        flush=True,
-    )
-    print(
-        "[simulation] parallel subsystem only: "
-        f"{bool(args.parallel_subsystem_only)}",
-        flush=True,
-    )
-    print(
-        "[simulation] conservative curvature boundary flux closure: "
-        f"{str(args.curvature_inflow_closure)}",
+        "electron Ti-force are one IMEX stage residual)",
         flush=True,
     )
     print(
@@ -9166,7 +7499,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             args.gmres_residual_correction_steps
         ),
         parallel_operator_scheme=str(args.parallel_operator_scheme),
-        fci_parallel_leg_scheme=str(args.fci_parallel_leg_scheme),
         time_integrator=str(args.time_integrator),
         advance_execution=str(args.advance_execution),
         num_steps=int(args.num_steps),
@@ -9188,8 +7520,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             args.rhs_replay_electron_force_wall_audit
         ),
         rhs_replay_execution=str(args.rhs_replay_execution),
-        curvature_manufactured_output=args.curvature_manufactured_output,
-        curvature_transition_audit_output=args.curvature_transition_audit_output,
         run_metadata={
             "command": " ".join(sys.argv),
             "drbx_source_root": str(DRBX_SRC),
@@ -9218,7 +7548,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             "metric_toroidal_modes": int(args.metric_toroidal_modes),
             "eta_projection_iterations": int(args.eta_projection_iterations),
             "parallel_operator_scheme": str(args.parallel_operator_scheme),
-            "parallel_velocity_layout": os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT", "cell-centered"),
             "parallel_flux_pairing": os.environ.get("DRBX_PARALLEL_FLUX_PAIRING", "legacy"),
             "parallel_characteristic_wall_law": str(args.parallel_characteristic_wall_law),
             "parallel_characteristic_wall_law_env": os.environ.get("DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"),
@@ -9247,38 +7576,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if args.parallel_short_leg_treatment == "local-backward-euler"
                 else "none"
             ),
-            "curvature_evolution_component": os.environ.get("DRBX_CURVATURE_EVOLUTION_COMPONENT", "full"),
-            "curvature_evolution_component_source": "simulate_hsx_blob.py:--curvature-evolution-component",
-            "curvature_radial_ablation": os.environ.get("DRBX_CURVATURE_RADIAL_ABLATION", "none"),
-            "curvature_radial_ablation_source": "simulate_hsx_blob.py:--curvature-radial-ablation",
-            "curvature_wall_flux_closure": os.environ.get("DRBX_CURVATURE_WALL_FLUX_CLOSURE", str(args.curvature_inflow_closure)),
-            "curvature_wall_flux_closure_source": "simulate_hsx_blob.py:--curvature-wall-flux-closure",
-            "curvature_wall_characteristic_jump": (
-                "direct-boundary-minus-interior"
-                if args.curvature_wall_flux_closure == "bc-characteristic"
-                else "equilibrium-minus-interior"
+            "curvature_wall_flux_closure": (
+                "bc-characteristic-operator-trace-canonical-face-state"
             ),
+            "curvature_wall_flux_closure_source": "fixed production method",
+            "curvature_wall_characteristic_jump": "direct-boundary-minus-interior",
             **_parallel_characteristic_wall_metadata(str(args.parallel_characteristic_wall_law)),
-            "curvature_characteristic_axes": os.environ.get("DRBX_CURVATURE_CHARACTERISTIC_AXES", "legacy"),
-            "curvature_characteristic_axes_source": "simulate_hsx_blob.py:--curvature-characteristic-axes",
-            "curvature_radial_characteristic_scheme": os.environ.get("DRBX_CURVATURE_RADIAL_CHARACTERISTIC_SCHEME", "legacy"),
-            "curvature_radial_characteristic_scheme_source": "simulate_hsx_blob.py:--curvature-radial-characteristic-scheme",
-            "curvature_poloidal_characteristic_scheme": os.environ.get("DRBX_CURVATURE_POLOIDAL_CHARACTERISTIC_SCHEME", "legacy"),
-            "curvature_poloidal_characteristic_scheme_source": "simulate_hsx_blob.py:--curvature-poloidal-characteristic-scheme",
-            "curvature_component_diagnostic_scheme": os.environ.get("DRBX_CURVATURE_COMPONENT_DIAGNOSTIC_SCHEME", "directional"),
-            "curvature_component_diagnostic_scheme_source": "simulate_hsx_blob.py:--curvature-component-diagnostic-scheme",
-            "poloidal_characteristic_penalty": (None if os.environ.get("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY") is None else float(os.environ["DRBX_POLOIDAL_CHARACTERISTIC_PENALTY"])),
-            "poloidal_characteristic_penalty_source": os.environ.get("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE", "inherited-from-curvature-rlp-fine-glue-penalty"),
-            "field_locations": {"Vi": "fci-outgoing-face/source-edge" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else "cell-center", "Ve": "fci-outgoing-face/source-edge" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else "cell-center"},
-            "face_owner_layout": (None if staggered_face_provenance is None else staggered_face_provenance["face_basis_policy"]),
-            "outgoing_edge_mass_convention": "raw-fluid-cell-volume" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,
-            "cell_velocity_projection": "PcRc-after-face-to-center" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,
-            "face_native_parallel_forces": "direct-Gc-and-compatible-Dc" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,
-            "center_force_to_face_transfer": "Pe-L-Rc-mass-adjoint-f2c" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,
-            "initial_velocity_projection": "center-to-outgoing-face-Re" if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") == "fci-staggered" else None,
-            **({} if staggered_face_provenance is None else staggered_face_provenance),
+            "field_locations": {"Vi": "cell-center", "Ve": "cell-center"},
             "perpendicular_velocity_geometry": "face-to-center-perpendicular-center-to-face",
-            "fci_parallel_leg_scheme": str(args.fci_parallel_leg_scheme),
             "fci_trace_substeps": int(args.fci_trace_substeps),
             "metric_spline_degree": int(args.metric_spline_degree),
             "mmpde_iterations": int(args.mmpde_iterations),
@@ -9314,13 +7619,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if args.flux_framework == "production-split"
                 else None
             ),
-            "curvature_split_scheme": os.environ.get("DRBX_CURVATURE_SPLIT_SCHEME"),
-            "curvature_split_scheme_env": os.environ.get("DRBX_CURVATURE_SPLIT_SCHEME"),
-            "curvature_split_scheme_source": (
-                "DRBX_CURVATURE_SPLIT_SCHEME"
-                if os.environ.get("DRBX_CURVATURE_SPLIT_SCHEME") is not None
-                else None
-            ),
+            "curvature_operator": "production-characteristic-owner-face",
+            "curvature_operator_source": "fixed production method",
             "parallel_material_scheme": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME"),
             "parallel_material_scheme_env": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME"),
             "parallel_material_scheme_source": (
@@ -9345,42 +7645,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if control_volume_descriptor is not None
                 else "full-grid"
             ),
-            "curvature_scheme": str(args.curvature_scheme),
-            "curvature_scale": float(args.curvature_scale),
-            "curvature_rlp_face_scheme": str(
-                args.curvature_rlp_face_scheme
-            ),
-            "curvature_rlp_fine_glue_penalty": float(
-                args.curvature_rlp_fine_glue_penalty
-            ),
-            "curvature_transition_audit_face": (
-                None
-                if args.curvature_transition_audit_face is None
-                else int(args.curvature_transition_audit_face)
-            ),
-            "curvature_equations": [
-                str(equation) for equation in args.curvature_equations
-            ],
-            "ion_temperature_curvature_self_form": str(
-                args.ion_temperature_curvature_self_form
-            ),
             "neumann_ghost_scheme": str(args.neumann_ghost_scheme),
             "parallel_velocity_wall_bc": str(
                 args.parallel_velocity_wall_bc
-            ),
-            "parallel_inflow_closure": str(args.parallel_inflow_closure),
-            "vorticity_current_inflow_trace": str(
-                args.vorticity_current_inflow_trace
-            ),
-            "characteristic_sat_affine_current_lift": str(
-                args.characteristic_sat_affine_current_lift
-            ),
-            "parallel_current_phi_pair": str(
-                args.parallel_current_phi_pair
-            ),
-            "parallel_subsystem_only": bool(args.parallel_subsystem_only),
-            "curvature_inflow_closure": str(
-                args.curvature_inflow_closure
             ),
             "poisson_bracket_scheme": str(args.poisson_bracket_scheme),
             "axis_treatment": (
@@ -9454,33 +7721,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
         },
         reconstruct_initial_phi=not restart_used,
-        curvature_scheme=str(args.curvature_scheme),
-        curvature_scale=float(args.curvature_scale),
-        curvature_rlp_face_scheme=str(args.curvature_rlp_face_scheme),
-        curvature_rlp_fine_glue_penalty=float(
-            args.curvature_rlp_fine_glue_penalty
-        ),
-        curvature_rlp_fine_glue_transition_face=(
-            args.curvature_transition_audit_face
-        ),
-        curvature_equations=tuple(str(equation) for equation in args.curvature_equations),
-        ion_temperature_curvature_self_form=(
-            str(args.ion_temperature_curvature_self_form)
-        ),
         neumann_ghost_scheme=str(args.neumann_ghost_scheme),
         parallel_velocity_wall_bc=str(args.parallel_velocity_wall_bc),
-        parallel_inflow_closure=str(args.parallel_inflow_closure),
-        vorticity_current_inflow_trace=str(
-            args.vorticity_current_inflow_trace
-        ),
-        parallel_subsystem_only=bool(args.parallel_subsystem_only),
-        curvature_inflow_closure=str(args.curvature_inflow_closure),
         poisson_bracket_scheme=str(args.poisson_bracket_scheme),
-        curvature_split_scheme=(
-            "production-path"
-            if str(args.flux_framework) == "production-split"
-            else "legacy"
-        ),
         parallel_material_scheme=(
             "production-path"
             if str(args.flux_framework) == "production-split"
@@ -9495,7 +7738,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         control_volume_assembler=control_volume_assembler,
         control_volume_field_count=control_volume_field_count,
         owner_host_geometry=owner_host_geometry,
-        outgoing_face_topology_host=staggered_face_topology_host,
     )
 
 

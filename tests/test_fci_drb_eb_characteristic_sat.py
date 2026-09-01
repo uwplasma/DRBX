@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
+import sys
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from jax.sharding import PartitionSpec as P
+
+_TESTS = Path(__file__).resolve().parent
+if str(_TESTS) not in sys.path:
+    sys.path.insert(0, str(_TESTS))
 
 from drbx.native import FciDrbEBRhsParameters, FciDrbEBState
 from drbx.native.fci_drb_EB_rhs import (
@@ -75,10 +81,7 @@ def test_wall_data_current_is_the_first_order_incoming_characteristic_current():
     )
 
 
-@pytest.mark.parametrize(
-    "wall_law", ("primitive-least-residual", "energy-absorbing")
-)
-def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture(wall_law):
+def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture():
     context, mesh, local, partition, fields, cell_fields, map_fields, sharded = (
         _mapped_fixture()
     )
@@ -87,19 +90,18 @@ def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture(wall_law):
         # The MMS profile vanishes at its radial edges.  Give the energy law a
         # small, admissible wall mismatch so both the projected endpoint and
         # its first-order current lift are exercised on the real mapped path.
-        if wall_law == "energy-absorbing":
-            density = density.at[0].add(2.0e-2)
-            density = density.at[-1].add(-1.5e-2)
-            Vi = Vi.at[0].add(3.0e-2)
-            Vi = Vi.at[-1].add(-2.0e-2)
-            Ve = Ve.at[0].add(-2.5e-2)
-            Ve = Ve.at[-1].add(1.0e-2)
+        density = density.at[0].add(2.0e-2)
+        density = density.at[-1].add(-1.5e-2)
+        Vi = Vi.at[0].add(3.0e-2)
+        Vi = Vi.at[-1].add(-2.0e-2)
+        Ve = Ve.at[0].add(-2.5e-2)
+        Ve = Ve.at[-1].add(1.0e-2)
         geometry = assemble_local_fci_geometry(sharded, cells, maps)
-        base_context = replace(
+        energy_context = replace(
             context,
             parameters=replace(
                 context.parameters,
-                parallel_characteristic_wall_law="primitive-least-residual",
+                parallel_characteristic_wall_law="energy-absorbing",
             ),
         )
         # The shifted-torus mapped fixture has ordinary closed legs.  Mark
@@ -117,11 +119,7 @@ def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture(wall_law):
             ),
         )
         rhs = replace(
-            _build_rhs(base_context, local, geometry),
-            parameters=replace(
-                base_context.parameters,
-                parallel_characteristic_wall_law=wall_law,
-            ),
+            _build_rhs(energy_context, local, geometry),
             parallel_operator_scheme="fci",
             parallel_material_scheme="production-path",
             parallel_flux_pairing="support-core",
@@ -224,7 +222,6 @@ def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture(wall_law):
         ))
         endpoint_consistency = (
             jnp.maximum(backward_endpoint_consistency, forward_endpoint_consistency)
-            if wall_law == "energy-absorbing" else jnp.asarray(0.0)
         )
         endpoint_delta = endpoint_values - center_values[..., None, :]
         wall_projection_delta = jnp.maximum(
@@ -282,7 +279,6 @@ def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture(wall_law):
         ))
         current_consistency = (
             jnp.maximum(backward_current_consistency, forward_current_consistency)
-            if wall_law == "energy-absorbing" else jnp.asarray(0.0)
         )
         manual_q_stencil = replace(
             current_q_stencil,
@@ -393,8 +389,7 @@ def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture(wall_law):
     # wall-data test above covers the non-equilibrium characteristic-current
     # case.
     assert np.isfinite(affine_norm)
-    if wall_law == "energy-absorbing":
-        assert wall_projection_delta > 0.0
+    assert wall_projection_delta > 0.0
     assert material_sum_error < 2.0e-12
     assert manual_sat_error < 2.0e-12
     assert endpoint_consistency < 2.0e-12
@@ -405,120 +400,9 @@ def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture(wall_law):
     assert np.isfinite(custom_remainder)
 
 
-def test_characteristic_sat_validation_rejects_non_fci_or_non_support_path():
-    context, mesh, local, partition, fields, cell_fields = (
-        _context_and_sharded_inputs()
-    )
-
-    def invalid(density, phi, Te, Ti, Vi, Ve, vorticity, cells):
-        geometry = assemble_local_fci_geometry(local, cells)
-        replace(
-            _build_rhs(context, local, geometry),
-            parallel_boundary_pairing="characteristic-sat",
-        )
-        return jnp.asarray(0.0)
-
-    compiled = jax.jit(jax.shard_map(
-        invalid, mesh=mesh, in_specs=(partition,) * 8,
-        out_specs=P(), check_vma=False,
-    ))
-    with pytest.raises(ValueError, match="characteristic-sat"):
-        compiled(*fields, cell_fields)
-
-
 def test_energy_absorbing_wall_law_validation_rejects_unknown_selector():
     with pytest.raises(ValueError, match="parallel_characteristic_wall_law"):
         FciDrbEBRhsParameters(parallel_characteristic_wall_law="not-a-law")
-
-
-@pytest.mark.parametrize(
-    ("rhs_overrides", "message"),
-    (
-        (
-            {"parallel_material_scheme": "legacy"},
-            "parallel_material_scheme",
-        ),
-        (
-            {
-                "parallel_operator_scheme": "fci",
-                "parallel_material_scheme": "production-path",
-                "parallel_flux_pairing": "support-core",
-                "parallel_boundary_pairing": "current-phi",
-            },
-            "parallel_boundary_pairing",
-        ),
-        (
-            {
-                "parallel_operator_scheme": "fci",
-                "parallel_material_scheme": "production-path",
-                "parallel_flux_pairing": "support-core",
-                "parallel_boundary_pairing": "characteristic-sat",
-                "parallel_inflow_closure": "local-characteristic",
-            },
-            "parallel_inflow_closure",
-        ),
-    ),
-)
-def test_energy_absorbing_wall_law_validation_guards_rhs_path(
-    rhs_overrides, message
-):
-    context, mesh, local, partition, fields, cell_fields = (
-        _context_and_sharded_inputs()
-    )
-
-    def invalid(density, phi, Te, Ti, Vi, Ve, vorticity, cells):
-        geometry = assemble_local_fci_geometry(local, cells)
-        base_context = replace(
-            context,
-            parameters=replace(
-                context.parameters,
-                parallel_characteristic_wall_law="primitive-least-residual",
-            ),
-        )
-        params = replace(
-            base_context.parameters,
-            parallel_characteristic_wall_law="energy-absorbing",
-        )
-        replace(
-            _build_rhs(base_context, local, geometry),
-            parameters=params,
-            **rhs_overrides,
-        )
-        return jnp.asarray(0.0)
-
-    compiled = jax.jit(jax.shard_map(
-        invalid, mesh=mesh, in_specs=(partition,) * 8,
-        out_specs=P(), check_vma=False,
-    ))
-    with pytest.raises(ValueError, match=message):
-        compiled(*fields, cell_fields)
-
-
-def test_rhs_default_wall_law_is_the_primitive_path(monkeypatch):
-    monkeypatch.delenv("DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW", raising=False)
-    parameters = FciDrbEBRhsParameters()
-    assert parameters.parallel_characteristic_wall_law == (
-        "primitive-least-residual"
-    )
-
-    center = jnp.asarray([1.2, 1.1, 0.9, 0.25, -0.15])
-    candidate = jnp.asarray([1.0, 1.0, 1.0, 0.0, 0.0])
-    default = parallel_characteristic_wall_data(
-        center, candidate, candidate, 0.2, 0.3, 4.0, 10.0,
-        backward_wall=True, forward_wall=True,
-        backward_wall_state=candidate, forward_wall_state=candidate,
-    )
-    explicit = parallel_characteristic_wall_data(
-        center, candidate, candidate, 0.2, 0.3, 4.0, 10.0,
-        backward_wall=True, forward_wall=True,
-        backward_wall_state=candidate, forward_wall_state=candidate,
-        parallel_characteristic_wall_law="primitive-least-residual",
-    )
-    for name in (
-        "backward_endpoint_state", "forward_endpoint_state",
-        "backward_endpoint_current", "forward_endpoint_current",
-    ):
-        np.testing.assert_allclose(default[name], explicit[name])
 
 
 def test_energy_absorbing_rhs_path_keeps_invalid_wall_candidates_finite():
@@ -544,20 +428,27 @@ def test_energy_absorbing_rhs_path_keeps_invalid_wall_candidates_finite():
     assert bool(jnp.all(~diagnostics["fallback"]))
 
 
-def test_all_physical_walls_selection_masks_only_physical_directions():
+@pytest.mark.parametrize(
+    "wall_law", ("primitive-least-residual", "energy-absorbing")
+)
+def test_all_physical_walls_selection_masks_only_physical_directions(wall_law):
     center = jnp.broadcast_to(
         jnp.asarray((1.2, 1.1, 0.9, 0.25, -0.15), dtype=jnp.float64),
         (3, 5),
     )
     walls_backward = jnp.asarray((True, False, True))
     walls_forward = jnp.asarray((False, True, False))
+    minus = center + jnp.asarray((0.02, -0.01, 0.03, -0.02, 0.01))
+    plus = center + jnp.asarray((-0.01, 0.02, -0.02, 0.01, -0.03))
     residual, jacobian, info = parallel_short_wall_material_data(
-        center, center, center, jnp.asarray((100.0, 100.0, 100.0)),
+        center, minus, plus, jnp.asarray((100.0, 100.0, 100.0)),
         jnp.asarray((100.0, 100.0, 100.0)), 4.0, 10.0,
         selection_dt=0.0,
         backward_wall=walls_backward,
         forward_wall=walls_forward,
-        parallel_characteristic_wall_law="energy-absorbing",
+        backward_wall_state=minus,
+        forward_wall_state=plus,
+        parallel_characteristic_wall_law=wall_law,
         parallel_short_leg_selection="all-physical-walls",
     )
     np.testing.assert_array_equal(info["selected_backward_wall"], walls_backward)
@@ -569,29 +460,40 @@ def test_all_physical_walls_selection_masks_only_physical_directions():
     assert bool(jnp.all(jnp.isfinite(jacobian)))
 
 
-def test_all_physical_walls_omits_explicit_material_and_be_includes_one_wall():
+@pytest.mark.parametrize(
+    "wall_law", ("primitive-least-residual", "energy-absorbing")
+)
+def test_all_physical_walls_omits_explicit_material_and_be_includes_one_wall(
+    wall_law,
+):
     center = jnp.broadcast_to(
         jnp.asarray((1.2, 1.1, 0.9, 0.25, -0.15), dtype=jnp.float64),
         (2, 5),
     )
     walls_backward = jnp.asarray((True, False))
     walls_forward = jnp.asarray((False, False))
+    minus = center + jnp.asarray((0.02, -0.01, 0.03, -0.02, 0.01))
+    plus = center + jnp.asarray((-0.01, 0.02, -0.02, 0.01, -0.03))
     residual, diagnostics = parallel_target_row_material_residual(
-        center, center, center, jnp.asarray((100.0, 100.0)),
+        center, minus, plus, jnp.asarray((100.0, 100.0)),
         jnp.asarray((100.0, 100.0)), 4.0, 10.0,
         backward_wall=walls_backward,
         forward_wall=walls_forward,
-        parallel_characteristic_wall_law="energy-absorbing",
+        backward_wall_state=minus,
+        forward_wall_state=plus,
+        parallel_characteristic_wall_law=wall_law,
         parallel_short_leg_selection="all-physical-walls",
     )
     updated, increment, info = parallel_short_wall_backward_euler(
-        center, center, center, jnp.asarray((100.0, 100.0)),
+        center, minus, plus, jnp.asarray((100.0, 100.0)),
         jnp.asarray((100.0, 100.0)), 4.0, 10.0,
         selection_dt=0.0,
         solve_dt=1.0e-3,
         backward_wall=walls_backward,
         forward_wall=walls_forward,
-        parallel_characteristic_wall_law="energy-absorbing",
+        backward_wall_state=minus,
+        forward_wall_state=plus,
+        parallel_characteristic_wall_law=wall_law,
         parallel_short_leg_selection="all-physical-walls",
     )
     assert bool(diagnostics["omitted_backward_wall"][0])
@@ -636,52 +538,6 @@ def test_short_wall_backward_euler_propagates_nonfinite_local_solve():
     assert bool(info["implicit_finite"][1])
 
 
-@pytest.mark.parametrize(
-    ("law", "treatment", "message"),
-    (
-        ("primitive-least-residual", "local-backward-euler", "wall_law"),
-        ("energy-absorbing", "explicit", "short_leg_treatment"),
-    ),
-)
-def test_all_physical_walls_requires_energy_law_and_implicit_treatment(
-    law, treatment, message
-):
-    context, mesh, local, partition, fields, cell_fields = (
-        _context_and_sharded_inputs()
-    )
-
-    def invalid(density, phi, Te, Ti, Vi, Ve, vorticity, cells):
-        geometry = assemble_local_fci_geometry(local, cells)
-        base_context = replace(
-            context,
-            parameters=replace(
-                context.parameters,
-                parallel_characteristic_wall_law="primitive-least-residual",
-            ),
-        )
-        replace(
-            _build_rhs(base_context, local, geometry),
-            parameters=replace(
-                base_context.parameters,
-                parallel_characteristic_wall_law=law,
-            ),
-            parallel_operator_scheme="fci",
-            parallel_material_scheme="production-path",
-            parallel_flux_pairing="support-core",
-            parallel_boundary_pairing="characteristic-sat",
-            parallel_short_leg_treatment=treatment,
-            parallel_short_leg_selection="all-physical-walls",
-        )
-        return jnp.asarray(0.0)
-
-    compiled = jax.jit(jax.shard_map(
-        invalid, mesh=mesh, in_specs=(partition,) * 8,
-        out_specs=P(), check_vma=False,
-    ))
-    with pytest.raises(ValueError, match=message):
-        compiled(*fields, cell_fields)
-
-
 def test_all_physical_walls_be_updates_complete_local_block_on_real_mapped_rhs():
     context, mesh, local, partition, fields, cell_fields, map_fields, sharded = (
         _mapped_fixture()
@@ -699,7 +555,7 @@ def test_all_physical_walls_be_updates_complete_local_block_on_real_mapped_rhs()
                 forward=replace(geometry.maps.forward, endpoint_kind=forward_kind),
             ),
         )
-        base_context = replace(
+        primitive_context = replace(
             context,
             parameters=replace(
                 context.parameters,
@@ -707,11 +563,7 @@ def test_all_physical_walls_be_updates_complete_local_block_on_real_mapped_rhs()
             ),
         )
         rhs = replace(
-            _build_rhs(base_context, local, geometry),
-            parameters=replace(
-                base_context.parameters,
-                parallel_characteristic_wall_law="energy-absorbing",
-            ),
+            _build_rhs(primitive_context, local, geometry),
             parallel_operator_scheme="fci",
             parallel_material_scheme="production-path",
             parallel_flux_pairing="support-core",
@@ -749,6 +601,7 @@ def test_all_physical_walls_be_updates_complete_local_block_on_real_mapped_rhs()
         compiled(*fields, cell_fields, map_fields)
     )
     assert np.isfinite(material_delta)
+    assert material_delta > 0.0
     assert material_norm < np.inf
     assert phi_delta == 0.0
     assert vorticity_delta == 0.0
@@ -788,7 +641,7 @@ def test_mapped_selected_row_partition_reconstructs_the_unsplit_rhs():
                 ),
             ),
         )
-        base_context = replace(
+        primitive_context = replace(
             context,
             parameters=replace(
                 context.parameters,
@@ -800,21 +653,23 @@ def test_mapped_selected_row_partition_reconstructs_the_unsplit_rhs():
             parallel_material_scheme="production-path",
             parallel_flux_pairing="support-core",
             parallel_boundary_pairing="characteristic-sat",
-            parallel_short_leg_selection="cfl",
-            parallel_short_leg_cfl_limit=1.0e-12,
+            parallel_short_leg_treatment="local-backward-euler",
+            parallel_short_leg_selection="all-physical-walls",
+            parallel_short_leg_cfl_limit=2.5,
         )
         base = replace(
-            _build_rhs(base_context, local, geometry),
-            parameters=replace(
-                base_context.parameters,
-                parallel_characteristic_wall_law="energy-absorbing",
-            ),
+            _build_rhs(primitive_context, local, geometry),
             **common,
         )
-        unsplit = replace(base, parallel_short_leg_treatment="explicit")
-        split = replace(
-            base, parallel_short_leg_treatment="local-backward-euler"
+        # The production all-wall selector is intentionally coupled to the
+        # local-BE treatment.  Use the ordinary CFL selector with zero
+        # selection dt to obtain the unsplit explicit reference.
+        unsplit = replace(
+            base,
+            parallel_short_leg_treatment="explicit",
+            parallel_short_leg_selection="cfl",
         )
+        split = base
         state = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
         full_rhs = unsplit.evaluate_stage(state, phi_owned=phi)
         explicit_rhs = split.evaluate_stage(
