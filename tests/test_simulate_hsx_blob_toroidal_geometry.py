@@ -22,7 +22,7 @@ def test_topology_descriptors_distinguish_square_and_toroidal():
 def test_parser_defaults_use_production_operator_pair():
     args = hsx._build_parser().parse_args(())
     assert args.topology == "square"
-    assert args.curvature_scheme == "conservative"
+    assert not hasattr(args, "curvature_scheme")
     assert args.poisson_bracket_scheme == "compatible-flux"
     assert args.gmres_preconditioner == "line-u"
 

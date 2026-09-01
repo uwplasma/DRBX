@@ -8,7 +8,7 @@ import sys
 import jax
 import jax.numpy as jnp
 
-from drbx.geometry import build_local_curvature_coefficients
+from drbx.geometry import build_local_curvature_face_coefficients
 from drbx.native import (
     HaloExchange3D,
     LocalFciDrbEBRhs,
@@ -66,6 +66,9 @@ def _context_and_sharded_inputs():
 
 def _build_rhs(context, local, geometry):
     domain = local.domain
+    energy_wall = (
+        context.parameters.parallel_characteristic_wall_law == "energy-absorbing"
+    )
     return LocalFciDrbEBRhs(
         geometry=geometry,
         domain=domain,
@@ -73,12 +76,6 @@ def _build_rhs(context, local, geometry):
         topology_filler=TopologyHaloFiller3D(rules=(LocalPeriodicTopologyRule3D(),)),
         physical_ghost_filler=_ghost_filler(HALO_WIDTH),
         parameters=context.parameters,
-        curvature_coefficients_owned=build_local_curvature_coefficients(
-            geometry,
-            domain,
-            periodic_axes=PERIODIC_AXES,
-            axis_regular_axes=AXIS_REGULAR_AXES,
-        ),
         face_projectors=build_local_perp_laplacian_face_projectors(
             geometry, domain, axis_regular_axes=AXIS_REGULAR_AXES
         ),
@@ -93,8 +90,16 @@ def _build_rhs(context, local, geometry):
             regularization_epsilon=context.parameters.phi_inversion_regularization,
         ),
         face_bc_builder=_build_face_bcs,
-        curvature_scheme="direct",
-        curvature_inflow_closure="central",
+        curvature_face_coefficients=build_local_curvature_face_coefficients(
+            geometry,
+            domain,
+        ),
+        parallel_operator_scheme="fci" if energy_wall else "coordinate",
+        parallel_material_scheme="production-path" if energy_wall else "legacy",
+        parallel_flux_pairing="support-core" if energy_wall else "legacy",
+        parallel_boundary_pairing=(
+            "characteristic-sat" if energy_wall else "current-phi"
+        ),
     )
 
 

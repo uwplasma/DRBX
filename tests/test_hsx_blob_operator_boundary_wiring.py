@@ -78,6 +78,10 @@ def test_build_local_model_materializes_layer_paired_h2_weights(monkeypatch):
         lambda *args, **kwargs: (),
     )
     monkeypatch.setattr(
+        driver, "build_local_curvature_face_coefficients",
+        lambda *args, **kwargs: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
         driver, "LocalFciDrbEBRhs", lambda **kwargs: SimpleNamespace(**kwargs)
     )
     model = driver.build_local_eb_model(
@@ -87,7 +91,6 @@ def test_build_local_model_materializes_layer_paired_h2_weights(monkeypatch):
         gmres_target_tolerance=1.0e-8,
         gmres_acceptance_tolerance=1.0e-8,
         gmres_max_iterations=4,
-        curvature_scheme="disabled",
         neumann_ghost_scheme="logical",
     )
     filler = model.physical_ghost_filler
@@ -108,10 +111,8 @@ def test_build_local_model_materializes_layer_paired_h2_weights(monkeypatch):
     np.testing.assert_allclose(upper.bc_weights, (2.0, 6.0))
 
 
-def test_driver_defaults_to_central_operator_aware_curvature_and_preserves_toroidal_axis():
+def test_driver_uses_operator_aware_curvature_and_preserves_toroidal_axis():
     source = _source()
-    assert 'curvature_inflow_closure: str = "central"' in source
-    assert 'default="central"' in source
     assert "axis_regular_axes[0]" in source
     assert "radial_axis_lower_regular=True" in source
     assert "fill_periodic_axes=domain.periodic_axes" in source

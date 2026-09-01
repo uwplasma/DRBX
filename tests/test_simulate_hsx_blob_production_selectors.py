@@ -14,9 +14,6 @@ import numpy as np
 import pytest
 
 from drbx.geometry import HaloLayout3D, LocalCurvatureFaceCoefficients3D
-from drbx.native.fci_drb_EB_rhs import (
-    _select_characteristic_sat_current_divergence,
-)
 
 
 DRIVER = Path(__file__).resolve().parents[1] / "simulate_hsx_blob.py"
@@ -60,8 +57,6 @@ def _production_args(driver, *extra: str):
             "fci",
             "--parallel-flux-pairing",
             "support-core",
-            "--curvature-rlp-face-scheme",
-            "projected-fine",
             *extra,
         )
     )
@@ -70,20 +65,42 @@ def _production_args(driver, *extra: str):
 def test_canonical_driver_is_tracked_at_repository_root():
     assert DRIVER.is_file()
     assert DRIVER.parent.name == "DRBX"
-    assert not (DRIVER.parent / "run_staggered_hsx_blob.py").exists()
 
 
-def test_parser_owns_production_and_sat_selectors():
+def test_source_stage_times_match_integrator_and_cache_rk4_midpoint():
     driver = _driver_module()
-    args = driver._build_parser().parse_args(())
-    assert args.parallel_velocity_layout == "cell-centered"
-    assert args.parallel_flux_pairing == "legacy"
-    assert args.parallel_characteristic_wall_law == "primitive-least-residual"
-    assert args.parallel_boundary_pairing == "current-phi"
-    assert args.parallel_short_leg_treatment == "explicit"
-    assert args.parallel_short_leg_selection == "cfl"
-    assert args.characteristic_sat_affine_current_lift == "enabled"
-    assert args.parallel_current_phi_pair == "enabled"
+    assert driver._explicit_source_stage_times("rk4", 0.25, 0.1) == (
+        0.25,
+        0.3,
+        0.3,
+        0.35,
+    )
+    assert driver._explicit_source_stage_times("imex-ssp222", 0.25, 0.1) == (
+        0.25,
+        0.35,
+    )
+
+
+def test_run_full_eb_source_hook_is_optional_and_stage_sharded():
+    source = DRIVER.read_text()
+    run_start = source.index("def run_full_eb(")
+    run_end = source.index("def _validate_flux_framework", run_start)
+    run_source = source[run_start:run_end]
+    assert "source_evaluator: Callable[[float], FciDrbEBState] | None = None" in run_source
+    assert "source_spec = P(None, \"x\", \"y\", \"z\")" in run_source
+    assert "source_evaluator(float(stage_time))" not in run_source
+    assert "source = source_evaluator(stage_key)" in run_source
+    assert "source_owned=source_owned" in run_source
+    assert "source_1" in run_source and "source_2" in run_source
+    assert "stage_1, stage_1.phi, model, source_1" in run_source
+    assert "stage_2, stage_2.phi, model, source_2" in run_source
+
+
+def test_parser_production_selector_contract():
+    driver = _driver_module()
+    parser = driver._build_parser()
+    args = parser.parse_args(())
+    driver._validate_flux_framework(args)
     boundary_action = next(
         action
         for action in driver._build_parser()._actions
@@ -110,15 +127,9 @@ def test_parser_owns_production_and_sat_selectors():
     )
     assert tuple(selection_action.choices) == ("cfl", "all-physical-walls")
     assert selection_action.default == "cfl"
-    curvature_wall_action = next(
-        action
+    assert all(
+        action.dest != "curvature_wall_flux_closure"
         for action in driver._build_parser()._actions
-        if action.dest == "curvature_wall_flux_closure"
-    )
-    assert curvature_wall_action.default == "equilibrium-exterior"
-    assert tuple(curvature_wall_action.choices) == (
-        "equilibrium-exterior",
-        "bc-characteristic",
     )
     poisson_action = next(
         action
@@ -148,86 +159,6 @@ def test_fresh_production_trajectory_accepts_characteristic_sat():
     driver._validate_flux_framework(args)
     driver._configure_runtime_selectors(args)
     assert driver.os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] == "characteristic-sat"
-
-
-def test_characteristic_sat_affine_current_lift_ablation_is_exact_and_exported(
-    monkeypatch,
-):
-    homogeneous = jnp.asarray((1.0, -2.0), dtype=jnp.float64)
-    affine = jnp.asarray((0.25, 3.0), dtype=jnp.float64)
-    np.testing.assert_array_equal(
-        _select_characteristic_sat_current_divergence(
-            homogeneous + affine, homogeneous, affine_lift="enabled"
-        ),
-        homogeneous + affine,
-    )
-    np.testing.assert_array_equal(
-        _select_characteristic_sat_current_divergence(
-            homogeneous + affine, homogeneous, affine_lift="suppressed"
-        ),
-        homogeneous,
-    )
-
-    driver = _driver_module()
-    monkeypatch.delenv(
-        "DRBX_CHARACTERISTIC_SAT_AFFINE_CURRENT_LIFT", raising=False
-    )
-    args = _production_args(
-        driver,
-        "--parallel-boundary-pairing",
-        "characteristic-sat",
-        "--characteristic-sat-affine-current-lift",
-        "suppressed",
-    )
-    driver._validate_flux_framework(args)
-    driver._configure_runtime_selectors(args)
-    assert driver.os.environ[
-        "DRBX_CHARACTERISTIC_SAT_AFFINE_CURRENT_LIFT"
-    ] == "suppressed"
-
-
-def test_characteristic_sat_affine_current_lift_rejects_non_sat_path():
-    driver = _driver_module()
-    args = _production_args(
-        driver,
-        "--characteristic-sat-affine-current-lift",
-        "suppressed",
-    )
-    with pytest.raises(ValueError, match="characteristic-sat"):
-        driver._validate_flux_framework(args)
-
-
-def test_parallel_current_phi_pair_suppression_is_exported_and_paired(
-    monkeypatch,
-):
-    driver = _driver_module()
-    monkeypatch.delenv("DRBX_PARALLEL_CURRENT_PHI_PAIR", raising=False)
-    args = _production_args(
-        driver,
-        "--parallel-boundary-pairing",
-        "characteristic-sat",
-        "--parallel-current-phi-pair",
-        "suppressed",
-    )
-    driver._validate_flux_framework(args)
-    driver._configure_runtime_selectors(args)
-    assert driver.os.environ["DRBX_PARALLEL_CURRENT_PHI_PAIR"] == "suppressed"
-
-    source = (DRIVER.parent / "src/drbx/native/fci_drb_EB_rhs.py").read_text(
-        encoding="utf-8"
-    )
-    assert 'self.parallel_current_phi_pair == "suppressed"' in source
-    assert "Ve_phi_force_term = jnp.zeros_like(Ve_phi_force_term)" in source
-    assert "vorticity_current_term = jnp.zeros_like(vorticity_current_term)" in source
-
-
-def test_parallel_current_phi_pair_suppression_rejects_nonproduction_path():
-    driver = _driver_module()
-    args = driver._build_parser().parse_args(
-        ("--parallel-current-phi-pair", "suppressed")
-    )
-    with pytest.raises(ValueError, match="production support-core"):
-        driver._validate_flux_framework(args)
 
 
 def test_fresh_production_trajectory_rejects_legacy_boundary_pairing():
@@ -291,25 +222,12 @@ def test_wall_law_metadata_is_conditional_and_provenance_is_explicit():
     ("extra", "message"),
     (
         (
-            ("--parallel-velocity-layout", "fci-staggered"),
-            "cell-centered",
-        ),
-        (
             ("--flux-framework", "legacy"),
             "production-path",
         ),
         (
             (),
             "characteristic-sat",
-        ),
-        (
-            (
-                "--parallel-boundary-pairing",
-                "characteristic-sat",
-                "--parallel-inflow-closure",
-                "local-characteristic",
-            ),
-            "central",
         ),
     ),
 )
@@ -336,7 +254,7 @@ def test_support_core_validation_uses_native_arguments():
         driver._validate_flux_framework(args)
 
 
-def test_native_configuration_exports_short_leg_and_curvature_selectors():
+def test_native_configuration_exports_only_live_short_leg_selectors():
     driver = _driver_module()
     args = _production_args(
         driver,
@@ -348,8 +266,6 @@ def test_native_configuration_exports_short_leg_and_curvature_selectors():
         "imex-ssp222",
         "--parallel-short-leg-cfl-limit",
         "2.25",
-        "--curvature-radial-ablation",
-        "upper-physical-face",
     )
     driver._validate_flux_framework(args)
     driver._configure_runtime_selectors(args)
@@ -358,22 +274,23 @@ def test_native_configuration_exports_short_leg_and_curvature_selectors():
     )
     assert driver.os.environ["DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT"] == "2.25"
     assert driver.os.environ["DRBX_PARALLEL_SHORT_LEG_SELECTION"] == "cfl"
-    assert driver.os.environ["DRBX_CURVATURE_SPLIT_SCHEME"] == "production-path"
+    assert "DRBX_CURVATURE_SPLIT_SCHEME" not in driver.os.environ
     assert driver.os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] == "production-path"
-    assert driver.os.environ["DRBX_CURVATURE_RADIAL_ABLATION"] == (
-        "upper-physical-face"
-    )
+    for name in (
+        "DRBX_CURVATURE_RADIAL_ABLATION",
+        "DRBX_CURVATURE_COMPONENT_DIAGNOSTIC_SCHEME",
+    ):
+        assert name not in driver.os.environ
 
 
 @pytest.mark.parametrize(
     "override",
     (
         ("--parallel-short-leg-treatment", "explicit"),
-        ("--parallel-characteristic-wall-law", "primitive-least-residual"),
         ("--parallel-boundary-pairing", "current-phi"),
     ),
 )
-def test_all_physical_walls_requires_absorbing_be_configuration(override):
+def test_all_physical_walls_requires_production_be_configuration(override):
     driver = _driver_module()
     args = _production_args(
         driver,
@@ -388,13 +305,16 @@ def test_all_physical_walls_requires_absorbing_be_configuration(override):
         driver._validate_flux_framework(args)
 
 
-def test_all_physical_walls_exports_selection_without_inf_sentinel():
+@pytest.mark.parametrize(
+    "wall_law", ("primitive-least-residual", "energy-absorbing")
+)
+def test_all_physical_walls_exports_selection_without_inf_sentinel(wall_law):
     driver = _driver_module()
     args = _production_args(
         driver,
         "--parallel-short-leg-selection", "all-physical-walls",
         "--parallel-short-leg-treatment", "local-backward-euler",
-        "--parallel-characteristic-wall-law", "energy-absorbing",
+        "--parallel-characteristic-wall-law", wall_law,
         "--parallel-boundary-pairing", "characteristic-sat",
         "--time-integrator", "imex-ssp222",
     )
@@ -403,35 +323,10 @@ def test_all_physical_walls_exports_selection_without_inf_sentinel():
     assert driver.os.environ["DRBX_PARALLEL_SHORT_LEG_SELECTION"] == (
         "all-physical-walls"
     )
+    assert driver.os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] == wall_law
     source = DRIVER.read_text(encoding="utf-8")
     assert "parallel_short_leg_selection" in source
     assert "selection_dt=jnp.inf" not in source
-
-
-def test_bc_characteristic_curvature_wall_closure_is_exported(monkeypatch):
-    driver = _driver_module()
-    monkeypatch.delenv("DRBX_CURVATURE_WALL_FLUX_CLOSURE", raising=False)
-    args = _production_args(
-        driver,
-        "--parallel-boundary-pairing",
-        "characteristic-sat",
-        "--curvature-wall-flux-closure",
-        "bc-characteristic",
-    )
-    driver._validate_flux_framework(args)
-    driver._configure_runtime_selectors(args)
-    assert driver.os.environ["DRBX_CURVATURE_WALL_FLUX_CLOSURE"] == (
-        "bc-characteristic-operator-trace-canonical-face-state"
-    )
-
-
-def test_bc_characteristic_curvature_wall_closure_requires_production_split():
-    driver = _driver_module()
-    args = driver._build_parser().parse_args(
-        ("--curvature-wall-flux-closure", "bc-characteristic")
-    )
-    with pytest.raises(ValueError, match="requires --flux-framework production-split"):
-        driver._validate_flux_framework(args)
 
 
 def test_short_leg_split_is_native_to_compiled_imex_source():
@@ -490,6 +385,106 @@ def test_imex_ssp222_scalar_split_is_second_order_without_jit():
     error_20 = abs(advance(20) - exact)
     error_40 = abs(advance(40) - exact)
     assert error_20 / error_40 > 3.5
+
+
+def test_imex_explicit_source_times_are_second_order_for_nonautonomous_ode():
+    """The explicit source partition uses the SSP222 abscissas ``t,t+dt``.
+
+    This is a source-only ODE check, so no geometry or production model is
+    involved.  The implicit callback is identically zero while the source
+    callback consumes the two stage times supplied by the canonical helper.
+    Evaluating the source at the implicit SDIRK abscissas would exercise a
+    different ARK partition, even though their symmetry can also give a
+    second-order quadrature in this degenerate source-only problem.
+    """
+
+    driver = _driver_module()
+    final_time = 0.8
+
+    def advance(step_count: int) -> float:
+        value = jnp.asarray(0.0, dtype=jnp.float64)
+        dt = final_time / step_count
+        for step in range(step_count):
+            start = step * dt
+            source_times = iter(
+                driver._explicit_source_stage_times("imex-ssp222", start, dt)
+            )
+
+            def explicit_rate(_state):
+                stage_time = next(source_times)
+                return jnp.asarray(stage_time * stage_time, dtype=jnp.float64)
+
+            def implicit_stage(base, _stage_dt):
+                return base, jnp.asarray(0.0, dtype=jnp.float64)
+
+            value, _stages, _rates = driver._imex_ssp222_step(
+                value, dt, explicit_rate, implicit_stage
+            )
+        return float(value)
+
+    exact = final_time**3 / 3.0
+    error_20 = abs(advance(20) - exact)
+    error_40 = abs(advance(40) - exact)
+    assert error_20 / error_40 > 3.5
+
+
+def test_imex_nonautonomous_source_remains_second_order_with_implicit_split():
+    """Exercise the production ARK helper with both split partitions active.
+
+    For ``y=exp(t)``, split ``y' = lambda*y + (1-lambda)*exp(t)`` with the
+    linear autonomous term implicit and the manufactured time-dependent
+    source explicit.  This covers the cross-partition order conditions that
+    the source-only regression above cannot exercise.
+    """
+
+    driver = _driver_module()
+    final_time = 0.8
+    implicit_rate = -4.0
+
+    def advance(step_count: int, *, record_times: bool = False):
+        value = jnp.asarray(1.0, dtype=jnp.float64)
+        dt = final_time / step_count
+        called_times: list[float] = []
+        for step in range(step_count):
+            start = step * dt
+            source_times = iter(
+                driver._explicit_source_stage_times("imex-ssp222", start, dt)
+            )
+
+            def explicit_source(_state):
+                stage_time = next(source_times)
+                if record_times:
+                    called_times.append(stage_time)
+                return jnp.asarray(
+                    (1.0 - implicit_rate) * np.exp(stage_time),
+                    dtype=jnp.float64,
+                )
+
+            def implicit_stage(base, stage_dt):
+                stage = base / (1.0 - stage_dt * implicit_rate)
+                return stage, implicit_rate * stage
+
+            value, _stages, _rates = driver._imex_ssp222_step(
+                value, dt, explicit_source, implicit_stage
+            )
+            with pytest.raises(StopIteration):
+                next(source_times)
+        return float(value), called_times
+
+    _value, called_times = advance(4, record_times=True)
+    dt = final_time / 4
+    assert called_times == pytest.approx([
+        time
+        for step in range(4)
+        for time in (step * dt, (step + 1) * dt)
+    ])
+
+    value_80, _ = advance(80)
+    value_160, _ = advance(160)
+    exact = np.exp(final_time)
+    error_80 = abs(value_80 - exact)
+    error_160 = abs(value_160 - exact)
+    assert error_80 / error_160 > 3.5
 
 
 def test_frozen_rhs_replay_exposes_eager_no_outer_compile_mode():
@@ -607,16 +602,8 @@ def test_run_metadata_attributes_selectors_to_canonical_driver():
         "parallel-short-leg-treatment",
         "parallel-short-leg-cfl-limit",
         "parallel-short-leg-selection",
-        "curvature-evolution-component",
-        "curvature-radial-ablation",
-        "curvature-wall-flux-closure",
-        "curvature-characteristic-axes",
-        "curvature-radial-characteristic-scheme",
-        "curvature-poloidal-characteristic-scheme",
-        "curvature-component-diagnostic-scheme",
     ):
         assert f'simulate_hsx_blob.py:--{option}' in source
-    assert "run_staggered_hsx_blob.py" not in source
     assert '"parallel_characteristic_wall_law": str(args.parallel_characteristic_wall_law)' in source
     assert '"parallel_short_leg_selection": str(args.parallel_short_leg_selection)' in source
     assert (
@@ -633,9 +620,12 @@ def test_startup_announces_parallel_characteristic_wall_law():
     assert "unit modal" in source
 
 
-def test_canonical_driver_contains_materialized_face_provenance_path():
+def test_canonical_driver_uses_cell_centered_velocity_basis():
     source = DRIVER.read_text(encoding="utf-8")
-    assert "build_local_outgoing_fci_face_topology_from_geometry(" in source
-    assert '"face_provenance_sha256"' in source
-    assert "project_initial_staggered_velocities" in source
-    assert "prolong_local_outgoing_fci_face_owner_field" in source
+    assert '"field_locations": {"Vi": "cell-center", "Ve": "cell-center"}' in source
+
+
+def test_initial_owner_sparse_check_uses_current_two_argument_api():
+    source = DRIVER.read_text(encoding="utf-8")
+    assert "_assert_owner_sparse(initial_state, owner_host_geometry)" in source
+    assert "_assert_owner_sparse(initial_state, owner_host_geometry, None)" not in source

@@ -10,7 +10,6 @@ from types import SimpleNamespace
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 from jax.sharding import NamedSharding, PartitionSpec as P
 
 _TESTS = Path(__file__).resolve().parent
@@ -67,69 +66,6 @@ def _mapped_fixture():
         jax.device_put(sharded.map_fields, NamedSharding(mesh, partition)),
         sharded,
     )
-
-
-def test_pairing_validation_is_static_and_legacy_is_the_default() -> None:
-    context, mesh, local, partition, fields, cells, maps, sharded = _mapped_fixture()
-
-    def default_kernel(density, phi, Te, Ti, Vi, Ve, vorticity, packed, map_values):
-        geometry = assemble_local_fci_geometry(sharded, packed, map_values)
-        rhs = _build_rhs(context, local, geometry)
-        return jnp.asarray(
-            (
-                rhs.parallel_flux_pairing == "legacy"
-                and rhs.parallel_boundary_pairing == "current-phi"
-            ),
-            dtype=jnp.float64,
-        )
-
-    default = jax.jit(jax.shard_map(
-        default_kernel, mesh=mesh, in_specs=(partition,) * 9,
-        out_specs=P(), check_vma=False,
-    ))
-    assert float(default(*fields, cells, maps)) == 1.0
-
-    def invalid_pairing(density, phi, Te, Ti, Vi, Ve, vorticity, packed, map_values):
-        geometry = assemble_local_fci_geometry(sharded, packed, map_values)
-        replace(_build_rhs(context, local, geometry), parallel_flux_pairing="bad")
-        return jnp.asarray(0.0)
-
-    invalid = jax.jit(jax.shard_map(
-        invalid_pairing, mesh=mesh, in_specs=(partition,) * 9,
-        out_specs=P(), check_vma=False,
-    ))
-    with pytest.raises(ValueError, match="parallel_flux_pairing"):
-        invalid(*fields, cells, maps)
-
-    def invalid_boundary_pairing(
-        density, phi, Te, Ti, Vi, Ve, vorticity, packed, map_values
-    ):
-        geometry = assemble_local_fci_geometry(sharded, packed, map_values)
-        replace(
-            _build_rhs(context, local, geometry),
-            parallel_boundary_pairing="bad",
-        )
-        return jnp.asarray(0.0)
-
-    invalid_boundary = jax.jit(jax.shard_map(
-        invalid_boundary_pairing, mesh=mesh, in_specs=(partition,) * 9,
-        out_specs=P(), check_vma=False,
-    ))
-    with pytest.raises(ValueError, match="parallel_boundary_pairing"):
-        invalid_boundary(*fields, cells, maps)
-
-    def invalid_support(density, phi, Te, Ti, Vi, Ve, vorticity, packed, map_values):
-        geometry = assemble_local_fci_geometry(sharded, packed, map_values)
-        rhs = _build_rhs(context, local, geometry)
-        replace(rhs, parallel_flux_pairing="support-core")
-        return jnp.asarray(0.0)
-
-    invalid = jax.jit(jax.shard_map(
-        invalid_support, mesh=mesh, in_specs=(partition,) * 9,
-        out_specs=P(), check_vma=False,
-    ))
-    with pytest.raises(ValueError, match="parallel_operator_scheme='fci'"):
-        invalid(*fields, cells, maps)
 
 
 def test_pair_cell_mass_uses_the_rlp_restriction_measure() -> None:

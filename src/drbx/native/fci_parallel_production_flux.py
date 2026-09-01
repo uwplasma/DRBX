@@ -1085,14 +1085,6 @@ def parallel_target_row_material_residual(
             "'all-physical-walls', got "
             f"{parallel_short_leg_selection!r}"
         )
-    if (
-        parallel_short_leg_selection == "all-physical-walls"
-        and parallel_characteristic_wall_law != "energy-absorbing"
-    ):
-        raise ValueError(
-            "parallel_short_leg_selection='all-physical-walls' requires "
-            "parallel_characteristic_wall_law='energy-absorbing'"
-        )
     dxm_safe = jnp.maximum(jnp.abs(dx_minus), _LOG_FLOOR)
     dxp_safe = jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)
     backward_cfl = jnp.abs(selection_dt) * directional["backward_alpha"] / dxm_safe
@@ -1273,14 +1265,6 @@ def parallel_short_wall_material_data(
             "parallel_short_leg_selection must be 'cfl' or "
             "'all-physical-walls', got "
             f"{parallel_short_leg_selection!r}"
-        )
-    if (
-        parallel_short_leg_selection == "all-physical-walls"
-        and parallel_characteristic_wall_law != "energy-absorbing"
-    ):
-        raise ValueError(
-            "parallel_short_leg_selection='all-physical-walls' requires "
-            "parallel_characteristic_wall_law='energy-absorbing'"
         )
     if parallel_short_leg_selection == "all-physical-walls":
         selected_backward = info["backward_wall"]

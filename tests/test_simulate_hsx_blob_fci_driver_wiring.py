@@ -7,7 +7,6 @@ in the DRBX library tests.
 """
 
 import ast
-from dataclasses import dataclass
 import importlib.util
 from pathlib import Path
 import sys
@@ -72,13 +71,10 @@ def test_parser_exposes_coordinate_default_and_fci_trace_controls():
     parser = hsx._build_parser()
     args = parser.parse_args([])
     assert args.parallel_operator_scheme == "coordinate"
-    assert args.fci_parallel_leg_scheme == "centered"
     assert args.fci_trace_substeps == 4
-    assert args.vorticity_current_inflow_trace == "operator"
     assert args.gmres_residual_correction_steps == 1
     assert args.checkpoint_every == 0
     assert not args.rhs_replay_electron_force_wall_audit
-    assert args.curvature_transition_audit_face is None
     assert args.flux_framework == "legacy"
     framework_action = next(
         action for action in parser._actions if "--flux-framework" in action.option_strings
@@ -95,40 +91,22 @@ def test_parser_exposes_coordinate_default_and_fci_trace_controls():
         if "--parallel-operator-scheme" in action.option_strings
     )
     assert scheme_action.choices == ("coordinate", "fci")
-    leg_action = next(
-        action
-        for action in parser._actions
-        if "--fci-parallel-leg-scheme" in action.option_strings
-    )
-    assert leg_action.choices == ("centered", "boundary-characteristic-upwind")
     trace_action = next(
         action
         for action in parser._actions
         if "--fci-trace-substeps" in action.option_strings
     )
     assert trace_action.type("7") == 7
-    vorticity_trace_action = next(
-        action
-        for action in parser._actions
-        if "--vorticity-current-inflow-trace" in action.option_strings
-    )
-    assert vorticity_trace_action.choices == (
-        "operator",
-        "parallel-characteristic",
-    )
     electron_force_action = next(
         action
         for action in parser._actions
         if "--rhs-replay-electron-force-wall-audit" in action.option_strings
     )
     assert electron_force_action.default is False
-    curvature_action = next(
-        action
+    assert not any(
+        "--curvature-rlp-face-scheme" in action.option_strings
         for action in parser._actions
-        if "--curvature-rlp-face-scheme" in action.option_strings
     )
-    assert "fine-glue-characteristic" in curvature_action.choices
-    assert "fine-glue-characteristic-bulk" in curvature_action.choices
 
 
 def test_periodic_checkpoint_interval_is_validated_before_geometry():
@@ -231,35 +209,6 @@ def test_noncanonical_cell_checkpoint_uses_aggregation_fallback():
     assert candidate is state
 
 
-def test_characteristic_fine_glue_requires_all_coupled_equations_before_geometry():
-    hsx = _driver_module()
-    with pytest.raises(SystemExit) as error:
-        hsx.main(
-            [
-                "--curvature-rlp-face-scheme",
-                "fine-glue-characteristic",
-                "--curvature-equations",
-                "density",
-                "Te",
-            ]
-        )
-    assert error.value.code == 2
-
-
-def test_bulk_characteristic_rejects_single_transition_audit_before_geometry():
-    hsx = _driver_module()
-    with pytest.raises(SystemExit) as error:
-        hsx.main(
-            [
-                "--curvature-rlp-face-scheme",
-                "fine-glue-characteristic-bulk",
-                "--curvature-transition-audit-face",
-                "1",
-            ]
-        )
-    assert error.value.code == 2
-
-
 def test_fci_requires_toroidal_topology_before_geometry(monkeypatch):
     hsx = _driver_module()
     with pytest.raises(SystemExit) as error:
@@ -267,35 +216,10 @@ def test_fci_requires_toroidal_topology_before_geometry(monkeypatch):
     assert error.value.code == 2
 
 
-def test_transition_audit_face_requires_the_audit_mode_before_geometry():
-    hsx = _driver_module()
-    with pytest.raises(SystemExit) as error:
-        hsx.main(["--curvature-transition-audit-face", "1"])
-    assert error.value.code == 2
-
-
-def test_transition_audit_baseline_clears_the_fine_glue_face_selector():
-    hsx = _driver_module()
-
-    @dataclass(frozen=True)
-    class Candidate:
-        curvature_rlp_face_scheme: str
-        curvature_rlp_fine_glue_transition_face: int | None
-        marker: str
-
-    baseline = hsx._curvature_transition_audit_baseline(
-        Candidate("fine-glue-sat", 1, "frozen-frame-75")
-    )
-    assert baseline.curvature_rlp_face_scheme == "projected-fine"
-    assert baseline.curvature_rlp_fine_glue_transition_face is None
-    assert baseline.marker == "frozen-frame-75"
-
-
 def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
     tree = _tree()
     run = _function(tree, "run_full_eb")
     kernel_names = {
-        "precompute_wall_projectors",
         "reconstruct_initial_phi_kernel",
         "full_rk4_advance",
         "inspect_state",
@@ -316,8 +240,7 @@ def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
             )
         }
         assert "map_fields_owned" in arguments, name
-        if name != "precompute_wall_projectors":
-            assert "control_volume_fields_owned" in arguments, name
+        assert "control_volume_fields_owned" in arguments, name
         source = ast.get_source_segment(DRIVER_PATH.read_text(), kernel)
         assert source is not None
 
@@ -349,7 +272,7 @@ def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
         and isinstance(node.func, ast.Name)
         and node.func.id == "assemble_local_fci_geometry"
     ]
-    assert len(assemble_calls) == 2
+    assert len(assemble_calls) == 1
     assert all(len(call.args) >= 3 for call in assemble_calls)
     assert all(
         any(
@@ -406,10 +329,6 @@ def test_geometry_only_fci_requests_map_generation_and_records_substeps(
             "toroidal",
             "--parallel-operator-scheme",
             "fci",
-            "--fci-parallel-leg-scheme",
-            "boundary-characteristic-upwind",
-            "--parallel-inflow-closure",
-            "equilibrium-characteristic",
             "--fci-trace-substeps",
             "7",
             "--geometry-only",
@@ -507,13 +426,7 @@ def test_metric_context_reuses_continuous_evaluator_across_resolutions(monkeypat
     assert not refit_calls
 
 
-@pytest.mark.parametrize(
-    ("face_scheme", "audit_face"),
-    (("fine-glue-characteristic", 1), ("fine-glue-characteristic-bulk", None)),
-)
-def test_fci_main_passes_scheme_and_metadata_to_run(
-    monkeypatch, tmp_path, face_scheme, audit_face
-):
+def test_fci_main_passes_production_scheme_and_metadata_to_run(monkeypatch, tmp_path):
     hsx = _driver_module()
     makegrid = tmp_path / "mgrid.nc"
     vessel = tmp_path / "vessel.txt"
@@ -553,10 +466,6 @@ def test_fci_main_passes_scheme_and_metadata_to_run(
             "toroidal",
             "--parallel-operator-scheme",
             "fci",
-            "--fci-parallel-leg-scheme",
-            "boundary-characteristic-upwind",
-            "--parallel-inflow-closure",
-            "equilibrium-characteristic",
             "--fci-trace-substeps",
             "6",
             "--makegrid",
@@ -577,35 +486,13 @@ def test_fci_main_passes_scheme_and_metadata_to_run(
             "1e-6",
             "--checkpoint-every",
             "17",
-            "--curvature-scheme",
-            "conservative",
-            "--curvature-rlp-face-scheme",
-            face_scheme,
         ]
-        + (
-            [
-                "--curvature-transition-audit-output",
-                str(tmp_path / "audit.npz"),
-                "--curvature-transition-audit-face",
-                str(audit_face),
-            ]
-            if audit_face is not None
-            else []
-        )
     )
     assert calls
     assert calls[0]["parallel_operator_scheme"] == "fci"
-    assert calls[0]["fci_parallel_leg_scheme"] == "boundary-characteristic-upwind"
     assert calls[0]["run_metadata"]["parallel_operator_scheme"] == "fci"
-    assert (
-        calls[0]["run_metadata"]["fci_parallel_leg_scheme"]
-        == "boundary-characteristic-upwind"
-    )
     assert calls[0]["run_metadata"]["fci_trace_substeps"] == 6
-    assert calls[0]["curvature_rlp_fine_glue_transition_face"] == audit_face
-    assert calls[0]["curvature_rlp_face_scheme"] == face_scheme
     assert calls[0]["checkpoint_every"] == 17
-    assert calls[0]["run_metadata"]["curvature_transition_audit_face"] == audit_face
     assert calls[0]["control_volume_descriptor"] is not None
     assert calls[0]["control_volume_fields_host"].shape == (
         4,
@@ -623,8 +510,6 @@ def test_production_split_guard_requires_compatible_runtime():
             "--flux-framework", "production-split",
             "--parallel-operator-scheme", "fci",
             "--parallel-flux-pairing", "support-core",
-            "--curvature-scheme", "conservative",
-            "--curvature-rlp-face-scheme", "projected-fine",
             "--poisson-bracket-scheme", "compatible-flux",
         ]
     )
@@ -635,7 +520,6 @@ def test_production_split_guard_requires_compatible_runtime():
             "--flux-framework", "production-split",
             "--parallel-operator-scheme", "fci",
             "--parallel-flux-pairing", "legacy",
-            "--curvature-rlp-face-scheme", "projected-fine",
         ]
     )
     with pytest.raises(ValueError, match="support-core"):
@@ -646,7 +530,8 @@ def test_production_split_metadata_contract_is_recorded():
     source = DRIVER_PATH.read_text()
     assert '"flux_framework": str(args.flux_framework)' in source
     assert '"flux_framework_source": "simulate_hsx_blob.py:--flux-framework"' in source
-    assert '"curvature_split_scheme": os.environ.get("DRBX_CURVATURE_SPLIT_SCHEME")' in source
+    assert '"curvature_operator": "production-characteristic-owner-face"' in source
+    assert '"curvature_operator_source": "fixed production method"' in source
     assert '"parallel_material_scheme": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME")' in source
     assert '"production_characteristic_solver": (' in source
     assert '"canonical-face-state"' in source

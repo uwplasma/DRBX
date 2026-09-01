@@ -29,19 +29,8 @@ from drbx.native.fci_boundaries import (
 )
 from drbx.native.fci_operators import (
     _curvature_bc_characteristic_wall_states,
-    _radial_characteristic_fine_glue_integrated_residual,
-    _radial_fine_glue_sat_integrated_residual,
-    _bound_groupwise_transition_trace_correction,
-    _constrain_groupwise_transition_flux_correction,
-    _local_axis_face_values_from_stencil,
-    local_curvature_conservative_components_op,
     local_curvature_conservative_op,
     local_curvature_production_path_op,
-)
-from drbx.native.fci_drb_EB_rhs import (
-    LocalFciDrbEBRhs,
-    background_curvature_characteristic_absolute_matrix,
-    background_curvature_characteristic_metric,
 )
 from drbx.native.fci_curvature_production_flux import (
     curvature_face_linearized_fluctuations,
@@ -51,6 +40,24 @@ from test_fci_operators_domain_decomp import (
     _build_domain,
     _build_local_geometry,
 )
+
+
+def _legacy_axis_face_values_for_weighted_sum(stencil, *, axis: int) -> jnp.ndarray:
+    """Return legacy arithmetic face values for the weighted-sum check."""
+
+    center = jnp.asarray(stencil.center, dtype=jnp.float64)
+    minus = jnp.asarray(stencil.minus, dtype=jnp.float64)
+    plus = jnp.asarray(stencil.plus, dtype=jnp.float64)
+    if center.ndim != 3:
+        raise ValueError(f"stencil center must be 3D, got shape {center.shape}")
+    center_slice = [slice(None)] * center.ndim
+    center_slice[axis] = 0
+    lower = 0.5 * (center[tuple(center_slice)] + minus[tuple(center_slice)])
+    upper_faces = 0.5 * (center + plus)
+    return jnp.concatenate(
+        (jnp.expand_dims(lower, axis=axis), upper_faces),
+        axis=axis,
+    )
 
 
 def _zero_physical_halo_geometry(
@@ -480,36 +487,6 @@ def test_bc_characteristic_curvature_applies_dirichlet_vorticity_only_at_wall():
     np.testing.assert_allclose(result[1:-1], 0.0, atol=2.0e-12, rtol=0.0)
 
 
-def test_equilibrium_wall_default_ignores_supplied_bc_traces_bitwise():
-    geometry, domain, _stencil, coefficients = _operator_fixture()
-    layout = geometry.layout
-    context = StencilBuilderContext(layout=layout, domain=domain)
-    fields = tuple(
-        build_local_conservative_stencil_from_field(
-            jnp.full(layout.cell_halo_shape, value, dtype=jnp.float64),
-            geometry,
-            context,
-        )
-        for value in (1.2, 0.9, 1.1, 0.2)
-    )
-    traces = tuple(
-        _constant_radial_wall_trace(layout, value)
-        for value in (3.0, 4.0, 5.0, 6.0)
-    )
-    baseline = local_curvature_production_path_op(
-        fields, geometry, coefficients, tau=0.7, domain=domain
-    )
-    with_unused_traces = local_curvature_production_path_op(
-        fields,
-        geometry,
-        coefficients,
-        tau=0.7,
-        domain=domain,
-        boundary_traces=traces,
-    )
-    np.testing.assert_array_equal(with_unused_traces, baseline)
-
-
 def test_production_curvature_all_axes_has_directional_diagnostics_and_constant_null():
     """The owner-face path is active on x/y/z and preserves constants."""
     geometry, domain, _stencil, coefficients = _operator_fixture()
@@ -532,20 +509,13 @@ def test_production_curvature_all_axes_has_directional_diagnostics_and_constant_
         return_diagnostics=True,
     )
     assert result.shape == geometry.owned_shape + (4,)
+    assert set(diagnostics) == {"directional_residual"}
     assert diagnostics["directional_residual"].shape == (3,) + geometry.owned_shape + (4,)
-    assert diagnostics["directional_centered_transfer"].shape == (
-        (3,) + geometry.owned_shape + (4,)
-    )
-    assert diagnostics["directional_characteristic_dissipation"].shape == (
-        (3,) + geometry.owned_shape + (4,)
-    )
-    assert diagnostics["dissipation_norm"].shape == (3,)
     np.testing.assert_allclose(
-        diagnostics["directional_centered_transfer"]
-        + diagnostics["directional_characteristic_dissipation"],
-        diagnostics["directional_residual"],
-        atol=0.0,
-        rtol=0.0,
+        jnp.sum(diagnostics["directional_residual"], axis=0),
+        result,
+        atol=2.0e-12,
+        rtol=2.0e-12,
     )
     np.testing.assert_allclose(result, 0.0, atol=2.0e-12, rtol=0.0)
 
@@ -566,88 +536,6 @@ def test_production_curvature_physical_wall_is_one_sided_and_finite():
     )
     assert result.shape == geometry.owned_shape + (4,)
     assert bool(jnp.all(jnp.isfinite(result)))
-
-
-def test_production_curvature_upper_wall_ablation_removes_only_upper_face_lane():
-    geometry, domain, _stencil, coefficients = _operator_fixture()
-    layout = geometry.layout
-    context = StencilBuilderContext(layout=layout, domain=domain)
-    ii, jj, kk = jnp.meshgrid(
-        jnp.arange(layout.cell_halo_shape[0]),
-        jnp.arange(layout.cell_halo_shape[1]),
-        jnp.arange(layout.cell_halo_shape[2]),
-        indexing="ij",
-    )
-    fields = tuple(
-        build_local_conservative_stencil_from_field(
-            base + scale * (0.2 * ii + 0.03 * jj - 0.02 * kk),
-            geometry,
-            context,
-        )
-        for base, scale in (
-            (1.0, 0.02), (1.0, 0.015), (1.0, 0.01), (0.0, 0.03)
-        )
-    )
-    full, full_info = local_curvature_production_path_op(
-        fields, geometry, coefficients, tau=0.7, domain=domain,
-        return_diagnostics=True,
-    )
-    ablated, ablated_info = local_curvature_production_path_op(
-        fields, geometry, coefficients, tau=0.7, domain=domain,
-        radial_ablation="upper-physical-face", return_diagnostics=True,
-    )
-    full_radial = np.asarray(full_info["radial_provenance_residual"])
-    ablated_radial = np.asarray(ablated_info["radial_provenance_residual"])
-    np.testing.assert_allclose(ablated_radial[1], 0.0, atol=0.0, rtol=0.0)
-    np.testing.assert_allclose(
-        ablated_radial[[0, 2, 3, 4]],
-        full_radial[[0, 2, 3, 4]],
-        atol=0.0,
-        rtol=0.0,
-    )
-    np.testing.assert_allclose(
-        np.asarray(ablated),
-        np.asarray(full) - full_radial[1],
-        atol=2.0e-12,
-        rtol=2.0e-12,
-    )
-
-
-def test_production_curvature_last_interior_ablation_preserves_wall_face():
-    geometry, domain, _stencil, coefficients = _operator_fixture((4, 3, 2))
-    layout = geometry.layout
-    context = StencilBuilderContext(layout=layout, domain=domain)
-    ii, jj, kk = jnp.meshgrid(
-        jnp.arange(layout.cell_halo_shape[0]),
-        jnp.arange(layout.cell_halo_shape[1]),
-        jnp.arange(layout.cell_halo_shape[2]),
-        indexing="ij",
-    )
-    fields = tuple(
-        build_local_conservative_stencil_from_field(
-            base + scale * (ii**2 + 0.1 * jj - 0.05 * kk),
-            geometry,
-            context,
-        )
-        for base, scale in (
-            (1.0, 0.01), (1.0, 0.008), (1.0, 0.006), (0.0, 0.012)
-        )
-    )
-    full, full_info = local_curvature_production_path_op(
-        fields, geometry, coefficients, tau=0.7, domain=domain,
-        return_diagnostics=True,
-    )
-    ablated, ablated_info = local_curvature_production_path_op(
-        fields, geometry, coefficients, tau=0.7, domain=domain,
-        radial_ablation="last-interior-face", return_diagnostics=True,
-    )
-    np.testing.assert_allclose(
-        np.asarray(ablated_info["radial_provenance_residual"])[1],
-        np.asarray(full_info["radial_provenance_residual"])[1],
-        atol=0.0,
-        rtol=0.0,
-    )
-    assert float(jnp.linalg.norm(ablated - full)) > 0.0
 
 
 def test_production_curvature_face_state_uses_canonical_faces_and_interior_wall_trace():
@@ -814,8 +702,8 @@ def test_production_curvature_axis_activation_and_wall_orientation():
     assert float(jnp.linalg.norm(plus_info["directional_residual"][0][0])) > 0.0
 
 
-def test_production_curvature_diagnostic_split_is_exact_and_orientation_even_odd():
-    """The |A| lane is even in face orientation and the path lane is odd."""
+def test_production_curvature_directional_residual_closes_for_both_orientations():
+    """Directional production residuals close for either face orientation."""
     geometry, domain, _stencil, coefficients = _operator_fixture()
     layout = geometry.layout
     context = StencilBuilderContext(layout=layout, domain=domain)
@@ -854,25 +742,9 @@ def test_production_curvature_diagnostic_split_is_exact_and_orientation_even_odd
             atol=2.0e-12,
             rtol=2.0e-12,
         )
-        np.testing.assert_allclose(
-            np.asarray(info["directional_centered_transfer"])
-            + np.asarray(info["directional_characteristic_dissipation"]),
-            np.asarray(info["directional_residual"]),
-            atol=2.0e-12,
-            rtol=2.0e-12,
-        )
-    np.testing.assert_allclose(
-        np.asarray(negative_info["directional_centered_transfer"]),
-        -np.asarray(positive_info["directional_centered_transfer"]),
-        atol=2.0e-11,
-        rtol=2.0e-11,
-    )
-    np.testing.assert_allclose(
-        np.asarray(negative_info["directional_characteristic_dissipation"]),
-        np.asarray(positive_info["directional_characteristic_dissipation"]),
-        atol=2.0e-11,
-        rtol=2.0e-11,
-    )
+    assert bool(jnp.all(jnp.isfinite(positive)))
+    assert bool(jnp.all(jnp.isfinite(negative)))
+    assert float(jnp.linalg.norm(negative - positive)) > 0.0
 
 
 def test_constant_field_has_zero_curvature_for_compatible_constant_face_flux():
@@ -894,9 +766,9 @@ def test_weighted_sum_is_shared_face_flux_balance():
         StencilBuilderContext(layout=layout, domain=domain),
     )
     result = local_curvature_conservative_op(stencil, geometry, coefficients)
-    x_face = _local_axis_face_values_from_stencil(stencil.x, axis=0)
-    y_face = _local_axis_face_values_from_stencil(stencil.y, axis=1)
-    z_face = _local_axis_face_values_from_stencil(stencil.z, axis=2)
+    x_face = _legacy_axis_face_values_for_weighted_sum(stencil.x, axis=0)
+    y_face = _legacy_axis_face_values_for_weighted_sum(stencil.y, axis=1)
+    z_face = _legacy_axis_face_values_for_weighted_sum(stencil.z, axis=2)
     dx = geometry.spacing.dx_owned
     dy = geometry.spacing.dy_owned
     dz = geometry.spacing.dz_owned
@@ -960,308 +832,6 @@ def test_curvature_operator_is_jit_compatible():
     )
 
 
-def test_radial_donor_cell_discriminator_replaces_only_interior_x_faces():
-    geometry, domain, _stencil, _coefficients = _operator_fixture((4, 3, 2))
-    layout = geometry.layout
-    field_halo = jnp.arange(
-        np.prod(layout.cell_halo_shape), dtype=jnp.float64
-    ).reshape(layout.cell_halo_shape)
-    stencil = build_local_conservative_stencil_from_field(
-        field_halo,
-        geometry,
-        StencilBuilderContext(layout=layout, domain=domain),
-    )
-    qx = jnp.asarray(
-        [
-            [[0.0]],
-            [[1.0]],
-            [[-2.0]],
-            [[0.5]],
-            [[0.0]],
-        ],
-        dtype=jnp.float64,
-    )
-    qx = jnp.broadcast_to(qx, layout.face_control_shape(axis=0))
-    coefficients = LocalCurvatureFaceCoefficients3D(
-        layout=layout,
-        x=qx,
-        y=jnp.zeros(layout.face_control_shape(axis=1), dtype=jnp.float64),
-        z=jnp.zeros(layout.face_control_shape(axis=2), dtype=jnp.float64),
-    )
-
-    centered_default = local_curvature_conservative_op(
-        stencil, geometry, coefficients
-    )
-    centered_explicit = local_curvature_conservative_op(
-        stencil,
-        geometry,
-        coefficients,
-        radial_principal_face_scheme="centered",
-    )
-    np.testing.assert_array_equal(centered_default, centered_explicit)
-
-    donor_face = jnp.asarray(stencil.face_values.x).at[1:-1].set(
-        jnp.where(
-            qx[1:-1] >= 0.0,
-            jnp.asarray(stencil.x.center)[:-1],
-            jnp.asarray(stencil.x.center)[1:],
-        )
-    )
-    dx = jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
-    expected = (
-        jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64)
-        / jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64)
-        * (qx[1:] * donor_face[1:] - qx[:-1] * donor_face[:-1])
-        / dx
-    )
-    donor = local_curvature_conservative_op(
-        stencil,
-        geometry,
-        coefficients,
-        radial_principal_face_scheme="donor-cell",
-    )
-    np.testing.assert_allclose(donor, expected, atol=2.0e-12, rtol=2.0e-12)
-    assert not np.array_equal(np.asarray(donor), np.asarray(centered_default))
-
-    compiled = jax.jit(
-        lambda value: local_curvature_conservative_op(
-            value,
-            geometry,
-            coefficients,
-            radial_principal_face_scheme="donor-cell",
-        )
-    )
-    np.testing.assert_allclose(
-        compiled(stencil), donor, atol=2.0e-12, rtol=2.0e-12
-    )
-
-
-def test_radial_donor_cell_discriminator_preserves_constants_and_flux_balance():
-    geometry, domain, constant_stencil, coefficients = _operator_fixture((4, 3, 2))
-    constant = local_curvature_conservative_op(
-        constant_stencil,
-        geometry,
-        coefficients,
-        radial_principal_face_scheme="donor-cell",
-    )
-    np.testing.assert_allclose(constant, 0.0, atol=2.0e-12, rtol=0.0)
-
-    layout = geometry.layout
-    field_halo = jnp.arange(
-        np.prod(layout.cell_halo_shape), dtype=jnp.float64
-    ).reshape(layout.cell_halo_shape)
-    stencil = build_local_conservative_stencil_from_field(
-        field_halo,
-        geometry,
-        StencilBuilderContext(layout=layout, domain=domain),
-    )
-    result = local_curvature_conservative_op(
-        stencil,
-        geometry,
-        coefficients,
-        radial_principal_face_scheme="donor-cell",
-    )
-    dx = jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
-    dy = jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
-    dz = jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
-    weighted = jnp.sum(
-        result
-        * jnp.asarray(geometry.cell_metric.J_owned)
-        / jnp.asarray(geometry.cell_bfield.Bmag_owned)
-        * dx
-        * dy
-        * dz
-    )
-    x_face = jnp.asarray(stencil.face_values.x)
-    y_face = jnp.asarray(stencil.face_values.y)
-    z_face = jnp.asarray(stencil.face_values.z)
-    boundary_flux = jnp.sum(
-        coefficients.x[-1] * x_face[-1] * dy[-1] * dz[-1]
-    ) - jnp.sum(coefficients.x[0] * x_face[0] * dy[0] * dz[0])
-    boundary_flux += jnp.sum(
-        coefficients.y[:, -1] * y_face[:, -1] * dx[:, -1] * dz[:, -1]
-    ) - jnp.sum(
-        coefficients.y[:, 0] * y_face[:, 0] * dx[:, 0] * dz[:, 0]
-    )
-    boundary_flux += jnp.sum(
-        coefficients.z[:, :, -1]
-        * z_face[:, :, -1]
-        * dx[:, :, -1]
-        * dy[:, :, -1]
-    ) - jnp.sum(
-        coefficients.z[:, :, 0]
-        * z_face[:, :, 0]
-        * dx[:, :, 0]
-        * dy[:, :, 0]
-    )
-    np.testing.assert_allclose(
-        weighted, boundary_flux, atol=2.0e-11, rtol=2.0e-12
-    )
-
-
-def test_radial_donor_cell_discriminator_rejects_unknown_scheme():
-    geometry, _domain, stencil, coefficients = _operator_fixture()
-    with pytest.raises(ValueError, match="radial_principal_face_scheme"):
-        local_curvature_conservative_op(
-            stencil,
-            geometry,
-            coefficients,
-            radial_principal_face_scheme="third-order",
-        )
-
-
-def test_radial_curvature_principal_face_environment_selector(monkeypatch):
-    selector = LocalFciDrbEBRhs.__dataclass_fields__[
-        "curvature_radial_principal_face_scheme"
-    ].default_factory
-    monkeypatch.delenv(
-        "DRBX_CURVATURE_RADIAL_PRINCIPAL_FACE_SCHEME", raising=False
-    )
-    assert selector() == "centered"
-    monkeypatch.setenv(
-        "DRBX_CURVATURE_RADIAL_PRINCIPAL_FACE_SCHEME", "donor-cell"
-    )
-    assert selector() == "donor-cell"
-
-
-def test_groupwise_transition_trace_limiter_preserves_mean_and_bounds():
-    baseline = jnp.asarray((0.5, 0.5, 0.5, 2.0, 3.0, 7.0))
-    correction = jnp.asarray((1.0, -1.0, 1.0, 0.4, -0.2, 9.0))
-    fitted = baseline + correction
-    minus = jnp.asarray((0.0, 0.0, 0.0, 1.0, 2.0, -100.0))
-    plus = jnp.asarray((1.0, 1.0, 1.0, 4.0, 4.0, 100.0))
-    groups = jnp.asarray((0, 0, 0, 1, 1, 2), dtype=jnp.int32)
-    active = jnp.asarray((True, True, True, True, True, False))
-    weights = np.asarray((1.0, 2.0, 1.0, 1.0, 2.0, 0.0))
-
-    limited = jax.jit(
-        lambda high: _bound_groupwise_transition_trace_correction(
-            baseline,
-            high,
-            minus,
-            plus,
-            groups,
-            active,
-            num_groups=3,
-        )
-    )(fitted)
-    limited = np.asarray(limited)
-
-    np.testing.assert_allclose(limited[:3], (1.0, 0.0, 1.0))
-    np.testing.assert_allclose(limited[3:5], np.asarray(fitted)[3:5])
-    assert limited[5] == baseline[5]
-    assert np.all(limited[active] >= np.minimum(minus, plus)[active])
-    assert np.all(limited[active] <= np.maximum(minus, plus)[active])
-    for group in (0, 1):
-        select = np.asarray(groups) == group
-        np.testing.assert_allclose(
-            np.sum(weights[select] * (limited[select] - np.asarray(baseline)[select])),
-            0.0,
-            atol=2.0e-15,
-            rtol=0.0,
-        )
-
-
-def test_groupwise_transition_flux_correction_is_conservative_and_noninjective():
-    baseline = jnp.asarray((0.2, 0.5, -0.1, 1.0, 1.3, 9.0))
-    fitted = jnp.asarray((0.9, -0.4, 0.7, 1.8, 0.6, -20.0))
-    q_face = jnp.asarray((1.2, -0.7, 0.4, 0.5, 1.1, 3.0))
-    minus = jnp.asarray((0.1, -0.2, 0.8, 0.2, 1.5, -4.0))
-    plus = jnp.asarray((1.0, 0.6, -0.3, 1.4, 0.1, 7.0))
-    weights = jnp.asarray((1.0, 2.0, 0.5, 1.5, 0.75, 4.0))
-    groups = jnp.asarray((0, 0, 0, 1, 1, 2), dtype=jnp.int32)
-    active = jnp.asarray((True, True, True, True, True, False))
-
-    correction = jax.jit(
-        lambda high: _constrain_groupwise_transition_flux_correction(
-            baseline,
-            high,
-            q_face,
-            minus,
-            plus,
-            weights,
-            groups,
-            active,
-            num_groups=3,
-        )
-    )(fitted)
-    correction = np.asarray(correction)
-
-    assert np.all(np.isfinite(correction))
-    assert correction[-1] == 0.0
-    for group in (0, 1):
-        select = np.asarray(active) & (np.asarray(groups) == group)
-        group_weight = np.asarray(weights)[select]
-        group_correction = correction[select]
-        np.testing.assert_allclose(
-            np.sum(group_weight * group_correction),
-            0.0,
-            atol=2.0e-14,
-            rtol=0.0,
-        )
-        face_power = np.sum(
-            group_weight
-            * (np.asarray(minus)[select] - np.asarray(plus)[select])
-            * group_correction
-        )
-        assert face_power <= 2.0e-14
-
-
-def test_groupwise_transition_flux_correction_vanishes_without_trace_change():
-    baseline = jnp.asarray((0.5, -0.2, 1.4))
-    correction = _constrain_groupwise_transition_flux_correction(
-        baseline,
-        baseline,
-        jnp.asarray((1.0, -0.4, 0.7)),
-        jnp.asarray((0.1, 0.2, 0.3)),
-        jnp.asarray((0.4, -0.1, 0.8)),
-        jnp.asarray((1.0, 2.0, 0.5)),
-        jnp.asarray((0, 0, 0), dtype=jnp.int32),
-        jnp.asarray((True, True, True)),
-        num_groups=1,
-    )
-    np.testing.assert_allclose(correction, 0.0, atol=0.0, rtol=0.0)
-
-
-def test_directional_curvature_components_close_to_production_operator():
-    jax.config.update("jax_enable_x64", True)
-    geometry, domain, _stencil, _coefficients = _operator_fixture((3, 4, 5))
-    layout = geometry.layout
-    field_halo = jnp.sin(
-        0.17 * jnp.arange(np.prod(layout.cell_halo_shape), dtype=jnp.float64)
-    ).reshape(layout.cell_halo_shape)
-    stencil = build_local_conservative_stencil_from_field(
-        field_halo,
-        geometry,
-        StencilBuilderContext(layout=layout, domain=domain),
-    )
-    coefficients = LocalCurvatureFaceCoefficients3D(
-        layout=layout,
-        x=jnp.linspace(-0.8, 1.1, np.prod(layout.face_control_shape(0))).reshape(
-            layout.face_control_shape(0)
-        ),
-        y=jnp.linspace(0.7, -0.4, np.prod(layout.face_control_shape(1))).reshape(
-            layout.face_control_shape(1)
-        ),
-        z=jnp.linspace(-0.2, 0.9, np.prod(layout.face_control_shape(2))).reshape(
-            layout.face_control_shape(2)
-        ),
-    )
-    production = local_curvature_conservative_op(
-        stencil, geometry, coefficients, domain=domain
-    )
-    components = local_curvature_conservative_components_op(
-        stencil, geometry, coefficients, domain=domain
-    )
-    assert components.shape == (3,) + geometry.owned_shape
-    np.testing.assert_allclose(
-        np.sum(np.asarray(components), axis=0),
-        np.asarray(production),
-        atol=2.0e-12,
-        rtol=2.0e-12,
-    )
-
-
 def test_coefficients_validate_face_shapes():
     layout = HaloLayout3D((2, 2, 2), 1)
     faces = tuple(layout.face_control_shape(axis) for axis in range(3))
@@ -1271,365 +841,4 @@ def test_coefficients_validate_face_shapes():
             x=jnp.zeros((faces[0][0] - 1,) + faces[0][1:]),
             y=jnp.zeros(faces[1]),
             z=jnp.zeros(faces[2]),
-        )
-def test_radial_fine_glue_sat_is_constant_preserving_and_noninjective():
-    cell = jnp.asarray(
-        [
-            [[2.0], [2.0], [2.0], [2.0]],
-            [[1.0], [3.0], [0.5], [4.0]],
-            [[-2.0], [5.0], [0.25], [7.0]],
-        ],
-        dtype=jnp.float64,
-    )
-    q_face = jnp.linspace(-1.4, 1.6, 4 * 4).reshape((4, 4, 1))
-    profile = (4, 2, 2)
-    centers = jnp.asarray((0.5, 1.5, 2.5))
-    faces = jnp.asarray((0.0, 1.0, 2.0, 3.0))
-    area = jnp.ones_like(cell)
-    residual = jax.jit(
-        lambda value: _radial_fine_glue_sat_integrated_residual(
-            q_face,
-            value,
-            centers,
-            faces,
-            area,
-            profile,
-            penalty=0.75,
-        )
-    )(cell)
-    residual = np.asarray(residual)
-
-    left_trace = np.asarray(cell[0])
-    right_trace = 1.5 * np.asarray(cell[1]) - 0.5 * np.asarray(cell[2])
-    jump = right_trace - left_trace
-    expected_power = -np.sum(
-        0.5 * 0.75 * np.abs(np.asarray(q_face[1])) * jump * jump
-    )
-    np.testing.assert_allclose(
-        np.sum(np.asarray(cell) * residual),
-        expected_power,
-        atol=2.0e-14,
-        rtol=2.0e-14,
-    )
-    assert expected_power <= 0.0
-
-    constant = jnp.ones_like(cell) * 3.25
-    unchanged = _radial_fine_glue_sat_integrated_residual(
-        q_face, constant, centers, faces, area, profile, penalty=1.0
-    )
-    np.testing.assert_allclose(unchanged, 0.0, atol=0.0, rtol=0.0)
-
-    # Away from the axis-special first transition, both one-sided trace maps
-    # exactly reproduce a linear radial field.
-    linear_centers = jnp.asarray((0.5, 1.5, 2.5, 3.5))
-    linear_faces = jnp.asarray((0.0, 1.0, 2.0, 3.0, 4.0))
-    linear = jnp.broadcast_to(linear_centers[:, None, None], (4, 4, 1))
-    linear_q = jnp.ones((5, 4, 1), dtype=jnp.float64)
-    profile_outer = (4, 4, 2, 2)
-    linear_residual = _radial_fine_glue_sat_integrated_residual(
-        linear_q,
-        linear,
-        linear_centers,
-        linear_faces,
-        jnp.ones_like(linear),
-        profile_outer,
-        penalty=1.0,
-    )
-    np.testing.assert_allclose(linear_residual, 0.0, atol=2.0e-15, rtol=0.0)
-
-
-def test_radial_characteristic_fine_glue_is_exactly_dissipative_and_smooth_null():
-    rng = np.random.default_rng(31)
-    cell = jnp.asarray(rng.standard_normal((4, 3, 1, 4)), dtype=jnp.float64)
-    q_face = jnp.asarray(rng.uniform(-1.5, 1.5, (5, 3, 1)), dtype=jnp.float64)
-    tau = 1.25
-    # Production |M| is not Euclidean symmetric.  The correct dissipative
-    # statement is instead in its frozen characteristic H metric.
-    metric = np.asarray(
-        background_curvature_characteristic_metric(jnp.asarray(1.4), tau)
-    )
-    absolute = np.asarray(
-        background_curvature_characteristic_absolute_matrix(jnp.asarray(1.4), tau)
-    )
-    blocks = jnp.broadcast_to(
-        jnp.asarray(absolute, dtype=jnp.float64), (3, 3, 1, 4, 4)
-    )
-    centers = jnp.asarray((0.5, 1.5, 2.5, 3.5), dtype=jnp.float64)
-    faces = jnp.asarray((0.0, 1.0, 2.0, 3.0, 4.0), dtype=jnp.float64)
-    area = jnp.asarray(rng.uniform(0.7, 1.4, (4, 3, 1)), dtype=jnp.float64)
-    profile = (8, 4, 4, 2)
-    beta = 0.65
-
-    residual = jax.jit(
-        lambda value: _radial_characteristic_fine_glue_integrated_residual(
-            q_face,
-            value,
-            blocks,
-            centers,
-            faces,
-            area,
-            profile,
-            penalty=beta,
-        )
-    )(cell)
-    legacy_explicit = _radial_characteristic_fine_glue_integrated_residual(
-        q_face,
-        cell,
-        blocks,
-        centers,
-        faces,
-        area,
-        profile,
-        penalty=beta,
-        include_ordinary_faces=False,
-    )
-    np.testing.assert_allclose(residual, legacy_explicit, atol=3.0e-14, rtol=0.0)
-    left_ratio = np.asarray((0.0, 0.5, 0.5))
-    right_ratio = np.asarray((0.5, 0.5, 0.0))
-    value = np.asarray(cell)
-    left_far = np.concatenate((value[:1], value[:-2]), axis=0)
-    right_far = np.concatenate((value[2:], value[-1:]), axis=0)
-    left = (1.0 + left_ratio[:, None, None, None]) * value[:-1] - left_ratio[
-        :, None, None, None
-    ] * left_far
-    right = (1.0 + right_ratio[:, None, None, None]) * value[1:] - right_ratio[
-        :, None, None, None
-    ] * right_far
-    jump = right - left
-    face_area = 0.5 * (np.asarray(area[:-1]) + np.asarray(area[1:]))
-    transition = np.asarray((True, False, True))[:, None, None]
-    expected_power = -np.sum(
-        transition
-        * 0.5
-        * beta
-        * np.abs(np.asarray(q_face[1:-1]))
-        * face_area
-        * np.einsum("...i,ij,...jk,...k->...", jump, metric, np.asarray(blocks), jump)
-    )
-    np.testing.assert_allclose(
-        np.sum(
-            np.einsum("...i,ij,...j->...", value, metric, np.asarray(residual))
-        ),
-        expected_power,
-        rtol=3.0e-13,
-        atol=3.0e-13,
-    )
-    assert expected_power < 0.0
-    np.testing.assert_allclose(
-        np.sum(np.asarray(residual), axis=(0, 1, 2)),
-        0.0,
-        atol=3.0e-13,
-        rtol=0.0,
-    )
-
-    constant = jnp.broadcast_to(
-        jnp.asarray((1.0, 2.0, 3.0, 4.0)), cell.shape
-    )
-    constant_residual = _radial_characteristic_fine_glue_integrated_residual(
-        q_face,
-        constant,
-        blocks,
-        centers,
-        faces,
-        area,
-        profile,
-        penalty=beta,
-    )
-    np.testing.assert_allclose(constant_residual, 0.0, atol=0.0, rtol=0.0)
-
-    slopes = jnp.asarray((0.3, -0.2, 1.1, 0.7))
-    linear = centers[:, None, None, None] * slopes[None, None, None, :]
-    linear = jnp.broadcast_to(linear, cell.shape)
-    outer_only = _radial_characteristic_fine_glue_integrated_residual(
-        q_face,
-        linear,
-        blocks,
-        centers,
-        faces,
-        area,
-        (8, 8, 2, 2),
-        penalty=beta,
-    )
-    np.testing.assert_allclose(outer_only, 0.0, atol=3.0e-15, rtol=0.0)
-
-    inner = _radial_characteristic_fine_glue_integrated_residual(
-        q_face,
-        cell,
-        blocks,
-        centers,
-        faces,
-        area,
-        profile,
-        penalty=beta,
-        transition_face=1,
-    )
-    outer = _radial_characteristic_fine_glue_integrated_residual(
-        q_face,
-        cell,
-        blocks,
-        centers,
-        faces,
-        area,
-        profile,
-        penalty=beta,
-        transition_face=3,
-    )
-    np.testing.assert_allclose(residual, inner + outer, atol=3.0e-14, rtol=0.0)
-
-    bulk = jax.jit(
-        lambda value: _radial_characteristic_fine_glue_integrated_residual(
-            q_face,
-            value,
-            blocks,
-            centers,
-            faces,
-            area,
-            profile,
-            penalty=beta,
-            include_ordinary_faces=True,
-        )
-    )(cell)
-    # The profile has transition faces 1 and 3, so the difference is the
-    # ordinary interior face 2.  It must be nonzero for this generic state.
-    assert np.linalg.norm(np.asarray(bulk - residual)) > 1.0e-12
-    bulk_expected_power = -np.sum(
-        0.5
-        * beta
-        * np.abs(np.asarray(q_face[1:-1]))
-        * face_area
-        * np.einsum("...i,ij,...jk,...k->...", jump, metric, np.asarray(blocks), jump)
-    )
-    np.testing.assert_allclose(
-        np.sum(np.einsum("...i,ij,...j->...", value, metric, np.asarray(bulk))),
-        bulk_expected_power,
-        rtol=3.0e-13,
-        atol=3.0e-13,
-    )
-    assert bulk_expected_power < 0.0
-    np.testing.assert_allclose(
-        np.sum(np.asarray(bulk), axis=(0, 1, 2)),
-        0.0,
-        atol=3.0e-13,
-        rtol=0.0,
-    )
-    # A one-transition profile can select each face independently.  Since the
-    # trace maps do not depend on the profile, their sum is the bulk result.
-    all_faces_by_parts = sum(
-        (
-            _radial_characteristic_fine_glue_integrated_residual(
-                q_face,
-                cell,
-                blocks,
-                centers,
-                faces,
-                area,
-                tuple(8 if index < face else 4 for index in range(cell.shape[0])),
-                penalty=beta,
-            )
-            for face in range(1, cell.shape[0])
-        ),
-        jnp.zeros_like(cell),
-    )
-    np.testing.assert_allclose(bulk, all_faces_by_parts, atol=3.0e-14, rtol=0.0)
-    with pytest.raises(ValueError, match="bulk characteristic"):
-        _radial_characteristic_fine_glue_integrated_residual(
-            q_face,
-            cell,
-            blocks,
-            centers,
-            faces,
-            area,
-            profile,
-            penalty=beta,
-            transition_face=1,
-            include_ordinary_faces=True,
-        )
-
-    quadratic = centers[:, None, None, None] ** 2 * slopes[None, None, None, :]
-    quadratic = jnp.broadcast_to(quadratic, cell.shape)
-    # The radial end-adjacent faces use the established zero-slope physical
-    # closure; suppress only those two coefficients so this check isolates
-    # the ordinary-face reconstruction used by the bulk scheme.
-    quadratic_q_face = q_face.at[1].set(0.0).at[-2].set(0.0)
-    quadratic_bulk = _radial_characteristic_fine_glue_integrated_residual(
-        quadratic_q_face,
-        quadratic,
-        blocks,
-        centers,
-        faces,
-        area,
-        profile,
-        penalty=beta,
-        include_ordinary_faces=True,
-    )
-    # At ordinary faces on this uniform radial mesh, the two linear
-    # extrapolations have a jump proportional to the third difference.  Thus
-    # degree-two radial states are untouched by the bulk correction there.
-    np.testing.assert_allclose(quadratic_bulk, 0.0, atol=4.0e-15, rtol=0.0)
-
-
-def test_radial_fine_glue_sat_can_select_one_transition_face():
-    cell = jnp.asarray(
-        [[[1.0]], [[-2.0]], [[3.0]], [[-4.0]]], dtype=jnp.float64
-    )
-    q_face = jnp.ones((5, 1, 1), dtype=jnp.float64)
-    centers = jnp.asarray((0.5, 1.5, 2.5, 3.5))
-    faces = jnp.asarray((0.0, 1.0, 2.0, 3.0, 4.0))
-    area = jnp.ones_like(cell)
-    profile = (8, 4, 4, 2)
-
-    all_faces = _radial_fine_glue_sat_integrated_residual(
-        q_face, cell, centers, faces, area, profile, penalty=1.0
-    )
-    explicit_all_faces = _radial_fine_glue_sat_integrated_residual(
-        q_face,
-        cell,
-        centers,
-        faces,
-        area,
-        profile,
-        penalty=1.0,
-        transition_face=None,
-    )
-    inner = jax.jit(
-        lambda value: _radial_fine_glue_sat_integrated_residual(
-            q_face,
-            value,
-            centers,
-            faces,
-            area,
-            profile,
-            penalty=1.0,
-            transition_face=1,
-        )
-    )(cell)
-    outer = _radial_fine_glue_sat_integrated_residual(
-        q_face,
-        cell,
-        centers,
-        faces,
-        area,
-        profile,
-        penalty=1.0,
-        transition_face=3,
-    )
-    np.testing.assert_allclose(all_faces, explicit_all_faces, atol=0.0, rtol=0.0)
-    np.testing.assert_allclose(all_faces, inner + outer, atol=2.0e-15, rtol=0.0)
-    assert not np.allclose(np.asarray(inner), np.asarray(outer))
-
-
-@pytest.mark.parametrize("transition_face", (0, 4, 2))
-def test_radial_fine_glue_sat_rejects_invalid_or_nontransition_face(
-    transition_face,
-):
-    with pytest.raises(ValueError):
-        _radial_fine_glue_sat_integrated_residual(
-            jnp.ones((5, 1, 1), dtype=jnp.float64),
-            jnp.ones((4, 1, 1), dtype=jnp.float64),
-            jnp.asarray((0.5, 1.5, 2.5, 3.5)),
-            jnp.asarray((0.0, 1.0, 2.0, 3.0, 4.0)),
-            jnp.ones((4, 1, 1), dtype=jnp.float64),
-            (8, 4, 4, 2),
-            penalty=1.0,
-            transition_face=transition_face,
         )

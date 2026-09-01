@@ -373,7 +373,12 @@ def _energy_wall_selection_batch():
     )
 
 
-def test_all_physical_wall_selection_ignores_cfl_and_keeps_ordinary_legs_off():
+@pytest.mark.parametrize(
+    "wall_law", ("primitive-least-residual", "energy-absorbing")
+)
+def test_all_physical_wall_selection_ignores_cfl_and_keeps_ordinary_legs_off(
+    wall_law,
+):
     (
         equilibrium, center, minus, plus, dx_minus, dx_plus,
         backward_wall, forward_wall,
@@ -383,8 +388,9 @@ def test_all_physical_wall_selection_ignores_cfl_and_keeps_ordinary_legs_off():
         selection_dt=1.0e-6, cfl_limit=1.0e12,
         parallel_short_leg_selection="all-physical-walls",
         backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=minus, forward_wall_state=plus,
         equilibrium=equilibrium,
-        parallel_characteristic_wall_law="energy-absorbing",
+        parallel_characteristic_wall_law=wall_law,
     )
     np.testing.assert_array_equal(info["selected_backward_wall"], backward_wall)
     np.testing.assert_array_equal(info["selected_forward_wall"], forward_wall)
@@ -401,7 +407,12 @@ def test_all_physical_wall_selection_ignores_cfl_and_keeps_ordinary_legs_off():
         assert bool(jnp.all(info[name][mask]))
 
 
-def test_all_physical_wall_target_omits_exactly_selected_directional_actions():
+@pytest.mark.parametrize(
+    "wall_law", ("primitive-least-residual", "energy-absorbing")
+)
+def test_all_physical_wall_target_omits_exactly_selected_directional_actions(
+    wall_law,
+):
     (
         equilibrium, center, minus, plus, dx_minus, dx_plus,
         backward_wall, forward_wall,
@@ -411,8 +422,9 @@ def test_all_physical_wall_target_omits_exactly_selected_directional_actions():
         selection_dt=0.0, cfl_limit=1.0e12,
         parallel_short_leg_selection="cfl",
         backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=minus, forward_wall_state=plus,
         equilibrium=equilibrium,
-        parallel_characteristic_wall_law="energy-absorbing",
+        parallel_characteristic_wall_law=wall_law,
         div_b=0.0,
     )
     filtered, filtered_info = parallel_target_row_material_residual(
@@ -420,8 +432,9 @@ def test_all_physical_wall_target_omits_exactly_selected_directional_actions():
         selection_dt=1.0e-6, cfl_limit=1.0e12,
         parallel_short_leg_selection="all-physical-walls",
         backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=minus, forward_wall_state=plus,
         equilibrium=equilibrium,
-        parallel_characteristic_wall_law="energy-absorbing",
+        parallel_characteristic_wall_law=wall_law,
         div_b=0.0,
     )
     selected, _, selected_info = parallel_short_wall_material_data(
@@ -429,8 +442,9 @@ def test_all_physical_wall_target_omits_exactly_selected_directional_actions():
         selection_dt=1.0e-6, cfl_limit=1.0e12,
         parallel_short_leg_selection="all-physical-walls",
         backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=minus, forward_wall_state=plus,
         equilibrium=equilibrium,
-        parallel_characteristic_wall_law="energy-absorbing",
+        parallel_characteristic_wall_law=wall_law,
     )
     np.testing.assert_allclose(baseline - filtered, selected, rtol=2e-10, atol=2e-11)
     np.testing.assert_array_equal(filtered_info["omitted_backward_wall"], backward_wall)
@@ -442,7 +456,12 @@ def test_all_physical_wall_target_omits_exactly_selected_directional_actions():
     np.testing.assert_allclose(filtered[3], baseline[3], atol=2e-12)
 
 
-def test_all_physical_wall_backward_euler_includes_both_walls_once_on_long_legs():
+@pytest.mark.parametrize(
+    "wall_law", ("primitive-least-residual", "energy-absorbing")
+)
+def test_all_physical_wall_backward_euler_includes_both_walls_once_on_long_legs(
+    wall_law,
+):
     (
         equilibrium, center, minus, plus, dx_minus, dx_plus,
         backward_wall, forward_wall,
@@ -453,16 +472,18 @@ def test_all_physical_wall_backward_euler_includes_both_walls_once_on_long_legs(
         selection_dt=1.0e-6, cfl_limit=1.0e12,
         parallel_short_leg_selection="all-physical-walls",
         backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=minus, forward_wall_state=plus,
         equilibrium=equilibrium,
-        parallel_characteristic_wall_law="energy-absorbing",
+        parallel_characteristic_wall_law=wall_law,
     )
     updated, delta, info = parallel_short_wall_backward_euler(
         center, minus, plus, dx_minus, dx_plus, 4.0, 10.0,
         selection_dt=1.0e-6, solve_dt=solve_dt, cfl_limit=1.0e12,
         parallel_short_leg_selection="all-physical-walls",
         backward_wall=backward_wall, forward_wall=forward_wall,
+        backward_wall_state=minus, forward_wall_state=plus,
         equilibrium=equilibrium,
-        parallel_characteristic_wall_law="energy-absorbing",
+        parallel_characteristic_wall_law=wall_law,
     )
     expected = np.linalg.solve(
         np.eye(5)[None, :, :] - solve_dt * np.asarray(info["selected_jacobian"]),
@@ -847,6 +868,43 @@ def test_default_wall_law_is_exactly_explicit_primitive_least_residual():
     assert default_info.keys() == explicit_info.keys()
     for name in default_info:
         np.testing.assert_array_equal(default_info[name], explicit_info[name])
+
+
+def test_primitive_all_wall_uses_operator_trace_not_equilibrium_reference():
+    center = _state()
+    minus = center + jnp.asarray((-0.08, 0.04, -0.03, 0.12, -0.06))
+    plus = center + jnp.asarray((0.05, -0.02, 0.07, -0.09, 0.11))
+    common = dict(
+        backward_wall=True,
+        forward_wall=True,
+        backward_wall_state=minus,
+        forward_wall_state=plus,
+        parallel_short_leg_selection="all-physical-walls",
+        parallel_characteristic_wall_law="primitive-least-residual",
+    )
+    first = parallel_characteristic_wall_data(
+        center, minus, plus, 0.2, 0.3, 4.0, 10.0,
+        equilibrium=jnp.asarray((1.0, 1.0, 1.0, 0.0, 0.0)),
+        **common,
+    )
+    second = parallel_characteristic_wall_data(
+        center, minus, plus, 0.2, 0.3, 4.0, 10.0,
+        equilibrium=jnp.asarray((2.0, 1.5, 0.7, 0.4, -0.3)),
+        **common,
+    )
+    for name in (
+        "backward_endpoint_state",
+        "forward_endpoint_state",
+        "backward_wall_characteristic_current",
+        "forward_wall_characteristic_current",
+        "selected_residual",
+        "selected_jacobian",
+    ):
+        np.testing.assert_allclose(first[name], second[name], rtol=0.0, atol=0.0)
+    assert not bool(first["backward_candidate_ignored"])
+    assert not bool(first["forward_candidate_ignored"])
+    assert bool(first["selected_backward_wall"])
+    assert bool(first["selected_forward_wall"])
 
 
 def test_energy_absorbing_omitted_reference_is_normalized_equilibrium():

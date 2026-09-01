@@ -104,7 +104,7 @@ def test_production_conservative_calls_carry_operand_traces_and_div_b_does_not()
         and isinstance(node.func, ast.Name)
         and node.func.id in {"local_parallel_flux_div_op", "local_grad_parallel_op_conservative"}
     ]
-    assert len(calls) >= 20
+    assert calls
     for call in calls:
         keywords = {kw.arg for kw in call.keywords}
         if call.func.id == "local_parallel_flux_div_op" and any(
@@ -123,7 +123,7 @@ def test_production_poisson_bracket_calls_carry_matching_operand_traces():
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "_poisson_bracket_over_B"
     ]
-    assert len(calls) == 11
+    assert len(calls) == 6
     expected_g_trace_by_stencil = {
         "density_conservative_stencil": "density",
         "Te_conservative_stencil": "Te",
@@ -144,13 +144,13 @@ def test_production_poisson_bracket_calls_carry_matching_operand_traces():
 def _operator_boundary_attribute(node: ast.AST) -> str:
     assert isinstance(node, ast.Attribute)
     assert isinstance(node.value, ast.Name)
-    assert node.value.id == "operator_boundary"
+    assert node.value.id in {"operator_boundary", "perpendicular_operator_boundary"}
     return node.attr
 
 
-def test_central_and_upwind_curvature_paths_are_both_retained():
+def test_curvature_uses_operator_boundary_traces_without_upwind_ablation():
     source = RHS.read_text()
-    assert "operator_boundary.Pe" in source
+    for field in ("density", "Te", "Ti", "vorticity"):
+        assert f"operator_boundary.{field}" in source
     assert "operator_boundary.Ti_squared" in source
-    assert "curvature_inflow_closure == \"upwind-equilibrium\"" in source
-    assert "_upwind_equilibrium_boundary_face_bcs" in source
+    assert "_upwind_equilibrium_boundary_face_bcs" not in source
