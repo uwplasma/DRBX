@@ -2767,12 +2767,20 @@ def local_poisson_bracket_compatible_flux_op(
             raise ValueError(
                 f"{name} must have shape {geometry.owned_shape}, got {stencil.shape}"
             )
-    if characteristic_scheme not in ("centered", "third-order-upwind"):
+    if characteristic_scheme not in (
+        "centered",
+        "third-order-upwind",
+        "scalar-third-order-upwind",
+    ):
         raise ValueError(
-            "characteristic_scheme must be 'centered' or "
-            f"'third-order-upwind', got {characteristic_scheme!r}"
+            "characteristic_scheme must be 'centered', "
+            "'third-order-upwind', or 'scalar-third-order-upwind', got "
+            f"{characteristic_scheme!r}"
         )
-    characteristic_upwind = characteristic_scheme == "third-order-upwind"
+    characteristic_upwind = characteristic_scheme in (
+        "third-order-upwind",
+        "scalar-third-order-upwind",
+    )
     if characteristic_upwind:
         if g_field_halo is None:
             raise ValueError(
@@ -3052,7 +3060,9 @@ def local_poisson_bracket_compatible_flux_op(
                 g_positivity_floor,
             )
             result = (
-                centered_result
+                characteristic_f_action
+                if characteristic_scheme == "scalar-third-order-upwind"
+                else centered_result
                 + characteristic_f_action
                 - centered_f_action
             )
@@ -3185,9 +3195,14 @@ def local_poisson_bracket_compatible_flux_op(
         - _action(g_stencil, f_stencil, f_boundary_trace)
     )
     if characteristic_upwind:
+        characteristic_f_action = _characteristic_action(
+            f_stencil, g_stencil, left_g, right_g
+        )
         result = (
-            centered_result
-            + _characteristic_action(f_stencil, g_stencil, left_g, right_g)
+            characteristic_f_action
+            if characteristic_scheme == "scalar-third-order-upwind"
+            else centered_result
+            + characteristic_f_action
             - centered_f_action
         )
     else:

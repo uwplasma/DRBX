@@ -176,6 +176,61 @@ def test_periodic_checkpoint_payload_is_atomic_and_restartable(tmp_path):
         np.testing.assert_array_equal(getattr(state, name), expected)
 
 
+def test_materialized_cell_checkpoint_restores_exact_owner_values():
+    hsx = _driver_module()
+    shape = (2, 2, 1)
+    owner_index = np.stack(np.indices(shape, dtype=np.int32), axis=-1)
+    owner_index[1, 0, 0] = (0, 0, 0)
+    owner_mask = np.ones(shape, dtype=bool)
+    owner_mask[1, 0, 0] = False
+    host = SimpleNamespace(
+        topology=SimpleNamespace(
+            owner_index=owner_index,
+            is_active_owner=owner_mask,
+        )
+    )
+    fields = {}
+    for index, name in enumerate(hsx.FciDrbEBState.__dataclass_fields__):
+        value = index + np.arange(np.prod(shape), dtype=np.float64).reshape(shape)
+        value[1, 0, 0] = value[0, 0, 0]
+        fields[name] = value
+    state = hsx.FciDrbEBState(**fields)
+
+    restored, reused = hsx._restore_materialized_cell_owner_state(state, host)
+
+    assert reused
+    for name, value in fields.items():
+        np.testing.assert_array_equal(
+            getattr(restored, name), np.where(owner_mask, value, 0.0)
+        )
+
+
+def test_noncanonical_cell_checkpoint_uses_aggregation_fallback():
+    hsx = _driver_module()
+    shape = (2, 2, 1)
+    owner_index = np.stack(np.indices(shape, dtype=np.int32), axis=-1)
+    owner_index[1, 0, 0] = (0, 0, 0)
+    owner_mask = np.ones(shape, dtype=bool)
+    owner_mask[1, 0, 0] = False
+    host = SimpleNamespace(
+        topology=SimpleNamespace(
+            owner_index=owner_index,
+            is_active_owner=owner_mask,
+        )
+    )
+    fields = {
+        name: np.zeros(shape, dtype=np.float64)
+        for name in hsx.FciDrbEBState.__dataclass_fields__
+    }
+    fields["density"][1, 0, 0] = 1.0
+    state = hsx.FciDrbEBState(**fields)
+
+    candidate, reused = hsx._restore_materialized_cell_owner_state(state, host)
+
+    assert not reused
+    assert candidate is state
+
+
 def test_characteristic_fine_glue_requires_all_coupled_equations_before_geometry():
     hsx = _driver_module()
     with pytest.raises(SystemExit) as error:
@@ -241,7 +296,7 @@ def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
     run = _function(tree, "run_full_eb")
     kernel_names = {
         "precompute_wall_projectors",
-        "reconstruct_initial_phi",
+        "reconstruct_initial_phi_kernel",
         "full_rk4_advance",
         "inspect_state",
     }

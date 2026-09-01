@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import tempfile
 from typing import Callable, Sequence
+import zipfile
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -1780,15 +1781,93 @@ def build_local_curvature_face_coefficients(
     face_Ay = _face_covariant_one_form(geometry.face_metric.y, geometry.face_bfield.y)
     face_Az = _face_covariant_one_form(geometry.face_metric.z, geometry.face_bfield.z)
 
-    def _average_one(values: jnp.ndarray, axis: int) -> jnp.ndarray:
-        pad = [(0, 0)] * values.ndim
-        pad[axis] = (1, 1)
-        padded = jnp.pad(values, pad, mode="edge")
-        first = [slice(None)] * values.ndim
-        second = [slice(None)] * values.ndim
-        first[axis] = slice(0, values.shape[axis] + 1)
-        second[axis] = slice(1, values.shape[axis] + 2)
-        return 0.5 * (padded[tuple(first)] + padded[tuple(second)])
+    def _average_one(
+        values_halo: jnp.ndarray,
+        axis: int,
+        *,
+        global_axes: tuple[int, int],
+    ) -> jnp.ndarray:
+        """Average an owned boundary plane onto shared tangential edges.
+
+        ``values_halo`` contains the exact physical-face samples together
+        with the tangential geometry halos assembled by the domain lowering.
+        Using those halos makes the edge value identical at periodic seams
+        and decomposed-axis shard interfaces without introducing a runtime
+        collective into the curvature operator.  At a true nonperiodic
+        tangential boundary the geometry halo may intentionally be zero, so
+        replicate the endpoint sample there before forming the average.
+        """
+
+        axis = int(axis)
+        if axis not in (0, 1):
+            raise ValueError(f"boundary-plane axis must be 0 or 1, got {axis}")
+        if len(global_axes) != 2:
+            raise ValueError(f"global_axes must contain two entries, got {global_axes}")
+        owned_shape = tuple(
+            int(geometry.layout.owned_shape[global_axis])
+            for global_axis in global_axes
+        )
+        expected_halo_shape = tuple(n + 2 * h for n in owned_shape)
+        if values_halo.shape != expected_halo_shape:
+            raise ValueError(
+                "boundary plane does not contain the expected tangential halos: "
+                f"got {values_halo.shape}, expected {expected_halo_shape}"
+            )
+
+        global_axis = int(global_axes[axis])
+        if int(domain.shard_spec.shard_counts[global_axis]) == 1:
+            owned_slices = [slice(h, h + n) for n in owned_shape]
+            values = values_halo[tuple(owned_slices)]
+            first = jnp.take(values, 0, axis=axis)
+            last = jnp.take(values, values.shape[axis] - 1, axis=axis)
+            periodic = bool(domain.periodic_axes[global_axis])
+            lower_ghost = last if periodic else first
+            upper_ghost = first if periodic else last
+            extended = jnp.concatenate(
+                (
+                    jnp.expand_dims(lower_ghost, axis=axis),
+                    values,
+                    jnp.expand_dims(upper_ghost, axis=axis),
+                ),
+                axis=axis,
+            )
+            edge_index = jnp.arange(values.shape[axis] + 1)
+            return 0.5 * (
+                jnp.take(extended, edge_index, axis=axis)
+                + jnp.take(extended, edge_index + 1, axis=axis)
+            )
+
+        lower_slices = [slice(h, h + n) for n in owned_shape]
+        upper_slices = list(lower_slices)
+        lower_slices[axis] = slice(h - 1, h + owned_shape[axis])
+        upper_slices[axis] = slice(h, h + owned_shape[axis] + 1)
+        lower = values_halo[tuple(lower_slices)]
+        upper = values_halo[tuple(upper_slices)]
+
+        endpoint_slices = [slice(h, h + n) for n in owned_shape]
+        endpoint_slices[axis] = 0
+        first = values_halo[tuple(endpoint_slices)]
+        endpoint_slices[axis] = h + owned_shape[axis] - 1
+        last = values_halo[tuple(endpoint_slices)]
+        lower_edge = [slice(None)] * 2
+        upper_edge = [slice(None)] * 2
+        lower_edge[axis] = 0
+        upper_edge[axis] = -1
+        lower = lower.at[tuple(lower_edge)].set(
+            jnp.where(
+                domain.runtime_has_physical_lower(global_axis),
+                first,
+                lower[tuple(lower_edge)],
+            )
+        )
+        upper = upper.at[tuple(upper_edge)].set(
+            jnp.where(
+                domain.runtime_has_physical_upper(global_axis),
+                last,
+                upper[tuple(upper_edge)],
+            )
+        )
+        return 0.5 * (lower + upper)
 
     def _patch_edges(
         edge: jnp.ndarray,
@@ -1825,40 +1904,88 @@ def build_local_curvature_face_coefficients(
     z_lower = domain.runtime_has_physical_lower(2)
     z_upper = domain.runtime_has_physical_upper(2)
     x_boundary_planes = (
-        (x_lower, 0, face_Ax[h, iy, iz]),
-        (x_upper, 1, face_Ax[h + nx, iy, iz]),
+        (x_lower, 0, face_Ax[h]),
+        (x_upper, 1, face_Ax[h + nx]),
     )
     y_boundary_planes = (
-        (y_lower, 0, face_Ay[ix, h, iz]),
-        (y_upper, 1, face_Ay[ix, h + ny, iz]),
+        (y_lower, 0, face_Ay[:, h]),
+        (y_upper, 1, face_Ay[:, h + ny]),
     )
     z_boundary_planes = (
-        (z_lower, 0, face_Az[ix, iy, h]),
-        (z_upper, 1, face_Az[ix, iy, h + nz]),
+        (z_lower, 0, face_Az[:, :, h]),
+        (z_upper, 1, face_Az[:, :, h + nz]),
     )
 
     Az_xy = _patch_edges(
         Az_xy,
         (ix_face, iy_face, iz),
         tuple(
-            [(active, 0, side, _average_one(plane[..., 2], 0)) for active, side, plane in x_boundary_planes]
-            + [(active, 1, side, _average_one(plane[..., 2], 0)) for active, side, plane in y_boundary_planes]
+            [
+                (
+                    active,
+                    0,
+                    side,
+                    _average_one(plane[..., 2], 0, global_axes=(1, 2)),
+                )
+                for active, side, plane in x_boundary_planes
+            ]
+            + [
+                (
+                    active,
+                    1,
+                    side,
+                    _average_one(plane[..., 2], 0, global_axes=(0, 2)),
+                )
+                for active, side, plane in y_boundary_planes
+            ]
         ),
     )
     Ay_xz = _patch_edges(
         Ay_xz,
         (ix_face, iy, iz_face),
         tuple(
-            [(active, 0, side, _average_one(plane[..., 1], 1)) for active, side, plane in x_boundary_planes]
-            + [(active, 2, side, _average_one(plane[..., 1], 0)) for active, side, plane in z_boundary_planes]
+            [
+                (
+                    active,
+                    0,
+                    side,
+                    _average_one(plane[..., 1], 1, global_axes=(1, 2)),
+                )
+                for active, side, plane in x_boundary_planes
+            ]
+            + [
+                (
+                    active,
+                    2,
+                    side,
+                    _average_one(plane[..., 1], 0, global_axes=(0, 1)),
+                )
+                for active, side, plane in z_boundary_planes
+            ]
         ),
     )
     Ax_yz = _patch_edges(
         Ax_yz,
         (ix, iy_face, iz_face),
         tuple(
-            [(active, 1, side, _average_one(plane[..., 0], 1)) for active, side, plane in y_boundary_planes]
-            + [(active, 2, side, _average_one(plane[..., 0], 1)) for active, side, plane in z_boundary_planes]
+            [
+                (
+                    active,
+                    1,
+                    side,
+                    _average_one(plane[..., 0], 1, global_axes=(0, 2)),
+                )
+                for active, side, plane in y_boundary_planes
+            ]
+            + [
+                (
+                    active,
+                    2,
+                    side,
+                    _average_one(plane[..., 0], 1, global_axes=(0, 1)),
+                )
+                for active, side, plane in z_boundary_planes
+            ]
         ),
     )
 
@@ -7889,6 +8016,7 @@ def build_fci_maps_from_callbacks(
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
     min_abs_bz: float = 1.0e-30,
     endpoint_interpolation_order: int = 2,
+    direction_checkpoint_path: Path | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Build FCI maps by evaluating the magnetic field at arbitrary points.
 
@@ -7903,7 +8031,10 @@ def build_fci_maps_from_callbacks(
     bilinear, second-order endpoint interpolation.  Physical boundary hit
     coordinates and connection lengths are retained.  With
     ``axis_regular_axes[0]``, lower-radial crossings continue at reflected
-    radius and ``theta + pi``; the upper radial face remains physical.
+    radius and ``theta + pi``; the upper radial face remains physical.  An
+    optional ``direction_checkpoint_path`` atomically records each completed
+    forward/backward direction so long continuous-field traces can resume
+    without changing their numerical result.
     """
 
     if int(substeps) < 1:
@@ -8193,9 +8324,121 @@ def build_fci_maps_from_callbacks(
     xx, yy = np.meshgrid(x_axis, y_axis, indexing="ij")
     seeds_xy = np.column_stack((xx.reshape(-1), yy.reshape(-1)))
 
-    # Group planes with the same signed eta step. Uniform periodic eta has
-    # exactly one group, so every RK4 callback sees all nx*ny*nz seeds in one
-    # batch. Nonuniform eta only pays once per distinct step size.
+    checkpoint_path = (
+        None
+        if direction_checkpoint_path is None
+        else Path(direction_checkpoint_path)
+    )
+    coordinate_digest = hashlib.sha256()
+    for values in (
+        x_axis,
+        y_axis,
+        z_axis,
+        np.asarray(grid.x.faces, dtype=np.float64),
+        np.asarray(grid.y.faces, dtype=np.float64),
+        np.asarray(grid.z.faces, dtype=np.float64),
+    ):
+        coordinate_digest.update(np.ascontiguousarray(values).tobytes())
+    checkpoint_identity = {
+        "format_version": 1,
+        "shape": [int(nx), int(ny), int(nz)],
+        "substeps": int(substeps),
+        "periodic_axes": [bool(value) for value in periodic_axes],
+        "axis_regular_axes": [bool(value) for value in axis_regular_axes],
+        "coordinate_sha256": coordinate_digest.hexdigest(),
+    }
+    completed_directions: set[str] = set()
+
+    def _direction_output_names(prefix: str) -> tuple[str, ...]:
+        return tuple(
+            name
+            for name in (*float_output_names, *bool_output_names)
+            if name.startswith(f"{prefix}_")
+        )
+
+    if checkpoint_path is not None and checkpoint_path.is_file():
+        try:
+            with np.load(checkpoint_path, allow_pickle=False) as checkpoint:
+                stored_identity = json.loads(
+                    str(checkpoint["identity_json"].item())
+                )
+                if stored_identity != checkpoint_identity:
+                    raise ValueError("direction checkpoint identity mismatch")
+                for prefix in ("forward", "backward"):
+                    completed = bool(
+                        np.asarray(
+                            checkpoint[f"completed_{prefix}"]
+                        ).item()
+                    )
+                    if not completed:
+                        continue
+                    for name in _direction_output_names(prefix):
+                        value = np.asarray(checkpoint[name])
+                        if value.shape != (nx, ny, nz):
+                            raise ValueError(
+                                f"direction checkpoint {name} shape mismatch"
+                            )
+                        outputs[name][...] = value
+                    completed_directions.add(prefix)
+            print(
+                "[fci-map-trace] resumed completed directions "
+                f"{sorted(completed_directions)} from {checkpoint_path}",
+                flush=True,
+            )
+        except (EOFError, KeyError, OSError, ValueError, zipfile.BadZipFile) as error:
+            print(
+                f"[fci-map-trace] ignored invalid direction checkpoint "
+                f"{checkpoint_path}: {error}",
+                flush=True,
+            )
+            completed_directions.clear()
+
+    def _write_direction_checkpoint() -> None:
+        if checkpoint_path is None:
+            return
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        payload: dict[str, np.ndarray] = {
+            "identity_json": np.asarray(
+                json.dumps(checkpoint_identity, sort_keys=True)
+            ),
+            "completed_forward": np.asarray(
+                "forward" in completed_directions, dtype=bool
+            ),
+            "completed_backward": np.asarray(
+                "backward" in completed_directions, dtype=bool
+            ),
+        }
+        for prefix in sorted(completed_directions):
+            for name in _direction_output_names(prefix):
+                payload[name] = np.asarray(outputs[name])
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=checkpoint_path.parent,
+                prefix=f".{checkpoint_path.stem}.",
+                suffix=".npz",
+                delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+            np.savez(temporary_path, **payload)
+            temporary_path.replace(checkpoint_path)
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                temporary_path.unlink()
+        print(
+            "[fci-map-trace] checkpointed completed directions "
+            f"{sorted(completed_directions)} to {checkpoint_path}",
+            flush=True,
+        )
+
+    # Group planes with the same signed eta step, then trace each group in
+    # bounded batches.  A full 48^3 uniform map contains 110592 seeds; sending
+    # all of them through every continuous metric/B evaluation at once uses
+    # several gigabytes at higher RK substep counts.  Seed trajectories are
+    # independent, so batching changes only peak memory.  Permit a batch to
+    # split a logical eta plane as well: one 48x48 plane is already large
+    # enough to trigger transient multi-gigabyte evaluator allocations.
+    max_trace_batch_seeds = 2048
     def step_groups(direction: int) -> list[tuple[float, list[int]]]:
         grouped: dict[float, list[int]] = {}
         for index in range(nz):
@@ -8207,31 +8450,56 @@ def build_fci_maps_from_callbacks(
     def fill_direction(direction: int) -> None:
         prefix = "forward" if direction > 0 else "backward"
         for step, indices in step_groups(direction):
-            seed_batches = []
-            for index in indices:
-                seed_batches.append(
-                    np.column_stack((seeds_xy, np.full(seeds_xy.shape[0], z_axis[index])))
+            group_indices = np.asarray(indices, dtype=np.int64)
+            seeds_per_plane = int(seeds_xy.shape[0])
+            group_seed_count = int(group_indices.size) * seeds_per_plane
+            for seed_start in range(
+                0, group_seed_count, int(max_trace_batch_seeds)
+            ):
+                seed_stop = min(
+                    seed_start + int(max_trace_batch_seeds), group_seed_count
                 )
-            seeds = np.concatenate(seed_batches, axis=0)
-            traced, lengths, boundaries = trace(seeds, step)
-            for local_index, index in enumerate(indices):
-                begin = local_index * seeds_xy.shape[0]
-                end = begin + seeds_xy.shape[0]
-                endpoint = traced[begin:end]
-                outputs[f"{prefix}_x"][:, :, index] = fractional_index(
-                    x_axis, endpoint[:, 0], periodic_axes[0], np.asarray(grid.x.faces)
-                ).reshape(nx, ny)
-                outputs[f"{prefix}_y"][:, :, index] = fractional_index(
-                    y_axis, endpoint[:, 1], periodic_axes[1], np.asarray(grid.y.faces)
-                ).reshape(nx, ny)
-                outputs[f"{prefix}_endpoint_x"][:, :, index] = endpoint[:, 0].reshape(nx, ny)
-                outputs[f"{prefix}_endpoint_y"][:, :, index] = endpoint[:, 1].reshape(nx, ny)
-                outputs[f"{prefix}_endpoint_z"][:, :, index] = endpoint[:, 2].reshape(nx, ny)
-                outputs[f"{prefix}_length"][:, :, index] = lengths[begin:end].reshape(nx, ny)
-                outputs[f"{prefix}_boundary"][:, :, index] = boundaries[begin:end].reshape(nx, ny)
+                group_flat = np.arange(seed_start, seed_stop, dtype=np.int64)
+                plane_position = group_flat // seeds_per_plane
+                plane_flat = group_flat % seeds_per_plane
+                target_k = group_indices[plane_position]
+                target_i = plane_flat // ny
+                target_j = plane_flat % ny
+                seeds = np.column_stack(
+                    (
+                        seeds_xy[plane_flat],
+                        z_axis[target_k],
+                    )
+                )
+                traced, lengths, boundaries = trace(seeds, step)
+                outputs[f"{prefix}_x"][target_i, target_j, target_k] = (
+                    fractional_index(
+                        x_axis,
+                        traced[:, 0],
+                        periodic_axes[0],
+                        np.asarray(grid.x.faces),
+                    )
+                )
+                outputs[f"{prefix}_y"][target_i, target_j, target_k] = (
+                    fractional_index(
+                        y_axis,
+                        traced[:, 1],
+                        periodic_axes[1],
+                        np.asarray(grid.y.faces),
+                    )
+                )
+                outputs[f"{prefix}_endpoint_x"][target_i, target_j, target_k] = traced[:, 0]
+                outputs[f"{prefix}_endpoint_y"][target_i, target_j, target_k] = traced[:, 1]
+                outputs[f"{prefix}_endpoint_z"][target_i, target_j, target_k] = traced[:, 2]
+                outputs[f"{prefix}_length"][target_i, target_j, target_k] = lengths
+                outputs[f"{prefix}_boundary"][target_i, target_j, target_k] = boundaries
 
-    fill_direction(+1)
-    fill_direction(-1)
+    for direction, prefix in ((+1, "forward"), (-1, "backward")):
+        if prefix in completed_directions:
+            continue
+        fill_direction(direction)
+        completed_directions.add(prefix)
+        _write_direction_checkpoint()
     for index in range(nz):
         outputs["dz"][:, :, index] = abs(plane_step(index, +1))
 

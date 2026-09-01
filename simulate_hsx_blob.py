@@ -66,6 +66,7 @@ from drbx.geometry import (  # noqa: E402
     FciMaps3D,
     Grid1D,
     LocalDomain3D,
+    LocalCurvatureFaceCoefficients3D,
     LocalFciGeometry3D,
     MetricEvaluator,
     MetricGeometry,
@@ -100,6 +101,7 @@ from drbx.native import (  # noqa: E402
     SolvaxGmresConfig,
     TopologyHaloFiller3D,
     assemble_local_fci_geometry,
+    assemble_single_device_local_fci_geometry,
     build_local_fci_geometries,
     make_default_topology_halo_filler_3d,
     make_shard_mesh,
@@ -240,6 +242,10 @@ FCI_MAP_FLOAT_FIELDS = FCI_MAP_FIELDS[:12]
 FCI_MAP_BOOL_FIELDS = FCI_MAP_FIELDS[12:]
 FCI_MAP_CACHE_PREFIX = "fci_maps_"
 FCI_MAP_CACHE_FORMAT_VERSION = 1
+# Bump only when the callback tracer numerics or serialized map contract
+# changes.  Unrelated edits elsewhere in fci_geometry.py must not invalidate a
+# multi-minute full-torus trace.
+FCI_MAP_TRACER_REVISION = 2
 
 
 @dataclass(frozen=True)
@@ -302,28 +308,21 @@ def _validate_hsx_metric_context(
 
 
 def _hsx_fci_map_source_fingerprint() -> str:
-    """Fingerprint the driver-visible FCI map schema and tracer source.
+    """Fingerprint the driver-visible FCI map schema and tracer revision.
 
     The metric cache deliberately does not include ``fci_geometry.py`` in its
     metric-cache key: changing the tracer should not force an expensive metric
-    rebuild.  Cached maps carry this separate fingerprint instead.
+    rebuild.  Cached maps carry this separate, explicitly versioned
+    fingerprint instead.  A whole-file mtime/size fingerprint is intentionally
+    avoided because curvature and other unrelated edits live in the same
+    module as the callback tracer.
     """
 
-    source_path = DRBX_SRC / "drbx" / "geometry" / "fci_geometry.py"
-    try:
-        stat = source_path.stat()
-        source = {
-            "path": str(source_path),
-            "size": int(stat.st_size),
-            "mtime_ns": int(stat.st_mtime_ns),
-        }
-    except OSError:
-        source = {"path": str(source_path), "unavailable": True}
     contract = {
         "cache_format": FCI_MAP_CACHE_FORMAT_VERSION,
         "fields": list(FCI_MAP_FIELDS),
         "endpoint_interpolation_order": 2,
-        "source": source,
+        "tracer_revision": FCI_MAP_TRACER_REVISION,
     }
     return hashlib.sha256(
         json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
@@ -377,6 +376,14 @@ def _build_or_load_hsx_fci_maps(
         )
     expected_shape = tuple(int(value) for value in grid.shape)
     source_fingerprint = _hsx_fci_map_source_fingerprint()
+    direction_checkpoint_path = (
+        None
+        if cache_path is None
+        else cache_path.with_name(
+            f".{cache_path.stem}.fci_trace_s{int(fci_trace_substeps)}_"
+            f"{source_fingerprint[:16]}.npz"
+        )
+    )
     payload = None if cache_payload is None else dict(cache_payload)
     maps = None
     if payload is not None:
@@ -401,6 +408,11 @@ def _build_or_load_hsx_fci_maps(
                 "[fci-map-cache] validated cached full-torus HSX maps",
                 flush=True,
             )
+            if (
+                direction_checkpoint_path is not None
+                and direction_checkpoint_path.exists()
+            ):
+                direction_checkpoint_path.unlink()
             return maps, payload, bfield
         except (KeyError, TypeError, ValueError, OSError) as error:
             print(
@@ -437,6 +449,7 @@ def _build_or_load_hsx_fci_maps(
         periodic_axes=(False, True, True),
         axis_regular_axes=(True, False, False),
         endpoint_interpolation_order=2,
+        direction_checkpoint_path=direction_checkpoint_path,
     )
     missing = [name for name in FCI_MAP_FIELDS if name not in map_payload]
     if missing:
@@ -467,6 +480,11 @@ def _build_or_load_hsx_fci_maps(
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             _write_npz_atomic(cache_path, payload)
+            if (
+                direction_checkpoint_path is not None
+                and direction_checkpoint_path.exists()
+            ):
+                direction_checkpoint_path.unlink()
             print(
                 f"[fci-map-cache] atomically added maps to {cache_path}",
                 flush=True,
@@ -2110,6 +2128,33 @@ def _aggregate_initial_owner_state(
     return FciDrbEBState(**result)
 
 
+def _restore_materialized_cell_owner_state(
+    state: FciDrbEBState,
+    host_geometry,
+) -> tuple[FciDrbEBState, bool]:
+    """Invert checkpoint owner materialization exactly when it validates.
+
+    Output checkpoints prolong every canonical cell-owner value to all of its
+    member cells.  When every saved member still equals that owner, retaining
+    only active-owner slots is the exact inverse and avoids recomputing a
+    volume average.  Noncanonical/legacy inputs are returned unchanged so the
+    caller can use the general aggregation path.
+    """
+
+    topology = host_geometry.topology
+    owner_index = np.asarray(topology.owner_index, dtype=np.int32)
+    owner_coordinates = tuple(np.moveaxis(owner_index, -1, 0))
+    owner_mask = np.asarray(topology.is_active_owner, dtype=bool)
+    restored: dict[str, np.ndarray] = {}
+    for name, value in state.field_items():
+        materialized = np.asarray(value, dtype=np.float64)
+        owner_values = materialized[owner_coordinates]
+        if not np.array_equal(materialized, owner_values, equal_nan=True):
+            return state, False
+        restored[name] = np.where(owner_mask, materialized, 0.0)
+    return FciDrbEBState(**restored), True
+
+
 def _materialize_owner_state(state: FciDrbEBState, host_geometry) -> FciDrbEBState:
     """Prolong owner values to the fine grid at output boundaries."""
 
@@ -2840,6 +2885,7 @@ def build_local_eb_model(
     control_volume_geometry=None,
     control_volume_boundary_bc=None,
     outgoing_face_topology=None,
+    curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
 ) -> LocalFciDrbEBRhs:
     if gmres_restart < 1:
         raise ValueError("gmres_restart must be positive")
@@ -2909,10 +2955,12 @@ def build_local_eb_model(
         "direct",
         "compatible-flux",
         "compatible-third-order-upwind",
+        "material-scalar-third-order-upwind",
     ):
         raise ValueError(
             "poisson_bracket_scheme must be 'direct', 'compatible-flux', or "
-            "'compatible-third-order-upwind', "
+            "'compatible-third-order-upwind', or "
+            "'material-scalar-third-order-upwind', "
             f"got {poisson_bracket_scheme!r}"
         )
     if ion_temperature_curvature_self_form not in ("product", "flux"):
@@ -3035,7 +3083,11 @@ def build_local_eb_model(
         else None
     )
     curvature_face_coefficients = (
-        build_local_curvature_face_coefficients(geometry, domain)
+        (
+            curvature_face_coefficients_override
+            if curvature_face_coefficients_override is not None
+            else build_local_curvature_face_coefficients(geometry, domain)
+        )
         if curvature_scheme == "conservative"
         else None
     )
@@ -3219,6 +3271,62 @@ def _imex_ssp222_step(current, dt, explicit_rhs, implicit_stage):
         next_state,
         (stage_1, stage_2_base, stage_2),
         (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
+    )
+
+
+def _resolve_execution_mode(requested: str, *, work_items: int) -> str:
+    """Choose eager execution for diagnostics and JIT for production runs."""
+
+    if requested not in ("auto", "compiled", "eager"):
+        raise ValueError(
+            "execution mode must be 'auto', 'compiled', or 'eager', got "
+            f"{requested!r}"
+        )
+    if work_items < 1:
+        raise ValueError("execution mode resolution requires positive work_items")
+    if requested == "auto":
+        return "eager" if work_items < 100 else "compiled"
+    return requested
+
+
+def _pack_curvature_face_coefficients(
+    coefficients: LocalCurvatureFaceCoefficients3D,
+) -> np.ndarray:
+    """Store each cell's lower/upper invariant face values as six channels."""
+
+    packed = []
+    for axis, values in enumerate(coefficients.axes):
+        lower = [slice(None)] * 3
+        upper = [slice(None)] * 3
+        lower[axis] = slice(0, -1)
+        upper[axis] = slice(1, None)
+        packed.extend((values[tuple(lower)], values[tuple(upper)]))
+    return np.stack([np.asarray(value) for value in packed], axis=-1)
+
+
+def _unpack_curvature_face_coefficients(
+    packed: jax.Array,
+    layout,
+) -> LocalCurvatureFaceCoefficients3D:
+    """Rebuild shard-local owned-face arrays from cell-aligned channels."""
+
+    if packed.ndim != 4 or packed.shape[-1] != 6:
+        raise ValueError(
+            "packed curvature coefficients must have shape (nx, ny, nz, 6)"
+        )
+
+    def unpack_face(axis: int) -> jax.Array:
+        lower = packed[..., 2 * axis]
+        upper = packed[..., 2 * axis + 1]
+        last = [slice(None)] * 3
+        last[axis] = slice(-1, None)
+        return jnp.concatenate((lower, upper[tuple(last)]), axis=axis)
+
+    return LocalCurvatureFaceCoefficients3D(
+        layout=layout,
+        x=unpack_face(0),
+        y=unpack_face(1),
+        z=unpack_face(2),
     )
 
 
@@ -3523,6 +3631,7 @@ def run_full_eb(
     gmres_preconditioner: str,
     gmres_residual_correction_steps: int = 0,
     time_integrator: str,
+    advance_execution: str = "compiled",
     num_steps: int,
     timestep: float,
     start_time: float,
@@ -3596,6 +3705,8 @@ def run_full_eb(
         raise ValueError("control_volume_field_count must be positive")
     if time_integrator not in ("rk4", "imex-ssp222"):
         raise ValueError("time_integrator must be 'rk4' or 'imex-ssp222'")
+    if advance_execution not in ("compiled", "eager"):
+        raise ValueError("advance_execution must be 'compiled' or 'eager'")
     short_leg_treatment = os.environ.get(
         "DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"
     )
@@ -3616,6 +3727,11 @@ def run_full_eb(
         raise ValueError("checkpoint_every must be nonnegative")
     if rhs_replay_execution not in ("compiled", "eager"):
         raise ValueError("rhs_replay_execution must be 'compiled' or 'eager'")
+    setup_execution = (
+        rhs_replay_execution
+        if rhs_replay_history is not None
+        else advance_execution
+    )
     if parallel_operator_scheme not in ("coordinate", "fci"):
         raise ValueError(
             "parallel_operator_scheme must be 'coordinate' or 'fci', got "
@@ -3648,7 +3764,7 @@ def run_full_eb(
     geometry_sharding = NamedSharding(mesh, geometry_spec)
     state = initial_state.map_fields(
         lambda value: jax.device_put(
-            jnp.asarray(value, dtype=jnp.float64),
+            np.asarray(value, dtype=np.float64),
             state_sharding,
         )
     )
@@ -3700,30 +3816,83 @@ def run_full_eb(
                 current_state.vorticity, local_control_volume_geometry.cells
             ),
         )
-    cell_fields = jax.device_put(
-        jnp.asarray(sharded_geometry.cell_fields, dtype=jnp.float64),
-        geometry_sharding,
+    geometry_field_count = int(sharded_geometry.cell_fields.shape[-1])
+    curvature_face_field_count = 0
+    cell_fields_host = np.asarray(
+        sharded_geometry.cell_fields, dtype=np.float64
     )
+    if curvature_scheme == "conservative":
+        print(
+            "[simulation] precomputing invariant full-torus curvature face "
+            "coefficients",
+            flush=True,
+        )
+        curvature_precompute_start = time.perf_counter()
+        host_sharded_geometry = build_local_fci_geometries(
+            global_geometry,
+            (1, 1, 1),
+            halo_width=int(sharded_geometry.domain.layout.halo_width),
+            periodic_axes=sharded_geometry.domain.periodic_axes,
+            axis_regular_axes=sharded_geometry.domain.axis_regular_axes,
+        )
+        host_local_geometry = assemble_single_device_local_fci_geometry(
+            host_sharded_geometry
+        )
+        host_domain = replace(
+            host_sharded_geometry.domain,
+            mesh_axis_names=(None, None, None),
+        )
+        # Do not run this sizeable JAX geometry calculation primitive by
+        # primitive in eager mode.  It is an invariant, bounded setup kernel
+        # whose three arrays are reused by every later RHS/IMEX stage.
+        curvature_face_setup = jax.jit(
+            lambda: build_local_curvature_face_coefficients(
+                host_local_geometry,
+                host_domain,
+            ).axes
+        )
+        curvature_face_axes = curvature_face_setup()
+        jax.block_until_ready(curvature_face_axes)
+        host_curvature_faces = LocalCurvatureFaceCoefficients3D(
+            layout=host_local_geometry.layout,
+            x=curvature_face_axes[0],
+            y=curvature_face_axes[1],
+            z=curvature_face_axes[2],
+        )
+        curvature_face_fields_host = _pack_curvature_face_coefficients(
+            host_curvature_faces
+        )
+        curvature_face_field_count = int(curvature_face_fields_host.shape[-1])
+        cell_fields_host = np.concatenate(
+            (cell_fields_host, curvature_face_fields_host), axis=-1
+        )
+        print(
+            "[simulation] invariant curvature face coefficients packed into "
+            f"{curvature_face_field_count} shard-local channels in "
+            f"{time.perf_counter() - curvature_precompute_start:.3f} s",
+            flush=True,
+        )
+    cell_fields = jax.device_put(cell_fields_host, geometry_sharding)
     map_fields_host = (
-        jnp.asarray(sharded_geometry.map_fields, dtype=jnp.float64)
+        np.asarray(sharded_geometry.map_fields, dtype=np.float64)
         if sharded_geometry.map_fields is not None
-        else jnp.zeros(
+        else np.zeros(
             sharded_geometry.global_shape + (len(FCI_MAP_FIELDS),),
-            dtype=jnp.float64,
+            dtype=np.float64,
         )
     )
     map_fields = jax.device_put(map_fields_host, geometry_sharding)
     if control_volume_descriptor is None:
-        control_volume_fields_host = jnp.zeros(
+        control_volume_fields_host = np.zeros(
             sharded_geometry.global_shape + (int(control_volume_field_count),),
-            dtype=jnp.float64,
+            dtype=np.float64,
         )
     elif control_volume_fields_host is None:
         raise ValueError(
             "control_volume_fields_host is required with an RLP descriptor"
         )
     control_volume_fields = jax.device_put(
-        jnp.asarray(control_volume_fields_host, dtype=jnp.float64),
+        np.asarray(control_volume_fields_host, dtype=np.float64),
         geometry_sharding,
     )
 
@@ -3749,6 +3918,13 @@ def run_full_eb(
         )
 
     shard_count = int(np.prod(sharded_geometry.shard_counts))
+    if phase_timing and advance_execution == "eager":
+        print(
+            "[simulation] operator/GMRES host-callback timing disabled for "
+            "eager advancement; total step timing remains enabled",
+            flush=True,
+        )
+        phase_timing = False
     if phase_timing and shard_count > 1:
         print(
             "[simulation] operator/GMRES host-callback timing disabled for "
@@ -3757,16 +3933,39 @@ def run_full_eb(
         )
         phase_timing = False
 
+    def unpack_local_curvature_face_coefficients(
+        cell_fields_owned: jax.Array,
+        layout,
+    ) -> LocalCurvatureFaceCoefficients3D | None:
+        if curvature_scheme != "conservative":
+            return None
+        packed = cell_fields_owned[
+            ...,
+            geometry_field_count : geometry_field_count
+            + curvature_face_field_count,
+        ]
+        return _unpack_curvature_face_coefficients(
+            packed,
+            layout,
+        )
+
     def build_local_model(
         cell_fields_owned: jax.Array,
         map_fields_owned: jax.Array,
         control_volume_fields_owned: jax.Array,
         wall_projectors: UpwindEquilibriumWallProjectors | None,
     ) -> LocalFciDrbEBRhs:
+        geometry_fields_owned = cell_fields_owned[..., :geometry_field_count]
         local_geometry = assemble_local_fci_geometry(
             sharded_geometry,
-            cell_fields_owned,
+            geometry_fields_owned,
             map_fields_owned if parallel_operator_scheme == "fci" else None,
+        )
+        local_curvature_face_coefficients = (
+            unpack_local_curvature_face_coefficients(
+                cell_fields_owned,
+                local_geometry.layout,
+            )
         )
         local_control_volume_geometry = (
             None
@@ -3829,6 +4028,9 @@ def run_full_eb(
             control_volume_geometry=local_control_volume_geometry,
             control_volume_boundary_bc=control_volume_boundary_bc,
             outgoing_face_topology=local_outgoing_face_topology,
+            curvature_face_coefficients_override=(
+                local_curvature_face_coefficients
+            ),
         )
 
     wall_projectors = None
@@ -3855,13 +4057,20 @@ def run_full_eb(
         ) -> UpwindEquilibriumWallProjectors:
             local_geometry = assemble_local_fci_geometry(
                 sharded_geometry,
-                cell_fields_owned,
+                cell_fields_owned[..., :geometry_field_count],
                 map_fields_owned if parallel_operator_scheme == "fci" else None,
             )
-            local_domain_coefficients = build_local_curvature_face_coefficients(
-                local_geometry,
-                domain,
+            local_domain_coefficients = (
+                unpack_local_curvature_face_coefficients(
+                    cell_fields_owned,
+                    local_geometry.layout,
+                )
             )
+            if local_domain_coefficients is None:
+                raise ValueError(
+                    "upwind-equilibrium wall projectors require conservative "
+                    "curvature coefficients"
+                )
             return build_upwind_equilibrium_wall_projectors(
                 local_geometry,
                 domain,
@@ -3875,15 +4084,17 @@ def run_full_eb(
             flush=True,
         )
         projector_start = time.perf_counter()
-        precompute_projectors = jax.jit(
-            jax.shard_map(
-                precompute_wall_projectors,
-                mesh=mesh,
-                in_specs=(geometry_spec, geometry_spec),
-                out_specs=wall_projector_specs,
-                check_vma=True,
-            )
+        precompute_projectors_sharded = jax.shard_map(
+            precompute_wall_projectors,
+            mesh=mesh,
+            in_specs=(geometry_spec, geometry_spec),
+            out_specs=wall_projector_specs,
+            check_vma=True,
         )
+        # Setup transformations stay compiled even when time advancement is
+        # eager.  Disabling JIT here causes the large projector construction
+        # to compile hundreds of individual primitives.
+        precompute_projectors = jax.jit(precompute_projectors_sharded)
         wall_projectors = precompute_projectors(cell_fields, map_fields)
         jax.block_until_ready(jax.tree_util.tree_leaves(wall_projectors))
         print(
@@ -3920,14 +4131,24 @@ def run_full_eb(
                 Vi=project(local_state.Vi, face_bc.Vi),
                 Ve=project(local_state.Ve, face_bc.Ve),
             )
-        project_initial_staggered = jax.jit(jax.shard_map(
+        project_initial_staggered_sharded = jax.shard_map(
             project_initial_staggered_velocities, mesh=mesh,
             in_specs=(state_spec, geometry_spec, geometry_spec, geometry_spec, wall_projector_specs),
             out_specs=state_spec, check_vma=False,
-        ))
-        state = project_initial_staggered(
-            state, cell_fields, map_fields, control_volume_fields, wall_projectors
         )
+        project_initial_staggered = (
+            jax.jit(project_initial_staggered_sharded)
+            if setup_execution == "compiled"
+            else project_initial_staggered_sharded
+        )
+        with jax.disable_jit(setup_execution == "eager"):
+            state = project_initial_staggered(
+                state,
+                cell_fields,
+                map_fields,
+                control_volume_fields,
+                wall_projectors,
+            )
         jax.block_until_ready(state)
         if owner_host_geometry is not None:
             _assert_owner_sparse(
@@ -3941,7 +4162,7 @@ def run_full_eb(
         flush=True,
     )
 
-    def reconstruct_initial_phi(
+    def reconstruct_initial_phi_kernel(
         local_state: FciDrbEBState,
         cell_fields_owned: jax.Array,
         map_fields_owned: jax.Array,
@@ -3956,21 +4177,20 @@ def run_full_eb(
         ).reconstruct_phi(local_state, return_diagnostics=True)
         return phi, info.num_steps
 
-    reconstruct_phi = jax.jit(
-        jax.shard_map(
-            reconstruct_initial_phi,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-                wall_projector_specs,
-            ),
-            out_specs=(spatial_spec, replicated_spec),
-            check_vma=False,
-        )
+    reconstruct_phi_sharded = jax.shard_map(
+        reconstruct_initial_phi_kernel,
+        mesh=mesh,
+        in_specs=(
+            state_spec,
+            geometry_spec,
+            geometry_spec,
+            geometry_spec,
+            wall_projector_specs,
+        ),
+        out_specs=(spatial_spec, replicated_spec),
+        check_vma=False,
     )
+    reconstruct_phi = jax.jit(reconstruct_phi_sharded)
     if curvature_transition_audit_output is not None:
         if curvature_scheme != "conservative":
             raise ValueError(
@@ -5163,17 +5383,32 @@ def run_full_eb(
             vi_face_terms = jax.vmap(lambda value: prolong_local_outgoing_fci_face_owner_field(value, model.outgoing_face_topology))(terms[3])
             ve_face_terms = jax.vmap(lambda value: prolong_local_outgoing_fci_face_owner_field(value, model.outgoing_face_topology))(terms[4])
             return materialized.at[3].set(vi_face_terms).at[4].set(ve_face_terms)
-        rhs_term_materializer = jax.jit(jax.shard_map(
+        rhs_term_materializer_sharded = jax.shard_map(
             materialize_rhs_term_fields, mesh=mesh,
             in_specs=(state_spec, geometry_spec, geometry_spec, geometry_spec, wall_projector_specs),
             out_specs=P(None, None, "x", "y", "z"), check_vma=False,
-        ))
+        )
+        rhs_term_materializer = (
+            jax.jit(rhs_term_materializer_sharded)
+            if advance_execution == "compiled"
+            else rhs_term_materializer_sharded
+        )
         vi_names = RHS_TERM_NAMES[3]
         report_frames = []
         near_start = int(np.ceil(0.75 * (sharded_geometry.global_shape[1] // 2)))
         for frame, recovered, saved_vi in zip(frames, saved_states, saved_materialized_vi, strict=True):
             sharded = recovered.map_fields(lambda value: jax.device_put(jnp.asarray(value, dtype=jnp.float64), state_sharding))
-            terms = np.asarray(rhs_term_materializer(sharded, cell_fields, map_fields, control_volume_fields, wall_projectors), dtype=np.float64)
+            with jax.disable_jit(advance_execution == "eager"):
+                terms = np.asarray(
+                    rhs_term_materializer(
+                        sharded,
+                        cell_fields,
+                        map_fields,
+                        control_volume_fields,
+                        wall_projectors,
+                    ),
+                    dtype=np.float64,
+                )
             vi_terms = terms[3, :len(vi_names)]
             spectral = _vi_near_band_report(vi_terms, saved_vi, near_start)
             report_frames.append({
@@ -5467,9 +5702,14 @@ def run_full_eb(
         else "2 explicit operator stages, 2 complete short-wall solves, "
         "4 SOLVAX FGMRES solves"
     )
+    advance_action = (
+        "lowering shard-local geometry and compiling one complete"
+        if advance_execution == "compiled"
+        else "running without the outer jax.jit compiled advance for the"
+    )
     print(
-        "[simulation] lowering shard-local geometry and compiling one complete "
-        f"shard_map {time_integrator} advance ({stage_description})",
+        f"[simulation] {advance_action} shard_map {time_integrator} advance "
+        f"({stage_description})",
         flush=True,
     )
     if phase_timing:
@@ -5498,34 +5738,41 @@ def run_full_eb(
             replicated_spec,
         )
     )
-    compiled_advance = jax.jit(
-        jax.shard_map(
-            full_advance,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-                wall_projector_specs,
-                replicated_spec,
-            ),
-            out_specs=advance_out_specs,
-            check_vma=False,
-        )
-    ).lower(
-        state,
-        cell_fields,
-        map_fields,
-        control_volume_fields,
-        wall_projectors,
-        jnp.asarray(start_time, dtype=jnp.float64),
-    ).compile()
-    print(
-        f"[simulation] compiled sharded {time_integrator} advance in "
-        f"{time.perf_counter() - compile_start:.3f} s",
-        flush=True,
+    sharded_advance = jax.shard_map(
+        full_advance,
+        mesh=mesh,
+        in_specs=(
+            state_spec,
+            geometry_spec,
+            geometry_spec,
+            geometry_spec,
+            wall_projector_specs,
+            replicated_spec,
+        ),
+        out_specs=advance_out_specs,
+        check_vma=False,
     )
+    if advance_execution == "compiled":
+        compiled_advance = jax.jit(sharded_advance).lower(
+            state,
+            cell_fields,
+            map_fields,
+            control_volume_fields,
+            wall_projectors,
+            jnp.asarray(start_time, dtype=jnp.float64),
+        ).compile()
+        print(
+            f"[simulation] compiled sharded {time_integrator} advance in "
+            f"{time.perf_counter() - compile_start:.3f} s",
+            flush=True,
+        )
+    else:
+        compiled_advance = sharded_advance
+        print(
+            "[simulation] eager advance ready; outer jax.jit compilation "
+            "disabled",
+            flush=True,
+        )
 
     rhs_term_inspection = None
     if track_rhs_terms:
@@ -5600,49 +5847,60 @@ def run_full_eb(
             )
 
         rhs_compile_start = time.perf_counter()
-        rhs_term_inspection = jax.jit(
-            jax.shard_map(
-                inspect_rhs_terms,
-                mesh=mesh,
-                in_specs=(
-                    state_spec,
-                    geometry_spec,
-                    geometry_spec,
-                    geometry_spec,
-                    wall_projector_specs,
-                ),
-                out_specs=replicated_spec,
-                check_vma=False,
-            )
-        ).lower(
-            state,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
-            wall_projectors,
-        ).compile()
-        print(
-            "[simulation] compiled all-equation RHS term inspection in "
-            f"{time.perf_counter() - rhs_compile_start:.3f} s",
-            flush=True,
+        rhs_term_inspection_sharded = jax.shard_map(
+            inspect_rhs_terms,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+                wall_projector_specs,
+            ),
+            out_specs=replicated_spec,
+            check_vma=False,
         )
+        if advance_execution == "compiled":
+            rhs_term_inspection = jax.jit(
+                rhs_term_inspection_sharded
+            ).lower(
+                state,
+                cell_fields,
+                map_fields,
+                control_volume_fields,
+                wall_projectors,
+            ).compile()
+            print(
+                "[simulation] compiled all-equation RHS term inspection in "
+                f"{time.perf_counter() - rhs_compile_start:.3f} s",
+                flush=True,
+            )
+        else:
+            rhs_term_inspection = rhs_term_inspection_sharded
+            print(
+                "[simulation] all-equation RHS term inspection will execute "
+                "eagerly",
+                flush=True,
+            )
 
     def inspect_rhs_terms_host(current_state: FciDrbEBState) -> np.ndarray:
         if rhs_term_inspection is None:
             raise RuntimeError("RHS term inspection was not compiled")
-        result = rhs_term_inspection(
-            current_state,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
-            wall_projectors,
-        )
+        with jax.disable_jit(advance_execution == "eager"):
+            result = rhs_term_inspection(
+                current_state,
+                cell_fields,
+                map_fields,
+                control_volume_fields,
+                wall_projectors,
+            )
         jax.block_until_ready(result)
         return np.asarray(result, dtype=np.float64)
 
     # Periodic checkpoints can be state-only.  Do not force compilation of
     # the comparatively expensive spatial inspection path unless diagnostics
     # or explicitly scheduled diagnostic snapshots already require it.
+    wall_term_count = 4
     inspection_enabled = bool(diagnostic_every > 0 or snapshot_times)
     inspection = None
     if inspection_enabled:
@@ -5651,8 +5909,6 @@ def run_full_eb(
         owned_shape = tuple(int(value) for value in domain.layout.owned_shape)
         global_shape = tuple(int(value) for value in sharded_geometry.global_shape)
         halo_width = int(domain.layout.halo_width)
-        wall_term_count = 4
-
         def inspect_state(
             local_state: FciDrbEBState,
             cell_fields_owned: jax.Array,
@@ -5802,43 +6058,48 @@ def run_full_eb(
             if snapshot_term_fields
             else (replicated_spec, wall_spec, spatial_spec)
         )
-        inspection = jax.jit(
-            jax.shard_map(
-                inspect_state,
-                mesh=mesh,
-                in_specs=(
-                    state_spec,
-                    geometry_spec,
-                    geometry_spec,
-                    geometry_spec,
-                    wall_projector_specs,
-                ),
-                out_specs=inspection_out_specs,
-                check_vma=False,
-            )
-        ).lower(
-            state,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
-            wall_projectors,
-        ).compile()
+        inspection_sharded = jax.shard_map(
+            inspect_state,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+                wall_projector_specs,
+            ),
+            out_specs=inspection_out_specs,
+            check_vma=False,
+        )
+        if advance_execution == "compiled":
+            inspection = jax.jit(inspection_sharded).lower(
+                state,
+                cell_fields,
+                map_fields,
+                control_volume_fields,
+                wall_projectors,
+            ).compile()
+            inspection_action = "compiled"
+        else:
+            inspection = inspection_sharded
+            inspection_action = "eager"
         print(
-            "[simulation] compiled snapshot/grid-scale inspection path "
-            f"(terms={'on' if snapshot_term_fields else 'off'})",
+            f"[simulation] {inspection_action} snapshot/grid-scale "
+            f"inspection path (terms={'on' if snapshot_term_fields else 'off'})",
             flush=True,
         )
 
     def inspect_host(current_state: FciDrbEBState):
         if inspection is None:
             return None
-        result = inspection(
-            current_state,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
-            wall_projectors,
-        )
+        with jax.disable_jit(advance_execution == "eager"):
+            result = inspection(
+                current_state,
+                cell_fields,
+                map_fields,
+                control_volume_fields,
+                wall_projectors,
+            )
         jax.block_until_ready(result)
         return tuple(np.asarray(value) for value in result)
 
@@ -6152,6 +6413,11 @@ def run_full_eb(
     accumulated_operator_seconds = 0.0
     accumulated_gmres_seconds = 0.0
     accumulated_gmres_iterations = 0.0
+
+    def execute_advance(*advance_args):
+        with jax.disable_jit(advance_execution == "eager"):
+            return compiled_advance(*advance_args)
+
     for step in range(1, int(num_steps) + 1):
         step_start = time.perf_counter()
         if phase_timer is not None:
@@ -6164,7 +6430,7 @@ def run_full_eb(
                 gmres_iterations,
                 gmres_stage_diagnostics,
                 rk_stage_diagnostics,
-            ) = compiled_advance(
+            ) = execute_advance(
                 state,
                 cell_fields,
                 map_fields,
@@ -6192,7 +6458,7 @@ def run_full_eb(
                 gmres_iterations,
                 gmres_stage_diagnostics,
                 rk_stage_diagnostics,
-            ) = compiled_advance(
+            ) = execute_advance(
                 state,
                 cell_fields,
                 map_fields,
@@ -6615,6 +6881,28 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
     """Validate native production/diagnostic selectors before compilation."""
 
     framework = str(args.flux_framework)
+    if (
+        args.characteristic_sat_affine_current_lift == "suppressed"
+        and (
+            framework != "production-split"
+            or args.parallel_boundary_pairing != "characteristic-sat"
+        )
+    ):
+        raise ValueError(
+            "suppressed characteristic-SAT affine current lift requires "
+            "production-split with characteristic-sat boundary pairing"
+        )
+    if (
+        args.parallel_current_phi_pair == "suppressed"
+        and (
+            framework != "production-split"
+            or args.parallel_flux_pairing != "support-core"
+        )
+    ):
+        raise ValueError(
+            "suppressed parallel current/phi pair requires the production "
+            "support-core path"
+        )
     if args.parallel_short_leg_selection == "all-physical-walls":
         if args.parallel_short_leg_treatment != "local-backward-euler":
             raise ValueError(
@@ -6809,12 +7097,9 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
     if args.poisson_bracket_scheme not in (
         "compatible-flux",
         "compatible-third-order-upwind",
+        "material-scalar-third-order-upwind",
     ):
         raise ValueError("production-split requires compatible Poisson brackets")
-    if frozenset(args.curvature_equations) != frozenset(
-        ("density", "Te", "Ti", "vorticity")
-    ):
-        raise ValueError("production-split requires all four curvature equations")
     if args.curvature_characteristic_axes != "legacy":
         raise ValueError("production-split forbids legacy characteristic-axis selectors")
     if args.curvature_radial_characteristic_scheme != "legacy":
@@ -6855,6 +7140,12 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
     )
     os.environ["DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT"] = str(
         args.parallel_short_leg_cfl_limit
+    )
+    os.environ["DRBX_CHARACTERISTIC_SAT_AFFINE_CURRENT_LIFT"] = str(
+        args.characteristic_sat_affine_current_lift
+    )
+    os.environ["DRBX_PARALLEL_CURRENT_PHI_PAIR"] = str(
+        args.parallel_current_phi_pair
     )
     os.environ["DRBX_CURVATURE_EVOLUTION_COMPONENT"] = str(
         args.curvature_evolution_component
@@ -7349,6 +7640,27 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--characteristic-sat-affine-current-lift",
+        choices=("enabled", "suppressed"),
+        default="enabled",
+        help=(
+            "Diagnostic production ablation. 'suppressed' retains the "
+            "homogeneous weighted-adjoint current/phi pair but removes only "
+            "the inhomogeneous characteristic-SAT wall-current lift from "
+            "the vorticity equation."
+        ),
+    )
+    parser.add_argument(
+        "--parallel-current-phi-pair",
+        choices=("enabled", "suppressed"),
+        default="enabled",
+        help=(
+            "Diagnostic production ablation. 'suppressed' removes both "
+            "mu*grad_parallel(phi) from Ve and (B**2/n)*div_parallel(j) "
+            "from vorticity while retaining all other physics."
+        ),
+    )
+    parser.add_argument(
         "--parallel-subsystem-only",
         action="store_true",
         help=(
@@ -7377,6 +7689,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "direct",
             "compatible-flux",
             "compatible-third-order-upwind",
+            "material-scalar-third-order-upwind",
         ),
         default="compatible-flux",
         help=(
@@ -7387,6 +7700,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "keeps the compatible skew core and replaces the physical "
             "A_phi(q) channel by the complete third-order upwind action, with "
             "first-order wall/RLP fallbacks and retained D(Uq)-qD(U)."
+            " 'material-scalar-third-order-upwind' uses pure third-order "
+            "A_phi(q) transport for material fields and the centered "
+            "compatible bracket for vorticity."
         ),
     )
     parser.add_argument("--makegrid", type=Path, default=DEFAULT_MAKEGRID)
@@ -7571,13 +7887,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--rhs-replay-execution",
-        choices=("compiled", "eager"),
-        default="compiled",
+        choices=("auto", "compiled", "eager"),
+        default="auto",
         help=(
-            "Execution mode for frozen RHS replays. 'eager' disables the "
-            "outer jax.jit and avoids building the large fused replay "
-            "executable, although the JAX backend may still compile small "
-            "primitive kernels; use 'compiled' when replaying many frames."
+            "Execution mode for frozen RHS replays. 'auto' uses eager "
+            "execution for fewer than 100 frames and compilation for larger "
+            "production batches. "
+            "'eager' disables the outer jax.jit and avoids building the "
+            "large fused replay executable, although the JAX backend may "
+            "still compile small primitive kernels."
         ),
     )
     parser.add_argument(
@@ -7742,6 +8060,19 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--advance-execution",
+        choices=("auto", "compiled", "eager"),
+        default="auto",
+        help=(
+            "Execution mode for time advancement. 'auto' uses eager "
+            "execution for fewer than 100 diagnostic steps and compilation "
+            "for longer production runs. 'eager' disables the outer jax.jit "
+            "and avoids building the large fused advance executable, "
+            "although the JAX backend may still compile small primitive "
+            "kernels."
+        ),
+    )
+    parser.add_argument(
         "--flux-framework",
         choices=("legacy", "production-split"),
         default="legacy",
@@ -7805,7 +8136,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Disable ordered in-executable timing markers for the operator "
             "and GMRES portions of an advance. Phase timing is disabled "
-            "automatically for the RK4 integrator."
+            "automatically for eager execution and multi-device shard_map."
         ),
     )
     parser.add_argument(
@@ -7939,6 +8270,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.poisson_bracket_scheme not in (
             "compatible-flux",
             "compatible-third-order-upwind",
+            "material-scalar-third-order-upwind",
         ):
             parser.error("toroidal RLP requires a compatible Poisson-bracket scheme")
         if args.curvature_scheme != "conservative":
@@ -7968,6 +8300,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.poisson_bracket_scheme not in (
             "compatible-flux",
             "compatible-third-order-upwind",
+            "material-scalar-third-order-upwind",
         ):
             parser.error(
                 "square corner-edge agglomeration requires a compatible "
@@ -8054,7 +8387,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     if (
         args.rhs_replay_history is None
-        and args.rhs_replay_execution != "compiled"
+        and args.rhs_replay_execution == "eager"
     ):
         parser.error("--rhs-replay-execution eager requires --rhs-replay-history")
     if (
@@ -8063,6 +8396,40 @@ def main(argv: Sequence[str] | None = None) -> None:
     ):
         parser.error(
             "--rhs-replay-electron-force-wall-audit requires --rhs-replay-history"
+        )
+    requested_advance_execution = str(args.advance_execution)
+    requested_rhs_replay_execution = str(args.rhs_replay_execution)
+    args.advance_execution = _resolve_execution_mode(
+        requested_advance_execution,
+        work_items=int(args.num_steps),
+    )
+    args.rhs_replay_execution = (
+        _resolve_execution_mode(
+            requested_rhs_replay_execution,
+            work_items=len(rhs_replay_frames),
+        )
+        if args.rhs_replay_history is not None
+        else "compiled"
+    )
+    setup_execution = (
+        args.rhs_replay_execution
+        if args.rhs_replay_history is not None
+        else args.advance_execution
+    )
+    if requested_advance_execution == "auto":
+        print(
+            "[simulation] auto-selected advance execution: "
+            f"{args.advance_execution} for {int(args.num_steps)} step(s)",
+            flush=True,
+        )
+    if (
+        args.rhs_replay_history is not None
+        and requested_rhs_replay_execution == "auto"
+    ):
+        print(
+            "[rhs-replay] auto-selected execution: "
+            f"{args.rhs_replay_execution} for {len(rhs_replay_frames)} frame(s)",
+            flush=True,
         )
     if (
         args.curvature_manufactured_output is not None
@@ -8333,14 +8700,19 @@ def main(argv: Sequence[str] | None = None) -> None:
                 topology.edge_interpolation_provenance, topology.edge_destination_support,
             )
 
-        staggered_face_preflight_compiled = jax.jit(jax.shard_map(
+        staggered_face_preflight_sharded = jax.shard_map(
             staggered_face_preflight, mesh=mesh,
             in_specs=(P("x", "y", "z", None),) * 3,
             out_specs=(P("x", "y", "z"),) * 10 + (P("x", "y", "z", None),) * 2,
             check_vma=True,
-        ))
-        staggered_face_arrays = tuple(np.asarray(value) for value in (
-            staggered_face_preflight_compiled(
+        )
+        staggered_face_preflight = (
+            jax.jit(staggered_face_preflight_sharded)
+            if setup_execution == "compiled"
+            else staggered_face_preflight_sharded
+        )
+        with jax.disable_jit(setup_execution == "eager"):
+            staggered_face_results = staggered_face_preflight(
                 jax.device_put(jnp.asarray(sharded_geometry.cell_fields, dtype=jnp.float64),
                                NamedSharding(mesh, P("x", "y", "z", None))),
                 jax.device_put(jnp.asarray(sharded_geometry.map_fields, dtype=jnp.float64),
@@ -8348,7 +8720,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 jax.device_put(jnp.asarray(control_volume_fields, dtype=jnp.float64),
                                NamedSharding(mesh, P("x", "y", "z", None))),
             )
-        ))
+        staggered_face_arrays = tuple(
+            np.asarray(value) for value in staggered_face_results
+        )
         (face_owner_i, face_owner_j, face_owner_k, face_active, face_owner_active,
          face_measure, face_aggregate_measure, face_destination_i, face_destination_j,
          face_destination_k, face_provenance, face_destination_support) = staggered_face_arrays
@@ -8587,12 +8961,39 @@ def main(argv: Sequence[str] | None = None) -> None:
             axis_regular_axes=descriptor.axis_regular_axes,
         )
     if owner_host_geometry is not None:
-        initial_state = _aggregate_initial_owner_state(initial_state, owner_host_geometry)
+        reused_materialized_owners = False
+        if (
+            restart_used
+            and os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT")
+            != "fci-staggered"
+        ):
+            (
+                initial_state,
+                reused_materialized_owners,
+            ) = _restore_materialized_cell_owner_state(
+                initial_state,
+                owner_host_geometry,
+            )
+        if not reused_materialized_owners:
+            initial_state = _aggregate_initial_owner_state(
+                initial_state, owner_host_geometry
+            )
         if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT") != "fci-staggered":
             _assert_owner_sparse(initial_state, owner_host_geometry, staggered_face_topology_host)
         print(
-            "[simulation] initial scalar state volume-aggregated into canonical owners; "
-            "staggered Vi/Ve are projected through FCI faces before evolution",
+            "[simulation] initial cell state "
+            + (
+                "restored exactly from checkpoint materialized owners"
+                if reused_materialized_owners
+                else "volume-aggregated into canonical owners"
+            )
+            + "; "
+            + (
+                "staggered Vi/Ve are projected through FCI faces before evolution"
+                if os.environ.get("DRBX_PARALLEL_VELOCITY_LAYOUT")
+                == "fci-staggered"
+                else "all seven fields use the canonical cell-owner basis"
+            ),
             flush=True,
         )
     if restart_used:
@@ -8683,8 +9084,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         "[simulation] parallel short-leg selection: "
         f"{str(args.parallel_short_leg_selection)} "
         "(all-physical-walls uses no CFL threshold; selected material and "
-        "electron Ti-force are one IMEX stage residual; current/phi stays "
-        "paired explicitly)",
+        "electron Ti-force are one IMEX stage residual; current/phi pair="
+        f"{str(args.parallel_current_phi_pair)})",
         flush=True,
     )
     parallel_closure_description = {
@@ -8706,6 +9107,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(
         "[simulation] vorticity-current inflow trace: "
         f"{str(args.vorticity_current_inflow_trace)}",
+        flush=True,
+    )
+    print(
+        "[simulation] characteristic-SAT affine current lift: "
+        f"{str(args.characteristic_sat_affine_current_lift)}",
+        flush=True,
+    )
+    print(
+        "[simulation] explicit parallel current/phi pair: "
+        f"{str(args.parallel_current_phi_pair)}",
         flush=True,
     )
     print(
@@ -8757,6 +9168,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         parallel_operator_scheme=str(args.parallel_operator_scheme),
         fci_parallel_leg_scheme=str(args.fci_parallel_leg_scheme),
         time_integrator=str(args.time_integrator),
+        advance_execution=str(args.advance_execution),
         num_steps=int(args.num_steps),
         timestep=timestep,
         start_time=restart_time,
@@ -8885,7 +9297,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                 args.electron_collision_frequency
             ),
             "time_integrator": str(args.time_integrator),
+            "advance_execution": str(args.advance_execution),
+            "advance_execution_requested": requested_advance_execution,
             "rhs_replay_execution": str(args.rhs_replay_execution),
+            "rhs_replay_execution_requested": requested_rhs_replay_execution,
             "flux_framework": str(args.flux_framework),
             "flux_framework_env": os.environ.get("DRBX_FLUX_FRAMEWORK", "legacy"),
             "flux_framework_source": "simulate_hsx_blob.py:--flux-framework",
@@ -8956,6 +9371,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             "parallel_inflow_closure": str(args.parallel_inflow_closure),
             "vorticity_current_inflow_trace": str(
                 args.vorticity_current_inflow_trace
+            ),
+            "characteristic_sat_affine_current_lift": str(
+                args.characteristic_sat_affine_current_lift
+            ),
+            "parallel_current_phi_pair": str(
+                args.parallel_current_phi_pair
             ),
             "parallel_subsystem_only": bool(args.parallel_subsystem_only),
             "curvature_inflow_closure": str(

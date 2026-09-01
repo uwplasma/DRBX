@@ -96,6 +96,48 @@ The supporting JAX references are:
 - [persistent compilation cache](https://docs.jax.dev/en/latest/persistent_compilation_cache.html)
 - [JAX profiling documentation](https://docs.jax.dev/en/latest/profiling.html)
 
+## One-Off Production Diagnostics
+
+`simulate_hsx_blob.py` separates one-off diagnostic latency from amortized
+production throughput with `--rhs-replay-execution` and
+`--advance-execution`. Both selectors default to `auto`:
+
+- fewer than 100 frozen RHS frames or timesteps run eagerly, avoiding
+  construction of the large fused XLA executable;
+- batches of 100 or more use the compiled path and reuse one executable;
+- explicit `eager` and `compiled` values override the automatic choice.
+
+For example, a single frozen-state audit needs no execution override:
+
+```bash
+python simulate_hsx_blob.py \
+  ... \
+  --rhs-replay-history checkpoint.npz \
+  --rhs-replay-frames 0 \
+  --rhs-replay-output rhs_audit.npz
+```
+
+Use `--rhs-replay-execution compiled` when intentionally compiling a small
+replay to populate or test the persistent cache. In `auto` mode, fewer than
+100 replay frames or time steps run eagerly; batches of 100 or more compile
+the fused path. An explicit `--advance-execution eager` or `compiled` always
+overrides that cutoff.
+
+Eager mode keeps the production JAX operators and sharding contracts; it only
+disables the large outer advance JIT. The backend may still compile small
+primitive kernels during the timestep. Host-only restart loading, canonical
+cell-owner recovery, packing, and device transfer use NumPy arrays so they do
+not create extra JAX conversion kernels. Invariant conservative-curvature face
+coefficients and initial phi reconstruction remain bounded JIT setup kernels;
+their compilation is timed and synchronized before the timestep loop instead
+of surfacing later at an unrelated `block_until_ready`.
+
+Cell-centered checkpoints written by this driver contain materialized owner
+values. Restart validates that every member cell still equals its owner and,
+when valid, recovers the sparse canonical owner state by exact masking. A
+legacy or externally generated state that fails this check uses the general
+NumPy volume-aggregation path.
+
 ## GPU Workflow On Self-Hosted Machines
 
 The reachable `office` machine exposes two `NVIDIA RTX A4000` GPUs. Before

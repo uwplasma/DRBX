@@ -173,3 +173,64 @@ def test_outer_wall_hit_interpolates_along_unwrapped_periodic_chord() -> None:
     np.testing.assert_allclose(
         float(trace["endpoint_z"][i, j]), expected_eta, rtol=0.0, atol=2.0e-7
     )
+
+
+def test_memory_bounded_map_batches_preserve_every_seed_index() -> None:
+    """A group larger than one callback batch must scatter without gaps."""
+
+    grid = _circular_shifted_torus_grid(shape=(16, 16, 9))
+    maps = build_fci_maps_from_callbacks(
+        grid,
+        _constant_callback(radial=0.0, poloidal=0.0),
+        substeps=1,
+        periodic_axes=(False, True, True),
+        axis_regular_axes=(True, False, False),
+    )
+    expected_x = np.broadcast_to(
+        np.arange(grid.x.n, dtype=np.float64)[:, None, None], grid.shape
+    )
+    expected_y = np.broadcast_to(
+        np.arange(grid.y.n, dtype=np.float64)[None, :, None], grid.shape
+    )
+    np.testing.assert_allclose(np.asarray(maps["forward_x"]), expected_x)
+    np.testing.assert_allclose(np.asarray(maps["backward_x"]), expected_x)
+    np.testing.assert_allclose(np.asarray(maps["forward_y"]), expected_y)
+    np.testing.assert_allclose(np.asarray(maps["backward_y"]), expected_y)
+    assert not bool(np.any(np.asarray(maps["forward_boundary"])))
+    assert not bool(np.any(np.asarray(maps["backward_boundary"])))
+
+
+def test_direction_checkpoint_reuses_completed_callback_traces(tmp_path) -> None:
+    grid = _circular_shifted_torus_grid()
+    checkpoint = tmp_path / "directions.npz"
+    calls = 0
+
+    def callback(points):
+        nonlocal calls
+        calls += 1
+        return _constant_callback(radial=0.0, poloidal=0.1)(points)
+
+    first = build_fci_maps_from_callbacks(
+        grid,
+        callback,
+        substeps=1,
+        periodic_axes=(False, True, True),
+        axis_regular_axes=(True, False, False),
+        direction_checkpoint_path=checkpoint,
+    )
+    assert checkpoint.is_file()
+    assert calls > 0
+
+    calls = 0
+    second = build_fci_maps_from_callbacks(
+        grid,
+        callback,
+        substeps=1,
+        periodic_axes=(False, True, True),
+        axis_regular_axes=(True, False, False),
+        direction_checkpoint_path=checkpoint,
+    )
+    assert calls == 0
+    assert set(first) == set(second)
+    for name in first:
+        np.testing.assert_array_equal(np.asarray(first[name]), np.asarray(second[name]))
