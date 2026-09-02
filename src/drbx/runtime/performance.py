@@ -59,25 +59,41 @@ def configure_jax_runtime(
     if resolved_host_device_count is not None:
         os.environ["DRBX_HOST_DEVICE_COUNT"] = str(resolved_host_device_count)
         _configure_host_device_count_xla_flags(resolved_host_device_count)
-    if os.environ.get("DRBX_DISABLE_COMPILATION_CACHE", "").strip().lower() in {"1", "true", "yes", "on"}:
-        cache_dir = None
-    else:
-        cache_dir = _compilation_cache_dir()
-        cache_dir.mkdir(parents=True, exist_ok=True)
-
     import jax
     jax.config.update("jax_enable_x64", resolved_precision == "float64")
+    if os.environ.get("DRBX_DISABLE_COMPILATION_CACHE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        cache_dir = None
+        jax.config.update("jax_enable_compilation_cache", False)
+    else:
+        cache_dir = _compilation_cache_dir(
+            existing_jax_cache_dir=getattr(
+                jax.config, "jax_compilation_cache_dir", None
+            )
+        )
+        cache_dir.mkdir(parents=True, exist_ok=True)
     if cache_dir is not None:
         from jax.experimental.compilation_cache import compilation_cache as compilation_cache
 
         jax.config.update("jax_enable_compilation_cache", True)
         jax.config.update("jax_compilation_cache_dir", str(cache_dir))
         if "DRBX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS" in os.environ:
-            min_compile_time = float(os.environ["DRBX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS"])
+            min_compile_time = float(
+                os.environ["DRBX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS"]
+            )
+        elif "JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS" in os.environ:
+            min_compile_time = float(
+                os.environ["JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS"]
+            )
         else:
             min_compile_time = 0.0
         if "DRBX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES" in os.environ:
-            min_entry_size = int(os.environ["DRBX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES"])
+            min_entry_size = int(
+                os.environ["DRBX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES"]
+            )
+        elif "JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES" in os.environ:
+            min_entry_size = int(
+                os.environ["JAX_PERSISTENT_CACHE_MIN_ENTRY_SIZE_BYTES"]
+            )
         else:
             min_entry_size = 0
         jax.config.update("jax_persistent_cache_min_compile_time_secs", min_compile_time)
@@ -121,10 +137,17 @@ def runtime_parallel_summary() -> dict[str, Any]:
     }
 
 
-def _compilation_cache_dir() -> Path:
+def _compilation_cache_dir(
+    *, existing_jax_cache_dir: str | os.PathLike[str] | None = None
+) -> Path:
     override = os.environ.get("DRBX_CACHE_DIR")
     if override:
         return Path(override).expanduser()
+    if existing_jax_cache_dir:
+        return Path(existing_jax_cache_dir).expanduser()
+    jax_environment = os.environ.get("JAX_COMPILATION_CACHE_DIR")
+    if jax_environment:
+        return Path(jax_environment).expanduser()
     return _default_user_cache_root() / "drbx" / "jax_compilation_cache"
 
 

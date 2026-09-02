@@ -542,7 +542,8 @@ class FciDrbEBRhsParameters:
     # Characteristic physical-wall law for the production parallel material
     # block.  The default retains the established primitive least-residual
     # projection exactly; energy-absorbing closes incoming modes against the
-    # explicit equilibrium/reference state.
+    # explicit equilibrium/reference state; velocity-no-flow is a strict
+    # two-incoming-mode validation closure.
     parallel_characteristic_wall_law: str = field(
         default_factory=lambda: os.environ.get(
             "DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW",
@@ -552,11 +553,12 @@ class FciDrbEBRhsParameters:
 
     def __post_init__(self):
         if self.parallel_characteristic_wall_law not in (
-            "primitive-least-residual", "energy-absorbing"
+            "primitive-least-residual", "energy-absorbing", "velocity-no-flow"
         ):
             raise ValueError(
                 "parallel_characteristic_wall_law must be "
-                "'primitive-least-residual' or 'energy-absorbing', got "
+                "'primitive-least-residual', 'energy-absorbing', or "
+                "'velocity-no-flow', got "
                 f"{self.parallel_characteristic_wall_law!r}"
             )
 
@@ -1022,10 +1024,13 @@ class LocalFciDrbEBRhs:
                 f"{self.parallel_boundary_pairing!r}"
             )
         wall_law = self.parameters.parallel_characteristic_wall_law
-        if wall_law not in ("primitive-least-residual", "energy-absorbing"):
+        if wall_law not in (
+            "primitive-least-residual", "energy-absorbing", "velocity-no-flow"
+        ):
             raise ValueError(
                 "parallel_characteristic_wall_law must be "
-                "'primitive-least-residual' or 'energy-absorbing', got "
+                "'primitive-least-residual', 'energy-absorbing', or "
+                "'velocity-no-flow', got "
                 f"{wall_law!r}"
             )
         if wall_law == "energy-absorbing" and self.parallel_material_scheme != "production-path":
@@ -1036,6 +1041,16 @@ class LocalFciDrbEBRhs:
         if wall_law == "energy-absorbing" and self.parallel_boundary_pairing != "characteristic-sat":
             raise ValueError(
                 "parallel_characteristic_wall_law='energy-absorbing' requires "
+                "parallel_boundary_pairing='characteristic-sat'"
+            )
+        if wall_law == "velocity-no-flow" and self.parallel_material_scheme != "production-path":
+            raise ValueError(
+                "parallel_characteristic_wall_law='velocity-no-flow' requires "
+                "parallel_material_scheme='production-path'"
+            )
+        if wall_law == "velocity-no-flow" and self.parallel_boundary_pairing != "characteristic-sat":
+            raise ValueError(
+                "parallel_characteristic_wall_law='velocity-no-flow' requires "
                 "parallel_boundary_pairing='characteristic-sat'"
             )
         if (
@@ -2343,6 +2358,9 @@ class LocalFciDrbEBRhs:
         parallel_material_residual = jnp.zeros(
             self.geometry.owned_shape + (5,), dtype=jnp.float64
         )
+        parallel_material_explicit_components = jnp.zeros(
+            self.geometry.owned_shape + (3, 5,), dtype=jnp.float64
+        )
         parallel_material_diagnostics = {
             "backward_wall": jnp.zeros(self.geometry.owned_shape, dtype=bool),
             "forward_wall": jnp.zeros(self.geometry.owned_shape, dtype=bool),
@@ -2480,6 +2498,36 @@ class LocalFciDrbEBRhs:
                 )
             )
             if return_electron_force_diagnostics and wall_data is not None:
+                # Exact additive split of the *live explicit* production
+                # residual. Selected physical-wall legs are advanced by the
+                # local implicit solve and therefore contribute zero here;
+                # the middle lane retains the geometric div(b) source and
+                # any algebraic remainder. This uses the already-live
+                # directional actions rather than restoring the retired
+                # full-grid provenance diagnostics.
+                explicit_backward_residual = jnp.where(
+                    wall_data["selected_backward_wall"][..., None],
+                    0.0,
+                    wall_data["backward_residual"],
+                )
+                explicit_forward_residual = jnp.where(
+                    wall_data["selected_forward_wall"][..., None],
+                    0.0,
+                    wall_data["forward_residual"],
+                )
+                explicit_center_geometric_residual = (
+                    parallel_material_residual
+                    - explicit_backward_residual
+                    - explicit_forward_residual
+                )
+                parallel_material_explicit_components = jnp.stack(
+                    (
+                        explicit_backward_residual,
+                        explicit_center_geometric_residual,
+                        explicit_forward_residual,
+                    ),
+                    axis=-2,
+                )
                 # The production path has the same directional residuals and
                 # endpoint states as the wall helper.  Retain them in the
                 # replay diagnostics so the electron-force report does not
@@ -2580,6 +2628,9 @@ class LocalFciDrbEBRhs:
                     ),
                     "material_characteristic_leg_lengths": (
                         material_characteristic_leg_lengths
+                    ),
+                    "parallel_material_explicit_components": (
+                        parallel_material_explicit_components
                     ),
                 }
             )
@@ -3300,6 +3351,7 @@ class LocalFciDrbEBRhs:
         return_term_fields: bool = False,
         return_rhs_term_fields: bool = False,
         return_curvature_component_fields: bool = False,
+        return_parallel_material_component_fields: bool = False,
         short_leg_selection_dt: Any = 0.0,
     ) -> (
         FciDrbEBState
@@ -3339,6 +3391,12 @@ class LocalFciDrbEBRhs:
         vorticity; directions are logical ``u``, ``theta``, and ``eta``.
         It may be combined with ``return_rhs_term_fields`` (yielding a
         three-item return) for a single frozen-state replay.
+
+        ``return_parallel_material_component_fields=True`` adds the exact
+        five-field production-material split in backward, center/geometric,
+        and forward order. It is available only with
+        ``return_rhs_term_fields=True`` and is intended for selected-cell
+        staged audits.
         """
 
         legacy_diagnostic_count = sum(
@@ -3346,10 +3404,22 @@ class LocalFciDrbEBRhs:
         )
         if legacy_diagnostic_count > 1 or (
             legacy_diagnostic_count
-            and (return_rhs_term_fields or return_curvature_component_fields)
+            and (
+                return_rhs_term_fields
+                or return_curvature_component_fields
+                or return_parallel_material_component_fields
+            )
         ):
             raise ValueError(
                 "RHS term diagnostic return modes are mutually exclusive"
+            )
+        if (
+            return_parallel_material_component_fields
+            and not return_rhs_term_fields
+        ):
+            raise ValueError(
+                "parallel-material component fields require "
+                "return_rhs_term_fields=True"
             )
 
         if source_owned is None:
@@ -3398,6 +3468,9 @@ class LocalFciDrbEBRhs:
                 parallel_boundary=parallel_boundary,
                 context=context,
                 short_leg_selection_dt=short_leg_selection_dt,
+                return_electron_force_diagnostics=(
+                    return_parallel_material_component_fields
+                ),
             )
             if self.parallel_operator_scheme == "fci"
             else None
@@ -4035,9 +4108,27 @@ class LocalFciDrbEBRhs:
         ))
         if return_rhs_term_fields:
             rhs_terms = all_rhs_term_fields()
+            diagnostic_outputs = [result, rhs_terms]
             if return_curvature_component_fields:
-                return result, rhs_terms, curvature_component_fields
-            return result, rhs_terms
+                diagnostic_outputs.append(curvature_component_fields)
+            if return_parallel_material_component_fields:
+                material_components = jnp.moveaxis(
+                    fci_parallel_terms[
+                        "parallel_material_explicit_components"
+                    ],
+                    (-2, -1),
+                    (0, 1),
+                )
+                restrict_component = lambda value: self._owner_field(
+                    _mask_inactive_owned(
+                        self._restrict_fine_field(value), self.geometry
+                    )
+                )
+                material_components = jax.vmap(jax.vmap(restrict_component))(
+                    material_components
+                )
+                diagnostic_outputs.append(material_components)
+            return tuple(diagnostic_outputs)
         if return_curvature_component_fields:
             return result, curvature_component_fields
         if return_term_diagnostics or return_term_fields:
