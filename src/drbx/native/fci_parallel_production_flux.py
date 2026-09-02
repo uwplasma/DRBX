@@ -31,6 +31,62 @@ _DEFAULT_EIG_TOL = 1.0e-10
 _DEFAULT_MAX_CONDITION = 1.0e10
 
 
+def parallel_vorticity_upwind_residual(
+    omega_center: Any,
+    omega_minus: Any,
+    omega_plus: Any,
+    Vi: Any,
+    dx_minus: Any,
+    dx_plus: Any,
+) -> jnp.ndarray:
+    r"""Return the causal scalar upwind residual on one mapped FCI row.
+
+    ``omega_minus`` and ``omega_plus`` are the mapped endpoint values on the
+    backward and forward legs, respectively, and ``Vi`` is the live scalar
+    parallel advection speed at the row.  The returned value is the negative
+    divergence-like residual
+
+    .. math::
+
+       -\left[\max(V_i,0)\frac{\omega_0-\omega_-}{\Delta_-}
+       +\min(V_i,0)\frac{\omega_+-\omega_0}{\Delta_+}\right].
+
+    All inputs are converted to float64 and broadcast together.  Leg lengths
+    follow the mapped-operator convention: their absolute values are used and
+    a small positive floor prevents division by zero.  Consequently, an
+    outward (positive) flow never reads ``omega_plus`` and an outward
+    negative flow never reads ``omega_minus``; a physical wall trace can be
+    supplied in the unused endpoint without changing the result.
+
+    This is intentionally a scalar transport kernel.  It has no characteristic
+    eigenproblem or tunable dissipation parameter; the sign of the live speed
+    selects the upstream leg directly.
+    """
+
+    omega_center, omega_minus, omega_plus, Vi, dx_minus, dx_plus = (
+        jnp.asarray(value, dtype=jnp.float64)
+        for value in (omega_center, omega_minus, omega_plus, Vi, dx_minus, dx_plus)
+    )
+    (
+        omega_center,
+        omega_minus,
+        omega_plus,
+        Vi,
+        dx_minus,
+        dx_plus,
+    ) = jnp.broadcast_arrays(
+        omega_center, omega_minus, omega_plus, Vi, dx_minus, dx_plus
+    )
+    dx_minus = jnp.maximum(jnp.abs(dx_minus), _LOG_FLOOR)
+    dx_plus = jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)
+    positive_speed = jnp.maximum(Vi, 0.0)
+    negative_speed = jnp.minimum(Vi, 0.0)
+    return -(
+        positive_speed * (omega_center - omega_minus) / dx_minus
+        + negative_speed * (omega_plus - omega_center) / dx_plus
+    )
+
+
 def _as_state(value: Any) -> jnp.ndarray:
     value = jnp.asarray(value, dtype=jnp.float64)
     if value.shape[-1:] != (STATE_SIZE,):
@@ -1594,6 +1650,7 @@ def parallel_characteristic_wall_data(
 
 __all__ = [
     "STATE_SIZE",
+    "parallel_vorticity_upwind_residual",
     "parallel_production_principal_matrix",
     "parallel_characteristic_matrix",
     "parallel_principal_matrix",
