@@ -3128,18 +3128,29 @@ def _explicit_source_stage_times(
     raise ValueError(f"unsupported time integrator {time_integrator!r}")
 
 
-def _resolve_execution_mode(requested: str, *, work_items: int) -> str:
-    """Choose eager execution for diagnostics and JIT for production runs."""
+def _resolve_execution_mode(
+    requested: str,
+    *,
+    work_items: int,
+    auto_short_mode: str = "eager",
+) -> str:
+    """Resolve the requested eager, staged, or monolithic JIT mode."""
 
-    if requested not in ("auto", "compiled", "eager"):
+    if requested not in ("auto", "compiled", "staged-compiled", "eager"):
         raise ValueError(
-            "execution mode must be 'auto', 'compiled', or 'eager', got "
+            "execution mode must be 'auto', 'compiled', 'staged-compiled', "
+            "or 'eager', got "
             f"{requested!r}"
         )
     if work_items < 1:
         raise ValueError("execution mode resolution requires positive work_items")
+    if auto_short_mode not in ("compiled", "staged-compiled", "eager"):
+        raise ValueError(
+            "auto_short_mode must be 'compiled', 'staged-compiled', or "
+            f"'eager', got {auto_short_mode!r}"
+        )
     if requested == "auto":
-        return "eager" if work_items < 100 else "compiled"
+        return auto_short_mode if work_items < 100 else "compiled"
     return requested
 
 
@@ -3541,6 +3552,9 @@ def run_full_eb(
     source_evaluator: Callable[[float], FciDrbEBState] | None = None,
     history_dtype: str = "float32",
     frozen_diagnostic: FrozenEbDiagnosticRequest | None = None,
+    staged_audit_cells: tuple[tuple[int, int, int], ...] = (),
+    staged_audit_output: Path | None = None,
+    staged_audit_explicit_ablation: str = "none",
 ) -> FciDrbEBState | FrozenEbDiagnosticResult:
     """Advance the global EB state or evaluate its sharded frozen diagnostic."""
 
@@ -3562,8 +3576,43 @@ def run_full_eb(
         raise ValueError("control_volume_field_count must be positive")
     if time_integrator not in ("rk4", "imex-ssp222"):
         raise ValueError("time_integrator must be 'rk4' or 'imex-ssp222'")
-    if advance_execution not in ("compiled", "eager"):
-        raise ValueError("advance_execution must be 'compiled' or 'eager'")
+    if advance_execution not in ("compiled", "staged-compiled", "eager"):
+        raise ValueError(
+            "advance_execution must be 'compiled', 'staged-compiled', or 'eager'"
+        )
+    if advance_execution == "staged-compiled" and time_integrator != "imex-ssp222":
+        raise ValueError(
+            "advance_execution='staged-compiled' currently requires "
+            "time_integrator='imex-ssp222'"
+        )
+    if staged_audit_cells and advance_execution != "staged-compiled":
+        raise ValueError(
+            "staged_audit_cells require advance_execution='staged-compiled'"
+        )
+    if staged_audit_cells and staged_audit_output is None:
+        raise ValueError("staged_audit_cells require staged_audit_output")
+    if staged_audit_output is not None and not staged_audit_cells:
+        raise ValueError("staged_audit_output requires staged_audit_cells")
+    if staged_audit_explicit_ablation not in (
+        "none",
+        "phi-current-pair",
+        "curvature",
+        "parallel-material",
+        "curvature-parallel-material",
+    ):
+        raise ValueError(
+            "staged_audit_explicit_ablation must be 'none', "
+            "'phi-current-pair', 'curvature', 'parallel-material', or "
+            "'curvature-parallel-material'"
+        )
+    if staged_audit_explicit_ablation != "none" and not staged_audit_cells:
+        raise ValueError(
+            "staged_audit_explicit_ablation requires staged_audit_cells"
+        )
+    if staged_audit_cells and shard_counts != (1, 1, 1):
+        raise ValueError(
+            "selected-cell staged audits currently require shard_counts=(1, 1, 1)"
+        )
     if history_dtype not in ("float32", "float64"):
         raise ValueError("history_dtype must be 'float32' or 'float64'")
     if frozen_diagnostic is not None:
@@ -3629,6 +3678,23 @@ def run_full_eb(
             )
 
     domain = sharded_geometry.domain
+    if staged_audit_cells:
+        global_shape = tuple(int(value) for value in sharded_geometry.global_shape)
+        normalized_audit_cells = tuple(
+            tuple(int(index) for index in cell) for cell in staged_audit_cells
+        )
+        if len(set(normalized_audit_cells)) != len(normalized_audit_cells):
+            raise ValueError("staged_audit_cells must not contain duplicates")
+        for cell in normalized_audit_cells:
+            if len(cell) != 3 or any(
+                index < 0 or index >= extent
+                for index, extent in zip(cell, global_shape, strict=True)
+            ):
+                raise ValueError(
+                    f"staged audit cell {cell!r} lies outside global shape "
+                    f"{global_shape}"
+                )
+        staged_audit_cells = normalized_audit_cells
     spatial_spec = P("x", "y", "z")
     source_spec = P(None, "x", "y", "z")
     geometry_spec = P("x", "y", "z", None)
@@ -4851,7 +4917,11 @@ def run_full_eb(
     advance_action = (
         "lowering shard-local geometry and compiling one complete"
         if advance_execution == "compiled"
-        else "running without the outer jax.jit compiled advance for the"
+        else (
+            "compiling reusable staged"
+            if advance_execution == "staged-compiled"
+            else "running without the outer jax.jit compiled advance for the"
+        )
     )
     print(
         f"[simulation] {advance_action} shard_map {time_integrator} advance "
@@ -4860,12 +4930,13 @@ def run_full_eb(
     )
     if phase_timing:
         print(
-            "[simulation] phase timing enabled; ordered host markers prevent "
-            "persistent disk caching of this outer executable, but the "
-            "compiled executable is reused for every step in this run",
+            "[simulation] phase timing enabled; ordered host markers create "
+            "a distinct instrumented executable and add runtime overhead, "
+            "but the executable is reused for every step in this run",
             flush=True,
-        )
+    )
     compile_start = time.perf_counter()
+    staged_audit_records: list[dict[str, object]] = []
     advance_out_specs = (
         (
             state_spec,
@@ -4912,13 +4983,705 @@ def run_full_eb(
             f"{time.perf_counter() - compile_start:.3f} s",
             flush=True,
         )
-    else:
+    elif advance_execution == "eager":
         compiled_advance = sharded_advance
         print(
             "[simulation] eager advance ready; outer jax.jit compilation "
             "disabled",
             flush=True,
         )
+    else:
+        # Keep the existing monolithic compiled/eager paths unchanged.  The
+        # staged path is an IMEX short-diagnostic mode: each reusable kernel
+        # is compiled once, then the SSP222 algebra is orchestrated with
+        # device-side array operations between kernel calls.
+        scalar_spec = replicated_spec
+
+        def staged_implicit_kernel(
+            local_state: FciDrbEBState,
+            cell_fields_owned: jax.Array,
+            map_fields_owned: jax.Array,
+            control_volume_fields_owned: jax.Array,
+            solve_dt: jax.Array,
+            selection_dt: jax.Array,
+        ):
+            model = build_local_model(
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+            updated, increment, _info = (
+                model.apply_short_leg_implicit_material_step(
+                    local_state,
+                    solve_dt=solve_dt,
+                    selection_dt=selection_dt,
+                    phi_owned=local_state.phi,
+                    return_increment=True,
+                )
+            )
+            stage_phi, phi_info = reconstruct_stage_phi(updated, model)
+            return updated.replace(phi=stage_phi), increment, phi_info
+
+        staged_implicit_sharded = jax.shard_map(
+            staged_implicit_kernel,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+                scalar_spec,
+                scalar_spec,
+            ),
+            out_specs=(state_spec, state_spec, replicated_spec),
+            check_vma=False,
+        )
+
+        def staged_explicit_kernel(
+            local_state: FciDrbEBState,
+            local_source: FciDrbEBState,
+            cell_fields_owned: jax.Array,
+            map_fields_owned: jax.Array,
+            control_volume_fields_owned: jax.Array,
+            selection_dt: jax.Array,
+        ):
+            model = build_local_model(
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+            if staged_audit_explicit_ablation == "none":
+                rhs = model.evaluate_stage(
+                    local_state,
+                    source_owned=local_source,
+                    phi_owned=local_state.phi,
+                    short_leg_selection_dt=selection_dt,
+                )
+            else:
+                rhs, term_fields = model.evaluate_stage(
+                    local_state,
+                    source_owned=local_source,
+                    phi_owned=local_state.phi,
+                    return_rhs_term_fields=True,
+                    short_leg_selection_dt=selection_dt,
+                )
+                if staged_audit_explicit_ablation == "phi-current-pair":
+                    rhs = rhs.replace(
+                        Ve=(
+                            rhs.Ve
+                            - term_fields[
+                                RHS_TERM_FIELD_NAMES.index("Ve"),
+                                RHS_TERM_NAMES[
+                                    RHS_TERM_FIELD_NAMES.index("Ve")
+                                ].index("electrostatic"),
+                            ]
+                        ),
+                        vorticity=(
+                            rhs.vorticity
+                            - term_fields[
+                                RHS_TERM_FIELD_NAMES.index("vorticity"),
+                                RHS_TERM_NAMES[
+                                    RHS_TERM_FIELD_NAMES.index("vorticity")
+                                ].index("parallel_current"),
+                            ]
+                        ),
+                    )
+                else:
+                    def audit_term(field_name: str, term_name: str):
+                        field_index = RHS_TERM_FIELD_NAMES.index(field_name)
+                        return term_fields[
+                            field_index,
+                            RHS_TERM_NAMES[field_index].index(term_name),
+                        ]
+
+                    remove_curvature = staged_audit_explicit_ablation in (
+                        "curvature", "curvature-parallel-material"
+                    )
+                    remove_parallel_material = (
+                        staged_audit_explicit_ablation in (
+                            "parallel-material",
+                            "curvature-parallel-material",
+                        )
+                    )
+                    density_rhs = rhs.density
+                    Te_rhs = rhs.Te
+                    Ti_rhs = rhs.Ti
+                    Vi_rhs = rhs.Vi
+                    Ve_rhs = rhs.Ve
+                    vorticity_rhs = rhs.vorticity
+                    if remove_curvature:
+                        density_rhs = density_rhs - audit_term(
+                            "density", "curvature"
+                        )
+                        Te_rhs = Te_rhs - audit_term("Te", "curvature")
+                        Ti_rhs = Ti_rhs - audit_term("Ti", "curvature")
+                        vorticity_rhs = vorticity_rhs - audit_term(
+                            "vorticity", "curvature"
+                        )
+                    if remove_parallel_material:
+                        for field_name, term_name in (
+                            ("density", "parallel_density_flux_divergence"),
+                            ("Te", "parallel_advection"),
+                            ("Ti", "parallel_advection"),
+                            ("Vi", "parallel_self_advection"),
+                            ("Ve", "parallel_self_advection"),
+                        ):
+                            term = audit_term(field_name, term_name)
+                            if field_name == "density":
+                                density_rhs = density_rhs - term
+                            elif field_name == "Te":
+                                Te_rhs = Te_rhs - term
+                            elif field_name == "Ti":
+                                Ti_rhs = Ti_rhs - term
+                            elif field_name == "Vi":
+                                Vi_rhs = Vi_rhs - term
+                            else:
+                                Ve_rhs = Ve_rhs - term
+                    rhs = rhs.replace(
+                        density=density_rhs,
+                        Te=Te_rhs,
+                        Ti=Ti_rhs,
+                        Vi=Vi_rhs,
+                        Ve=Ve_rhs,
+                        vorticity=vorticity_rhs,
+                    )
+            rhs = model.project_galerkin_state(rhs)
+            mark_operator(rhs)
+            return rhs
+
+        staged_explicit_sharded = jax.shard_map(
+            staged_explicit_kernel,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+                scalar_spec,
+            ),
+            out_specs=state_spec,
+            check_vma=False,
+        )
+
+        def staged_phi_kernel(
+            local_state: FciDrbEBState,
+            cell_fields_owned: jax.Array,
+            map_fields_owned: jax.Array,
+            control_volume_fields_owned: jax.Array,
+        ):
+            model = build_local_model(
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+            return reconstruct_stage_phi(local_state, model)
+
+        staged_phi_sharded = jax.shard_map(
+            staged_phi_kernel,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+            ),
+            out_specs=(spatial_spec, replicated_spec),
+            check_vma=False,
+        )
+
+        def staged_finalize_kernel(
+            current: FciDrbEBState,
+            stage_1: FciDrbEBState,
+            stage_2_base: FciDrbEBState,
+            stage_2: FciDrbEBState,
+            next_state: FciDrbEBState,
+            implicit_1: FciDrbEBState,
+            explicit_1: FciDrbEBState,
+            implicit_2: FciDrbEBState,
+            explicit_2: FciDrbEBState,
+            weighted_rate: FciDrbEBState,
+            gmres_info_1: jax.Array,
+            gmres_info_2_base: jax.Array,
+            gmres_info_2: jax.Array,
+            gmres_info_next: jax.Array,
+            cell_fields_owned: jax.Array,
+            map_fields_owned: jax.Array,
+            control_volume_fields_owned: jax.Array,
+        ):
+            model = build_local_model(
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+            return finalize_advance(
+                next_state,
+                model,
+                (current, stage_1, stage_2_base, stage_2, next_state),
+                (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
+                (gmres_info_1, gmres_info_2_base, gmres_info_2, gmres_info_next),
+            )
+
+        staged_finalize_sharded = jax.shard_map(
+            staged_finalize_kernel,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                state_spec,
+                state_spec,
+                state_spec,
+                state_spec,
+                state_spec,
+                state_spec,
+                state_spec,
+                state_spec,
+                state_spec,
+                replicated_spec,
+                replicated_spec,
+                replicated_spec,
+                replicated_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+            ),
+            out_specs=advance_out_specs,
+            check_vma=False,
+        )
+
+        def compile_staged_kernel(label: str, sharded_kernel, *example_args):
+            """Compile one staged kernel and report lowering/cache separately."""
+
+            lower_start = time.perf_counter()
+            lowered = jax.jit(sharded_kernel).lower(*example_args)
+            lower_seconds = time.perf_counter() - lower_start
+            compile_start = time.perf_counter()
+            executable = lowered.compile()
+            compile_seconds = time.perf_counter() - compile_start
+            print(
+                f"[simulation] staged kernel {label}: lowering="
+                f"{lower_seconds:.3f} s, compile/cache="
+                f"{compile_seconds:.3f} s",
+                flush=True,
+            )
+            return executable
+
+        staged_compile_start = time.perf_counter()
+        staged_implicit = compile_staged_kernel(
+            "implicit+phi",
+            staged_implicit_sharded,
+            state,
+            cell_fields,
+            map_fields,
+            control_volume_fields,
+            jnp.asarray(
+                IMEX_SSP222_GAMMA * float(timestep), dtype=jnp.float64
+            ),
+            jnp.asarray(float(timestep), dtype=jnp.float64),
+        )
+        staged_explicit = compile_staged_kernel(
+            "explicit-rhs",
+            staged_explicit_sharded,
+            state,
+            state.zeros_like(),
+            cell_fields,
+            map_fields,
+            control_volume_fields,
+            jnp.asarray(float(timestep), dtype=jnp.float64),
+        )
+        staged_phi = compile_staged_kernel(
+            "standalone-phi",
+            staged_phi_sharded,
+            state,
+            cell_fields,
+            map_fields,
+            control_volume_fields,
+        )
+        zero_info = jnp.zeros((7,), dtype=jnp.float64)
+        staged_finalize = compile_staged_kernel(
+            "stage-diagnostics",
+            staged_finalize_sharded,
+            state,
+            state,
+            state,
+            state,
+            state,
+            state,
+            state,
+            state,
+            state,
+            state,
+            zero_info,
+            zero_info,
+            zero_info,
+            zero_info,
+            cell_fields,
+            map_fields,
+            control_volume_fields,
+        )
+        staged_audit_select_state = None
+        staged_audit_explicit_terms = None
+        if staged_audit_cells:
+            audit_indices = np.asarray(staged_audit_cells, dtype=np.int32)
+            audit_u = jnp.asarray(audit_indices[:, 0], dtype=jnp.int32)
+            audit_theta = jnp.asarray(audit_indices[:, 1], dtype=jnp.int32)
+            audit_eta = jnp.asarray(audit_indices[:, 2], dtype=jnp.int32)
+
+            def select_audit_state(global_state: FciDrbEBState) -> jax.Array:
+                packed = jnp.stack(
+                    tuple(value for _, value in global_state.field_items()),
+                    axis=0,
+                )
+                return jnp.transpose(
+                    packed[:, audit_u, audit_theta, audit_eta], (1, 0)
+                )
+
+            staged_audit_select_state = compile_staged_kernel(
+                "audit-state-gather",
+                select_audit_state,
+                state,
+            )
+
+            def staged_explicit_term_audit_kernel(
+                local_state: FciDrbEBState,
+                local_source: FciDrbEBState,
+                cell_fields_owned: jax.Array,
+                map_fields_owned: jax.Array,
+                control_volume_fields_owned: jax.Array,
+                selection_dt: jax.Array,
+            ):
+                model = build_local_model(
+                    cell_fields_owned,
+                    map_fields_owned,
+                    control_volume_fields_owned,
+                )
+                (
+                    rhs,
+                    term_fields,
+                    curvature_component_fields,
+                    parallel_material_component_fields,
+                ) = model.evaluate_stage(
+                    local_state,
+                    source_owned=local_source,
+                    phi_owned=local_state.phi,
+                    return_rhs_term_fields=True,
+                    return_curvature_component_fields=True,
+                    return_parallel_material_component_fields=True,
+                    short_leg_selection_dt=selection_dt,
+                )
+                rhs = model.project_galerkin_state(rhs)
+                packed_rhs = jnp.stack(
+                    tuple(getattr(rhs, name) for name in RHS_TERM_FIELD_NAMES),
+                    axis=0,
+                )
+                selected_rhs = jnp.transpose(
+                    packed_rhs[:, audit_u, audit_theta, audit_eta], (1, 0)
+                )
+                selected_terms = jnp.transpose(
+                    term_fields[:, :, audit_u, audit_theta, audit_eta],
+                    (2, 0, 1),
+                )
+                selected_curvature_components = jnp.transpose(
+                    curvature_component_fields[
+                        :, :, audit_u, audit_theta, audit_eta
+                    ],
+                    (2, 0, 1),
+                )
+                selected_parallel_material_components = jnp.transpose(
+                    parallel_material_component_fields[
+                        :, :, audit_u, audit_theta, audit_eta
+                    ],
+                    (2, 1, 0),
+                )
+                return (
+                    selected_rhs,
+                    selected_terms,
+                    selected_curvature_components,
+                    selected_parallel_material_components,
+                )
+
+            staged_explicit_term_audit_sharded = jax.shard_map(
+                staged_explicit_term_audit_kernel,
+                mesh=mesh,
+                in_specs=(
+                    state_spec,
+                    state_spec,
+                    geometry_spec,
+                    geometry_spec,
+                    geometry_spec,
+                    scalar_spec,
+                ),
+                out_specs=(
+                    replicated_spec,
+                    replicated_spec,
+                    replicated_spec,
+                    replicated_spec,
+                ),
+                check_vma=False,
+            )
+            staged_audit_explicit_terms = compile_staged_kernel(
+                "audit-explicit-term-lanes",
+                staged_explicit_term_audit_sharded,
+                state,
+                state.zeros_like(),
+                cell_fields,
+                map_fields,
+                control_volume_fields,
+                jnp.asarray(float(timestep), dtype=jnp.float64),
+            )
+        print(
+            "[simulation] compiled staged IMEX kernels (implicit+phi, "
+            "explicit, phi, diagnostics) in "
+            f"{time.perf_counter() - staged_compile_start:.3f} s",
+            flush=True,
+        )
+
+        def staged_execute_advance(*advance_args):
+            (
+                current,
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+                source_stages,
+                _current_time,
+            ) = advance_args
+            audit_active = staged_audit_select_state is not None
+            dt_dynamic = jnp.asarray(float(timestep), dtype=jnp.float64)
+            gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * dt_dynamic
+
+            stage_1, increment_1, gmres_info_1 = staged_implicit(
+                current,
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+                gamma_dt,
+                dt_dynamic,
+            )
+            implicit_1 = increment_1.map_fields(
+                lambda value: value / gamma_dt
+            )
+            source_1 = source_stages.replace(
+                density=source_stages.density[0], phi=source_stages.phi[0],
+                Te=source_stages.Te[0], Ti=source_stages.Ti[0],
+                Vi=source_stages.Vi[0], Ve=source_stages.Ve[0],
+                vorticity=source_stages.vorticity[0],
+            )
+            source_2 = source_stages.replace(
+                density=source_stages.density[1], phi=source_stages.phi[1],
+                Te=source_stages.Te[1], Ti=source_stages.Ti[1],
+                Vi=source_stages.Vi[1], Ve=source_stages.Ve[1],
+                vorticity=source_stages.vorticity[1],
+            )
+            explicit_1 = staged_explicit(
+                stage_1,
+                source_1,
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+                dt_dynamic,
+            )
+            explicit_probe_1 = term_fields_1 = curvature_components_1 = None
+            parallel_material_components_1 = None
+            if audit_active:
+                (
+                    explicit_probe_1,
+                    term_fields_1,
+                    curvature_components_1,
+                    parallel_material_components_1,
+                ) = staged_audit_explicit_terms(
+                        stage_1,
+                        source_1,
+                        cell_fields_owned,
+                        map_fields_owned,
+                        control_volume_fields_owned,
+                        dt_dynamic,
+                    )
+            stage_2_base_before_phi = current.axpy(
+                explicit_1, scale=dt_dynamic
+            ).axpy(
+                implicit_1,
+                scale=(1.0 - 2.0 * IMEX_SSP222_GAMMA) * dt_dynamic,
+            )
+            stage_2_base_phi, gmres_info_2_base = staged_phi(
+                stage_2_base_before_phi,
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+            stage_2_base = stage_2_base_before_phi.replace(phi=stage_2_base_phi)
+            stage_2, increment_2, gmres_info_2 = staged_implicit(
+                stage_2_base,
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+                gamma_dt,
+                dt_dynamic,
+            )
+            implicit_2 = increment_2.map_fields(
+                lambda value: value / gamma_dt
+            )
+            explicit_2 = staged_explicit(
+                stage_2,
+                source_2,
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+                dt_dynamic,
+            )
+            explicit_probe_2 = term_fields_2 = curvature_components_2 = None
+            parallel_material_components_2 = None
+            if audit_active:
+                (
+                    explicit_probe_2,
+                    term_fields_2,
+                    curvature_components_2,
+                    parallel_material_components_2,
+                ) = staged_audit_explicit_terms(
+                        stage_2,
+                        source_2,
+                        cell_fields_owned,
+                        map_fields_owned,
+                        control_volume_fields_owned,
+                        dt_dynamic,
+                    )
+            weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
+                implicit_1, scale=1.0
+            ).axpy(implicit_2, scale=1.0).map_fields(
+                lambda value: 0.5 * value
+            )
+            next_state = current.axpy(weighted_rate, scale=dt_dynamic)
+            next_phi, gmres_info_next = staged_phi(
+                next_state,
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+            next_state = next_state.replace(phi=next_phi)
+            if audit_active:
+                audit_stage_names = (
+                    "current",
+                    "implicit_rate_1",
+                    "stage_1",
+                    "explicit_rate_1",
+                    "stage_2_base_before_phi",
+                    "stage_2_base",
+                    "implicit_rate_2",
+                    "stage_2",
+                    "explicit_rate_2",
+                    "weighted_rate",
+                    "final",
+                )
+                audit_stage_states = (
+                    current,
+                    implicit_1,
+                    stage_1,
+                    explicit_1,
+                    stage_2_base_before_phi,
+                    stage_2_base,
+                    implicit_2,
+                    stage_2,
+                    explicit_2,
+                    weighted_rate,
+                    next_state,
+                )
+                selected_stages = tuple(
+                    staged_audit_select_state(stage)
+                    for stage in audit_stage_states
+                )
+                jax.block_until_ready(
+                    (
+                        selected_stages,
+                        explicit_probe_1,
+                        term_fields_1,
+                        explicit_probe_2,
+                        term_fields_2,
+                        curvature_components_1,
+                        curvature_components_2,
+                        parallel_material_components_1,
+                        parallel_material_components_2,
+                    )
+                )
+                staged_audit_records.append(
+                    {
+                        "start_time": float(np.asarray(_current_time)),
+                        "stage_names": audit_stage_names,
+                        "stage_values": np.stack(
+                            tuple(np.asarray(value, dtype=np.float64)
+                                  for value in selected_stages),
+                            axis=0,
+                        ),
+                        "explicit_probe_rhs": np.stack(
+                            (
+                                np.asarray(explicit_probe_1, dtype=np.float64),
+                                np.asarray(explicit_probe_2, dtype=np.float64),
+                            ),
+                            axis=0,
+                        ),
+                        "explicit_term_values": np.stack(
+                            (
+                                np.asarray(term_fields_1, dtype=np.float64),
+                                np.asarray(term_fields_2, dtype=np.float64),
+                            ),
+                            axis=0,
+                        ),
+                        "curvature_component_values": np.stack(
+                            (
+                                np.asarray(
+                                    curvature_components_1, dtype=np.float64
+                                ),
+                                np.asarray(
+                                    curvature_components_2, dtype=np.float64
+                                ),
+                            ),
+                            axis=0,
+                        ),
+                        "parallel_material_component_values": np.stack(
+                            (
+                                np.asarray(
+                                    parallel_material_components_1,
+                                    dtype=np.float64,
+                                ),
+                                np.asarray(
+                                    parallel_material_components_2,
+                                    dtype=np.float64,
+                                ),
+                            ),
+                            axis=0,
+                        ),
+                        "gmres_stage_diagnostics": np.stack(
+                            tuple(
+                                np.asarray(value, dtype=np.float64)
+                                for value in (
+                                    gmres_info_1,
+                                    gmres_info_2_base,
+                                    gmres_info_2,
+                                    gmres_info_next,
+                                )
+                            ),
+                            axis=0,
+                        ),
+                    }
+                )
+            return staged_finalize(
+                current,
+                stage_1,
+                stage_2_base,
+                stage_2,
+                next_state,
+                implicit_1,
+                explicit_1,
+                implicit_2,
+                explicit_2,
+                weighted_rate,
+                gmres_info_1,
+                gmres_info_2_base,
+                gmres_info_2,
+                gmres_info_next,
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+
+        compiled_advance = staged_execute_advance
 
     rhs_term_inspection = None
     if track_rhs_terms:
@@ -5003,7 +5766,7 @@ def run_full_eb(
             out_specs=replicated_spec,
             check_vma=False,
         )
-        if advance_execution == "compiled":
+        if advance_execution in ("compiled", "staged-compiled"):
             rhs_term_inspection = jax.jit(
                 rhs_term_inspection_sharded
             ).lower(
@@ -5061,11 +5824,10 @@ def run_full_eb(
                 map_fields_owned,
                 control_volume_fields_owned,
             )
-            polarization_terms = model.polarization_balance_terms(
+            polarization_residual = model.polarization_residual(
                 local_state,
                 phi_owned=local_state.phi,
             )
-            polarization_residual = jnp.sum(polarization_terms, axis=0)
             diagnostic_local_state = diagnostic_state(local_state, model.control_volume_geometry)
             face_bc = model._face_bcs(local_state)
             state_halo = prepare_local_fci_drb_eb_state(
@@ -5209,7 +5971,7 @@ def run_full_eb(
             out_specs=inspection_out_specs,
             check_vma=False,
         )
-        if advance_execution == "compiled":
+        if advance_execution in ("compiled", "staged-compiled"):
             inspection = jax.jit(inspection_sharded).lower(
                 state,
                 cell_fields,
@@ -5991,6 +6753,291 @@ def run_full_eb(
             else {}
         ),
     )
+    if staged_audit_records:
+        if staged_audit_output is None:  # Defensive; validated above.
+            raise RuntimeError("missing staged_audit_output")
+        staged_audit_output = Path(staged_audit_output)
+        staged_audit_output.parent.mkdir(parents=True, exist_ok=True)
+        stage_names = tuple(staged_audit_records[0]["stage_names"])
+        stage_values = np.stack(
+            tuple(record["stage_values"] for record in staged_audit_records),
+            axis=0,
+        )
+        explicit_probe_rhs = np.stack(
+            tuple(
+                record["explicit_probe_rhs"]
+                for record in staged_audit_records
+            ),
+            axis=0,
+        )
+        explicit_term_values = np.stack(
+            tuple(
+                record["explicit_term_values"]
+                for record in staged_audit_records
+            ),
+            axis=0,
+        )
+        curvature_component_values = np.stack(
+            tuple(
+                record["curvature_component_values"]
+                for record in staged_audit_records
+            ),
+            axis=0,
+        )
+        parallel_material_component_values = np.stack(
+            tuple(
+                record["parallel_material_component_values"]
+                for record in staged_audit_records
+            ),
+            axis=0,
+        )
+        gmres_stage_diagnostics = np.stack(
+            tuple(
+                record["gmres_stage_diagnostics"]
+                for record in staged_audit_records
+            ),
+            axis=0,
+        )
+        state_field_names = tuple(initial_state.field_names())
+        evolved_state_indices = np.asarray(
+            tuple(state_field_names.index(name) for name in RHS_TERM_FIELD_NAMES),
+            dtype=np.int32,
+        )
+        stage_index = {name: index for index, name in enumerate(stage_names)}
+        evolved = stage_values[..., evolved_state_indices]
+        audit_dt = float(timestep)
+        gamma_dt = IMEX_SSP222_GAMMA * audit_dt
+        implicit_1_closure = (
+            evolved[:, stage_index["stage_1"]]
+            - evolved[:, stage_index["current"]]
+            - gamma_dt * evolved[:, stage_index["implicit_rate_1"]]
+        )
+        explicit_probe_closure = np.stack(
+            (
+                evolved[:, stage_index["explicit_rate_1"]]
+                - explicit_probe_rhs[:, 0],
+                evolved[:, stage_index["explicit_rate_2"]]
+                - explicit_probe_rhs[:, 1],
+            ),
+            axis=1,
+        )
+        explicit_ablation_values = np.zeros_like(explicit_probe_rhs)
+        if staged_audit_explicit_ablation == "phi-current-pair":
+            for field_name, term_name in (
+                ("Ve", "electrostatic"),
+                ("vorticity", "parallel_current"),
+            ):
+                field_index = RHS_TERM_FIELD_NAMES.index(field_name)
+                term_index = RHS_TERM_NAMES[field_index].index(term_name)
+                explicit_ablation_values[..., field_index] = (
+                    explicit_term_values[..., field_index, term_index]
+                )
+        elif staged_audit_explicit_ablation in (
+            "curvature", "curvature-parallel-material"
+        ):
+            for field_name in ("density", "Te", "Ti", "vorticity"):
+                field_index = RHS_TERM_FIELD_NAMES.index(field_name)
+                term_index = RHS_TERM_NAMES[field_index].index("curvature")
+                explicit_ablation_values[..., field_index] = (
+                    explicit_term_values[..., field_index, term_index]
+                )
+        if staged_audit_explicit_ablation in (
+            "parallel-material", "curvature-parallel-material"
+        ):
+            for field_name, term_name in (
+                ("density", "parallel_density_flux_divergence"),
+                ("Te", "parallel_advection"),
+                ("Ti", "parallel_advection"),
+                ("Vi", "parallel_self_advection"),
+                ("Ve", "parallel_self_advection"),
+            ):
+                field_index = RHS_TERM_FIELD_NAMES.index(field_name)
+                term_index = RHS_TERM_NAMES[field_index].index(term_name)
+                explicit_ablation_values[..., field_index] += (
+                    explicit_term_values[..., field_index, term_index]
+                )
+        explicit_ablation_closure = np.stack(
+            (
+                evolved[:, stage_index["explicit_rate_1"]]
+                - (explicit_probe_rhs[:, 0] - explicit_ablation_values[:, 0]),
+                evolved[:, stage_index["explicit_rate_2"]]
+                - (explicit_probe_rhs[:, 1] - explicit_ablation_values[:, 1]),
+            ),
+            axis=1,
+        )
+        explicit_term_closure = (
+            np.sum(explicit_term_values, axis=-1) - explicit_probe_rhs
+        )
+        curvature_fields = ("density", "Te", "Ti", "vorticity")
+        curvature_term_values = np.stack(
+            tuple(
+                explicit_term_values[
+                    ...,
+                    RHS_TERM_FIELD_NAMES.index(field_name),
+                    RHS_TERM_NAMES[
+                        RHS_TERM_FIELD_NAMES.index(field_name)
+                    ].index("curvature"),
+                ]
+                for field_name in curvature_fields
+            ),
+            axis=-1,
+        )
+        curvature_component_closure = (
+            np.sum(curvature_component_values, axis=-1)
+            - curvature_term_values
+        )
+        parallel_material_fields = ("density", "Te", "Ti", "Vi", "Ve")
+        parallel_material_term_names = (
+            "parallel_density_flux_divergence",
+            "parallel_advection",
+            "parallel_advection",
+            "parallel_self_advection",
+            "parallel_self_advection",
+        )
+        parallel_material_term_values = np.stack(
+            tuple(
+                explicit_term_values[
+                    ...,
+                    RHS_TERM_FIELD_NAMES.index(field_name),
+                    RHS_TERM_NAMES[
+                        RHS_TERM_FIELD_NAMES.index(field_name)
+                    ].index(term_name),
+                ]
+                for field_name, term_name in zip(
+                    parallel_material_fields,
+                    parallel_material_term_names,
+                    strict=True,
+                )
+            ),
+            axis=-1,
+        )
+        parallel_material_component_closure = (
+            np.sum(parallel_material_component_values, axis=-1)
+            - parallel_material_term_values
+        )
+        stage_2_base_closure = (
+            evolved[:, stage_index["stage_2_base_before_phi"]]
+            - evolved[:, stage_index["current"]]
+            - audit_dt * evolved[:, stage_index["explicit_rate_1"]]
+            - (1.0 - 2.0 * IMEX_SSP222_GAMMA)
+            * audit_dt
+            * evolved[:, stage_index["implicit_rate_1"]]
+        )
+        implicit_2_closure = (
+            evolved[:, stage_index["stage_2"]]
+            - evolved[:, stage_index["stage_2_base"]]
+            - gamma_dt * evolved[:, stage_index["implicit_rate_2"]]
+        )
+        weighted_rate_closure = (
+            evolved[:, stage_index["weighted_rate"]]
+            - 0.5
+            * (
+                evolved[:, stage_index["explicit_rate_1"]]
+                + evolved[:, stage_index["explicit_rate_2"]]
+                + evolved[:, stage_index["implicit_rate_1"]]
+                + evolved[:, stage_index["implicit_rate_2"]]
+            )
+        )
+        final_closure = (
+            evolved[:, stage_index["final"]]
+            - evolved[:, stage_index["current"]]
+            - audit_dt * evolved[:, stage_index["weighted_rate"]]
+        )
+        np.savez_compressed(
+            staged_audit_output,
+            cell_indices=np.asarray(staged_audit_cells, dtype=np.int32),
+            cell_u=np.asarray(
+                [global_geometry.grid.x.centers[cell[0]] for cell in staged_audit_cells],
+                dtype=np.float64,
+            ),
+            cell_theta=np.asarray(
+                [global_geometry.grid.y.centers[cell[1]] for cell in staged_audit_cells],
+                dtype=np.float64,
+            ),
+            cell_eta=np.asarray(
+                [global_geometry.grid.z.centers[cell[2]] for cell in staged_audit_cells],
+                dtype=np.float64,
+            ),
+            start_times=np.asarray(
+                tuple(record["start_time"] for record in staged_audit_records),
+                dtype=np.float64,
+            ),
+            timestep=np.asarray(audit_dt, dtype=np.float64),
+            imex_ssp222_gamma=np.asarray(
+                IMEX_SSP222_GAMMA, dtype=np.float64
+            ),
+            state_field_names_json=np.asarray(json.dumps(state_field_names)),
+            rhs_field_names_json=np.asarray(json.dumps(RHS_TERM_FIELD_NAMES)),
+            rhs_term_names_json=np.asarray(
+                json.dumps(
+                    {
+                        name: list(terms)
+                        for name, terms in zip(
+                            RHS_TERM_FIELD_NAMES, RHS_TERM_NAMES, strict=True
+                        )
+                    },
+                    sort_keys=True,
+                )
+            ),
+            stage_names_json=np.asarray(json.dumps(stage_names)),
+            stage_values=stage_values,
+            explicit_probe_rhs=explicit_probe_rhs,
+            explicit_term_values=explicit_term_values,
+            curvature_field_names_json=np.asarray(
+                json.dumps(curvature_fields)
+            ),
+            curvature_direction_names_json=np.asarray(
+                json.dumps(curvature_component_diagnostic_names())
+            ),
+            curvature_component_values=curvature_component_values,
+            curvature_component_closure=curvature_component_closure,
+            parallel_material_field_names_json=np.asarray(
+                json.dumps(parallel_material_fields)
+            ),
+            parallel_material_direction_names_json=np.asarray(
+                json.dumps(("backward", "center_geometric", "forward"))
+            ),
+            parallel_material_component_values=(
+                parallel_material_component_values
+            ),
+            parallel_material_component_closure=(
+                parallel_material_component_closure
+            ),
+            explicit_ablation=np.asarray(staged_audit_explicit_ablation),
+            explicit_ablation_values=explicit_ablation_values,
+            gmres_stage_diagnostics=gmres_stage_diagnostics,
+            implicit_1_closure=implicit_1_closure,
+            explicit_probe_closure=explicit_probe_closure,
+            explicit_ablation_closure=explicit_ablation_closure,
+            explicit_term_closure=explicit_term_closure,
+            stage_2_base_closure=stage_2_base_closure,
+            implicit_2_closure=implicit_2_closure,
+            weighted_rate_closure=weighted_rate_closure,
+            final_closure=final_closure,
+            run_metadata_json=np.asarray(json.dumps(metadata, sort_keys=True)),
+        )
+        closure_arrays = (
+            implicit_1_closure,
+            (
+                explicit_probe_closure
+                if staged_audit_explicit_ablation == "none"
+                else explicit_ablation_closure
+            ),
+            explicit_ablation_closure,
+            explicit_term_closure,
+            curvature_component_closure,
+            parallel_material_component_closure,
+            stage_2_base_closure,
+            implicit_2_closure,
+            weighted_rate_closure,
+            final_closure,
+        )
+        print(
+            f"[staged-audit] wrote {staged_audit_output}; "
+            f"max algebra/term closure="
+            f"{max(float(np.max(np.abs(value))) for value in closure_arrays):.3e}",
+            flush=True,
+        )
     print(
         f"sharded EB advance completed in "
         f"{time.perf_counter() - simulation_start:.3f} s; "
@@ -6043,6 +7090,23 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
             raise ValueError(
                 "energy-absorbing parallel characteristic wall law requires "
                 "characteristic-sat boundary pairing"
+            )
+    if args.parallel_characteristic_wall_law == "velocity-no-flow":
+        if framework != "production-split":
+            raise ValueError(
+                "velocity-no-flow parallel characteristic wall law requires "
+                "the production-path parallel material scheme"
+            )
+        if args.parallel_boundary_pairing != "characteristic-sat":
+            raise ValueError(
+                "velocity-no-flow parallel characteristic wall law requires "
+                "characteristic-sat boundary pairing"
+            )
+        if args.parallel_velocity_wall_bc != "dirichlet-zero":
+            raise ValueError(
+                "velocity-no-flow requires "
+                "--parallel-velocity-wall-bc dirichlet-zero so primitive and "
+                "characteristic wall traces agree"
             )
     if not np.isfinite(args.parallel_short_leg_cfl_limit) or (
         args.parallel_short_leg_cfl_limit <= 0.0
@@ -6201,6 +7265,22 @@ def _parallel_characteristic_wall_metadata(wall_law: str) -> dict[str, object]:
                 "characteristic-wall-residual.py:unit-modal-energy"
             ),
         }
+    if wall_law == "velocity-no-flow":
+        return {
+            "parallel_material_wall_flux_closure": (
+                "nonlinear-incoming-characteristic-velocity-no-flow"
+            ),
+            "parallel_material_wall_flux_closure_source": (
+                "simulate_hsx_blob.py:--parallel-characteristic-wall-law"
+            ),
+            "parallel_characteristic_wall_equilibrium_reference": None,
+            "parallel_characteristic_wall_equilibrium_reference_source": None,
+            "parallel_characteristic_wall_provenance": (
+                "validation-only-no-flow-incoming-characteristic-law"
+            ),
+            "parallel_characteristic_wall_energy_normalizer": None,
+            "parallel_characteristic_wall_energy_normalizer_source": None,
+        }
     raise ValueError(f"unknown parallel characteristic wall law: {wall_law!r}")
 
 
@@ -6314,7 +7394,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--parallel-characteristic-wall-law",
-        choices=("primitive-least-residual", "energy-absorbing"),
+        choices=(
+            "primitive-least-residual",
+            "energy-absorbing",
+            "velocity-no-flow",
+        ),
         default="primitive-least-residual",
         help=(
             "Characteristic parallel material wall law. "
@@ -6322,8 +7406,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "trace; 'energy-absorbing' selects the experimental mathematical "
             "characteristic normalized-equilibrium absorber with unit modal "
             "weights (reference "
-            "[1,1,1,0,0]) and requires the production-path cell-centered, "
-            "characteristic-SAT, central-inflow configuration."
+            "[1,1,1,0,0]); 'velocity-no-flow' solves the strict nonlinear "
+            "incoming-characteristic law Vi=Ve=0 and requires the production "
+            "path, characteristic-SAT, and --parallel-velocity-wall-bc "
+            "dirichlet-zero."
         ),
     )
     parser.add_argument(
@@ -6556,6 +7642,45 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--staged-audit-cell",
+        action="append",
+        nargs=3,
+        type=int,
+        default=[],
+        metavar=("IU", "ITHETA", "IETA"),
+        help=(
+            "Record the complete IMEX stage sequence and all explicit RHS "
+            "term lanes at one selected global cell. Repeat for multiple "
+            "cells. This diagnostic requires staged-compiled execution, "
+            "one shard, and --staged-audit-output."
+        ),
+    )
+    parser.add_argument(
+        "--staged-audit-output",
+        type=Path,
+        default=None,
+        help="NPZ output for --staged-audit-cell stage and term data.",
+    )
+    parser.add_argument(
+        "--staged-audit-explicit-ablation",
+        choices=(
+            "none",
+            "phi-current-pair",
+            "curvature",
+            "parallel-material",
+            "curvature-parallel-material",
+        ),
+        default="none",
+        help=(
+            "Diagnostic-only paired explicit-term ablation for a selected-cell "
+            "staged audit. 'phi-current-pair' removes electron electrostatic "
+            "force together with vorticity current divergence; 'curvature' "
+            "removes the curvature lanes from density, Te, Ti, and vorticity; "
+            "'parallel-material' removes the complete five-field production "
+            "parallel-material residual; the combined choice removes both."
+        ),
+    )
+    parser.add_argument(
         "--track-curvature-chain-rule-defect",
         action="store_true",
         help=(
@@ -6719,15 +7844,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--advance-execution",
-        choices=("auto", "compiled", "eager"),
+        choices=("auto", "compiled", "staged-compiled", "eager"),
         default="auto",
         help=(
-            "Execution mode for time advancement. 'auto' uses eager "
-            "execution for fewer than 100 diagnostic steps and compilation "
-            "for longer production runs. 'eager' disables the outer jax.jit "
-            "and avoids building the large fused advance executable, "
-            "although the JAX backend may still compile small primitive "
-            "kernels."
+            "Execution mode for time advancement. 'auto' uses staged "
+            "compilation for fewer than 100 IMEX diagnostic steps, eager "
+            "execution for short RK4 diagnostics, and fused compilation for "
+            "longer production runs. 'compiled' builds one fused "
+            "advance executable. 'staged-compiled' (IMEX-SSP222 only) "
+            "compiles reusable implicit, explicit, phi, and diagnostic "
+            "shard-map kernels separately. 'eager' disables the outer "
+            "jax.jit, although the JAX backend may still compile kernels."
         ),
     )
     parser.add_argument(
@@ -6997,6 +8124,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     args.advance_execution = _resolve_execution_mode(
         requested_advance_execution,
         work_items=int(args.num_steps),
+        auto_short_mode=(
+            "staged-compiled"
+            if args.time_integrator == "imex-ssp222"
+            else "eager"
+        ),
     )
     args.rhs_replay_execution = (
         _resolve_execution_mode(
@@ -7011,6 +8143,49 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.rhs_replay_history is not None
         else args.advance_execution
     )
+    if (
+        args.advance_execution == "staged-compiled"
+        and args.time_integrator != "imex-ssp222"
+    ):
+        parser.error(
+            "--advance-execution staged-compiled requires "
+            "--time-integrator imex-ssp222"
+        )
+    staged_audit_cells = tuple(
+        tuple(int(index) for index in cell)
+        for cell in args.staged_audit_cell
+    )
+    if staged_audit_cells:
+        if args.staged_audit_output is None:
+            parser.error(
+                "--staged-audit-cell requires --staged-audit-output"
+            )
+        if args.advance_execution != "staged-compiled":
+            parser.error(
+                "--staged-audit-cell requires --advance-execution "
+                "staged-compiled"
+            )
+        if tuple(int(value) for value in shard_counts) != (1, 1, 1):
+            parser.error("--staged-audit-cell currently requires one shard")
+        if len(set(staged_audit_cells)) != len(staged_audit_cells):
+            parser.error("--staged-audit-cell entries must be unique")
+        for cell in staged_audit_cells:
+            if any(
+                index < 0 or index >= extent
+                for index, extent in zip(cell, resolution, strict=True)
+            ):
+                parser.error(
+                    f"--staged-audit-cell {cell!r} lies outside resolution "
+                    f"{tuple(resolution)}"
+                )
+    elif args.staged_audit_output is not None:
+        parser.error(
+            "--staged-audit-output requires at least one --staged-audit-cell"
+        )
+    if args.staged_audit_explicit_ablation != "none" and not staged_audit_cells:
+        parser.error(
+            "--staged-audit-explicit-ablation requires --staged-audit-cell"
+        )
     if requested_advance_execution == "auto":
         print(
             "[simulation] auto-selected advance execution: "
@@ -7604,6 +8779,28 @@ def main(argv: Sequence[str] | None = None) -> None:
             "time_integrator": str(args.time_integrator),
             "advance_execution": str(args.advance_execution),
             "advance_execution_requested": requested_advance_execution,
+            "staged_audit_cells": [
+                [int(index) for index in cell]
+                for cell in staged_audit_cells
+            ],
+            "staged_audit_output": (
+                None
+                if args.staged_audit_output is None
+                else str(args.staged_audit_output)
+            ),
+            "staged_audit_explicit_ablation": str(
+                args.staged_audit_explicit_ablation
+            ),
+            "advance_execution_kernel_layout": (
+                (
+                    "implicit-short-leg-plus-phi",
+                    "explicit-rhs",
+                    "standalone-phi",
+                    "stage-diagnostics",
+                )
+                if args.advance_execution == "staged-compiled"
+                else ("monolithic-advance",)
+            ),
             "rhs_replay_execution": str(args.rhs_replay_execution),
             "rhs_replay_execution_requested": requested_rhs_replay_execution,
             "flux_framework": str(args.flux_framework),
@@ -7738,6 +8935,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         control_volume_assembler=control_volume_assembler,
         control_volume_field_count=control_volume_field_count,
         owner_host_geometry=owner_host_geometry,
+        staged_audit_cells=staged_audit_cells,
+        staged_audit_output=args.staged_audit_output,
+        staged_audit_explicit_ablation=str(
+            args.staged_audit_explicit_ablation
+        ),
     )
 
 

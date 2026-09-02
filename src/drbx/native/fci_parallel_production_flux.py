@@ -21,6 +21,9 @@ import jax.numpy as jnp
 
 from .characteristic_wall_residual import (
     apply_maximally_dissipative_characteristic_wall,
+    no_flow_boundary_jacobian,
+    no_flow_boundary_residual,
+    solve_nonlinear_incoming_characteristic_boundary,
     solve_incoming_characteristic_state,
 )
 
@@ -199,6 +202,42 @@ def _spectral_data(
         eigenvalue_tolerance=eigenvalue_tolerance,
     )
     return values, plus, minus, valid, alpha
+
+
+def _incoming_right_eigenvectors(
+    values: jnp.ndarray,
+    vectors: jnp.ndarray,
+    *,
+    orientation: str,
+    eigenvalue_tolerance: float,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Select exactly two incoming columns from the full frozen basis.
+
+    The production five-field material block has two incoming modes at the
+    subsonic wall states used by the current closure.  Boolean indexing is
+    not JIT-safe for batched arrays, so stable integer ``argsort`` gathers the
+    active columns while retaining a diagnostic count for rank validation.
+    ``orientation='backward'`` means the wall is the minus endpoint and uses
+    positive speeds; the forward endpoint uses negative speeds.
+    """
+
+    if orientation not in ("backward", "forward"):
+        raise ValueError(f"unknown wall orientation {orientation!r}")
+    incoming_active = (
+        values > jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)
+        if orientation == "backward"
+        else values < -jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)
+    )
+    incoming_count = jnp.sum(incoming_active, axis=-1)
+    # Active modes sort first; the original basis index breaks ties so the
+    # gather is deterministic and works under jit/vmap for every batch shape.
+    basis_index = jnp.arange(STATE_SIZE, dtype=jnp.int32)
+    sort_key = jnp.where(incoming_active, 0, 1) * STATE_SIZE + basis_index
+    selected_index = jnp.argsort(sort_key, axis=-1)[..., :2]
+    selected = jnp.take_along_axis(
+        jnp.real(vectors), selected_index[..., None, :], axis=-1
+    )
+    return selected, incoming_count
 
 
 def _characteristic_split_actions(
@@ -644,11 +683,12 @@ def _material_directional_data(
     """
 
     if parallel_characteristic_wall_law not in (
-        "primitive-least-residual", "energy-absorbing"
+        "primitive-least-residual", "energy-absorbing", "velocity-no-flow"
     ):
         raise ValueError(
             "parallel_characteristic_wall_law must be "
-            "'primitive-least-residual' or 'energy-absorbing', got "
+            "'primitive-least-residual', 'energy-absorbing', or "
+            "'velocity-no-flow', got "
             f"{parallel_characteristic_wall_law!r}"
         )
 
@@ -696,6 +736,34 @@ def _material_directional_data(
     forward_wall_minus = jnp.where(
         forward_valid[..., None, None], forward_wall_minus, 0.5 * eye
     )
+    backward_incoming_count = jnp.sum(
+        backward_values > jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64),
+        axis=-1,
+    )
+    forward_incoming_count = jnp.sum(
+        forward_values < -jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64),
+        axis=-1,
+    )
+    # Keep the live/interior sign counts separate from any closure-specific
+    # classification counts.  In particular, the no-flow wall state makes
+    # the contact eigenvalue stationary even when the interior Vi is small
+    # and nonzero.
+    backward_interior_incoming_count = backward_incoming_count
+    forward_interior_incoming_count = forward_incoming_count
+    backward_classification_incoming_count = backward_incoming_count
+    forward_classification_incoming_count = forward_incoming_count
+    backward_classification_valid = backward_valid
+    forward_classification_valid = forward_valid
+    backward_classification_stationary_count = jnp.sum(
+        jnp.abs(backward_values)
+        <= jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64),
+        axis=-1,
+    )
+    forward_classification_stationary_count = jnp.sum(
+        jnp.abs(forward_values)
+        <= jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64),
+        axis=-1,
+    )
     if parallel_characteristic_wall_law == "primitive-least-residual":
         wall_minus, backward_wall_solve = solve_incoming_characteristic_state(
             center,
@@ -723,7 +791,7 @@ def _material_directional_data(
             positivity_floor=positivity_floor,
             spectral_valid=forward_valid,
         )
-    else:
+    elif parallel_characteristic_wall_law == "energy-absorbing":
         # The direct map closes incoming modes against the explicit equilibrium
         # reference.  Outward speeds are -backward_values and +forward_values;
         # scalar ghost candidates are intentionally not read in this branch.
@@ -748,6 +816,128 @@ def _material_directional_data(
             positivity_floor=positivity_floor,
             spectral_valid=forward_valid,
             eigenvalue_tolerance=eigenvalue_tolerance,
+        )
+    else:
+        # Validation-only no-flow law.  Classify the material modes at the
+        # constrained wall trace, where Vi=Ve=0 and lambda_contact=0.  The
+        # live/interior eigensystem above is deliberately retained for the
+        # flux split; it is not the correct incoming-count state for this
+        # closure when the interior Vi is small and nonzero.
+        classification_state = center.at[..., 3].set(0.0).at[..., 4].set(0.0)
+        backward_classification = _spectral_basis(
+            parallel_matrix_from_state(classification_state, tau, mu),
+            eigenvalue_tolerance=eigenvalue_tolerance,
+            max_condition=max_condition,
+        )
+        forward_classification = backward_classification
+        (
+            backward_classification_values,
+            backward_classification_vectors,
+            backward_classification_inverse,
+            backward_classification_valid,
+            _,
+        ) = backward_classification
+        (
+            forward_classification_values,
+            forward_classification_vectors,
+            forward_classification_inverse,
+            forward_classification_valid,
+            _,
+        ) = forward_classification
+        backward_classification_plus, _ = _projectors_from_basis(
+            backward_classification_values,
+            backward_classification_vectors,
+            backward_classification_inverse,
+            backward_classification_valid,
+            1.0,
+            eigenvalue_tolerance=eigenvalue_tolerance,
+        )
+        _, forward_classification_minus = _projectors_from_basis(
+            forward_classification_values,
+            forward_classification_vectors,
+            forward_classification_inverse,
+            forward_classification_valid,
+            1.0,
+            eigenvalue_tolerance=eigenvalue_tolerance,
+        )
+        backward_incoming, backward_classification_incoming_count = _incoming_right_eigenvectors(
+            backward_classification_values,
+            backward_classification_vectors,
+            orientation="backward",
+            eigenvalue_tolerance=eigenvalue_tolerance,
+        )
+        forward_incoming, forward_classification_incoming_count = _incoming_right_eigenvectors(
+            forward_classification_values,
+            forward_classification_vectors,
+            orientation="forward",
+            eigenvalue_tolerance=eigenvalue_tolerance,
+        )
+        backward_classification_stationary_count = jnp.sum(
+            jnp.abs(backward_classification_values)
+            <= jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64),
+            axis=-1,
+        )
+        forward_classification_stationary_count = jnp.sum(
+            jnp.abs(forward_classification_values)
+            <= jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64),
+            axis=-1,
+        )
+        backward_incoming_count = backward_classification_incoming_count
+        forward_incoming_count = forward_classification_incoming_count
+
+        wall_minus, backward_wall_solve = (
+            solve_nonlinear_incoming_characteristic_boundary(
+                center,
+                backward_incoming,
+                no_flow_boundary_residual,
+                jacobian_fn=no_flow_boundary_jacobian,
+                incoming_projector=backward_classification_plus,
+                max_iterations=1,
+                thermodynamic_components=3,
+                positivity_floor=positivity_floor,
+            )
+        )
+        wall_plus, forward_wall_solve = (
+            solve_nonlinear_incoming_characteristic_boundary(
+                center,
+                forward_incoming,
+                no_flow_boundary_residual,
+                jacobian_fn=no_flow_boundary_jacobian,
+                incoming_projector=forward_classification_minus,
+                max_iterations=1,
+                thermodynamic_components=3,
+                positivity_floor=positivity_floor,
+            )
+        )
+        # The generic solve validates linear independence of the packed
+        # two-column R_in.  At active wall rows the physical sign mask must
+        # also contain exactly two incoming modes; otherwise this fixed-size
+        # two-constraint law is under/over-specified and must fail loudly.
+        # Ordinary rows are allowed to have another characteristic count
+        # because their mapped endpoint never consumes this wall solve.
+        backward_count_valid = (~backward_wall) | (
+            backward_classification_valid
+            & (backward_classification_incoming_count == 2)
+        )
+        forward_count_valid = (~forward_wall) | (
+            forward_classification_valid
+            & (forward_classification_incoming_count == 2)
+        )
+        backward_wall_solve = dict(backward_wall_solve)
+        forward_wall_solve = dict(forward_wall_solve)
+        backward_wall_solve["incoming_count"] = backward_incoming_count
+        forward_wall_solve["incoming_count"] = forward_incoming_count
+        backward_wall_solve["solve_valid"] = (
+            backward_wall_solve["solve_valid"] & backward_count_valid
+        )
+        forward_wall_solve["solve_valid"] = (
+            forward_wall_solve["solve_valid"] & forward_count_valid
+        )
+        wall_minus = jnp.where(
+            backward_count_valid[..., None], wall_minus, jnp.nan
+        )
+        wall_plus = jnp.where(
+            forward_count_valid[..., None], wall_plus, jnp.nan
         )
     minus_used = jnp.where(backward_wall[..., None], wall_minus, minus)
     plus_used = jnp.where(forward_wall[..., None], wall_plus, plus)
@@ -803,14 +993,22 @@ def _material_directional_data(
             + center[..., 0] * (delta[..., 3] - delta[..., 4])
         )
 
-    backward_wall_characteristic_current = linearized_current(wall_minus)
-    forward_wall_characteristic_current = linearized_current(wall_plus)
     backward_wall_nonlinear_current = wall_minus[..., 0] * (
         wall_minus[..., 3] - wall_minus[..., 4]
     )
     forward_wall_nonlinear_current = wall_plus[..., 0] * (
         wall_plus[..., 3] - wall_plus[..., 4]
     )
+    if parallel_characteristic_wall_law == "velocity-no-flow":
+        # The no-flow law solves Vi=Ve exactly, so its physical wall current
+        # is exactly zero.  Preserve that nonlinear invariant when exporting
+        # the current to characteristic-SAT/vorticity; the linearized form
+        # would spuriously retain (Vi-Ve)*delta_n.
+        backward_wall_characteristic_current = backward_wall_nonlinear_current
+        forward_wall_characteristic_current = forward_wall_nonlinear_current
+    else:
+        backward_wall_characteristic_current = linearized_current(wall_minus)
+        forward_wall_characteristic_current = linearized_current(wall_plus)
     backward_ordinary_current = minus[..., 0] * (minus[..., 3] - minus[..., 4])
     forward_ordinary_current = plus[..., 0] * (plus[..., 3] - plus[..., 4])
     backward_endpoint_current = jnp.where(
@@ -840,18 +1038,18 @@ def _material_directional_data(
         "positivity_limited", jnp.zeros_like(forward_solve_valid)
     )
     # Candidate validity is deliberately irrelevant to an active energy-law
-    # wall: only the explicit equilibrium/reference enters its direct modal
-    # map.  Preserve the raw candidate diagnostics, however, so callers can
-    # distinguish an ignored trace from a finite trace rather than losing
-    # evidence that the supplied data were non-finite.
+    # or no-flow wall: those laws do not consume the mapped primitive trace.
+    # Preserve raw candidate diagnostics, however, so callers can distinguish
+    # an ignored trace from a finite trace rather than losing evidence that
+    # supplied data were non-finite.
     backward_candidate_finite = ~backward_candidate_fallback
     forward_candidate_finite = ~forward_candidate_fallback
     backward_candidate_ignored = (
-        (parallel_characteristic_wall_law == "energy-absorbing")
+        (parallel_characteristic_wall_law in ("energy-absorbing", "velocity-no-flow"))
         & backward_wall
     )
     forward_candidate_ignored = (
-        (parallel_characteristic_wall_law == "energy-absorbing")
+        (parallel_characteristic_wall_law in ("energy-absorbing", "velocity-no-flow"))
         & forward_wall
     )
     reported_backward_candidate_fallback = jnp.where(
@@ -874,9 +1072,10 @@ def _material_directional_data(
     else:
         reported_backward_candidate = backward_candidate
         reported_forward_candidate = forward_candidate
-    # A mapped endpoint is not read on an energy-law wall leg because the
-    # direct modal map uses ``equilibrium``.  Suppress only that direction's
-    # clipping flag; ordinary NaN endpoints remain invalid diagnostics.
+    # A mapped endpoint is not read on an energy-law or no-flow wall leg
+    # because those direct/nonlinear laws construct their own wall state.
+    # Suppress only that direction's clipping flag; ordinary NaN endpoints
+    # remain invalid diagnostics.
     backward_clipped = jnp.where(
         backward_candidate_ignored, jnp.zeros_like(backward_clipped), backward_clipped
     )
@@ -896,6 +1095,8 @@ def _material_directional_data(
         "forward_candidate_ignored": forward_candidate_ignored,
         "backward_wall_solve_fallback": backward_solve_fallback,
         "forward_wall_solve_fallback": forward_solve_fallback,
+        "backward_wall_solve_valid": backward_solve_valid,
+        "forward_wall_solve_valid": forward_solve_valid,
         "backward_wall_thermodynamic_admissible": backward_thermo,
         "forward_wall_thermodynamic_admissible": forward_thermo,
         "backward_wall_positivity_limited": backward_positivity_limited,
@@ -905,6 +1106,12 @@ def _material_directional_data(
         ),
         "forward_wall_residual_norm": forward_wall_solve.get(
             "residual_norm", jnp.zeros_like(forward_solve_valid, dtype=jnp.float64)
+        ),
+        "backward_wall_retained_error": backward_wall_solve.get(
+            "retained_error", jnp.zeros_like(backward_solve_valid, dtype=jnp.float64)
+        ),
+        "forward_wall_retained_error": forward_wall_solve.get(
+            "retained_error", jnp.zeros_like(forward_solve_valid, dtype=jnp.float64)
         ),
         "backward_wall_relative_residual": backward_wall_solve.get(
             "relative_residual", jnp.zeros_like(backward_solve_valid, dtype=jnp.float64)
@@ -920,6 +1127,28 @@ def _material_directional_data(
         ),
         "backward_wall_incoming_rank": backward_wall_solve["incoming_rank"],
         "forward_wall_incoming_rank": forward_wall_solve["incoming_rank"],
+        "backward_wall_incoming_count": backward_incoming_count,
+        "forward_wall_incoming_count": forward_incoming_count,
+        "backward_wall_classification_incoming_count": (
+            backward_classification_incoming_count
+        ),
+        "forward_wall_classification_incoming_count": (
+            forward_classification_incoming_count
+        ),
+        "backward_wall_interior_sign_incoming_count": (
+            backward_interior_incoming_count
+        ),
+        "forward_wall_interior_sign_incoming_count": (
+            forward_interior_incoming_count
+        ),
+        "backward_wall_classification_stationary_count": (
+            backward_classification_stationary_count
+        ),
+        "forward_wall_classification_stationary_count": (
+            forward_classification_stationary_count
+        ),
+        "backward_wall_classification_valid": backward_classification_valid,
+        "forward_wall_classification_valid": forward_classification_valid,
         "backward_wall_outgoing_rank": backward_wall_solve.get(
             "outgoing_rank", jnp.zeros_like(backward_solve_valid, dtype=jnp.int32)
         ),
@@ -968,12 +1197,14 @@ def _material_directional_data(
         "forward_incoming_projector": forward_wall_minus,
         "backward_incoming_action": (
             wall_minus - center
-            if parallel_characteristic_wall_law == "energy-absorbing"
+            if parallel_characteristic_wall_law
+            in ("energy-absorbing", "velocity-no-flow")
             else _matvec(backward_wall_plus, backward_candidate - center)
         ),
         "forward_incoming_action": (
             wall_plus - center
-            if parallel_characteristic_wall_law == "energy-absorbing"
+            if parallel_characteristic_wall_law
+            in ("energy-absorbing", "velocity-no-flow")
             else _matvec(forward_wall_minus, forward_candidate - center)
         ),
         "backward_incoming_matrix": backward_plus_matrix,
@@ -1143,6 +1374,12 @@ def parallel_target_row_material_residual(
         "forward_candidate_finite": directional["forward_candidate_finite"],
         "backward_candidate_ignored": directional["backward_candidate_ignored"],
         "forward_candidate_ignored": directional["forward_candidate_ignored"],
+        "backward_wall_incoming_count": directional["backward_wall_incoming_count"],
+        "forward_wall_incoming_count": directional["forward_wall_incoming_count"],
+        "backward_wall_solve_valid": directional["backward_wall_solve_valid"],
+        "forward_wall_solve_valid": directional["forward_wall_solve_valid"],
+        "backward_wall_retained_error": directional["backward_wall_retained_error"],
+        "forward_wall_retained_error": directional["forward_wall_retained_error"],
         "wall_spectral_fallback": (~backward_valid_live & backward_wall) | (~forward_valid_live & forward_wall),
         "fallback": (
             (~backward_valid_live | ~forward_valid_live)

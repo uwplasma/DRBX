@@ -119,6 +119,7 @@ def test_parser_production_selector_contract():
     assert tuple(wall_law_action.choices) == (
         "primitive-least-residual",
         "energy-absorbing",
+        "velocity-no-flow",
     )
     assert wall_law_action.default == "primitive-least-residual"
     selection_action = next(
@@ -159,6 +160,35 @@ def test_fresh_production_trajectory_accepts_characteristic_sat():
     driver._validate_flux_framework(args)
     driver._configure_runtime_selectors(args)
     assert driver.os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] == "characteristic-sat"
+
+
+def test_velocity_no_flow_requires_matching_primitive_velocity_trace():
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-characteristic-wall-law",
+        "velocity-no-flow",
+        "--parallel-velocity-wall-bc",
+        "dirichlet-zero",
+    )
+    driver._validate_flux_framework(args)
+    driver._configure_runtime_selectors(args)
+    assert driver.os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] == (
+        "velocity-no-flow"
+    )
+    bad_args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-characteristic-wall-law",
+        "velocity-no-flow",
+        "--parallel-velocity-wall-bc",
+        "neumann",
+    )
+    with pytest.raises(ValueError, match="dirichlet-zero"):
+        driver._validate_flux_framework(bad_args)
 
 
 def test_fresh_production_trajectory_rejects_legacy_boundary_pairing():
@@ -217,6 +247,15 @@ def test_wall_law_metadata_is_conditional_and_provenance_is_explicit():
     )
     assert absorbing["parallel_characteristic_wall_energy_normalizer"] == (
         "unit-modal-mathematical"
+    )
+
+    no_flow = driver._parallel_characteristic_wall_metadata("velocity-no-flow")
+    assert no_flow["parallel_material_wall_flux_closure"] == (
+        "nonlinear-incoming-characteristic-velocity-no-flow"
+    )
+    assert no_flow["parallel_characteristic_wall_equilibrium_reference"] is None
+    assert no_flow["parallel_characteristic_wall_provenance"] == (
+        "validation-only-no-flow-incoming-characteristic-law"
     )
 @pytest.mark.parametrize(
     ("extra", "message"),
@@ -502,17 +541,27 @@ def test_frozen_rhs_replay_exposes_eager_no_outer_compile_mode():
     assert "else replay_sharded" in source
 
 
-def test_short_work_auto_selects_eager_and_production_batches_compile():
+def test_execution_mode_auto_supports_staged_short_imex_and_compiled_batches():
     driver = _driver_module()
     assert driver._resolve_execution_mode("auto", work_items=1) == "eager"
     assert driver._resolve_execution_mode("auto", work_items=20) == "eager"
     assert driver._resolve_execution_mode("auto", work_items=99) == "eager"
+    assert driver._resolve_execution_mode(
+        "auto", work_items=20, auto_short_mode="staged-compiled"
+    ) == "staged-compiled"
     assert driver._resolve_execution_mode("auto", work_items=100) == "compiled"
     assert driver._resolve_execution_mode("auto", work_items=600) == "compiled"
     assert driver._resolve_execution_mode("eager", work_items=20) == "eager"
     assert driver._resolve_execution_mode("compiled", work_items=1) == "compiled"
+    assert driver._resolve_execution_mode(
+        "staged-compiled", work_items=1
+    ) == "staged-compiled"
     with pytest.raises(ValueError, match="positive work_items"):
         driver._resolve_execution_mode("auto", work_items=0)
+    with pytest.raises(ValueError, match="auto_short_mode"):
+        driver._resolve_execution_mode(
+            "auto", work_items=20, auto_short_mode="unknown"
+        )
 
 
 def test_time_advance_exposes_true_eager_mode_and_auto_default():
@@ -523,10 +572,59 @@ def test_time_advance_exposes_true_eager_mode_and_auto_default():
     action = next(
         action for action in parser._actions if action.dest == "advance_execution"
     )
-    assert tuple(action.choices) == ("auto", "compiled", "eager")
+    assert tuple(action.choices) == (
+        "auto", "compiled", "staged-compiled", "eager"
+    )
     source = DRIVER.read_text(encoding="utf-8")
     assert "with jax.disable_jit(advance_execution == \"eager\")" in source
     assert "compiled_advance = sharded_advance" in source
+    assert "staged_implicit_sharded = jax.shard_map(" in source
+    assert "staged_explicit_sharded = jax.shard_map(" in source
+    assert "staged_phi_sharded = jax.shard_map(" in source
+    assert "staged_finalize_sharded = jax.shard_map(" in source
+    assert "def compile_staged_kernel(label: str, sharded_kernel" in source
+    assert '"implicit+phi"' in source
+    assert '"explicit-rhs"' in source
+    assert '"standalone-phi"' in source
+    assert '"stage-diagnostics"' in source
+    # The staged device-side operations must retain the same SSP222 algebra
+    # as _imex_ssp222_step; the canonical helper has numerical order tests
+    # above, while these checks protect the production wiring.
+    assert "stage_2_base_before_phi = current.axpy(" in source
+    assert "weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(" in source
+    assert "next_state = current.axpy(weighted_rate, scale=dt_dynamic)" in source
+
+
+def test_staged_selected_cell_audit_is_explicit_and_machine_readable():
+    driver = _driver_module()
+    parser = driver._build_parser()
+    args = parser.parse_args(
+        (
+            "--staged-audit-cell", "45", "14", "17",
+            "--staged-audit-cell", "46", "14", "17",
+            "--staged-audit-output", "audit.npz",
+            "--staged-audit-explicit-ablation", "curvature-parallel-material",
+        )
+    )
+    assert args.staged_audit_cell == [[45, 14, 17], [46, 14, 17]]
+    assert args.staged_audit_output == Path("audit.npz")
+    assert args.staged_audit_explicit_ablation == "curvature-parallel-material"
+    source = DRIVER.read_text(encoding="utf-8")
+    assert "staged_explicit_term_audit_kernel" in source
+    assert '"audit-explicit-term-lanes"' in source
+    for closure_name in (
+        "implicit_1_closure",
+        "explicit_probe_closure",
+        "explicit_ablation_closure",
+        "explicit_term_closure",
+        "curvature_component_closure",
+        "parallel_material_component_closure",
+        "stage_2_base_closure",
+        "implicit_2_closure",
+        "weighted_rate_closure",
+        "final_closure",
+    ):
+        assert closure_name in source
 
 
 def test_eager_advance_keeps_cell_centered_setup_kernels_compiled():
