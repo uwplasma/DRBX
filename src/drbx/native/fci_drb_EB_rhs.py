@@ -70,6 +70,7 @@ from .fci_parallel_production_flux import (
     parallel_characteristic_wall_data,
     parallel_short_wall_backward_euler,
     parallel_target_row_material_residual,
+    parallel_vorticity_upwind_residual,
 )
 
 
@@ -2365,6 +2366,9 @@ class LocalFciDrbEBRhs:
         material_characteristic_leg_lengths = jnp.zeros(
             self.geometry.owned_shape + (2,), dtype=jnp.float64
         )
+        vorticity_parallel_advection = jnp.zeros(
+            self.geometry.owned_shape, dtype=jnp.float64
+        )
         parallel_material_residual = jnp.zeros(
             self.geometry.owned_shape + (5,), dtype=jnp.float64
         )
@@ -2406,6 +2410,35 @@ class LocalFciDrbEBRhs:
             )
             plus = jnp.stack(
                 tuple(stencil.plus for stencil in primitive_stencils), axis=-1
+            )
+            # Vorticity is a scalar advected by the live ion parallel speed,
+            # not a member of the five-field material eigensystem.  Build its
+            # raw mapped stencil with the same operator trace used by the
+            # polarization/current pair.  The scalar kernel then selects the
+            # upstream leg directly from the canonical live Vi center.
+            vorticity_halo, vorticity_forward, vorticity_backward = (
+                self._fci_prepare_q(
+                    fields["vorticity"][owned],
+                    traces["vorticity"],
+                    context,
+                )
+            )
+            vorticity_stencil = build_local_fci_stencil_from_field(
+                vorticity_halo,
+                self.geometry,
+                context,
+                forward_remote_values=vorticity_forward,
+                backward_remote_values=vorticity_backward,
+            )
+            vorticity_parallel_advection = (
+                parallel_vorticity_upwind_residual(
+                    vorticity_stencil.center,
+                    vorticity_stencil.minus,
+                    vorticity_stencil.plus,
+                    center[..., 3],
+                    vorticity_stencil.dx_min,
+                    vorticity_stencil.dx_plus,
+                )
             )
             backward_wall = (
                 self.geometry.maps.backward.endpoint_kind
@@ -2589,6 +2622,7 @@ class LocalFciDrbEBRhs:
             "grad_pressure": gradient_values["pressure"],
             "grad_current": gradient_values["current"],
             "grad_vorticity": gradient_values["vorticity"],
+            "vorticity_parallel_advection": vorticity_parallel_advection,
             "material_upwind_correction": material_upwind_correction,
             "parallel_material_residual": parallel_material_residual,
             "parallel_material_diagnostics": parallel_material_diagnostics,
@@ -3787,7 +3821,11 @@ class LocalFciDrbEBRhs:
         current_parallel_value = density * (Vi - Ve)
         Te_parallel_advection = -Ve * grad_parallel_Te
         Ti_parallel_advection = -Vi * grad_parallel_Ti
-        vorticity_parallel_advection = -Vi * grad_parallel_vorticity
+        vorticity_parallel_advection = (
+            stage_parallel_terms["vorticity_parallel_advection"]
+            if self.parallel_operator_scheme == "fci" and production_parallel
+            else -Vi * grad_parallel_vorticity
+        )
         Vi_self_advection_term = -Vi_parallel_value * grad_parallel_Vi
         Vi_pressure_term = -grad_parallel_pressure / n_face_safe
         Ve_self_advection_term = -Ve_parallel_value * grad_parallel_Ve
