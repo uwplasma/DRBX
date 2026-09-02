@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from drbx.geometry import HaloLayout3D
-from drbx.native import FciDrbEBState
+from drbx.native import FciDrbEBState, LocalFciDrbEBPhysicalWallBundle
 from drbx.native.fci_boundaries import BC_DIRICHLET, BC_NEUMANN
 
 
@@ -77,10 +77,31 @@ def test_velocity_neumann_mode_extrapolates_vi_and_ve():
         parameters,
         parallel_velocity_wall_bc="neumann",
     )
+    assert isinstance(bundle, LocalFciDrbEBPhysicalWallBundle)
     assert np.all(np.asarray(bundle.Vi.kind_x[-1]) == BC_NEUMANN)
     assert np.all(np.asarray(bundle.Ve.kind_x[-1]) == BC_NEUMANN)
     assert np.all(np.asarray(bundle.phi.kind_x[-1]) == BC_DIRICHLET)
     assert np.all(np.asarray(bundle.vorticity.kind_x[-1]) == BC_DIRICHLET)
+
+
+def test_no_flow_model_supplies_zero_velocity_physical_trace():
+    driver = _load_driver()
+    state, geometry, domain, parameters, _ = _inputs()
+    bundle = driver.build_face_bc_bundle(
+        state,
+        geometry,
+        domain,
+        parameters,
+        parallel_velocity_wall_bc="dirichlet-zero",
+    )
+    assert isinstance(bundle, LocalFciDrbEBPhysicalWallBundle)
+    assert np.all(np.asarray(bundle.Vi.kind_x[-1]) == BC_DIRICHLET)
+    assert np.all(np.asarray(bundle.Ve.kind_x[-1]) == BC_DIRICHLET)
+    np.testing.assert_array_equal(bundle.Vi.value_x[-1], 0.0)
+    np.testing.assert_array_equal(bundle.Ve.value_x[-1], 0.0)
+    assert np.all(np.asarray(bundle.density.kind_x[-1]) == BC_NEUMANN)
+    assert np.all(np.asarray(bundle.Te.kind_x[-1]) == BC_NEUMANN)
+    assert np.all(np.asarray(bundle.Ti.kind_x[-1]) == BC_NEUMANN)
 
 
 def test_bohm_mode_sets_outward_zero_current_velocity():

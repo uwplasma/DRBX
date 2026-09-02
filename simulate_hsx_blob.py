@@ -91,7 +91,7 @@ from drbx.native import (  # noqa: E402
     GhostFillWeights1D,
     HaloExchange3D,
     LocalBoundaryFaceBC3D,
-    LocalFciDrbEBFaceBCBundle,
+    LocalFciDrbEBPhysicalWallBundle,
     LocalFciDrbEBRhs,
     LocalPeriodicTopologyRule3D,
     MetricAwarePhysicalGhostCellFiller3D,
@@ -2182,8 +2182,8 @@ def build_face_bc_bundle(
     parameters: FciDrbEBRhsParameters,
     *,
     parallel_velocity_wall_bc: str = "neumann",
-) -> LocalFciDrbEBFaceBCBundle:
-    """Simple static vessel BCs on the four wall-fitted chart sides."""
+) -> LocalFciDrbEBPhysicalWallBundle:
+    """Build the physical wall bundle on the wall-fitted chart sides."""
 
     if parallel_velocity_wall_bc not in (
         "dirichlet-zero",
@@ -2274,7 +2274,7 @@ def build_face_bc_bundle(
                 .set(bohm_velocity(1, "upper"))
             ),
         )
-    return LocalFciDrbEBFaceBCBundle(
+    return LocalFciDrbEBPhysicalWallBundle(
         density=neumann,
         phi=dirichlet,
         Te=neumann,
@@ -7091,22 +7091,16 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
                 "energy-absorbing parallel characteristic wall law requires "
                 "characteristic-sat boundary pairing"
             )
-    if args.parallel_characteristic_wall_law == "velocity-no-flow":
+    if args.parallel_characteristic_wall_law == "physical-boundary-state":
         if framework != "production-split":
             raise ValueError(
-                "velocity-no-flow parallel characteristic wall law requires "
-                "the production-path parallel material scheme"
+                "physical-boundary-state parallel characteristic wall law "
+                "requires the production-path parallel material scheme"
             )
         if args.parallel_boundary_pairing != "characteristic-sat":
             raise ValueError(
-                "velocity-no-flow parallel characteristic wall law requires "
-                "characteristic-sat boundary pairing"
-            )
-        if args.parallel_velocity_wall_bc != "dirichlet-zero":
-            raise ValueError(
-                "velocity-no-flow requires "
-                "--parallel-velocity-wall-bc dirichlet-zero so primitive and "
-                "characteristic wall traces agree"
+                "physical-boundary-state parallel characteristic wall law "
+                "requires characteristic-sat boundary pairing"
             )
     if not np.isfinite(args.parallel_short_leg_cfl_limit) or (
         args.parallel_short_leg_cfl_limit <= 0.0
@@ -7265,10 +7259,10 @@ def _parallel_characteristic_wall_metadata(wall_law: str) -> dict[str, object]:
                 "characteristic-wall-residual.py:unit-modal-energy"
             ),
         }
-    if wall_law == "velocity-no-flow":
+    if wall_law == "physical-boundary-state":
         return {
             "parallel_material_wall_flux_closure": (
-                "nonlinear-incoming-characteristic-velocity-no-flow"
+                "live-characteristic-physical-boundary-state"
             ),
             "parallel_material_wall_flux_closure_source": (
                 "simulate_hsx_blob.py:--parallel-characteristic-wall-law"
@@ -7276,7 +7270,7 @@ def _parallel_characteristic_wall_metadata(wall_law: str) -> dict[str, object]:
             "parallel_characteristic_wall_equilibrium_reference": None,
             "parallel_characteristic_wall_equilibrium_reference_source": None,
             "parallel_characteristic_wall_provenance": (
-                "validation-only-no-flow-incoming-characteristic-law"
+                "physical-face-trace-live-characteristic-split"
             ),
             "parallel_characteristic_wall_energy_normalizer": None,
             "parallel_characteristic_wall_energy_normalizer_source": None,
@@ -7397,7 +7391,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=(
             "primitive-least-residual",
             "energy-absorbing",
-            "velocity-no-flow",
+            "physical-boundary-state",
         ),
         default="primitive-least-residual",
         help=(
@@ -7405,11 +7399,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "'primitive-least-residual' retains the primitive incoming "
             "trace; 'energy-absorbing' selects the experimental mathematical "
             "characteristic normalized-equilibrium absorber with unit modal "
-            "weights (reference "
-            "[1,1,1,0,0]); 'velocity-no-flow' solves the strict nonlinear "
-            "incoming-characteristic law Vi=Ve=0 and requires the production "
-            "path, characteristic-SAT, and --parallel-velocity-wall-bc "
-            "dirichlet-zero."
+            "weights (reference [1,1,1,0,0]); 'physical-boundary-state' "
+            "passes the complete physical face trace through the live "
+            "characteristic split without a fixed incoming-mode solve."
         ),
     )
     parser.add_argument(
@@ -7472,7 +7464,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default="neumann",
         help=(
             "Primitive Vi/Ve condition on physical vessel faces. "
-            "'dirichlet-zero' retains the reflecting compatibility mode; "
+            "'dirichlet-zero' supplies Vi=Ve=0 primitive face traces; "
             "'neumann' extrapolates both parallel velocities; 'bohm' sets "
             "outward Vi=Ve=sign(B.n)*sqrt(Te+tau*Ti), a zero-current "
             "sheath-entry diagnostic without a magnetic-presheath model."

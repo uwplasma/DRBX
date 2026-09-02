@@ -542,8 +542,9 @@ class FciDrbEBRhsParameters:
     # Characteristic physical-wall law for the production parallel material
     # block.  The default retains the established primitive least-residual
     # projection exactly; energy-absorbing closes incoming modes against the
-    # explicit equilibrium/reference state; velocity-no-flow is a strict
-    # two-incoming-mode validation closure.
+    # explicit equilibrium/reference state.  Both are legacy compatibility
+    # paths. physical-boundary-state passes the complete physical trace to the
+    # live boundary flux without assuming an incoming rank.
     parallel_characteristic_wall_law: str = field(
         default_factory=lambda: os.environ.get(
             "DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW",
@@ -553,12 +554,12 @@ class FciDrbEBRhsParameters:
 
     def __post_init__(self):
         if self.parallel_characteristic_wall_law not in (
-            "primitive-least-residual", "energy-absorbing", "velocity-no-flow"
+            "primitive-least-residual", "energy-absorbing", "physical-boundary-state"
         ):
             raise ValueError(
                 "parallel_characteristic_wall_law must be "
                 "'primitive-least-residual', 'energy-absorbing', or "
-                "'velocity-no-flow', got "
+                "'physical-boundary-state', got "
                 f"{self.parallel_characteristic_wall_law!r}"
             )
 
@@ -648,8 +649,12 @@ class FciDrbEBRhsParameters:
 
 
 @dataclass(frozen=True)
-class LocalFciDrbEBFaceBCBundle:
-    """Local/domain-decomposed face boundary bundle for the EB model."""
+class LocalFciDrbEBPhysicalWallBundle:
+    """Physical wall data for every primitive EB boundary consumer.
+
+    The fields describe the physical trace/derivative law. Operator-specific
+    traces and exterior representations are derived from this single bundle.
+    """
 
     density: LocalBoundaryFaceBC3D
     phi: LocalBoundaryFaceBC3D
@@ -660,12 +665,17 @@ class LocalFciDrbEBFaceBCBundle:
     vorticity: LocalBoundaryFaceBC3D
 
 
+# Compatibility name for existing model builders. New wall models should use
+# the physical-wall name so the data ownership is unambiguous.
+LocalFciDrbEBFaceBCBundle = LocalFciDrbEBPhysicalWallBundle
+
+
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class LocalFciDrbEBOperatorBoundaryBundle:
     """Operator-level numerical traces for the seven-field EB model.
 
-    ``LocalFciDrbEBFaceBCBundle`` contains the model's primitive physical
+    ``LocalFciDrbEBPhysicalWallBundle`` contains the model's primitive physical
     boundary conditions.  This bundle contains the actual scalar traces used
     by first-order conservative operands.  Composite traces are constructed
     from primitive wall traces, rather than from products of ghost cells.
@@ -1025,12 +1035,12 @@ class LocalFciDrbEBRhs:
             )
         wall_law = self.parameters.parallel_characteristic_wall_law
         if wall_law not in (
-            "primitive-least-residual", "energy-absorbing", "velocity-no-flow"
+            "primitive-least-residual", "energy-absorbing", "physical-boundary-state"
         ):
             raise ValueError(
                 "parallel_characteristic_wall_law must be "
                 "'primitive-least-residual', 'energy-absorbing', or "
-                "'velocity-no-flow', got "
+                "'physical-boundary-state', got "
                 f"{wall_law!r}"
             )
         if wall_law == "energy-absorbing" and self.parallel_material_scheme != "production-path":
@@ -1043,14 +1053,14 @@ class LocalFciDrbEBRhs:
                 "parallel_characteristic_wall_law='energy-absorbing' requires "
                 "parallel_boundary_pairing='characteristic-sat'"
             )
-        if wall_law == "velocity-no-flow" and self.parallel_material_scheme != "production-path":
+        if wall_law == "physical-boundary-state" and self.parallel_material_scheme != "production-path":
             raise ValueError(
-                "parallel_characteristic_wall_law='velocity-no-flow' requires "
+                "parallel_characteristic_wall_law='physical-boundary-state' requires "
                 "parallel_material_scheme='production-path'"
             )
-        if wall_law == "velocity-no-flow" and self.parallel_boundary_pairing != "characteristic-sat":
+        if wall_law == "physical-boundary-state" and self.parallel_boundary_pairing != "characteristic-sat":
             raise ValueError(
-                "parallel_characteristic_wall_law='velocity-no-flow' requires "
+                "parallel_characteristic_wall_law='physical-boundary-state' requires "
                 "parallel_boundary_pairing='characteristic-sat'"
             )
         if (

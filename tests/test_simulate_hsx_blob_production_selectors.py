@@ -119,7 +119,7 @@ def test_parser_production_selector_contract():
     assert tuple(wall_law_action.choices) == (
         "primitive-least-residual",
         "energy-absorbing",
-        "velocity-no-flow",
+        "physical-boundary-state",
     )
     assert wall_law_action.default == "primitive-least-residual"
     selection_action = next(
@@ -162,35 +162,6 @@ def test_fresh_production_trajectory_accepts_characteristic_sat():
     assert driver.os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] == "characteristic-sat"
 
 
-def test_velocity_no_flow_requires_matching_primitive_velocity_trace():
-    driver = _driver_module()
-    args = _production_args(
-        driver,
-        "--parallel-boundary-pairing",
-        "characteristic-sat",
-        "--parallel-characteristic-wall-law",
-        "velocity-no-flow",
-        "--parallel-velocity-wall-bc",
-        "dirichlet-zero",
-    )
-    driver._validate_flux_framework(args)
-    driver._configure_runtime_selectors(args)
-    assert driver.os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] == (
-        "velocity-no-flow"
-    )
-    bad_args = _production_args(
-        driver,
-        "--parallel-boundary-pairing",
-        "characteristic-sat",
-        "--parallel-characteristic-wall-law",
-        "velocity-no-flow",
-        "--parallel-velocity-wall-bc",
-        "neumann",
-    )
-    with pytest.raises(ValueError, match="dirichlet-zero"):
-        driver._validate_flux_framework(bad_args)
-
-
 def test_fresh_production_trajectory_rejects_legacy_boundary_pairing():
     driver = _driver_module()
     args = _production_args(
@@ -224,6 +195,30 @@ def test_energy_absorbing_wall_law_is_exported_for_compatible_production_path(
     )
 
 
+def test_physical_boundary_state_wall_law_is_exported_for_no_flow_model(
+    monkeypatch,
+):
+    driver = _driver_module()
+    monkeypatch.delenv("DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW", raising=False)
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-characteristic-wall-law",
+        "physical-boundary-state",
+        "--parallel-velocity-wall-bc",
+        "dirichlet-zero",
+    )
+    driver._validate_flux_framework(args)
+    driver._configure_runtime_selectors(args)
+    assert driver.os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] == (
+        "physical-boundary-state"
+    )
+    assert driver.os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] == (
+        "live-characteristic-physical-boundary-state"
+    )
+
+
 def test_wall_law_metadata_is_conditional_and_provenance_is_explicit():
     driver = _driver_module()
     primitive = driver._parallel_characteristic_wall_metadata(
@@ -249,14 +244,17 @@ def test_wall_law_metadata_is_conditional_and_provenance_is_explicit():
         "unit-modal-mathematical"
     )
 
-    no_flow = driver._parallel_characteristic_wall_metadata("velocity-no-flow")
-    assert no_flow["parallel_material_wall_flux_closure"] == (
-        "nonlinear-incoming-characteristic-velocity-no-flow"
+    physical = driver._parallel_characteristic_wall_metadata(
+        "physical-boundary-state"
     )
-    assert no_flow["parallel_characteristic_wall_equilibrium_reference"] is None
-    assert no_flow["parallel_characteristic_wall_provenance"] == (
-        "validation-only-no-flow-incoming-characteristic-law"
+    assert physical["parallel_material_wall_flux_closure"] == (
+        "live-characteristic-physical-boundary-state"
     )
+    assert physical["parallel_characteristic_wall_equilibrium_reference"] is None
+    assert physical["parallel_characteristic_wall_provenance"] == (
+        "physical-face-trace-live-characteristic-split"
+    )
+
 @pytest.mark.parametrize(
     ("extra", "message"),
     (
