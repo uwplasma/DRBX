@@ -213,6 +213,74 @@ def test_wall_residual_solve_uses_interior_matrix_and_one_sided_path():
     assert bool(wall_info["backward_wall"])
 
 
+def test_physical_boundary_state_is_consumed_directly_across_rank_changes():
+    wall = jnp.asarray([1.1, 0.9, 1.2, 0.0, 0.0], dtype=jnp.float64)
+    centers = jnp.asarray(
+        [
+            [1.0, 1.0, 1.0, -2.0, -2.0],
+            [1.0, 1.0, 1.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0, 2.0, 2.0],
+        ],
+        dtype=jnp.float64,
+    )
+    walls = jnp.broadcast_to(wall, centers.shape)
+    info = jax.jit(
+        parallel_characteristic_wall_data,
+        static_argnames=("parallel_characteristic_wall_law",),
+    )(
+        centers,
+        centers,
+        centers,
+        jnp.ones(3),
+        jnp.ones(3),
+        1.0,
+        1836.0,
+        backward_wall=jnp.ones(3, dtype=bool),
+        forward_wall=jnp.ones(3, dtype=bool),
+        backward_wall_state=walls,
+        forward_wall_state=walls,
+        parallel_characteristic_wall_law="physical-boundary-state",
+    )
+    np.testing.assert_allclose(info["backward_endpoint_state"], walls, atol=0.0)
+    np.testing.assert_allclose(info["forward_endpoint_state"], walls, atol=0.0)
+    np.testing.assert_allclose(
+        info["backward_wall_characteristic_current"], 0.0, atol=0.0
+    )
+    np.testing.assert_allclose(
+        info["forward_wall_characteristic_current"], 0.0, atol=0.0
+    )
+    assert bool(jnp.all(info["backward_wall_solve_valid"]))
+    assert bool(jnp.all(info["forward_wall_solve_valid"]))
+    assert not bool(jnp.any(info["backward_candidate_ignored"]))
+    assert not bool(jnp.any(info["forward_candidate_ignored"]))
+    # The incoming rank changes with the live state, but the physical state
+    # remains a fixed five-component payload and never gates the boundary.
+    assert len(set(np.asarray(info["backward_wall_incoming_count"]).tolist())) > 1
+    assert len(set(np.asarray(info["forward_wall_incoming_count"]).tolist())) > 1
+
+
+def test_physical_boundary_state_rejects_nonfinite_or_nonpositive_trace():
+    center = jnp.asarray([1.0, 1.0, 1.0, 0.1, -0.1], dtype=jnp.float64)
+    for wall in (
+        jnp.asarray([jnp.nan, 1.0, 1.0, 0.0, 0.0]),
+        jnp.asarray([-1.0, 1.0, 1.0, 0.0, 0.0]),
+    ):
+        info = parallel_characteristic_wall_data(
+            center,
+            center,
+            center,
+            1.0,
+            1.0,
+            1.0,
+            1836.0,
+            backward_wall=True,
+            backward_wall_state=wall,
+            parallel_characteristic_wall_law="physical-boundary-state",
+        )
+        assert not bool(info["backward_wall_solve_valid"])
+        assert bool(jnp.any(jnp.isnan(info["backward_endpoint_state"])))
+
+
 def test_live_face_state_changes_the_material_action():
     center = _state()
     minus_a = center + jnp.asarray([-0.05, 0.01, 0.02, 0.0, 0.0])
@@ -304,6 +372,35 @@ def test_short_wall_backward_euler_matches_frozen_local_solve():
     np.testing.assert_allclose(delta, expected_delta, rtol=2e-9, atol=2e-9)
     np.testing.assert_allclose(updated, np.asarray(center) + expected_delta)
     assert bool(jnp.all(jnp.isfinite(updated)))
+
+
+def test_short_wall_backward_euler_uses_the_same_physical_boundary_state():
+    center = _state()
+    no_flow_wall = jnp.asarray([2.0, 3.0, 5.0, 0.0, 0.0])
+    dt = 2.0e-4
+    updated, delta, info = parallel_short_wall_backward_euler(
+        center,
+        center,
+        center,
+        0.01,
+        1.0,
+        4.0,
+        10.0,
+        selection_dt=dt,
+        solve_dt=dt,
+        parallel_short_leg_selection="all-physical-walls",
+        backward_wall=True,
+        backward_wall_state=no_flow_wall,
+        parallel_characteristic_wall_law="physical-boundary-state",
+    )
+    np.testing.assert_allclose(
+        info["backward_endpoint_state"], no_flow_wall, atol=0.0, rtol=0.0
+    )
+    assert bool(info["selected_backward_wall"])
+    assert bool(info["backward_wall_solve_valid"])
+    assert bool(info["implicit_finite"])
+    assert bool(jnp.all(jnp.isfinite(updated)))
+    assert bool(jnp.all(jnp.isfinite(delta)))
 
 
 def test_short_wall_ordinary_rows_are_zero_and_default_residual_is_unchanged():
@@ -1138,113 +1235,3 @@ def test_energy_absorbing_ignores_nan_wall_traces_but_not_ordinary_endpoints():
     assert bool(ordinary_info["backward_clipped"])
     assert bool(ordinary_info["fallback"])
     assert not bool(ordinary_info["admissible"])
-
-
-def test_velocity_no_flow_wall_solves_velocities_and_retains_modes_jitted():
-    center = jnp.asarray([1.0, 1.0, 1.0, 0.0, 0.0], dtype=jnp.float64)
-    candidate = jnp.asarray([1.4, 0.7, 1.3, 0.9, -0.8], dtype=jnp.float64)
-    info = jax.jit(
-        parallel_characteristic_wall_data,
-        static_argnames=("parallel_characteristic_wall_law",),
-    )(
-        center,
-        center,
-        center,
-        1.0,
-        1.0,
-        1.0,
-        1836.0,
-        backward_wall=True,
-        forward_wall=True,
-        backward_wall_state=candidate,
-        forward_wall_state=candidate,
-        parallel_characteristic_wall_law="velocity-no-flow",
-    )
-    np.testing.assert_allclose(info["backward_endpoint_state"][3:], 0.0, atol=2.0e-10)
-    np.testing.assert_allclose(info["forward_endpoint_state"][3:], 0.0, atol=2.0e-10)
-    np.testing.assert_allclose(info["backward_wall_residual_norm"], 0.0, atol=2.0e-10)
-    np.testing.assert_allclose(info["forward_wall_residual_norm"], 0.0, atol=2.0e-10)
-    np.testing.assert_allclose(info["backward_wall_characteristic_current"], 0.0, atol=2.0e-10)
-    np.testing.assert_allclose(info["forward_wall_characteristic_current"], 0.0, atol=2.0e-10)
-    assert bool(info["backward_candidate_ignored"])
-    assert bool(info["forward_candidate_ignored"])
-    assert bool(info["backward_wall_solve_valid"])
-    assert bool(info["forward_wall_solve_valid"])
-    assert float(info["backward_wall_retained_error"]) < 2.0e-9
-    assert float(info["forward_wall_retained_error"]) < 2.0e-9
-    nan_candidate = jnp.full((5,), jnp.nan)
-    nan_info = parallel_characteristic_wall_data(
-        center, center, center, 1.0, 1.0, 1.0, 1836.0,
-        backward_wall=True,
-        forward_wall=True,
-        backward_wall_state=nan_candidate,
-        forward_wall_state=nan_candidate,
-        parallel_characteristic_wall_law="velocity-no-flow",
-    )
-    assert bool(nan_info["backward_candidate_ignored"])
-    assert bool(nan_info["forward_candidate_ignored"])
-    assert not bool(nan_info["backward_candidate_fallback"])
-    assert bool(jnp.all(jnp.isfinite(nan_info["backward_endpoint_state"])))
-
-    explicit, explicit_info = parallel_target_row_material_residual(
-        center[None, :], center[None, :], center[None, :], 1.0, 1.0, 1.0, 1836.0,
-        backward_wall=jnp.asarray([True]),
-        forward_wall=jnp.asarray([True]),
-        backward_wall_state=candidate[None, :],
-        forward_wall_state=candidate[None, :],
-        parallel_characteristic_wall_law="velocity-no-flow",
-    )
-    implicit, _, implicit_info = parallel_short_wall_backward_euler(
-        center[None, :], center[None, :], center[None, :], 1.0, 1.0, 1.0, 1836.0,
-        selection_dt=0.0,
-        solve_dt=1.0e-3,
-        parallel_short_leg_selection="all-physical-walls",
-        backward_wall=jnp.asarray([True]),
-        forward_wall=jnp.asarray([True]),
-        backward_wall_state=candidate[None, :],
-        forward_wall_state=candidate[None, :],
-        parallel_characteristic_wall_law="velocity-no-flow",
-    )
-    assert bool(jnp.all(jnp.isfinite(explicit)))
-    assert bool(jnp.all(jnp.isfinite(implicit)))
-    assert bool(explicit_info["admissible"][0])
-    assert bool(implicit_info["implicit_finite"][0])
-
-
-@pytest.mark.parametrize(
-    "vi, ve",
-    ((0.18, -0.11), (-0.18, 0.11), (1.0e-6, -1.0e-6), (-1.0e-6, 1.0e-6)),
-)
-def test_velocity_no_flow_classifies_at_zero_flow_wall(vi, ve):
-    # The live/interior eigensystem can count the contact mode as sign-active
-    # when Vi is nonzero.  No-flow must classify at q_class=(n,Te,Ti,0,0),
-    # where lambda_contact=0 and exactly two acoustic modes are incoming.
-    center = jnp.asarray([1.0, 1.0, 1.0, vi, ve], dtype=jnp.float64)
-    info = parallel_characteristic_wall_data(
-        center, center, center, 1.0, 1.0, 1.0, 1836.0,
-        backward_wall=True, forward_wall=True,
-        parallel_characteristic_wall_law="velocity-no-flow",
-    )
-    assert int(info["backward_wall_classification_incoming_count"]) == 2
-    assert int(info["forward_wall_classification_incoming_count"]) == 2
-    assert int(info["backward_wall_classification_stationary_count"]) == 1
-    assert int(info["forward_wall_classification_stationary_count"]) == 1
-    assert bool(info["backward_wall_classification_valid"])
-    assert bool(info["forward_wall_classification_valid"])
-    assert bool(info["backward_wall_solve_valid"])
-    assert bool(info["forward_wall_solve_valid"])
-    assert bool(jnp.all(jnp.isfinite(info["backward_endpoint_state"])))
-    assert bool(jnp.all(jnp.isfinite(info["forward_endpoint_state"])))
-    np.testing.assert_allclose(info["backward_endpoint_state"][3:], 0.0, atol=2e-10)
-    np.testing.assert_allclose(info["forward_endpoint_state"][3:], 0.0, atol=2e-10)
-    np.testing.assert_allclose(info["backward_wall_characteristic_current"], 0.0, atol=2e-10)
-    np.testing.assert_allclose(info["forward_wall_characteristic_current"], 0.0, atol=2e-10)
-    assert float(info["backward_wall_retained_error"]) < 2e-9
-    assert float(info["forward_wall_retained_error"]) < 2e-9
-    # At least one sign count differs for finite interior flow, demonstrating
-    # that the solve is gated by the zero-flow classification count instead.
-    if abs(vi) > 1.0e-12:
-        assert (
-            int(info["backward_wall_interior_sign_incoming_count"]) != 2
-            or int(info["forward_wall_interior_sign_incoming_count"]) != 2
-        )
