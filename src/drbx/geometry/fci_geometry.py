@@ -631,6 +631,19 @@ class FciMaps3D(_DataclassPyTreeMixin):
     forward_boundary: jnp.ndarray
     backward_boundary: jnp.ndarray
 
+    # Continuous magnetic-field evaluation retained at each traced endpoint.
+    # These values come from the same callback used by the RK tracer; physical
+    # wall laws must use them instead of interpolating an already branched
+    # sign(B.n)-dependent target from the regular wall grid.
+    forward_endpoint_b_contra_x: jnp.ndarray | None = None
+    forward_endpoint_b_contra_y: jnp.ndarray | None = None
+    forward_endpoint_b_contra_z: jnp.ndarray | None = None
+    forward_endpoint_bmag: jnp.ndarray | None = None
+    backward_endpoint_b_contra_x: jnp.ndarray | None = None
+    backward_endpoint_b_contra_y: jnp.ndarray | None = None
+    backward_endpoint_b_contra_z: jnp.ndarray | None = None
+    backward_endpoint_bmag: jnp.ndarray | None = None
+
     def __post_init__(self) -> None:
         forward_x = jnp.asarray(self.forward_x, dtype=jnp.float64)
         shape = tuple(int(v) for v in forward_x.shape)
@@ -664,6 +677,23 @@ class FciMaps3D(_DataclassPyTreeMixin):
             value = jnp.asarray(getattr(self, name), dtype=bool)
             if value.shape != shape:
                 raise ValueError(f"FciMaps3D.{name} must have shape {shape}, got {value.shape}")
+            object.__setattr__(self, name, value)
+        for name in (
+            "forward_endpoint_b_contra_x",
+            "forward_endpoint_b_contra_y",
+            "forward_endpoint_b_contra_z",
+            "forward_endpoint_bmag",
+            "backward_endpoint_b_contra_x",
+            "backward_endpoint_b_contra_y",
+            "backward_endpoint_b_contra_z",
+            "backward_endpoint_bmag",
+        ):
+            raw = getattr(self, name)
+            value = (
+                jnp.zeros(shape, dtype=jnp.float64)
+                if raw is None
+                else _require_float_shape(raw, shape, f"FciMaps3D.{name}")
+            )
             object.__setattr__(self, name, value)
 
     @property
@@ -1364,6 +1394,10 @@ class LocalFciDirectionMap(_DataclassPyTreeMixin):
     target_valid: jnp.ndarray | None = None  # (nx_owned, ny_owned, nz_owned)
     connection_length: jnp.ndarray | None = None  # (nx_owned, ny_owned, nz_owned)
     endpoint_kind: jnp.ndarray | None = None  # (nx_owned, ny_owned, nz_owned), int32
+    endpoint_b_contra_x: jnp.ndarray | None = None
+    endpoint_b_contra_y: jnp.ndarray | None = None
+    endpoint_b_contra_z: jnp.ndarray | None = None
+    endpoint_bmag: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -1406,6 +1440,23 @@ class LocalFciDirectionMap(_DataclassPyTreeMixin):
                 "LocalFciDirectionMap.connection_length",
             )
             object.__setattr__(self, "connection_length", connection_length)
+        for name in (
+            "endpoint_b_contra_x",
+            "endpoint_b_contra_y",
+            "endpoint_b_contra_z",
+            "endpoint_bmag",
+        ):
+            raw = getattr(self, name)
+            value = (
+                jnp.zeros(self.layout.owned_shape, dtype=jnp.float64)
+                if raw is None
+                else _require_float_shape(
+                    raw,
+                    self.layout.owned_shape,
+                    f"LocalFciDirectionMap.{name}",
+                )
+            )
+            object.__setattr__(self, name, value)
 
     @property
     def owned_shape(self) -> tuple[int, int, int]:
@@ -8252,6 +8303,10 @@ def build_fci_maps_from_callbacks(
         "forward_x", "forward_y", "backward_x", "backward_y",
         "forward_endpoint_x", "forward_endpoint_y", "forward_endpoint_z",
         "backward_endpoint_x", "backward_endpoint_y", "backward_endpoint_z",
+        "forward_endpoint_b_contra_x", "forward_endpoint_b_contra_y",
+        "forward_endpoint_b_contra_z", "forward_endpoint_bmag",
+        "backward_endpoint_b_contra_x", "backward_endpoint_b_contra_y",
+        "backward_endpoint_b_contra_z", "backward_endpoint_bmag",
         "forward_length", "backward_length", "dz",
     )
     bool_output_names = ("forward_boundary", "backward_boundary")
@@ -8414,6 +8469,7 @@ def build_fci_maps_from_callbacks(
                     )
                 )
                 traced, lengths, boundaries = trace(seeds, step)
+                endpoint_b_contra, endpoint_bmag = callback_sample(traced)
                 outputs[f"{prefix}_x"][target_i, target_j, target_k] = (
                     fractional_index(
                         x_axis,
@@ -8433,6 +8489,10 @@ def build_fci_maps_from_callbacks(
                 outputs[f"{prefix}_endpoint_x"][target_i, target_j, target_k] = traced[:, 0]
                 outputs[f"{prefix}_endpoint_y"][target_i, target_j, target_k] = traced[:, 1]
                 outputs[f"{prefix}_endpoint_z"][target_i, target_j, target_k] = traced[:, 2]
+                outputs[f"{prefix}_endpoint_b_contra_x"][target_i, target_j, target_k] = endpoint_b_contra[:, 0]
+                outputs[f"{prefix}_endpoint_b_contra_y"][target_i, target_j, target_k] = endpoint_b_contra[:, 1]
+                outputs[f"{prefix}_endpoint_b_contra_z"][target_i, target_j, target_k] = endpoint_b_contra[:, 2]
+                outputs[f"{prefix}_endpoint_bmag"][target_i, target_j, target_k] = endpoint_bmag
                 outputs[f"{prefix}_length"][target_i, target_j, target_k] = lengths
                 outputs[f"{prefix}_boundary"][target_i, target_j, target_k] = boundaries
 

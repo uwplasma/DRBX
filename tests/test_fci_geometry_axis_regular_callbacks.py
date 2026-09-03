@@ -91,6 +91,10 @@ def test_callback_outer_wall_retains_hit_and_connection_length():
     assert np.isclose(float(maps["forward_endpoint_x"][3, 0, 0]), 1.0)
     assert np.isclose(float(maps["forward_x"][3, 0, 0]), grid.x.n - 0.5)
     assert np.isclose(float(maps["forward_length"][3, 0, 0]), 0.125 / 4.0)
+    assert np.isclose(float(maps["forward_endpoint_b_contra_x"][3, 0, 0]), 4.0)
+    assert np.isclose(float(maps["forward_endpoint_b_contra_y"][3, 0, 0]), 0.0)
+    assert np.isclose(float(maps["forward_endpoint_b_contra_z"][3, 0, 0]), 1.0)
+    assert np.isclose(float(maps["forward_endpoint_bmag"][3, 0, 0]), 1.0)
 
     lower_maps = build_fci_maps_from_callbacks(
         grid,
@@ -133,10 +137,51 @@ def test_callback_traces_batch_all_uniform_eta_seeds():
 
     # Each substep makes seven field evaluations per direction: speed at the
     # old point, four RK4 stages, speed at the trial endpoint, and speed at
-    # the retained wall endpoint. Uniform periodic eta has one forward and
-    # one backward seed group, independent of nz.
-    assert len(evaluator.calls) == 2 * 7 * substeps
+    # the retained wall endpoint.  One final evaluation per direction stores
+    # B at the traced endpoint itself. Uniform periodic eta has one forward
+    # and one backward seed group, independent of nz.
+    assert len(evaluator.calls) == 2 * (7 * substeps + 1)
     assert all(points.shape == (grid.x.n * grid.y.n * grid.z.n, 3) for points in evaluator.calls)
+
+
+def test_callback_stores_field_evaluated_at_traced_endpoints():
+    grid = _grid()
+
+    def evaluator(points):
+        points = np.asarray(points, dtype=float)
+        x, y, z = points.T
+        return (
+            np.column_stack((0.15 + 0.2 * x, -0.1 + 0.03 * y, 1.0 + 0.1 * z)),
+            2.0 + 0.4 * x - 0.02 * y + 0.05 * z,
+        )
+
+    maps = build_fci_maps_from_callbacks(grid, evaluator, substeps=2)
+
+    for direction in ("forward", "backward"):
+        points = np.stack(
+            [
+                np.asarray(maps[f"{direction}_endpoint_x"]),
+                np.asarray(maps[f"{direction}_endpoint_y"]),
+                np.asarray(maps[f"{direction}_endpoint_z"]),
+            ],
+            axis=-1,
+        )
+        expected_b, expected_bmag = evaluator(points.reshape(-1, 3))
+        expected_b = expected_b.reshape(grid.shape + (3,))
+        expected_bmag = expected_bmag.reshape(grid.shape)
+        for axis, name in enumerate(("x", "y", "z")):
+            np.testing.assert_allclose(
+                np.asarray(maps[f"{direction}_endpoint_b_contra_{name}"]),
+                expected_b[..., axis],
+                rtol=0.0,
+                atol=2.0e-7,
+            )
+        np.testing.assert_allclose(
+            np.asarray(maps[f"{direction}_endpoint_bmag"]),
+            expected_bmag,
+            rtol=0.0,
+            atol=2.0e-7,
+        )
 
 
 def test_cell_array_builder_preserves_axis_regular_option():

@@ -126,6 +126,14 @@ _MAP_FIELD_NAMES = (
     "backward_endpoint_x",
     "backward_endpoint_y",
     "backward_endpoint_z",
+    "forward_endpoint_b_contra_x",
+    "forward_endpoint_b_contra_y",
+    "forward_endpoint_b_contra_z",
+    "forward_endpoint_bmag",
+    "backward_endpoint_b_contra_x",
+    "backward_endpoint_b_contra_y",
+    "backward_endpoint_b_contra_z",
+    "backward_endpoint_bmag",
     "forward_length",
     "backward_length",
     "forward_boundary",
@@ -672,6 +680,10 @@ def _lower_local_fci_maps(
             target_valid=jnp.ones(owned_shape, dtype=bool),
             connection_length=channels[f"{prefix}_length"],
             endpoint_kind=endpoint_kind,
+            endpoint_b_contra_x=channels[f"{prefix}_endpoint_b_contra_x"],
+            endpoint_b_contra_y=channels[f"{prefix}_endpoint_b_contra_y"],
+            endpoint_b_contra_z=channels[f"{prefix}_endpoint_b_contra_z"],
+            endpoint_bmag=channels[f"{prefix}_endpoint_bmag"],
         )
 
     return LocalFciMaps3D(

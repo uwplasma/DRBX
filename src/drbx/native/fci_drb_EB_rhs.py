@@ -25,6 +25,7 @@ from .fci_model import FciModelState
 from .fci_model import inject_owned_field_to_halo, inject_owned_state_to_halo
 from .fci_boundaries import (
     BC_DIRICHLET,
+    BC_NEUMANN,
     ConservativeStencil3D,
     LocalBoundaryFaceBC3D,
     LocalBoundaryFaceTrace3D,
@@ -72,6 +73,7 @@ from .fci_parallel_production_flux import (
     parallel_target_row_material_residual,
     parallel_vorticity_upwind_residual,
 )
+from .fci_physical_wall import resolve_fci_material_wall_endpoint_state
 
 
 @jax.tree_util.register_pytree_node_class
@@ -852,6 +854,8 @@ class LocalFciDrbEBRhs:
     face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
     gmres_config: SolvaxGmresConfig
     face_bc_builder: LocalFciDrbEBFaceBCBuilder
+    physical_wall_model_name: str = "legacy-velocity-trace"
+    conducting_sheath_wall_potential: float | None = None
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None
     control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None = None
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False)
@@ -936,6 +940,15 @@ class LocalFciDrbEBRhs:
         )
 
     def __post_init__(self) -> None:
+        if self.physical_wall_model_name not in (
+            "legacy-velocity-trace",
+            "no-flow",
+            "simple-conducting-sheath",
+        ):
+            raise ValueError(
+                "physical_wall_model_name must identify a supported physical "
+                f"wall model, got {self.physical_wall_model_name!r}"
+            )
         if self.poisson_bracket_scheme not in (
             "direct",
             "compatible-flux",
@@ -1666,6 +1679,42 @@ class LocalFciDrbEBRhs:
         q_halo = self._prepare_scalar_halo(q_owned, q_bc)
         forward_remote, backward_remote = self._fci_remote_values(q_halo, context)
         return q_halo, forward_remote, backward_remote
+
+    def _fci_plasma_side_stencil(
+        self,
+        q_owned: jnp.ndarray,
+        template_bc: LocalBoundaryFaceBC3D,
+        context: StencilBuilderContext,
+    ):
+        """Return an FCI stencil whose physical endpoint is a plasma trace.
+
+        Nonlinear wall models must receive primitive plasma-side values at the
+        traced endpoint.  They cannot recover those values from a ghost halo
+        that already contains a sign-selected sheath target.  This helper
+        therefore applies homogeneous Neumann closure first and leaves all
+        nonlinear wall evaluation to the endpoint resolver.
+        """
+
+        neumann_bc = replace(
+            template_bc,
+            kind_x=jnp.where(template_bc.mask_x, BC_NEUMANN, template_bc.kind_x),
+            kind_y=jnp.where(template_bc.mask_y, BC_NEUMANN, template_bc.kind_y),
+            kind_z=jnp.where(template_bc.mask_z, BC_NEUMANN, template_bc.kind_z),
+            value_x=jnp.zeros_like(template_bc.value_x),
+            value_y=jnp.zeros_like(template_bc.value_y),
+            value_z=jnp.zeros_like(template_bc.value_z),
+        )
+        field_halo = self._prepare_scalar_halo(q_owned, neumann_bc)
+        forward_remote, backward_remote = self._fci_remote_values(
+            field_halo, context
+        )
+        return build_local_fci_stencil_from_field(
+            field_halo,
+            self.geometry,
+            context,
+            forward_remote_values=forward_remote,
+            backward_remote_values=backward_remote,
+        )
 
     def _fci_prepare_flux_q(
         self,
@@ -2467,6 +2516,61 @@ class LocalFciDrbEBRhs:
                 self.geometry.maps.forward.endpoint_kind
                 == FCI_DEP_PHYSICAL_BOUNDARY
             )
+            backward_wall_state = minus
+            forward_wall_state = plus
+            if self.physical_wall_model_name == "simple-conducting-sheath":
+                # Interpolate smooth primitive inputs and geometry to each FCI
+                # hit before evaluating sign(B.n), Bohm pass-through, or the
+                # electron exponential.  The regular face bundle remains the
+                # correct source for coordinate-face operators, but its
+                # already-branched velocity values must not be interpolated to
+                # a distinct mapped endpoint.
+                plasma_stencils = {
+                    name: self._fci_plasma_side_stencil(
+                        fields[name][owned], getattr(face_bc, name), context
+                    )
+                    for name in ("Vi", "Ve", "phi")
+                }
+
+                def endpoint_plasma_state(direction: str):
+                    base = minus if direction == "backward" else plus
+                    values = [base[..., index] for index in range(3)]
+                    values.extend(
+                        getattr(plasma_stencils[name], "minus" if direction == "backward" else "plus")
+                        for name in ("Vi", "Ve")
+                    )
+                    return jnp.stack(tuple(values), axis=-1)
+
+                backward_plasma = endpoint_plasma_state("backward")
+                forward_plasma = endpoint_plasma_state("forward")
+                backward_resolved = resolve_fci_material_wall_endpoint_state(
+                    self.physical_wall_model_name,
+                    backward_plasma,
+                    plasma_stencils["phi"].minus,
+                    self.geometry.maps.backward.endpoint_b_contra_x,
+                    self.geometry.maps.backward.endpoint_bmag,
+                    self.parameters,
+                    conducting_sheath_wall_potential=(
+                        self.conducting_sheath_wall_potential
+                    ),
+                )
+                forward_resolved = resolve_fci_material_wall_endpoint_state(
+                    self.physical_wall_model_name,
+                    forward_plasma,
+                    plasma_stencils["phi"].plus,
+                    self.geometry.maps.forward.endpoint_b_contra_x,
+                    self.geometry.maps.forward.endpoint_bmag,
+                    self.parameters,
+                    conducting_sheath_wall_potential=(
+                        self.conducting_sheath_wall_potential
+                    ),
+                )
+                backward_wall_state = jnp.where(
+                    backward_wall[..., None], backward_resolved, minus
+                )
+                forward_wall_state = jnp.where(
+                    forward_wall[..., None], forward_resolved, plus
+                )
             # Keep one canonical live wall-data evaluation for the material
             # residual and, when selected, the characteristic current closure.
             # Legacy projected laws export their first-order characteristic
@@ -2493,8 +2597,8 @@ class LocalFciDrbEBRhs:
                     parallel_short_leg_selection=self.parallel_short_leg_selection,
                     backward_wall=backward_wall,
                     forward_wall=forward_wall,
-                    backward_wall_state=minus,
-                    forward_wall_state=plus,
+                    backward_wall_state=backward_wall_state,
+                    forward_wall_state=forward_wall_state,
                     parallel_characteristic_wall_law=(
                         self.parameters.parallel_characteristic_wall_law
                     ),
@@ -2547,8 +2651,8 @@ class LocalFciDrbEBRhs:
                     self.parameters.mi_over_me,
                     backward_wall=backward_wall,
                     forward_wall=forward_wall,
-                    backward_wall_state=minus,
-                    forward_wall_state=plus,
+                    backward_wall_state=backward_wall_state,
+                    forward_wall_state=forward_wall_state,
                     div_b=div_b,
                     selection_dt=short_leg_selection_dt
                     if self.parallel_short_leg_treatment == "local-backward-euler"

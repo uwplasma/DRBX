@@ -115,8 +115,11 @@ def test_production_path_builds_all_five_dense_mapped_rows():
     assert "parallel_target_row_material_residual(" in block
     assert "backward_wall=backward_wall" in block
     assert "forward_wall=forward_wall" in block
-    assert "backward_wall_state=minus" in block
-    assert "forward_wall_state=plus" in block
+    assert "resolve_fci_material_wall_endpoint_state(" in block
+    assert "backward_wall_state=backward_wall_state" in block
+    assert "forward_wall_state=forward_wall_state" in block
+    assert "endpoint_b_contra_x" in block
+    assert "endpoint_bmag" in block
     assert "div_b=div_b," in block
     assert '"parallel_material_diagnostics"' in SOURCE
 

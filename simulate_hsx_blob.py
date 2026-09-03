@@ -229,19 +229,27 @@ FCI_MAP_FIELDS = (
     "backward_endpoint_x",
     "backward_endpoint_y",
     "backward_endpoint_z",
+    "forward_endpoint_b_contra_x",
+    "forward_endpoint_b_contra_y",
+    "forward_endpoint_b_contra_z",
+    "forward_endpoint_bmag",
+    "backward_endpoint_b_contra_x",
+    "backward_endpoint_b_contra_y",
+    "backward_endpoint_b_contra_z",
+    "backward_endpoint_bmag",
     "forward_length",
     "backward_length",
     "forward_boundary",
     "backward_boundary",
 )
-FCI_MAP_FLOAT_FIELDS = FCI_MAP_FIELDS[:12]
-FCI_MAP_BOOL_FIELDS = FCI_MAP_FIELDS[12:]
+FCI_MAP_FLOAT_FIELDS = FCI_MAP_FIELDS[:-2]
+FCI_MAP_BOOL_FIELDS = FCI_MAP_FIELDS[-2:]
 FCI_MAP_CACHE_PREFIX = "fci_maps_"
-FCI_MAP_CACHE_FORMAT_VERSION = 1
+FCI_MAP_CACHE_FORMAT_VERSION = 2
 # Bump only when the callback tracer numerics or serialized map contract
 # changes.  Unrelated edits elsewhere in fci_geometry.py must not invalidate a
 # multi-minute full-torus trace.
-FCI_MAP_TRACER_REVISION = 2
+FCI_MAP_TRACER_REVISION = 3
 
 
 @dataclass(frozen=True)
@@ -849,6 +857,31 @@ def fci_map_quality_report(
     if not boundary_topology_ok:
         errors.append(
             "toroidal maps classify a lower-axis or non-outer-u endpoint as physical boundary"
+        )
+
+    endpoint_field_ok = True
+    for prefix, boundary in (
+        ("forward", forward_boundary),
+        ("backward", backward_boundary),
+    ):
+        endpoint_field_ok &= bool(
+            np.all(arrays[f"{prefix}_endpoint_bmag"][boundary] > 0.0)
+        )
+        endpoint_field_ok &= all(
+            bool(
+                np.all(
+                    np.isfinite(
+                        arrays[f"{prefix}_endpoint_b_contra_{axis}"][boundary]
+                    )
+                )
+            )
+            for axis in ("x", "y", "z")
+        )
+    checks["physical_endpoint_magnetic_field"] = endpoint_field_ok
+    if not endpoint_field_ok:
+        errors.append(
+            "physical FCI endpoints require a finite continuous magnetic-field "
+            "evaluation and positive |B|"
         )
 
     seam_ok = bool(
@@ -2932,6 +2965,8 @@ def build_local_eb_model(
         parallel_operator_scheme=str(parallel_operator_scheme),
         parallel_material_scheme=str(parallel_material_scheme),
         face_bc_builder=face_bc_builder,
+        physical_wall_model_name=str(physical_wall_model),
+        conducting_sheath_wall_potential=conducting_sheath_wall_potential,
         axis_regular_axes=domain.axis_regular_axes,
         curvature_face_coefficients=curvature_face_coefficients,
         poisson_bracket_scheme=poisson_bracket_scheme,
