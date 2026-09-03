@@ -730,11 +730,13 @@ def _material_directional_data(
 ) -> tuple[jnp.ndarray, ...]:
     """Return both directional material actions and frozen local Jacobians.
 
-    This is the common face-state/wall-projection path used by the explicit
+    This is the common face-state/complete-target path used by the explicit
     residual and the selected short-wall implicit diagnostic.  The returned
     Jacobians are derivatives with respect to the owner ``center`` while the
     neighboring and wall states, as well as the stopped-gradient eigensystem,
-    are frozen:
+    are frozen.  ``physical-boundary-state`` passes the complete target
+    directly through the characteristic split; the primitive and energy
+    selectors remain compatibility paths:
 
     ``J_backward = -A_plus / dx_minus`` and
     ``J_forward = +A_minus / dx_plus``.
@@ -743,12 +745,12 @@ def _material_directional_data(
     """
 
     if parallel_characteristic_wall_law not in (
-        "primitive-least-residual", "energy-absorbing", "physical-boundary-state"
+        "primitive-least-residual", "energy-absorbing", "physical-boundary-state",
     ):
         raise ValueError(
             "parallel_characteristic_wall_law must be "
-            "'primitive-least-residual', 'energy-absorbing', or "
-            "'physical-boundary-state', got "
+            "'primitive-least-residual', 'energy-absorbing', "
+            "or 'physical-boundary-state', got "
             f"{parallel_characteristic_wall_law!r}"
         )
 
@@ -902,7 +904,6 @@ def _material_directional_data(
         eigenvalue_tolerance=eigenvalue_tolerance, max_condition=max_condition,
         basis=forward_basis,
     )
-
     # Form the same split matrices as the live action, including the finite
     # Rusanov fallback.  These matrices are frozen only through their
     # eigensystem; the face matrix itself is evaluated at the current face.
@@ -924,7 +925,6 @@ def _material_directional_data(
     dxp_safe = jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)
     backward_jacobian = -backward_plus_matrix / dxm_safe[..., None, None]
     forward_jacobian = forward_minus_matrix / dxp_safe[..., None, None]
-
     # ``wall_minus``/``wall_plus`` are frozen, first-order characteristic
     # traces, not nonlinear primitive states.  A composite quantity exported
     # from this characteristic solve must therefore use the Jacobian of that
@@ -1032,6 +1032,16 @@ def _material_directional_data(
         forward_candidate_ignored, jnp.zeros_like(forward_clipped), forward_clipped
     )
     info = {
+        # Reusable resolved directional payload.  Callers that already built
+        # ``parallel_characteristic_wall_data`` may feed this same object to
+        # the material residual rather than resolving the wall a second time.
+        "center": center,
+        "backward_action": backward_action,
+        "forward_action": forward_action,
+        "backward_total_jacobian": backward_jacobian,
+        "forward_total_jacobian": forward_jacobian,
+        "backward_owner_fluctuation": backward_action,
+        "forward_owner_fluctuation": forward_action,
         "backward_wall": backward_wall,
         "forward_wall": forward_wall,
         "backward_clipped": backward_clipped,
@@ -1215,6 +1225,7 @@ def parallel_target_row_material_residual(
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
+    resolved_wall_data: dict[str, jnp.ndarray] | None = None,
 ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
     """Apply the live-face production material update to every mapped row.
 
@@ -1223,11 +1234,11 @@ def parallel_target_row_material_residual(
 
     ``residual = -(D_plus_backward / dx_minus + D_minus_forward / dx_plus)``.
 
-    A wall endpoint replaces the mapped endpoint by a primitive-boundary
-    residual solve over the complete incoming characteristic subspace;
-    ordinary rows simply use their supplied mapped endpoints.  This makes wall
-    and bulk legs one operator with different endpoint data, rather than two
-    numerical fluxes.  ``div_b`` supplies the exact geometric source omitted from the
+    A wall endpoint replaces the mapped endpoint by a complete physical
+    boundary target; ordinary rows simply use their supplied mapped endpoints.
+    The target is passed through the same characteristic numerical flux as an
+    ordinary interface, so wall and bulk legs remain one operator with
+    different endpoint data, rather than two numerical fluxes.  ``div_b`` supplies the exact geometric source omitted from the
     frozen principal matrix.  With ``parallel_short_leg_selection='cfl'`` the
     selected physical-wall directions are those whose characteristic CFL
     exceeds ``cfl_limit``; ``'all-physical-walls'`` selects every physical
@@ -1237,19 +1248,27 @@ def parallel_target_row_material_residual(
     canonical face state and one live characteristic eigendecomposition.
     """
     div_b = jnp.asarray(div_b, dtype=jnp.float64)
-    (
-        center, backward_action, forward_action, backward_jacobian,
-        forward_jacobian, directional,
-    ) = _material_directional_data(
-        center, minus, plus, dx_minus, dx_plus, tau, mu,
-        backward_wall=backward_wall, forward_wall=forward_wall,
-        backward_wall_state=backward_wall_state,
-        forward_wall_state=forward_wall_state, equilibrium=equilibrium,
-        parallel_characteristic_wall_law=parallel_characteristic_wall_law,
-        positivity_floor=positivity_floor,
-        eigenvalue_tolerance=eigenvalue_tolerance,
-        max_condition=max_condition,
-    )
+    if resolved_wall_data is None:
+        (
+            center, backward_action, forward_action, backward_jacobian,
+            forward_jacobian, directional,
+        ) = _material_directional_data(
+            center, minus, plus, dx_minus, dx_plus, tau, mu,
+            backward_wall=backward_wall, forward_wall=forward_wall,
+            backward_wall_state=backward_wall_state,
+            forward_wall_state=forward_wall_state, equilibrium=equilibrium,
+            parallel_characteristic_wall_law=parallel_characteristic_wall_law,
+            positivity_floor=positivity_floor,
+            eigenvalue_tolerance=eigenvalue_tolerance,
+            max_condition=max_condition,
+        )
+    else:
+        directional = resolved_wall_data
+        center = _as_state(directional["center"])
+        backward_action = _as_state(directional["backward_action"])
+        forward_action = _as_state(directional["forward_action"])
+        backward_jacobian = jnp.asarray(directional["backward_total_jacobian"])
+        forward_jacobian = jnp.asarray(directional["forward_total_jacobian"])
     backward_wall = directional["backward_wall"]
     forward_wall = directional["forward_wall"]
     dx_minus = jnp.asarray(dx_minus, dtype=jnp.float64)
@@ -1404,6 +1423,7 @@ def parallel_short_wall_material_data(
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
+    resolved_wall_data: dict[str, jnp.ndarray] | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Return the selected short-wall material residual and frozen Jacobian.
 
@@ -1424,19 +1444,27 @@ def parallel_short_wall_material_data(
     ``r_forward = (+A_minus/dx_plus) (center - wall_plus)``.
     """
 
-    (
-        center, backward_action, forward_action, backward_jacobian,
-        forward_jacobian, info,
-    ) = _material_directional_data(
-        center, minus, plus, dx_minus, dx_plus, tau, mu,
-        backward_wall=backward_wall, forward_wall=forward_wall,
-        backward_wall_state=backward_wall_state,
-        forward_wall_state=forward_wall_state, equilibrium=equilibrium,
-        parallel_characteristic_wall_law=parallel_characteristic_wall_law,
-        positivity_floor=positivity_floor,
-        eigenvalue_tolerance=eigenvalue_tolerance,
-        max_condition=max_condition,
-    )
+    if resolved_wall_data is None:
+        (
+            center, backward_action, forward_action, backward_jacobian,
+            forward_jacobian, info,
+        ) = _material_directional_data(
+            center, minus, plus, dx_minus, dx_plus, tau, mu,
+            backward_wall=backward_wall, forward_wall=forward_wall,
+            backward_wall_state=backward_wall_state,
+            forward_wall_state=forward_wall_state, equilibrium=equilibrium,
+            parallel_characteristic_wall_law=parallel_characteristic_wall_law,
+            positivity_floor=positivity_floor,
+            eigenvalue_tolerance=eigenvalue_tolerance,
+            max_condition=max_condition,
+        )
+    else:
+        info = resolved_wall_data
+        center = _as_state(info["center"])
+        backward_action = _as_state(info["backward_action"])
+        forward_action = _as_state(info["forward_action"])
+        backward_jacobian = jnp.asarray(info["backward_total_jacobian"])
+        forward_jacobian = jnp.asarray(info["forward_total_jacobian"])
     dx_minus = jnp.asarray(dx_minus, dtype=jnp.float64)
     dx_plus = jnp.asarray(dx_plus, dtype=jnp.float64)
     dx_minus, dx_plus = jnp.broadcast_arrays(dx_minus, dx_plus)
@@ -1508,6 +1536,7 @@ def parallel_short_wall_backward_euler(
     parallel_characteristic_wall_law: str = "primitive-least-residual",
     coupled_residual: jnp.ndarray | None = None,
     coupled_jacobian: jnp.ndarray | None = None,
+    resolved_wall_data: dict[str, jnp.ndarray] | None = None,
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
@@ -1539,6 +1568,7 @@ def parallel_short_wall_backward_euler(
         backward_wall_state=backward_wall_state,
         forward_wall_state=forward_wall_state, equilibrium=equilibrium,
         parallel_characteristic_wall_law=parallel_characteristic_wall_law,
+        resolved_wall_data=resolved_wall_data,
         positivity_floor=positivity_floor,
         eigenvalue_tolerance=eigenvalue_tolerance,
         max_condition=max_condition,

@@ -178,6 +178,14 @@ from .fci_drb_EB_rhs import (
     build_local_fci_drb_eb_operator_boundary_bundle,
     prepare_local_fci_drb_eb_state,
 )
+from .fci_physical_wall import (
+    LegacyParallelVelocityPhysicalWallModel,
+    LocalFciDrbEBPhysicalWallModel,
+    NoFlowPhysicalWallModel,
+    PHYSICAL_WALL_MODEL_NAMES,
+    SimpleConductingSheathPhysicalWallModel,
+    physical_wall_model_from_name,
+)
 from .fci_parallel_production_flux import (
     parallel_canonical_leg_face_state,
     parallel_characteristic_matrix,
@@ -274,6 +282,12 @@ __all__ = [
     "LocalFciDrbEBRhs",
     "build_local_fci_drb_eb_operator_boundary_bundle",
     "prepare_local_fci_drb_eb_state",
+    "LegacyParallelVelocityPhysicalWallModel",
+    "LocalFciDrbEBPhysicalWallModel",
+    "NoFlowPhysicalWallModel",
+    "PHYSICAL_WALL_MODEL_NAMES",
+    "SimpleConductingSheathPhysicalWallModel",
+    "physical_wall_model_from_name",
     "parallel_characteristic_matrix",
     "parallel_canonical_leg_face_state",
     "parallel_characteristic_projectors",
