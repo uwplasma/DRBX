@@ -1,216 +1,313 @@
-# Physical-wall and characteristic-flux design
+# Physical-wall and characteristic-face design
 
-This document is the authoritative design for physical-wall boundary
-conditions in the parallel five-field system. The end goal is a full warm-ion
-magnetic-presheath entrance closure. Simpler wall models are validation rungs
-that must use the same numerical interface as that final model.
+This document is the development contract for the plasma-facing boundary of
+the drift-reduced Braginskii system. The production target is a warm-ion
+magnetic-presheath-entrance (MPE) closure. The development ladder has exactly
+four core rungs; electrical and thermal choices are orthogonal policies and
+are not additional rungs.
 
-The central decision is:
+The central numerical decision is:
 
-> A physical wall model supplies a complete boundary bundle. The material
-> boundary state is passed through the same live characteristic numerical
-> flux used at an interior face. We do not solve a fixed-size system for a
-> preselected number of incoming characteristic amplitudes.
+> The physical wall model constructs an admissible wall target and physical
+> face fluxes. The existing live characteristic/Riemann flux combines those
+> data with the owner state. One canonical resolved boundary flux is consumed
+> by material transport, the current/vorticity SAT, and the local implicit
+> solve.
 
-## Separation of physical and numerical responsibilities
+The boundary is therefore a flux interface, not a prescription that solves a
+set of arbitrary primitive values by modifying whichever incoming
+characteristics happen to be available. A complete target state may be useful
+to construct the physical flux, but it is not itself a ghost state and is not
+required to satisfy every composite quantity after characteristic splitting.
+
+## Why the previous characteristic-residual design is superseded
+
+At a partially incoming hyperbolic boundary, outgoing waves are supplied by
+the plasma and only the missing incoming information is supplied by the wall.
+The old implementation instead treated physical wall equations as hard
+residuals in the incoming amplitudes. In particular, it attempted to impose
+an exact ion Bohm equality while preserving every outgoing mode. This is not
+well posed when the live incoming subspace cannot control that residual.
+
+The following mechanisms are explicitly **not** part of the production
+design:
+
+* hard incoming-amplitude residual solves for arbitrary wall equations;
+* releasing an outgoing characteristic lane to make an overconstrained solve
+  square; and
+* generic minimum-residual, least-squares, or completion metrics that silently
+  violate a physical wall law.
+
+The live eigensystem remains essential for the numerical characteristic flux,
+orientation, dissipation, and diagnostics. It does not determine how many
+physical equations a wall model is allowed to impose. A zero crossing is
+handled by the matrix split and the appropriate physical flux branch, not by
+changing the residual dimension.
+
+## Boundary contract
 
 ### Physical wall model
 
-At every physical face and integrator stage, a `PhysicalWallModel` constructs
-a `PhysicalWallBundle`. The bundle is the single physical source of truth and
-must eventually contain:
+A `PhysicalWallLaw` owns the physical closure and returns a fixed-shape,
+batched description containing, as applicable:
 
-* a material face trace or exterior state in the primitive order
-  `(n, Te, Ti, Vi, Ve)`;
-* density and temperature derivative or flux data;
-* electrical-wall data for `phi` (grounded, biased, locally floating, or a
-  globally coupled conductor);
-* polarization/vorticity boundary data;
-* wall geometry and orientation, including magnetic incidence angle; and
-* admissibility and branch diagnostics.
+* an admissible target state or target primitive/flux data;
+* particle, momentum, current, and heat fluxes;
+* scalar normal values or derivatives for diffusive/elliptic operators;
+* the electrical-wall policy and any genuinely independent auxiliary
+  variables (for example a conductor potential or sheath drop);
+* polarization/vorticity data;
+* magnetic incidence, wall orientation, branch, and admissibility metadata;
+  and
+* derivatives of the physical flux with respect to the owner and independent
+  auxiliary variables.
 
-The physical model may solve its own local nonlinear equations to construct
-this bundle. That solve is determined by the physical closure, not by the
-instantaneous number of incoming eigenvalues of the material Jacobian.
+The wall law does not receive a preclassified list of incoming modes and does
+not release outgoing modes. It may construct a target using the owner state,
+wall geometry, and model parameters, but physical constraints must be encoded
+in the returned physical flux/trace contract rather than handed to an
+incoming-amplitude completion algorithm.
 
-### Boundary-state adapter
+### Characteristic numerical interface
 
-A physical face trace and an exterior reconstruction state are not always the
-same object. A boundary adapter must convert the wall model's trace/flux data
-to the representation expected by each operator. For example, a second-order
-Dirichlet face value may require
+The numerical boundary adapter evaluates the same stage-local normal
+characteristic operator used by the bulk material flux. It combines the owner
+state with the wall-model target or flux through the selected stable
+characteristic/Riemann (or weak Lax/Rusanov) boundary flux. This automatically
+handles incoming, outgoing, and glancing modes, including changes of sign.
 
-`q_exterior = 2 q_face - q_owner`
+The adapter returns one canonical wall-data payload containing:
 
-rather than passing `q_face` directly as a ghost value. This conversion must
-be explicit and tested for every reconstruction order and wall orientation.
+* the owner-directed material fluctuation/flux;
+* the canonical face state when one is defined;
+* ion/electron particle fluxes and current;
+* pressure, momentum, and heat fluxes required by other operators;
+* the live oriented eigenvalues and incoming/outgoing/glancing diagnostics;
+* wall-law branch and admissibility information; and
+* the total owner Jacobian needed by the local backward-Euler solve.
 
-### Live characteristic material flux
+The current/vorticity SAT, material transport, and local implicit solve must
+all consume this same resolved object. No subsystem may reconstruct current,
+pressure, or particle flux from an unrelated primitive ghost trace.
 
-Once the owner state `q_L` and physical exterior state `q_R` are known, the
-wall is treated as a boundary Riemann face. The production flux uses the same
-live eigensystem and wave splitting as the bulk, for example
+Physical wall constraints that are genuinely auxiliary or globally coupled
+(such as a single conductor potential) may use a small separate solve. That
+solve is owned by the wall model and is not an incoming-characteristic
+residual solve.
 
-`F* = 0.5 (F(q_L) + F(q_R)) - 0.5 |A_hat| (q_R - q_L)`,
+## Four-rung core ladder
 
-or the equivalent `A+`/`A-` form. The outgoing characteristic content is then
-selected from the plasma-side state and the incoming content from the
-physical wall target by the flux itself. The wall state is not first projected
-onto an assumed incoming subspace.
+### Rung 1 — No-flow verification wall
 
-The characteristic matrices are evaluated live at every stage and face, just
-as they are for the bulk upwinded subsystems. The boundary implementation must
-not own a hard-coded list of two acoustic modes.
+This is the machinery baseline, not a production plasma-wall model. It uses a
+reflecting/no-flow target with
 
-## Eigenvalue crossings and incoming-mode count
+```text
+Vi_wall = 0,  Ve_wall = 0
+```
 
-The five-by-five positive and negative matrix parts have fixed array shape even
-when their ranks change. Therefore a mode crossing zero does not require a
-dynamic residual dimension:
+and consistent zero normal particle/current fluxes. The purpose is to verify
+wall orientation, FCI topology, characteristic flux splitting, SAT wiring,
+and IMEX handoff. Any unused incoming freedom is handled by the numerical
+flux, not by a hard residual completion policy.
 
-* an outgoing mode is controlled by the interior side;
-* an incoming mode is controlled by the exterior wall state;
-* a glancing mode has vanishing normal characteristic speed and its boundary
-  influence turns on or off continuously through the matrix split.
+The validated 48^3 short replay remained finite for 32 steps from the staged
+restart, with 33 finite frames, final ranges
 
-Incoming, outgoing, and glancing counts remain important diagnostics, but they
-do not size a boundary solve. A count change is not an error by itself.
-Failures should instead report loss of hyperbolicity, an unusably conditioned
-eigenbasis, a nonfinite or physically inadmissible wall bundle, or unresolved
-mode chatter under the chosen zero-speed tolerance.
+```text
+n      [0.9835355, 1.0302540]
+Te     [0.9843459, 1.0067774]
+Ti     [0.9898584, 1.0044951]
+Vi     [-0.00145265, 0.00111411]
+Ve     [-0.3256469, 0.2375784]
+omega  [-0.0752558, 0.0647477]
+phi    [-0.00548446, 0.00819162]
+```
 
-Physical branches are selected from physical criteria, not `N_in`. Examples
-include an intersecting-wall sheath branch, a grazing/tangent-field branch,
-grounded versus floating electrical response, and eventually inverse-sheath
-regimes.
+The final maximum residual was `9.36e-8`; no period-two wall packet was
+observed. This validates common machinery only and is not evidence that a
+physical sheath closure has passed.
 
-## One boundary bundle for every subsystem
+### Rung 2 — Simple conducting sheath entrance
 
-The material flux, characteristic SAT/current coupling, local short-leg
-implicit solve, diffusion, potential solve, and vorticity/polarization closure
-must consume consistent views of the same `PhysicalWallBundle`.
+This is the first physical rung. It is a simplified conducting sheath
+entrance, not yet the magnetic-presheath entrance. The wall model:
 
-In particular:
+* extrapolates `n`, `Te`, and `Ti` from the plasma side;
+* uses weak logical Bohm ion outflow, for example
+  `u_i^* = max(c_B, u_i_owner)` in the outward orientation;
+* prescribes the wall potential `phi_wall` through the selected electrical
+  policy;
+* obtains the electron loss flux from the exponential sheath response;
+* uses zero normal thermodynamic derivatives,
+  `d_n Te = d_n Ti = 0`; and
+* permits nonzero current when the wall is grounded or biased.
 
-* the SAT wall current must be derived from the same boundary numerical flux
-  or state used by material transport;
-* a selected local backward-Euler wall leg must either differentiate the wall
-  map with respect to the owner state or embed the wall model in its implicit
-  residual; and
-* no subsystem may silently reconstruct a different wall state from an
-  unrelated equilibrium reference.
+The ion Bohm condition is an outflow/inequality selection in the numerical
+flux, not an exact equation to be forced through incoming amplitudes. The
+electron response and potential determine the electron flux; `j_n` is then a
+physical output. This makes a boundary solution available without assuming
+two incoming modes or imposing pointwise `Vi=Ve`.
 
-This consistency is more important than making every equation use the same
-primitive boundary operator. Each consumer receives the trace, exterior
-state, flux, or normal derivative appropriate to its differential equation.
+The compatible initial state must include the electrical/sheath relation as
+well as any velocity matching used for startup.  The default prescribed wall
+potential is therefore expressed in the simulation's shifted potential gauge:
 
-## Retired fixed-two-mode design
+```text
+phi_wall = -Te0 log[sqrt(mu Te0 / (2 pi)) / sqrt(Te0 + tau Ti0)] .
+```
 
-The former `velocity-no-flow` implementation classified the spectrum at
-`(n, Te, Ti, 0, 0)`, selected exactly two acoustic eigenvectors, and solved
-the two residuals `Vi=0` and `Ve=0` for two incoming amplitudes. It rejected
-any state whose classified incoming count was not exactly two.
+With `phi_face=0`, `Te=Te0`, and `Ti=Ti0`, this makes the electron loss speed
+equal the Bohm speed and permits the existing `Vi=Ve` compatible startup.  A
+user-supplied wall potential represents a different grounded or biased wall
+and need not be current-free initially.
 
-That design is retired because it made the numerical characteristic count
-part of the physical wall-law interface. It cannot naturally handle sonic or
-glancing crossings and is not the architecture needed by the magnetic
-presheath model. The selector, fixed-two-mode solver, and their tests are
-removed before implementing the replacement.
+### Rung 3 — Simplified GBS warm-ion MPE
 
-The generic `dirichlet-zero` primitive face trace is retained. Under the new
-framework it will become an input produced by the no-flow physical wall model,
-not a special incoming-characteristic solve. Historical no-flow results remain
-reproducible from commit `29ac064d802c6a048f7c4041db21b63a71def52f`.
+This rung keeps the conducting sheath particle/electron model but adds the
+coupled warm-ion magnetic-presheath-entrance relations used by the simplified
+GBS model. Tangential-gradient corrections are intentionally omitted. The
+new coupled data include:
 
-The existing `primitive-least-residual` projection and the normalized
-equilibrium `energy-absorbing` map are compatibility paths only. Neither is
-the target architecture for new physical closures.
+* density and ion-flow normal-derivative coupling;
+* the corresponding normal potential derivative;
+* the polarization/vorticity derivative relation derived from the same
+  discrete polarization operator; and
+* `d_n Te = d_n Ti = 0` for the simplified thermal closure.
 
-The replacement infrastructure begins with
-`parallel_characteristic_wall_law="physical-boundary-state"`. It passes the
-complete five-component physical trace directly into the live `A+`/`A-`
-boundary action, uses the live incoming rank only as a diagnostic, and exports
-the current of that same state to characteristic SAT. Combined with the
-`dirichlet-zero` velocity wall model, it is the new no-flow replay path.
+The density, potential, and vorticity conditions are one coupled physical
+boundary model. They must not be independently replaced by `phi=0`,
+`omega=0`, or unrelated primitive ghosts. Their discrete face fluxes and
+derivatives must be exported through the same canonical wall-data contract
+used in Rung 2.
 
-## Boundary implementation ladder
+This is the first rung that closes our evolved five-field model as a
+simplified MPE entrance. It is not a separate incoming-characteristic solve;
+the live characteristic operator supplies the stable numerical interface for
+the physical GBS target and fluxes.
 
-### 0. Boundary-flux infrastructure
+### Rung 4 — Full warm-ion magnetic-presheath entrance
 
-Implement `PhysicalWallModel`, `PhysicalWallBundle`, boundary-state adapters,
-and a live material boundary flux that accepts arbitrary incoming rank without
-changing array shape. Route the same bundle to SAT/current and selected
-short-leg implicit consumers. Initially adapt the existing primitive traces
-to this interface for controlled comparison.
+Starting from Rung 3, add the remaining MPE physics:
 
-Acceptance gates:
+* tangential density and potential gradients;
+* total normal drift, including the adopted `E x B`, diamagnetic, and
+  curvature contributions;
+* magnetic-incidence dependence through `B dot n`;
+* a physically declared grazing/tangent-field branch; and
+* localized smoothing of the sign transition near `B dot n = 0`, only after
+  the unsmoothed branch is verified.
 
-* exact bulk-face equivalence when `q_R` is an ordinary neighbor state;
-* correct orientation for both wall ends;
-* smooth behavior through synthetic eigenvalue crossings;
-* trace-to-exterior reconstruction tests;
-* consistent material flux, SAT current, and implicit wall linearization; and
-* eager/JIT, batched, sharded, and invalid-spectrum coverage.
+The same material numerical interface, current SAT, polarization relation,
+and implicit Jacobian contract remain in place. Rung 4 enriches the wall law;
+it does not reintroduce hard residual solves or a different characteristic
+machinery. Heat-transfer, secondary-emission, and inverse-sheath effects are
+added only when selected by the orthogonal policies below.
 
-### 1. No-flow validation wall
+## Orthogonal electrical policies
 
-The model supplies `Vi=Ve=0` at the material face, with explicitly chosen
-simple density and temperature traces/derivatives. The live flux determines
-which characteristic information enters. This is a reflecting machinery test,
-not a production plasma-wall model.
+Electrical choices are policies attached to a rung, not numbered rungs:
 
-Acceptance gates include exact zero velocity at the physical trace, no fixed
-incoming-count assumption, crossing tests, wall-flux/SAT/implicit consistency,
-and the existing short 48^3 stability replay at the validated timestep.
+* **Prescribed grounded/biased wall:** `phi_wall` is supplied and the local
+  sheath response determines a generally nonzero current.
+* **Globally floating conductor:** one potential per connected conductor is
+  determined from the integrated current condition
+  `integral(j_n dA) = 0`. This is distinct from imposing `j_n=0` independently
+  at every face.
+* **External circuit:** a circuit equation supplies the conductor potential
+  and receives the integrated plasma current.
+* **Local insulating approximation:** a local sheath-drop/current relation may
+  be used only when that approximation is physically intended and has its own
+  auxiliary variable. It is not silently attached to every MPE closure.
 
-### 2. Zero-current Bohm--Chodura wall
+The electrical policy owns the potential/sheath-drop auxiliary solve and its
+Jacobian. It does not alter the number of incoming characteristic lanes or
+release an outgoing lane.
 
-The wall model supplies an oriented warm-ion sonic target such as
+## Orthogonal thermal policies
 
-`Vi = Ve = sigma sqrt(Te + tau Ti)`,
+Thermal choices are likewise independent:
 
-with the precise normalization, density/temperature closure, and orientation
-defined by the physical model. Equality of the two velocities gives zero
-parallel current. This is a useful intermediate sheath-entry model, not the
-full magnetic presheath.
+* the initial simplified models use `d_n Te=d_n Ti=0`;
+* a sheath heat-transmission policy may prescribe electron and ion heat
+  fluxes;
+* a transcollisional/kinetic policy may replace those coefficients; and
+* thermal policies must export the same resolved heat flux to diffusion,
+  material energy transport, and diagnostics.
 
-### 3. Bohm ion flow plus electron/electrical response
+No thermal policy should be smuggled into the rung number or inferred from a
+primitive wall value.
 
-Retain the warm-ion Bohm target for ions and add an electron response to the
-plasma-to-wall potential drop. Implement grounded or biased walls first, then
-local floating and globally floating conductor policies. The electrical wall
-choice supplies data to the bundle; it is not an extra local characteristic
-amplitude equation.
+## Empirical reason the old Bohm rung is superseded
 
-### 4. Full warm-ion magnetic-presheath entrance
+The former ion-only and local-floating attempts are retained as diagnostic
+baselines but are superseded by this four-rung design. They imposed hard
+residuals on the incoming characteristic amplitudes and therefore tested an
+incompatible boundary problem.
 
-Implement the coupled physical boundary bundle at the magnetic-presheath
-entrance, including the selected model's incidence-angle dependence,
-normal-flow relation, electron response, density/temperature or heat-flux
-conditions, potential condition, and polarization/vorticity derivative data.
-Zero current must be a selected electrical-wall policy rather than silently
-assumed by every magnetic-presheath closure.
+In the compatible `48^3` one-step audit, `1,700` rank-one required faces per
+leg had only one incoming control lane. The worst projected ion-Bohm residual
+control gain was `0.00841031`. Enforcing the equality generated
+`|Ve| ~= 70.8018` and face current `|j| ~= 36.1872`, despite `Vi=Ve` in the
+compatible initialized owner. A full-state completion produced the same
+rank-one response because completion cannot create a missing control
+direction. The first invalid face was a backward single-hit face with
+incoming rank one and inadmissible thermodynamic state.
 
-The physical model and normalizations should follow the equations actually
-adopted from Loizu, Ricci, Halpern & Jolliet, *Boundary conditions for plasma
-fluid models at the magnetic presheath entrance*
-([EPFL manuscript](https://infoscience.epfl.ch/bitstreams/c693bbf8-aa98-4bcc-8c56-2ded2e106038/download)),
-and Giacomin et al., *Journal of Computational Physics* 463 (2022) 111294
-([DOI](https://doi.org/10.1016/j.jcp.2022.111294)).
+The earlier local-floating experiment compounded this by treating pointwise
+`j=0` as another hard material equation. A physical floating sheath can be
+well posed when its sheath drop or conductor potential is an independent
+unknown, but that is not what the old incoming-amplitude solve supplied. The
+observed failure therefore does not show that a physical conducting or
+floating sheath is impossible; it shows that the old residual formulation is
+not its implementation.
 
-## Cross-rung verification
+The `physical-boundary-state` selector is the current implementation of the
+new interface: it passes a complete model target through the live
+characteristic split.  `primitive-least-residual` and `energy-absorbing`
+remain legacy comparison paths; they are not physical rungs and may be
+retired once the four-rung regressions replace their remaining uses.
 
-Each rung must record:
+## Verification gates
 
-* live incoming/outgoing/glancing counts and eigenbasis condition;
-* wall-model branch, nonlinear residual (if the physical model has one), and
-  bundle admissibility;
-* material boundary flux and SAT/current consistency;
-* local-BE Jacobian/closure error on selected wall legs;
-* density, temperature, current, particle, heat, and electrical-wall budgets;
-* stagewise positivity and finite-state checks; and
-* spatial/timestep refinement of wall-localized modes.
+Every rung must verify:
 
-A passing no-flow or Bohm replay validates the common machinery only. A
-production claim requires the full selected physical wall model, a fresh run
-from the initial state, and convergence evidence.
+* physical admissibility and finite resolved face fluxes;
+* orientation and live incoming/outgoing/glancing diagnostics;
+* unchanged outgoing content in the characteristic numerical interface;
+* equality of material, SAT, local-BE, and diagnostic current/flux outputs;
+* finite-difference or JVP checks for the total owner Jacobian;
+* lower/upper walls, single/double-hit FCI rows, periodic seams, and shard
+  interfaces;
+* stagewise positivity, current, particle, energy, and free-energy budgets;
+  and
+* eager and compiled short replays before any full production run.
+
+A passing Rung 1 replay validates common machinery only. A physical-rung
+production claim requires the selected wall model, compatible initialization,
+fresh replay from the initial state, and spatial/timestep refinement.
+
+## Migration order
+
+1. Keep the live characteristic/Riemann flux and reduce the production wall
+   interface to one canonical physical-target/flux payload. Retain legacy
+   residual paths only for comparison diagnostics.
+2. Migrate and preserve the Rung 1 no-flow regression, including common
+   material/SAT/local-BE consistency tests.
+3. Implement the analytic Rung 2 conducting sheath target and weak Bohm/electron
+   flux, with a prescribed-wall-potential policy first. Do not implement a
+   new hard incoming-amplitude solve.
+4. Add the Rung 3 simplified GBS coupled `n/phi/omega` derivative closure.
+5. Add the Rung 4 full MPE tangential, incidence, grazing, and smoothing
+   branches.
+6. Add global floating, circuit, and advanced thermal policies as independent
+   modules and retire the old ion-only/local-floating experiments.
+
+The four-rung core is intentionally stable as the physics becomes richer:
+only the wall model and its orthogonal policies change; the characteristic
+numerical interface and all downstream consumers retain the same contract.
+
+Historical no-flow behavior remains reproducible from commit
+`29ac064d802c6a048f7c4041db21b63a71def52f`. The raw-state Bohm and
+vorticity-upwind runs remain diagnostic baselines, not implementations of the
+revised four-rung contract.

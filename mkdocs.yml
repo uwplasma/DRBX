@@ -45,6 +45,7 @@ nav:
   - Physics And Numerics:
       - Models And Equations: models_and_equations.md
       - Solvers And Design: solvers_and_design.md
+      - Characteristic Wall Boundary Design: characteristic_wall_boundary_design.md
       - Physics Models: physics_models.md
       - Equation To Code Map: equation_to_code_map.md
       - Code Structure: code_structure.md

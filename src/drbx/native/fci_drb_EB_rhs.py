@@ -544,8 +544,9 @@ class FciDrbEBRhsParameters:
     # block.  The default retains the established primitive least-residual
     # projection exactly; energy-absorbing closes incoming modes against the
     # explicit equilibrium/reference state.  Both are legacy compatibility
-    # paths. physical-boundary-state passes the complete physical trace to the
-    # live boundary flux without assuming an incoming rank.
+    # paths. physical-boundary-state passes the complete wall trace to the
+    # live characteristic flux without assuming an incoming rank. The wall
+    # model itself is owned by the face-BC bundle, not by this RHS.
     parallel_characteristic_wall_law: str = field(
         default_factory=lambda: os.environ.get(
             "DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW",
@@ -555,12 +556,13 @@ class FciDrbEBRhsParameters:
 
     def __post_init__(self):
         if self.parallel_characteristic_wall_law not in (
-            "primitive-least-residual", "energy-absorbing", "physical-boundary-state"
+            "primitive-least-residual", "energy-absorbing",
+            "physical-boundary-state",
         ):
             raise ValueError(
                 "parallel_characteristic_wall_law must be "
-                "'primitive-least-residual', 'energy-absorbing', or "
-                "'physical-boundary-state', got "
+                "'primitive-least-residual', 'energy-absorbing', "
+                "or 'physical-boundary-state', got "
                 f"{self.parallel_characteristic_wall_law!r}"
             )
 
@@ -1036,12 +1038,13 @@ class LocalFciDrbEBRhs:
             )
         wall_law = self.parameters.parallel_characteristic_wall_law
         if wall_law not in (
-            "primitive-least-residual", "energy-absorbing", "physical-boundary-state"
+            "primitive-least-residual", "energy-absorbing",
+            "physical-boundary-state",
         ):
             raise ValueError(
                 "parallel_characteristic_wall_law must be "
-                "'primitive-least-residual', 'energy-absorbing', or "
-                "'physical-boundary-state', got "
+                "'primitive-least-residual', 'energy-absorbing', "
+                "or 'physical-boundary-state', got "
                 f"{wall_law!r}"
             )
         if wall_law == "energy-absorbing" and self.parallel_material_scheme != "production-path":
@@ -2131,6 +2134,8 @@ class LocalFciDrbEBRhs:
         characteristic_sat_homogeneous_current_divergence = None
         characteristic_sat_affine_current_divergence = None
         characteristic_sat_current_divergence = None
+        characteristic_sat_effective_nonlinear_current_divergence = None
+        characteristic_sat_effective_linearized_current_divergence = None
         support_gradient_values: dict[str, jnp.ndarray] = {}
         support_flux_values: dict[str, jnp.ndarray] = {}
         if self.parallel_flux_pairing == "support-core":
@@ -2366,6 +2371,18 @@ class LocalFciDrbEBRhs:
         material_characteristic_leg_lengths = jnp.zeros(
             self.geometry.owned_shape + (2,), dtype=jnp.float64
         )
+        material_characteristic_effective_face_states = jnp.zeros(
+            self.geometry.owned_shape + (2, 5), dtype=jnp.float64
+        )
+        material_characteristic_current_values = jnp.zeros(
+            self.geometry.owned_shape + (2, 6), dtype=jnp.float64
+        )
+        material_characteristic_particle_flux_values = jnp.zeros(
+            self.geometry.owned_shape + (2, 2), dtype=jnp.float64
+        )
+        material_characteristic_wall_metadata = jnp.zeros(
+            self.geometry.owned_shape + (2, 3), dtype=jnp.float64
+        )
         vorticity_parallel_advection = jnp.zeros(
             self.geometry.owned_shape, dtype=jnp.float64
         )
@@ -2385,6 +2402,8 @@ class LocalFciDrbEBRhs:
             "wall_spectral_fallback": jnp.zeros(self.geometry.owned_shape, dtype=bool),
             "fallback": jnp.zeros(self.geometry.owned_shape, dtype=bool),
             "admissible": jnp.ones(self.geometry.owned_shape, dtype=bool),
+            "backward_wall_current": jnp.zeros(self.geometry.owned_shape),
+            "forward_wall_current": jnp.zeros(self.geometry.owned_shape),
         }
         if self.parallel_material_scheme == "production-path":
             primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
@@ -2448,15 +2467,16 @@ class LocalFciDrbEBRhs:
                 self.geometry.maps.forward.endpoint_kind
                 == FCI_DEP_PHYSICAL_BOUNDARY
             )
-            # Keep one canonical live eigensystem/endpoint projection for the
-            # material residual and the characteristic current closure.  The
-            # projected primitive vector is a first-order modal trace, so the
-            # current exported to the vorticity/phi pair is the corresponding
-            # first-order characteristic current, not a nonlinear product of
-            # projected primitive components.
+            # Keep one canonical live wall-data evaluation for the material
+            # residual and, when selected, the characteristic current closure.
+            # Legacy projected laws export their first-order characteristic
+            # current; resolved physical-wall laws export the exact nonlinear
+            # current of their resolved face.  Both consumers receive the
+            # same wall-data object, so the endpoint contract cannot drift.
             wall_data = None
-            if self.parallel_boundary_pairing == "characteristic-sat" or (
-                return_electron_force_diagnostics
+            if (
+                self.parallel_boundary_pairing == "characteristic-sat"
+                or return_electron_force_diagnostics
             ):
                 wall_data = parallel_characteristic_wall_data(
                     center,
@@ -2538,6 +2558,7 @@ class LocalFciDrbEBRhs:
                     parallel_characteristic_wall_law=(
                         self.parameters.parallel_characteristic_wall_law
                     ),
+                    resolved_wall_data=wall_data,
                 )
             )
             if return_electron_force_diagnostics and wall_data is not None:
@@ -2605,6 +2626,151 @@ class LocalFciDrbEBRhs:
                     ),
                     axis=-1,
                 )
+                incoming_projectors = jnp.stack(
+                    (
+                        wall_data["backward_incoming_projector"],
+                        wall_data["forward_incoming_projector"],
+                    ),
+                    axis=-3,
+                )
+                endpoint_states = jnp.stack(
+                    (
+                        wall_data["backward_endpoint_state"],
+                        wall_data["forward_endpoint_state"],
+                    ),
+                    axis=-2,
+                )
+                incoming_deltas = jnp.einsum(
+                    "...dij,...dj->...di",
+                    incoming_projectors,
+                    endpoint_states - center[..., None, :],
+                )
+                material_characteristic_effective_face_states = (
+                    center[..., None, :] + incoming_deltas
+                )
+
+                def nonlinear_current(state):
+                    return state[..., 0] * (state[..., 3] - state[..., 4])
+
+                owner_current = nonlinear_current(center)
+                effective_current = nonlinear_current(
+                    material_characteristic_effective_face_states
+                )
+                effective_linearized_current = (
+                    owner_current[..., None]
+                    + (center[..., 3] - center[..., 4])[..., None]
+                    * incoming_deltas[..., 0]
+                    + center[..., 0, None]
+                    * (incoming_deltas[..., 3] - incoming_deltas[..., 4])
+                )
+                if self.parallel_boundary_pairing == "characteristic-sat":
+                    _, effective_nonlinear_divergence, _ = (
+                        self._fci_current_phi_boundary_pair(
+                            face_bc=face_bc,
+                            context=context,
+                            wall_endpoint_current_values=(
+                                effective_current[..., 0],
+                                effective_current[..., 1],
+                            ),
+                            build_adjoint=False,
+                        )
+                    )
+                    _, effective_linearized_divergence, _ = (
+                        self._fci_current_phi_boundary_pair(
+                            face_bc=face_bc,
+                            context=context,
+                            wall_endpoint_current_values=(
+                                effective_linearized_current[..., 0],
+                                effective_linearized_current[..., 1],
+                            ),
+                            build_adjoint=False,
+                        )
+                    )
+                    actual_current = fields["current"][owned]
+                    characteristic_sat_effective_nonlinear_current_divergence = (
+                        effective_nonlinear_divergence(actual_current)
+                    )
+                    characteristic_sat_effective_linearized_current_divergence = (
+                        effective_linearized_divergence(actual_current)
+                    )
+                raw_wall_currents = jnp.stack(
+                    (
+                        wall_data["backward_candidate_current"],
+                        wall_data["forward_candidate_current"],
+                    ),
+                    axis=-1,
+                )
+                exported_sat_currents = jnp.stack(
+                    (
+                        wall_data["backward_wall_characteristic_current"],
+                        wall_data["forward_wall_characteristic_current"],
+                    ),
+                    axis=-1,
+                )
+                directional_material_residual = jnp.stack(
+                    (
+                        wall_data["backward_residual"],
+                        wall_data["forward_residual"],
+                    ),
+                    axis=-2,
+                )
+                current_gradient = jnp.stack(
+                    (
+                        center[..., 3] - center[..., 4],
+                        jnp.zeros_like(center[..., 0]),
+                        jnp.zeros_like(center[..., 0]),
+                        center[..., 0],
+                        -center[..., 0],
+                    ),
+                    axis=-1,
+                )
+                material_current_rate = jnp.einsum(
+                    "...i,...di->...d",
+                    current_gradient,
+                    directional_material_residual,
+                )
+                material_characteristic_current_values = jnp.stack(
+                    (
+                        jnp.broadcast_to(
+                            owner_current[..., None], raw_wall_currents.shape
+                        ),
+                        raw_wall_currents,
+                        effective_current,
+                        effective_linearized_current,
+                        exported_sat_currents,
+                        material_current_rate,
+                    ),
+                    axis=-1,
+                )
+                material_characteristic_particle_flux_values = jnp.stack(
+                    (
+                        material_characteristic_effective_face_states[..., 0]
+                        * material_characteristic_effective_face_states[..., 3],
+                        material_characteristic_effective_face_states[..., 0]
+                        * material_characteristic_effective_face_states[..., 4],
+                    ),
+                    axis=-1,
+                )
+                material_characteristic_wall_metadata = jnp.stack(
+                    (
+                        jnp.stack(
+                            (wall_data["backward_wall"], wall_data["forward_wall"]),
+                            axis=-1,
+                        ).astype(jnp.float64),
+                        jnp.stack(
+                            (wall_data["backward_cfl"], wall_data["forward_cfl"]),
+                            axis=-1,
+                        ),
+                        jnp.stack(
+                            (
+                                wall_data["selected_backward_wall"],
+                                wall_data["selected_forward_wall"],
+                            ),
+                            axis=-1,
+                        ).astype(jnp.float64),
+                    ),
+                    axis=-1,
+                )
         result = {
             "parallel_div_b": div_b,
             "density_flux_div": flux_div("density_flux"),
@@ -2626,6 +2792,10 @@ class LocalFciDrbEBRhs:
             "material_upwind_correction": material_upwind_correction,
             "parallel_material_residual": parallel_material_residual,
             "parallel_material_diagnostics": parallel_material_diagnostics,
+            # Keep the canonical face resolution alive for the optional
+            # short-leg BE stage.  This is the exact object consumed above by
+            # the explicit material residual and characteristic current SAT.
+            "parallel_characteristic_wall_data": wall_data,
             # Boundary characteristic-SAT decomposition.  The homogeneous
             # term is the current/phi paired operator; the affine lift is
             # applied only to the vorticity current divergence.
@@ -2672,6 +2842,30 @@ class LocalFciDrbEBRhs:
                     ),
                     "material_characteristic_leg_lengths": (
                         material_characteristic_leg_lengths
+                    ),
+                    "material_characteristic_effective_face_states": (
+                        material_characteristic_effective_face_states
+                    ),
+                    "material_characteristic_current_values": (
+                        material_characteristic_current_values
+                    ),
+                    "material_characteristic_particle_flux_values": (
+                        material_characteristic_particle_flux_values
+                    ),
+                    "material_characteristic_wall_metadata": (
+                        material_characteristic_wall_metadata
+                    ),
+                    "characteristic_sat_effective_nonlinear_current_divergence": (
+                        jnp.zeros_like(div_b)
+                        if characteristic_sat_effective_nonlinear_current_divergence
+                        is None
+                        else characteristic_sat_effective_nonlinear_current_divergence
+                    ),
+                    "characteristic_sat_effective_linearized_current_divergence": (
+                        jnp.zeros_like(div_b)
+                        if characteristic_sat_effective_linearized_current_divergence
+                        is None
+                        else characteristic_sat_effective_linearized_current_divergence
                     ),
                     "parallel_material_explicit_components": (
                         parallel_material_explicit_components
@@ -3180,6 +3374,105 @@ class LocalFciDrbEBRhs:
             endpoint_kinds,
         )
 
+    def parallel_wall_current_diagnostics(
+        self,
+        state_owned: FciDrbEBState,
+        *,
+        phi_owned: jnp.ndarray | None = None,
+        selection_dt: Any = 0.0,
+    ) -> tuple[jnp.ndarray, ...]:
+        """Return replay-only characteristic/SAT wall-current measurements.
+
+        The outputs compare the primitive wall endpoint against the effective
+        characteristic interface state ``q0 + P_in (qw - q0)``.  They are
+        diagnostics only and do not alter the production boundary action.
+        Direction order is backward/forward.  Current channels are owner,
+        raw-wall, effective nonlinear, effective linearized, exported SAT,
+        and the directional material contribution to the owner-current rate.
+        """
+
+        if self.parallel_operator_scheme != "fci":
+            raise ValueError("wall-current diagnostics require FCI")
+        state_owned = self._owner_state(state_owned)
+        face_bc = self._face_bcs(state_owned)
+        state_halo_without_phi = self._prepare_state_halo(state_owned, face_bc)
+        if phi_owned is None:
+            phi_owned = self._reconstruct_phi_from_prepared(
+                state_owned, state_halo_without_phi, face_bc
+            )
+        else:
+            phi_owned = _mask_inactive_owned(
+                jnp.asarray(phi_owned, dtype=jnp.float64), self.geometry
+            )
+        phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
+        state_halo = state_halo_without_phi.replace(phi=phi_halo)
+        operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
+            state_halo,
+            self.geometry,
+            self.domain,
+            face_bc,
+            tau=self.parameters.tau,
+        )
+        parallel_boundary = self._parallel_operator_boundary(
+            state_halo=state_halo,
+            operator_boundary=operator_boundary,
+        )
+        parallel_terms = self._fci_parallel_terms(
+            state_halo=state_halo,
+            face_bc=face_bc,
+            operator_boundary=operator_boundary,
+            parallel_boundary=parallel_boundary,
+            context=self._stencil_builder_context(),
+            return_electron_force_diagnostics=True,
+            short_leg_selection_dt=selection_dt,
+        )
+
+        def fields_first(value):
+            return jnp.moveaxis(value, (-1, -2), (0, 1))
+
+        raw_endpoint_states = fields_first(
+            parallel_terms["material_characteristic_endpoint_values"]
+        )
+        effective_face_states = fields_first(
+            parallel_terms["material_characteristic_effective_face_states"]
+        )
+        current_values = fields_first(
+            parallel_terms["material_characteristic_current_values"]
+        )
+        particle_flux_values = fields_first(
+            parallel_terms["material_characteristic_particle_flux_values"]
+        )
+        wall_metadata = fields_first(
+            parallel_terms["material_characteristic_wall_metadata"]
+        )
+        current_divergences = jnp.stack(
+            (
+                parallel_terms[
+                    "characteristic_sat_homogeneous_current_divergence"
+                ],
+                parallel_terms["characteristic_sat_affine_current_divergence"],
+                parallel_terms["characteristic_sat_current_divergence"],
+                parallel_terms[
+                    "characteristic_sat_effective_nonlinear_current_divergence"
+                ],
+                parallel_terms[
+                    "characteristic_sat_effective_linearized_current_divergence"
+                ],
+            ),
+            axis=0,
+        )
+        return (
+            raw_endpoint_states,
+            effective_face_states,
+            current_values,
+            particle_flux_values,
+            wall_metadata,
+            current_divergences,
+            jnp.moveaxis(
+                parallel_terms["material_characteristic_leg_lengths"], -1, 0
+            ),
+        )
+
     def apply_short_leg_implicit_material_step(
         self,
         state_owned: FciDrbEBState,
@@ -3324,6 +3617,9 @@ class LocalFciDrbEBRhs:
                 self.parameters.parallel_characteristic_wall_law
             ),
             coupled_residual=coupled_residual,
+            resolved_wall_data=parallel_terms.get(
+                "parallel_characteristic_wall_data"
+            ),
         )
 
         if self._uses_projected_fine_grid:

@@ -122,6 +122,17 @@ def test_parser_production_selector_contract():
         "physical-boundary-state",
     )
     assert wall_law_action.default == "primitive-least-residual"
+    wall_model_action = next(
+        action
+        for action in driver._build_parser()._actions
+        if action.dest == "physical_wall_model"
+    )
+    assert tuple(wall_model_action.choices) == (
+        "legacy-velocity-trace",
+        "no-flow",
+        "simple-conducting-sheath",
+    )
+    assert wall_model_action.default == "legacy-velocity-trace"
     selection_action = next(
         action for action in driver._build_parser()._actions
         if action.dest == "parallel_short_leg_selection"
@@ -195,7 +206,7 @@ def test_energy_absorbing_wall_law_is_exported_for_compatible_production_path(
     )
 
 
-def test_physical_boundary_state_wall_law_is_exported_for_no_flow_model(
+def test_physical_boundary_state_is_exported_for_no_flow_model(
     monkeypatch,
 ):
     driver = _driver_module()
@@ -206,8 +217,8 @@ def test_physical_boundary_state_wall_law_is_exported_for_no_flow_model(
         "characteristic-sat",
         "--parallel-characteristic-wall-law",
         "physical-boundary-state",
-        "--parallel-velocity-wall-bc",
-        "dirichlet-zero",
+        "--physical-wall-model",
+        "no-flow",
     )
     driver._validate_flux_framework(args)
     driver._configure_runtime_selectors(args)
@@ -217,6 +228,65 @@ def test_physical_boundary_state_wall_law_is_exported_for_no_flow_model(
     assert driver.os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] == (
         "live-characteristic-physical-boundary-state"
     )
+
+
+def test_physical_boundary_state_is_available_to_legacy_model():
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-characteristic-wall-law",
+        "physical-boundary-state",
+    )
+    driver._validate_flux_framework(args)
+
+
+@pytest.mark.parametrize(
+    "wall_model", (
+        "no-flow",
+        "simple-conducting-sheath",
+    )
+)
+def test_named_physical_wall_models_require_and_accept_live_wall_flux(
+    wall_model,
+):
+    driver = _driver_module()
+    incompatible = _production_args(
+        driver,
+        "--physical-wall-model",
+        wall_model,
+    )
+    with pytest.raises(ValueError, match="physical-boundary-state"):
+        driver._validate_flux_framework(incompatible)
+
+    compatible = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-characteristic-wall-law",
+        "physical-boundary-state",
+        "--physical-wall-model",
+        wall_model,
+    )
+    driver._validate_flux_framework(compatible)
+
+
+def test_named_wall_model_rejects_legacy_velocity_override():
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-characteristic-wall-law",
+        "physical-boundary-state",
+        "--physical-wall-model",
+        "simple-conducting-sheath",
+        "--parallel-velocity-wall-bc",
+        "bohm",
+    )
+    with pytest.raises(ValueError, match="legacy-velocity-trace"):
+        driver._validate_flux_framework(args)
 
 
 def test_wall_law_metadata_is_conditional_and_provenance_is_explicit():
@@ -601,12 +671,12 @@ def test_staged_selected_cell_audit_is_explicit_and_machine_readable():
             "--staged-audit-cell", "45", "14", "17",
             "--staged-audit-cell", "46", "14", "17",
             "--staged-audit-output", "audit.npz",
-            "--staged-audit-explicit-ablation", "curvature-parallel-material",
+            "--staged-audit-explicit-ablation", "vorticity-advection-phi-current",
         )
     )
     assert args.staged_audit_cell == [[45, 14, 17], [46, 14, 17]]
     assert args.staged_audit_output == Path("audit.npz")
-    assert args.staged_audit_explicit_ablation == "curvature-parallel-material"
+    assert args.staged_audit_explicit_ablation == "vorticity-advection-phi-current"
     source = DRIVER.read_text(encoding="utf-8")
     assert "staged_explicit_term_audit_kernel" in source
     assert '"audit-explicit-term-lanes"' in source

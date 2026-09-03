@@ -64,7 +64,7 @@ Or start with the narrative walkthroughs in the **Tutorials** section:
 | Learn by doing, with every parameter explained | [Tutorials](tutorial_hasegawa_wakatani.md) |
 | Install, run the CLI, resume runs, and inspect outputs | [Installation](installation.md), [Native Runtime CLI](native_runtime_cli.md), [Input And Output Reference](input_output_reference.md) |
 | The governing equations of every shipped model | [Models And Equations](models_and_equations.md) |
-| The solvers and design decisions behind the code | [Solvers And Design](solvers_and_design.md), [Physics Models](physics_models.md), [Equation To Code Map](equation_to_code_map.md) |
+| The solvers and design decisions behind the code | [Solvers And Design](solvers_and_design.md), [Characteristic Wall Boundary Design](characteristic_wall_boundary_design.md), [Physics Models](physics_models.md), [Equation To Code Map](equation_to_code_map.md) |
 | Browse the example scripts | [Examples And Artifacts](examples.md) |
 | Understand validation status and figures | [Validation Gallery](validation_gallery.md), [Fluid 1D MMS Convergence](fluid_1d_mms_convergence.md) |
 | Work with stellarator, VMEC, imported field-line, and FCI geometry | [Stellarator Examples](stellarator_examples.md), [Connection Length](connection_length.md), [VMEC Extender Edge Fields](vmec_extender_edge_fields.md), [ESSOS Field-Line Import](essos_fieldline_import.md) |

@@ -93,6 +93,7 @@ from drbx.native import (  # noqa: E402
     LocalBoundaryFaceBC3D,
     LocalFciDrbEBPhysicalWallBundle,
     LocalFciDrbEBRhs,
+    PHYSICAL_WALL_MODEL_NAMES,
     LocalPeriodicTopologyRule3D,
     MetricAwarePhysicalGhostCellFiller3D,
     PhysicalGhostCellFiller3D,
@@ -104,6 +105,7 @@ from drbx.native import (  # noqa: E402
     build_local_fci_geometries,
     make_default_topology_halo_filler_3d,
     make_shard_mesh,
+    physical_wall_model_from_name,
 )
 from drbx.native.fci_angular_agglomeration import (  # noqa: E402
     RLP_PACKED_FIELD_COUNT,
@@ -2182,107 +2184,22 @@ def build_face_bc_bundle(
     parameters: FciDrbEBRhsParameters,
     *,
     parallel_velocity_wall_bc: str = "neumann",
+    physical_wall_model: str = "legacy-velocity-trace",
+    conducting_sheath_wall_potential: float | None = None,
 ) -> LocalFciDrbEBPhysicalWallBundle:
-    """Build the physical wall bundle on the wall-fitted chart sides."""
+    """Build one stage-local physical wall bundle.
 
-    if parallel_velocity_wall_bc not in (
-        "dirichlet-zero",
-        "neumann",
-        "bohm",
-    ):
-        raise ValueError(
-            "parallel_velocity_wall_bc must be 'dirichlet-zero', "
-            f"'neumann', or 'bohm', got {parallel_velocity_wall_bc!r}"
-        )
+    ``parallel_velocity_wall_bc`` is retained only for the historical
+    ``legacy-velocity-trace`` adapter. New wall rungs select a named physical
+    model and own the complete bundle.
+    """
 
-    empty = LocalBoundaryFaceBC3D.empty(geometry.layout)
-    mask_x = (
-        empty.mask_x.at[0]
-        .set(domain.runtime_has_physical_lower(0))
-        .at[-1]
-        .set(domain.runtime_has_physical_upper(0))
+    model = physical_wall_model_from_name(
+        physical_wall_model,
+        legacy_parallel_velocity_wall_bc=parallel_velocity_wall_bc,
+        conducting_sheath_wall_potential=conducting_sheath_wall_potential,
     )
-    mask_y = (
-        empty.mask_y.at[:, 0, :]
-        .set(domain.runtime_has_physical_lower(1))
-        .at[:, -1, :]
-        .set(domain.runtime_has_physical_upper(1))
-    )
-    neumann = replace(
-        empty,
-        kind_x=empty.kind_x.at[0].set(BC_NEUMANN).at[-1].set(BC_NEUMANN),
-        kind_y=(
-            empty.kind_y.at[:, 0, :]
-            .set(BC_NEUMANN)
-            .at[:, -1, :]
-            .set(BC_NEUMANN)
-        ),
-        mask_x=mask_x,
-        mask_y=mask_y,
-    )
-    dirichlet = replace(
-        empty,
-        kind_x=(
-            empty.kind_x.at[0].set(BC_DIRICHLET).at[-1].set(BC_DIRICHLET)
-        ),
-        kind_y=(
-            empty.kind_y.at[:, 0, :]
-            .set(BC_DIRICHLET)
-            .at[:, -1, :]
-            .set(BC_DIRICHLET)
-        ),
-        mask_x=mask_x,
-        mask_y=mask_y,
-    )
-    velocity_bc = dirichlet
-    if parallel_velocity_wall_bc == "neumann":
-        velocity_bc = neumann
-    elif parallel_velocity_wall_bc == "bohm":
-        tau = jnp.asarray(parameters.tau, dtype=jnp.float64)
-
-        def bohm_velocity(axis: int, side: str) -> jax.Array:
-            owner_index = 0 if side == "lower" else -1
-            Te_owner = jnp.take(state.Te, owner_index, axis=axis)
-            Ti_owner = jnp.take(state.Ti, owner_index, axis=axis)
-            sound_speed = jnp.sqrt(
-                jnp.maximum(Te_owner + tau * Ti_owner, 1.0e-12)
-            )
-            face_bfield = geometry.face_bfield.axes[axis]
-            face_index = 0 if side == "lower" else -1
-            B_normal = jnp.take(
-                face_bfield.B_contra_owned[..., axis],
-                face_index,
-                axis=axis,
-            )
-            outward_B_normal = (-1.0 if side == "lower" else 1.0) * B_normal
-            return jnp.where(
-                outward_B_normal > 0.0,
-                sound_speed,
-                jnp.where(outward_B_normal < 0.0, -sound_speed, 0.0),
-            )
-
-        velocity_bc = replace(
-            dirichlet,
-            value_x=(
-                dirichlet.value_x.at[0].set(bohm_velocity(0, "lower"))
-                .at[-1]
-                .set(bohm_velocity(0, "upper"))
-            ),
-            value_y=(
-                dirichlet.value_y.at[:, 0, :].set(bohm_velocity(1, "lower"))
-                .at[:, -1, :]
-                .set(bohm_velocity(1, "upper"))
-            ),
-        )
-    return LocalFciDrbEBPhysicalWallBundle(
-        density=neumann,
-        phi=dirichlet,
-        Te=neumann,
-        Ti=neumann,
-        Vi=velocity_bc,
-        Ve=velocity_bc,
-        vorticity=dirichlet,
-    )
+    return model(state, geometry, domain, parameters)
 
 
 def _wrapped_periodic_offset(
@@ -2830,6 +2747,8 @@ def build_local_eb_model(
     gmres_residual_correction_steps: int = 0,
     neumann_ghost_scheme: str = "physical",
     parallel_velocity_wall_bc: str = "neumann",
+    physical_wall_model: str = "legacy-velocity-trace",
+    conducting_sheath_wall_potential: float | None = None,
     parallel_operator_scheme: str = "coordinate",
     poisson_bracket_scheme: str = "direct",
     parallel_material_scheme: str | None = None,
@@ -2859,6 +2778,27 @@ def build_local_eb_model(
         raise ValueError(
             "parallel_velocity_wall_bc must be 'dirichlet-zero', "
             f"'neumann', or 'bohm', got {parallel_velocity_wall_bc!r}"
+        )
+    if physical_wall_model not in PHYSICAL_WALL_MODEL_NAMES:
+        raise ValueError(
+            f"physical_wall_model must be one of {PHYSICAL_WALL_MODEL_NAMES}, "
+            f"got {physical_wall_model!r}"
+        )
+    if (
+        physical_wall_model != "legacy-velocity-trace"
+        and parameters.parallel_characteristic_wall_law != "physical-boundary-state"
+    ):
+        raise ValueError(
+            "named physical wall models require "
+            "parallel_characteristic_wall_law='physical-boundary-state'"
+        )
+    if (
+        physical_wall_model == "legacy-velocity-trace"
+        and parameters.parallel_characteristic_wall_law == "physical-boundary-state"
+    ):
+        raise ValueError(
+            "parallel_characteristic_wall_law='physical-boundary-state' "
+            "requires a named physical wall model"
         )
     if poisson_bracket_scheme not in (
         "direct",
@@ -2959,6 +2899,8 @@ def build_local_eb_model(
             local_domain,
             local_parameters,
             parallel_velocity_wall_bc=parallel_velocity_wall_bc,
+            physical_wall_model=physical_wall_model,
+            conducting_sheath_wall_potential=conducting_sheath_wall_potential,
         )
 
     rhs_kwargs = dict(
@@ -3539,6 +3481,8 @@ def run_full_eb(
     reconstruct_initial_phi: bool = True,
     neumann_ghost_scheme: str = "physical",
     parallel_velocity_wall_bc: str = "neumann",
+    physical_wall_model: str = "legacy-velocity-trace",
+    conducting_sheath_wall_potential: float | None = None,
     parallel_operator_scheme: str = "coordinate",
     poisson_bracket_scheme: str = "direct",
     parallel_material_scheme: str | None = None,
@@ -3596,13 +3540,17 @@ def run_full_eb(
     if staged_audit_explicit_ablation not in (
         "none",
         "phi-current-pair",
+        "vorticity-parallel-advection",
+        "vorticity-advection-phi-current",
         "curvature",
         "parallel-material",
         "curvature-parallel-material",
     ):
         raise ValueError(
             "staged_audit_explicit_ablation must be 'none', "
-            "'phi-current-pair', 'curvature', 'parallel-material', or "
+            "'phi-current-pair', 'vorticity-parallel-advection', "
+            "'vorticity-advection-phi-current', 'curvature', "
+            "'parallel-material', or "
             "'curvature-parallel-material'"
         )
     if staged_audit_explicit_ablation != "none" and not staged_audit_cells:
@@ -3615,6 +3563,27 @@ def run_full_eb(
         )
     if history_dtype not in ("float32", "float64"):
         raise ValueError("history_dtype must be 'float32' or 'float64'")
+    if physical_wall_model not in PHYSICAL_WALL_MODEL_NAMES:
+        raise ValueError(
+            f"physical_wall_model must be one of {PHYSICAL_WALL_MODEL_NAMES}, "
+            f"got {physical_wall_model!r}"
+        )
+    if (
+        physical_wall_model != "legacy-velocity-trace"
+        and parameters.parallel_characteristic_wall_law != "physical-boundary-state"
+    ):
+        raise ValueError(
+            "named physical wall models require "
+            "parallel_characteristic_wall_law='physical-boundary-state'"
+        )
+    if (
+        physical_wall_model == "legacy-velocity-trace"
+        and parameters.parallel_characteristic_wall_law == "physical-boundary-state"
+    ):
+        raise ValueError(
+            "parallel_characteristic_wall_law='physical-boundary-state' "
+            "requires a named physical wall model"
+        )
     if frozen_diagnostic is not None:
         if not isinstance(frozen_diagnostic, FrozenEbDiagnosticRequest):
             raise TypeError(
@@ -3958,6 +3927,8 @@ def run_full_eb(
             ),
             neumann_ghost_scheme=neumann_ghost_scheme,
             parallel_velocity_wall_bc=parallel_velocity_wall_bc,
+            physical_wall_model=physical_wall_model,
+            conducting_sheath_wall_potential=conducting_sheath_wall_potential,
             parallel_operator_scheme=parallel_operator_scheme,
             parallel_material_scheme=parallel_material_scheme,
             poisson_bracket_scheme=poisson_bracket_scheme,
@@ -5065,7 +5036,32 @@ def run_full_eb(
                     return_rhs_term_fields=True,
                     short_leg_selection_dt=selection_dt,
                 )
-                if staged_audit_explicit_ablation == "phi-current-pair":
+                if staged_audit_explicit_ablation in (
+                    "phi-current-pair",
+                    "vorticity-advection-phi-current",
+                ):
+                    vorticity_rhs = (
+                        rhs.vorticity
+                        - term_fields[
+                            RHS_TERM_FIELD_NAMES.index("vorticity"),
+                            RHS_TERM_NAMES[
+                                RHS_TERM_FIELD_NAMES.index("vorticity")
+                            ].index("parallel_current"),
+                        ]
+                    )
+                    if (
+                        staged_audit_explicit_ablation
+                        == "vorticity-advection-phi-current"
+                    ):
+                        vorticity_rhs = (
+                            vorticity_rhs
+                            - term_fields[
+                                RHS_TERM_FIELD_NAMES.index("vorticity"),
+                                RHS_TERM_NAMES[
+                                    RHS_TERM_FIELD_NAMES.index("vorticity")
+                                ].index("parallel_advection"),
+                            ]
+                        )
                     rhs = rhs.replace(
                         Ve=(
                             rhs.Ve
@@ -5076,15 +5072,7 @@ def run_full_eb(
                                 ].index("electrostatic"),
                             ]
                         ),
-                        vorticity=(
-                            rhs.vorticity
-                            - term_fields[
-                                RHS_TERM_FIELD_NAMES.index("vorticity"),
-                                RHS_TERM_NAMES[
-                                    RHS_TERM_FIELD_NAMES.index("vorticity")
-                                ].index("parallel_current"),
-                            ]
-                        ),
+                        vorticity=vorticity_rhs,
                     )
                 else:
                     def audit_term(field_name: str, term_name: str):
@@ -5103,6 +5091,10 @@ def run_full_eb(
                             "curvature-parallel-material",
                         )
                     )
+                    remove_vorticity_parallel_advection = (
+                        staged_audit_explicit_ablation
+                        == "vorticity-parallel-advection"
+                    )
                     density_rhs = rhs.density
                     Te_rhs = rhs.Te
                     Ti_rhs = rhs.Ti
@@ -5117,6 +5109,10 @@ def run_full_eb(
                         Ti_rhs = Ti_rhs - audit_term("Ti", "curvature")
                         vorticity_rhs = vorticity_rhs - audit_term(
                             "vorticity", "curvature"
+                        )
+                    if remove_vorticity_parallel_advection:
+                        vorticity_rhs = vorticity_rhs - audit_term(
+                            "vorticity", "parallel_advection"
                         )
                     if remove_parallel_material:
                         for field_name, term_name in (
@@ -5320,6 +5316,7 @@ def run_full_eb(
         )
         staged_audit_select_state = None
         staged_audit_explicit_terms = None
+        staged_audit_wall_current = None
         if staged_audit_cells:
             audit_indices = np.asarray(staged_audit_cells, dtype=np.int32)
             audit_u = jnp.asarray(audit_indices[:, 0], dtype=jnp.int32)
@@ -5428,6 +5425,79 @@ def run_full_eb(
                 control_volume_fields,
                 jnp.asarray(float(timestep), dtype=jnp.float64),
             )
+
+            def staged_wall_current_audit_kernel(
+                local_state: FciDrbEBState,
+                cell_fields_owned: jax.Array,
+                map_fields_owned: jax.Array,
+                control_volume_fields_owned: jax.Array,
+                selection_dt: jax.Array,
+            ):
+                model = build_local_model(
+                    cell_fields_owned,
+                    map_fields_owned,
+                    control_volume_fields_owned,
+                )
+                (
+                    raw_states,
+                    effective_states,
+                    currents,
+                    particle_fluxes,
+                    metadata,
+                    current_divergences,
+                    leg_lengths,
+                ) = model.parallel_wall_current_diagnostics(
+                    local_state,
+                    phi_owned=local_state.phi,
+                    selection_dt=selection_dt,
+                )
+
+                def select_directional(values):
+                    return jnp.transpose(
+                        values[:, :, audit_u, audit_theta, audit_eta],
+                        (2, 1, 0),
+                    )
+
+                return (
+                    select_directional(raw_states),
+                    select_directional(effective_states),
+                    select_directional(currents),
+                    select_directional(particle_fluxes),
+                    select_directional(metadata),
+                    jnp.transpose(
+                        current_divergences[
+                            :, audit_u, audit_theta, audit_eta
+                        ],
+                        (1, 0),
+                    ),
+                    jnp.transpose(
+                        leg_lengths[:, audit_u, audit_theta, audit_eta],
+                        (1, 0),
+                    ),
+                )
+
+            staged_wall_current_audit_sharded = jax.shard_map(
+                staged_wall_current_audit_kernel,
+                mesh=mesh,
+                in_specs=(
+                    state_spec,
+                    geometry_spec,
+                    geometry_spec,
+                    geometry_spec,
+                    scalar_spec,
+                ),
+                out_specs=(replicated_spec,) * 7,
+                check_vma=False,
+            )
+            staged_audit_wall_current = compile_staged_kernel(
+                "audit-wall-current",
+                staged_wall_current_audit_sharded,
+                state,
+                cell_fields,
+                map_fields,
+                control_volume_fields,
+                jnp.asarray(float(timestep), dtype=jnp.float64),
+            )
         print(
             "[simulation] compiled staged IMEX kernels (implicit+phi, "
             "explicit, phi, diagnostics) in "
@@ -5481,6 +5551,7 @@ def run_full_eb(
             )
             explicit_probe_1 = term_fields_1 = curvature_components_1 = None
             parallel_material_components_1 = None
+            wall_current_1 = None
             if audit_active:
                 (
                     explicit_probe_1,
@@ -5495,6 +5566,13 @@ def run_full_eb(
                         control_volume_fields_owned,
                         dt_dynamic,
                     )
+                wall_current_1 = staged_audit_wall_current(
+                    stage_1,
+                    cell_fields_owned,
+                    map_fields_owned,
+                    control_volume_fields_owned,
+                    dt_dynamic,
+                )
             stage_2_base_before_phi = current.axpy(
                 explicit_1, scale=dt_dynamic
             ).axpy(
@@ -5529,6 +5607,7 @@ def run_full_eb(
             )
             explicit_probe_2 = term_fields_2 = curvature_components_2 = None
             parallel_material_components_2 = None
+            wall_current_2 = None
             if audit_active:
                 (
                     explicit_probe_2,
@@ -5543,6 +5622,13 @@ def run_full_eb(
                         control_volume_fields_owned,
                         dt_dynamic,
                     )
+                wall_current_2 = staged_audit_wall_current(
+                    stage_2,
+                    cell_fields_owned,
+                    map_fields_owned,
+                    control_volume_fields_owned,
+                    dt_dynamic,
+                )
             weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
                 implicit_1, scale=1.0
             ).axpy(implicit_2, scale=1.0).map_fields(
@@ -5598,6 +5684,8 @@ def run_full_eb(
                         curvature_components_2,
                         parallel_material_components_1,
                         parallel_material_components_2,
+                        wall_current_1,
+                        wall_current_2,
                     )
                 )
                 staged_audit_records.append(
@@ -5646,6 +5734,18 @@ def run_full_eb(
                                 ),
                             ),
                             axis=0,
+                        ),
+                        "wall_current_values": tuple(
+                            np.stack(
+                                (
+                                    np.asarray(first, dtype=np.float64),
+                                    np.asarray(second, dtype=np.float64),
+                                ),
+                                axis=0,
+                            )
+                            for first, second in zip(
+                                wall_current_1, wall_current_2, strict=True
+                            )
                         ),
                         "gmres_stage_diagnostics": np.stack(
                             tuple(
@@ -6791,6 +6891,14 @@ def run_full_eb(
             ),
             axis=0,
         )
+        wall_current_values = tuple(
+            np.stack(
+                tuple(record["wall_current_values"][index]
+                      for record in staged_audit_records),
+                axis=0,
+            )
+            for index in range(7)
+        )
         gmres_stage_diagnostics = np.stack(
             tuple(
                 record["gmres_stage_diagnostics"]
@@ -6822,7 +6930,10 @@ def run_full_eb(
             axis=1,
         )
         explicit_ablation_values = np.zeros_like(explicit_probe_rhs)
-        if staged_audit_explicit_ablation == "phi-current-pair":
+        if staged_audit_explicit_ablation in (
+            "phi-current-pair",
+            "vorticity-advection-phi-current",
+        ):
             for field_name, term_name in (
                 ("Ve", "electrostatic"),
                 ("vorticity", "parallel_current"),
@@ -6832,7 +6943,18 @@ def run_full_eb(
                 explicit_ablation_values[..., field_index] = (
                     explicit_term_values[..., field_index, term_index]
                 )
-        elif staged_audit_explicit_ablation in (
+        if staged_audit_explicit_ablation in (
+            "vorticity-parallel-advection",
+            "vorticity-advection-phi-current",
+        ):
+            field_index = RHS_TERM_FIELD_NAMES.index("vorticity")
+            term_index = RHS_TERM_NAMES[field_index].index(
+                "parallel_advection"
+            )
+            explicit_ablation_values[..., field_index] += (
+                explicit_term_values[..., field_index, term_index]
+            )
+        if staged_audit_explicit_ablation in (
             "curvature", "curvature-parallel-material"
         ):
             for field_name in ("density", "Te", "Ti", "vorticity"):
@@ -7003,6 +7125,51 @@ def run_full_eb(
             parallel_material_component_closure=(
                 parallel_material_component_closure
             ),
+            wall_current_stage_names_json=np.asarray(
+                json.dumps(("stage_1", "stage_2"))
+            ),
+            wall_current_direction_names_json=np.asarray(
+                json.dumps(("backward", "forward"))
+            ),
+            wall_current_state_field_names_json=np.asarray(
+                json.dumps(("density", "Te", "Ti", "Vi", "Ve"))
+            ),
+            wall_current_channel_names_json=np.asarray(
+                json.dumps(
+                    (
+                        "owner",
+                        "raw_wall",
+                        "effective_nonlinear",
+                        "effective_linearized",
+                        "exported_sat",
+                        "material_owner_rate",
+                    )
+                )
+            ),
+            wall_current_particle_flux_names_json=np.asarray(
+                json.dumps(("ion", "electron"))
+            ),
+            wall_current_metadata_names_json=np.asarray(
+                json.dumps(("wall", "incoming_count", "cfl", "selected"))
+            ),
+            wall_current_divergence_names_json=np.asarray(
+                json.dumps(
+                    (
+                        "homogeneous",
+                        "affine",
+                        "total",
+                        "effective_nonlinear_total",
+                        "effective_linearized_total",
+                    )
+                )
+            ),
+            wall_current_raw_endpoint_states=wall_current_values[0],
+            wall_current_effective_face_states=wall_current_values[1],
+            wall_current_channels=wall_current_values[2],
+            wall_current_particle_fluxes=wall_current_values[3],
+            wall_current_metadata=wall_current_values[4],
+            wall_current_divergences=wall_current_values[5],
+            wall_current_leg_lengths=wall_current_values[6],
             explicit_ablation=np.asarray(staged_audit_explicit_ablation),
             explicit_ablation_values=explicit_ablation_values,
             gmres_stage_diagnostics=gmres_stage_diagnostics,
@@ -7068,6 +7235,17 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
     """Validate native production/diagnostic selectors before compilation."""
 
     framework = str(args.flux_framework)
+    if args.physical_wall_model != "legacy-velocity-trace":
+        if args.parallel_characteristic_wall_law != "physical-boundary-state":
+            raise ValueError(
+                "named physical wall models require "
+                "--parallel-characteristic-wall-law physical-boundary-state"
+            )
+        if args.parallel_velocity_wall_bc != "neumann":
+            raise ValueError(
+                "--parallel-velocity-wall-bc is only valid with "
+                "--physical-wall-model legacy-velocity-trace"
+            )
     if args.parallel_short_leg_selection == "all-physical-walls":
         if args.parallel_short_leg_treatment != "local-backward-euler":
             raise ValueError(
@@ -7459,11 +7637,33 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--physical-wall-model",
+        choices=PHYSICAL_WALL_MODEL_NAMES,
+        default="legacy-velocity-trace",
+        help=(
+            "Physical wall bundle model. 'no-flow' supplies Vi=Ve=0; "
+            "'simple-conducting-sheath' supplies the grounded conducting-sheath "
+            "trace with warm-ion Bohm outflow and electron saturation response. "
+            "Named models require the physical-boundary-state characteristic law. "
+            "The legacy adapter preserves --parallel-velocity-wall-bc for old runs."
+        ),
+    )
+    parser.add_argument(
+        "--conducting-sheath-wall-potential",
+        type=float,
+        default=None,
+        help=(
+            "Grounded/simple conducting-sheath wall potential in normalized "
+            "phi units; None uses the wall-model default."
+        ),
+    )
+    parser.add_argument(
         "--parallel-velocity-wall-bc",
         choices=("dirichlet-zero", "neumann", "bohm"),
         default="neumann",
         help=(
-            "Primitive Vi/Ve condition on physical vessel faces. "
+            "Legacy primitive Vi/Ve condition on physical vessel faces, "
+            "used only with --physical-wall-model legacy-velocity-trace. "
             "'dirichlet-zero' supplies Vi=Ve=0 primitive face traces; "
             "'neumann' extrapolates both parallel velocities; 'bohm' sets "
             "outward Vi=Ve=sign(B.n)*sqrt(Te+tau*Ti), a zero-current "
@@ -7658,6 +7858,8 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=(
             "none",
             "phi-current-pair",
+            "vorticity-parallel-advection",
+            "vorticity-advection-phi-current",
             "curvature",
             "parallel-material",
             "curvature-parallel-material",
@@ -7666,7 +7868,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Diagnostic-only paired explicit-term ablation for a selected-cell "
             "staged audit. 'phi-current-pair' removes electron electrostatic "
-            "force together with vorticity current divergence; 'curvature' "
+            "force together with vorticity current divergence; "
+            "'vorticity-parallel-advection' removes only parallel vorticity "
+            "advection; 'vorticity-advection-phi-current' removes it together "
+            "with the electrostatic/current pair; 'curvature' "
             "removes the curvature lanes from density, Te, Ti, and vorticity; "
             "'parallel-material' removes the complete five-field production "
             "parallel-material residual; the combined choice removes both."
@@ -7946,6 +8151,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "parallel_velocities=cell-centered; "
         f"parallel_flux_pairing={args.parallel_flux_pairing}; "
         f"parallel_characteristic_wall_law={args.parallel_characteristic_wall_law}; "
+        f"physical_wall_model={args.physical_wall_model}; "
         "parallel_boundary_pairing="
         f"{os.environ['DRBX_PARALLEL_BOUNDARY_PAIRING']}; "
         f"parallel_short_leg_treatment={args.parallel_short_leg_treatment}; "
@@ -8612,6 +8818,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         flush=True,
     )
     print(
+        "[simulation] physical wall model: "
+        f"{str(args.physical_wall_model)} ("
+        f"{'production-rung2-simple-conducting-sheath' if args.physical_wall_model == 'simple-conducting-sheath' else 'no-flow' if args.physical_wall_model == 'no-flow' else 'legacy'}"
+        ")",
+        flush=True,
+    )
+    print(
         "[simulation] parallel velocity wall BC: "
         f"{str(args.parallel_velocity_wall_bc)}",
         flush=True,
@@ -8835,6 +9048,19 @@ def main(argv: Sequence[str] | None = None) -> None:
                 else "full-grid"
             ),
             "neumann_ghost_scheme": str(args.neumann_ghost_scheme),
+            "physical_wall_model": str(args.physical_wall_model),
+            "conducting_sheath_wall_potential": (
+                None
+                if args.conducting_sheath_wall_potential is None
+                else float(args.conducting_sheath_wall_potential)
+            ),
+            "physical_wall_model_provenance": (
+                "production-rung2-simple-conducting-sheath"
+                if args.physical_wall_model == "simple-conducting-sheath"
+                else "no-flow-rung1"
+                if args.physical_wall_model == "no-flow"
+                else "legacy-compatibility"
+            ),
             "parallel_velocity_wall_bc": str(
                 args.parallel_velocity_wall_bc
             ),
@@ -8912,6 +9138,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         reconstruct_initial_phi=not restart_used,
         neumann_ghost_scheme=str(args.neumann_ghost_scheme),
         parallel_velocity_wall_bc=str(args.parallel_velocity_wall_bc),
+        physical_wall_model=str(args.physical_wall_model),
+        conducting_sheath_wall_potential=(
+            None
+            if args.conducting_sheath_wall_potential is None
+            else float(args.conducting_sheath_wall_potential)
+        ),
         poisson_bracket_scheme=str(args.poisson_bracket_scheme),
         parallel_material_scheme=(
             "production-path"
