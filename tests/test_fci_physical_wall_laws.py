@@ -17,6 +17,7 @@ from drbx.native.fci_physical_wall import (
     PHYSICAL_WALL_MODEL_NAMES,
     SimpleConductingSheathPhysicalWallModel,
     physical_wall_model_from_name,
+    resolve_fci_material_wall_endpoint_state,
 )
 
 jax.config.update("jax_enable_x64", True)
@@ -219,3 +220,55 @@ def test_inverse_sheath_exponential_is_not_clipped():
     # A negative sheath drop is not clipped to zero; the electron speed is
     # correspondingly larger than the equilibrium value.
     assert float(bundle.Ve.value_x[-1][0, 0]) > np.sqrt(6.0)
+
+
+def test_endpoint_native_sheath_selects_branch_after_interpolating_b_normal():
+    """Regression for the HSX theta=34 wrong-sign wall target."""
+
+    plasma = jnp.asarray([[1.0, 1.0, 1.0, 0.0, 0.0]])
+    parameters = SimpleNamespace(Te0=1.0, Ti0=1.0, tau=1.0, mi_over_me=1836.0)
+    resolved = resolve_fci_material_wall_endpoint_state(
+        "simple-conducting-sheath",
+        plasma,
+        jnp.asarray([0.0]),
+        # Continuous MetricEvaluator result at the traced backward endpoint.
+        # It is not recoverable accurately by interpolating the coarse
+        # coordinate-face samples below.
+        jnp.asarray([-0.28590450084598473]),
+        jnp.asarray([0.8775673487952317]),
+        parameters,
+    )
+    np.testing.assert_allclose(resolved[0, 3], -np.sqrt(2.0), rtol=1e-13)
+    np.testing.assert_allclose(resolved[0, 4], -np.sqrt(2.0), rtol=1e-13)
+    assert float((-0.28590450084598473) * resolved[0, 3]) > 0.0
+
+    # Evaluating sign(B.n)*cs on the four regular wall nodes first and then
+    # interpolating gives +1.30463: a convex mixture dominated by the wrong
+    # wall branch.  Even interpolating B itself gives +0.05123, also the wrong
+    # sign compared with the continuous endpoint evaluation above.
+    weights = np.asarray(
+        [0.25268600122069357, 0.6944722707003752,
+         0.014097290137977177, 0.038744437940954106]
+    )
+    nodal_b = np.asarray(
+        [0.10622818693644548, 0.046367322079636265,
+         0.1359753339941373, -0.25108642634927064]
+    )
+    old_target = np.sum(weights * np.sign(nodal_b) * np.sqrt(2.0))
+    np.testing.assert_allclose(old_target, 1.3046277431678552, rtol=1e-13)
+    assert float(np.sum(weights * nodal_b)) > 0.0
+    assert old_target * (-0.28590450084598473) < 0.0
+
+
+def test_endpoint_native_no_flow_commutes_with_interpolation():
+    plasma = jnp.asarray([[1.2, 0.9, 1.1, 3.0, -4.0]])
+    resolved = resolve_fci_material_wall_endpoint_state(
+        "no-flow",
+        plasma,
+        jnp.asarray([0.2]),
+        jnp.asarray([-0.4]),
+        jnp.asarray([1.3]),
+        SimpleNamespace(tau=1.0, mi_over_me=1836.0),
+    )
+    np.testing.assert_allclose(resolved[0, :3], plasma[0, :3])
+    np.testing.assert_allclose(resolved[0, 3:], 0.0)

@@ -427,6 +427,107 @@ class SimpleConductingSheathPhysicalWallModel:
         )
 
 
+def resolve_fci_material_wall_endpoint_state(
+    physical_wall_model: str,
+    plasma_state: jax.Array,
+    plasma_phi: jax.Array,
+    endpoint_b_contra_x: jax.Array,
+    endpoint_bmag: jax.Array,
+    parameters: FciDrbEBRhsParameters,
+    *,
+    conducting_sheath_wall_potential: float | None = None,
+) -> jax.Array:
+    """Evaluate a physical material wall law at an actual FCI endpoint.
+
+    ``plasma_state`` is the interpolated plasma-side primitive trace ordered
+    as ``(n, Te, Ti, Vi, Ve)``.  The magnetic field is the continuous field
+    retained by the tracer at that same endpoint.  Keeping this order is
+    essential for branch-dependent sheath laws: interpolating a precomputed
+    ``sign(B.n)`` target can reverse the endpoint-normal particle flux.
+
+    The present computational wall is the upper logical-u surface, so the
+    outward-normal orientation is the sign of contravariant ``B^u``.  Storing
+    the complete endpoint field leaves the contract ready for a physical-wall
+    normal in the magnetic-presheath rung.
+    """
+
+    plasma_state = jnp.asarray(plasma_state, dtype=jnp.float64)
+    plasma_phi = jnp.asarray(plasma_phi, dtype=jnp.float64)
+    endpoint_b_contra_x = jnp.asarray(endpoint_b_contra_x, dtype=jnp.float64)
+    endpoint_bmag = jnp.asarray(endpoint_bmag, dtype=jnp.float64)
+    if plasma_state.shape[-1:] != (5,):
+        raise ValueError(
+            "plasma_state must have final dimension 5 ordered as "
+            "(density, Te, Ti, Vi, Ve)"
+        )
+    expected = plasma_state.shape[:-1]
+    for name, value in (
+        ("plasma_phi", plasma_phi),
+        ("endpoint_b_contra_x", endpoint_b_contra_x),
+        ("endpoint_bmag", endpoint_bmag),
+    ):
+        if value.shape != expected:
+            raise ValueError(
+                f"{name} must have shape {expected}, got {value.shape}"
+            )
+
+    density, Te, Ti, Vi_owner, Ve_owner = (
+        plasma_state[..., index] for index in range(5)
+    )
+    _require_positive_thermodynamics(density, Te, Ti)
+    if physical_wall_model == "no-flow":
+        return plasma_state.at[..., 3].set(0.0).at[..., 4].set(0.0)
+    if physical_wall_model != "simple-conducting-sheath":
+        raise ValueError(
+            "endpoint-native FCI wall evaluation requires 'no-flow' or "
+            f"'simple-conducting-sheath', got {physical_wall_model!r}"
+        )
+
+    tau = jnp.asarray(_parameter_value(parameters, ("tau",), 1.0), dtype=Te.dtype)
+    mu = jnp.asarray(
+        _parameter_value(parameters, ("mi_over_me", "mu"), 1836.0),
+        dtype=Te.dtype,
+    )
+    # Scale the zero guard by |B| rather than by a fixed field magnitude.  This
+    # is only a robust sign/grazing guard for the present logical-u wall; a
+    # physical incidence angle for the magnetic-presheath rung also requires
+    # the endpoint metric or a stored physical unit normal.  A wall hit with
+    # missing endpoint field data is invalid rather than silently falling back
+    # to an interpolated grid-face branch.
+    valid_geometry = (
+        jnp.isfinite(endpoint_b_contra_x)
+        & jnp.isfinite(endpoint_bmag)
+        & (endpoint_bmag > 0.0)
+    )
+    normalized_normal = endpoint_b_contra_x / jnp.maximum(endpoint_bmag, 1.0e-30)
+    grazing = jnp.abs(normalized_normal) <= 1.0e-12
+    sigma = jnp.where(normalized_normal > 0.0, 1.0, -1.0)
+
+    c_b = jnp.sqrt(Te + tau * Ti)
+    ion_target = sigma * jnp.maximum(c_b, sigma * Vi_owner)
+    wall_potential = (
+        _default_sheath_wall_potential(parameters, Te.dtype)
+        if conducting_sheath_wall_potential is None
+        else jnp.asarray(conducting_sheath_wall_potential, dtype=Te.dtype)
+    )
+    eta = (plasma_phi - wall_potential) / Te
+    electron_target = (
+        sigma
+        * jnp.sqrt(mu * Te / (2.0 * jnp.pi))
+        * jnp.exp(-eta)
+    )
+    ion_target = jnp.where(grazing, Vi_owner, ion_target)
+    electron_target = jnp.where(grazing, Ve_owner, electron_target)
+    result = (
+        plasma_state.at[..., 3]
+        .set(ion_target)
+        .at[..., 4]
+        .set(electron_target)
+    )
+    result = jnp.where(valid_geometry[..., None], result, jnp.nan)
+    return result
+
+
 def physical_wall_model_from_name(
     name: str,
     *,
@@ -457,5 +558,6 @@ __all__ = [
     "NoFlowPhysicalWallModel",
     "PHYSICAL_WALL_MODEL_NAMES",
     "SimpleConductingSheathPhysicalWallModel",
+    "resolve_fci_material_wall_endpoint_state",
     "physical_wall_model_from_name",
 ]
