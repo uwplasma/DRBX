@@ -875,6 +875,9 @@ class LocalFciDrbEBRhs:
     # D(Uq)-qD(U), the production third-order bulk stencil, and first-order
     # wall/RLP fallbacks without a tunable penalty. ``direct`` preserves the
     # reconstructed cell-gradient path.
+    # ``material-scalar-vorticity-compatible-upwind`` keeps pure scalar
+    # upwinding for the five material equations and applies the compatible
+    # core plus the same physical-generator correction only to vorticity.
     poisson_bracket_scheme: str = "direct"
     # Select the parallel operator family.  This is intentionally a static
     # Python option so JIT compilation cannot silently mix coordinate and FCI
@@ -954,11 +957,13 @@ class LocalFciDrbEBRhs:
             "compatible-flux",
             "compatible-third-order-upwind",
             "material-scalar-third-order-upwind",
+            "material-scalar-vorticity-compatible-upwind",
         ):
             raise ValueError(
                 "poisson_bracket_scheme must be 'direct', 'compatible-flux', "
                 "'compatible-third-order-upwind', or "
-                "'material-scalar-third-order-upwind', got "
+                "'material-scalar-third-order-upwind', or "
+                "'material-scalar-vorticity-compatible-upwind', got "
                 f"{self.poisson_bracket_scheme!r}"
             )
         has_cv = self.control_volume_geometry is not None
@@ -997,6 +1002,7 @@ class LocalFciDrbEBRhs:
                 "compatible-flux",
                 "compatible-third-order-upwind",
                 "material-scalar-third-order-upwind",
+                "material-scalar-vorticity-compatible-upwind",
             ):
                 raise ValueError(
                     "projected-owner RLP requires "
@@ -1197,7 +1203,21 @@ class LocalFciDrbEBRhs:
             "compatible-flux",
             "compatible-third-order-upwind",
             "material-scalar-third-order-upwind",
+            "material-scalar-vorticity-compatible-upwind",
         ):
+            if self.poisson_bracket_scheme == "compatible-flux":
+                characteristic_scheme = "centered"
+            elif self.poisson_bracket_scheme == "compatible-third-order-upwind":
+                characteristic_scheme = "compatible-third-order-upwind"
+            elif equation_family == "vorticity":
+                characteristic_scheme = (
+                    "compatible-third-order-upwind"
+                    if self.poisson_bracket_scheme
+                    == "material-scalar-vorticity-compatible-upwind"
+                    else "centered"
+                )
+            else:
+                characteristic_scheme = "scalar-third-order-upwind"
             return local_poisson_bracket_compatible_flux_op(
                 f_conservative_stencil,
                 g_conservative_stencil,
@@ -1206,19 +1226,7 @@ class LocalFciDrbEBRhs:
                 axis_regular_axes=self.axis_regular_axes,
                 f_boundary_trace=f_boundary_trace,
                 g_boundary_trace=g_boundary_trace,
-                characteristic_scheme=(
-                    (
-                        "centered"
-                        if equation_family == "vorticity"
-                        else "scalar-third-order-upwind"
-                    )
-                    if self.poisson_bracket_scheme
-                    == "material-scalar-third-order-upwind"
-                    else "third-order-upwind"
-                    if self.poisson_bracket_scheme
-                    == "compatible-third-order-upwind"
-                    else "centered"
-                ),
+                characteristic_scheme=characteristic_scheme,
                 g_field_halo=g_field_halo,
                 g_positivity_floor=g_positivity_floor,
             )
