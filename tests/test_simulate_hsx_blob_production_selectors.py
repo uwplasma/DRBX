@@ -149,6 +149,9 @@ def test_parser_production_selector_contract():
         if action.dest == "poisson_bracket_scheme"
     )
     assert "compatible-third-order-upwind" in tuple(poisson_action.choices)
+    assert "material-scalar-vorticity-compatible-upwind" in tuple(
+        poisson_action.choices
+    )
 
 
 def test_production_accepts_characteristic_poisson_bracket():
@@ -157,6 +160,16 @@ def test_production_accepts_characteristic_poisson_bracket():
         driver,
         "--poisson-bracket-scheme",
         "compatible-third-order-upwind",
+    )
+    driver._validate_flux_framework(args)
+
+
+def test_production_accepts_split_material_and_vorticity_upwind_bracket():
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--poisson-bracket-scheme",
+        "material-scalar-vorticity-compatible-upwind",
     )
     driver._validate_flux_framework(args)
 

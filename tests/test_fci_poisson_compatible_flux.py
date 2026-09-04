@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 from dataclasses import replace
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -24,6 +25,8 @@ from drbx.native.fci_boundaries import (  # noqa: E402
     FaceFluxStencil3D,
     LocalBoundaryFaceTrace3D,
 )
+import drbx.native.fci_drb_EB_rhs as rhs_module  # noqa: E402
+from drbx.native.fci_drb_EB_rhs import LocalFciDrbEBRhs  # noqa: E402
 from drbx.native.fci_operators import (  # noqa: E402
     _compatible_characteristic_regular_flux,
     _compatible_flux_divergence,
@@ -358,6 +361,97 @@ def test_third_order_characteristic_correction_damps_periodic_fourier_modes():
         )
     assert min(productions) >= -1.0e-12
     assert productions[-1] > 0.0
+
+
+def test_compatible_upwind_is_exact_centered_core_plus_physical_correction():
+    """The upwind completion must not add the reverse-generator action."""
+
+    geometry, domain, context, f, g = _polar_pair(shape=(6, 16, 4))
+    f_stencil = _conservative(f, geometry, context)
+    g_stencil = _conservative(g, geometry, context)
+    kwargs = dict(
+        domain=domain,
+        axis_regular_axes=(True, False, False),
+    )
+    compatible_centered = local_poisson_bracket_compatible_flux_op(
+        f_stencil, g_stencil, geometry, characteristic_scheme="centered", **kwargs
+    )
+    scalar_centered = local_poisson_bracket_compatible_flux_op(
+        f_stencil,
+        g_stencil,
+        geometry,
+        characteristic_scheme="scalar-centered",
+        **kwargs,
+    )
+    scalar_upwind = local_poisson_bracket_compatible_flux_op(
+        f_stencil,
+        g_stencil,
+        geometry,
+        characteristic_scheme="scalar-third-order-upwind",
+        g_field_halo=g,
+        **kwargs,
+    )
+    compatible_upwind = local_poisson_bracket_compatible_flux_op(
+        f_stencil,
+        g_stencil,
+        geometry,
+        characteristic_scheme="compatible-third-order-upwind",
+        g_field_halo=g,
+        **kwargs,
+    )
+
+    np.testing.assert_allclose(
+        compatible_upwind,
+        compatible_centered + scalar_upwind - scalar_centered,
+        atol=2.0e-13,
+        rtol=2.0e-13,
+    )
+
+
+def test_compatible_upwind_preserves_constant_advected_state():
+    geometry, domain, context, f, _ = _polar_pair(shape=(6, 16, 4))
+    constant = jnp.ones_like(f)
+    result = local_poisson_bracket_compatible_flux_op(
+        _conservative(f, geometry, context),
+        _conservative(constant, geometry, context),
+        geometry,
+        domain=domain,
+        axis_regular_axes=(True, False, False),
+        characteristic_scheme="compatible-third-order-upwind",
+        g_field_halo=constant,
+    )
+    np.testing.assert_allclose(result, 0.0, atol=2.0e-13, rtol=0.0)
+
+
+def test_split_system_selector_routes_material_and_vorticity_differently(
+    monkeypatch,
+):
+    calls = []
+
+    def fake_operator(*args, **kwargs):
+        calls.append(kwargs["characteristic_scheme"])
+        return kwargs["characteristic_scheme"]
+
+    monkeypatch.setattr(
+        rhs_module, "local_poisson_bracket_compatible_flux_op", fake_operator
+    )
+    model = SimpleNamespace(
+        poisson_bracket_scheme="material-scalar-vorticity-compatible-upwind",
+        geometry=object(),
+        domain=object(),
+        axis_regular_axes=(True, False, False),
+    )
+    common = (None, None, None, None)
+    material = LocalFciDrbEBRhs._poisson_bracket_over_B(
+        model, *common, g_field_halo=object(), equation_family="material"
+    )
+    vorticity = LocalFciDrbEBRhs._poisson_bracket_over_B(
+        model, *common, g_field_halo=object(), equation_family="vorticity"
+    )
+
+    assert material == "scalar-third-order-upwind"
+    assert vorticity == "compatible-third-order-upwind"
+    assert calls == ["scalar-third-order-upwind", "compatible-third-order-upwind"]
 
 
 def test_third_order_characteristic_scheme_validates_halo_and_selector():

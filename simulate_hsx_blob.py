@@ -2838,11 +2838,13 @@ def build_local_eb_model(
         "compatible-flux",
         "compatible-third-order-upwind",
         "material-scalar-third-order-upwind",
+        "material-scalar-vorticity-compatible-upwind",
     ):
         raise ValueError(
             "poisson_bracket_scheme must be 'direct', 'compatible-flux', or "
             "'compatible-third-order-upwind', or "
-            "'material-scalar-third-order-upwind', "
+            "'material-scalar-third-order-upwind', or "
+            "'material-scalar-vorticity-compatible-upwind', "
             f"got {poisson_bracket_scheme!r}"
         )
     if parallel_material_scheme is None:
@@ -7371,6 +7373,7 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
         "compatible-flux",
         "compatible-third-order-upwind",
         "material-scalar-third-order-upwind",
+        "material-scalar-vorticity-compatible-upwind",
     ):
         raise ValueError("production-split requires compatible Poisson brackets")
 
@@ -7712,6 +7715,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "compatible-flux",
             "compatible-third-order-upwind",
             "material-scalar-third-order-upwind",
+            "material-scalar-vorticity-compatible-upwind",
         ),
         default="compatible-flux",
         help=(
@@ -7724,7 +7728,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "first-order wall/RLP fallbacks and retained D(Uq)-qD(U)."
             " 'material-scalar-third-order-upwind' uses pure third-order "
             "A_phi(q) transport for material fields and the centered "
-            "compatible bracket for vorticity."
+            "compatible bracket for vorticity. "
+            "'material-scalar-vorticity-compatible-upwind' keeps that "
+            "material transport and adds the physical A_phi upwind "
+            "correction to the compatible vorticity bracket."
         ),
     )
     parser.add_argument("--makegrid", type=Path, default=DEFAULT_MAKEGRID)
@@ -8249,6 +8256,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "compatible-flux",
             "compatible-third-order-upwind",
             "material-scalar-third-order-upwind",
+            "material-scalar-vorticity-compatible-upwind",
         ):
             parser.error("toroidal RLP requires a compatible Poisson-bracket scheme")
     if args.square_agglomeration == "corner-edge":
@@ -8260,6 +8268,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "compatible-flux",
             "compatible-third-order-upwind",
             "material-scalar-third-order-upwind",
+            "material-scalar-vorticity-compatible-upwind",
         ):
             parser.error(
                 "square corner-edge agglomeration requires a compatible "

@@ -2047,9 +2047,17 @@ def local_poisson_bracket_compatible_flux_op(
     operator-specific physical face values for ``f`` and ``g``.  The trace for
     the advected argument is applied inside each action, while topological
     axis faces remain untouched.  The centered selector returns
-    ``0.5 * (A_f(g) - A_g(f))``.  The
-    ``scalar-third-order-upwind`` selector replaces the advected scalar
-    channel by third-order characteristic upwinding.  Its characteristic
+    ``B_c(f,g) = 0.5 * (A_f^c(g) - A_g^c(f))``.  The
+    ``scalar-centered`` selector returns ``A_f^c(g)`` for exact operator
+    diagnostics.  The ``scalar-third-order-upwind`` selector returns the pure
+    advected-scalar action ``A_f^up(g)``.  The
+    ``compatible-third-order-upwind`` selector
+    preserves the centered compatible core and adds only the physical
+    generator's characteristic correction,
+
+        ``B_c(f,g) + A_f^up(g) - A_f^c(g)``.
+
+    The characteristic
     speed is the physical normal E x B face flux ``U_f``; no dissipation
     coefficient is tunable.  Regular bulk and
     shard faces use the same third-order reconstruction as the production
@@ -2074,13 +2082,22 @@ def local_poisson_bracket_compatible_flux_op(
             raise ValueError(
                 f"{name} must have shape {geometry.owned_shape}, got {stencil.shape}"
             )
-    if characteristic_scheme not in ("centered", "scalar-third-order-upwind"):
+    if characteristic_scheme not in (
+        "centered",
+        "scalar-centered",
+        "scalar-third-order-upwind",
+        "compatible-third-order-upwind",
+    ):
         raise ValueError(
-            "characteristic_scheme must be 'centered' or "
-            "'scalar-third-order-upwind', got "
+            "characteristic_scheme must be 'centered', 'scalar-centered', "
+            "'scalar-third-order-upwind', or "
+            "'compatible-third-order-upwind', got "
             f"{characteristic_scheme!r}"
         )
-    characteristic_upwind = characteristic_scheme == "scalar-third-order-upwind"
+    characteristic_upwind = characteristic_scheme in (
+        "scalar-third-order-upwind",
+        "compatible-third-order-upwind",
+    )
     if characteristic_upwind:
         if g_field_halo is None:
             raise ValueError(
@@ -2359,7 +2376,15 @@ def local_poisson_bracket_compatible_flux_op(
                 g_field_halo,
                 g_positivity_floor,
             )
-            result = characteristic_f_action
+            result = (
+                characteristic_f_action
+                if characteristic_scheme == "scalar-third-order-upwind"
+                else centered_result
+                + characteristic_f_action
+                - centered_f_action
+            )
+        elif characteristic_scheme == "scalar-centered":
+            result = centered_f_action
         else:
             result = centered_result
         return _mask_inactive_owned(result, geometry)
@@ -2492,7 +2517,13 @@ def local_poisson_bracket_compatible_flux_op(
         characteristic_f_action = _characteristic_action(
             f_stencil, g_stencil, left_g, right_g
         )
-        result = characteristic_f_action
+        result = (
+            characteristic_f_action
+            if characteristic_scheme == "scalar-third-order-upwind"
+            else centered_result + characteristic_f_action - centered_f_action
+        )
+    elif characteristic_scheme == "scalar-centered":
+        result = centered_f_action
     else:
         result = centered_result
     return _mask_inactive_owned(result, geometry)
