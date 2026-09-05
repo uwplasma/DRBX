@@ -2,9 +2,9 @@
 
 The Stage 7 test is compatible with radius-dependent angular RLP. The
 continuum solution is evaluated on one fixed smooth 64-cubed HSX metric,
-volume-projected to each resolution's raw cells, and then volume-restricted to
-canonical RLP owners. Numerical owner error and fine-grid RLP representation
-error are reported separately.
+sampled at each raw-cell midpoint, and then volume-restricted to canonical RLP
+owners. Numerical owner error and fine-grid RLP representation error are
+reported separately.
 
 The canonical entry point is `simulate_hsx_mms.py`. It uses real
 resolution-local FCI maps and the production-split configuration:
@@ -39,8 +39,11 @@ Production MMS enables a static axis-regular generalized potential
 `psi`, with `phi=-tau*(Ti-1)+psi` and exact `omega=L_perp psi`.  The omega
 scalar is evaluated from the independent cached continuum metric
 tensor/divergence; its gradient and Hessian are assembled on the structured
-`2n x 2n x 2n` Gauss-point tensor using nonuniform fourth-order five-point
+`n x n x n` cell-midpoint tensor using nonuniform fourth-order five-point
 weights (periodic theta/eta wrapping and one-sided radial end stencils).
+Midpoint projection is second-order accurate and intentionally matches the
+target order of the production scheme; it avoids the eightfold reference
+work and memory of the former `2 x 2 x 2` Gauss rule.
 Thus the vorticity Poisson-bracket, parallel-advection, and perpendicular-
 diffusion lanes are active and independently sourced.  The zero-omega mode
 is retained as the analytic-reference self-test regression only.
@@ -254,9 +257,10 @@ Inspect these arrays before evolving:
 - `region_cell_counts`.
 
 The output records `generalized_potential_enabled`,
+`reference_projection_method`, `reference_projection_order`,
 `reference_derivative_method`, `reference_derivative_order`, and the periodic
-coordinate-domain metadata so the omega reconstruction is auditable from the
-artifact itself.
+coordinate-domain metadata so the midpoint reference and omega reconstruction
+are auditable from the artifact itself.
 
 The six disjoint regions are ordinary bulk, RLP rings, RLP-transition rings,
 physical-wall cells, short-leg/topology-transition cells, and double-hit

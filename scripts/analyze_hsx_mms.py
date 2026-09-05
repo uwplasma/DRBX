@@ -92,6 +92,8 @@ EXPECTED_CONFIGURATION: dict[str, Any] = {
     "gmres_residual_correction_steps": 1,
     "evolved_initial_phi": "analytic-manufactured",
     "frozen_phi_audit": "exact-and-reconstructed",
+    "reference_projection_method": "jacobian-weighted-cell-midpoint",
+    "reference_projection_order": 2,
 }
 
 # Keep this list in the same spelling as FciDrbEBRhsParameters.  The MMS
@@ -165,6 +167,8 @@ MINIMUM_FINEST_PAIR_L2_ORDER = 1.8
 REMOTE_SPATIAL_SHARD_COUNTS = (1, 1, 4)
 REMOTE_SPATIAL_EXECUTION = "eta-sharded"
 REFERENCE_DERIVATIVE_METHOD = "structured-nonuniform-five-point-finite-difference"
+REFERENCE_PROJECTION_METHOD = "jacobian-weighted-cell-midpoint"
+REFERENCE_PROJECTION_ORDER = 2
 EVOLVED_BASELINE_START_TIME = 0.0
 EVOLVED_BASELINE_FINAL_TIME = 2.0e-5
 EVOLVED_BASELINE_TIMESTEP = 1.0e-6
@@ -929,6 +933,31 @@ def _spatial_gate(
                 "generalized_potential_enabled must be present and boolean true"
             )
 
+        projection_method = _text_scalar(
+            arrays.get("reference_projection_method")
+        )
+        contract["reference_projection_method"] = projection_method
+        if projection_method != REFERENCE_PROJECTION_METHOD:
+            contract_failures.append(
+                "reference_projection_method must be "
+                f"{REFERENCE_PROJECTION_METHOD!r}, got {projection_method!r}"
+            )
+        projection_order_value = _number(
+            arrays.get("reference_projection_order")
+        )
+        projection_order = (
+            int(projection_order_value)
+            if projection_order_value is not None
+            and projection_order_value.is_integer()
+            else None
+        )
+        contract["reference_projection_order"] = projection_order
+        if projection_order != REFERENCE_PROJECTION_ORDER:
+            contract_failures.append(
+                "reference_projection_order must be "
+                f"{REFERENCE_PROJECTION_ORDER}, got {projection_order!r}"
+            )
+
         derivative_method = (
             _text_scalar(arrays["reference_derivative_method"])
             if "reference_derivative_method" in arrays else None
@@ -1480,6 +1509,20 @@ def _complete_stage7_report(
         if not isinstance(generalized, (bool, np.bool_)) or not bool(generalized):
             failures.append(
                 f"{artifact.path}: generalized_potential_enabled must be boolean true"
+            )
+        projection_method = _text_scalar(
+            arrays.get("reference_projection_method")
+        )
+        if projection_method != REFERENCE_PROJECTION_METHOD:
+            failures.append(
+                f"{artifact.path}: reference_projection_method="
+                f"{projection_method!r}, expected {REFERENCE_PROJECTION_METHOD!r}"
+            )
+        projection_order = _number(arrays.get("reference_projection_order"))
+        if projection_order != float(REFERENCE_PROJECTION_ORDER):
+            failures.append(
+                f"{artifact.path}: reference_projection_order="
+                f"{projection_order!r}, expected {REFERENCE_PROJECTION_ORDER}"
             )
         derivative_method = _text_scalar(arrays.get("reference_derivative_method"))
         if derivative_method != REFERENCE_DERIVATIVE_METHOD:
