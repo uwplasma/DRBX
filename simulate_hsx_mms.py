@@ -26,6 +26,8 @@ import simulate_hsx_blob as blob  # noqa: E402
 
 RESOLUTIONS = (32, 48, 64)
 PERIODIC_AXES = (False, True, True)
+REFERENCE_PROJECTION_METHOD = "jacobian-weighted-cell-midpoint"
+REFERENCE_PROJECTION_ORDER = 2
 AXIS_REGULAR_AXES = (True, False, False)
 FIELDS = tuple(blob.FciDrbEBState.__dataclass_fields__)
 EVOLVED = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")
@@ -93,9 +95,9 @@ def _fourth_order_structured_derivatives(values, coordinates, periods=None):
                 offsets = np.arange(-2, 3)
                 indices = (index + offsets) % count
                 # Choose the periodic image nearest the target coordinate.
-                # The Gauss coordinate vectors are strictly ordered within a
-                # period, so this gives an ordered, unwrapped stencil even at
-                # either periodic boundary.
+                # The structured coordinate vectors are strictly ordered
+                # within a period, so this gives an ordered, unwrapped stencil
+                # even at either periodic boundary.
                 stencil_coordinates = coord[indices] + period * np.round(
                     (coord[index] - coord[indices]) / period
                 )
@@ -219,6 +221,8 @@ def _production_configuration(shard_counts, device_count):
         ],
         "evolved_initial_phi": "analytic-manufactured",
         "frozen_phi_audit": "exact-and-reconstructed",
+        "reference_projection_method": REFERENCE_PROJECTION_METHOD,
+        "reference_projection_order": REFERENCE_PROJECTION_ORDER,
         "shard_counts": list(shard_counts),
         "device_count": int(device_count),
     }
@@ -400,10 +404,14 @@ def _owner_project(state, host):
 
 
 class _QuadratureProjector:
-    """Resolution-local high-order projector with cached metric preparation."""
+    """Resolution-local midpoint projector with cached metric preparation."""
 
     def __init__(self, reference, geometry, host, *, chunk_cells=4096):
-        nodes, weights = np.polynomial.legendre.leggauss(2)
+        # One Gauss-Legendre node is the cell midpoint rule.  Its normalized
+        # J-weighted value is second-order accurate, matching the target order
+        # of the production finite-volume scheme without the eightfold point
+        # count of the former 2x2x2 rule.
+        nodes, weights = np.polynomial.legendre.leggauss(1)
         uf, tf, ef = (np.asarray(geometry.grid.x.faces), np.asarray(geometry.grid.y.faces), np.asarray(geometry.grid.z.faces))
         # The finite-difference period is the coordinate-domain extent, not
         # necessarily the evaluator's one-field-period harmonic.  In a full
@@ -439,7 +447,7 @@ class _QuadratureProjector:
         # The polarization relation is evaluated from the independent cached
         # metric tensor/divergence in ``PreparedGeometry``.  For the enabled
         # production mode, assemble those scalar omega values back onto the
-        # 2n-by-2n-by-2n Gauss-point tensor, differentiate there, and slice the
+        # n-by-n-by-n midpoint tensor, differentiate there, and slice the
         # results into the same prepared chunks used at every stage.
         if getattr(reference, "enable_generalized_potential", False):
             omega_flat = np.concatenate([
@@ -447,15 +455,8 @@ class _QuadratureProjector:
                 for chunk in prepared_chunks
             ])
             nx, ny, nz = (int(value) for value in self.shape)
-            omega_cells = omega_flat.reshape((nx, ny, nz, 2, 2, 2))
-            omega_structured = omega_cells.transpose(
-                0, 3, 1, 4, 2, 5
-            ).reshape((2 * nx, 2 * ny, 2 * nz))
-            structured_points = points.reshape(
-                (nx, ny, nz, 2, 2, 2, 3)
-            ).transpose(0, 3, 1, 4, 2, 5, 6).reshape(
-                (2 * nx, 2 * ny, 2 * nz, 3)
-            )
+            omega_structured = omega_flat.reshape((nx, ny, nz))
+            structured_points = points[..., 0, :]
             coordinates = (
                 structured_points[:, 0, 0, 0],
                 structured_points[0, :, 0, 1],
@@ -469,12 +470,9 @@ class _QuadratureProjector:
                 )
             )
             def cell_order(structured, tail=()):
-                shaped = structured.reshape(
-                    (nx, 2, ny, 2, nz, 2) + tuple(tail)
+                return np.asarray(structured).reshape(
+                    (cells * self.nq,) + tuple(tail)
                 )
-                return shaped.transpose(
-                    (0, 2, 4, 1, 3, 5) + tuple(range(6, 6 + len(tail)))
-                ).reshape((cells * self.nq,) + tuple(tail))
 
             gradient_flat = cell_order(gradient_structured, (3,))
             hessian_flat = cell_order(hessian_structured, (3, 3))
@@ -553,10 +551,10 @@ class _QuadratureProjector:
 
 
 def _reference_state(reference, geometry, host, time, projector=None):
-    """High-order Gauss projection, using a cached per-resolution projector."""
+    """Cell-midpoint projection, using a cached per-resolution projector."""
     if projector is not None:
         return projector.evaluate(time)
-    nodes, weights = np.polynomial.legendre.leggauss(2)
+    nodes, weights = np.polynomial.legendre.leggauss(1)
     uf, tf, ef = (np.asarray(geometry.grid.x.faces), np.asarray(geometry.grid.y.faces), np.asarray(geometry.grid.z.faces))
     lo = np.stack(np.meshgrid(uf[:-1], tf[:-1], ef[:-1], indexing="ij"), axis=-1)
     hi = np.stack(np.meshgrid(uf[1:], tf[1:], ef[1:], indexing="ij"), axis=-1)
@@ -1654,6 +1652,12 @@ def run(args):
                  ),
                  fci_trace_substeps=np.asarray(4, dtype=np.int32),
                  generalized_potential_enabled=np.asarray(True, dtype=bool),
+                 reference_projection_method=np.asarray(
+                     REFERENCE_PROJECTION_METHOD
+                 ),
+                 reference_projection_order=np.asarray(
+                     REFERENCE_PROJECTION_ORDER, dtype=np.int32
+                 ),
                  reference_derivative_method=np.asarray(
                      "structured-nonuniform-five-point-finite-difference"
                  ),
@@ -1718,6 +1722,12 @@ def run(args):
                      "metric_cache_dir": str(args.metric_cache_dir),
                      "rebuild_metric_cache": bool(args.rebuild_metric_cache),
                      "generalized_potential": "static-axis-regular-psi",
+                     "reference_projection_method": (
+                         REFERENCE_PROJECTION_METHOD
+                     ),
+                     "reference_projection_order": (
+                         REFERENCE_PROJECTION_ORDER
+                     ),
                      "reference_derivative_method": (
                          "structured-nonuniform-five-point-finite-difference"
                      ),

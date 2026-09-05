@@ -336,6 +336,75 @@ def test_generalized_potential_polarization_and_vorticity_lanes_are_nonzero():
         assert np.max(np.abs(terms["vorticity"][lane])) > 1.0e-14
 
 
+def test_reference_projector_uses_one_cell_midpoint():
+    driver = _load(DRIVER, "simulate_hsx_mms_midpoint_projector_test")
+
+    class MidpointReference:
+        enable_generalized_potential = False
+
+        def prepare(self, points):
+            count = np.asarray(points).shape[0]
+            return SimpleNamespace(J=np.ones(count, dtype=np.float64))
+
+        def evaluate(self, points, time, *, prepared=None):
+            radial_squared = np.asarray(points, dtype=np.float64)[:, 0] ** 2
+            return SimpleNamespace(
+                values={field: radial_squared for field in driver.FIELDS},
+                time_derivatives={
+                    field: np.zeros_like(radial_squared)
+                    for field in driver.FIELDS
+                },
+            )
+
+        def continuum_rhs(self, points, time, *, prepared=None):
+            zeros = np.zeros(np.asarray(points).shape[0], dtype=np.float64)
+            return {field: zeros for field in driver.EVOLVED}
+
+    axis = SimpleNamespace(faces=np.asarray((0.0, 1.0)))
+    geometry = SimpleNamespace(
+        shape=(1, 1, 1),
+        grid=SimpleNamespace(x=axis, y=axis, z=axis),
+    )
+    projector = driver._QuadratureProjector(
+        MidpointReference(), geometry, host=None
+    )
+    state, _, _, _ = projector.evaluate(0.0)
+
+    assert projector.nq == 1
+    assert projector.chunks[0][2].shape == (1, 3)
+    np.testing.assert_array_equal(projector.chunks[0][2][0], (0.5, 0.5, 0.5))
+    # Distinguishes midpoint sampling (1/4) from the exact/Gauss cell average
+    # of u^2 (1/3).
+    np.testing.assert_allclose(state.density, 0.25, rtol=0.0, atol=0.0)
+
+
+def test_midpoint_projector_supports_generalized_vorticity_tensor():
+    driver = _load(DRIVER, "simulate_hsx_mms_midpoint_omega_test")
+    reference = _load(REFERENCE, "simulate_hsx_mms_midpoint_omega_reference")
+    ref = reference.ContinuumMmsReference(
+        _SyntheticMetric(), object(), 1.0,
+        enable_generalized_potential=True,
+        perp_diffusion=1.0e-5,
+    )
+    count = 6
+    radial = SimpleNamespace(faces=np.linspace(0.0, 1.0, count + 1))
+    periodic = SimpleNamespace(
+        faces=np.linspace(0.0, 2.0 * np.pi, count + 1)
+    )
+    geometry = SimpleNamespace(
+        shape=(count, count, count),
+        grid=SimpleNamespace(x=radial, y=periodic, z=periodic),
+    )
+    projector = driver._QuadratureProjector(ref, geometry, host=None)
+    state, qdot, source, continuum = projector.evaluate(0.13)
+
+    assert projector.nq == 1
+    assert np.max(np.abs(state.vorticity)) > 1.0e-8
+    for candidate in (state, qdot, source, continuum):
+        for _, values in candidate.field_items():
+            assert np.all(np.isfinite(values))
+
+
 def test_production_driver_enables_generalized_potential_and_lane_assertions():
     source = DRIVER.read_text(encoding="utf-8")
     assert "enable_generalized_potential=True" in source
@@ -401,6 +470,10 @@ def test_mms_uses_complete_current_production_contract():
     assert config["gmres_max_iterations"] == 500
     assert config["gmres_residual_correction_steps"] == 1
     assert config["evolved_initial_phi"] == "analytic-manufactured"
+    assert config["reference_projection_method"] == (
+        "jacobian-weighted-cell-midpoint"
+    )
+    assert config["reference_projection_order"] == 2
 
 
 def test_evolved_mms_starts_from_analytic_manufactured_phi():

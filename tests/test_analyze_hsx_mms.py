@@ -171,6 +171,10 @@ def _write_aggregate(
     if include_reference_contract:
         if not omit_generalized_potential:
             payload["generalized_potential_enabled"] = np.asarray(True, dtype=bool)
+        payload["reference_projection_method"] = np.asarray(
+            "jacobian-weighted-cell-midpoint"
+        )
+        payload["reference_projection_order"] = np.asarray(2, dtype=np.int32)
         payload["reference_derivative_method"] = np.asarray(
             "structured-nonuniform-five-point-finite-difference"
         )
@@ -551,6 +555,8 @@ def test_require_spatial_rejects_unordered_resolutions_and_bad_periodic_metadata
     }))
     payload["reference_derivative_method"] = np.asarray("legacy-centered-difference")
     payload["reference_derivative_order"] = np.asarray(2, dtype=np.int32)
+    payload["reference_projection_method"] = np.asarray("tensor-gauss-2x2x2")
+    payload["reference_projection_order"] = np.asarray(4, dtype=np.int32)
     np.savez(artifact, **payload)
 
     report = analyzer.analyze((artifact,), require_spatial=True)
@@ -562,6 +568,8 @@ def test_require_spatial_rejects_unordered_resolutions_and_bad_periodic_metadata
     assert any("both theta and eta" in item for item in gate["failures"])
     assert any("reference_derivative_method" in item for item in gate["failures"])
     assert any("reference_derivative_order" in item for item in gate["failures"])
+    assert any("reference_projection_method" in item for item in gate["failures"])
+    assert any("reference_projection_order" in item for item in gate["failures"])
 
 
 def _write_valid_evolved_prerequisites(
