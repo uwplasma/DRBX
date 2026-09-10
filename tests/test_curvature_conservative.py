@@ -28,10 +28,61 @@ from drbx.native.fci_boundaries import (
     LocalMomentReconstruction3D,
 )
 from drbx.native.fci_operators import (
+    _apply_adjacent_physical_face_contract,
     _curvature_bc_characteristic_wall_states,
     local_curvature_conservative_op,
     local_curvature_production_path_op,
 )
+
+
+def test_curvature_adjacent_contract_repairs_characteristic_face_without_ghost():
+    """The third-order wall-adjacent candidate is independent of ghost support."""
+    left = jnp.arange(5 * 2 * 1 * 4, dtype=jnp.float64).reshape(5, 2, 1, 4)
+    right = left + 100.0
+    q0 = left + 3.0
+    q1 = right + 7.0
+    changed_left = left.at[0].add(1.0e6)
+    changed_right = right.at[-1].add(-1.0e6)
+    mask = jnp.ones((2, 1, 1), dtype=bool)
+    repaired, _, _ = _apply_adjacent_physical_face_contract(
+        left, right, q0, q1, mask, mask, axis=0,
+        axis_regular_axes=(False, False, False),
+    )
+    repaired_changed, _, _ = _apply_adjacent_physical_face_contract(
+        changed_left, changed_right, q0, q1, mask, mask, axis=0,
+        axis_regular_axes=(False, False, False),
+    )
+    np.testing.assert_allclose(repaired[1:-1], repaired_changed[1:-1])
+
+
+def test_curvature_adjacent_contract_honors_partial_column_masks():
+    left = jnp.zeros((5, 2, 2, 4), dtype=jnp.float64)
+    right = jnp.ones_like(left)
+    q0 = jnp.full_like(left, 4.0)
+    q1 = jnp.full_like(left, 5.0)
+    # Two transverse columns: the first is physical, the second is not.
+    mask = jnp.asarray([[True], [False]], dtype=bool)[..., None]
+    repaired, repaired_right, _ = _apply_adjacent_physical_face_contract(
+        left, right, q0, q1, mask, mask, axis=0,
+        axis_regular_axes=(False, False, False),
+    )
+    np.testing.assert_allclose(repaired[1, 0, 0], right[1, 0, 0])
+    np.testing.assert_allclose(repaired_right[1, 0, 0], right[1, 0, 0])
+    np.testing.assert_allclose(repaired[1, 1, 0], left[1, 1, 0])
+    np.testing.assert_allclose(repaired_right[1, 1, 0], right[1, 1, 0])
+
+
+def test_curvature_adjacent_contract_skips_axis_regular_lower_x():
+    left = jnp.arange(5 * 2 * 1 * 4, dtype=jnp.float64).reshape(5, 2, 1, 4)
+    right = left + 100.0
+    q0 = left + 3.0
+    q1 = right + 7.0
+    mask = jnp.ones((2, 1, 1), dtype=bool)
+    repaired, _, _ = _apply_adjacent_physical_face_contract(
+        left, right, q0, q1, mask, jnp.zeros_like(mask), axis=0,
+        axis_regular_axes=(True, False, False),
+    )
+    np.testing.assert_allclose(repaired[1], left[1])
 from drbx.native.fci_curvature_production_flux import (
     curvature_face_linearized_fluctuations,
     curvature_strict_principal_matrix,
@@ -256,7 +307,7 @@ def _constant_radial_wall_trace(layout, value):
 
 def _curvature_projector(state, *, tau, normal, incoming_positive):
     matrix = np.asarray(
-        normal * curvature_strict_principal_matrix(
+        -normal * curvature_strict_principal_matrix(
             jnp.asarray(state, dtype=jnp.float64),
             jnp.asarray(1.0, dtype=jnp.float64),
             tau,
@@ -276,7 +327,7 @@ def _curvature_least_residual_state(
     interior, trace, *, tau, normal, incoming_positive
 ):
     matrix = np.asarray(
-        normal * curvature_strict_principal_matrix(
+        -normal * curvature_strict_principal_matrix(
             jnp.asarray(trace, dtype=jnp.float64),
             jnp.asarray(1.0, dtype=jnp.float64),
             tau,
@@ -293,7 +344,11 @@ def _curvature_least_residual_state(
         basis[:3], np.asarray(trace)[:3] - np.asarray(interior)[:3],
         rcond=None,
     )[0]
-    return np.asarray(interior) + basis @ coefficients
+    state = np.asarray(interior) + basis @ coefficients
+    # Vorticity is stationary in the strict material curvature subsystem;
+    # its boundary value is owned by the separate elliptic closure.
+    state[3] = np.asarray(interior)[3]
+    return state
 
 
 def test_bc_characteristic_wall_state_solves_full_thermodynamic_residual_on_electron_subspace():
@@ -314,18 +369,10 @@ def test_bc_characteristic_wall_state_solves_full_thermodynamic_residual_on_elec
     assert np.linalg.norm(np.asarray(exterior[:3] - trace[:3])) < np.linalg.norm(
         np.asarray(interior[:3] - trace[:3])
     )
-    incoming = _curvature_projector(
-        trace, tau=0.7, normal=1.0, incoming_positive=True
-    )
-    outgoing = np.eye(4) - incoming
-    np.testing.assert_allclose(
-        outgoing @ np.asarray(exterior - interior),
-        np.zeros(4),
-        atol=3.0e-13,
-        rtol=0.0,
-    )
+    np.testing.assert_allclose(exterior[3], interior[3], atol=0.0, rtol=0.0)
     assert not np.allclose(np.asarray(exterior), np.asarray(trace))
-    np.testing.assert_allclose(face, trace, atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(face[:3], trace[:3], atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(face[3], interior[3], atol=0.0, rtol=0.0)
     assert not bool(fallback)
 
 
@@ -347,18 +394,10 @@ def test_bc_characteristic_wall_state_solves_full_thermodynamic_residual_on_ion_
     assert np.linalg.norm(np.asarray(exterior[:3] - trace[:3])) < np.linalg.norm(
         np.asarray(interior[:3] - trace[:3])
     )
-    incoming = _curvature_projector(
-        trace, tau=0.7, normal=1.0, incoming_positive=False
-    )
-    outgoing = np.eye(4) - incoming
-    np.testing.assert_allclose(
-        outgoing @ np.asarray(exterior - interior),
-        np.zeros(4),
-        atol=3.0e-13,
-        rtol=0.0,
-    )
+    np.testing.assert_allclose(exterior[3], interior[3], atol=0.0, rtol=0.0)
     assert not np.allclose(np.asarray(exterior), np.asarray(trace))
-    np.testing.assert_allclose(face, trace, atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(face[:3], trace[:3], atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(face[3], interior[3], atol=0.0, rtol=0.0)
 
 
 @pytest.mark.parametrize(
@@ -429,6 +468,24 @@ def test_bc_characteristic_invalid_trace_propagates_without_owner_fallback():
     assert not bool(jnp.all(jnp.isfinite(face)))
 
 
+def test_bc_characteristic_ignores_nonfinite_stationary_vorticity_trace():
+    interior = jnp.asarray((1.2, 0.9, 1.1, 0.2), dtype=jnp.float64)
+    trace = jnp.asarray((1.15, 0.95, 1.05, jnp.nan), dtype=jnp.float64)
+    exterior, face, invalid = _curvature_bc_characteristic_wall_states(
+        interior,
+        trace,
+        jnp.asarray(1.0),
+        0.7,
+        jnp.asarray(1.0),
+        interior_on_right=True,
+    )
+    assert not bool(invalid)
+    assert bool(jnp.all(jnp.isfinite(exterior)))
+    assert bool(jnp.all(jnp.isfinite(face)))
+    np.testing.assert_allclose(exterior[3], interior[3], atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(face[3], interior[3], atol=0.0, rtol=0.0)
+
+
 def test_bc_characteristic_curvature_preserves_non_equilibrium_neumann_constant():
     geometry, domain, _stencil, coefficients = _operator_fixture()
     layout = geometry.layout
@@ -457,12 +514,12 @@ def test_bc_characteristic_curvature_preserves_non_equilibrium_neumann_constant(
     np.testing.assert_allclose(result, 0.0, atol=2.0e-12, rtol=0.0)
 
 
-def test_bc_characteristic_curvature_applies_dirichlet_vorticity_only_at_wall():
+def test_bc_characteristic_curvature_ignores_stationary_vorticity_wall_trace():
     geometry, domain, _stencil, coefficients = _operator_fixture((5, 3, 2))
     layout = geometry.layout
     context = StencilBuilderContext(layout=layout, domain=domain)
     state = (1.2, 0.9, 1.1, 0.2)
-    wall = (1.2, 0.9, 1.1, 0.0)
+    wall = (1.2, 0.9, 1.1, jnp.nan)
     fields = tuple(
         build_local_conservative_stencil_from_field(
             jnp.full(layout.cell_halo_shape, value, dtype=jnp.float64),
@@ -483,8 +540,8 @@ def test_bc_characteristic_curvature_applies_dirichlet_vorticity_only_at_wall():
             "bc-characteristic-operator-trace-canonical-face-state"
         ),
     )
-    assert float(jnp.linalg.norm(result[jnp.asarray((0, -1))])) > 0.0
-    np.testing.assert_allclose(result[1:-1], 0.0, atol=2.0e-12, rtol=0.0)
+    assert bool(jnp.all(jnp.isfinite(result)))
+    np.testing.assert_allclose(result, 0.0, atol=2.0e-12, rtol=0.0)
 
 
 def test_production_curvature_all_axes_has_directional_diagnostics_and_constant_null():
@@ -540,7 +597,7 @@ def test_production_curvature_physical_wall_is_one_sided_and_finite():
 
 def test_production_curvature_face_state_uses_canonical_faces_and_interior_wall_trace():
     """The characteristic matrix sees ordinary face values, not wall exterior."""
-    geometry, domain, _stencil, coefficients = _operator_fixture()
+    geometry, domain, _stencil, coefficients = _operator_fixture((5, 4, 5))
     layout = geometry.layout
     context = StencilBuilderContext(layout=layout, domain=domain)
     ii, jj, kk = jnp.meshgrid(
@@ -569,7 +626,9 @@ def test_production_curvature_face_state_uses_canonical_faces_and_interior_wall_
     for field_index, stencil in enumerate(fields):
         face_values = stencil.face_values
         x_changed = face_values.x
-        x_changed = x_changed.at[1:-1].add(0.25 * (field_index + 1))
+        # Leave the two wall-adjacent faces to the physical-face contract;
+        # perturb a genuinely ordinary interior face instead.
+        x_changed = x_changed.at[2:-2].add(0.25 * (field_index + 1))
         ordinary.append(
             stencil.replace(
                 face_values=CoordinateFaceValues3D(
@@ -745,6 +804,55 @@ def test_production_curvature_directional_residual_closes_for_both_orientations(
     assert bool(jnp.all(jnp.isfinite(positive)))
     assert bool(jnp.all(jnp.isfinite(negative)))
     assert float(jnp.linalg.norm(negative - positive)) > 0.0
+
+
+def test_production_curvature_affine_field_matches_rhs_sign():
+    """A smooth affine state must produce ``+A_rhs q_x`` in the RHS.
+
+    The wave-propagation split uses ``A_flux=-A_rhs`` and the conservative
+    update contributes ``-A_flux dq``.  This test checks both signs on an
+    interior cell, where third-order reconstruction is exact and no wall
+    trace enters the result.
+    """
+    geometry, domain, _stencil, _coefficients = _operator_fixture((7, 4, 3))
+    layout = geometry.layout
+    context = StencilBuilderContext(layout=layout, domain=domain)
+    x = jnp.asarray(geometry.grid.x.centers, dtype=jnp.float64)[:, None, None]
+    base = jnp.asarray((1.1, 0.9, 1.05, 0.02), dtype=jnp.float64)
+    slope = jnp.asarray((0.003, -0.002, 0.0015, 0.004), dtype=jnp.float64)
+    fields = tuple(
+        build_local_conservative_stencil_from_field(
+            base[index] + slope[index] * jnp.broadcast_to(
+                x, layout.cell_halo_shape
+            ),
+            geometry,
+            context,
+        )
+        for index in range(4)
+    )
+    faces = tuple(layout.face_control_shape(axis) for axis in range(3))
+    coefficients = LocalCurvatureFaceCoefficients3D(
+        layout=layout,
+        x=jnp.ones(faces[0], dtype=jnp.float64),
+        y=jnp.zeros(faces[1], dtype=jnp.float64),
+        z=jnp.zeros(faces[2], dtype=jnp.float64),
+    )
+    result = local_curvature_production_path_op(
+        fields, geometry, coefficients, tau=0.7, domain=domain
+    )
+
+    cell = (3, 1, 1)
+    bcell = jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64)[cell]
+    jcell = jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64)[cell]
+    bface = jnp.asarray(geometry.face_bfield.x.Bmag_owned, dtype=jnp.float64)
+    face_normal = 0.5 * (1.0 / bface[3, 1, 1] + 1.0 / bface[4, 1, 1])
+    rhs_matrix = curvature_strict_principal_matrix(
+        base + slope * geometry.grid.x.centers[4], bcell, 0.7
+    )
+    expected = face_normal * bcell / jcell * (rhs_matrix @ slope)
+    np.testing.assert_allclose(
+        result[cell], expected, atol=4.0e-11, rtol=4.0e-11
+    )
 
 
 def test_constant_field_has_zero_curvature_for_compatible_constant_face_flux():

@@ -24,6 +24,7 @@ from drbx.geometry import (  # noqa: E402
 )
 from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
     LocalFciDrbEBRhs,
+    _compose_parallel_phi_ti_gradient,
     build_local_fci_drb_eb_operator_boundary_bundle,
 )
 from drbx.native.fci_operators import (  # noqa: E402
@@ -40,6 +41,82 @@ from fci_drb_eb_test_helpers import (  # noqa: E402
     _build_rhs,
     _context_and_sharded_inputs,
 )
+
+
+def test_composite_parallel_gradient_is_linear_without_support() -> None:
+    """The no-RLP path retains the ordinary signed primitive sum."""
+
+    phi = jnp.asarray((1.0, -2.0, 3.0))
+    ti = jnp.asarray((0.5, 4.0, -1.0))
+    phi_gradient = jnp.asarray((2.0, -3.0, 5.0))
+    ti_gradient = jnp.asarray((-1.0, 7.0, 11.0))
+    result = _compose_parallel_phi_ti_gradient(
+        phi,
+        ti,
+        0.25,
+        legacy_phi_gradient=phi_gradient,
+        legacy_ti_gradient=ti_gradient,
+    )
+    np.testing.assert_allclose(
+        np.asarray(result), np.asarray(phi_gradient + 0.25 * ti_gradient)
+    )
+
+
+def test_composite_parallel_gradient_uses_one_support_map_on_rlp_transition() -> None:
+    """RLP/support rows see one map of ``phi + tau*Ti``; omitted rows keep BC data."""
+
+    phi = jnp.asarray((1.0, 2.0, 3.0, 4.0))
+    ti = jnp.asarray((10.0, 20.0, 30.0, 40.0))
+    tau = 2.0
+    legacy_phi = jnp.asarray((100.0, 101.0, 102.0, 103.0))
+    legacy_ti = jnp.asarray((200.0, 201.0, 202.0, 203.0))
+    target = jnp.asarray((True, True, False, False))
+
+    def support(value):
+        # A stand-in for the owner-to-face/RLP gather-transpose map.  The
+        # important contract is that it receives the composite field once.
+        return 3.0 * value
+
+    result = _compose_parallel_phi_ti_gradient(
+        phi,
+        ti,
+        tau,
+        legacy_phi_gradient=legacy_phi,
+        legacy_ti_gradient=legacy_ti,
+        support_gradient=support,
+        support_target=target,
+    )
+    expected = jnp.where(
+        target,
+        support(phi + tau * ti),
+        support(phi + tau * ti) + legacy_phi + tau * legacy_ti,
+    )
+    np.testing.assert_allclose(np.asarray(result), np.asarray(expected))
+
+
+def test_composite_parallel_gradient_preserves_signed_cancellation() -> None:
+    """For ``phi=-tau*(Ti-1)+psi``, the composite map returns ``G(psi)``."""
+
+    tau = 1.7
+    ti = jnp.asarray((0.8, 1.1, 1.4, 2.0))
+    psi = jnp.asarray((0.2, -0.3, 0.7, 1.1))
+    phi = -tau * (ti - 1.0) + psi
+
+    def support(value):
+        # Linear stand-in for the complete RLP/wall-compatible path.
+        return value - jnp.mean(value)
+
+    zeros = jnp.zeros_like(phi)
+    result = _compose_parallel_phi_ti_gradient(
+        phi,
+        ti,
+        tau,
+        legacy_phi_gradient=zeros,
+        legacy_ti_gradient=zeros,
+        support_gradient=support,
+        support_target=jnp.ones_like(phi, dtype=bool),
+    )
+    np.testing.assert_allclose(np.asarray(result), np.asarray(support(psi)))
 
 
 def _mapped_fixture():
@@ -219,6 +296,15 @@ def test_support_core_and_wall_current_phi_pair_are_weighted_adjoint() -> None:
             current_target, 0.0,
             legacy_gradient("phi", phi, operator_boundary.phi)
         )
+        expected_composite_gradient = gradient(
+            phi + context.parameters.tau * Ti
+        ) + jnp.where(
+            core,
+            0.0,
+            legacy_gradient("phi", phi, operator_boundary.phi)
+            + context.parameters.tau
+            * legacy_gradient("Ti", Ti, parallel_boundary.Ti),
+        )
         expected_vorticity_current = current_divergence(current) + jnp.where(
             current_target, 0.0, legacy_current
         )
@@ -251,6 +337,9 @@ def test_support_core_and_wall_current_phi_pair_are_weighted_adjoint() -> None:
                 - expected_vorticity_current
             )),
             component_sum_error,
+            jnp.max(jnp.abs(
+                terms["grad_phi_plus_tau_Ti"] - expected_composite_gradient
+            )),
         ))
 
     compiled = jax.jit(jax.shard_map(
@@ -275,6 +364,7 @@ def test_support_core_and_wall_current_phi_pair_are_weighted_adjoint() -> None:
         phi_pairing_error,
         vorticity_current_pairing_error,
         component_sum_error,
+        composite_pairing_error,
     ) = (
         np.asarray(compiled(*fields, cell_fields, map_fields))
     )
@@ -292,6 +382,7 @@ def test_support_core_and_wall_current_phi_pair_are_weighted_adjoint() -> None:
     assert phi_pairing_error < 2.0e-12
     assert vorticity_current_pairing_error < 2.0e-12
     assert component_sum_error < 2.0e-12
+    assert composite_pairing_error < 2.0e-12
 
 
 def test_remote_radial_ghost_request_is_closed_only_by_boundary_pair() -> None:

@@ -70,11 +70,11 @@ def curvature_principal_matrix(
     *,
     k_perp_squared: Array | float | None = None,
 ) -> Array:
-    """Return the corrected DAE-reduced curvature principal matrix.
+    """Return the corrected DAE-reduced curvature RHS Jacobian.
 
     The rows and columns are ordered ``(n, Te, Ti, omega)``.  This is the
-    strict local matrix used for characteristic curvature fluxes; in
-    particular, the ``Ti`` column includes the polarization response
+    strict local matrix used to form the curvature RHS; in particular, the
+    ``Ti`` column includes the polarization response
     ``(2 n tau, 4 tau Te/3, -2 tau Ti, 2 tau B^2)``.  If
     ``k_perp_squared`` is supplied, the optional non-local omega column is
     included as a diagnostic using the local Fourier relation
@@ -122,6 +122,33 @@ def curvature_strict_principal_matrix(
 
     state = _require_state(state)
     return curvature_principal_matrix(state[..., 0], state[..., 1], state[..., 2], bmag, tau)
+
+
+def curvature_flux_jacobian(
+    state: Array,
+    bmag: Array | float,
+    tau: Array | float,
+    *,
+    normal: Array | float = 1.0,
+) -> Array:
+    """Return the face flux Jacobian for the curvature RHS.
+
+    ``curvature_principal_matrix`` is the Jacobian of the *right-hand side*
+    form ``q_t = A_rhs q_x``.  The wave-propagation split is written in the
+    conventional conservative form ``q_t + A_flux q_x = 0``; consequently
+    ``A_flux = -A_rhs`` (including the signed face normal).  Keeping this sign
+    conversion explicit is important: applying it only after the split would
+    leave the incoming/outgoing characteristic families selected for the
+    wrong propagation direction.
+    """
+
+    state = _require_state(state)
+    rhs_matrix = curvature_strict_principal_matrix(state, bmag, tau)
+    normal = jnp.asarray(normal, dtype=jnp.float64)
+    shape = jnp.broadcast_shapes(rhs_matrix.shape[:-2], normal.shape)
+    rhs_matrix = jnp.broadcast_to(rhs_matrix, shape + (STATE_SIZE, STATE_SIZE))
+    normal = jnp.broadcast_to(normal, shape)
+    return -normal[..., None, None] * rhs_matrix
 
 
 def _safe_spectral_data(
@@ -245,10 +272,11 @@ def curvature_face_linearized_fluctuations(
     jump.  ``face_state`` is deliberately a separate argument: production
     assembly supplies the canonical conservative face value for ordinary
     faces and the adjacent interior trace at a physical wall.  The strict
-    curvature matrix is evaluated once at that state, then split as
-    ``D+/- = (A dq +/- |A| dq)/2``.  Thus this is the face-linearized
-    production characteristic update with no quadrature points or endpoint
-    averaging in the runtime path.
+    curvature RHS Jacobian is evaluated once at that state, converted to the
+    conservative flux Jacobian ``A_flux = -normal * A_rhs``, and then split as
+    ``D+/- = (A_flux dq +/- |A_flux| dq)/2``.  Thus this is the
+    face-linearized production characteristic update with no quadrature points
+    or endpoint averaging in the runtime path.
 
     The returned order is ``(right_going, left_going)`` = ``(D+, D-)``.
     Non-finite or non-positive matrix states are sanitized for a finite
@@ -281,8 +309,11 @@ def curvature_face_linearized_fluctuations(
     )
     b_safe = jnp.where(jnp.isfinite(bmag), bmag, 1.0)
     normal_safe = jnp.where(jnp.isfinite(normal), normal, 0.0)
-    matrix = curvature_strict_principal_matrix(matrix_state, b_safe, tau)
-    normal_matrix = normal_safe[..., None, None] * matrix
+    # ``matrix`` is the RHS Jacobian.  Characteristic splitting requires the
+    # conservative flux Jacobian, whose sign is opposite for q_t = A_rhs q_x.
+    normal_matrix = curvature_flux_jacobian(
+        matrix_state, b_safe, tau, normal=normal_safe
+    )
     jump = right - left
     absolute, spectral_fallback = curvature_characteristic_absolute_action(
         normal_matrix,
@@ -365,6 +396,7 @@ __all__ = [
     "ReconstructionMetadata",
     "curvature_principal_matrix",
     "curvature_strict_principal_matrix",
+    "curvature_flux_jacobian",
     "curvature_characteristic_absolute_action",
     "curvature_characteristic_absolute_matrix",
     "curvature_characteristic_metric",
