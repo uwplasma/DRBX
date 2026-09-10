@@ -22,6 +22,7 @@ curvature_characteristic_absolute_matrix = _MODULE.curvature_characteristic_abso
 curvature_characteristic_metric = _MODULE.curvature_characteristic_metric
 curvature_face_linearized_fluctuations = _MODULE.curvature_face_linearized_fluctuations
 curvature_principal_matrix = _MODULE.curvature_principal_matrix
+curvature_flux_jacobian = _MODULE.curvature_flux_jacobian
 reconstruct_first_order_face_states = _MODULE.reconstruct_first_order_face_states
 reconstruct_third_order_face_states = _MODULE.reconstruct_third_order_face_states
 
@@ -55,7 +56,7 @@ def test_face_linearized_constant_null_and_identical_state_consistency():
     assert not bool(fallback)
 
 
-def test_face_linearized_split_sums_to_face_matrix_action():
+def test_face_linearized_split_sums_to_flux_matrix_action():
     left = jnp.asarray((1.0, 1.0, 1.0, -0.4), dtype=jnp.float64)
     right = jnp.asarray((1.2, 0.8, 1.1, 0.8), dtype=jnp.float64)
     face = jnp.asarray((1.1, 0.9, 1.05, 0.0), dtype=jnp.float64)
@@ -64,8 +65,27 @@ def test_face_linearized_split_sums_to_face_matrix_action():
     )
     matrix = curvature_principal_matrix(*face[:3], 1.2, 0.7)
     np.testing.assert_allclose(
-        plus + minus, matrix @ (right - left), atol=3e-12, rtol=3e-12
+        plus + minus, -matrix @ (right - left), atol=3e-12, rtol=3e-12
     )
+
+
+def test_curvature_flux_jacobian_has_rhs_sign_and_normal_orientation():
+    """The flux split must propagate the PDE RHS in the correct direction."""
+    state = jnp.asarray((1.1, 0.9, 1.05, 0.0), dtype=jnp.float64)
+    rhs = curvature_principal_matrix(*state[:3], 1.2, 0.7)
+    for normal in (1.0, -1.0, 0.37):
+        flux = curvature_flux_jacobian(state, 1.2, 0.7, normal=normal)
+        np.testing.assert_allclose(
+            flux, -normal * rhs, atol=2.0e-13, rtol=0.0
+        )
+        left = state + jnp.asarray((-0.01, 0.02, -0.015, 0.01))
+        right = state + jnp.asarray((0.02, -0.01, 0.01, -0.02))
+        plus, minus = curvature_face_linearized_fluctuations(
+            left, right, state, 1.2, 0.7, normal=normal
+        )
+        np.testing.assert_allclose(
+            plus + minus, flux @ (right - left), atol=2.0e-12, rtol=2.0e-12
+        )
 
 
 def test_face_linearized_uses_face_state_and_wall_interior_trace():

@@ -94,7 +94,7 @@ from .fci_boundaries import (
 )
 from .fci_curvature_production_flux import (
     curvature_face_linearized_fluctuations,
-    curvature_strict_principal_matrix,
+    curvature_flux_jacobian,
     reconstruct_third_order_face_states,
 )
 
@@ -1885,6 +1885,54 @@ def _boundary_trace_planes(
     return masks[:, :, 0], values[:, :, 0], masks[:, :, -1], values[:, :, -1]
 
 
+def _apply_adjacent_physical_face_contract(
+    left: jnp.ndarray,
+    right: jnp.ndarray,
+    q0: jnp.ndarray,
+    q1: jnp.ndarray,
+    lower_mask: jnp.ndarray,
+    upper_mask: jnp.ndarray,
+    *,
+    axis: int,
+    axis_regular_axes: tuple[bool, bool, bool],
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Remove physical-ghost dependence from the first interior faces.
+
+    The canonical third-order candidate on the plasma side is shared across
+    the face: the lower face uses the right candidate and the upper face uses
+    the left candidate.  For short axes there are not three interior cells,
+    so both states are explicitly reduced to their adjacent owners.  Masks
+    are transverse boundary traces, and therefore do not alter shard or
+    periodic seams.
+    """
+    n_axis = int(left.shape[axis]) - 1
+    fallback = jnp.zeros_like(left, dtype=bool)
+    if n_axis < 2:
+        return left, right, fallback
+
+    def face(index: int) -> tuple:
+        return _axis_index_nd(axis, index, left.ndim)
+
+    # The lower radial axis is a topology identification, not a physical wall.
+    if not (axis == 0 and axis_regular_axes[0]):
+        lower_index = face(1)
+        if n_axis < 3:
+            left = left.at[lower_index].set(jnp.where(lower_mask, q0[lower_index], left[lower_index]))
+            right = right.at[lower_index].set(jnp.where(lower_mask, q1[lower_index], right[lower_index]))
+        else:
+            left = left.at[lower_index].set(jnp.where(lower_mask, right[lower_index], left[lower_index]))
+        fallback = fallback.at[lower_index].set(lower_mask | fallback[lower_index])
+
+    upper_index = face(-2)
+    if n_axis < 3:
+        left = left.at[upper_index].set(jnp.where(upper_mask, q0[upper_index], left[upper_index]))
+        right = right.at[upper_index].set(jnp.where(upper_mask, q1[upper_index], right[upper_index]))
+    else:
+        right = right.at[upper_index].set(jnp.where(upper_mask, left[upper_index], right[upper_index]))
+    fallback = fallback.at[upper_index].set(upper_mask | fallback[upper_index])
+    return left, right, fallback
+
+
 def _third_order_scalar_face_states_from_halo(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
@@ -1980,6 +2028,21 @@ def _third_order_scalar_face_states_from_halo(
             fallback = fallback.at[upper_index].set(
                 jnp.where(upper_mask, True, fallback[upper_index])
             )
+
+            # The physical boundary face itself retains its trace/owner
+            # states above.  On the adjacent interior face, repair only the
+            # candidate that would otherwise read the physical ghost.
+            left, right, adjacent_fallback = _apply_adjacent_physical_face_contract(
+                left,
+                right,
+                q0_safe,
+                q1_safe,
+                lower_mask,
+                upper_mask,
+                axis=axis,
+                axis_regular_axes=axis_regular_axes,
+            )
+            fallback = fallback | adjacent_fallback
 
         left_faces.append(left)
         right_faces.append(right)
@@ -3266,15 +3329,17 @@ def _curvature_bc_characteristic_wall_states(
     mode, and one stationary vorticity mode.  At a one-sided face either the
     two electron modes or the one ion mode enter the domain.  All three
     thermodynamic primitive residuals are reduced onto that complete incoming
-    subspace in one least-residual solve.  The vorticity Dirichlet condition
+    subspace in one least-residual solve.  The vorticity boundary condition
     belongs to the stationary/elliptic closure and is deliberately excluded
-    from this propagating curvature block.
+    from this propagating curvature block: this material solve copies the
+    interior vorticity into both its working trace and exterior state.
 
     ``interior_on_right`` selects modes travelling to increasing coordinate
     index at the lower wall and modes travelling to decreasing coordinate
-    index at the upper wall.  The characteristic matrix is frozen at the raw
-    operator trace, which remains the canonical face state used by the
-    fluctuation solver.
+    index at the upper wall.  The characteristic matrix is frozen at the
+    thermodynamic operator trace with the stationary interior vorticity; that
+    same working trace is the canonical face state used by the fluctuation
+    solver.
 
     No limiter or physical-state fallback is applied.  Non-finite spectra or
     residual solves propagate non-finite wall states, and negative
@@ -3291,13 +3356,26 @@ def _curvature_bc_characteristic_wall_states(
     if not isinstance(interior_on_right, bool):
         raise TypeError("interior_on_right must be bool")
     floor = jnp.asarray(positivity_floor, dtype=jnp.float64)
-    trace_finite = jnp.all(jnp.isfinite(boundary_trace), axis=-1)
+    trace_finite = jnp.all(jnp.isfinite(boundary_trace[..., :3]), axis=-1)
     trace_thermo_ok = jnp.all(boundary_trace[..., :3] > floor, axis=-1)
+    # The strict material symbol has no vorticity column.  A derived
+    # elliptic-wall trace for omega is therefore not an input to this
+    # characteristic solve and must not contaminate it through generic
+    # finite-input checks or through IEEE ``0 * NaN`` matrix products.
+    working_trace = boundary_trace.at[..., 3].set(interior[..., 3])
     # Do not sanitize a failed physical trace.  A non-finite or inadmissible
-    # trace must remain visible in the eigensystem/solve and ultimately fail
-    # the RK stage rather than selecting an interior or floored wall state.
-    matrix = curvature_strict_principal_matrix(boundary_trace, bmag, tau)
-    normal_matrix = jnp.asarray(normal, dtype=jnp.float64)[..., None, None] * matrix
+    # thermodynamic trace must remain visible in the eigensystem/solve and
+    # ultimately fail the RK stage rather than selecting an interior or
+    # floored wall state.
+    # The strict matrix is the RHS Jacobian q_t=A_rhs q_x.  The characteristic
+    # wall solve uses the conservative flux Jacobian A_flux=-A_rhs so its
+    # incoming family matches the propagation direction used by the split.
+    normal_matrix = curvature_flux_jacobian(
+        working_trace,
+        bmag,
+        tau,
+        normal=jnp.asarray(normal, dtype=jnp.float64),
+    )
     frozen = jax.lax.stop_gradient(normal_matrix)
     eigenvalues, eigenvectors = jnp.linalg.eig(frozen)
     inverse = jnp.linalg.inv(eigenvectors)
@@ -3332,7 +3410,7 @@ def _curvature_bc_characteristic_wall_states(
     incoming_count = jnp.sum(incoming, axis=-1)
     solved, residual_info = solve_incoming_characteristic_state(
         interior,
-        boundary_trace,
+        working_trace,
         projector,
         incoming_basis=eigenvectors,
         incoming_active=incoming,
@@ -3351,14 +3429,18 @@ def _curvature_bc_characteristic_wall_states(
     solved = jnp.where(tangent[..., None], interior, solved)
     solve_valid = solve_valid | tangent
 
-    exterior = solved
+    # Incoming thermodynamic modes can carry an omega component in their
+    # eigenvectors even though omega itself is stationary.  Remove that
+    # component here: the elliptic boundary machinery, not this material
+    # characteristic block, owns the vorticity boundary value.
+    exterior = solved.at[..., 3].set(interior[..., 3])
     fallback = (
         (~trace_finite)
         | (~trace_thermo_ok)
         | (~solve_valid)
         | (~residual_info["thermodynamic_admissible"])
     )
-    return exterior, boundary_trace, fallback
+    return exterior, working_trace, fallback
 
 
 def local_curvature_production_path_op(
@@ -3594,8 +3676,52 @@ def local_curvature_production_path_op(
             upper_wall_face_state = jnp.where(
                 upper_active[..., None], upper_bc_face, upper_left
             )
+        # Apply the shared adjacent-face contract on a complete face grid.
+        # The reconstruction above only returns the n-1 interior faces, while
+        # the contract deliberately addresses faces 1 and -2 relative to the
+        # physical boundary faces.
         left_face = jnp.concatenate((lower_left, interior_left, upper_left), axis=0)
         right_face = jnp.concatenate((lower_right, interior_right, upper_right), axis=0)
+        q0_contract = jnp.concatenate((c[:1], c[:-1], c[-1:]), axis=0)
+        q1_contract = jnp.concatenate((c[:1], c[1:], c[-1:]), axis=0)
+        if boundary_traces is not None:
+            # Trace masks are already on the axis-first face grid.
+            contract_lower_mask = wall_trace_mask[0]
+            contract_upper_mask = wall_trace_mask[-1]
+        elif domain is not None:
+            transverse_shape = c.shape[1:-1]
+            try:
+                runtime_lower = domain.runtime_has_physical_lower(axis)
+                runtime_upper = domain.runtime_has_physical_upper(axis)
+            except NameError:
+                # Direct (non-SPMD) calls have no bound mesh axis; retain the
+                # equivalent static ownership metadata for that execution.
+                runtime_lower = domain.has_physical_lower(axis)
+                runtime_upper = domain.has_physical_upper(axis)
+            contract_lower_mask = jnp.broadcast_to(
+                jnp.asarray(runtime_lower, dtype=bool),
+                transverse_shape,
+            )
+            contract_upper_mask = jnp.broadcast_to(
+                jnp.asarray(runtime_upper, dtype=bool),
+                transverse_shape,
+            )
+        else:
+            # No domain metadata means the legacy local call has no reliable
+            # physical-side ownership information; do not infer it from
+            # non-periodicity.
+            contract_lower_mask = jnp.zeros(c.shape[1:-1], dtype=bool)
+            contract_upper_mask = jnp.zeros(c.shape[1:-1], dtype=bool)
+        contract_lower_mask = contract_lower_mask[..., None]
+        contract_upper_mask = contract_upper_mask[..., None]
+        contract_axis_regular_axes = (
+            (bool(axis == 0 and domain is not None and domain.axis_regular_axes[0]), False, False)
+        )
+        left_face, right_face, _ = _apply_adjacent_physical_face_contract(
+            left_face, right_face, q0_contract, q1_contract,
+            contract_lower_mask, contract_upper_mask,
+            axis=0, axis_regular_axes=contract_axis_regular_axes,
+        )
         # The axis-first layout keeps the face index at zero for all three
         # directions, while owner coordinates below are explicitly mapped
         # back to native (i,j,k) order.

@@ -91,6 +91,10 @@ class FciDrbEBState(FciModelState):
 
 
 RHS_TERM_FIELD_NAMES = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")
+# The electric potential is the generator, so its physical closure must be
+# retained.  Only the six advected RHS fields use the homogeneous support
+# halo extension.
+POISSON_BRACKET_SUPPORT_FIELD_NAMES = RHS_TERM_FIELD_NAMES
 RHS_TERM_NAMES = (
     (
         "poisson_bracket",
@@ -480,6 +484,48 @@ def parallel_derived_state_traces(
         density * Te,
         density * (Te + tau * Ti),
     )
+
+
+def _compose_parallel_phi_ti_gradient(
+    phi_owned: jnp.ndarray,
+    ti_owned: jnp.ndarray,
+    tau: float | jnp.ndarray,
+    *,
+    legacy_phi_gradient: jnp.ndarray,
+    legacy_ti_gradient: jnp.ndarray,
+    support_gradient: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+    support_target: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Build one compatible gradient for ``phi + tau*Ti``.
+
+    The production electron force contains the generalized-potential
+    combination ``G(phi) + tau*G(Ti)``.  When a support-paired FCI path is
+    active, applying the two primitive maps independently is not equivalent
+    across RLP prolongation/restriction or wall-hit rows: ``phi`` may use the
+    current/phi transpose pair while ``Ti`` uses the support transpose pair.
+    Form the composite owner field first and apply the support map once.  The
+    legacy mapped gradient is retained only on rows excluded from that
+    support (physical wall/transition rows), where it supplies the physical
+    face trace.  With no support map this reduces to the ordinary linear sum.
+
+    ``support_target`` is a target-row mask, not a face mask.  It must be the
+    same mask used by the support pair's owner-space replacement so a row is
+    never contributed by both paths.
+    """
+
+    phi_owned = jnp.asarray(phi_owned, dtype=jnp.float64)
+    ti_owned = jnp.asarray(ti_owned, dtype=jnp.float64)
+    tau = jnp.asarray(tau, dtype=jnp.float64)
+    legacy = (
+        jnp.asarray(legacy_phi_gradient, dtype=jnp.float64)
+        + tau * jnp.asarray(legacy_ti_gradient, dtype=jnp.float64)
+    )
+    if support_gradient is None:
+        return legacy
+    if support_target is None:
+        raise ValueError("support_target is required with support_gradient")
+    compatible = support_gradient(phi_owned + tau * ti_owned)
+    return compatible + jnp.where(jnp.asarray(support_target, dtype=bool), 0.0, legacy)
 
 
 def _wall_candidate_values(
@@ -1269,6 +1315,45 @@ class LocalFciDrbEBRhs:
             halo_exchange=self.halo_exchange,
             topology_filler=self.topology_filler,
         )(field_halo, self.domain, face_bc)
+
+    def _prepare_poisson_bracket_support_halo(
+        self,
+        values_owned: jnp.ndarray,
+        template_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        """Prepare the perpendicular-advection support representation.
+
+        Poisson brackets need a physical-normal Neumann extension of the
+        advected field, independently of the strong physical closure used by
+        the rest of the RHS.  Only faces selected by ``template_bc`` are
+        changed; topology, periodic exchanges, and all unselected BC data
+        remain those of the supplied physical template.
+        """
+
+        support_bc = self._prepare_poisson_bracket_support_face_bc(template_bc)
+        return self._prepare_scalar_halo(values_owned, support_bc)
+
+    def _prepare_poisson_bracket_support_face_bc(
+        self,
+        template_bc: LocalBoundaryFaceBC3D,
+    ) -> LocalBoundaryFaceBC3D:
+        """Return the homogeneous-Neumann support closure used by PB traces."""
+
+        return replace(
+            template_bc,
+            kind_x=jnp.where(template_bc.mask_x, BC_NEUMANN, template_bc.kind_x),
+            kind_y=jnp.where(template_bc.mask_y, BC_NEUMANN, template_bc.kind_y),
+            kind_z=jnp.where(template_bc.mask_z, BC_NEUMANN, template_bc.kind_z),
+            value_x=jnp.where(
+                template_bc.mask_x, 0.0, template_bc.value_x
+            ),
+            value_y=jnp.where(
+                template_bc.mask_y, 0.0, template_bc.value_y
+            ),
+            value_z=jnp.where(
+                template_bc.mask_z, 0.0, template_bc.value_z
+            ),
+        )
 
     def _prepare_fine_storage_halo(
         self,
@@ -2195,6 +2280,7 @@ class LocalFciDrbEBRhs:
         characteristic_sat_effective_linearized_current_divergence = None
         support_gradient_values: dict[str, jnp.ndarray] = {}
         support_flux_values: dict[str, jnp.ndarray] = {}
+        wall_data = None
         if self.parallel_flux_pairing == "support-core":
             support_gradient, support_divergence, support_core_target = (
                 self._fci_support_core_pair(
@@ -2372,9 +2458,9 @@ class LocalFciDrbEBRhs:
                 flux_target, 0.0, legacy_value
             )
 
-        def grad(name: str) -> jnp.ndarray:
+        def legacy_grad(name: str) -> jnp.ndarray:
             q_halo, forward, backward = q_data[name]
-            legacy_value = local_grad_parallel_op_fci_compatible_from_q(
+            return local_grad_parallel_op_fci_compatible_from_q(
                 q_halo,
                 self.geometry,
                 context=context,
@@ -2383,6 +2469,9 @@ class LocalFciDrbEBRhs:
                 forward_remote_q_values=forward,
                 backward_remote_q_values=backward,
             )
+
+        def grad(name: str) -> jnp.ndarray:
+            legacy_value = legacy_grad(name)
             if support_gradient is None or support_core_target is None:
                 return legacy_value
             gradient_target = (
@@ -2393,6 +2482,24 @@ class LocalFciDrbEBRhs:
             return support_gradient_values[name] + jnp.where(
                 gradient_target, 0.0, legacy_value
             )
+
+        # The electron parallel force is a generalized-potential derivative,
+        # not two independent primitive derivatives.  In particular, the
+        # support transpose used for Ti must also see phi through the same
+        # owner-to-face gather/scatter map.  Keep the current/phi pair above
+        # for the physical vorticity current SAT; this separate composite
+        # path is only for the algebraic ``grad(phi) + tau*grad(Ti)`` force.
+        legacy_phi_gradient = legacy_grad("phi")
+        legacy_ti_gradient = legacy_grad("Ti")
+        composite_phi_ti_gradient = _compose_parallel_phi_ti_gradient(
+            fields["phi"][owned],
+            fields["Ti"][owned],
+            self.parameters.tau,
+            legacy_phi_gradient=legacy_phi_gradient,
+            legacy_ti_gradient=legacy_ti_gradient,
+            support_gradient=support_gradient,
+            support_target=support_core_target,
+        )
 
         gradient_values = {
             name: grad(name)
@@ -2896,6 +3003,7 @@ class LocalFciDrbEBRhs:
             "grad_Ve": gradient_values["Ve"],
             "grad_Vi": gradient_values["Vi"],
             "grad_phi": gradient_values["phi"],
+            "grad_phi_plus_tau_Ti": composite_phi_ti_gradient,
             "grad_Pe": gradient_values["Pe"],
             "grad_pressure": gradient_values["pressure"],
             "grad_current": gradient_values["current"],
@@ -3393,6 +3501,26 @@ class LocalFciDrbEBRhs:
             -1,
             0,
         )
+        selected_short_wall = parallel_terms[
+            "parallel_material_diagnostics"
+        ].get(
+            "selected_wall",
+            jnp.zeros(self.geometry.owned_shape, dtype=bool),
+        )
+        composite_force = mi_over_me * parallel_terms[
+            "grad_phi_plus_tau_Ti"
+        ]
+        # Mirror ``evaluate_stage``: the diagnostic reports the live
+        # explicit force.  A selected local-BE wall leg receives +mu*tau G(Ti)
+        # in the implicit companion stage, so remove that exact compatible
+        # piece here; explicit + implicit then equals the one composite
+        # generalized-potential action.
+        diagnostic_electrostatic_force = composite_force - jnp.where(
+            selected_short_wall,
+            mi_over_me * jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+            * parallel_terms["grad_Ti"],
+            0.0,
+        )
         directional_force_terms = jnp.stack(
             (
                 -Ve[None, ...] * gradient_components[0],
@@ -3407,7 +3535,7 @@ class LocalFciDrbEBRhs:
             (
                 -Ve * parallel_terms["grad_Ve"],
                 mi_over_me * collision_frequency * density * (Vi - Ve),
-                mi_over_me * parallel_terms["grad_phi"],
+                diagnostic_electrostatic_force,
                 -mi_over_me * parallel_terms["grad_Pe"] / density_safe,
                 -0.71 * mi_over_me * parallel_terms["grad_Te"],
                 (
@@ -3705,6 +3833,18 @@ class LocalFciDrbEBRhs:
         center = jnp.stack(tuple(s.center for s in primitive_stencils), axis=-1)
         minus = jnp.stack(tuple(s.minus for s in primitive_stencils), axis=-1)
         plus = jnp.stack(tuple(s.plus for s in primitive_stencils), axis=-1)
+        # The handoff force is linear in the local Ti center for a frozen
+        # wall leg.  Supply that matching center derivative to the local BE
+        # solve; omitting it makes the residual and its claimed Jacobian
+        # disagree even though the force itself is present.
+        ti_center_jacobian = (
+            self.parameters.mi_over_me
+            * self.parameters.tau
+            * primitive_stencils[2].derivative_center_weight
+        )
+        coupled_jacobian = jnp.zeros(
+            self.geometry.owned_shape + (5, 5), dtype=jnp.float64
+        ).at[..., 4, 2].set(ti_center_jacobian)
         backward_wall = self.geometry.maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
         forward_wall = self.geometry.maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
         (
@@ -3729,6 +3869,7 @@ class LocalFciDrbEBRhs:
                 self.parameters.parallel_characteristic_wall_law
             ),
             coupled_residual=coupled_residual,
+            coupled_jacobian=coupled_jacobian,
             resolved_wall_data=parallel_terms.get(
                 "parallel_characteristic_wall_data"
             ),
@@ -3904,6 +4045,15 @@ class LocalFciDrbEBRhs:
             phi_owned = _mask_inactive_owned(phi_owned, self.geometry)
         phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
         state_halo = state_halo_without_phi.replace(phi=phi_halo)
+        # Perpendicular advection has its own physical support extension for
+        # the six advected RHS fields.  The electric potential is the
+        # generator and retains its physically closed state halo below.
+        poisson_bracket_support_halos = {
+            name: self._prepare_poisson_bracket_support_halo(
+                getattr(state_owned, name), getattr(face_bc, name)
+            )
+            for name in POISSON_BRACKET_SUPPORT_FIELD_NAMES
+        }
         operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
             state_halo, self.geometry, self.domain, face_bc, tau=self.parameters.tau
         )
@@ -3944,12 +4094,39 @@ class LocalFciDrbEBRhs:
         vorticity_gradient = build_gradient(state_halo.vorticity, self.geometry, context)
         phi_gradient = build_gradient(state_halo.phi, self.geometry, context)
 
-        Ve_conservative_stencil = build_local_conservative_stencil_from_field(
+        poisson_bracket_gradients = {
+            name: build_gradient(halo, self.geometry, context)
+            for name, halo in poisson_bracket_support_halos.items()
+        }
+        poisson_bracket_conservative_stencils = {
+            name: build_local_conservative_stencil_from_field(
+                halo, self.geometry, context
+            )
+            for name, halo in poisson_bracket_support_halos.items()
+        }
+        phi_pb_gradient = phi_gradient
+        phi_pb_conservative_stencil = build_local_conservative_stencil_from_field(
+            state_halo.phi, self.geometry, context
+        )
+        density_pb_gradient = poisson_bracket_gradients["density"]
+        Te_pb_gradient = poisson_bracket_gradients["Te"]
+        Ti_pb_gradient = poisson_bracket_gradients["Ti"]
+        Vi_pb_gradient = poisson_bracket_gradients["Vi"]
+        Ve_pb_gradient = poisson_bracket_gradients["Ve"]
+        vorticity_pb_gradient = poisson_bracket_gradients["vorticity"]
+        density_conservative_stencil = poisson_bracket_conservative_stencils["density"]
+        Te_conservative_stencil = poisson_bracket_conservative_stencils["Te"]
+        Ti_conservative_stencil = poisson_bracket_conservative_stencils["Ti"]
+        Vi_conservative_stencil = poisson_bracket_conservative_stencils["Vi"]
+        Ve_conservative_stencil = poisson_bracket_conservative_stencils["Ve"]
+        vorticity_conservative_stencil = poisson_bracket_conservative_stencils["vorticity"]
+
+        Ve_production_conservative_stencil = build_local_conservative_stencil_from_field(
             Ve_perp_halo,
             self.geometry,
             context,
         )
-        Vi_conservative_stencil = build_local_conservative_stencil_from_field(
+        Vi_production_conservative_stencil = build_local_conservative_stencil_from_field(
             Vi_perp_halo,
             self.geometry,
             context,
@@ -3976,26 +4153,22 @@ class LocalFciDrbEBRhs:
                 context,
             )
         )
-        density_conservative_stencil = build_local_conservative_stencil_from_field(
+        density_production_conservative_stencil = build_local_conservative_stencil_from_field(
             state_halo.density,
             self.geometry,
             context,
         )
-        Te_conservative_stencil = build_local_conservative_stencil_from_field(
+        Te_production_conservative_stencil = build_local_conservative_stencil_from_field(
             state_halo.Te,
             self.geometry,
             context,
         )
-        Ti_conservative_stencil = build_local_conservative_stencil_from_field(
+        Ti_production_conservative_stencil = build_local_conservative_stencil_from_field(
             state_halo.Ti,
             self.geometry,
             context,
         )
-        phi_conservative_stencil = build_local_conservative_stencil_from_field(
-            state_halo.phi,
-            self.geometry,
-            context,
-        )
+        phi_conservative_stencil = phi_pb_conservative_stencil
         Pe_conservative_stencil = build_local_conservative_stencil_from_field(
             Pe_halo,
             self.geometry,
@@ -4006,7 +4179,7 @@ class LocalFciDrbEBRhs:
             self.geometry,
             context,
         )
-        vorticity_conservative_stencil = build_local_conservative_stencil_from_field(
+        vorticity_production_conservative_stencil = build_local_conservative_stencil_from_field(
             state_halo.vorticity,
             self.geometry,
             context,
@@ -4113,61 +4286,61 @@ class LocalFciDrbEBRhs:
             Ve_parallel_diff = fci_parallel_terms["Ve_parallel_diff"]
             vorticity_parallel_diff = fci_parallel_terms["vorticity_parallel_diff"]
         poisson_density = self._poisson_bracket_over_B(
-            phi_gradient,
-            density_gradient,
-            phi_conservative_stencil,
+            phi_pb_gradient,
+            density_pb_gradient,
+            phi_pb_conservative_stencil,
             density_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.density,
-            g_field_halo=state_halo.density,
+            g_field_halo=poisson_bracket_support_halos["density"],
             g_positivity_floor=1.0e-12,
         )
         poisson_Te = self._poisson_bracket_over_B(
-            phi_gradient,
-            Te_gradient,
-            phi_conservative_stencil,
+            phi_pb_gradient,
+            Te_pb_gradient,
+            phi_pb_conservative_stencil,
             Te_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Te,
-            g_field_halo=state_halo.Te,
+            g_field_halo=poisson_bracket_support_halos["Te"],
             g_positivity_floor=1.0e-12,
         )
         poisson_Ti = self._poisson_bracket_over_B(
-            phi_gradient,
-            Ti_gradient,
-            phi_conservative_stencil,
+            phi_pb_gradient,
+            Ti_pb_gradient,
+            phi_pb_conservative_stencil,
             Ti_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Ti,
-            g_field_halo=state_halo.Ti,
+            g_field_halo=poisson_bracket_support_halos["Ti"],
             g_positivity_floor=1.0e-12,
         )
         poisson_Vi = self._poisson_bracket_over_B(
-            phi_gradient,
-            Vi_gradient,
-            phi_conservative_stencil,
+            phi_pb_gradient,
+            Vi_pb_gradient,
+            phi_pb_conservative_stencil,
             Vi_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=perpendicular_operator_boundary.Vi,
-            g_field_halo=Vi_perp_halo,
+            g_field_halo=poisson_bracket_support_halos["Vi"],
         )
         poisson_Ve = self._poisson_bracket_over_B(
-            phi_gradient,
-            Ve_gradient,
-            phi_conservative_stencil,
+            phi_pb_gradient,
+            Ve_pb_gradient,
+            phi_pb_conservative_stencil,
             Ve_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=perpendicular_operator_boundary.Ve,
-            g_field_halo=Ve_perp_halo,
+            g_field_halo=poisson_bracket_support_halos["Ve"],
         )
         poisson_vorticity = self._poisson_bracket_over_B(
-            phi_gradient,
-            vorticity_gradient,
-            phi_conservative_stencil,
+            phi_pb_gradient,
+            vorticity_pb_gradient,
+            phi_pb_conservative_stencil,
             vorticity_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.vorticity,
-            g_field_halo=state_halo.vorticity,
+            g_field_halo=poisson_bracket_support_halos["vorticity"],
             equation_family="vorticity",
         )
 
@@ -4180,14 +4353,14 @@ class LocalFciDrbEBRhs:
                 parallel_div_b=parallel_div_b,
                 density_flux_stencil=density_flux_conservative_stencil,
                 current_stencil=current_conservative_stencil,
-                Ve_stencil=Ve_conservative_stencil,
-                Vi_stencil=Vi_conservative_stencil,
-                Te_stencil=Te_conservative_stencil,
-                Ti_stencil=Ti_conservative_stencil,
+                Ve_stencil=Ve_production_conservative_stencil,
+                Vi_stencil=Vi_production_conservative_stencil,
+                Te_stencil=Te_production_conservative_stencil,
+                Ti_stencil=Ti_production_conservative_stencil,
                 phi_stencil=phi_conservative_stencil,
                 Pe_stencil=Pe_conservative_stencil,
                 pressure_stencil=pressure_conservative_stencil,
-                vorticity_stencil=vorticity_conservative_stencil,
+                vorticity_stencil=vorticity_production_conservative_stencil,
             )
         else:
             stage_parallel_terms = fci_parallel_terms
@@ -4203,6 +4376,12 @@ class LocalFciDrbEBRhs:
         grad_parallel_Ve = stage_parallel_terms["grad_Ve"]
         grad_parallel_Vi = stage_parallel_terms["grad_Vi"]
         grad_parallel_phi = stage_parallel_terms["grad_phi"]
+        grad_parallel_phi_plus_tau_Ti = stage_parallel_terms.get(
+            "grad_phi_plus_tau_Ti",
+            grad_parallel_phi
+            + jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+            * stage_parallel_terms["grad_Ti"],
+        )
         grad_parallel_Pe = stage_parallel_terms["grad_Pe"]
         grad_parallel_pressure = stage_parallel_terms["grad_pressure"]
         grad_parallel_current = stage_parallel_terms["grad_current"]
@@ -4263,7 +4442,26 @@ class LocalFciDrbEBRhs:
             )
             else Ve_Ti_force_complete_term
         )
-        Ve_electrostatic_term = Ve_phi_force_term + Ve_Ti_force_term
+        if production_parallel:
+            # The explicit and optional local-BE pieces must add to one
+            # compatible generalized-potential action.  On an unselected
+            # row, the explicit term is mu*G(phi + tau*Ti).  On a selected
+            # short wall leg, the local BE stage supplies the missing
+            # +mu*tau*G(Ti), so the explicit stage carries the exact
+            # complement.  This keeps the total force one discrete operator
+            # while preserving the physical current/phi SAT used by
+            # vorticity (the SAT is not replaced by this force path).
+            Ve_composite_force_term = mi_over_me * grad_parallel_phi_plus_tau_Ti
+            Ve_electrostatic_term = (
+                Ve_composite_force_term
+                - jnp.where(
+                    selected_short_wall,
+                    Ve_Ti_force_complete_term,
+                    0.0,
+                )
+            )
+        else:
+            Ve_electrostatic_term = Ve_phi_force_term + Ve_Ti_force_term
         vorticity_current_term = (
             (bmag * bmag / density_safe) * vorticity_current_flux_divergence
         )
@@ -4278,10 +4476,10 @@ class LocalFciDrbEBRhs:
             bmag=bmag,
             tau=tau,
             operator_boundary=operator_boundary,
-            density_conservative_stencil=density_conservative_stencil,
-            Te_conservative_stencil=Te_conservative_stencil,
-            Ti_conservative_stencil=Ti_conservative_stencil,
-            vorticity_conservative_stencil=vorticity_conservative_stencil,
+            density_conservative_stencil=density_production_conservative_stencil,
+            Te_conservative_stencil=Te_production_conservative_stencil,
+            Ti_conservative_stencil=Ti_production_conservative_stencil,
+            vorticity_conservative_stencil=vorticity_production_conservative_stencil,
             return_directional_components=return_curvature_component_fields,
         )
         if return_curvature_component_fields:
