@@ -100,6 +100,8 @@ def test_parser_production_selector_contract():
     driver = _driver_module()
     parser = driver._build_parser()
     args = parser.parse_args(())
+    assert args.reconstruct_restart_phi is False
+    assert parser.parse_args(("--reconstruct-restart-phi",)).reconstruct_restart_phi
     driver._validate_flux_framework(args)
     boundary_action = next(
         action
@@ -131,6 +133,7 @@ def test_parser_production_selector_contract():
         "legacy-velocity-trace",
         "no-flow",
         "simple-conducting-sheath",
+        "simplified-gbs-mpe",
     )
     assert wall_model_action.default == "legacy-velocity-trace"
     selection_action = next(
@@ -143,6 +146,10 @@ def test_parser_production_selector_contract():
         action.dest != "curvature_wall_flux_closure"
         for action in driver._build_parser()._actions
     )
+    assert all(
+        action.dest != "polarization_boundary_policy"
+        for action in driver._build_parser()._actions
+    )
     poisson_action = next(
         action
         for action in driver._build_parser()._actions
@@ -152,6 +159,37 @@ def test_parser_production_selector_contract():
     assert "material-scalar-vorticity-compatible-upwind" in tuple(
         poisson_action.choices
     )
+    polarization_action = next(
+        action
+        for action in driver._build_parser()._actions
+        if action.dest == "polarization_operator_form"
+    )
+    assert tuple(polarization_action.choices) == (
+        "conservative",
+        "weighted-symmetric",
+        "support-paired",
+    )
+    assert polarization_action.default == "conservative"
+
+
+def test_production_accepts_weighted_symmetric_polarization_operator():
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--polarization-operator-form",
+        "weighted-symmetric",
+    )
+    driver._validate_flux_framework(args)
+
+
+def test_production_accepts_support_paired_polarization_operator():
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--polarization-operator-form",
+        "support-paired",
+    )
+    driver._validate_flux_framework(args)
 
 
 def test_production_accepts_characteristic_poisson_bracket():
@@ -253,6 +291,167 @@ def test_physical_boundary_state_is_available_to_legacy_model():
         "physical-boundary-state",
     )
     driver._validate_flux_framework(args)
+
+
+def test_explicit_simplified_gbs_mpe_provenance_remains_explicit_with_the_rung3_selector_bundle(
+):
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-characteristic-wall-law",
+        "physical-boundary-state",
+        "--physical-wall-model",
+        "simplified-gbs-mpe",
+        "--parallel-short-leg-treatment",
+        "local-backward-euler",
+        "--parallel-short-leg-selection",
+        "all-physical-walls",
+        "--time-integrator",
+        "imex-ssp222",
+        "--poisson-bracket-scheme",
+        "material-scalar-vorticity-compatible-upwind",
+        "--polarization-operator-form",
+        "support-paired",
+        "--gmres-preconditioner",
+        "jacobi",
+    )
+    driver._validate_flux_framework(args)
+    assert driver._physical_wall_model_provenance(args) == "simplified-gbs-mpe"
+
+
+def test_simple_conducting_sheath_keeps_the_rung2_provenance_even_with_the_rung3_selector_bundle():
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-characteristic-wall-law",
+        "physical-boundary-state",
+        "--physical-wall-model",
+        "simple-conducting-sheath",
+        "--parallel-short-leg-treatment",
+        "local-backward-euler",
+        "--parallel-short-leg-selection",
+        "all-physical-walls",
+        "--time-integrator",
+        "imex-ssp222",
+        "--poisson-bracket-scheme",
+        "material-scalar-vorticity-compatible-upwind",
+        "--polarization-operator-form",
+        "weighted-symmetric",
+        "--gmres-preconditioner",
+        "line-u",
+    )
+    driver._validate_flux_framework(args)
+    assert (
+        driver._physical_wall_model_provenance(args)
+        == "production-rung2-simple-conducting-sheath"
+    )
+
+
+def test_simplified_gbs_mpe_requires_the_exact_rung3_selector_bundle():
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-characteristic-wall-law",
+        "physical-boundary-state",
+        "--physical-wall-model",
+        "simplified-gbs-mpe",
+    )
+    with pytest.raises(ValueError, match="exact rung-3 selector bundle"):
+        driver._validate_flux_framework(args)
+
+
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    (
+        ("--polarization-operator-form", "weighted-symmetric"),
+        ("--polarization-operator-form", "conservative"),
+        ("--gmres-preconditioner", "none"),
+    ),
+)
+def test_simplified_gbs_mpe_rejects_nonproduction_phi_selector(
+    flag,
+    value,
+):
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing",
+        "characteristic-sat",
+        "--parallel-characteristic-wall-law",
+        "physical-boundary-state",
+        "--physical-wall-model",
+        "simplified-gbs-mpe",
+        "--parallel-short-leg-treatment",
+        "local-backward-euler",
+        "--parallel-short-leg-selection",
+        "all-physical-walls",
+        "--time-integrator",
+        "imex-ssp222",
+        "--poisson-bracket-scheme",
+        "material-scalar-vorticity-compatible-upwind",
+        "--polarization-operator-form",
+        "support-paired",
+        "--gmres-preconditioner",
+        "jacobi",
+        flag,
+        value,
+    )
+    with pytest.raises(ValueError, match="exact rung-3 selector bundle"):
+        driver._validate_flux_framework(args)
+
+
+@pytest.mark.parametrize("preconditioner", ("line-u", "coarse-additive", "coarse-multiplicative"))
+def test_simplified_gbs_mpe_accepts_qualified_line_u_phi_selector(preconditioner):
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing", "characteristic-sat",
+        "--parallel-characteristic-wall-law", "physical-boundary-state",
+        "--physical-wall-model", "simplified-gbs-mpe",
+        "--parallel-short-leg-treatment", "local-backward-euler",
+        "--parallel-short-leg-selection", "all-physical-walls",
+        "--time-integrator", "imex-ssp222",
+        "--poisson-bracket-scheme", "material-scalar-vorticity-compatible-upwind",
+        "--polarization-operator-form", "support-paired",
+        "--gmres-preconditioner", preconditioner,
+    )
+    driver._validate_flux_framework(args)
+
+
+def test_live_current_prototype_cli_reaches_native_factory_and_resets_default():
+    from drbx.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
+
+    driver = _driver_module()
+    args = _production_args(
+        driver,
+        "--parallel-boundary-pairing", "characteristic-sat",
+        "--parallel-current-pairing", "live-gradient-prototype",
+        "--parallel-characteristic-wall-law", "physical-boundary-state",
+        "--physical-wall-model", "simplified-gbs-mpe",
+        "--parallel-short-leg-treatment", "local-backward-euler",
+        "--parallel-short-leg-selection", "all-physical-walls",
+        "--time-integrator", "imex-ssp222",
+        "--imex-split", "historical",
+        "--poisson-bracket-scheme", "material-scalar-vorticity-compatible-upwind",
+        "--polarization-operator-form", "support-paired",
+        "--gmres-preconditioner", "jacobi",
+    )
+    driver._validate_flux_framework(args)
+    driver._configure_runtime_selectors(args)
+    native_default = LocalFciDrbEBRhs.__dataclass_fields__["parallel_current_pairing"].default_factory
+    assert native_default() == "live-gradient-prototype"
+    args.physical_wall_model = "simple-conducting-sheath"
+    with pytest.raises(ValueError, match="live-gradient-prototype requires"):
+        driver._validate_flux_framework(args)
+    defaults = driver._build_parser().parse_args(())
+    driver._configure_runtime_selectors(defaults)
+    assert native_default() == "reference"
 
 
 @pytest.mark.parametrize(
@@ -736,6 +935,15 @@ def test_restart_phi_reuse_flag_is_not_shadowed_by_setup_kernel():
     assert "reconstruct_initial_phi_kernel" in nested_function_names
 
 
+def test_restart_phi_reconstruction_is_explicit_and_provenanced():
+    source = DRIVER.read_text(encoding="utf-8")
+    assert "reconstruct_initial_phi=(not restart_used) or bool(" in source
+    assert "args.reconstruct_restart_phi" in source
+    assert '"reconstruct_restart_phi_requested"' in source
+    assert '"reconstruct_initial_phi_effective"' in source
+    assert '"reconstruct_initial_phi_source"' in source
+
+
 def test_invariant_curvature_faces_round_trip_through_cell_channels():
     driver = _driver_module()
     layout = HaloLayout3D((3, 4, 5), halo_width=2)
@@ -789,6 +997,9 @@ def test_run_metadata_attributes_selectors_to_canonical_driver():
         '"parallel_characteristic_wall_law_source": '
         '"simulate_hsx_blob.py:--parallel-characteristic-wall-law"'
     ) in source
+    assert '"phi_inversion_regularization": float(' in source
+    assert "parameters.phi_inversion_regularization" in source
+    assert '"physical_wall_model_provenance": physical_wall_model_provenance' in source
 
 
 def test_startup_announces_parallel_characteristic_wall_law():

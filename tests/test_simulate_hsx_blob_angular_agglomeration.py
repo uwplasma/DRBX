@@ -125,7 +125,9 @@ def test_angular_cache_roundtrip_contains_only_rlp_payload(tmp_path):
     assert np.array_equal(loaded.angular_group_size, host.angular_group_size)
     assert np.array_equal(loaded.topology.owner_index, host.topology.owner_index)
     with np.load(path, allow_pickle=False) as cached:
-        assert int(cached["format_version"]) == 3
+        assert int(cached["format_version"]) == (
+            fci_geometry.ANGULAR_AGGLOMERATION_HOST_CACHE_VERSION
+        )
         assert "host_face_observation_count" not in cached.files
         assert "host_face_design_matrix_condition" not in cached.files
 

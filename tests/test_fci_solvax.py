@@ -161,6 +161,114 @@ def test_single_shard_solvax_gmres_solves_identity_inside_shard_map() -> None:
     assert float(info.final_residual_l2) < 1.0e-10
 
 
+def test_single_shard_solvax_gmres_exact_zero_skips_arnoldi() -> None:
+    """A zero RHS/guess is accepted without entering SOLVAX Arnoldi."""
+
+    shape = (4, 3, 2)
+    shard_counts = (1, 1, 1)
+    halo_width = 1
+    domain = _build_domain(shape, halo_width, shard_counts)
+    zeros = jnp.zeros(shape, dtype=jnp.float64)
+    config = SolvaxGmresConfig(
+        tol=1.0e-12,
+        atol=1.0e-12,
+        maxiter=4,
+        restart=4,
+    )
+
+    with make_mesh_for_shard_counts(shard_counts) as mesh:
+        zeros_sharded = put_scalar_field_on_mesh(zeros, mesh)
+
+        def kernel(rhs_owned, guess_owned):
+            shard_index = tuple(lax.axis_index(name) for name in ("x", "y", "z"))
+            geometry = _build_local_geometry(
+                shape,
+                halo_width,
+                global_shape=shape,
+                shard_index=shard_index,
+            )
+            return solvax_gmres_solve(
+                lambda values: values,
+                rhs_owned,
+                guess_owned,
+                geometry,
+                domain,
+                config,
+                volume_weights=jnp.ones_like(rhs_owned),
+            )
+
+        kernel = shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(P("x", "y", "z"), P("x", "y", "z")),
+            out_specs=(P("x", "y", "z"), _replicated_gmres_info_spec()),
+            check_rep=False,
+        )
+        solution, info = kernel(zeros_sharded, zeros_sharded)
+
+    np.testing.assert_array_equal(np.asarray(solution), np.asarray(zeros))
+    assert int(info.num_steps) == 0
+    assert float(info.initial_residual_l2) == 0.0
+    assert float(info.final_residual_l2) == 0.0
+    assert bool(info.converged)
+    assert not bool(info.failed)
+
+
+def test_single_shard_solvax_gmres_exact_projected_guess_skips_arnoldi() -> None:
+    """An exact nonzero guess remains a zero-iteration solve after projection."""
+
+    shape = (4, 3, 2)
+    shard_counts = (1, 1, 1)
+    halo_width = 1
+    domain = _build_domain(shape, halo_width, shard_counts)
+    rhs = jnp.arange(1, math.prod(shape) + 1, dtype=jnp.float64).reshape(shape)
+    expected = rhs - jnp.mean(rhs)
+    config = SolvaxGmresConfig(
+        tol=1.0e-12,
+        atol=1.0e-12,
+        maxiter=4,
+        restart=4,
+        project_mean_zero=True,
+    )
+
+    with make_mesh_for_shard_counts(shard_counts) as mesh:
+        rhs_sharded = put_scalar_field_on_mesh(rhs, mesh)
+
+        def kernel(rhs_owned, guess_owned):
+            shard_index = tuple(lax.axis_index(name) for name in ("x", "y", "z"))
+            geometry = _build_local_geometry(
+                shape,
+                halo_width,
+                global_shape=shape,
+                shard_index=shard_index,
+            )
+            return solvax_gmres_solve(
+                lambda values: values,
+                rhs_owned,
+                guess_owned,
+                geometry,
+                domain,
+                config,
+                volume_weights=jnp.ones_like(rhs_owned),
+            )
+
+        kernel = shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(P("x", "y", "z"), P("x", "y", "z")),
+            out_specs=(P("x", "y", "z"), _replicated_gmres_info_spec()),
+            check_rep=False,
+        )
+        solution, info = kernel(rhs_sharded, rhs_sharded)
+
+    np.testing.assert_allclose(np.asarray(solution), np.asarray(expected), atol=1.0e-12)
+    assert int(info.num_steps) == 0
+    assert float(info.initial_residual_l2) == 0.0
+    assert float(info.final_residual_l2) == 0.0
+    assert bool(info.converged)
+    assert not bool(info.failed)
+
+
 def test_true_residual_correction_restarts_from_the_recomputed_residual() -> None:
     shape = (4, 3, 2)
     shard_counts = (1, 1, 1)

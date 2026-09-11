@@ -44,7 +44,7 @@ owner space.
 | Poisson bracket | `direct`, `compatible-flux` | `compatible-flux` |
 | Curvature | `direct`, `conservative`, `disabled` | `conservative` |
 | Parallel derivatives | `coordinate`, `fci` | Either, with valid FCI maps required for `fci` |
-| Phi preconditioner | `none`, `jacobi`, line variants | `none` or angular-tree `line-u` |
+| Phi preconditioner | `none`, `jacobi`, line variants | `none`, owner `jacobi`, or angular-tree `line-u` |
 
 The compatible Poisson bracket uses antisymmetrized shared-face fluxes and
 includes the RHS `1/B` factor. Conservative curvature uses shared face
@@ -100,7 +100,7 @@ Selecting `--topology toroidal` additionally requires:
 - even `Ntheta`;
 - compatible-flux Poisson bracket;
 - conservative curvature;
-- `none` or `line-u` phi preconditioning.
+- `none`, owner-`jacobi`, or `line-u` phi preconditioning.
 
 The driver automatically creates the metric-aware angular owner profile. In
 toroidal RLP, each owner aggregate is confined to a single eta plane, so the
@@ -109,7 +109,6 @@ shard. Global reductions for owner-space means, compatibility, norms, and
 GMRES residuals still span all eta shards. The `line-u` preconditioner keeps
 local radial trees; its eta-face diagonal assembly includes contributions from
 both faces of every local eta slab, including the faces at slab interfaces.
-
 There is no x/theta RLP decomposition and no fallback to a single-device
 geometry, a full-grid toroidal phi solve, fixed-ring topology, compact angular
 faces, or a Cartesian core. The driver does not expose a user-selectable axis

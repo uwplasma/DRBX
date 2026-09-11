@@ -504,10 +504,32 @@ def test_all_physical_walls_omits_explicit_material_and_be_includes_one_wall(
     np.testing.assert_array_equal(increment[1], jnp.zeros(5))
     np.testing.assert_array_equal(info["selected_backward_wall"], walls_backward)
     np.testing.assert_array_equal(info["selected_forward_wall"], walls_forward)
-    # The explicit and BE paths partition the same wall material action.
-    np.testing.assert_allclose(
-        residual[0], jnp.zeros(5), atol=1.0e-14, rtol=0.0
+    # Row zero still carries its ordinary forward leg.  The selected wall
+    # residual from the implicit handoff plus the explicit remainder must
+    # equal the same first-order row when the wall is left unselected.
+    full, _ = parallel_target_row_material_residual(
+        center, minus, plus, jnp.asarray((100.0, 100.0)),
+        jnp.asarray((100.0, 100.0)), 4.0, 10.0,
+        backward_wall=walls_backward,
+        forward_wall=walls_forward,
+        backward_wall_state=minus,
+        forward_wall_state=plus,
+        parallel_characteristic_wall_law=wall_law,
+        parallel_short_leg_selection="cfl",
+        cfl_limit=1.0e12,
     )
+    selected_wall, _wall_jacobian, _wall_info = parallel_short_wall_material_data(
+        center, minus, plus, jnp.asarray((100.0, 100.0)),
+        jnp.asarray((100.0, 100.0)), 4.0, 10.0,
+        backward_wall=walls_backward,
+        forward_wall=walls_forward,
+        backward_wall_state=minus,
+        forward_wall_state=plus,
+        parallel_characteristic_wall_law=wall_law,
+        parallel_short_leg_selection="all-physical-walls",
+    )
+    np.testing.assert_allclose(residual[0] + selected_wall[0], full[0], atol=1.0e-14, rtol=0.0)
+    assert bool(jnp.any(jnp.abs(residual[0]) > 0.0))
 
 
 def test_short_wall_backward_euler_propagates_nonfinite_local_solve():

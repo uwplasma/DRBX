@@ -108,6 +108,59 @@ def _single_shard_map_metadata(sharded, *, include_maps: bool):
     )(cell_fields)
 
 
+def _single_shard_material_map_metadata(sharded):
+    mesh = make_shard_mesh((1, 1, 1))
+    spec = P("x", "y", "z")
+    sharding = NamedSharding(mesh, spec)
+    cell_fields = jax.device_put(sharded.cell_fields, sharding)
+    map_fields = jax.device_put(sharded.map_fields, sharding)
+
+    def kernel(cell_owned, maps_owned):
+        local = assemble_local_fci_geometry(sharded, cell_owned, maps_owned)
+        assert local.material_maps is not None
+        canonical = local.maps.forward.local
+        material = local.material_maps.forward.local
+        return (
+            canonical.active,
+            material.active,
+            material.source_i,
+            material.weight,
+        )
+
+    return jax.jit(
+        jax.shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(spec, spec),
+            out_specs=(P(), P(), P(), P()),
+            check_vma=False,
+        )
+    )(cell_fields, map_fields)
+
+
+def _single_shard_material_map_unavailable(sharded):
+    mesh = make_shard_mesh((1, 1, 1))
+    spec = P("x", "y", "z")
+    sharding = NamedSharding(mesh, spec)
+
+    def kernel(cell_owned, maps_owned):
+        local = assemble_local_fci_geometry(sharded, cell_owned, maps_owned)
+        return jnp.asarray(local.material_maps is None)
+
+    return jax.jit(
+        jax.shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(spec, spec),
+            out_specs=P(),
+            check_vma=False,
+        )
+    )(
+        jax.device_put(sharded.cell_fields, sharding),
+        jax.device_put(sharded.map_fields, sharding),
+    )
+
+
 def test_single_shard_retains_outer_wall_rows_and_axis_regular_rows() -> None:
     base = build_shifted_torus_geometry((4, 8, 4), construct_fci_maps=True)
     dz = float(base.grid.z.centers[1] - base.grid.z.centers[0])
@@ -203,6 +256,42 @@ def test_invalid_nan_maps_preserve_inactive_coordinate_path() -> None:
     assert sharded.map_fields is None
     active = _single_shard_map_metadata(sharded, include_maps=False)
     assert not bool(np.asarray(active).any())
+
+
+def test_material_map_uses_distinct_one_sided_quadratic_rows() -> None:
+    geometry = build_shifted_torus_geometry((5, 8, 4), construct_fci_maps=True)
+    sharded = build_local_fci_geometries(geometry, (1, 1, 1))
+    map_fields = sharded.map_fields
+    assert map_fields is not None
+    forward_x = 0
+    map_fields = map_fields.at[..., forward_x].set(-0.25)
+    sharded = dataclasses.replace(sharded, map_fields=map_fields)
+
+    canonical_active, material_active, material_source_i, material_weight = (
+        _single_shard_material_map_metadata(sharded)
+    )
+    shape = sharded.domain.layout.owned_shape
+    canonical_active = np.asarray(canonical_active).reshape(shape + (8,))
+    material_active = np.asarray(material_active).reshape(shape + (17,))
+    material_source_i = np.asarray(material_source_i).reshape(shape + (17,))
+    material_weight = np.asarray(material_weight).reshape(shape + (17,))
+
+    assert canonical_active[0, 0, 0].sum() == 4
+    assert material_active[0, 0, 0].sum() == 9
+    h = sharded.domain.layout.halo_width
+    donors = material_source_i[0, 0, 0, :9] - h
+    assert set(donors.tolist()) == {0, 1, 2}
+    weights = material_weight[0, 0, 0, :9]
+    assert np.isclose(weights.sum(), 1.0)
+    # The one-sided positive-radius triplet reproduces a radial quadratic even
+    # when the traced point lies between the lower face and first cell center.
+    assert np.isclose(np.sum(weights * donors**2), (-0.25) ** 2)
+
+
+def test_material_map_does_not_advertise_third_order_on_small_grids() -> None:
+    geometry = build_shifted_torus_geometry((2, 8, 4), construct_fci_maps=True)
+    sharded = build_local_fci_geometries(geometry, (1, 1, 1))
+    assert bool(np.asarray(_single_shard_material_map_unavailable(sharded)))
 
 
 def test_multi_shard_lowering_preserves_remote_periodic_requests() -> None:

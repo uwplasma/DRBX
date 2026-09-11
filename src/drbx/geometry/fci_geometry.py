@@ -1551,6 +1551,10 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
     regular_face_geometry: LocalRegularFaceGeometry3D
     cell_volume_geometry: LocalCellVolumeGeometry3D
     active_cell_mask: jnp.ndarray | None = None
+    # Optional third-order point-sampling maps used only by the material
+    # characteristic reconstruction.  The canonical ``maps`` member remains
+    # the bilinear map used by the compatible current/potential operators.
+    material_maps: LocalFciMaps3D | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -1573,6 +1577,10 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
             raise TypeError("regular_face_geometry must be a LocalRegularFaceGeometry3D instance")
         if not isinstance(self.cell_volume_geometry, LocalCellVolumeGeometry3D):
             raise TypeError("cell_volume_geometry must be a LocalCellVolumeGeometry3D instance")
+        if self.material_maps is not None and not isinstance(
+            self.material_maps, LocalFciMaps3D
+        ):
+            raise TypeError("material_maps must be a LocalFciMaps3D instance or None")
 
         for name, value in (
             ("grid", self.grid.layout),
@@ -1587,6 +1595,13 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
         ):
             if value != self.layout:
                 raise ValueError(f"LocalFciGeometry3D.{name} must share the same HaloLayout3D")
+        if (
+            self.material_maps is not None
+            and self.material_maps.layout != self.layout
+        ):
+            raise ValueError(
+                "LocalFciGeometry3D.material_maps must share the same HaloLayout3D"
+            )
         if self.active_cell_mask is not None:
             active_cell_mask = jnp.asarray(self.active_cell_mask, dtype=bool)
             if active_cell_mask.shape != self.layout.owned_shape:
@@ -7184,6 +7199,44 @@ def interpolate_B_contravariant(
 
 
 ANGULAR_AGGLOMERATION_HOST_CACHE_VERSION = 3
+ANGULAR_AGGLOMERATION_HOST_IDENTITY_VERSION = 2
+
+
+def _metric_cache_contract_identity(metric_path: Path) -> dict[str, object]:
+    """Extract the stable numerical contract needed by the RLP host cache."""
+
+    def without_volatile_metadata(value):
+        if isinstance(value, dict):
+            return {
+                key: without_volatile_metadata(item)
+                for key, item in value.items()
+                if key not in {"path", "mtime_ns"}
+            }
+        if isinstance(value, list):
+            return [without_volatile_metadata(item) for item in value]
+        return value
+
+    if not metric_path.is_file():
+        return {"missing": True}
+    try:
+        with np.load(metric_path, allow_pickle=False) as cached:
+            cache_spec = without_volatile_metadata(
+                json.loads(str(cached["cache_spec"].item()))
+            )
+            identity = {"cache_spec": cache_spec}
+            for name in (
+                "fci_maps_format_version",
+                "fci_maps_source_fingerprint",
+                "fci_maps_trace_substeps",
+            ):
+                if name in cached.files:
+                    identity[name] = np.asarray(cached[name]).item()
+            return identity
+    except (EOFError, KeyError, OSError, ValueError, zipfile.BadZipFile):
+        # The metric loader will reject an unreadable payload. Keep this
+        # fallback deterministic without tying valid caches to their path.
+        stat = metric_path.stat()
+        return {"unreadable_size": int(stat.st_size)}
 
 
 def angular_agglomeration_host_geometry_cache_path(
@@ -7198,13 +7251,11 @@ def angular_agglomeration_host_geometry_cache_path(
     if metric_cache_path is None:
         return None
     metric_path = Path(metric_cache_path)
-    stat = metric_path.stat() if metric_path.exists() else None
     identity = {
         "format_version": ANGULAR_AGGLOMERATION_HOST_CACHE_VERSION,
+        "identity_version": ANGULAR_AGGLOMERATION_HOST_IDENTITY_VERSION,
         "mode": "radius-dependent-angular-agglomeration",
-        "metric_cache": str(metric_path.resolve()),
-        "metric_size": int(stat.st_size) if stat is not None else -1,
-        "metric_mtime_ns": int(stat.st_mtime_ns) if stat is not None else -1,
+        "metric_contract": _metric_cache_contract_identity(metric_path),
         "u_faces": hashlib.sha256(np.asarray(u_faces, dtype=np.float64).tobytes()).hexdigest(),
         "theta_faces": hashlib.sha256(np.asarray(theta_faces, dtype=np.float64).tobytes()).hexdigest(),
         "eta_faces": hashlib.sha256(np.asarray(eta_faces, dtype=np.float64).tobytes()).hexdigest(),

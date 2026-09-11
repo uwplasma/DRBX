@@ -28,6 +28,7 @@ from drbx.native.fci_boundaries import (  # noqa: E402
 import drbx.native.fci_drb_EB_rhs as rhs_module  # noqa: E402
 from drbx.native.fci_drb_EB_rhs import LocalFciDrbEBRhs  # noqa: E402
 from drbx.native.fci_operators import (  # noqa: E402
+    _axis_face_samples_from_halo,
     _compatible_characteristic_regular_flux,
     _compatible_flux_divergence,
     _compatible_flux_generator,
@@ -83,6 +84,49 @@ def _polar_pair(shape=(8, 32, 4)):
     f = scalar_field_halo(r, theta, z, lambda r, t, z: r * jnp.cos(t) + 0.1 * z)
     g = scalar_field_halo(r, theta, z, lambda r, t, z: r * jnp.sin(t) - 0.2 * z)
     return geometry, domain, context, f, g
+
+
+def test_vorticity_compatible_upwind_uses_neumann_support_not_strong_ghosts():
+    """The complete compatible generator correction is support-halo stable."""
+    shape = (5, 4, 3)
+    geometry = _build_local_geometry(shape, 2, global_shape=shape)
+    domain = _build_domain(shape, 2)
+    context = StencilBuilderContext(layout=geometry.layout, domain=domain)
+    h = geometry.layout.halo_width
+    f = jnp.arange(np.prod(geometry.halo_shape), dtype=jnp.float64).reshape(
+        geometry.halo_shape
+    ) / 17.0
+    g_support = jnp.arange(np.prod(geometry.halo_shape), dtype=jnp.float64).reshape(
+        geometry.halo_shape
+    ) / 23.0
+    # Homogeneous physical-normal support extension; strong ghosts differ
+    # substantially but have the same owned values.
+    g_support = g_support.at[:h].set(g_support[h])
+    g_support = g_support.at[h + shape[0]:].set(g_support[h + shape[0] - 1])
+    g_strong = g_support.at[:h].set(91.0).at[h + shape[0]:].set(-73.0)
+    trace = _trace_on_upper_x(geometry, _conservative(g_support, geometry, context), value=2.5)
+    f_stencil = _conservative(f, geometry, context)
+    support_stencil = _conservative(g_support, geometry, context)
+    strong_stencil = _conservative(g_strong, geometry, context)
+    kwargs = dict(
+        domain=domain,
+        f_boundary_trace=None,
+        g_boundary_trace=trace,
+        axis_regular_axes=(False, False, False),
+        characteristic_scheme="compatible-third-order-upwind",
+        g_positivity_floor=None,
+    )
+    baseline = local_poisson_bracket_compatible_flux_op(
+        f_stencil, support_stencil, geometry, g_field_halo=g_support, **kwargs
+    )
+    replay = local_poisson_bracket_compatible_flux_op(
+        f_stencil, support_stencil, geometry, g_field_halo=g_support, **kwargs
+    )
+    np.testing.assert_allclose(baseline, replay, rtol=0.0, atol=0.0)
+    changed_old = local_poisson_bracket_compatible_flux_op(
+        f_stencil, strong_stencil, geometry, g_field_halo=g_strong, **kwargs
+    )
+    assert bool(jnp.any(jnp.abs(changed_old - baseline) > 1.0e-12))
 
 
 def test_constants_return_zero_in_either_argument_on_axis_regular_grid():
@@ -197,6 +241,73 @@ def test_third_order_scalar_reconstruction_uses_first_order_wall_trace():
     np.testing.assert_array_equal(left.x[-1], last_owner)
     np.testing.assert_array_equal(right.x[-1], upper_value)
     assert bool(jnp.all(fallback.x[-1]))
+
+
+def test_physical_adjacent_face_is_ghost_independent_per_trace_column():
+    shape = (5, 3, 2)
+    geometry = _build_local_geometry(shape, 2, global_shape=shape)
+    h = geometry.layout.halo_width
+    values = jnp.arange(np.prod(geometry.halo_shape), dtype=jnp.float64).reshape(
+        geometry.halo_shape
+    )
+    trace = LocalBoundaryFaceTrace3D.empty(geometry.layout)
+    lower_mask = jnp.array([[True, False], [False, True], [False, False]])
+    upper_mask = jnp.array([[False, True], [True, False], [False, False]])
+    trace = replace(
+        trace,
+        mask_x=trace.mask_x.at[0].set(lower_mask).at[-1].set(upper_mask),
+        value_x=trace.value_x.at[0].set(17.0).at[-1].set(-23.0),
+    )
+    perturbed = values.at[h - 1].set(1.0e9).at[h + shape[0]].set(-1.0e9)
+    baseline = _third_order_scalar_face_states_from_halo(
+        values, geometry, boundary_trace=trace,
+        axis_regular_axes=(False, False, False), positivity_floor=None,
+    )
+    changed = _third_order_scalar_face_states_from_halo(
+        perturbed, geometry, boundary_trace=trace,
+        axis_regular_axes=(False, False, False), positivity_floor=None,
+    )
+    left, right, fallback = baseline
+    changed_left, changed_right, _ = changed
+    np.testing.assert_array_equal(left.x[1][lower_mask], changed_left.x[1][lower_mask])
+    np.testing.assert_array_equal(right.x[1][lower_mask], changed_right.x[1][lower_mask])
+    np.testing.assert_array_equal(left.x[-2][upper_mask], changed_left.x[-2][upper_mask])
+    np.testing.assert_array_equal(right.x[-2][upper_mask], changed_right.x[-2][upper_mask])
+    # Physical wall faces remain trace/owner based for every column.
+    np.testing.assert_array_equal(left.x[0][lower_mask], changed_left.x[0][lower_mask])
+    np.testing.assert_array_equal(right.x[0][lower_mask], changed_right.x[0][lower_mask])
+    np.testing.assert_array_equal(left.x[-1][upper_mask], changed_left.x[-1][upper_mask])
+    np.testing.assert_array_equal(right.x[-1][upper_mask], changed_right.x[-1][upper_mask])
+    # The shared candidate at the lower/upper adjacent face is plasma-only.
+    np.testing.assert_array_equal(left.x[1][lower_mask], right.x[1][lower_mask])
+    np.testing.assert_array_equal(left.x[-2][upper_mask], right.x[-2][upper_mask])
+    assert bool(jnp.all(fallback.x[1][lower_mask]))
+    assert bool(jnp.all(fallback.x[-2][upper_mask]))
+    # Unmasked columns retain the ordinary bulk reconstruction.
+    face = 2
+    samples = _axis_face_samples_from_halo(values, geometry, axis=0)
+    qm, q0, q1, qp = (sample[face] for sample in samples)
+    np.testing.assert_allclose(left.x[face], (-qm + 5 * q0 + 2 * q1) / 6)
+
+
+def test_physical_adjacent_face_uses_owner_states_for_two_cell_axis():
+    shape = (2, 2, 2)
+    geometry = _build_local_geometry(shape, 2, global_shape=shape)
+    values = jnp.arange(np.prod(geometry.halo_shape), dtype=jnp.float64).reshape(
+        geometry.halo_shape
+    )
+    trace = LocalBoundaryFaceTrace3D.empty(geometry.layout)
+    mask = jnp.ones((shape[1], shape[2]), dtype=bool)
+    trace = replace(trace, mask_x=trace.mask_x.at[0].set(mask).at[-1].set(mask))
+    left, right, _ = _third_order_scalar_face_states_from_halo(
+        values, geometry, boundary_trace=trace,
+        axis_regular_axes=(False, False, False), positivity_floor=None,
+    )
+    h = geometry.layout.halo_width
+    q0 = values[h, h:h + shape[1], h:h + shape[2]]
+    q1 = values[h + 1, h:h + shape[1], h:h + shape[2]]
+    np.testing.assert_array_equal(left.x[1], q0)
+    np.testing.assert_array_equal(right.x[1], q1)
 
 
 def test_wall_characteristic_flux_selects_inflow_trace_and_outflow_owner():

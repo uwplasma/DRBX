@@ -40,6 +40,7 @@ from .fci_boundaries import (
     LocalCutWallBC3D,
     LocalCutWallGeometry3D,
     LocalCutWallValueReconstructor3D,
+    neumann_face_trace_coordinate_affine,
 )
 from .fci_model import (
     FciFieldBundle,
@@ -67,8 +68,85 @@ def _validate_halo_spatial_prefix(
         raise ValueError(
             f"{name} leading shape must match domain.layout.cell_halo_shape; "
             f"got {field_halo.shape}, expected prefix {expected_shape}"
-        )
+    )
     return field_halo
+
+
+def _owned_axis_slice(axis: int, value: object, ndim: int = 3):
+    """Return a slice tuple selecting a line/plane on one owned axis."""
+
+    index: list[object] = [slice(None)] * ndim
+    index[axis] = value
+    return tuple(index)
+
+
+def _coordinate_derivative_on_prefilled_halo(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    axis: int,
+    *,
+    metric_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Differentiate an already halo-prefilled field on owned cells."""
+
+    layout = domain.layout
+    h = int(layout.halo_width)
+    n = int(layout.owned_shape[axis])
+    owned = layout.owned_slices_cell
+    center = jnp.asarray(field_halo[owned], dtype=jnp.float64)
+    if n == 1:
+        return jnp.zeros_like(center)
+
+    minus_index = list(owned)
+    center_index = list(owned)
+    plus_index = list(owned)
+    minus_index[axis] = slice(h - 1, h + n - 1)
+    center_index[axis] = slice(h, h + n)
+    plus_index[axis] = slice(h + 1, h + n + 1)
+    minus = jnp.asarray(field_halo[tuple(minus_index)], dtype=jnp.float64)
+    plus = jnp.asarray(field_halo[tuple(plus_index)], dtype=jnp.float64)
+
+    grid = (geometry.grid.x, geometry.grid.y, geometry.grid.z)[axis]
+    coordinates = jnp.asarray(grid.centers_halo, dtype=jnp.float64)
+    centers = coordinates[h : h + n]
+    dx_minus = centers - coordinates[h - 1 : h + n - 1]
+    dx_plus = coordinates[h + 1 : h + n + 1] - centers
+    denom = jnp.maximum(dx_minus * dx_plus * (dx_minus + dx_plus), metric_floor)
+    w_minus = -(dx_plus * dx_plus) / denom
+    w_center = (dx_plus * dx_plus - dx_minus * dx_minus) / denom
+    w_plus = (dx_minus * dx_minus) / denom
+    broadcast = [1, 1, 1]
+    broadcast[axis] = n
+    derivative = (
+        w_minus.reshape(broadcast) * minus
+        + w_center.reshape(broadcast) * center
+        + w_plus.reshape(broadcast) * plus
+    )
+
+    lower = (center[_owned_axis_slice(axis, 1)] - center[_owned_axis_slice(axis, 0)]) / jnp.maximum(
+        centers[1] - centers[0], metric_floor
+    )
+    upper = (center[_owned_axis_slice(axis, -1)] - center[_owned_axis_slice(axis, -2)]) / jnp.maximum(
+        centers[-1] - centers[-2], metric_floor
+    )
+    lower_index = _owned_axis_slice(axis, 0)
+    upper_index = _owned_axis_slice(axis, -1)
+    derivative = derivative.at[lower_index].set(
+        jnp.where(
+            domain.runtime_has_physical_lower(axis),
+            lower,
+            derivative[lower_index],
+        )
+    )
+    derivative = derivative.at[upper_index].set(
+        jnp.where(
+            domain.runtime_has_physical_upper(axis),
+            upper,
+            derivative[upper_index],
+        )
+    )
+    return derivative
 
 
 def _trailing_slices(ndim: int) -> tuple[slice, ...]:
@@ -1928,71 +2006,13 @@ class MetricAwarePhysicalGhostCellFiller3D(PhysicalGhostCellFiller3D):
         axis: int,
     ) -> jnp.ndarray:
         """Differentiate on owned cells, using physical one-sided endpoints."""
-
-        layout = domain.layout
-        h = int(layout.halo_width)
-        n = int(layout.owned_shape[axis])
-        owned = layout.owned_slices_cell
-        center = jnp.asarray(field_halo[owned], dtype=jnp.float64)
-        if n == 1:
-            return jnp.zeros_like(center)
-
-        minus_index = list(owned)
-        center_index = list(owned)
-        plus_index = list(owned)
-        minus_index[axis] = slice(h - 1, h + n - 1)
-        center_index[axis] = slice(h, h + n)
-        plus_index[axis] = slice(h + 1, h + n + 1)
-        minus = jnp.asarray(field_halo[tuple(minus_index)], dtype=jnp.float64)
-        plus = jnp.asarray(field_halo[tuple(plus_index)], dtype=jnp.float64)
-
-        coordinates = jnp.asarray(
-            self._axis_grid(self.geometry, axis).centers_halo,
-            dtype=jnp.float64,
+        return _coordinate_derivative_on_prefilled_halo(
+            field_halo,
+            self.geometry,
+            domain,
+            axis,
+            metric_floor=self.metric_floor,
         )
-        centers = coordinates[h : h + n]
-        dx_minus = centers - coordinates[h - 1 : h + n - 1]
-        dx_plus = coordinates[h + 1 : h + n + 1] - centers
-        denom = jnp.maximum(
-            dx_minus * dx_plus * (dx_minus + dx_plus),
-            self.metric_floor,
-        )
-        w_minus = -(dx_plus * dx_plus) / denom
-        w_center = (dx_plus * dx_plus - dx_minus * dx_minus) / denom
-        w_plus = (dx_minus * dx_minus) / denom
-        broadcast = [1, 1, 1]
-        broadcast[axis] = n
-        derivative = (
-            w_minus.reshape(broadcast) * minus
-            + w_center.reshape(broadcast) * center
-            + w_plus.reshape(broadcast) * plus
-        )
-
-        lower = (
-            center[self._owned_axis_slice(axis, 1)]
-            - center[self._owned_axis_slice(axis, 0)]
-        ) / jnp.maximum(centers[1] - centers[0], self.metric_floor)
-        upper = (
-            center[self._owned_axis_slice(axis, -1)]
-            - center[self._owned_axis_slice(axis, -2)]
-        ) / jnp.maximum(centers[-1] - centers[-2], self.metric_floor)
-        lower_index = self._owned_axis_slice(axis, 0)
-        upper_index = self._owned_axis_slice(axis, -1)
-        derivative = derivative.at[lower_index].set(
-            jnp.where(
-                domain.runtime_has_physical_lower(axis),
-                lower,
-                derivative[lower_index],
-            )
-        )
-        derivative = derivative.at[upper_index].set(
-            jnp.where(
-                domain.runtime_has_physical_upper(axis),
-                upper,
-                derivative[upper_index],
-            )
-        )
-        return derivative
 
     def _face_metric_plane(
         self,
@@ -2651,6 +2671,131 @@ class LocalStateAndBoundaryPreparer3D(_DataclassPyTreeMixin):
             boundary_data=boundary_data,
         )
 
+
+def owner_to_face_physical_normal_derivative(
+    field_halo: jnp.ndarray,
+    face_value: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    axis: int,
+    side: str,
+    *,
+    metric_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Return the outward physical-normal derivative at a physical face.
+
+    ``field_halo`` must already include topology-prefilled halos, so tangential
+    derivatives on periodic or sharded directions use the same centered halo
+    stencil as :class:`MetricAwarePhysicalGhostCellFiller3D`.
+    """
+
+    field_halo = _validate_halo_spatial_prefix(field_halo, domain)
+    if side not in ("lower", "upper"):
+        raise ValueError(f"side must be 'lower' or 'upper', got {side!r}")
+
+    layout = domain.layout
+    h = int(layout.halo_width)
+    n = int(layout.owned_shape[axis])
+    owned = field_halo[layout.owned_slices_cell]
+    face_value = jnp.asarray(face_value, dtype=jnp.float64)
+    owner = jnp.take(
+        jnp.asarray(owned, dtype=jnp.float64),
+        0 if side == "lower" else -1,
+        axis=axis,
+    )
+
+    grid = (geometry.grid.x, geometry.grid.y, geometry.grid.z)[axis].centers_halo
+    owner_center = grid[h if side == "lower" else h + n - 1]
+    neighbor_center = grid[h - 1 if side == "lower" else h + n]
+    normal_spacing = jnp.maximum(jnp.abs(owner_center - neighbor_center), metric_floor)
+    outward_sign = -1.0 if side == "lower" else 1.0
+    normal_logical = outward_sign * 2.0 * (face_value - owner) / normal_spacing
+
+    tangential = []
+    for tangent_axis in range(3):
+        if tangent_axis == axis:
+            tangential.append(None)
+            continue
+        derivative = _coordinate_derivative_on_prefilled_halo(
+            field_halo,
+            geometry,
+            domain,
+            tangent_axis,
+            metric_floor=metric_floor,
+        )
+        tangential.append(
+            jnp.take(derivative, 0 if side == "lower" else -1, axis=axis)
+        )
+
+    index: list[object] = [slice(h, h + size) for size in layout.owned_shape]
+    index[axis] = h if side == "lower" else h + n
+    metric = jnp.asarray(
+        geometry.face_metric.axes[axis].g_contra[tuple(index)],
+        dtype=jnp.float64,
+    )
+    gaa = metric[..., axis, axis]
+    physical = gaa * normal_logical
+    for tangent_axis, tangential_derivative in enumerate(tangential):
+        if tangent_axis == axis:
+            continue
+        physical = physical + metric[..., axis, tangent_axis] * tangential_derivative
+    return outward_sign * physical / jnp.sqrt(jnp.maximum(gaa, metric_floor))
+
+
+def neumann_face_trace_physical_affine(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    axis: int,
+    side: str,
+    *,
+    metric_floor: float = 1.0e-30,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Return physical trace ``base + response*g_normal`` for mirrored ghosts."""
+    field_halo = _validate_halo_spatial_prefix(field_halo, domain)
+    base, alpha = neumann_face_trace_coordinate_affine(field_halo, geometry, domain, axis, side)
+    h = int(domain.layout.halo_width)
+    n = int(domain.layout.owned_shape[axis])
+    index = [slice(h, h + size) for size in domain.layout.owned_shape]
+    index[axis] = h if side == "lower" else h + n
+    metric = jnp.asarray(geometry.face_metric.axes[axis].g_contra[tuple(index)], dtype=jnp.float64)
+    gaa = metric[..., axis, axis]
+    tangential = jnp.zeros_like(base)
+    for tangent_axis in range(3):
+        if tangent_axis == axis:
+            continue
+        derivative = _coordinate_derivative_on_prefilled_halo(field_halo, geometry, domain, tangent_axis, metric_floor=metric_floor)
+        tangential = tangential + metric[..., axis, tangent_axis] * jnp.take(derivative, 0 if side == "lower" else -1, axis=axis)
+    outward_sign = -1.0 if side == "lower" else 1.0
+    denom = jnp.sqrt(jnp.maximum(gaa, metric_floor))
+    gamma = outward_sign * gaa / denom
+    tau = outward_sign * tangential / denom
+    return base - alpha * tau / gamma, alpha / gamma
+
+
+def physical_normal_derivative_for_face_trace(
+    field_halo: jnp.ndarray,
+    face_target: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    axis: int,
+    side: str,
+    *,
+    metric_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Invert the metric Neumann trace reconstructed from mirrored ghosts.
+
+    The coordinate trace is affine in the logical normal derivative under the
+    same ``h``-layer mirrored-owner rule used by the physical ghost filler.
+    Tangential derivatives and the metric contraction use the topology-filled
+    halo, matching :func:`owner_to_face_physical_normal_derivative`.
+    """
+
+    base_phys, response = neumann_face_trace_physical_affine(
+        field_halo, geometry, domain, axis, side, metric_floor=metric_floor
+    )
+    return (jnp.asarray(face_target, dtype=jnp.float64) - base_phys) / response
+
 __all__ = [
     "GhostFillWeights1D",
     "HaloExchange3D",
@@ -2665,6 +2810,9 @@ __all__ = [
     "RemoteBoundaryDependencyExchange",
     "RemoteFciDependencyExchange",
     "RemoteLocalStencilDependencyExchange",
+    "owner_to_face_physical_normal_derivative",
+    "physical_normal_derivative_for_face_trace",
+    "neumann_face_trace_physical_affine",
     "TopologyHaloFiller3D",
     "make_default_topology_halo_filler_3d",
 ]

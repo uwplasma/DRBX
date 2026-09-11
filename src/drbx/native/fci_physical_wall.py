@@ -16,8 +16,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from drbx.geometry import LocalDomain3D, LocalFciGeometry3D
+from drbx.geometry import LocalDomain3D, LocalFciGeometry3D, SIDE_PHYSICAL
 
+from .fci_halo import (
+    neumann_face_trace_physical_affine,
+)
 from .fci_boundaries import BC_DIRICHLET, BC_NEUMANN, LocalBoundaryFaceBC3D
 
 if TYPE_CHECKING:
@@ -32,6 +35,7 @@ PHYSICAL_WALL_MODEL_NAMES = (
     "legacy-velocity-trace",
     "no-flow",
     "simple-conducting-sheath",
+    "simplified-gbs-mpe",
 )
 
 
@@ -100,6 +104,28 @@ def _require_finite(value: Any, name: str) -> None:
         return
     if not np.all(np.isfinite(np.asarray(value))):
         raise ValueError(f"physical wall model produced nonfinite {name}")
+
+
+def _require_positive_finite(value: Any, name: str) -> None:
+    """Reject an invalid positive scalar/array in an eager wall-law call."""
+
+    if isinstance(value, jax.core.Tracer):
+        return
+    array = np.asarray(value)
+    if not np.all(np.isfinite(array)) or not np.all(array > 0.0):
+        raise ValueError(f"warm-ion sheath reference requires finite positive {name}")
+
+
+def _require_nonnegative_finite(value: Any, name: str) -> None:
+    """Reject an invalid nonnegative scalar/array in an eager wall-law call."""
+
+    if isinstance(value, jax.core.Tracer):
+        return
+    array = np.asarray(value)
+    if not np.all(np.isfinite(array)) or not np.all(array >= 0.0):
+        raise ValueError(
+            f"warm-ion sheath reference requires finite nonnegative {name}"
+        )
 
 
 def _base_face_conditions(
@@ -273,6 +299,129 @@ def _bundle_with_velocity_conditions(
     )
 
 
+def _bundle_with_simplified_gbs_mpe_conditions(
+    state: FciDrbEBState,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    parameters: FciDrbEBRhsParameters | None,
+    topology_halos: Mapping[str, jax.Array] | None,
+    wall_potential: Any = None,
+) -> LocalFciDrbEBPhysicalWallBundle:
+    """Build topology-halo-driven simplified GBS-MPE wall conditions.
+
+    On active physical faces this enforces the coupled primitive laws
+    ``D_n n + sigma*n_face/cB*D_n Vi = 0`` and
+    ``D_n phi + sigma*Te_face/cB*D_n Vi = 0``.  Admissibility is checked only
+    on active physical faces; inactive topology or masked faces are inert.
+    """
+    from .fci_drb_EB_rhs import LocalFciDrbEBPhysicalWallBundle
+
+    if parameters is None:
+        raise ValueError("simplified GBS wall requires model parameters")
+    required = ("density", "phi", "Vi", "Te", "Ti")
+    if not isinstance(topology_halos, Mapping):
+        raise ValueError("simplified GBS wall requires topology_halos mapping")
+    missing = [name for name in required if name not in topology_halos]
+    if missing:
+        raise ValueError("topology_halos missing fields: " + ", ".join(missing))
+    halos = {}
+    for name in required:
+        value = jnp.asarray(topology_halos[name], dtype=jnp.float64)
+        if value.shape != domain.layout.cell_halo_shape:
+            raise ValueError(
+                f"topology_halos[{name!r}] must have shape {domain.layout.cell_halo_shape}, got {value.shape}"
+            )
+        halos[name] = value
+    dirichlet, neumann = _base_face_conditions(geometry, domain)
+    density_values = []
+    phi_values = []
+    ion_values = []
+    electron_values = []
+    for axis in range(3):
+        di = []
+        dp = []
+        ii = []
+        ee = []
+        for side in ("lower", "upper"):
+            side_kind = (domain.shard_spec.lower_side_kind(axis) if side == "lower"
+                         else domain.shard_spec.upper_side_kind(axis))
+            if side_kind != SIDE_PHYSICAL:
+                zero = jnp.zeros_like(_boundary_owner(state.density, axis, side))
+                di.append(zero)
+                dp.append(zero)
+                ii.append(zero)
+                ee.append(zero)
+                continue
+            te, _ = neumann_face_trace_physical_affine(halos["Te"], geometry, domain, axis, side)
+            ti, _ = neumann_face_trace_physical_affine(halos["Ti"], geometry, domain, axis, side)
+            vi_base, vi_response = neumann_face_trace_physical_affine(halos["Vi"], geometry, domain, axis, side)
+            n_base, n_response = neumann_face_trace_physical_affine(halos["density"], geometry, domain, axis, side)
+            phi_base, phi_response = neumann_face_trace_physical_affine(halos["phi"], geometry, domain, axis, side)
+            active = (neumann.mask_x[0 if side == "lower" else -1] if axis == 0 else
+                      neumann.mask_y[:, 0 if side == "lower" else -1, :] if axis == 1 else
+                      neumann.mask_z[:, :, 0 if side == "lower" else -1])
+            raw_values = (te, ti, vi_base, vi_response, n_base, n_response,
+                          phi_base, phi_response, _boundary_owner(state.Vi, axis, side),
+                          _boundary_owner(state.Ve, axis, side), _outward_b_normal(geometry, axis, side))
+            safe_te = jnp.where(active, te, 1.0)
+            safe_ti = jnp.where(active, ti, 1.0)
+            safe_vi_base = jnp.where(active, vi_base, 0.0)
+            safe_vi_response = jnp.where(active, vi_response, 1.0)
+            safe_n_base = jnp.where(active, n_base, 1.0)
+            safe_n_response = jnp.where(active, n_response, 1.0)
+            safe_phi_base = jnp.where(active, phi_base, 0.0)
+            safe_phi_response = jnp.where(active, phi_response, 1.0)
+            safe_vi_owner = jnp.where(active, raw_values[8], 0.0)
+            safe_ve_owner = jnp.where(active, raw_values[9], 0.0)
+            safe_bn = jnp.where(active, raw_values[10], 1.0)
+            tau = jnp.asarray(_parameter_value(parameters, ("tau",), 1.0), dtype=safe_te.dtype)
+            cb = jnp.sqrt(safe_te + tau * safe_ti)
+            bn = safe_bn
+            sigma = jnp.where(bn >= 1.0e-12, 1.0, jnp.where(bn <= -1.0e-12, -1.0, 0.0))
+            grazing = jnp.abs(bn) <= 1.0e-12
+            vi_owner = safe_vi_owner
+            vi_face = jnp.where(grazing, vi_owner, sigma * jnp.maximum(cb, sigma * vi_owner))
+            gvi = (vi_face - safe_vi_base) / safe_vi_response
+            k = sigma * gvi / cb
+            denominator = 1.0 + safe_n_response * k
+            n_face = safe_n_base / denominator
+            g_n = -k * n_face
+            g_phi = -safe_te * k
+            phi_face = safe_phi_base + safe_phi_response * g_phi
+            wall = (_default_sheath_wall_potential(parameters, safe_te.dtype)
+                    if wall_potential is None else jnp.asarray(wall_potential, dtype=safe_te.dtype))
+            mu = jnp.asarray(_parameter_value(parameters, ("mi_over_me", "mu"), 1836.0), dtype=safe_te.dtype)
+            ve_owner = safe_ve_owner
+            ve_face = jnp.where(grazing, ve_owner, sigma * jnp.sqrt(mu * safe_te / (2.0 * jnp.pi)) * jnp.exp(-(phi_face - wall) / safe_te))
+            invalid = ((denominator == 0.0) | ~jnp.isfinite(te) | ~jnp.isfinite(ti)
+                       | (te <= 0.0) | (ti <= 0.0) | ~jnp.isfinite(n_face)
+                       | ~jnp.isfinite(phi_face) | ~jnp.isfinite(vi_face)
+                       | ~jnp.isfinite(ve_face) | ~jnp.isfinite(gvi)
+                       | ~jnp.isfinite(vi_response) | ~jnp.isfinite(n_response)
+                       | ~jnp.isfinite(phi_response) | (vi_response == 0.0)
+                       | (n_response == 0.0) | ~jnp.isfinite(g_n) | ~jnp.isfinite(g_phi)
+                       | ~jnp.isfinite(cb) | (cb <= 0.0) | (n_face <= 0.0)) & active
+            if not any(isinstance(value, jax.core.Tracer) for value in (n_face, phi_face)) and bool(jnp.any(invalid)):
+                raise ValueError("simplified GBS wall produced singular, nonfinite, or nonpositive face state")
+            di.append(jnp.where(active, jnp.where(invalid, jnp.nan, g_n), 0.0))
+            dp.append(jnp.where(active, jnp.where(invalid, jnp.nan, g_phi), 0.0))
+            ii.append(jnp.where(active, jnp.where(invalid, jnp.nan, vi_face), 0.0))
+            ee.append(jnp.where(active, jnp.where(invalid, jnp.nan, ve_face), 0.0))
+        density_values.append((di[0], di[1]))
+        phi_values.append((dp[0], dp[1]))
+        ion_values.append((ii[0], ii[1]))
+        electron_values.append((ee[0], ee[1]))
+    return LocalFciDrbEBPhysicalWallBundle(
+        density=_set_parallel_values(neumann, tuple(density_values)),
+        phi=_set_parallel_values(neumann, tuple(phi_values)),
+        Te=neumann, Ti=neumann,
+        Vi=_set_parallel_values(dirichlet, tuple(ion_values)),
+        Ve=_set_parallel_values(dirichlet, tuple(electron_values)),
+        vorticity=LocalBoundaryFaceBC3D.empty(geometry.layout),
+    )
+
+
 def _conducting_sheath_ion_velocity(
     state: FciDrbEBState,
     geometry: LocalFciGeometry3D,
@@ -300,6 +449,81 @@ def _conducting_sheath_ion_velocity(
     return jnp.where(grazing, Vi_owner, target)
 
 
+def equilibrium_warm_ion_floating_sheath_drop(
+    electron_temperature: Any,
+    ion_temperature: Any,
+    *,
+    tau: Any = 1.0,
+    mi_over_me: Any = 1836.0,
+) -> jax.Array:
+    """Return the equilibrium Maxwellian floating-sheath potential drop.
+
+    The returned quantity is the plasma-side (sheath-entrance) potential
+    minus the material-wall potential, in the simulation's normalized energy
+    units.  It is an equilibrium *reference scalar* for selecting the
+    additive gauge of an all-Neumann polarization solve; it is not a
+    pointwise, dynamically enforced zero-current condition.
+
+    The reference follows from equating the Maxwellian electron loss speed
+    with the warm-ion Bohm speed,
+
+    ``sqrt(mu*Te/(2*pi))*exp(-Delta_phi/Te) = sqrt(Te + tau*Ti)``.
+
+    ``electron_temperature`` and ``ion_temperature`` may be broadcastable
+    arrays, which allows the same helper to construct a face-shaped target
+    when an equilibrium profile rather than scalar reference parameters are
+    used.
+    """
+
+    Te = jnp.asarray(electron_temperature)
+    dtype = Te.dtype
+    Ti = jnp.asarray(ion_temperature, dtype=dtype)
+    tau_value = jnp.asarray(tau, dtype=dtype)
+    mass_ratio = jnp.asarray(mi_over_me, dtype=dtype)
+    _require_positive_finite(Te, "electron temperature")
+    _require_positive_finite(Ti, "ion temperature")
+    # tau=0 is retained as the cold-ion limiting case; negative values are
+    # unphysical because they would reduce the squared warm-Bohm speed.
+    _require_nonnegative_finite(tau_value, "tau")
+    _require_positive_finite(mass_ratio, "mass ratio")
+    bohm_argument = Te + tau_value * Ti
+    _require_positive_finite(bohm_argument, "warm Bohm temperature")
+    electron_half_flux = jnp.sqrt(mass_ratio * Te / (2.0 * jnp.pi))
+    c_b = jnp.sqrt(bohm_argument)
+    drop = Te * jnp.log(electron_half_flux / c_b)
+    _require_finite(drop, "floating-sheath reference drop")
+    return drop
+
+
+def warm_ion_floating_sheath_face_potential_target(
+    wall_potential: Any,
+    electron_temperature: Any,
+    ion_temperature: Any,
+    *,
+    tau: Any = 1.0,
+    mi_over_me: Any = 1836.0,
+) -> jax.Array:
+    """Return the plasma-side target for a wall-referenced gauge constraint.
+
+    This computes ``phi_face_target = phi_wall + Delta_phi_ref``.  It is one
+    scalar constraint after the face weights are applied by the augmented
+    polarization solve, rather than a pointwise Dirichlet boundary value.
+    The reference drop is calibrated at equilibrium and does not impose local
+    floating current during the evolving simulation.
+    """
+
+    wall = jnp.asarray(wall_potential)
+    _require_finite(wall, "wall potential")
+    target = wall + equilibrium_warm_ion_floating_sheath_drop(
+        electron_temperature,
+        ion_temperature,
+        tau=tau,
+        mi_over_me=mi_over_me,
+    )
+    _require_finite(target, "wall-reference face-potential target")
+    return target
+
+
 def _default_sheath_wall_potential(parameters: Any, dtype: Any) -> jax.Array:
     """Return the equilibrium-compatible fixed wall potential."""
 
@@ -309,14 +533,11 @@ def _default_sheath_wall_potential(parameters: Any, dtype: Any) -> jax.Array:
     mu = jnp.asarray(
         _parameter_value(parameters, ("mi_over_me", "mu"), 1836.0), dtype=dtype
     )
-    _require_positive_thermodynamics(1.0, Te0, Ti0)
-    if not isinstance(mu, jax.core.Tracer) and (
-        not np.all(np.isfinite(np.asarray(mu))) or not np.all(np.asarray(mu) > 0.0)
-    ):
-        raise ValueError("conducting sheath requires finite positive mass ratio")
-    return -Te0 * jnp.log(
-        jnp.sqrt(mu * Te0 / (2.0 * jnp.pi))
-        / jnp.sqrt(Te0 + tau * Ti0)
+    return -equilibrium_warm_ion_floating_sheath_drop(
+        Te0,
+        Ti0,
+        tau=tau,
+        mi_over_me=mu,
     )
 
 
@@ -427,6 +648,30 @@ class SimpleConductingSheathPhysicalWallModel:
         )
 
 
+@dataclass(frozen=True)
+class SimplifiedGbsMpePhysicalWallModel:
+    """Rung-three warm-ion MPE wall bundle.
+
+    The ion and electron parallel velocities reuse the weak Bohm and sheath
+    targets from the rung-two conducting sheath.  Density and potential are
+    supplied as metric-aware Neumann data, while vorticity is left as a
+    derived placeholder for the later polarization wiring.
+    """
+
+    conducting_sheath_wall_potential: float | None = None
+    vorticity_from_polarization: bool = True
+
+    def __call__(self, state, geometry, domain, parameters, *, topology_halos=None):
+        return _bundle_with_simplified_gbs_mpe_conditions(
+            state,
+            geometry,
+            domain,
+            parameters=parameters,
+            topology_halos=topology_halos,
+            wall_potential=self.conducting_sheath_wall_potential,
+        )
+
+
 def resolve_fci_material_wall_endpoint_state(
     physical_wall_model: str,
     plasma_state: jax.Array,
@@ -477,10 +722,14 @@ def resolve_fci_material_wall_endpoint_state(
     _require_positive_thermodynamics(density, Te, Ti)
     if physical_wall_model == "no-flow":
         return plasma_state.at[..., 3].set(0.0).at[..., 4].set(0.0)
-    if physical_wall_model != "simple-conducting-sheath":
+    if physical_wall_model not in (
+        "simple-conducting-sheath",
+        "simplified-gbs-mpe",
+    ):
         raise ValueError(
-            "endpoint-native FCI wall evaluation requires 'no-flow' or "
-            f"'simple-conducting-sheath', got {physical_wall_model!r}"
+            "endpoint-native FCI wall evaluation requires 'no-flow', "
+            "'simple-conducting-sheath', or 'simplified-gbs-mpe', got "
+            f"{physical_wall_model!r}"
         )
 
     tau = jnp.asarray(_parameter_value(parameters, ("tau",), 1.0), dtype=Te.dtype)
@@ -546,6 +795,10 @@ def physical_wall_model_from_name(
         return SimpleConductingSheathPhysicalWallModel(
             conducting_sheath_wall_potential=conducting_sheath_wall_potential
         )
+    if name == "simplified-gbs-mpe":
+        return SimplifiedGbsMpePhysicalWallModel(
+            conducting_sheath_wall_potential=conducting_sheath_wall_potential
+        )
     raise ValueError(
         "physical_wall_model must be one of "
         f"{PHYSICAL_WALL_MODEL_NAMES}, got {name!r}"
@@ -558,6 +811,9 @@ __all__ = [
     "NoFlowPhysicalWallModel",
     "PHYSICAL_WALL_MODEL_NAMES",
     "SimpleConductingSheathPhysicalWallModel",
+    "SimplifiedGbsMpePhysicalWallModel",
+    "equilibrium_warm_ion_floating_sheath_drop",
     "resolve_fci_material_wall_endpoint_state",
     "physical_wall_model_from_name",
+    "warm_ion_floating_sheath_face_potential_target",
 ]

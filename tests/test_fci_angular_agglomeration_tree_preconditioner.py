@@ -21,6 +21,7 @@ from drbx.native.fci_boundaries import LocalBoundaryFaceBC3D
 from drbx.native.fci_gmres import SolvaxGmresConfig
 from drbx.native.fci_operators import (
     _assemble_angular_agglomeration_tree_principal_coefficients,
+    _build_angular_agglomeration_jacobi_preconditioner,
     _build_angular_agglomeration_line_u_preconditioner,
     _lift_cell_field_to_faces,
     _validate_concrete_angular_agglomeration_tree_assembly,
@@ -182,6 +183,94 @@ def test_control_volume_dispatch_selects_the_angular_tree_line_u():
     )
 
 
+def test_angular_owner_jacobi_is_positive_finite_and_m_self_adjoint():
+    geometry, domain, lowered, projectors, face_bc, config, _coefficients = _fixture()
+    jacobi_config = replace(
+        config,
+        preconditioner="jacobi",
+        regularization_epsilon=0.0,
+    )
+    coefficients = _assemble_angular_agglomeration_tree_principal_coefficients(
+        geometry,
+        domain,
+        projectors,
+        face_bc,
+        jacobi_config,
+        lowered,
+    )
+    preconditioner = _build_angular_agglomeration_jacobi_preconditioner(
+        geometry,
+        domain,
+        projectors,
+        face_bc,
+        jacobi_config,
+        lowered,
+        principal_coefficients=coefficients,
+    )
+    volume, diagonal, _edge, _pi, _pj, _pk, active = coefficients
+    active_np = np.asarray(active, dtype=bool)
+    volume_np = np.asarray(volume, dtype=np.float64)
+    diagonal_np = np.asarray(diagonal, dtype=np.float64)
+    assert np.all(np.isfinite(diagonal_np[active_np]))
+    assert np.all(diagonal_np[active_np] > 0.0)
+
+    rng = np.random.default_rng(20260909)
+    left = np.where(active_np, rng.normal(size=active_np.shape), 0.0)
+    right = np.where(active_np, rng.normal(size=active_np.shape), 0.0)
+    applied_left = np.asarray(preconditioner(jnp.asarray(left)))
+    applied_right = np.asarray(preconditioner(jnp.asarray(right)))
+    assert np.all(np.isfinite(applied_left))
+    assert float(np.sum(volume_np * left * applied_left)) > 0.0
+    np.testing.assert_allclose(
+        np.sum(volume_np * left * applied_right),
+        np.sum(volume_np * applied_left * right),
+        rtol=0.0,
+        atol=2.0e-12,
+    )
+
+    def project(values):
+        mean = np.sum(volume_np * values) / np.sum(volume_np)
+        return np.where(active_np, values - mean, 0.0)
+
+    projected_constant = project(np.where(active_np, 1.0, 0.0))
+    projected_correction = project(
+        np.asarray(preconditioner(jnp.asarray(projected_constant)))
+    )
+    np.testing.assert_allclose(projected_constant, 0.0, atol=2.0e-15)
+    np.testing.assert_allclose(projected_correction, 0.0, atol=2.0e-15)
+
+
+def test_control_volume_dispatch_selects_angular_owner_jacobi():
+    geometry, domain, lowered, projectors, face_bc, config, coefficients = _fixture()
+    jacobi_config = replace(config, preconditioner="jacobi")
+    dispatched = build_solvax_perp_laplacian_preconditioner(
+        geometry,
+        domain,
+        projectors,
+        face_bc,
+        jacobi_config,
+        control_volume_geometry=lowered,
+    )
+    direct = _build_angular_agglomeration_jacobi_preconditioner(
+        geometry,
+        domain,
+        projectors,
+        face_bc,
+        jacobi_config,
+        lowered,
+        principal_coefficients=coefficients,
+    )
+    residual = jnp.arange(
+        np.prod(geometry.owned_shape), dtype=jnp.float64
+    ).reshape(geometry.owned_shape)
+    np.testing.assert_allclose(
+        np.asarray(dispatched(residual)),
+        np.asarray(direct(residual)),
+        rtol=2.0e-12,
+        atol=2.0e-12,
+    )
+
+
 def test_duplicate_radial_subfaces_sum_into_one_child_parent_edge():
     geometry, _domain, lowered, projectors, _face_bc, _config, coefficients = _fixture()
     _volume, _diagonal, edge, _pi, _pj, _pk, _active = coefficients
@@ -251,7 +340,10 @@ def test_missing_profile_and_line_uv_are_rejected_without_fallback():
             lowered, *coefficients[1:]
         )
     object.__setattr__(lowered, "angular_group_sizes", PROFILE)
-    with pytest.raises(ValueError, match="supports only 'none' or 'line-u'"):
+    with pytest.raises(
+        ValueError,
+        match="supports only 'none', 'jacobi', or 'line-u'",
+    ):
         build_solvax_perp_laplacian_preconditioner(
             geometry, domain, projectors, face_bc,
             replace(config, preconditioner="line-uv"),

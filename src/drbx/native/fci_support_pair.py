@@ -23,6 +23,7 @@ import numpy as np
 Array = jnp.ndarray
 Gradient = Callable[[Array], Array]
 Divergence = Callable[[Array], Array]
+LinearOperator = Callable[[Array], Array]
 
 
 def _validated_mass_and_mask(
@@ -144,8 +145,61 @@ def build_weighted_negative_adjoint(
     return divergence
 
 
+def build_weighted_self_adjoint_part(
+    operator: LinearOperator,
+    mass: Array,
+    *,
+    active: Array | None = None,
+) -> LinearOperator:
+    """Return ``(A + M^-1 A.T M) / 2`` for a homogeneous linear map.
+
+    This is the matrix-free variational closure of an existing square
+    operator in the ``M``-weighted inner product.  It is useful while moving
+    a conservative gather/flux/divergence implementation to an explicitly
+    paired gather/scatter form: the returned action has exactly the bilinear
+    form
+
+    ``a(u, v) = 0.5 * (<u, A v>_M + <A u, v>_M)``.
+
+    ``operator`` must contain no affine boundary source.  Split nonzero
+    boundary data before constructing this callable and add that source once
+    after applying the homogeneous operator.
+    """
+
+    if not callable(operator):
+        raise TypeError("operator must be callable")
+    mass_value, active_value = _validated_mass_and_mask("operator", mass, active)
+    negative_adjoint = build_weighted_negative_adjoint(
+        operator,
+        mass_value,
+        mass_value,
+        primal_active=active_value,
+        dual_active=active_value,
+    )
+
+    def self_adjoint(values: Array) -> Array:
+        values_array = jnp.asarray(values)
+        if values_array.shape != mass_value.shape:
+            raise ValueError(
+                "values must have the same shape as mass; "
+                f"got {values_array.shape}, expected {mass_value.shape}"
+            )
+        if values_array.dtype != mass_value.dtype:
+            raise TypeError(
+                f"values must have dtype {mass_value.dtype}, got {values_array.dtype}"
+            )
+        values_array = jnp.where(active_value, values_array, 0.0)
+        # build_weighted_negative_adjoint returns -A^dagger.
+        result = 0.5 * (operator(values_array) - negative_adjoint(values_array))
+        return jnp.where(active_value, result, 0.0)
+
+    return self_adjoint
+
+
 __all__ = [
     "Gradient",
     "Divergence",
+    "LinearOperator",
     "build_weighted_negative_adjoint",
+    "build_weighted_self_adjoint_part",
 ]

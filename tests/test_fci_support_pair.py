@@ -7,7 +7,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from drbx.native.fci_support_pair import build_weighted_negative_adjoint
+from drbx.native.fci_support_pair import (
+    build_weighted_negative_adjoint,
+    build_weighted_self_adjoint_part,
+)
 
 
 def _gradient(matrix: jnp.ndarray):
@@ -128,3 +131,39 @@ def test_builder_rejects_bad_mass_shapes_dtypes_and_active_masses():
         build_weighted_negative_adjoint(
             gradient, jnp.array([1.0, 0.0]), jnp.ones(2)
         )
+
+
+def test_weighted_self_adjoint_part_matches_dense_formula_and_pairing():
+    matrix = jnp.array(
+        [[3.0, -1.0, 0.4], [0.7, 2.0, -0.2], [-1.1, 0.5, 1.5]]
+    )
+    mass = jnp.array([0.8, 2.0, 1.25])
+    operator = build_weighted_self_adjoint_part(_gradient(matrix), mass)
+    expected_matrix = 0.5 * (
+        matrix + jnp.diag(1.0 / mass) @ matrix.T @ jnp.diag(mass)
+    )
+    u = jnp.array([0.2, -1.3, 0.7])
+    v = jnp.array([-0.8, 0.4, 1.1])
+
+    np.testing.assert_allclose(
+        np.asarray(operator(v)), np.asarray(expected_matrix @ v), atol=2e-12
+    )
+    np.testing.assert_allclose(
+        np.asarray(jnp.vdot(mass * u, operator(v))),
+        np.asarray(jnp.vdot(mass * operator(u), v)),
+        atol=2e-12,
+    )
+
+
+def test_weighted_self_adjoint_part_preserves_constant_null_and_jit():
+    matrix = jnp.array(
+        [[1.0, -1.0, 0.0], [-0.25, 1.0, -0.75], [0.0, -2.0, 2.0]]
+    )
+    # Choose the left-null mass explicitly, so both A 1 = 0 and A^dagger 1 = 0.
+    mass = jnp.array([0.5, 2.0, 0.75])
+    np.testing.assert_allclose(np.asarray(mass @ matrix), 0.0, atol=2e-12)
+    operator = build_weighted_self_adjoint_part(_gradient(matrix), mass)
+
+    np.testing.assert_allclose(
+        np.asarray(jax.jit(operator)(jnp.ones(3))), 0.0, atol=2e-12
+    )

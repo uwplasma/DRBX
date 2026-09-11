@@ -2,9 +2,9 @@
 
 Radius-dependent angular agglomeration is the production state and solver
 architecture for toroidal topology. It removes the polar small-cell time-step
-restriction without introducing a second near-axis polynomial representation.
+restriction without introducing additional evolved degrees of freedom.
 
-RLP denotes the operator composition
+Transport uses the owner injection `P` in the operator composition
 
 ```text
 owner state --P--> fine polar state --A_f--> fine residual --R--> owner residual
@@ -15,6 +15,14 @@ or, algebraically,
 ```text
 A_owner = R A_f P.
 ```
+
+Perpendicular diffusion and polarization instead use
+`A_owner = M_owner^-1 H.T M_raw A_f H`. `H` reconstructs smooth raw-cell
+averages from owner averages before the ordinary fine-grid face fluxes are
+evaluated, and its physical-mass adjoint supplies the matching owner test
+operation. Piecewise-constant injection before a second derivative gives an
+incorrect angular diffusion coefficient on merged rings; it is not the
+production diffusion representation.
 
 ## Angular owner profile
 
@@ -66,9 +74,10 @@ lowering intentionally has:
 - no Cartesian core reconstruction.
 
 The native payload is shardable in eta. Each eta shard reconstructs the same
-radial/theta owner profile locally and receives only its local raw and
-aggregate physical-volume fields; moment arrays are not communicated because
-the projected fine-grid RLP path does not consume them.
+radial/theta owner profile locally. The cell-shaped payload contains 80
+volume/moment channels and 64 diffusion-reconstruction weight channels.
+The descriptor stores eta-independent donor topology; eta-varying weights
+are sliced with the local geometry rather than replicated globally.
 
 ## Prolongation and restriction
 
@@ -80,7 +89,18 @@ to owner `o(c)`,
 ```
 
 All fine cells in one angular aggregate therefore carry the same materialized
-value during one operator evaluation.
+value during a transport evaluation or ordinary output expansion.
+
+Diffusion uses the separate map `H`, compiled by
+[`native/fci_rlp_diffusion.py`](../native/fci_rlp_diffusion.py). It reproduces
+cubic chart polynomials as cell averages on resolved meshes, retains exact
+identity rows where `q=1`, and enforces `R H = I` coefficientwise. It also
+preserves arbitrary fields that are constant within each perpendicular plane,
+so straight-field diffusion retains one physical null mode per eta plane.
+Small
+under-resolved planar grids use a documented lower polynomial degree, recorded
+in the reconstruction diagnostics. This reconstruction does not change the
+owner state or the general transport injection.
 
 Restriction is the physical-volume average
 
@@ -93,9 +113,21 @@ Alias storage slots remain exactly zero in evolved and Krylov vectors.
 `expand_local_control_volume_owner_field` implements `P`, and
 `aggregate_local_control_volume_average` implements `R`.
 
-This makes restriction the volume-weighted adjoint of injection up to the
-owner mass matrix. Conservation and the Krylov inner product therefore use
-the same physical-volume measure.
+Generic transport restriction remains the volume-weighted adjoint of `P`.
+Diffusion instead applies the physical-mass adjoint of `H`. The resulting
+homogeneous closed-domain quadratic form is exactly the fine-grid diffusion
+quadratic form evaluated on `H x`; no fitted tolerance or added damping is
+part of this contract. Conservation follows from `H 1 = 1` and from summing
+shared fine-face fluxes with matching raw and owner volumes. Specifically, its
+fine divergence denominator is `V_c / (du*dtheta*deta)`, rather than a
+potentially different midpoint Jacobian. Prescribed boundary flux is retained:
+the owner-volume integral equals the fine physical boundary-flux integral.
+Energy dissipation is asserted for the homogeneous closed/no-flux action;
+Dirichlet, normal-derivative, and prescribed-flux data contribute separate
+boundary work and are not covered by that sign claim. The same selected action
+is used by evolved perpendicular diffusion, the phi solve, the Ti polarization
+source, and the polarization diagnostics. Explicit weighted-symmetric and
+support-paired selectors retain their distinct assembly contracts.
 
 ## Fine-grid operator contract
 
@@ -131,6 +163,11 @@ cannot cross an eta shard boundary. No x/theta RLP decomposition is
 supported, and there is no fallback to a different state representation or
 single-device path when the contract is violated.
 
+Diffusion reconstruction donors can cross eta shard boundaries. Dedicated
+periodic shifts exchange the required one- and two-plane neighbors before
+reconstruction; the reconstructed raw field then follows the ordinary face
+halo closure. Two successive shifts also handle a shard owning one eta plane.
+
 The production Poisson bracket uses shared compatible face fluxes and the
 production curvature path is conservative. Physical-wall traces are applied
 only at `u=1`; the axis never receives a physical-wall closure.
@@ -142,10 +179,12 @@ owner unknown space. GMRES uses:
 
 - the active-owner mask;
 - aggregate physical volumes for means, norms, and compatibility projection;
-- an owner-space operator formed by `R A_f P`;
+- the conservative matched-space owner operator
+  `M_owner^-1 H.T M_raw A_f H` by default;
 - the nested radial-tree `line-u` preconditioner when requested.
 
-The tree preconditioner assembles conductances from the same ordinary fine
+The tree preconditioner remains an approximation to the reconstructed action.
+It assembles conductances from the same ordinary fine
 faces used by `A_f`. Owner-internal faces cancel. Distinct-owner radial
 subfaces are summed into one child-parent edge. No compact-face fit is read by
 the preconditioner.
@@ -157,7 +196,8 @@ For `simulate_hsx_blob.py`, the driver automatically:
 1. builds the continuous toroidal metric;
 2. selects and caches the angular profile;
 3. builds the host owner/volume geometry;
-4. shards the two-volume-field payload and assembles eta-local RLP geometry
+4. compiles diffusion reconstruction, shards the volume/moment/weight payload,
+   and assembles eta-local RLP geometry
    inside each compiled kernel;
 5. volume-averages the initial state into owners;
 6. evolves owner-only state;
@@ -171,23 +211,66 @@ The production sharding requirement for all topologies is:
 The current toroidal operator requirements are:
 - `--poisson-bracket-scheme compatible-flux`;
 - `--curvature-scheme conservative`;
-- `--gmres-preconditioner none` or `line-u`.
+- `--gmres-preconditioner none`, `jacobi`, or `line-u`.
 
 Coordinate and traced-FCI parallel operator families remain selectable. P/R
 are local because an owner aggregate is eta-plane confined. Global means,
 norms, compatibility projections, and GMRES convergence reductions still
-use cross-device reductions over the eta (`z`) axis. The line-u preconditioner
+use cross-device reductions over the eta (`z`) axis. The owner-space Jacobi
+preconditioner uses the positive full-axis principal diagonal. The line-u preconditioner
 contains local radial trees; its eta-face diagonal contributions include both
-sides of a local slab, including faces incident on a slab interface. There is
-no x/theta RLP decomposition and no fallback to full-grid toroidal phi,
+sides of a local slab, including faces incident on a slab interface. The
+support-paired action contracts the raw coordinate gradient as
+`M_owner^-1 D.T W P D`, with the face projector `P` applied once. For
+its support quadrature, the three full-vector face-family samples are
+averaged with one-third weights, and first/last normal-face duplicates use
+trapezoidal half-weights (including periodic and shared-shard seams).
+Physical boundary faces receive the corresponding half dual-cell measure.
+For all-Neumann support-paired solves, every preconditioner route uses FGMRES:
+the full matched physical-Neumann action is generally nonsymmetric, while the
+support-paired action remains the SPD energy preconditioner, while the
+coarse factor is assembled from the full action with LU. Other
+operator/preconditioner pairs retain their existing Krylov route. There is no x/theta RLP decomposition and no fallback
+to full-grid toroidal phi,
 fixed-ring topology, compact angular faces, or a Cartesian core.
+
+### Implemented Neumann weak-flux contract
+
+The physical boundary condition remains a normal derivative. The full physical
+operator includes the matched natural conormal surface term rather than
+silently replacing the normal condition or dropping the boundary ``q_0``
+contribution to force symmetry. For the verified Cartesian
+MMS (2026-09-05), ``b=(.5,.5,sqrt(.5))`` and
+``phi=cos(pi*x)sin(y)`` gave energy-only errors ``1.2526692`` and
+``1.0777676`` on ``3x8`` and ``6x16``; the full matched-flux errors were
+``.3677732`` and ``.08372097``, with boundary bilinear skew ``.1574677`` and
+``.1030376`` and augmented residuals below ``5.4e-14``. The surface flux must
+use the physical ``J*area`` and outward sign, with the same boundary trace
+and no artificial one-third/half weighting.
+
+The matched action is used for the physical RHS/residual; its nonsymmetry is
+handled by FGMRES for all support-paired preconditioner choices. The SPD
+support-paired energy action remains a preconditioner, and the coarse factor
+uses the full nonsymmetric action; the volume quadrature ``W_face``
+keeps the one-third family averaging and endpoint half-weights; the natural
+surface load uses full physical surface measure (no one-third or endpoint
+half-weight).
 
 ## Validation
 
 - [`tests/test_polar_angular_agglomeration_geometry.py`](../../../tests/test_polar_angular_agglomeration_geometry.py)
   validates profiles, owner maps, moments, and volume conservation.
 - [`tests/test_fci_projected_fine_grid_control_volume.py`](../../../tests/test_fci_projected_fine_grid_control_volume.py)
-  validates `R A_f P` behavior.
+  validates reconstructed conservative assembly and the explicit polarization
+  selector contracts.
+- [`tests/test_rlp_diffusion_reconstruction.py`](../../../tests/test_rlp_diffusion_reconstruction.py)
+  validates cell-average reproduction and `R H = I`.
+- [`tests/test_rlp_diffusion_consistency.py`](../../../tests/test_rlp_diffusion_consistency.py)
+  validates independent continuum and elliptic convergence, constants,
+  conservation, polar energy controls, GMRES, and evolved/elliptic pairing.
+- [`tests/test_fci_eta_sharded_angular_agglomeration.py`](../../../tests/test_fci_eta_sharded_angular_agglomeration.py)
+  includes mixed-tensor operator equivalence with eta-varying reconstruction
+  and four-shard, one-plane-per-shard reconstruction.
 - [`tests/test_fci_angular_agglomeration_tree_preconditioner.py`](../../../tests/test_fci_angular_agglomeration_tree_preconditioner.py)
   compares the tree solve with dense owner systems.
 - [`tests/test_fci_gmres_control_volume_owner_space.py`](../../../tests/test_fci_gmres_control_volume_owner_space.py)

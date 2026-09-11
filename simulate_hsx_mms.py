@@ -830,8 +830,37 @@ def _masked_weighted_norm(value, host, mask):
     return float(np.sqrt(np.sum(volume[selected] * value[selected] ** 2) / denominator))
 
 
+def _dilate_raw_mask(mask, widths, *, periodic_axes=(False, True, True)):
+    """Reverse-propagate a raw-cell label through a coordinate footprint."""
+
+    result = np.asarray(mask, dtype=bool).copy()
+    source = result.copy()
+    for axis, width in enumerate(tuple(int(value) for value in widths)):
+        for offset in range(1, width + 1):
+            for signed in (-offset, offset):
+                shifted = np.roll(source, signed, axis=axis)
+                if not periodic_axes[axis]:
+                    boundary = [slice(None)] * source.ndim
+                    boundary[axis] = (
+                        slice(0, signed) if signed > 0 else slice(signed, None)
+                    )
+                    shifted[tuple(boundary)] = False
+                result |= shifted
+    return result
+
+
 def _region_masks(geometry, host, selected_wall):
-    """Return disjoint owner masks for the Stage-7 localization audit."""
+    """Return disjoint, dependency-footprint-aware owner masks.
+
+    The live compatible bracket uses a radius-one centered face-gradient
+    footprint and material scalar transport uses radius-two reconstruction.
+    Physical/topology labels are therefore dilated by two raw coordinate
+    cells before owner promotion.  Smooth projected-fine RLP reconstruction
+    draws from owners up to four radial rings away; the q-transition label is
+    conservatively widened by that support plus the bracket radius.  Because
+    every q transition label spans theta and eta, this exactly affects only
+    the radial extent and cannot wrap across a physical radial boundary.
+    """
 
     active = np.asarray(host.topology.is_active_owner, dtype=bool)
     aggregate_ids = np.asarray(
@@ -860,10 +889,17 @@ def _region_masks(geometry, host, selected_wall):
                 backward_raw, shift, axis=axis
             )
     selected_wall_raw = np.asarray(selected_wall, dtype=bool)
-    wall = owner_any(wall_raw)
-    double_hit = owner_any(forward_raw & backward_raw)
+    wall = owner_any(_dilate_raw_mask(wall_raw, (2, 2, 2)))
+    double_hit = owner_any(_dilate_raw_mask(
+        forward_raw & backward_raw, (2, 2, 2)
+    ))
     short_transition = owner_any(
-        selected_wall_raw & topology_change_raw & ~(forward_raw & backward_raw)
+        _dilate_raw_mask(
+            selected_wall_raw
+            & topology_change_raw
+            & ~(forward_raw & backward_raw),
+            (2, 2, 2),
+        )
     )
 
     groups = np.asarray(host.angular_group_size, dtype=np.int64)
@@ -874,9 +910,13 @@ def _region_masks(geometry, host, selected_wall):
         rlp_transition_radial[:-1] |= changes
         rlp_transition_radial[1:] |= changes
     rlp = np.broadcast_to(rlp_radial[:, None, None], active.shape)
-    rlp_transition = np.broadcast_to(
+    rlp_transition_raw = np.broadcast_to(
         rlp_transition_radial[:, None, None], active.shape
     )
+    rlp_transition = owner_any(_dilate_raw_mask(
+        rlp_transition_raw,
+        (6, 0, 0),
+    ))
 
     assigned = double_hit.copy()
     masks = {"double_hit": active & double_hit}
@@ -899,6 +939,45 @@ def _partitioned_state_norms(state, host, masks):
             for field in EVOLVED
         }
         for region, mask in masks.items()
+    }
+
+
+def _partitioned_error_statistics(value, host, masks):
+    """Return regional volume and exact contributions to global squared error."""
+
+    active = np.asarray(host.topology.is_active_owner, dtype=bool)
+    volume = np.asarray(host.aggregate_chart_volume, dtype=np.float64)
+    error = np.asarray(value, dtype=np.float64)
+    total_volume = float(np.sum(volume[active]))
+    total_squared_error = float(np.sum(volume[active] * error[active] ** 2))
+    result = {}
+    for region, raw_mask in masks.items():
+        mask = active & np.asarray(raw_mask, dtype=bool)
+        region_volume = float(np.sum(volume[mask]))
+        squared_error = float(np.sum(volume[mask] * error[mask] ** 2))
+        result[region] = {
+            "volume": region_volume,
+            "volume_fraction": (
+                region_volume / total_volume if total_volume > 0.0 else np.nan
+            ),
+            "squared_error": squared_error,
+            "squared_error_fraction": (
+                squared_error / total_squared_error
+                if total_squared_error > 0.0 else np.nan
+            ),
+            "global_mean_squared_error_contribution": (
+                squared_error / total_volume if total_volume > 0.0 else np.nan
+            ),
+        }
+    return result
+
+
+def _partitioned_state_error_statistics(state, host, masks):
+    return {
+        field: _partitioned_error_statistics(
+            getattr(state, field), host, masks
+        )
+        for field in EVOLVED
     }
 
 
@@ -1226,6 +1305,12 @@ def _audit_one(geometry, cell_positions, nfp, args):
     })
     partitioned_spatial = _partitioned_state_norms(spatial_error, host, masks)
     partitioned_forced = _partitioned_state_norms(forced_error, host, masks)
+    spatial_error_statistics = _partitioned_state_error_statistics(
+        spatial_error, host, masks
+    )
+    forced_error_statistics = _partitioned_state_error_statistics(
+        forced_error, host, masks
+    )
     ledger_array = np.asarray(ledger)
     continuum_term_ledger = _continuum_term_ledger(
         raw_continuum_terms, host
@@ -1260,6 +1345,26 @@ def _audit_one(geometry, cell_positions, nfp, args):
         ])
         for region, mask in masks.items()
     }
+    term_error_statistics = [
+        [
+            _partitioned_error_statistics(
+                term_error_array[field_index, slot], host, masks
+            )
+            for slot in range(term_error_array.shape[1])
+        ]
+        for field_index in range(term_error_array.shape[0])
+    ]
+    total_region_volume = float(np.sum(
+        np.asarray(host.aggregate_chart_volume, dtype=np.float64)[
+            np.asarray(host.topology.is_active_owner, dtype=bool)
+        ]
+    ))
+    region_volumes = {
+        name: float(np.sum(
+            np.asarray(host.aggregate_chart_volume, dtype=np.float64)[mask]
+        ))
+        for name, mask in masks.items()
+    }
     materialized = blob._materialize_owner_state(state, host)
     raw = point_state
     fine_volume = np.asarray(host.raw_volume)
@@ -1280,11 +1385,23 @@ def _audit_one(geometry, cell_positions, nfp, args):
                 term_ledger_stats=ledger_stats, representation_error=representation,
                 region_cell_counts={name: int(np.count_nonzero(mask))
                                     for name, mask in masks.items()},
+                region_volumes=region_volumes,
+                region_volume_fractions={
+                    name: value / total_region_volume
+                    for name, value in region_volumes.items()
+                },
                 partitioned_exact_phi_residual=partitioned_spatial,
                 partitioned_forced_residual=partitioned_forced,
+                partitioned_exact_phi_error_statistics=(
+                    spatial_error_statistics
+                ),
+                partitioned_forced_error_statistics=(
+                    forced_error_statistics
+                ),
                 partitioned_rhs_term_norms=partitioned_terms,
                 rhs_term_error_norms=rhs_term_error_norms,
                 partitioned_rhs_term_error_norms=partitioned_term_errors,
+                partitioned_rhs_term_error_statistics=term_error_statistics,
                 _region_masks=masks,
                 _model=model, _state=state, _host=host, _geometry=geometry,
                 _projector=projector, _runtime=runtime)
@@ -1625,6 +1742,87 @@ def run(args):
             [r["region_cell_counts"][region] for region in REGIONS]
             for r in rows
         ], dtype=np.int64)
+        region_volumes = np.asarray([
+            [r["region_volumes"][region] for region in REGIONS]
+            for r in rows
+        ], dtype=np.float64)
+        region_volume_fractions = np.asarray([
+            [r["region_volume_fractions"][region] for region in REGIONS]
+            for r in rows
+        ], dtype=np.float64)
+
+        def state_statistic(key, statistic):
+            return np.asarray([
+                [
+                    [r[key][field][region][statistic] for field in EVOLVED]
+                    for region in REGIONS
+                ]
+                for r in rows
+            ], dtype=np.float64)
+
+        partitioned_exact_squared_error = state_statistic(
+            "partitioned_exact_phi_error_statistics", "squared_error"
+        )
+        partitioned_exact_squared_error_fraction = state_statistic(
+            "partitioned_exact_phi_error_statistics", "squared_error_fraction"
+        )
+        partitioned_exact_global_mse_contribution = state_statistic(
+            "partitioned_exact_phi_error_statistics",
+            "global_mean_squared_error_contribution",
+        )
+        partitioned_forced_squared_error = state_statistic(
+            "partitioned_forced_error_statistics", "squared_error"
+        )
+        partitioned_forced_squared_error_fraction = state_statistic(
+            "partitioned_forced_error_statistics", "squared_error_fraction"
+        )
+        partitioned_forced_global_mse_contribution = state_statistic(
+            "partitioned_forced_error_statistics",
+            "global_mean_squared_error_contribution",
+        )
+        partitioned_term_squared_error = np.asarray([
+            [
+                [
+                    [
+                        r["partitioned_rhs_term_error_statistics"]
+                        [field_index][slot][region]["squared_error"]
+                        for slot in range(partitioned_term_errors.shape[-1])
+                    ]
+                    for field_index in range(len(blob.RHS_TERM_FIELD_NAMES))
+                ]
+                for region in REGIONS
+            ]
+            for r in rows
+        ], dtype=np.float64)
+        partitioned_term_squared_error_fraction = np.asarray([
+            [
+                [
+                    [
+                        r["partitioned_rhs_term_error_statistics"]
+                        [field_index][slot][region]["squared_error_fraction"]
+                        for slot in range(partitioned_term_errors.shape[-1])
+                    ]
+                    for field_index in range(len(blob.RHS_TERM_FIELD_NAMES))
+                ]
+                for region in REGIONS
+            ]
+            for r in rows
+        ], dtype=np.float64)
+        partitioned_term_global_mse_contribution = np.asarray([
+            [
+                [
+                    [
+                        r["partitioned_rhs_term_error_statistics"]
+                        [field_index][slot][region]
+                        ["global_mean_squared_error_contribution"]
+                        for slot in range(partitioned_term_errors.shape[-1])
+                    ]
+                    for field_index in range(len(blob.RHS_TERM_FIELD_NAMES))
+                ]
+                for region in REGIONS
+            ]
+            for r in rows
+        ], dtype=np.float64)
         integration_by_field = np.asarray([
             [r.get("integration_error_by_field", {}).get(field, np.nan)
              for field in EVOLVED]
@@ -1707,6 +1905,42 @@ def run(args):
                      partitioned_term_errors
                  ),
                  region_cell_counts=region_cell_counts,
+                 region_volumes=region_volumes,
+                 region_volume_fractions=region_volume_fractions,
+                 partitioned_exact_phi_squared_error=(
+                     partitioned_exact_squared_error
+                 ),
+                 partitioned_exact_phi_squared_error_fraction=(
+                     partitioned_exact_squared_error_fraction
+                 ),
+                 partitioned_exact_phi_global_mse_contribution=(
+                     partitioned_exact_global_mse_contribution
+                 ),
+                 partitioned_forced_squared_error=(
+                     partitioned_forced_squared_error
+                 ),
+                 partitioned_forced_squared_error_fraction=(
+                     partitioned_forced_squared_error_fraction
+                 ),
+                 partitioned_forced_global_mse_contribution=(
+                     partitioned_forced_global_mse_contribution
+                 ),
+                 partitioned_rhs_term_squared_error=(
+                     partitioned_term_squared_error
+                 ),
+                 partitioned_rhs_term_squared_error_fraction=(
+                     partitioned_term_squared_error_fraction
+                 ),
+                 partitioned_rhs_term_global_mse_contribution=(
+                     partitioned_term_global_mse_contribution
+                 ),
+                 region_footprint_definition=np.asarray(
+                     "poisson-bracket-specific;"
+                     "coordinate-wall/topology-radius=2;"
+                     "rlp-transition-radial-radius=6;"
+                     "includes-bracket-radius-2-plus-rlp-reconstruction-radius-4;"
+                     "fci-interpolation-maps-not-consumed-by-poisson-bracket"
+                 ),
                  physical_parameters_json=np.asarray(json.dumps(
                      PHYSICAL_PARAMETERS, sort_keys=True
                  )),
