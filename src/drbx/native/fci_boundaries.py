@@ -1382,14 +1382,14 @@ class LocalBoundaryFaceTrace3D(_DataclassPyTreeMixin):
         return cls(*children, layout=aux_data)
 
 
-def _lagrange_face_trace_from_halo(
+def _lagrange_face_trace_data(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
     layout: HaloLayout3D,
     axis: int,
     side: str,
-) -> jnp.ndarray:
-    """Interpolate a scalar halo field at one coordinate wall face."""
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Return face-interpolation samples, nodes, target, and weights."""
 
     h = int(layout.halo_width)
     n = int(layout.owned_shape[axis])
@@ -1424,7 +1424,76 @@ def _lagrange_face_trace_from_halo(
                 weights = weights.at[j].set(
                     weights[j] * (target - nodes[k]) / (nodes[j] - nodes[k])
                 )
+    return samples, nodes, target, weights
+
+
+def _lagrange_face_trace_from_halo(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    layout: HaloLayout3D,
+    axis: int,
+    side: str,
+) -> jnp.ndarray:
+    """Interpolate a scalar halo field at one coordinate wall face."""
+
+    samples, _nodes, _target, weights = _lagrange_face_trace_data(
+        field_halo, geometry, layout, axis, side
+    )
     return jnp.tensordot(weights, samples, axes=((0,), (0,)))
+
+
+def neumann_face_trace_coordinate_affine(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    axis: int,
+    side: str,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Return ``(base, alpha)`` for the affine Neumann face trace.
+
+    ``base + alpha*d`` is the Lagrange face trace when the logical normal
+    derivative is ``d`` and the ghost layers are reconstructed from mirrored
+    owners.  The pairing exactly matches the metric Neumann ghost rule.
+    """
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError("geometry must be a LocalFciGeometry3D")
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError("domain must be a LocalDomain3D")
+    if geometry.layout != domain.layout:
+        raise ValueError("geometry and domain must share the same HaloLayout3D")
+    if axis not in (0, 1, 2):
+        raise ValueError(f"axis must be 0, 1, or 2, got {axis!r}")
+    if side not in ("lower", "upper"):
+        raise ValueError(f"side must be 'lower' or 'upper', got {side!r}")
+    layout = domain.layout
+    h = int(layout.halo_width)
+    n = int(layout.owned_shape[axis])
+    if h <= 0:
+        raise ValueError("Neumann face traces require a positive halo width")
+    if n < h:
+        raise ValueError("Neumann face traces require owned extent at least halo width")
+    field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
+    if field_halo.shape != layout.cell_halo_shape:
+        raise ValueError(
+            "field_halo must have shape "
+            f"{layout.cell_halo_shape}, got {field_halo.shape}"
+        )
+    samples, nodes, target, weights = _lagrange_face_trace_data(
+        jnp.asarray(field_halo, dtype=jnp.float64), geometry, layout, axis, side
+    )
+    if side == "lower":
+        base_samples = jnp.concatenate((samples[h:][::-1], samples[h:]), axis=0)
+        paired = nodes[jnp.asarray(tuple(2 * h - 1 - i for i in range(h)), dtype=jnp.int32)]
+        coordinate_delta = jnp.concatenate((nodes[:h] - paired, jnp.zeros_like(nodes[h:])))
+    else:
+        base_samples = jnp.concatenate((samples[:h], samples[:h][::-1]), axis=0)
+        paired = nodes[jnp.asarray(tuple(h + n - 1 - k for k in range(h)), dtype=jnp.int32) - (h + n - h)]
+        coordinate_delta = jnp.concatenate((jnp.zeros_like(nodes[:h]), nodes[h:] - paired))
+    base = jnp.tensordot(weights, base_samples, axes=((0,), (0,)))
+    alpha = jnp.tensordot(weights, coordinate_delta, axes=((0,), (0,)))
+    del target
+    return base, alpha
 
 
 def build_local_boundary_face_trace_from_halo(
@@ -3841,6 +3910,10 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
     regular_boundary_closure: (
         LocalRegularBoundaryMomentClosure3D | None
     ) = None
+    # Optional JAX sparse map from angular-RLP owners to smooth raw-cell
+    # averages.  The concrete type lives in fci_rlp_diffusion to avoid a
+    # circular dependency through the moment-reconstruction primitives.
+    diffusion_prolongation: object | None = None
     # Optional static radius-dependent angular agglomeration profile.
     angular_group_sizes: tuple[int, ...] | None = None
     # Static owner-topology tag.  ``embedded`` is the ordinary cut-cell
@@ -4089,6 +4162,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                 self.centroid_Bmag,
                 self.centroid_curvature,
                 self.regular_boundary_closure,
+                self.diffusion_prolongation,
             ),
             (self.angular_group_sizes, self.agglomeration_kind),
         )
@@ -4107,8 +4181,11 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
             "centroid_Bmag",
             "centroid_curvature",
             "regular_boundary_closure",
+            "diffusion_prolongation",
         )
         instance = object.__new__(cls)
+        if len(children) == len(names) - 1:
+            children = tuple(children) + (None,)
         for name, value in zip(names, children):
             object.__setattr__(instance, name, value)
         # Accept the pre-tag aux form for cached/serialized older pytrees.
@@ -4683,6 +4760,7 @@ __all__ = [
     "LocalBoundaryFaceBC3D",
     "LocalBoundaryFaceTrace3D",
     "build_local_boundary_face_trace_from_halo",
+    "neumann_face_trace_coordinate_affine",
     "LocalBoundaryPreparation3D",
     "LocalBoundaryRemoteDependencyTable",
     "LocalCoordinateFaceValueReconstructor3D",

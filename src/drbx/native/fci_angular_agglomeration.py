@@ -1,11 +1,16 @@
 """Native lowering for production polar angular RLP.
 
-The default operator remains the projected fine-grid action ``R A_f P``.
-For experiments which request it explicitly, this module can additionally
-compile the radial coarse--fine transition faces into canonical shared-face
-rows.  Their scalar traces are fitted directly from aggregate cell averages
-and their physical moments, then inserted into the ordinary fine-grid radial
-face array so both neighboring cells consume the same physical face flux.
+Diffusion and polarization use the conservative matched-space fine-grid action
+``M_owner^-1 H.T M_raw A_f H``.  The sparse map ``H`` reconstructs fine
+raw-cell averages from active-owner averages while preserving every aggregate
+mean and every straight-field plane-wise constant.  Its planar donor topology
+is static under eta sharding; eta-varying weights travel in the ordinary
+cell-shaped payload.
+
+The optional radial coarse--fine transition-face lowering remains available
+for explicit experiments.  It fits scalar traces from aggregate averages and
+physical moments, then inserts canonical shared fluxes into the fine radial
+face array.
 """
 
 from __future__ import annotations
@@ -40,6 +45,14 @@ from .fci_control_volume_operators import (
     monomial_basis,
     monomial_exponents,
 )
+from .fci_rlp_diffusion import (
+    RLPCellAverageProlongation,
+    RLPCellAverageReconstructionDiagnostics,
+    compile_rlp_cell_average_prolongation,
+)
+
+
+RLP_DIFFUSION_MAX_OBSERVATIONS = 120
 
 
 # The packed payload is deliberately cell-shaped.  This lets callers place it
@@ -56,6 +69,7 @@ _RLP_CHANNEL_WIDTHS = (
     ("aggregate_second_moment", 9),
     ("raw_third_moment", 27),
     ("aggregate_third_moment", 27),
+    ("diffusion_weights", RLP_DIFFUSION_MAX_OBSERVATIONS),
 )
 _RLP_CHANNEL_SLICES: dict[str, slice] = {}
 _rlp_channel_start = 0
@@ -98,6 +112,13 @@ class ShardedPolarAngularAgglomerationDescriptor:
 
     domain: LocalDomain3D
     angular_group_sizes: tuple[int, ...]
+    diffusion_owner_i: np.ndarray = field(repr=False, compare=False)
+    diffusion_owner_j: np.ndarray = field(repr=False, compare=False)
+    diffusion_owner_eta_offset: np.ndarray = field(repr=False, compare=False)
+    diffusion_observation_active: np.ndarray = field(repr=False, compare=False)
+    diffusion_diagnostics: RLPCellAverageReconstructionDiagnostics = field(
+        repr=False, compare=False
+    )
     compact_transition_payload: _PolarAngularCompactTransitionPayload | None = field(
         default=None,
         repr=False,
@@ -122,6 +143,17 @@ class ShardedPolarAngularAgglomerationDescriptor:
                 "angular_group_sizes must have one entry per radial ring"
             )
         object.__setattr__(self, "angular_group_sizes", profile)
+        topology_shape = expected[:2] + (RLP_DIFFUSION_MAX_OBSERVATIONS,)
+        for name in (
+            "diffusion_owner_i",
+            "diffusion_owner_j",
+            "diffusion_owner_eta_offset",
+            "diffusion_observation_active",
+        ):
+            value = np.asarray(getattr(self, name))
+            if value.shape != topology_shape:
+                raise ValueError(f"{name} must have shape {topology_shape}")
+            object.__setattr__(self, name, value)
 
     @property
     def global_shape(self) -> tuple[int, int, int]:
@@ -430,9 +462,19 @@ def _compile_compact_radial_transition_payload(
 
 def _pack_rlp_channels(
     host_geometry: PolarAngularAgglomerationGeometry3D,
+    diffusion_prolongation: RLPCellAverageProlongation,
 ) -> jnp.ndarray:
     """Pack host volumes and moments into one eta-shardable cell array."""
 
+    diffusion_weights = np.zeros(
+        host_geometry.topology.shape + (RLP_DIFFUSION_MAX_OBSERVATIONS,),
+        dtype=np.float64,
+    )
+    diffusion_weights[
+        np.asarray(diffusion_prolongation.raw_i),
+        np.asarray(diffusion_prolongation.raw_j),
+        np.asarray(diffusion_prolongation.raw_k),
+    ] = np.asarray(diffusion_prolongation.weights)
     fields = (
         np.asarray(host_geometry.raw_volume)[..., None],
         np.asarray(host_geometry.aggregate_chart_volume)[..., None],
@@ -450,6 +492,7 @@ def _pack_rlp_channels(
         np.asarray(host_geometry.aggregate_chart_third_moment).reshape(
             host_geometry.topology.shape + (27,)
         ),
+        diffusion_weights,
     )
     packed = np.concatenate(fields, axis=-1)
     if packed.shape[-1] != RLP_PACKED_FIELD_COUNT:
@@ -492,14 +535,43 @@ def build_sharded_polar_angular_agglomeration_payload(
         compact_payload = _compile_compact_radial_transition_payload(
             host_geometry
         )
+    diffusion = compile_rlp_cell_average_prolongation(
+        host_geometry,
+        max_observations=RLP_DIFFUSION_MAX_OBSERVATIONS,
+    )
+    nx, ny, _ = host_geometry.topology.shape
+    topology_shape = (nx, ny, RLP_DIFFUSION_MAX_OBSERVATIONS)
+    diffusion_owner_i = np.zeros(topology_shape, dtype=np.int32)
+    diffusion_owner_j = np.zeros(topology_shape, dtype=np.int32)
+    diffusion_owner_eta_offset = np.zeros(topology_shape, dtype=np.int32)
+    diffusion_observation_active = np.zeros(topology_shape, dtype=bool)
+    raw_i = np.asarray(diffusion.raw_i)
+    raw_j = np.asarray(diffusion.raw_j)
+    raw_k = np.asarray(diffusion.raw_k)
+    plane = raw_k == 0
+    plane_i = raw_i[plane]
+    plane_j = raw_j[plane]
+    diffusion_owner_i[plane_i, plane_j] = np.asarray(diffusion.owner_i)[plane]
+    diffusion_owner_j[plane_i, plane_j] = np.asarray(diffusion.owner_j)[plane]
+    diffusion_owner_eta_offset[plane_i, plane_j] = np.asarray(
+        diffusion.owner_eta_offset
+    )[plane]
+    diffusion_observation_active[plane_i, plane_j] = np.asarray(
+        diffusion.observation_active
+    )[plane]
     descriptor = ShardedPolarAngularAgglomerationDescriptor(
         domain=domain,
         angular_group_sizes=tuple(
             int(value) for value in host_geometry.angular_group_size
         ),
+        diffusion_owner_i=diffusion_owner_i,
+        diffusion_owner_j=diffusion_owner_j,
+        diffusion_owner_eta_offset=diffusion_owner_eta_offset,
+        diffusion_observation_active=diffusion_observation_active,
+        diffusion_diagnostics=diffusion.diagnostics,
         compact_transition_payload=compact_payload,
     )
-    return descriptor, _pack_rlp_channels(host_geometry)
+    return descriptor, _pack_rlp_channels(host_geometry, diffusion)
 
 
 def _unpack_rlp_channels(cell_fields_owned: jnp.ndarray):
@@ -524,6 +596,9 @@ def _unpack_rlp_channels(cell_fields_owned: jnp.ndarray):
         "aggregate_second_moment": take("aggregate_second_moment", (3, 3)),
         "raw_third_moment": take("raw_third_moment", (3, 3, 3)),
         "aggregate_third_moment": take("aggregate_third_moment", (3, 3, 3)),
+        "diffusion_weights": take(
+            "diffusion_weights", (RLP_DIFFUSION_MAX_OBSERVATIONS,)
+        ),
     }
 
 
@@ -605,6 +680,30 @@ def assemble_local_polar_angular_agglomeration_geometry(
         aggregate_id=jnp.asarray(local_aggregate_id),
         owner_is_remote=jnp.zeros(shape, dtype=bool),
     )
+    reconstructed_mask = np.broadcast_to(q[:, None, None] > 1, shape).copy()
+    raw_rows = np.argwhere(reconstructed_mask).astype(np.int32)
+    row_i = raw_rows[:, 0]
+    row_j = raw_rows[:, 1]
+    row_k = raw_rows[:, 2]
+    diffusion_prolongation = RLPCellAverageProlongation(
+        raw_i=jnp.asarray(row_i),
+        raw_j=jnp.asarray(row_j),
+        raw_k=jnp.asarray(row_k),
+        raw_row_active=jnp.ones((raw_rows.shape[0],), dtype=bool),
+        owner_i=jnp.asarray(sharded_geometry.diffusion_owner_i[row_i, row_j]),
+        owner_j=jnp.asarray(sharded_geometry.diffusion_owner_j[row_i, row_j]),
+        owner_eta_offset=jnp.asarray(
+            sharded_geometry.diffusion_owner_eta_offset[row_i, row_j]
+        ),
+        observation_active=jnp.asarray(
+            sharded_geometry.diffusion_observation_active[row_i, row_j]
+        ),
+        weights=unpacked["diffusion_weights"][row_i, row_j, row_k],
+        reconstructed_raw_mask=jnp.asarray(reconstructed_mask),
+        raw_shape=shape,
+        eta_radius=2,
+        diagnostics=sharded_geometry.diffusion_diagnostics,
+    )
     compact = sharded_geometry.compact_transition_payload
     if compact is None:
         regular_faces = local_geometry.regular_face_geometry
@@ -649,6 +748,7 @@ def assemble_local_polar_angular_agglomeration_geometry(
         angular_group_sizes=tuple(
             int(value) for value in sharded_geometry.angular_group_sizes
         ),
+        diffusion_prolongation=diffusion_prolongation,
     )
 
 
@@ -705,6 +805,10 @@ def lower_polar_angular_agglomeration_geometry(
     cells = _cell_geometry_with_layout(
         host_geometry, local, local_geometry.layout
     )
+    diffusion_prolongation = compile_rlp_cell_average_prolongation(
+        host_geometry,
+        max_observations=RLP_DIFFUSION_MAX_OBSERVATIONS,
+    )
     return LocalEmbeddedControlVolumeGeometry3D(
         cells=cells,
         regular_faces=local_geometry.regular_face_geometry,
@@ -716,6 +820,7 @@ def lower_polar_angular_agglomeration_geometry(
         angular_group_sizes=tuple(
             int(value) for value in np.asarray(host_geometry.angular_group_size)
         ),
+        diffusion_prolongation=diffusion_prolongation,
     )
 
 
@@ -731,6 +836,7 @@ def empty_angular_agglomeration_boundary_bc(
 
 __all__ = [
     "RLP_PACKED_FIELD_COUNT",
+    "RLP_DIFFUSION_MAX_OBSERVATIONS",
     "ShardedPolarAngularAgglomerationDescriptor",
     "build_sharded_polar_angular_agglomeration_payload",
     "assemble_local_polar_angular_agglomeration_geometry",

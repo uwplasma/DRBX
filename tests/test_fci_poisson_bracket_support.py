@@ -20,7 +20,8 @@ def test_pb_support_halo_is_neumann_on_template_masks_and_preserves_owner():
     text = ast.get_source_segment(source, helper)
     assert text is not None
     assert "_prepare_poisson_bracket_support_face_bc(template_bc)" in text
-    assert "_prepare_scalar_halo(values_owned, support_bc)" in text
+    assert "_prepare_poisson_bracket_halo(" in text
+    assert "positivity_floor" not in text
     face_helper = next(
         n for n in ast.walk(tree)
         if isinstance(n, ast.FunctionDef)
@@ -39,7 +40,8 @@ def test_pb_calls_use_support_halos_and_support_traces_with_vorticity_generator(
     assert 'POISSON_BRACKET_SUPPORT_FIELD_NAMES = RHS_TERM_FIELD_NAMES' in source
     assert 'phi_pb_conservative_stencil = build_local_conservative_stencil_from_field(' in source
     assert 'phi_gradient = build_gradient(state_halo.phi, self.geometry, context)' in source
-    assert 'phi_pb_gradient = phi_gradient' in source
+    assert 'phi_poisson_bracket_halo = self._prepare_poisson_bracket_halo(' in source
+    assert 'phi_pb_gradient = build_gradient(' in source
     assert "poisson_bracket_support_traces" not in source
     assert "phi_conservative_stencil = phi_pb_conservative_stencil" in source
     calls = [

@@ -1,9 +1,11 @@
 """Focused tests for eta-only native angular-agglomeration lowering."""
 
+from dataclasses import replace
 from pathlib import Path
 import sys
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 from jax.sharding import NamedSharding, PartitionSpec as P
@@ -12,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from drbx.geometry import build_shifted_torus_geometry
+from drbx.geometry import StencilBuilderContext, build_shifted_torus_geometry
 from drbx.geometry.fci_control_volumes import (
     build_polar_angular_agglomeration_geometry,
 )
@@ -20,18 +22,31 @@ from drbx.native.fci_angular_agglomeration import (
     RLP_PACKED_FIELD_COUNT,
     assemble_local_polar_angular_agglomeration_geometry,
     build_sharded_polar_angular_agglomeration_payload,
+    lower_polar_angular_agglomeration_geometry,
 )
-from drbx.native.fci_boundaries import LocalControlVolumeBoundaryBC3D
+from drbx.native.fci_boundaries import (
+    BC_NOFLUX,
+    LocalBoundaryFaceBC3D,
+    LocalControlVolumeBoundaryBC3D,
+)
 from drbx.native.fci_control_volume_operators import (
     CUBIC_MONOMIAL_EXPONENTS,
     control_volume_average_basis,
     monomial_basis,
 )
 from drbx.native.fci_operators import (
+    LocalPerpLaplacianInverseSolver,
     _local_control_volume_integrated_divergence,
     build_local_control_volume_field_closure,
     inject_owned_field_to_halo,
 )
+from drbx.native.fci_gmres import SolvaxGmresConfig
+from drbx.native.fci_halo import (
+    HaloExchange3D,
+    LocalPeriodicTopologyRule3D,
+    TopologyHaloFiller3D,
+)
+from drbx.native.fci_rlp_diffusion import apply_rlp_cell_average_prolongation
 from drbx.native.fci_sharding import (
     assemble_local_fci_geometry,
     assemble_single_device_local_fci_geometry,
@@ -262,6 +277,180 @@ def test_eta_assembly_two_shard_map_matches_global_payload_when_available():
         )
     )(fci_fields, rlp_fields)
     np.testing.assert_allclose(np.asarray(mapped), host.aggregate_chart_volume)
+
+
+def test_eta_sharded_full_diffusion_matches_global_with_varying_weights_when_available():
+    if len(jax.devices()) < 2:
+        pytest.skip("requires two JAX devices for a two-eta-shard execution test")
+    shape = (4, 8, 4)
+    u = np.linspace(0.0, 1.0, shape[0] + 1)
+    theta = np.linspace(-np.pi, np.pi, shape[1] + 1)
+    eta = np.linspace(-np.pi, np.pi, shape[2] + 1)
+
+    def varying_jacobian(points):
+        points = np.asarray(points)
+        return np.maximum(
+            points[..., 0]
+            * (1.0 + 0.17 * np.cos(points[..., 2]))
+            * (1.0 + 0.08 * points[..., 0] * np.cos(points[..., 1])),
+            1.0e-14,
+        )
+
+    host = build_polar_angular_agglomeration_geometry(
+        u,
+        theta,
+        eta,
+        varying_jacobian,
+        quadrature_order=3,
+        angular_group_size=(8, 2, 1, 1),
+    )
+    global_geometry = build_shifted_torus_geometry(shape, construct_fci_maps=False)
+    owner = np.zeros(shape, dtype=np.float64)
+    ii, jj, kk = np.indices(shape)
+    active = np.asarray(host.topology.is_active_owner)
+    owner[active] = (
+        np.sin(2.0 * np.pi * (kk[active] + 0.3) / shape[2])
+        + 0.2 * ii[active]
+        - 0.07 * jj[active]
+    )
+    topology = TopologyHaloFiller3D(
+        (LocalPeriodicTopologyRule3D((False, True, True)),)
+    )
+
+    def radial_noflux(layout):
+        boundary = LocalBoundaryFaceBC3D.empty(layout)
+        return replace(
+            boundary,
+            kind_x=boundary.kind_x.at[0].set(BC_NOFLUX).at[-1].set(BC_NOFLUX),
+            mask_x=boundary.mask_x.at[0].set(True).at[-1].set(True),
+        )
+
+    one = build_local_fci_geometries(global_geometry, (1, 1, 1), halo_width=1)
+    one_local = assemble_single_device_local_fci_geometry(one)
+    one_rlp = lower_polar_angular_agglomeration_geometry(host, one_local)
+    one_domain = replace(one.domain, mesh_axis_names=(None, None, None))
+    one_solver = LocalPerpLaplacianInverseSolver(
+        geometry=one_local,
+        domain=one_domain,
+        control_volume_geometry=one_rlp,
+        control_volume_boundary_bc=LocalControlVolumeBoundaryBC3D.empty(),
+        halo_exchange=HaloExchange3D(),
+        topology_filler=topology,
+        stencil_builder_context=StencilBuilderContext(
+            layout=one_domain.layout, domain=one_domain
+        ),
+        config=SolvaxGmresConfig(regularization_epsilon=0.0),
+    )
+    face_bc = radial_noflux(one_domain.layout)
+    expected = one_solver.apply_positive_operator(
+        jnp.asarray(owner), face_bc=face_bc, project_mean_zero=False
+    )
+
+    split = build_local_fci_geometries(global_geometry, (1, 1, 2), halo_width=1)
+    descriptor, packed = build_sharded_polar_angular_agglomeration_payload(
+        host, split.domain
+    )
+    mesh = make_shard_mesh((1, 1, 2))
+    spec = P("x", "y", "z", None)
+    fci_fields = jax.device_put(split.cell_fields, NamedSharding(mesh, spec))
+    rlp_fields = jax.device_put(
+        packed, NamedSharding(mesh, descriptor.cell_partition_spec)
+    )
+    owner_fields = jax.device_put(owner, NamedSharding(mesh, P("x", "y", "z")))
+
+    def kernel(fci_owned, rlp_owned, owner_owned):
+        local_fci = assemble_local_fci_geometry(split, fci_owned)
+        local_rlp = assemble_local_polar_angular_agglomeration_geometry(
+            descriptor, rlp_owned, local_fci
+        )
+        solver = LocalPerpLaplacianInverseSolver(
+            geometry=local_fci,
+            domain=split.domain,
+            control_volume_geometry=local_rlp,
+            control_volume_boundary_bc=LocalControlVolumeBoundaryBC3D.empty(),
+            halo_exchange=HaloExchange3D(),
+            topology_filler=topology,
+            stencil_builder_context=StencilBuilderContext(
+                layout=split.domain.layout, domain=split.domain
+            ),
+            config=SolvaxGmresConfig(regularization_epsilon=0.0),
+        )
+        return solver.apply_positive_operator(
+            owner_owned,
+            face_bc=radial_noflux(split.domain.layout),
+            project_mean_zero=False,
+        )
+
+    got = jax.jit(
+        jax.shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(spec, descriptor.cell_partition_spec, P("x", "y", "z")),
+            out_specs=P("x", "y", "z"),
+            check_vma=False,
+        )
+    )(fci_fields, rlp_fields, owner_fields)
+    np.testing.assert_allclose(np.asarray(got), np.asarray(expected), rtol=2e-11, atol=2e-11)
+
+    # The host quadrature volume intentionally differs from midpoint J; exact
+    # owner balance therefore also verifies the RLP-specific fine denominator.
+    owner_volume = np.asarray(one_rlp.cells.aggregate_volume)
+    np.testing.assert_allclose(
+        np.sum(owner_volume * np.asarray(got)), 0.0, rtol=0.0, atol=2e-10
+    )
+
+
+def test_four_eta_shards_with_one_local_plane_apply_two_hop_reconstruction_when_available():
+    if len(jax.devices()) < 4:
+        pytest.skip("requires four JAX devices for one-plane eta shards")
+    shape = (4, 8, 4)
+    host = _host(shape)
+    global_geometry = build_shifted_torus_geometry(shape, construct_fci_maps=False)
+    owner = np.zeros(shape, dtype=np.float64)
+    active = np.asarray(host.topology.is_active_owner)
+    ii, jj, kk = np.indices(shape)
+    owner[active] = 0.3 * ii[active] - 0.11 * jj[active] + np.sin(
+        2.0 * np.pi * (kk[active] + 0.2) / shape[2]
+    )
+    one = build_local_fci_geometries(global_geometry, (1, 1, 1), halo_width=1)
+    one_local = assemble_single_device_local_fci_geometry(one)
+    one_rlp = lower_polar_angular_agglomeration_geometry(host, one_local)
+    expected = apply_rlp_cell_average_prolongation(
+        jnp.asarray(owner), one_rlp.diffusion_prolongation
+    )
+
+    split = build_local_fci_geometries(global_geometry, (1, 1, 4), halo_width=1)
+    descriptor, packed = build_sharded_polar_angular_agglomeration_payload(
+        host, split.domain
+    )
+    mesh = make_shard_mesh((1, 1, 4))
+    spec = P("x", "y", "z", None)
+
+    def kernel(fci_owned, rlp_owned, owner_owned):
+        local_fci = assemble_local_fci_geometry(split, fci_owned)
+        local_rlp = assemble_local_polar_angular_agglomeration_geometry(
+            descriptor, rlp_owned, local_fci
+        )
+        return apply_rlp_cell_average_prolongation(
+            owner_owned,
+            local_rlp.diffusion_prolongation,
+            domain=split.domain,
+        )
+
+    got = jax.jit(
+        jax.shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(spec, descriptor.cell_partition_spec, P("x", "y", "z")),
+            out_specs=P("x", "y", "z"),
+            check_vma=False,
+        )
+    )(
+        jax.device_put(split.cell_fields, NamedSharding(mesh, spec)),
+        jax.device_put(packed, NamedSharding(mesh, descriptor.cell_partition_spec)),
+        jax.device_put(owner, NamedSharding(mesh, P("x", "y", "z"))),
+    )
+    np.testing.assert_allclose(np.asarray(got), np.asarray(expected), rtol=2e-12, atol=2e-12)
 
 
 @pytest.mark.parametrize("shard_counts", [(2, 1, 1), (1, 2, 1)])

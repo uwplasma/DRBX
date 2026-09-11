@@ -14,6 +14,11 @@ from solvax.precond import (
 
 _pytree_base = jax.tree_util.register_pytree_node_class
 
+
+def _is_tracer(value: object) -> bool:
+    """Return whether a scalar predicate is being staged by JAX."""
+    return isinstance(value, jax.core.Tracer)
+
 from ..geometry import (
     HaloLayout3D,
     LocalBFieldGeometry,
@@ -44,19 +49,30 @@ from .fci_halo import (
     HaloExchange3D,
     accumulate_halo_contributions_to_owned,
     LocalHaloClosure3D,
+    LocalPeriodicTopologyRule3D,
     PhysicalGhostCellFiller3D,
     TopologyHaloFiller3D,
 )
 from .fci_gmres import (
     SolvaxGmresConfig,
     SolvaxGmresInfo,
+    _spmd_dot,
+    _spmd_norm,
+    _spmd_sum,
     _spmd_remove_weighted_mean,
+    _spmd_weighted_l2,
+    _spmd_weighted_mean,
     solvax_gmres_solve,
+)
+from .fci_support_pair import (
+    build_weighted_negative_adjoint,
+    build_weighted_self_adjoint_part,
 )
 from .fci_model import (
     inject_owned_field_to_halo,
     inject_owned_vector_field_to_halo,
 )
+from .fci_rlp_diffusion import apply_rlp_cell_average_prolongation
 from .characteristic_wall_residual import (
     solve_incoming_characteristic_state,
 )
@@ -82,6 +98,7 @@ from .fci_boundaries import (
     LocalCutWallGeometry3D,
     LocalRegularFaceContributionRows3D,
     FaceFluxStencil3D,
+    build_local_boundary_face_trace_from_halo,
     CoordinateFaceValues3D,
     ConservativeStencil3D,
     LocalStencil1D,
@@ -97,6 +114,7 @@ from .fci_curvature_production_flux import (
     curvature_flux_jacobian,
     reconstruct_third_order_face_states,
 )
+from .fci_polarization_coarse import CoarseData
 
 
 # =============================================================================
@@ -2087,6 +2105,7 @@ def local_poisson_bracket_compatible_flux_op(
     g_field_closure: LocalControlVolumeFieldClosure3D | None = None,
     f_control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
     g_control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
+    cell_volume: LocalCellVolumeGeometry3D | None = None,
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
     characteristic_scheme: str = "centered",
     g_field_halo: jnp.ndarray | None = None,
@@ -2118,7 +2137,12 @@ def local_poisson_bracket_compatible_flux_op(
     preserves the centered compatible core and adds only the physical
     generator's characteristic correction,
 
-        ``B_c(f,g) + A_f^up(g) - A_f^c(g)``.
+    ``B_c(f,g) + A_f^up(g) - A_f^c(g)``.
+
+    ``cell_volume`` may supply the fine-cell Jacobian associated with a
+    projected-fine RLP restriction.  Using the same raw-volume measure in the
+    divergence normalization and in restriction preserves the telescoping
+    volume balance; the ordinary cell-centred metric remains the default.
 
     The characteristic
     speed is the physical normal E x B face flux ``U_f``; no dissipation
@@ -2195,6 +2219,15 @@ def local_poisson_bracket_compatible_flux_op(
             control_volume_geometry = supplied_geometries[0]
         if any(value is not control_volume_geometry for value in supplied_geometries):
             raise ValueError("f/g control-volume geometries must be the same topology")
+    if cell_volume is not None:
+        if not isinstance(cell_volume, LocalCellVolumeGeometry3D):
+            raise TypeError("cell_volume must be LocalCellVolumeGeometry3D or None")
+        if cell_volume.layout != geometry.layout:
+            raise ValueError("cell_volume must share geometry.layout")
+        if control_volume_geometry is not None:
+            raise ValueError(
+                "cell_volume and compact control_volume_geometry are mutually exclusive"
+            )
     if control_volume_geometry is not None:
         if not isinstance(domain, LocalDomain3D):
             raise ValueError("domain is required with control_volume_geometry")
@@ -2529,7 +2562,12 @@ def local_poisson_bracket_compatible_flux_op(
             weighted_flux, geometry, jacobian_floor=jacobian_floor
         )
         J = jnp.maximum(
-            jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64),
+            jnp.asarray(
+                geometry.cell_metric.J_owned
+                if cell_volume is None
+                else cell_volume.volume * cell_volume.volume_fraction,
+                dtype=jnp.float64,
+            ),
             jacobian_floor,
         )
         return (weighted_divergence - argument.x.center * generator_divergence) / J
@@ -2563,7 +2601,12 @@ def local_poisson_bracket_compatible_flux_op(
             jacobian_floor=jacobian_floor,
         )
         J = jnp.maximum(
-            jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64),
+            jnp.asarray(
+                geometry.cell_metric.J_owned
+                if cell_volume is None
+                else cell_volume.volume * cell_volume.volume_fraction,
+                dtype=jnp.float64,
+            ),
             jacobian_floor,
         )
         return (
@@ -3837,16 +3880,14 @@ def local_curvature_production_path_op(
         raw_right[axis] = right_axis
         left_owner = (oi[tuple(raw_left)], oj[tuple(raw_left)], ok[tuple(raw_left)])
         right_owner = (oi[tuple(raw_right)], oj[tuple(raw_right)], ok[tuple(raw_right)])
-        same_owner = (
-            left_valid & right_valid
-            & (left_owner[0] == right_owner[0])
-            & (left_owner[1] == right_owner[1])
-            & (left_owner[2] == right_owner[2])
-        )
         left_remote = jnp.asarray(owner_is_remote)[tuple(raw_left)]
         right_remote = jnp.asarray(owner_is_remote)[tuple(raw_right)]
-        valid_left = left_valid & ~same_owner & ~left_remote
-        valid_right = right_valid & ~same_owner & ~right_remote
+        # Third-order reconstruction creates internal same-owner face jumps.
+        # Their summed interface fluctuations are required to cancel the raw
+        # within-cell fluctuations; dropping them amplifies smooth q >= 2
+        # owner transport toward 4/3 of the intended action.
+        valid_left = left_valid & ~left_remote
+        valid_right = right_valid & ~right_remote
         integrated_plus = jnp.where(valid_right[..., None], -dplus * area[..., None], 0.0)
         integrated_minus = jnp.where(valid_left[..., None], -dminus * area[..., None], 0.0)
         owner_integrated = jnp.zeros(geometry.owned_shape + (4,), dtype=jnp.float64)
@@ -7686,11 +7727,9 @@ def expand_local_control_volume_owner_field(
         )
     expanded = values[cells.owner_i, cells.owner_j, cells.owner_k]
     if owner_values_halo is None:
-        try:
-            if bool(jnp.any(cells.owner_is_remote)):
-                raise ValueError("owner_values_halo is required when control-volume owners are remote")
-        except jax.errors.TracerBoolConversionError:
-            pass
+        remote_present = jnp.any(cells.owner_is_remote)
+        if not _is_tracer(remote_present) and bool(remote_present):
+            raise ValueError("owner_values_halo is required when control-volume owners are remote")
     else:
         halo = jnp.asarray(owner_values_halo, dtype=values.dtype)
         if halo.shape[:3] != cells.layout.cell_halo_shape:
@@ -7698,6 +7737,117 @@ def expand_local_control_volume_owner_field(
         remote = halo[cells.remote_owner_halo_i, cells.remote_owner_halo_j, cells.remote_owner_halo_k]
         expanded = jnp.where(cells.owner_is_remote, remote, expanded)
     return jnp.where(cells.raw_volume > 0.0, expanded, 0.0)
+
+
+def reconstruct_local_control_volume_projected_fine_field(
+    values_owned: jnp.ndarray,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    owner_values_halo: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Materialize a smooth conservative fine field from RLP owner averages.
+
+    Angular RLP uses the linear cell-average prolongation ``H``.  Although the
+    payload retains its historical ``diffusion_prolongation`` field name, the
+    map itself is geometric: it reproduces smooth cell averages and satisfies
+    ``R H = I`` without containing an operator coefficient.  Other
+    control-volume topologies retain the established owner injection.
+    """
+
+    prolongation = control_volume_geometry.diffusion_prolongation
+    if prolongation is None:
+        return expand_local_control_volume_owner_field(
+            values_owned,
+            control_volume_geometry.cells,
+            owner_values_halo=owner_values_halo,
+        )
+    return apply_rlp_cell_average_prolongation(
+        values_owned,
+        prolongation,
+        domain=domain,
+    )
+
+
+def reconstruct_local_control_volume_diffusion_field(
+    values_owned: jnp.ndarray,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    owner_values_halo: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Materialize the projected-fine diffusion/polarization field."""
+
+    return reconstruct_local_control_volume_projected_fine_field(
+        values_owned,
+        control_volume_geometry,
+        domain,
+        owner_values_halo=owner_values_halo,
+    )
+
+
+def reconstruct_local_control_volume_poisson_field(
+    values_owned: jnp.ndarray,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    owner_values_halo: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Materialize one operand of the projected-fine Poisson bracket.
+
+    The bracket applies this same linear, conservative map independently to
+    both operands before its antisymmetrized shared-face action.  That common
+    map is essential for the centered bracket.  Positivity handling for a
+    material upwind flux belongs to its face-state admissibility rule; this
+    owner-to-fine reconstruction remains linear and contains no clipping or
+    aggregate-level damping.
+    """
+
+    return reconstruct_local_control_volume_projected_fine_field(
+        values_owned,
+        control_volume_geometry,
+        domain,
+        owner_values_halo=owner_values_halo,
+    )
+
+
+def local_control_volume_projected_fine_cell_volume(
+    geometry: LocalFciGeometry3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None,
+) -> LocalCellVolumeGeometry3D | None:
+    """Return the fine divergence normalization paired with RLP restriction."""
+
+    if (
+        control_volume_geometry is None
+        or control_volume_geometry.diffusion_prolongation is None
+    ):
+        return None
+    logical_volume = (
+        jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
+        * jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
+        * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
+    )
+    raw_jacobian = jnp.asarray(
+        control_volume_geometry.cells.raw_volume,
+        dtype=jnp.float64,
+    ) / jnp.maximum(logical_volume, 1.0e-30)
+    return LocalCellVolumeGeometry3D(
+        layout=geometry.layout,
+        volume=raw_jacobian,
+        volume_fraction=jnp.ones(geometry.owned_shape, dtype=jnp.float64),
+    )
+
+
+def local_control_volume_diffusion_cell_volume(
+    geometry: LocalFciGeometry3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None,
+) -> LocalCellVolumeGeometry3D | None:
+    """Backward-compatible name for projected-fine diffusion normalization."""
+
+    return local_control_volume_projected_fine_cell_volume(
+        geometry,
+        control_volume_geometry,
+    )
 
 
 def aggregate_local_control_volume_average(
@@ -7760,6 +7910,56 @@ def aggregate_local_control_volume_average(
     )
     result = owner_sum / safe_volume
     return jnp.where(active, result, 0.0).astype(jnp.float64)
+
+
+def restrict_local_control_volume_diffusion_average(
+    values_raw: jnp.ndarray,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    domain: LocalDomain3D,
+) -> jnp.ndarray:
+    """Restrict a fine diffusion result with the trial reconstruction's adjoint.
+
+    Angular RLP diffusion reconstructs the fine trial field as ``H u``.  The
+    matching owner-space test operation is
+
+    ``M_owner**-1 H.T M_raw values_raw``.
+
+    It is conservative because ``H 1 = 1``: the owner-volume sum is exactly
+    the raw-volume sum, including prescribed boundary flux.  In a homogeneous
+    closed domain it also gives the owner action the fine operator's quadratic
+    form.  Non-RLP control volumes retain their established volume average.
+    """
+
+    if not isinstance(control_volume_geometry, LocalEmbeddedControlVolumeGeometry3D):
+        raise TypeError(
+            "control_volume_geometry must be LocalEmbeddedControlVolumeGeometry3D"
+        )
+    values = jnp.asarray(values_raw, dtype=jnp.float64)
+    cells = control_volume_geometry.cells
+    if values.ndim != 3 or tuple(values.shape) != tuple(cells.shape):
+        raise ValueError(
+            f"values_raw must have shape {cells.shape}, got {values.shape}"
+        )
+    prolongation = control_volume_geometry.diffusion_prolongation
+    if prolongation is None:
+        return aggregate_local_control_volume_average(values, cells, domain)
+
+    def reconstruct(candidate: jnp.ndarray) -> jnp.ndarray:
+        return apply_rlp_cell_average_prolongation(
+            candidate,
+            prolongation,
+            domain=domain,
+        )
+
+    raw_integrated = jnp.asarray(cells.raw_volume, dtype=jnp.float64) * values
+    transpose = jax.linear_transpose(
+        reconstruct,
+        jnp.zeros(cells.shape, dtype=jnp.float64),
+    )
+    owner_integrated = transpose(raw_integrated)[0]
+    owner_volume = jnp.asarray(cells.aggregate_volume, dtype=jnp.float64)
+    result = owner_integrated / jnp.where(owner_volume > 0.0, owner_volume, 1.0)
+    return jnp.where(cells.is_active_owner, result, 0.0).astype(jnp.float64)
 
 
 def local_control_volume_product_average(
@@ -8129,25 +8329,12 @@ def _require_local_control_volume_field_closure(
         raise ValueError(
             "field_closure.max_patches must align with irregular face-row geometry"
         )
-    try:
-        active_aligned = bool(
-            jnp.all(field_closure.active == (rows.active & faces.active))
-        )
-        valid_aligned = bool(jnp.all(field_closure.valid == field_closure.active))
-        trace_aligned = bool(
-            jnp.all(
-                (~jnp.asarray(faces.quadrature_active, dtype=bool))
-                | jnp.asarray(field_closure.face_value_valid, dtype=bool)
-            )
-            & jnp.all(
-                (~jnp.asarray(faces.quadrature_active, dtype=bool))
-                | jnp.asarray(field_closure.face_gradient_valid, dtype=bool)
-            )
-        )
-    except jax.errors.TracerBoolConversionError:
-        active_aligned = True
-        valid_aligned = True
-        trace_aligned = True
+    active_pred = jnp.all(field_closure.active == (rows.active & faces.active))
+    valid_pred = jnp.all(field_closure.valid == field_closure.active)
+    trace_pred = jnp.all((~jnp.asarray(faces.quadrature_active, dtype=bool)) | jnp.asarray(field_closure.face_value_valid, dtype=bool)) & jnp.all((~jnp.asarray(faces.quadrature_active, dtype=bool)) | jnp.asarray(field_closure.face_gradient_valid, dtype=bool))
+    active_aligned = True if _is_tracer(active_pred) else bool(active_pred)
+    valid_aligned = True if _is_tracer(valid_pred) else bool(valid_pred)
+    trace_aligned = True if _is_tracer(trace_pred) else bool(trace_pred)
     if not active_aligned:
         raise ValueError("field_closure.active must align with compiled face rows")
     if not valid_aligned:
@@ -9436,13 +9623,12 @@ def _assemble_angular_agglomeration_tree_principal_coefficients(
                 & (left[2] == parent_k[right])
             )
             fine_T = jnp.asarray(Tx[i], dtype=jnp.float64)
-            try:
-                if bool(jnp.any(~jnp.isfinite(fine_T) | (fine_T < 0.0))):
-                    raise ValueError("fine radial conductances must be finite and nonnegative")
-                if bool(jnp.any((fine_T > 0.0) & distinct & ~expected)):
-                    raise ValueError("fine radial face does not connect a child to its declared parent")
-            except jax.errors.TracerBoolConversionError:
-                pass
+            invalid_T = jnp.any(~jnp.isfinite(fine_T) | (fine_T < 0.0))
+            wrong_parent = jnp.any((fine_T > 0.0) & distinct & ~expected)
+            if not _is_tracer(invalid_T) and bool(invalid_T):
+                raise ValueError("fine radial conductances must be finite and nonnegative")
+            if not _is_tracer(wrong_parent) and bool(wrong_parent):
+                raise ValueError("fine radial face does not connect a child to its declared parent")
             diagonal, edge_T = add_owner_edge(diagonal, fine_T, left, right)
             child_edge = child_edge.at[right].add(edge_T)
 
@@ -9609,6 +9795,65 @@ def _build_angular_agglomeration_line_u_preconditioner(
     return solve
 
 
+def _build_angular_agglomeration_jacobi_preconditioner(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    face_bc: LocalBoundaryFaceBC3D,
+    config: SolvaxGmresConfig,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    principal_coefficients: tuple[
+        jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray,
+        jnp.ndarray, jnp.ndarray, jnp.ndarray,
+    ] | None = None,
+) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    """Build the positive full-axis owner-diagonal RLP inverse.
+
+    The angular principal assembly stores the stiffness diagonal of
+    ``P.T @ A_f @ P`` together with the aggregate owner volume.  Since the
+    matrix-free owner action is ``M_owner^-1 K_owner``, its Jacobi inverse is
+    ``diag(K_owner)^-1 M_owner``.  Keeping that volume factor is essential:
+    a bare reciprocal stiffness diagonal is not the inverse diagonal in the
+    solver's volume-weighted owner coordinates.
+    """
+
+    if principal_coefficients is None:
+        principal_coefficients = (
+            _assemble_angular_agglomeration_tree_principal_coefficients(
+                geometry,
+                domain,
+                face_projectors,
+                face_bc,
+                config,
+                control_volume_geometry,
+            )
+        )
+    (
+        aggregate_volume,
+        diagonal,
+        _child_edge,
+        _parent_i,
+        _parent_j,
+        _parent_k,
+        active,
+    ) = principal_coefficients
+
+    def solve(residual: jnp.ndarray) -> jnp.ndarray:
+        residual = jnp.asarray(residual, dtype=jnp.float64)
+        if residual.shape != geometry.owned_shape:
+            raise ValueError(
+                "angular Jacobi residual must match geometry.owned_shape"
+            )
+        correction = aggregate_volume * residual / jnp.where(
+            active,
+            diagonal,
+            1.0,
+        )
+        return jnp.where(active, correction, 0.0)
+
+    return solve
+
+
 def _build_projected_owner_line_u_preconditioner(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
@@ -9687,20 +9932,42 @@ def build_solvax_perp_laplacian_preconditioner(
     if kind == "none":
         return None
     if control_volume_geometry is not None:
-        if kind != "line-u":
+        if kind not in ("jacobi", "line-u"):
             raise ValueError(
-                "RLP control-volume preconditioning supports only 'none' or 'line-u'"
+                "RLP control-volume preconditioning supports only 'none', "
+                "'jacobi', or 'line-u'"
             )
-        if bool(getattr(control_volume_geometry, "has_angular_agglomeration", False)):
-            return _build_angular_agglomeration_line_u_preconditioner(
-                geometry,
-                domain,
-                face_projectors,
-                face_bc,
-                config,
+        if bool(
+            getattr(
                 control_volume_geometry,
+                "has_angular_agglomeration",
+                False,
             )
+        ):
+            if kind == "jacobi":
+                return _build_angular_agglomeration_jacobi_preconditioner(
+                    geometry,
+                    domain,
+                    face_projectors,
+                    face_bc,
+                    config,
+                    control_volume_geometry,
+                )
+            if kind == "line-u":
+                return _build_angular_agglomeration_line_u_preconditioner(
+                    geometry,
+                    domain,
+                    face_projectors,
+                    face_bc,
+                    config,
+                    control_volume_geometry,
+                )
         if bool(getattr(control_volume_geometry, "has_projected_owner_agglomeration", False)):
+            if kind == "jacobi":
+                raise ValueError(
+                    "RLP Jacobi currently requires angular agglomeration so "
+                    "the exact full-axis owner diagonal is available"
+                )
             return _build_projected_owner_line_u_preconditioner(
                 geometry,
                 domain,
@@ -9734,6 +10001,588 @@ def build_solvax_perp_laplacian_preconditioner(
     return solvax_line_preconditioner(diagonal, directions)
 
 
+def _fixed_projected_preconditioned_cg(
+    apply_A: Callable[[jnp.ndarray], jnp.ndarray],
+    rhs: jnp.ndarray,
+    guess: jnp.ndarray,
+    *,
+    project: Callable[[jnp.ndarray], jnp.ndarray],
+    inner_product: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
+    preconditioner: Callable[[jnp.ndarray], jnp.ndarray] | None,
+    maxiter: int,
+    tol: float,
+    atol: float,
+) -> tuple[
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+]:
+    """Run fixed-loop projected PCG on a one-null-direction quotient.
+
+    The caller supplies the projector and inner product defining the quotient.
+    ``apply_A`` and the optional preconditioner are projected defensively on
+    every application.  The returned tuple is ``(x, steps, initial_norm,
+    final_norm, breakdown)``.  An exact initial solution, including a zero RHS
+    with a zero guess, takes zero iterations and never forms a ``0 / 0`` CG
+    coefficient.
+    """
+
+    if int(maxiter) <= 0:
+        raise ValueError("projected PCG maxiter must be positive")
+    values_rhs = project(jnp.asarray(rhs, dtype=jnp.float64))
+    values_guess = project(jnp.asarray(guess, dtype=jnp.float64))
+
+    def norm(values: jnp.ndarray) -> jnp.ndarray:
+        return jnp.sqrt(jnp.maximum(inner_product(values, values), 0.0))
+
+    def apply_preconditioner(values: jnp.ndarray) -> jnp.ndarray:
+        projected = project(values)
+        if preconditioner is None:
+            return projected
+        return project(preconditioner(projected))
+
+    residual = project(values_rhs - project(apply_A(values_guess)))
+    initial_norm = norm(residual)
+    rhs_norm = norm(values_rhs)
+    threshold = jnp.maximum(
+        jnp.asarray(atol, dtype=values_rhs.dtype),
+        jnp.asarray(tol, dtype=values_rhs.dtype) * rhs_norm,
+    )
+    initially_done = jnp.isfinite(initial_norm) & (initial_norm <= threshold)
+    preconditioned = jax.lax.cond(
+        initially_done,
+        lambda values: jnp.zeros_like(values),
+        apply_preconditioner,
+        residual,
+    )
+    rho = inner_product(residual, preconditioned)
+    direction = preconditioned
+    initially_broken = (~jnp.isfinite(initial_norm)) | (
+        (~initially_done) & ((~jnp.isfinite(rho)) | (rho <= 0.0))
+    )
+
+    state = (
+        values_guess,
+        residual,
+        direction,
+        rho,
+        initial_norm,
+        jnp.asarray(0, dtype=jnp.int32),
+        initially_done,
+        initially_broken,
+    )
+
+    def body(_iteration, state):
+        def take_step(state):
+            (
+                current,
+                current_residual,
+                current_direction,
+                current_rho,
+                current_norm,
+                steps,
+                done,
+                breakdown,
+            ) = state
+            operator_direction = project(apply_A(project(current_direction)))
+            denominator = inner_product(current_direction, operator_direction)
+            valid_denominator = (
+                jnp.isfinite(denominator)
+                & jnp.isfinite(current_rho)
+                & (denominator > 0.0)
+                & (current_rho > 0.0)
+            )
+            safe_denominator = jnp.where(valid_denominator, denominator, 1.0)
+            alpha = jnp.where(
+                valid_denominator,
+                current_rho / safe_denominator,
+                0.0,
+            )
+            candidate = project(current + alpha * current_direction)
+            candidate_residual = project(
+                current_residual - alpha * operator_direction
+            )
+            candidate_norm = norm(candidate_residual)
+            candidate_done = jnp.isfinite(candidate_norm) & (
+                candidate_norm <= threshold
+            )
+            # Once the quotient residual is exactly solved, avoid passing the
+            # zero vector through a line/Jacobi implementation that may have
+            # its own singular zero-mode bookkeeping.  No next direction is
+            # needed in that branch.
+            candidate_preconditioned = jax.lax.cond(
+                candidate_done,
+                lambda values: jnp.zeros_like(values),
+                apply_preconditioner,
+                candidate_residual,
+            )
+            candidate_rho = inner_product(
+                candidate_residual,
+                candidate_preconditioned,
+            )
+            valid_rho = jnp.isfinite(candidate_rho) & (
+                (candidate_rho > 0.0) | candidate_done
+            )
+            successful = (
+                valid_denominator
+                & jnp.isfinite(candidate_norm)
+                & valid_rho
+            )
+            safe_rho = jnp.where(
+                jnp.isfinite(current_rho) & (current_rho > 0.0),
+                current_rho,
+                1.0,
+            )
+            beta = jnp.where(
+                successful & (~candidate_done),
+                candidate_rho / safe_rho,
+                0.0,
+            )
+            candidate_direction = project(
+                candidate_preconditioned + beta * current_direction
+            )
+            return (
+                jnp.where(successful, candidate, current),
+                jnp.where(successful, candidate_residual, current_residual),
+                jnp.where(successful, candidate_direction, current_direction),
+                jnp.where(successful, candidate_rho, current_rho),
+                jnp.where(successful, candidate_norm, current_norm),
+                steps + successful.astype(jnp.int32),
+                done | (successful & candidate_done),
+                breakdown | (~successful),
+            )
+
+        active_step = (~state[6]) & (~state[7])
+        return jax.lax.cond(active_step, take_step, lambda current: current, state)
+
+    (
+        solution,
+        _residual,
+        _direction,
+        _rho,
+        final_norm,
+        steps,
+        _done,
+        breakdown,
+    ) = jax.lax.fori_loop(0, int(maxiter), body, state)
+    # Report the independently recomputed projected residual rather than the
+    # recurrence estimate, which can drift after many preconditioned steps.
+    final_norm = norm(project(values_rhs - project(apply_A(solution))))
+    return solution, steps, initial_norm, final_norm, breakdown
+
+
+def _fixed_projected_preconditioned_cg_with_corrections(
+    apply_A: Callable[[jnp.ndarray], jnp.ndarray],
+    rhs: jnp.ndarray,
+    guess: jnp.ndarray,
+    *,
+    project: Callable[[jnp.ndarray], jnp.ndarray],
+    inner_product: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
+    preconditioner: Callable[[jnp.ndarray], jnp.ndarray] | None,
+    maxiter: int,
+    tol: float,
+    atol: float,
+    acceptance_threshold: float | jnp.ndarray,
+    residual_correction_steps: int,
+    inputs_are_finite: jnp.ndarray | None = None,
+) -> tuple[
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+]:
+    """Run projected PCG with optional independently checked refinement.
+
+    The first call is the ordinary fixed-loop projected PCG solve.  If its
+    independently recomputed true residual is above ``acceptance_threshold``,
+    each configured refinement solves the current true residual equation from
+    a zero correction and adds the correction only when it improves that true
+    residual.  The correction solves use exactly the same projected operator,
+    preconditioner, and tolerances as the primary solve.  Iteration counts are
+    accumulated; a breakdown or non-finite quantity encountered in an active
+    correction is propagated to the returned breakdown flag.  With zero
+    correction steps this is exactly ``_fixed_projected_preconditioned_cg``.
+    """
+
+    if int(residual_correction_steps) < 0:
+        raise ValueError("projected PCG residual correction steps must be non-negative")
+
+    solution, steps, initial_norm, final_norm, breakdown = (
+        _fixed_projected_preconditioned_cg(
+            apply_A,
+            rhs,
+            guess,
+            project=project,
+            inner_product=inner_product,
+            preconditioner=preconditioner,
+            maxiter=maxiter,
+            tol=tol,
+            atol=atol,
+        )
+    )
+    values_rhs = project(jnp.asarray(rhs, dtype=jnp.float64))
+    values_guess = project(jnp.asarray(guess, dtype=jnp.float64))
+
+    def norm(values: jnp.ndarray) -> jnp.ndarray:
+        return jnp.sqrt(jnp.maximum(inner_product(values, values), 0.0))
+
+    if inputs_are_finite is None:
+        inputs_are_finite = jnp.all(
+            jnp.isfinite(values_rhs) & jnp.isfinite(values_guess)
+        )
+    else:
+        inputs_are_finite = jnp.asarray(inputs_are_finite, dtype=bool)
+    acceptance_threshold = jnp.asarray(
+        acceptance_threshold, dtype=values_rhs.dtype
+    )
+
+    def correction_step(
+        state: tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+        ],
+    ) -> tuple[
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+    ]:
+        current, current_norm, current_steps, current_breakdown = state
+        correction_rhs = project(
+            values_rhs - project(apply_A(project(current)))
+        )
+        correction, correction_steps, correction_initial, correction_final, correction_breakdown = (
+            _fixed_projected_preconditioned_cg(
+                apply_A,
+                correction_rhs,
+                jnp.zeros_like(current),
+                project=project,
+                inner_product=inner_product,
+                preconditioner=preconditioner,
+                maxiter=maxiter,
+                tol=tol,
+                atol=atol,
+            )
+        )
+        candidate = project(current + correction)
+        candidate_residual = norm(
+            project(values_rhs - project(apply_A(candidate)))
+        )
+        correction_finite = (
+            jnp.all(jnp.isfinite(correction))
+            & jnp.isfinite(correction_initial)
+            & jnp.isfinite(correction_final)
+        )
+        candidate_finite = jnp.all(jnp.isfinite(candidate)) & jnp.isfinite(
+            candidate_residual
+        )
+        improved = correction_finite & candidate_finite & (
+            candidate_residual < current_norm
+        )
+        next_solution = jnp.where(improved, candidate, current)
+        next_norm = jnp.where(improved, candidate_residual, current_norm)
+        # A correction is attempted only for a finite, non-broken primary
+        # state.  Preserve any correction failure even when its candidate is
+        # not accepted, so the caller cannot mistake a broken refinement for
+        # a reliable solve.
+        correction_failed = correction_breakdown | (~correction_finite) | (
+            ~candidate_finite
+        )
+        return (
+            next_solution,
+            next_norm,
+            current_steps + correction_steps,
+            current_breakdown | correction_failed,
+        )
+
+    def maybe_correct(
+        state: tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+        ],
+    ) -> tuple[
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+    ]:
+        current, current_norm, current_steps, current_breakdown = state
+        needs_correction = (
+            inputs_are_finite
+            & (~current_breakdown)
+            & jnp.isfinite(current_norm)
+            & (current_norm > acceptance_threshold)
+        )
+        return jax.lax.cond(
+            needs_correction,
+            correction_step,
+            lambda current_state: current_state,
+            state,
+        )
+
+    state = (solution, final_norm, steps, breakdown)
+    for _ in range(int(residual_correction_steps)):
+        state = maybe_correct(state)
+    solution, _tracked_final_norm, steps, breakdown = state
+    # Always report a fresh true residual after the complete refinement loop.
+    final_norm = norm(
+        project(values_rhs - project(apply_A(project(solution))))
+    )
+    return solution, steps, initial_norm, final_norm, breakdown
+
+
+def _solve_projected_pcg_with_info(
+    apply_A: Callable[[jnp.ndarray], jnp.ndarray],
+    rhs: jnp.ndarray,
+    guess: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    config: SolvaxGmresConfig,
+    *,
+    active: jnp.ndarray,
+    volume_weights: jnp.ndarray,
+    preconditioner: Callable[[jnp.ndarray], jnp.ndarray] | None,
+) -> tuple[jnp.ndarray, SolvaxGmresInfo]:
+    """Apply projected PCG, refine its true residual, and build solver info.
+
+    The configured ``residual_correction_steps`` are fixed, bounded
+    replacement/refinement solves.  Each is launched only when the
+    independently recomputed projected residual remains above the acceptance
+    floor; it uses the same physical operator and preconditioner as the
+    primary PCG solve.
+    """
+
+    active = jnp.asarray(active, dtype=bool)
+    weights = jnp.asarray(volume_weights, dtype=jnp.float64)
+
+    def project(values: jnp.ndarray) -> jnp.ndarray:
+        return _spmd_remove_weighted_mean(
+            _mask_inactive_owned(values, geometry, active_mask=active),
+            geometry,
+            domain,
+            active,
+            weights,
+        )
+
+    def inner_product(left: jnp.ndarray, right: jnp.ndarray) -> jnp.ndarray:
+        return _spmd_dot(
+            left,
+            right,
+            geometry,
+            domain,
+            active,
+            weights,
+        )
+
+    rhs = project(rhs)
+    guess = project(guess)
+    rhs_is_finite = _spmd_sum(
+        jnp.all((~active) | jnp.isfinite(rhs)).astype(jnp.int32),
+        domain,
+    ) == _spmd_sum(jnp.asarray(1, dtype=jnp.int32), domain)
+    guess_is_finite = _spmd_sum(
+        jnp.all((~active) | jnp.isfinite(guess)).astype(jnp.int32),
+        domain,
+    ) == _spmd_sum(jnp.asarray(1, dtype=jnp.int32), domain)
+    rhs_l2 = _spmd_norm(rhs, geometry, domain, active, weights)
+    threshold = jnp.maximum(
+        jnp.asarray(config.atol, dtype=rhs_l2.dtype),
+        jnp.asarray(config.tol, dtype=rhs_l2.dtype) * rhs_l2,
+    )
+    acceptance_threshold = jnp.maximum(
+        jnp.asarray(config.acceptance_atol, dtype=rhs_l2.dtype),
+        jnp.asarray(config.acceptance_tol, dtype=rhs_l2.dtype) * rhs_l2,
+    )
+    solution, steps, initial_residual, final_residual, breakdown = (
+        _fixed_projected_preconditioned_cg_with_corrections(
+            apply_A,
+            rhs,
+            guess,
+            project=project,
+            inner_product=inner_product,
+            preconditioner=preconditioner,
+            maxiter=int(config.maxiter),
+            tol=float(config.tol),
+            atol=float(config.atol),
+            acceptance_threshold=acceptance_threshold,
+            residual_correction_steps=int(config.residual_correction_steps),
+            inputs_are_finite=rhs_is_finite & guess_is_finite,
+        )
+    )
+    solution = project(solution)
+    phi_is_finite = _spmd_sum(
+        jnp.all((~active) | jnp.isfinite(solution)).astype(jnp.int32),
+        domain,
+    ) == _spmd_sum(jnp.asarray(1, dtype=jnp.int32), domain)
+    finite_failed = (
+        breakdown
+        | (~jnp.isfinite(initial_residual))
+        | (~jnp.isfinite(final_residual))
+        | (~rhs_is_finite)
+        | (~guess_is_finite)
+        | (~phi_is_finite)
+    )
+    strict_converged = (~finite_failed) & (final_residual <= threshold)
+    accepted = (~finite_failed) & (
+        strict_converged | (final_residual <= acceptance_threshold)
+    )
+    info = SolvaxGmresInfo(
+        num_steps=steps,
+        converged=accepted,
+        failed=~accepted,
+        initial_residual_l2=initial_residual,
+        final_residual_l2=final_residual,
+        final_residual_rel_l2=final_residual / jnp.maximum(rhs_l2, 1.0e-30),
+        rhs_l2=rhs_l2,
+        projected_rhs_mean=_spmd_weighted_mean(
+            rhs,
+            geometry,
+            domain,
+            active,
+            weights,
+        ),
+        projected_rhs_l2=_spmd_weighted_l2(
+            rhs,
+            geometry,
+            domain,
+            active,
+            weights,
+        ),
+        phi_is_finite=phi_is_finite,
+        rhs_is_finite=rhs_is_finite,
+        guess_is_finite=guess_is_finite,
+    )
+    return solution, info
+
+
+def _augmented_neumann_uses_projected_pcg(
+    operator_form: str,
+    preconditioner: str,
+) -> bool:
+    """Return whether the operator/preconditioner pair is M-SPD-qualified."""
+
+    if operator_form == "weighted-symmetric":
+        return True
+    return False
+
+
+def _support_paired_reconstruction_face_bc(
+    face_bc: LocalBoundaryFaceBC3D,
+) -> LocalBoundaryFaceBC3D:
+    """Use zero normal derivative while reconstructing flux BC faces.
+
+    NORMALFLUX/NOFLUX prescribe the physical surface flux and are applied in
+    the explicit boundary load.  They must not be interpreted as logical
+    normal derivatives by the halo or face-gradient reconstruction.
+    """
+    def normalize(kind, value, mask):
+        flux_kind = (kind == BC_NORMALFLUX) | (kind == BC_NOFLUX)
+        return jnp.where(mask & flux_kind, BC_NEUMANN, kind), jnp.where(
+            mask & flux_kind, 0.0, value
+        )
+
+    kind_x, value_x = normalize(face_bc.kind_x, face_bc.value_x, face_bc.mask_x)
+    kind_y, value_y = normalize(face_bc.kind_y, face_bc.value_y, face_bc.mask_y)
+    kind_z, value_z = normalize(face_bc.kind_z, face_bc.value_z, face_bc.mask_z)
+    return dataclass_replace(
+        face_bc,
+        kind_x=kind_x, value_x=value_x,
+        kind_y=kind_y, value_y=value_y,
+        kind_z=kind_z, value_z=value_z,
+    )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalAugmentedPerpLaplacianSolveInfo:
+    """Diagnostics for an opt-in all-Neumann solve with a scalar gauge.
+
+    The augmented system is
+
+    ``[A z; g.T 0] [phi, lambda] = [rhs, target]``.
+
+    ``compatibility_multiplier`` is the returned ``lambda`` and
+    ``raw_compatibility_defect`` is the unnormalised volume-weighted integral
+    of ``rhs - A phi`` after the quotient solve.  Computing it from the
+    post-solve raw residual remains valid when the volume weights are not a
+    left null vector of a nonsymmetric projected-owner operator.  The base
+    Krylov diagnostics describe the projected (constant-quotient) solve.  The
+    existing :class:`SolvaxGmresInfo` is deliberately not extended, so
+    default/off-path callers retain their original PyTree.
+    """
+
+    base_info: SolvaxGmresInfo
+    compatibility_multiplier: jnp.ndarray
+    raw_compatibility_defect: jnp.ndarray
+    final_gauge_residual: jnp.ndarray
+    gauge_constant_response: jnp.ndarray
+    gauge_functional_valid: jnp.ndarray
+    final_operator_residual_l2: jnp.ndarray
+    input_rhs_is_finite: jnp.ndarray
+    boundary_source_is_finite: jnp.ndarray
+    input_rhs_max_abs: jnp.ndarray
+    boundary_source_max_abs: jnp.ndarray
+
+    def tree_flatten(self):
+        return (
+            (
+                self.base_info,
+                self.compatibility_multiplier,
+                self.raw_compatibility_defect,
+                self.final_gauge_residual,
+                self.gauge_constant_response,
+                self.gauge_functional_valid,
+                self.final_operator_residual_l2,
+                self.input_rhs_is_finite,
+                self.boundary_source_is_finite,
+                self.input_rhs_max_abs,
+                self.boundary_source_max_abs,
+            ),
+            None,
+        )
+
+    @classmethod
+    def tree_unflatten(cls, _aux_data, children):
+        return cls(*children)
+
+    @property
+    def lambda_value(self) -> jnp.ndarray:
+        """Return the saddle-system scalar multiplier ``lambda``."""
+
+        return self.compatibility_multiplier
+
+    @property
+    def num_steps(self) -> jnp.ndarray:
+        """Mirror the projected Krylov iteration count for compatibility."""
+
+        return self.base_info.num_steps
+
+    @property
+    def converged(self) -> jnp.ndarray:
+        """Mirror the projected Krylov convergence flag for compatibility."""
+
+        return self.base_info.converged
+
+    @property
+    def failed(self) -> jnp.ndarray:
+        """Mirror the projected Krylov failure flag for compatibility."""
+
+        return self.base_info.failed
+
+    @property
+    def final_residual_rel_l2(self) -> jnp.ndarray:
+        """Mirror the projected Krylov relative residual for compatibility."""
+
+        return self.base_info.final_residual_rel_l2
+
+
 @_pytree_base
 @dataclass(frozen=True)
 class LocalPerpLaplacianInverseSolver:
@@ -9753,9 +10602,16 @@ class LocalPerpLaplacianInverseSolver:
     face_bc: LocalBoundaryFaceBC3D | None = None
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False)
     neumann_normal_scheme: str = "logical"
+    # Angular-RLP ``conservative`` uses the reconstruction-matched weak
+    # restriction M_owner^-1 H.T M_raw A_f H.  ``weighted-symmetric`` retains
+    # the explicit weighted self-adjoint selector and its conservative affine
+    # source.  ``support-paired`` uses the distinct matched physical boundary-
+    # load formulation below.
+    operator_form: str = "conservative"
     b_floor: float = 1.0e-30
     jacobian_floor: float = 1.0e-30
     config: SolvaxGmresConfig = SolvaxGmresConfig()
+    coarse_data: CoarseData | None = None
     # Optional configured context for cut-wall stencil policies.
     stencil_builder_context: StencilBuilderContext | None = None
 
@@ -9850,8 +10706,19 @@ class LocalPerpLaplacianInverseSolver:
             raise ValueError(
                 "neumann_normal_scheme must be 'logical' or 'physical'"
             )
+        if self.operator_form not in (
+            "conservative",
+            "weighted-symmetric",
+            "support-paired",
+        ):
+            raise ValueError(
+                "operator_form must be 'conservative', 'weighted-symmetric', "
+                "or 'support-paired'"
+            )
         if not isinstance(self.config, SolvaxGmresConfig):
             raise TypeError("config must be a SolvaxGmresConfig instance")
+        if self.coarse_data is not None and not isinstance(self.coarse_data, CoarseData):
+            raise TypeError("coarse_data must be CoarseData or None")
         object.__setattr__(self, "b_floor", float(self.b_floor))
         object.__setattr__(self, "jacobian_floor", float(self.jacobian_floor))
 
@@ -9863,7 +10730,7 @@ class LocalPerpLaplacianInverseSolver:
     ) -> LocalControlVolumeBoundaryBC3D | None:
         return self.control_volume_boundary_bc
 
-    def _apply_A(
+    def _apply_A_conservative(
         self,
         field_owned: jnp.ndarray,
         *,
@@ -9898,9 +10765,10 @@ class LocalPerpLaplacianInverseSolver:
             owner_halo = inject_owned_field_to_halo(values, self.domain.layout)
             if self.halo_exchange is not None:
                 owner_halo = self.halo_exchange(owner_halo, self.domain)
-            storage_values = expand_local_control_volume_owner_field(
+            storage_values = reconstruct_local_control_volume_diffusion_field(
                 values,
-                self.control_volume_geometry.cells,
+                self.control_volume_geometry,
+                self.domain,
                 owner_values_halo=owner_halo,
             )
         field_halo = inject_owned_field_to_halo(
@@ -9956,14 +10824,18 @@ class LocalPerpLaplacianInverseSolver:
                 self.domain,
                 face_projectors=face_projectors,
                 face_bc=face_bc,
+                cell_volume=local_control_volume_diffusion_cell_volume(
+                    self.geometry,
+                    self.control_volume_geometry,
+                ),
                 axis_regular_axes=self.axis_regular_axes,
                 neumann_normal_scheme=self.neumann_normal_scheme,
                 b_floor=self.b_floor,
                 jacobian_floor=self.jacobian_floor,
             )
-            result = aggregate_local_control_volume_average(
+            result = restrict_local_control_volume_diffusion_average(
                 fine_result,
-                self.control_volume_geometry.cells,
+                self.control_volume_geometry,
                 self.domain,
             )
         else:
@@ -9994,6 +10866,616 @@ class LocalPerpLaplacianInverseSolver:
             active_mask=active_mask,
         )
 
+    def _support_paired_field_halo(
+        self,
+        field_owned: jnp.ndarray,
+        *,
+        face_bc: LocalBoundaryFaceBC3D,
+        remove_neumann_mean: bool = True,
+    ) -> jnp.ndarray:
+        """Reconstruct the halo field used by support-paired operators."""
+
+        active = _solver_active_mask(
+            self.geometry,
+            self.control_volume_geometry,
+        )
+        _, owner_mass = self._operator_mass_weights()
+        values = _mask_inactive_owned(
+            jnp.asarray(field_owned, dtype=jnp.float64),
+            self.geometry,
+            active_mask=active,
+        )
+        if remove_neumann_mean:
+            # A physical Dirichlet face can live on only one radial/partition
+            # shard.  Make the choice global so every shard constructs the same
+            # linear D and therefore the same transpose under shard_map.
+            has_dirichlet = (
+                jnp.any(
+                    jnp.asarray(face_bc.mask_x, dtype=bool)
+                    & (jnp.asarray(face_bc.kind_x, dtype=jnp.int32) == BC_DIRICHLET)
+                )
+                | jnp.any(
+                    jnp.asarray(face_bc.mask_y, dtype=bool)
+                    & (jnp.asarray(face_bc.kind_y, dtype=jnp.int32) == BC_DIRICHLET)
+                )
+                | jnp.any(
+                    jnp.asarray(face_bc.mask_z, dtype=bool)
+                    & (jnp.asarray(face_bc.kind_z, dtype=jnp.int32) == BC_DIRICHLET)
+                )
+            )
+            has_dirichlet = _spmd_sum(
+                has_dirichlet.astype(jnp.int32),
+                self.domain,
+            ) > 0
+            mean = _spmd_weighted_mean(
+                values,
+                self.geometry,
+                self.domain,
+                active,
+                owner_mass,
+            )
+            values = values - jnp.where(has_dirichlet, 0.0, mean)
+        storage_values = values
+        if self.control_volume_geometry is not None:
+            owner_halo = inject_owned_field_to_halo(values, self.domain.layout)
+            if self.halo_exchange is not None:
+                owner_halo = self.halo_exchange(owner_halo, self.domain)
+            storage_values = reconstruct_local_control_volume_diffusion_field(
+                values,
+                self.control_volume_geometry,
+                self.domain,
+                owner_values_halo=owner_halo,
+            )
+        field_halo = inject_owned_field_to_halo(
+            storage_values,
+            self.domain.layout,
+        )
+        if self.physical_ghost_filler is not None:
+            field_halo = LocalHaloClosure3D(
+                physical_ghost_filler=self.physical_ghost_filler,
+                halo_exchange=self.halo_exchange,
+                topology_filler=self.topology_filler,
+            )(field_halo, self.domain, face_bc)
+        else:
+            if self.halo_exchange is not None:
+                field_halo = self.halo_exchange(field_halo, self.domain)
+            if self.topology_filler is not None:
+                field_halo = self.topology_filler(field_halo, self.domain)
+        # The stencil reads cross-direction halo corners.  Refresh regular
+        # interfaces after physical/polar closure so periodic corners carry
+        # already-constructed axis and physical slabs across theta/eta seams.
+        if self.halo_exchange is not None:
+            field_halo = self.halo_exchange(field_halo, self.domain)
+        field_halo = LocalPeriodicTopologyRule3D(
+            fill_axes=self.domain.periodic_axes
+        )(field_halo, self.domain)
+        return field_halo
+
+    def _support_paired_boundary_trace(
+        self,
+        field_owned: jnp.ndarray,
+        *,
+        face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        """Return packed scalar physical-boundary traces preserving constants."""
+
+        reconstruction_bc = _support_paired_reconstruction_face_bc(face_bc)
+        field_halo = self._support_paired_field_halo(
+            field_owned,
+            face_bc=reconstruction_bc,
+            remove_neumann_mean=False,
+        )
+        trace = build_local_boundary_face_trace_from_halo(
+            field_halo,
+            self.geometry,
+            self.domain,
+            reconstruction_bc,
+        )
+        return jnp.concatenate(
+            tuple(
+                value.reshape((-1,))
+                for value in (trace.value_x, trace.value_y, trace.value_z)
+            )
+        )
+
+    def _support_paired_gradient(
+        self,
+        field_owned: jnp.ndarray,
+        *,
+        face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        """Return the homogeneous coordinate face-gradient vector ``D phi``.
+
+        The three owned coordinate-face arrays have different shapes, so the
+        dual vector is packed as one flat concatenation, with the three
+        coordinate-derivative components in the final (fastest-varying)
+        dimension of each face array.  Its matching mass is assembled in
+        :meth:`_apply_A_support_paired` from the same owned face geometry.
+        This map deliberately returns the *raw coordinate* gradient ``D phi``
+        and stops before multiplying by the face projector ``P`` (or by ``J``)
+        or taking a divergence.  The projector is applied once by
+        :meth:`_apply_A_support_paired`, while the latter is supplied by the
+        exact weighted negative adjoint.  Thus the support-paired contraction
+        is explicitly ``M_owner^-1 D.T W P D`` with coordinate-vector input
+        and output.
+        """
+
+        # On an all-Neumann problem quotient out the single physical gauge
+        # mode before constructing D; this remains a linear map, so its
+        # transpose is still valid and the Dirichlet case retains the
+        # constant mode as a constrained degree of freedom.
+        reconstruction_bc = _support_paired_reconstruction_face_bc(face_bc)
+        field_halo = self._support_paired_field_halo(
+            field_owned,
+            face_bc=reconstruction_bc,
+        )
+
+        context = self.stencil_builder_context
+        if context is None and self.control_volume_geometry is not None:
+            raise ValueError(
+                "control-volume support-paired solves require an explicit "
+                "StencilBuilderContext"
+            )
+        if context is None:
+            context = StencilBuilderContext(
+                layout=self.domain.layout,
+                domain=self.domain,
+            )
+        local = self.stencil_builder(field_halo, self.geometry, context)
+        # RLP's projected-fine action intentionally has no compact boundary
+        # payload.  Empty cut-wall objects make that contract explicit while
+        # retaining the same face-gradient patch hook for ordinary geometry.
+        empty_cut_geometry = LocalCutWallGeometry3D.empty(0)
+        empty_cut_bc = LocalCutWallBC3D.empty(0)
+        raw_gradients = _patch_cut_wall_local_face_gradients(
+            jnp.asarray(local.face_grad.x, dtype=jnp.float64),
+            jnp.asarray(local.face_grad.y, dtype=jnp.float64),
+            jnp.asarray(local.face_grad.z, dtype=jnp.float64),
+            local=local,
+            geometry=self.geometry,
+            domain=self.domain,
+            regular_face_geometry=self.geometry.regular_face_geometry,
+            cut_wall_geometry=empty_cut_geometry,
+            cut_wall_bc=empty_cut_bc,
+        )
+        gradients = []
+        for axis, (gradient, kind, value, mask) in enumerate(
+            zip(
+                raw_gradients,
+                (reconstruction_bc.kind_x, reconstruction_bc.kind_y, reconstruction_bc.kind_z),
+                (reconstruction_bc.value_x, reconstruction_bc.value_y, reconstruction_bc.value_z),
+                (reconstruction_bc.mask_x, reconstruction_bc.mask_y, reconstruction_bc.mask_z),
+            )
+        ):
+            patched = _patch_local_axis_face_gradients(
+                gradient,
+                # The face patch operates on the materialized local chart.
+                # In RLP geometries ``values`` is owner storage, whereas
+                # ``local.x.center`` contains the owner values expanded over
+                # all fine cells.  Using the owner array here can therefore
+                # make D depend on the arbitrary owner representative of a
+                # merged cell rather than on the actual fine-grid field.
+                values_owned=jnp.asarray(local.x.center, dtype=jnp.float64),
+                geometry=self.geometry,
+                domain=self.domain,
+                axis=axis,
+                axis_kind=kind,
+                axis_value=value,
+                axis_mask=mask,
+                axis_regular_axes=self.axis_regular_axes,
+                neumann_normal_scheme=self.neumann_normal_scheme,
+            )
+            # Return the patched coordinate gradient.  The support-paired
+            # action applies P exactly once after packing D phi.
+            gradients.append(patched)
+        if self.axis_regular_axes[0]:
+            # The axis is a topology identification rather than a physical
+            # face.  Its open mask is normally zero; enforce that invariant in
+            # D as well so the support energy cannot acquire a pole artifact.
+            gradients[0] = gradients[0].at[0].set(0.0)
+        return jnp.concatenate(tuple(value.reshape((-1,)) for value in gradients))
+
+    def _apply_A_support_paired(
+        self,
+        field_owned: jnp.ndarray,
+        *,
+        face_bc: LocalBoundaryFaceBC3D,
+        control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None,
+        project_mean_zero: bool,
+        boundary_is_homogeneous: bool = False,
+        include_boundary_flux: bool = True,
+    ) -> jnp.ndarray:
+        """Apply the matched support-paired physical-Neumann operator.
+
+        The full weak action is
+        ``M_owner^-1 [D0.T W_face P D_raw - T0.T S_f(P D_raw)]``.
+        ``D0`` is the homogeneous-gradient map and ``D_raw`` includes the
+        prescribed Dirichlet/Neumann reconstruction data exactly once.  The
+        surface flux ``S_f`` includes the physical ``J`` factor, outward sign,
+        regular-face measures, and the unknown tangential contribution in
+        ``P D_raw``; Neumann values are physical outward-normal derivatives,
+        distinct from conormal fluxes.  ``T0`` is the scalar physical-face trace without mean
+        removal.  Boundary data are constants to the unknown transpose and
+        are therefore never differentiated.  ``include_boundary_flux=False``
+        is reserved for energy-only preconditioner contractions.
+        """
+
+        active, owner_mass = self._operator_mass_weights()
+        values = _mask_inactive_owned(
+            jnp.asarray(field_owned, dtype=jnp.float64),
+            self.geometry,
+            active_mask=active,
+        )
+        homogeneous_face_bc = _homogeneous_local_face_bc(face_bc)
+        # Build the packed dual mass in the same order as
+        # ``_support_paired_gradient``.  A cell-centred gradient represents a
+        # finite-volume face derivative; start from the full logical cell
+        # measure, then partition the three full-vector face quadratures and
+        # their endpoint duplicates below.
+        regular = self.geometry.regular_face_geometry
+        logical_volume = (
+            jnp.asarray(self.geometry.spacing.dx_owned, dtype=jnp.float64)
+            * jnp.asarray(self.geometry.spacing.dy_owned, dtype=jnp.float64)
+            * jnp.asarray(self.geometry.spacing.dz_owned, dtype=jnp.float64)
+        )
+        face_geometry = (
+            self.geometry.face_metric.x,
+            self.geometry.face_metric.y,
+            self.geometry.face_metric.z,
+        )
+        areas = (regular.x_area, regular.y_area, regular.z_area)
+        fractions = (
+            regular.x_area_fraction,
+            regular.y_area_fraction,
+            regular.z_area_fraction,
+        )
+        opens = (
+            regular.x_open_mask,
+            regular.y_open_mask,
+            regular.z_open_mask,
+        )
+        face_mass = []
+        for axis in range(3):
+            transverse = _lift_cell_field_to_faces(
+                logical_volume,
+                axis=axis,
+                periodic=False,
+            )
+            mass = (
+                jnp.asarray(face_geometry[axis].J_owned, dtype=jnp.float64)
+                * jnp.asarray(areas[axis], dtype=jnp.float64)
+                * jnp.asarray(fractions[axis], dtype=jnp.float64)
+                * jnp.asarray(opens[axis], dtype=jnp.float64)
+                * transverse
+            )
+            # The volume support quadrature partitions the three coordinate
+            # face families and gives duplicated endpoint faces half weight.
+            # These factors belong only to W_face, never to the physical
+            # boundary surface-flux load assembled below.
+            endpoint_line = jnp.ones((mass.shape[axis],), dtype=mass.dtype)
+            endpoint_line = endpoint_line.at[0].set(0.5)
+            endpoint_line = endpoint_line.at[-1].set(0.5)
+            endpoint_shape = tuple(
+                mass.shape[index] if index == axis else 1
+                for index in range(mass.ndim)
+            )
+            mass = mass * (endpoint_line.reshape(endpoint_shape) / 3.0)
+            if axis == 0 and self.axis_regular_axes[0]:
+                mass = mass.at[0].set(0.0)
+            face_mass.append(mass)
+        # Repeat the partitioned scalar face measure across the three
+        # coordinate-derivative components in the same per-face component
+        # ordering before packing the dual vector.
+        dual_mass = jnp.concatenate(
+            tuple(
+                jnp.repeat(value.reshape((-1,)), 3)
+                for value in face_mass
+            )
+        )
+        # Closed/open-zero faces are legitimate entries in the packed support
+        # vector, but they do not define a positive measure and must be
+        # excluded from the weighted adjoint.  Supplying this mask is also
+        # important for axis faces and cut/open masks in RLP layouts.
+        dual_active = dual_mass > 0.0
+
+        def gradient(values_in: jnp.ndarray) -> jnp.ndarray:
+            return self._support_paired_gradient(
+                values_in,
+                face_bc=homogeneous_face_bc,
+            )
+
+        # ``_support_paired_gradient`` returns packed coordinate gradients
+        # D phi.  Apply each face projector once, in the same component-wise
+        # packing order, before passing P D phi to the weighted negative
+        # adjoint.  This realizes M^-1 D.T W P D without a square-root metric
+        # factor or a second projection in the gradient map.
+        projectors = self.face_projectors
+        if projectors is None:
+            projectors = build_local_perp_laplacian_face_projectors(
+                self.geometry,
+                self.domain,
+                b_floor=self.b_floor,
+                axis_regular_axes=self.axis_regular_axes,
+            )
+        face_shapes = tuple(
+            jnp.asarray(face_mass[axis]).shape + (3,)
+            for axis in range(3)
+        )
+
+        def projected_gradient(values_in: jnp.ndarray, raw=None) -> jnp.ndarray:
+            raw = gradient(values_in) if raw is None else raw
+            pieces = []
+            offset = 0
+            for axis, projector in enumerate(projectors):
+                n = int(np.prod(face_shapes[axis][:-1])) * 3
+                face_raw = raw[offset : offset + n].reshape(face_shapes[axis])
+                pieces.append(
+                    jnp.einsum(
+                        "...ij,...j->...i",
+                        jnp.asarray(projector, dtype=jnp.float64),
+                        face_raw,
+                    ).reshape((-1,))
+                )
+                offset += n
+            return jnp.concatenate(tuple(pieces))
+
+        negative_adjoint = build_weighted_negative_adjoint(
+            gradient,
+            owner_mass,
+            dual_mass,
+            primal_active=active,
+            dual_active=dual_active,
+        )
+        # ``negative_adjoint`` consumes the packed P D dual vector.  Compose
+        # the raw-D adjoint with P D to obtain the positive support-paired
+        # operator
+        # ``M_owner^-1 D.T W P D`` (the helper itself returns the negative
+        # adjoint).
+        projected_raw = projected_gradient(values)
+        if not boundary_is_homogeneous:
+            projected_raw = projected_gradient(
+                values,
+                raw=self._support_paired_gradient(values, face_bc=face_bc),
+            )
+        result = -negative_adjoint(projected_raw)
+
+        if include_boundary_flux:
+            metrics = (self.geometry.face_metric.x, self.geometry.face_metric.y, self.geometry.face_metric.z)
+            areas = (regular.x_area, regular.y_area, regular.z_area)
+            fractions = (regular.x_area_fraction, regular.y_area_fraction, regular.z_area_fraction)
+            opens = (regular.x_open_mask, regular.y_open_mask, regular.z_open_mask)
+            bcs = ((face_bc.kind_x, face_bc.value_x, face_bc.mask_x),
+                   (face_bc.kind_y, face_bc.value_y, face_bc.mask_y),
+                   (face_bc.kind_z, face_bc.value_z, face_bc.mask_z))
+            spacings = (self.geometry.spacing.dx_owned, self.geometry.spacing.dy_owned, self.geometry.spacing.dz_owned)
+            sf_parts = []
+            for axis in range(3):
+                offset = sum(int(np.prod(face_shapes[k][:-1])) * 3 for k in range(axis))
+                n = int(np.prod(face_shapes[axis][:-1])) * 3
+                piece = projected_raw[offset:offset+n].reshape(face_shapes[axis])
+                q = jnp.asarray(metrics[axis].J_owned, dtype=jnp.float64) * piece[..., axis]
+                kind, value, mask = bcs[axis]
+                q = _apply_local_face_flux_bc(q, axis=axis, axis_kind=kind, axis_value=value,
+                                              axis_mask=mask, axis_regular_axes=self.axis_regular_axes)
+                sf = jnp.zeros_like(q)
+                transverse = 1.0
+                for other in range(3):
+                    if other != axis:
+                        transverse = transverse * jnp.asarray(spacings[other], dtype=jnp.float64)
+                transverse = _lift_cell_field_to_faces(transverse, axis=axis, periodic=False)
+                factor = (jnp.asarray(areas[axis], dtype=jnp.float64)
+                          * jnp.asarray(fractions[axis], dtype=jnp.float64)
+                          * jnp.asarray(opens[axis], dtype=jnp.float64)
+                          * transverse)
+                for side, sign in (("lower", -1.0), ("upper", 1.0)):
+                    plane = _axis_index_nd(axis, 0 if side == "lower" else -1, q.ndim)
+                    plane_mask = jnp.take(mask, 0 if side == "lower" else -1, axis=axis)
+                    plane_kind = jnp.take(kind, 0 if side == "lower" else -1, axis=axis)
+                    runtime_owned = (self.domain.runtime_has_physical_lower(axis)
+                                     if side == "lower"
+                                     else self.domain.runtime_has_physical_upper(axis))
+                    eligible = (plane_mask & runtime_owned
+                                & (factor[plane] > 0.0)
+                                & ((plane_kind == BC_NEUMANN) | (plane_kind == BC_NORMALFLUX) | (plane_kind == BC_NOFLUX)))
+                    if axis == 0 and side == "lower" and self.axis_regular_axes[0]:
+                        eligible = jnp.zeros_like(eligible)
+                    sf = sf.at[plane].set(jnp.where(eligible, sign * q[plane] * factor[plane], 0.0))
+                sf_parts.append(sf.reshape((-1,)))
+            packed_sf = jnp.concatenate(tuple(sf_parts))
+            trace_fn = lambda candidate: self._support_paired_boundary_trace(candidate, face_bc=homogeneous_face_bc)
+            trace_transpose = jax.linear_transpose(trace_fn, jnp.zeros_like(values))
+            result = result - trace_transpose(packed_sf)[0] / jnp.where(owner_mass > 0.0, owner_mass, 1.0)
+        if project_mean_zero:
+            result = _spmd_remove_weighted_mean(
+                result,
+                self.geometry,
+                self.domain,
+                active,
+                owner_mass,
+            )
+        return _mask_inactive_owned(result, self.geometry, active_mask=active)
+
+    def _operator_mass_weights(self) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Return the active owner mask and physical-volume inner product."""
+
+        active = _solver_active_mask(
+            self.geometry,
+            self.control_volume_geometry,
+        )
+        weights = _solver_volume_weights(
+            self.geometry,
+            self.control_volume_geometry,
+        )
+        if weights is None:
+            weights = (
+                jnp.asarray(
+                    self.geometry.cell_volume_geometry.volume,
+                    dtype=jnp.float64,
+                )
+                * jnp.asarray(
+                    self.geometry.cell_volume_geometry.volume_fraction,
+                    dtype=jnp.float64,
+                )
+                * jnp.asarray(self.geometry.spacing.dx_owned, dtype=jnp.float64)
+                * jnp.asarray(self.geometry.spacing.dy_owned, dtype=jnp.float64)
+                * jnp.asarray(self.geometry.spacing.dz_owned, dtype=jnp.float64)
+            )
+        return jnp.asarray(active, dtype=bool), jnp.where(
+            active,
+            jnp.asarray(weights, dtype=jnp.float64),
+            0.0,
+        )
+
+    def _apply_A(
+        self,
+        field_owned: jnp.ndarray,
+        *,
+        face_bc: LocalBoundaryFaceBC3D,
+        control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None,
+        project_mean_zero: bool,
+        boundary_is_homogeneous: bool = False,
+    ) -> jnp.ndarray:
+        """Apply the selected positive perpendicular polarization operator.
+
+        Angular-RLP ``conservative`` uses the same reconstruction for trial
+        and test spaces, while retaining the ordinary fine face fluxes.
+
+        For ``weighted-symmetric``, nonzero boundary data are split before
+        transposition.  The homogeneous action is
+
+        ``0.5 * (A_cons + M^-1 A_cons.T M)``.  All-Neumann data use
+        ``Q A_sym Q`` on the physical-volume mean-zero quotient so the
+        constant remains an exact two-sided null; Dirichlet data use the
+        unprojected symmetric action.
+
+        while ``A_cons(0; boundary_data)`` is added exactly once as the affine
+        source.  This preserves the established boundary sign convention and
+        prevents affine data from being differentiated by
+        :func:`jax.linear_transpose`.
+        """
+
+        if self.operator_form == "conservative":
+            return self._apply_A_conservative(
+                field_owned,
+                face_bc=face_bc,
+                control_volume_boundary_bc=control_volume_boundary_bc,
+                project_mean_zero=project_mean_zero,
+            )
+
+        if self.operator_form == "support-paired":
+            return self._apply_A_support_paired(
+                field_owned,
+                face_bc=face_bc,
+                control_volume_boundary_bc=control_volume_boundary_bc,
+                project_mean_zero=project_mean_zero,
+                boundary_is_homogeneous=boundary_is_homogeneous,
+            )
+
+        active, weights = self._operator_mass_weights()
+        values = _mask_inactive_owned(
+            jnp.asarray(field_owned, dtype=jnp.float64),
+            self.geometry,
+            active_mask=active,
+        )
+        if project_mean_zero:
+            values = _spmd_remove_weighted_mean(
+                values,
+                self.geometry,
+                self.domain,
+                active,
+                weights,
+            )
+        homogeneous_face_bc = _homogeneous_local_face_bc(face_bc)
+        homogeneous_control_volume_boundary_bc = (
+            None
+            if control_volume_boundary_bc is None
+            else _homogeneous_local_control_volume_boundary_bc(
+                control_volume_boundary_bc
+            )
+        )
+
+        def homogeneous_conservative(candidate: jnp.ndarray) -> jnp.ndarray:
+            return self._apply_A_conservative(
+                candidate,
+                face_bc=homogeneous_face_bc,
+                control_volume_boundary_bc=(
+                    homogeneous_control_volume_boundary_bc
+                ),
+                project_mean_zero=False,
+            )
+
+        homogeneous_operator = build_weighted_self_adjoint_part(
+            homogeneous_conservative,
+            weights,
+            active=active,
+        )
+
+        # Symmetrisation alone preserves a constant right null only when the
+        # conservative action also has the corresponding exact weighted left
+        # null.  That identity is precisely what the independently assembled
+        # gradient/divergence pair can violate.  On an all-Neumann boundary,
+        # therefore form the homogeneous operator on the orthogonal quotient
+        # explicitly: Q A_sym Q.  Q is self-adjoint in the same physical-
+        # volume product, so this retains weighted symmetry and restores both
+        # constant null vectors.  A Dirichlet face removes the nullspace and
+        # must retain the unprojected symmetric action.
+        all_neumann = jnp.asarray(True)
+        for kind, mask in (
+            (homogeneous_face_bc.kind_x, homogeneous_face_bc.mask_x),
+            (homogeneous_face_bc.kind_y, homogeneous_face_bc.mask_y),
+            (homogeneous_face_bc.kind_z, homogeneous_face_bc.mask_z),
+        ):
+            all_neumann = all_neumann & jnp.all(
+                (~jnp.asarray(mask, dtype=bool))
+                | (jnp.asarray(kind) == BC_NEUMANN)
+                | (jnp.asarray(kind) == BC_NORMALFLUX)
+                | (jnp.asarray(kind) == BC_NOFLUX)
+            )
+
+        quotient_values = _spmd_remove_weighted_mean(
+            values,
+            self.geometry,
+            self.domain,
+            active,
+            weights,
+        )
+        operator_values = jnp.where(all_neumann, quotient_values, values)
+        symmetric_result = homogeneous_operator(operator_values)
+        quotient_result = _spmd_remove_weighted_mean(
+            symmetric_result,
+            self.geometry,
+            self.domain,
+            active,
+            weights,
+        )
+        result = jnp.where(all_neumann, quotient_result, symmetric_result)
+
+        # Keep all prescribed Neumann/normal-flux/Dirichlet data in the
+        # conservative affine source.  The zero-data action is subtracted for
+        # robustness to any future homogeneous constant term.
+        if not boundary_is_homogeneous:
+            zero = jnp.zeros_like(values)
+            boundary_source = self._apply_A_conservative(
+                zero,
+                face_bc=face_bc,
+                control_volume_boundary_bc=control_volume_boundary_bc,
+                project_mean_zero=False,
+            ) - homogeneous_conservative(zero)
+            result = result + boundary_source
+        if project_mean_zero:
+            result = _spmd_remove_weighted_mean(
+                result,
+                self.geometry,
+                self.domain,
+                active,
+                weights,
+            )
+        return _mask_inactive_owned(
+            result,
+            self.geometry,
+            active_mask=active,
+        )
+
     def solve_full_grid(
         self,
         rhs_owned: jnp.ndarray,
@@ -10022,6 +11504,36 @@ class LocalPerpLaplacianInverseSolver:
             lift_owned=lift_owned,
             return_diagnostics=return_diagnostics,
             solve_mode="full-grid",
+        )
+
+    def apply_positive_operator(
+        self,
+        field_owned: jnp.ndarray,
+        *,
+        face_bc: LocalBoundaryFaceBC3D | None = None,
+        control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None = None,
+        project_mean_zero: bool = False,
+    ) -> jnp.ndarray:
+        """Apply the selected positive operator ``A=-L_perp`` without solving.
+
+        This is the shared application point for the ``phi`` and ``Ti`` sides
+        of the Boussinesq polarization equation.  Supplying explicit boundary
+        data allows distinct physical closures while retaining one homogeneous
+        operator form.
+        """
+
+        effective_face_bc = self._default_face_bc() if face_bc is None else face_bc
+        effective_control_volume_bc = (
+            self._default_control_volume_boundary_bc()
+            if control_volume_boundary_bc is None
+            else control_volume_boundary_bc
+        )
+        return self._apply_A(
+            field_owned,
+            face_bc=effective_face_bc,
+            control_volume_boundary_bc=effective_control_volume_bc,
+            project_mean_zero=bool(project_mean_zero),
+            boundary_is_homogeneous=False,
         )
 
     def solve_rlp_owner(
@@ -10066,6 +11578,520 @@ class LocalPerpLaplacianInverseSolver:
             solve_mode="rlp-owner",
         )
 
+    def solve_augmented_neumann(
+        self,
+        rhs_owned: jnp.ndarray,
+        *,
+        gauge_weights_owned: jnp.ndarray,
+        gauge_target: float | jnp.ndarray,
+        gauge_affine_offset: float | jnp.ndarray = 0.0,
+        guess_owned: jnp.ndarray | None = None,
+        phi_guess_owned: jnp.ndarray | None = None,
+        return_diagnostics: bool = False,
+    ) -> jnp.ndarray | tuple[jnp.ndarray, LocalAugmentedPerpLaplacianSolveInfo]:
+        """Solve an all-Neumann problem with one global scalar gauge.
+
+        This is an opt-in quotient/Schur implementation of
+
+        ``[A z; g.T 0] [phi, lambda] = [rhs, target]``,
+
+        where ``z`` is the active-owner constant and ``g`` is the caller's
+        global linear gauge functional.  The implementation forms the *raw*
+        affine-Neumann RHS, solves ``P A phi = P rhs`` on the zero-mean
+        quotient with the existing matrix-free operator and preconditioner,
+        applies the unique constant gauge shift, and finally recovers the
+        scalar Schur multiplier from ``rhs - A phi``.  This is algebraically
+        equivalent to a direct augmented Krylov solve without introducing a
+        dense augmented inverse, including for a nonsymmetric operator whose
+        volume weights are not a left null vector.
+        The caller must establish that ``ker(A) = span{z}``; this method
+        removes exactly one null direction and is insufficient for a geometry
+        whose operator has multiple disconnected/null components.
+
+        ``gauge_weights_owned`` are global quadrature/functional weights and
+        are normalized internally by their global sum, so the gauge is an
+        average and ``g(1)=1``.  Signed weights are permitted for a composed
+        owner-space face-trace representation, provided that their global sum
+        is finite and nonzero.  ``gauge_affine_offset`` represents a known
+        contribution from an affine face trace.  Set it to zero when
+        ``gauge_target`` has already been corrected for that contribution.
+        In contrast to the ordinary solver entry points,
+        ``phi_lift_owned`` is intentionally not accepted: nonzero Neumann
+        data are handled by the affine source path exactly once.  A future
+        wall-payload builder may construct the weights from face areas and
+        trace interpolation without changing this solve contract.
+
+        Projected-owner/RLP solves are supported with the same topology and
+        stencil-context requirements as :meth:`solve_rlp_owner`, but their
+        compact control-volume boundary payload must currently be empty.  The
+        projected-fine operator does not consume that payload; accepting an
+        active row would silently omit its boundary source.
+        """
+        if self.config.regularization_epsilon != 0.0:
+            raise ValueError(
+                "augmented Neumann solve requires zero regularization so the "
+                "constant null direction is preserved"
+            )
+        if self.control_volume_geometry is not None:
+            if (
+                self.control_volume_geometry.has_angular_agglomeration
+                and self.axis_regular_axes[0] is not True
+            ):
+                raise ValueError(
+                    "angular augmented Neumann solve requires "
+                    "axis_regular_axes[0]=True"
+                )
+            if self.stencil_builder_context is None:
+                raise ValueError(
+                    "projected-owner augmented Neumann solve requires an "
+                    "explicit stencil_builder_context"
+                )
+            assert self.control_volume_boundary_bc is not None
+            try:
+                has_active_compact_boundary = bool(
+                    jnp.any(self.control_volume_boundary_bc.active)
+                )
+            except (
+                jax.errors.TracerBoolConversionError,
+                jax.errors.ConcretizationTypeError,
+            ):
+                has_active_compact_boundary = False
+            if has_active_compact_boundary:
+                raise ValueError(
+                    "projected-owner augmented Neumann solve currently "
+                    "requires an empty control_volume_boundary_bc because "
+                    "the projected-fine operator ignores compact boundary rows"
+                )
+        if guess_owned is not None and phi_guess_owned is not None:
+            raise ValueError("use only one of guess_owned or phi_guess_owned")
+        rhs = jnp.asarray(rhs_owned, dtype=jnp.float64)
+        if rhs.shape != self.geometry.owned_shape:
+            raise ValueError(
+                f"rhs_owned must have shape {self.geometry.owned_shape}, got {rhs.shape}"
+            )
+        if guess_owned is None:
+            guess_owned = phi_guess_owned
+        if guess_owned is None:
+            guess = jnp.zeros_like(rhs)
+        else:
+            guess = jnp.asarray(guess_owned, dtype=jnp.float64)
+            if guess.shape != self.geometry.owned_shape:
+                raise ValueError(
+                    "guess_owned must have shape "
+                    f"{self.geometry.owned_shape}, got {guess.shape}"
+                )
+
+        gauge_weights = jnp.asarray(gauge_weights_owned, dtype=jnp.float64)
+        if gauge_weights.shape != self.geometry.owned_shape:
+            raise ValueError(
+                "gauge_weights_owned must have shape "
+                f"{self.geometry.owned_shape}, got {gauge_weights.shape}"
+            )
+        gauge_target = jnp.asarray(gauge_target, dtype=jnp.float64)
+        gauge_affine_offset = jnp.asarray(gauge_affine_offset, dtype=jnp.float64)
+        if gauge_target.ndim != 0 or gauge_affine_offset.ndim != 0:
+            raise ValueError("gauge_target and gauge_affine_offset must be scalar")
+
+        face_bc = self._default_face_bc()
+        control_volume_boundary_bc = self._default_control_volume_boundary_bc()
+        # A scalar gauge is only the correct closure when the coordinate-face
+        # operator has no Dirichlet row.  Keep this cheap concrete check for
+        # eager callers; under JAX tracing the caller's static wall contract
+        # remains authoritative.
+        face_kinds = (
+            (face_bc.kind_x, face_bc.mask_x),
+            (face_bc.kind_y, face_bc.mask_y),
+            (face_bc.kind_z, face_bc.mask_z),
+        )
+        try:
+            all_neumann = all(
+                bool(
+                    jnp.all(
+                        (~mask)
+                        | (kind == BC_NEUMANN)
+                        | (kind == BC_NORMALFLUX)
+                        | (kind == BC_NOFLUX)
+                    )
+                )
+                for kind, mask in face_kinds
+            )
+        except (
+            jax.errors.TracerBoolConversionError,
+            jax.errors.ConcretizationTypeError,
+        ):
+            all_neumann = True
+        if not all_neumann:
+            raise ValueError(
+                "solve_augmented_neumann requires Neumann/normal-flux/no-flux "
+                "coordinate-face conditions; use solve_full_grid for mixed or "
+                "Dirichlet problems"
+            )
+        active_mask = _solver_active_mask(
+            self.geometry,
+            self.control_volume_geometry,
+        )
+        volume_weights = _solver_volume_weights(
+            self.geometry,
+            self.control_volume_geometry,
+        )
+        if volume_weights is None:
+            volume_weights = (
+                jnp.asarray(
+                    self.geometry.cell_volume_geometry.volume,
+                    dtype=jnp.float64,
+                )
+                * jnp.asarray(
+                    self.geometry.cell_volume_geometry.volume_fraction,
+                    dtype=jnp.float64,
+                )
+                * jnp.asarray(self.geometry.spacing.dx_owned, dtype=jnp.float64)
+                * jnp.asarray(self.geometry.spacing.dy_owned, dtype=jnp.float64)
+                * jnp.asarray(self.geometry.spacing.dz_owned, dtype=jnp.float64)
+            )
+        volume_weights = jnp.asarray(volume_weights, dtype=jnp.float64)
+        if volume_weights.shape != self.geometry.owned_shape:
+            raise ValueError(
+                "solver volume weights must match geometry.owned_shape"
+            )
+        active = jnp.asarray(active_mask, dtype=bool)
+        z = active.astype(jnp.float64)
+        weights = jnp.where(active, volume_weights, 0.0)
+        gauge_weights = _mask_inactive_owned(
+            gauge_weights,
+            self.geometry,
+            active_mask=active,
+        )
+        gauge_weight_sum = _spmd_sum(
+            jnp.sum(gauge_weights),
+            self.domain,
+        )
+        try:
+            gauge_response_valid = bool(
+                jnp.isfinite(gauge_weight_sum)
+                & (jnp.abs(gauge_weight_sum) >= 1.0e-30)
+            )
+        except (
+            jax.errors.TracerBoolConversionError,
+            jax.errors.ConcretizationTypeError,
+        ):
+            gauge_response_valid = True
+        if not gauge_response_valid:
+            raise ValueError(
+                "gauge_weights_owned must have a finite nonzero global sum"
+            )
+        gauge_weights = gauge_weights / jnp.where(
+            jnp.abs(gauge_weight_sum) >= 1.0e-30,
+            gauge_weight_sum,
+            jnp.where(gauge_weight_sum < 0.0, -1.0e-30, 1.0e-30),
+        )
+        gauge_constant_response = _spmd_sum(
+            jnp.sum(gauge_weights * z),
+            self.domain,
+        )
+        try:
+            gauge_response_valid = bool(
+                jnp.isfinite(gauge_constant_response)
+                & (jnp.abs(gauge_constant_response) >= 1.0e-30)
+            )
+        except (
+            jax.errors.TracerBoolConversionError,
+            jax.errors.ConcretizationTypeError,
+        ):
+            gauge_response_valid = True
+        if not gauge_response_valid:
+            raise ValueError(
+                "active gauge weights must have a finite nonzero response to "
+                "the constant null direction"
+            )
+
+        # Do not route this through _solve_common's project_mean_zero branch:
+        # projecting the affine source before measuring it hides the Neumann
+        # compatibility defect.  This raw application is the only place the
+        # inhomogeneous face data enter the quotient RHS.
+        homogeneous_face_bc = _homogeneous_local_face_bc(face_bc)
+        homogeneous_control_volume_boundary_bc = (
+            None
+            if control_volume_boundary_bc is None
+            else _homogeneous_local_control_volume_boundary_bc(
+                control_volume_boundary_bc,
+            )
+        )
+        boundary_source = self._apply_A(
+            jnp.zeros_like(rhs),
+            face_bc=face_bc,
+            control_volume_boundary_bc=control_volume_boundary_bc,
+            project_mean_zero=False,
+        )
+        rhs = _mask_inactive_owned(rhs, self.geometry, active_mask=active)
+        input_rhs_is_finite = _spmd_sum(
+            jnp.all((~active) | jnp.isfinite(rhs)).astype(jnp.int32),
+            self.domain,
+        ) == _spmd_sum(jnp.asarray(1, dtype=jnp.int32), self.domain)
+        boundary_source_is_finite = _spmd_sum(
+            jnp.all((~active) | jnp.isfinite(boundary_source)).astype(jnp.int32),
+            self.domain,
+        ) == _spmd_sum(jnp.asarray(1, dtype=jnp.int32), self.domain)
+        input_rhs_max_abs = jnp.max(jnp.where(active, jnp.abs(rhs), 0.0))
+        boundary_source_max_abs = jnp.max(
+            jnp.where(active, jnp.abs(boundary_source), 0.0)
+        )
+        for axis_name in self.domain.mesh_axis_names:
+            if axis_name is not None:
+                input_rhs_max_abs = jax.lax.pmax(
+                    input_rhs_max_abs, axis_name=axis_name
+                )
+                boundary_source_max_abs = jax.lax.pmax(
+                    boundary_source_max_abs, axis_name=axis_name
+                )
+        guess = _mask_inactive_owned(guess, self.geometry, active_mask=active)
+        linear_rhs = _mask_inactive_owned(
+            rhs - boundary_source,
+            self.geometry,
+            active_mask=active,
+        )
+
+        null_mass = _spmd_sum(jnp.sum(weights * z), self.domain)
+        projected_rhs = _spmd_remove_weighted_mean(
+            linear_rhs,
+            self.geometry,
+            self.domain,
+            active,
+            volume_weights,
+        )
+
+        # Work on the quotient P A|_{1^perp}, where
+        # P(v) = v - z c(v) and c is the normalized volume functional.  It is
+        # essential to project A's *output* instead of assuming that c is a
+        # left null vector: the projected-owner/RLP operator need not be
+        # symmetric in this inner product.
+        quotient_config = dataclass_replace(
+            self.config,
+            project_mean_zero=True,
+        )
+
+        def apply_A(field_owned: jnp.ndarray) -> jnp.ndarray:
+            return self._apply_A(
+                field_owned,
+                face_bc=homogeneous_face_bc,
+                control_volume_boundary_bc=homogeneous_control_volume_boundary_bc,
+                project_mean_zero=True,
+                boundary_is_homogeneous=True,
+            )
+
+        preconditioner_projectors = self.face_projectors
+        if preconditioner_projectors is None:
+            preconditioner_projectors = build_local_perp_laplacian_face_projectors(
+                self.geometry,
+                self.domain,
+                b_floor=self.b_floor,
+                axis_regular_axes=self.axis_regular_axes,
+            )
+        coarse_kind = quotient_config.preconditioner in (
+            "coarse-additive", "coarse-multiplicative"
+        )
+        fine_config = (
+            dataclass_replace(
+                quotient_config,
+                preconditioner=(
+                    "line-u"
+                    if quotient_config.preconditioner == "coarse-multiplicative"
+                    else "jacobi"
+                ),
+            ) if coarse_kind else quotient_config
+        )
+        if coarse_kind:
+            if self.operator_form != "support-paired":
+                raise ValueError("coarse preconditioning requires support-paired operator")
+            if self.config.regularization_epsilon != 0.0:
+                raise ValueError("coarse preconditioning requires zero regularization")
+            if self.coarse_data is None:
+                raise ValueError("coarse preconditioning requires prebuilt coarse_data")
+        raw_preconditioner = build_solvax_perp_laplacian_preconditioner(
+            self.geometry,
+            self.domain,
+            preconditioner_projectors,
+            homogeneous_face_bc,
+            fine_config,
+            control_volume_geometry=self.control_volume_geometry,
+        )
+        preconditioner = None
+        if raw_preconditioner is not None:
+            def fine_preconditioner(residual: jnp.ndarray) -> jnp.ndarray:
+                projected = _spmd_remove_weighted_mean(
+                    _mask_inactive_owned(residual, self.geometry, active_mask=active),
+                    self.geometry, self.domain, active, volume_weights)
+                correction = raw_preconditioner(projected)
+                return _spmd_remove_weighted_mean(
+                    _mask_inactive_owned(correction, self.geometry, active_mask=active),
+                    self.geometry, self.domain, active, volume_weights)
+            preconditioner = fine_preconditioner
+        if quotient_config.preconditioner == "coarse-additive":
+            fine_apply = preconditioner
+            def additive_preconditioner(residual: jnp.ndarray) -> jnp.ndarray:
+                projected = _spmd_remove_weighted_mean(
+                    _mask_inactive_owned(residual, self.geometry, active_mask=active),
+                    self.geometry, self.domain, active, volume_weights)
+                fine = jnp.zeros_like(projected) if fine_apply is None else fine_apply(projected)
+                coarse = self.coarse_data.coarse(projected, active, volume_weights, self.domain)
+                return _spmd_remove_weighted_mean(fine + coarse, self.geometry, self.domain, active, volume_weights)
+            preconditioner = additive_preconditioner
+        elif quotient_config.preconditioner == "coarse-multiplicative":
+            # Reuse the tested phi-only pre/coarse/post cycle. It does not
+            # invoke an implicit material stage or an outer coupled solve.
+            from .fci_boundary_imex_preconditioner import build_multiplicative_polarization_vcycle
+
+            if preconditioner is None:
+                raise ValueError("coarse-multiplicative requires a line-u smoother")
+
+            def project_quotient(values: jnp.ndarray) -> jnp.ndarray:
+                return _spmd_remove_weighted_mean(
+                    _mask_inactive_owned(values, self.geometry, active_mask=active),
+                    self.geometry, self.domain, active, volume_weights,
+                )
+
+            def coarse_correction(residual: jnp.ndarray) -> jnp.ndarray:
+                return self.coarse_data.coarse(residual, active, volume_weights, self.domain)
+
+            preconditioner = build_multiplicative_polarization_vcycle(
+                apply_A, preconditioner, coarse_correction,
+                projector=project_quotient, active_owned=active, applications=1,
+            )
+
+        initial_guess = _spmd_remove_weighted_mean(
+            guess,
+            self.geometry,
+            self.domain,
+            active,
+            volume_weights,
+        )
+        if _augmented_neumann_uses_projected_pcg(
+            self.operator_form,
+            quotient_config.preconditioner,
+        ):
+            # The weighted-symmetric quotient action is self-adjoint positive
+            # definite when it has exactly the asserted constant nullspace.
+            # Support-paired physical-Neumann loads generally make the full
+            # owner operator nonsymmetric, so every support-paired route uses
+            # FGMRES.
+            # Projected PCG avoids Arnoldi's zero-vector normalisation failure
+            # and is therefore safe for an exact-zero stage RHS as well as
+            # ordinary nonzero solves.
+            phi_zero, base_info = _solve_projected_pcg_with_info(
+                apply_A,
+                projected_rhs,
+                initial_guess,
+                self.geometry,
+                self.domain,
+                quotient_config,
+                active=active,
+                volume_weights=volume_weights,
+                preconditioner=preconditioner,
+            )
+        else:
+            phi_zero, base_info = solvax_gmres_solve(
+                apply_A,
+                projected_rhs,
+                initial_guess,
+                self.geometry,
+                self.domain,
+                quotient_config,
+                active_cell_mask=active,
+                preconditioner=preconditioner,
+                volume_weights=volume_weights,
+            )
+
+        # The quotient solve fixes a convenient zero-volume-mean
+        # representative.  The scalar Schur equation then supplies the
+        # caller's physical wall/gauge reference without changing A phi.
+        gauge_phi_zero = _spmd_sum(
+            jnp.sum(gauge_weights * phi_zero),
+            self.domain,
+        )
+        # Preserve the sign of g^T z.  The floor only protects traced code
+        # from a division by zero; a zero response is reported through the
+        # diagnostic and is not a valid gauge functional.
+        safe_gauge_response = jnp.where(
+            jnp.abs(gauge_constant_response) >= 1.0e-30,
+            gauge_constant_response,
+            jnp.where(gauge_constant_response < 0.0, -1.0e-30, 1.0e-30),
+        )
+        gauge_shift = (
+            gauge_target - gauge_affine_offset - gauge_phi_zero
+        ) / safe_gauge_response
+        solution = _mask_inactive_owned(
+            phi_zero + gauge_shift * z,
+            self.geometry,
+            active_mask=active,
+        )
+        final_gauge_residual = (
+            _spmd_sum(jnp.sum(gauge_weights * solution), self.domain)
+            + gauge_affine_offset
+            - gauge_target
+        )
+        homogeneous_action = self._apply_A(
+            solution,
+            face_bc=homogeneous_face_bc,
+            control_volume_boundary_bc=homogeneous_control_volume_boundary_bc,
+            project_mean_zero=False,
+            boundary_is_homogeneous=True,
+        )
+        raw_residual = _mask_inactive_owned(
+            linear_rhs - homogeneous_action,
+            self.geometry,
+            active_mask=active,
+        )
+        raw_compatibility_defect = _spmd_sum(
+            jnp.sum(weights * raw_residual),
+            self.domain,
+        )
+        compatibility_multiplier = raw_compatibility_defect / jnp.maximum(
+            null_mass,
+            1.0e-30,
+        )
+        final_operator_residual = _mask_inactive_owned(
+            boundary_source
+            + homogeneous_action
+            + compatibility_multiplier * z
+            - rhs,
+            self.geometry,
+            active_mask=active,
+        )
+        final_operator_residual_l2 = jnp.sqrt(
+            jnp.maximum(
+                _spmd_sum(
+                    jnp.sum(weights * final_operator_residual**2),
+                    self.domain,
+                ),
+                0.0,
+            )
+        )
+        info = LocalAugmentedPerpLaplacianSolveInfo(
+            base_info=base_info,
+            compatibility_multiplier=compatibility_multiplier,
+            raw_compatibility_defect=raw_compatibility_defect,
+            final_gauge_residual=final_gauge_residual,
+            gauge_constant_response=gauge_constant_response,
+            gauge_functional_valid=jnp.isfinite(gauge_constant_response)
+            & (jnp.abs(gauge_constant_response) >= 1.0e-30),
+            final_operator_residual_l2=final_operator_residual_l2,
+            input_rhs_is_finite=input_rhs_is_finite,
+            boundary_source_is_finite=boundary_source_is_finite,
+            input_rhs_max_abs=input_rhs_max_abs,
+            boundary_source_max_abs=boundary_source_max_abs,
+        )
+        if return_diagnostics:
+            return solution, info
+        return solution
+
+    def solve_neumann_with_gauge(
+        self,
+        rhs_owned: jnp.ndarray,
+        **kwargs,
+    ) -> jnp.ndarray | tuple[jnp.ndarray, LocalAugmentedPerpLaplacianSolveInfo]:
+        """Alias for :meth:`solve_augmented_neumann` with explicit naming."""
+
+        return self.solve_augmented_neumann(rhs_owned, **kwargs)
+
     def __call__(
         self,
         rhs_owned: jnp.ndarray,
@@ -10097,6 +12123,8 @@ class LocalPerpLaplacianInverseSolver:
         return_diagnostics: bool = False,
         solve_mode: Literal["full-grid", "rlp-owner"],
     ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
+        if self.config.preconditioner in ("coarse-additive", "coarse-multiplicative"):
+            raise ValueError("coarse preconditioning is supported only by solve_augmented_neumann")
         if solve_mode not in ("full-grid", "rlp-owner"):
             raise ValueError(f"unknown phi solve mode: {solve_mode!r}")
         if solve_mode == "rlp-owner":
@@ -10249,6 +12277,7 @@ class LocalPerpLaplacianInverseSolver:
                 face_bc=homogeneous_face_bc,
                 control_volume_boundary_bc=homogeneous_control_volume_boundary_bc,
                 project_mean_zero=project_mean_zero,
+                boundary_is_homogeneous=True,
             )
 
         preconditioner_projectors = self.face_projectors
@@ -10323,10 +12352,12 @@ class LocalPerpLaplacianInverseSolver:
             self.control_volume_boundary_bc,
             self.face_bc,
             self.config,
+            self.coarse_data,
         )
         aux_data = (
             self.axis_regular_axes,
             self.neumann_normal_scheme,
+            self.operator_form,
             self.b_floor,
             self.jacobian_floor,
         )
@@ -10347,10 +12378,12 @@ class LocalPerpLaplacianInverseSolver:
             control_volume_boundary_bc,
             face_bc,
             config,
+            coarse_data,
         ) = children
         (
             axis_regular_axes,
             neumann_normal_scheme,
+            operator_form,
             b_floor,
             jacobian_floor,
         ) = aux_data
@@ -10368,7 +12401,9 @@ class LocalPerpLaplacianInverseSolver:
             face_bc=face_bc,
             axis_regular_axes=axis_regular_axes,
             neumann_normal_scheme=neumann_normal_scheme,
+            operator_form=operator_form,
             b_floor=b_floor,
             jacobian_floor=jacobian_floor,
             config=config,
+            coarse_data=coarse_data,
         )

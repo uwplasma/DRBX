@@ -415,21 +415,34 @@ def _lower_local_fci_maps(
     *,
     domain: LocalDomain3D,
     axis_meta: tuple[_UniformAxisMeta, _UniformAxisMeta, _UniformAxisMeta],
+    endpoint_interpolation_order: int = 2,
 ) -> LocalFciMaps3D:
-    """Lower global-map channels owned by one shard into bilinear rows.
+    """Lower global-map channels owned by one shard into endpoint rows.
 
     The map tracer stores fractional cell indices for ordinary endpoints and
     logical endpoint coordinates for boundary endpoints.  Ordinary endpoints
-    use four second-order bilinear rows.  A physical endpoint uses the same
-    row width, but duplicates the radial source index and marks all four rows
-    with a target-specific ``FCI_DEP_PHYSICAL_BOUNDARY`` slot.  This preserves
-    the endpoint interpolation geometry without choosing a wall value here.
+    activate four second-order bilinear rows in the canonical eight-row table.
+    A physical endpoint activates all eight ghost-supported trilinear rows and
+    carries a target-specific ``FCI_DEP_PHYSICAL_BOUNDARY`` slot.  This
+    preserves the endpoint interpolation geometry without choosing a wall
+    value here.
 
     A lower radial axis endpoint is topological rather than physical: its
     source is reflected to the first radial ring and shifted by half a
     poloidal period.  The resulting rows remain field-interior rows and the
     target remains valid for an unequal-leg stencil.
+
+    ``endpoint_interpolation_order=3`` is the dedicated material sampler.  Its
+    ordinary endpoints use a tensor-quadratic 3x3 donor stencil, giving a
+    third-order point value.  Physical endpoints retain the established eight
+    ghost-supported trilinear rows because their value is owned by the wall
+    resolver.  This option is constructed separately from the canonical maps
+    so current/potential adjoint operators keep their original bilinear map.
     """
+
+    endpoint_interpolation_order = int(endpoint_interpolation_order)
+    if endpoint_interpolation_order not in (2, 3):
+        raise ValueError("endpoint_interpolation_order must be 2 or 3")
 
     layout = domain.layout
     owned_shape = layout.owned_shape
@@ -460,11 +473,6 @@ def _lower_local_fci_maps(
         indexing="ij",
     )
     target = jnp.arange(math.prod(owned_shape), dtype=jnp.int32).reshape(owned_shape)
-    # Eight rows are reserved per target.  The first four are the ordinary
-    # x/y bilinear endpoint; the upper-z four are inactive except for a
-    # physical endpoint, where eta is also interpolated.
-    target_flat = jnp.repeat(target.reshape(-1), 8)
-
     def _periodic_index(index: jnp.ndarray, axis: int) -> jnp.ndarray:
         if domain.periodic_axes[axis]:
             return jnp.mod(index, global_sizes[axis])
@@ -574,6 +582,86 @@ def _lower_local_fci_maps(
         )
         weights = weights.at[..., :4].multiply(1.0 - wz[..., None])
 
+        if endpoint_interpolation_order == 3:
+            # Use three distinct radial donors everywhere, including near the
+            # axis and physical radial boundary.  Boundary-adjacent values are
+            # therefore interpolated/extrapolated from the positive-radius
+            # plasma cells and never produced by repeated clipped indices.
+            def donor_triplet(point, axis: int):
+                mid = jnp.floor(point + 0.5).astype(jnp.int32)
+                if not domain.periodic_axes[axis]:
+                    mid = jnp.clip(mid, 1, global_sizes[axis] - 2)
+                unwrapped = jnp.stack((mid - 1, mid, mid + 1), axis=-1)
+                return unwrapped, _periodic_index(unwrapped, axis)
+
+            # Keep periodic nodes unwrapped while forming Lagrange weights;
+            # wrap only their routed donor indices.  Nonperiodic axes select a
+            # distinct one-sided triplet instead of repeating clipped donors.
+            x_nodes_unwrapped, x_nodes = donor_triplet(x_fractional, 0)
+            y_nodes_unwrapped, y_nodes = donor_triplet(y_fractional, 1)
+
+            def quadratic_weights(point, nodes):
+                a, b, c = (nodes[..., index] for index in range(3))
+                return jnp.stack(
+                    (
+                        (point - b) * (point - c) / ((a - b) * (a - c)),
+                        (point - a) * (point - c) / ((b - a) * (b - c)),
+                        (point - a) * (point - b) / ((c - a) * (c - b)),
+                    ),
+                    axis=-1,
+                )
+
+            x_weights = quadratic_weights(x_fractional, x_nodes_unwrapped)
+            y_weights = quadratic_weights(y_fractional, y_nodes_unwrapped)
+            quadratic_shape = owned_shape + (3, 3)
+            quadratic_i = jnp.broadcast_to(
+                x_nodes[..., :, None], quadratic_shape
+            ).reshape(owned_shape + (9,))
+            quadratic_j = jnp.broadcast_to(
+                y_nodes[..., None, :], quadratic_shape
+            ).reshape(owned_shape + (9,))
+            quadratic_k = jnp.broadcast_to(
+                z_index[..., None], owned_shape + (9,)
+            )
+            quadratic_weights_2d = (
+                x_weights[..., :, None] * y_weights[..., None, :]
+            ).reshape(owned_shape + (9,))
+
+            # Seventeen fixed rows accommodate nine ordinary quadratic donors
+            # or the original eight physical-wall donors without changing the
+            # wall sampling contract.
+            source_global_i = jnp.concatenate(
+                (quadratic_i, source_global_i), axis=-1
+            )
+            source_global_j = jnp.concatenate(
+                (quadratic_j, source_global_j), axis=-1
+            )
+            source_global_k = jnp.concatenate(
+                (quadratic_k, source_global_k), axis=-1
+            )
+            weights = jnp.concatenate((quadratic_weights_2d, weights), axis=-1)
+            row_active = jnp.concatenate(
+                (
+                    jnp.broadcast_to(
+                        (~physical_boundary)[..., None], owned_shape + (9,)
+                    ),
+                    jnp.broadcast_to(
+                        physical_boundary[..., None], owned_shape + (8,)
+                    ),
+                ),
+                axis=-1,
+            )
+        else:
+            row_physical = jnp.broadcast_to(
+                physical_boundary[..., None], weights.shape
+            )
+            row_number = jnp.arange(weights.shape[-1], dtype=jnp.int32)
+            row_active = row_physical | (
+                (~row_physical) & (row_number[None, None, None, :] < 4)
+            )
+
+        target_flat = jnp.repeat(target.reshape(-1), weights.shape[-1])
+
         owner_x, owner_local_i = _owner_local(source_global_i, 0)
         owner_y, owner_local_j = _owner_local(source_global_j, 1)
         owner_z, owner_local_k = _owner_local(source_global_k, 2)
@@ -611,10 +699,6 @@ def _lower_local_fci_maps(
         same_shard = owner_linear == my_linear
 
         row_physical = jnp.broadcast_to(physical_boundary[..., None], weights.shape)
-        row_number = jnp.arange(weights.shape[-1], dtype=jnp.int32)
-        row_active = row_physical | (
-            (~row_physical) & (row_number[None, None, None, :] < 4)
-        )
         # Physical endpoints are read from the prepared owner-shard ghost
         # halo, just like ordinary field endpoints.  ``endpoint_kind`` and
         # ``value_slot`` preserve the later operator-aware wall metadata, but
@@ -921,10 +1005,29 @@ def assemble_local_fci_geometry(
             axis_meta=sharded_geometry.axis_meta,
         )
     )
+    # Tensor-quadratic material sampling needs three distinct donors in each
+    # transverse direction.  Small grids retain the canonical second-order map
+    # and expose no material map, so callers cannot accidentally claim the
+    # third-order endpoint accuracy required by the second-order transport.
+    material_maps = (
+        None
+        if (
+            map_fields_owned is None
+            or int(domain.shard_spec.global_shape[0]) < 3
+            or int(domain.shard_spec.global_shape[1]) < 3
+        )
+        else _lower_local_fci_maps(
+            map_fields_owned,
+            domain=domain,
+            axis_meta=sharded_geometry.axis_meta,
+            endpoint_interpolation_order=3,
+        )
+    )
     return LocalFciGeometry3D(
         layout=layout,
         grid=grid,
         maps=maps,
+        material_maps=material_maps,
         spacing=spacing,
         cell_metric=cell_metric,
         face_metric=face_metric,

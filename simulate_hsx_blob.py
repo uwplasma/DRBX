@@ -20,7 +20,7 @@ endpoints sample operator-specific ghost/leg fills.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, fields, replace
+from dataclasses import asdict, dataclass, fields, replace
 import hashlib
 import json
 import os
@@ -103,6 +103,7 @@ from drbx.native import (  # noqa: E402
     assemble_local_fci_geometry,
     assemble_single_device_local_fci_geometry,
     build_local_fci_geometries,
+    build_local_fci_drb_eb_operator_boundary_bundle,
     make_default_topology_halo_filler_3d,
     make_shard_mesh,
     physical_wall_model_from_name,
@@ -119,6 +120,13 @@ from drbx.native.fci_owner_agglomeration import (  # noqa: E402
     build_sharded_plane_local_owner_map_payload,
 )
 from drbx.native.fci_boundaries import BC_DIRICHLET, BC_NEUMANN  # noqa: E402
+from drbx.native.fci_polarization_coarse import build_coarse_data  # noqa: E402
+from drbx.native.fci_initialization import (  # noqa: E402
+    BOUNDARY_COMPATIBILITY_DIAGNOSTIC_NAMES,
+    boundary_compatibility_acceptance_failures,
+    initialize_boundary_compatible_rung3,
+    validate_boundary_compatible_initialization_support,
+)
 from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
     RHS_TERM_FIELD_NAMES,
     RHS_TERM_NAMES,
@@ -136,6 +144,61 @@ ELECTRON_FORCE_LEG_TERM_NAMES = (
     "parallel_self_advection", "electrostatic", "electron_pressure",
     "thermal_force", "characteristic_leg_upwind",
 )
+
+
+def historical_imex_ssp222_stage(
+    current,
+    model,
+    source_stages,
+    dt,
+    *,
+    implicit_stage,
+    explicit_operator,
+    reconstruct_phi,
+    gamma=None,
+):
+    """Run the historical SSP222 split with explicit phi reconstruction.
+
+    This small orchestration helper deliberately contains no physics.  The
+    callbacks supply the selected-wall implicit material solve, explicit RHS,
+    and algebraic polarization reconstruction.  Keeping this sequence
+    reusable makes the legacy split available to eager diagnostics while the
+    production driver retains its existing default behavior.
+    """
+    if gamma is None:
+        gamma = 1.0 - 1.0 / np.sqrt(2.0)
+    gamma_dt = jnp.asarray(gamma, dtype=jnp.float64) * jnp.asarray(dt, dtype=jnp.float64)
+
+    def source_at(index):
+        return source_stages.replace(**{
+            name: getattr(source_stages, name)[index]
+            for name in source_stages.field_names()
+        })
+
+    stage_1, implicit_1, phi_info_1 = implicit_stage(
+        current, model, gamma_dt, dt
+    )
+    explicit_1 = explicit_operator(stage_1, stage_1.phi, model, source_at(0))
+    stage_2_base = current.axpy(explicit_1, scale=dt).axpy(
+        implicit_1, scale=(1.0 - 2.0 * gamma) * dt
+    )
+    stage_2_base_phi, phi_info_2_base = reconstruct_phi(stage_2_base, model)
+    stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
+    stage_2, implicit_2, phi_info_2 = implicit_stage(
+        stage_2_base, model, gamma_dt, dt
+    )
+    explicit_2 = explicit_operator(stage_2, stage_2.phi, model, source_at(1))
+    weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
+        implicit_1, scale=1.0
+    ).axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value)
+    next_state = current.axpy(weighted_rate, scale=dt)
+    next_phi, phi_info_next = reconstruct_phi(next_state, model)
+    next_state = next_state.replace(phi=next_phi)
+    return next_state, (
+        current, stage_1, stage_2_base, stage_2, next_state
+    ), (
+        implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate
+    ), (phi_info_1, phi_info_2_base, phi_info_2, phi_info_next)
 ELECTRON_FORCE_GRADIENT_NAMES = ("Ve", "phi", "Pe", "Te")
 ELECTRON_FORCE_ENDPOINT_FIELD_NAMES = (
     "density", "Te", "Ti", "Vi", "Ve", "phi", "Pe",
@@ -162,6 +225,14 @@ DEFAULT_HSX_QHS_MAKEGRID_CURRENTS = (
     (HSX_QHS_MAIN_CURRENT_AMPERES,) * 6 + (0.0,) * 6
 )
 METRIC_CACHE_FORMAT_VERSION = 7
+# Cache validity follows this explicit numerical contract, rather than the
+# checkout path or source-file mtimes. Bump this revision whenever the fitted
+# metric/wall-coordinate algorithms change their numerical output.
+METRIC_BUILDER_REVISION = 1
+METRIC_CACHE_IDENTITY_VERSION = 2
+METRIC_INPUT_FULL_HASH_LIMIT = 64 * 2**20
+METRIC_INPUT_SAMPLE_BYTES = 2**20
+METRIC_INPUT_SAMPLE_COUNT = 16
 FILAMENT_CACHE_FORMAT_VERSION = 2
 GMRES_TARGET_TOLERANCE = 1.0e-8
 METRIC_FIELDS = (
@@ -350,6 +421,145 @@ def _write_npz_atomic(path: Path, payload: Mapping[str, np.ndarray]) -> None:
     finally:
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()
+
+
+def _metric_input_content_identity(path: Path) -> dict[str, object]:
+    """Return a path/mtime-independent identity for a metric input file.
+
+    Small files are hashed completely. Multi-gigabyte MAKEGRID files use a
+    deterministic set of evenly spaced 1 MiB samples, including both ends, so
+    cache lookup does not require rereading the complete equilibrium file.
+    """
+
+    path = Path(path)
+    size = int(path.stat().st_size)
+    digest = hashlib.sha256()
+    digest.update(b"drbx-metric-input-v1\0")
+    digest.update(size.to_bytes(16, byteorder="little", signed=False))
+    if size <= METRIC_INPUT_FULL_HASH_LIMIT:
+        scheme = "sha256-full-v1"
+        with path.open("rb") as stream:
+            while chunk := stream.read(METRIC_INPUT_SAMPLE_BYTES):
+                digest.update(chunk)
+    else:
+        sample_size = min(METRIC_INPUT_SAMPLE_BYTES, size)
+        maximum_offset = size - sample_size
+        offsets = np.unique(
+            np.linspace(
+                0,
+                maximum_offset,
+                num=METRIC_INPUT_SAMPLE_COUNT,
+                dtype=np.int64,
+            )
+        )
+        scheme = f"sha256-sampled-{offsets.size}x{sample_size}-v1"
+        with path.open("rb") as stream:
+            for offset_value in offsets:
+                offset = int(offset_value)
+                stream.seek(offset)
+                chunk = stream.read(sample_size)
+                if len(chunk) != sample_size:
+                    raise OSError(
+                        f"short read while fingerprinting {path} at {offset}"
+                    )
+                digest.update(offset.to_bytes(16, byteorder="little", signed=False))
+                digest.update(chunk)
+    return {"size": size, "hash_scheme": scheme, "sha256": digest.hexdigest()}
+
+
+def _metric_cache_specs_compatible(
+    cached_spec: Mapping[str, object],
+    expected_spec: Mapping[str, object],
+) -> bool:
+    """Compare metric-cache contracts, including pre-v2 legacy contracts.
+
+    Version-2 identities require content fingerprints. Legacy version-7
+    caches did not store them, so they are admitted when all numerical options
+    and input sizes match; paths, mtimes, and source checkout metadata are
+    deliberately ignored. Payload shape/topology validation still follows.
+    """
+
+    cached = dict(cached_spec)
+    expected = dict(expected_spec)
+    cached_makegrid = cached.pop("makegrid", None)
+    expected_makegrid = expected.pop("makegrid", None)
+    cached_vessel = cached.pop("vessel", None)
+    expected_vessel = expected.pop("vessel", None)
+    cached_identity_version = cached.pop("identity_version", None)
+    expected_identity_version = expected.pop("identity_version", None)
+    cached_builder_revision = cached.pop("metric_builder_revision", None)
+    expected_builder_revision = expected.pop("metric_builder_revision", None)
+    cached_sources = cached.pop("geometry_sources", None)
+    expected.pop("geometry_sources", None)
+
+    if cached != expected:
+        return False
+    if cached_identity_version is not None and (
+        cached_identity_version != expected_identity_version
+    ):
+        return False
+    if cached_builder_revision is not None and (
+        cached_builder_revision != expected_builder_revision
+    ):
+        return False
+
+    def input_matches(cached_input: object, expected_input: object) -> bool:
+        if not isinstance(cached_input, Mapping) or not isinstance(
+            expected_input, Mapping
+        ):
+            return False
+        if int(cached_input.get("size", -1)) != int(expected_input.get("size", -2)):
+            return False
+        cached_hash = cached_input.get("sha256")
+        expected_hash = expected_input.get("sha256")
+        if cached_hash is not None:
+            return (
+                cached_hash == expected_hash
+                and cached_input.get("hash_scheme")
+                == expected_input.get("hash_scheme")
+            )
+        return True
+
+    if not input_matches(cached_makegrid, expected_makegrid):
+        return False
+    if not input_matches(cached_vessel, expected_vessel):
+        return False
+
+    # Old caches used source size/mtime metadata as an implicit algorithm
+    # fingerprint. Only accept that legacy form for this payload format; new
+    # caches use METRIC_BUILDER_REVISION instead.
+    if cached_identity_version is None and cached_sources is not None:
+        if int(cached_spec.get("format_version", -1)) != METRIC_CACHE_FORMAT_VERSION:
+            return False
+    return True
+
+
+def _find_compatible_metric_cache(
+    cache_dir: Path,
+    expected_path: Path,
+    expected_spec: Mapping[str, object],
+) -> Path | None:
+    """Find an exact-key or compatible legacy cache without loading arrays."""
+
+    if expected_path.is_file():
+        return expected_path
+    try:
+        candidates = sorted(
+            cache_dir.glob("hsx_metric_*.npz"),
+            key=lambda candidate: candidate.stat().st_mtime_ns,
+            reverse=True,
+        )
+    except OSError:
+        return None
+    for candidate in candidates:
+        try:
+            with np.load(candidate, allow_pickle=False) as cached:
+                cached_spec = json.loads(str(cached["cache_spec"].item()))
+            if _metric_cache_specs_compatible(cached_spec, expected_spec):
+                return candidate
+        except (EOFError, KeyError, OSError, ValueError, zipfile.BadZipFile):
+            continue
+    return None
 
 
 def _build_or_load_hsx_fci_maps(
@@ -1372,37 +1582,17 @@ def build_hsx_fci_geometry(
         bfield = metric_context.bfield
         nfp = int(metric_context.nfp)
     if metric_cache_dir is not None and not reuse_metric_context:
-        source_paths = (
-            DRBX_SRC / "drbx" / "geometry" / "Bfield_evaluator.py",
-            DRBX_SRC / "drbx" / "geometry" / "ScalarPotential_evaluator.py",
-            DRBX_SRC / "drbx" / "geometry" / "MetricEvaluator.py",
-            DRBX_SRC / "drbx" / "geometry" / "WallEvaluator.py",
-            DRBX_SRC / "drbx" / "geometry" / "solve_MMPDE.py",
-        )
         cache_spec = {
             "format_version": METRIC_CACHE_FORMAT_VERSION,
-            "makegrid": {
-                "path": str(makegrid_path),
-                "size": makegrid_path.stat().st_size,
-                "mtime_ns": makegrid_path.stat().st_mtime_ns,
-            },
+            "identity_version": METRIC_CACHE_IDENTITY_VERSION,
+            "metric_builder_revision": METRIC_BUILDER_REVISION,
+            "makegrid": _metric_input_content_identity(makegrid_path),
             "makegrid_currents": (
                 None
                 if makegrid_current_array is None
                 else makegrid_current_array.tolist()
             ),
-            "vessel": {
-                "path": str(vessel_path),
-                "size": vessel_path.stat().st_size,
-                "mtime_ns": vessel_path.stat().st_mtime_ns,
-            },
-            "geometry_sources": {
-                str(path.relative_to(DRBX_SRC)): {
-                    "size": path.stat().st_size,
-                    "mtime_ns": path.stat().st_mtime_ns,
-                }
-                for path in source_paths
-            },
+            "vessel": _metric_input_content_identity(vessel_path),
             "resolution": [nu, nv, neta],
             "topology": descriptor.name,
             "coordinate_names": list(descriptor.coordinate_names),
@@ -1440,6 +1630,18 @@ def build_hsx_fci_geometry(
         try:
             metric_cache_dir.mkdir(parents=True, exist_ok=True)
             cache_path = metric_cache_dir / f"hsx_metric_{cache_key}.npz"
+            if not rebuild_metric_cache:
+                compatible_path = _find_compatible_metric_cache(
+                    metric_cache_dir, cache_path, cache_spec
+                )
+                if compatible_path is not None and compatible_path != cache_path:
+                    print(
+                        "[metric-cache] compatible hit: "
+                        f"{compatible_path.name} (stable contract matched; "
+                        "paths/mtimes ignored)",
+                        flush=True,
+                    )
+                    cache_path = compatible_path
         except OSError as error:
             print(f"metric cache disabled: {error}")
 
@@ -1472,7 +1674,8 @@ def build_hsx_fci_geometry(
                 != METRIC_CACHE_FORMAT_VERSION
             ):
                 raise ValueError("cache format version mismatch")
-            if json.loads(str(cache_payload["cache_spec"].item())) != cache_spec:
+            cached_spec = json.loads(str(cache_payload["cache_spec"].item()))
+            if not _metric_cache_specs_compatible(cached_spec, cache_spec):
                 raise ValueError("cache specification mismatch")
             cached_metadata = {
                 "topology": str(cache_payload["topology"].item()),
@@ -2210,6 +2413,213 @@ def _assert_owner_sparse(state: FciDrbEBState, host_geometry) -> None:
         )
 
 
+def _blend_rung3_fci_wall_layer(
+    vi_owned: jax.Array,
+    ve_owned: jax.Array,
+    backward_target: jax.Array,
+    forward_target: jax.Array,
+    selected_backward: jax.Array,
+    selected_forward: jax.Array,
+    backward_alpha: jax.Array,
+    forward_alpha: jax.Array,
+    dx_minus: jax.Array,
+    dx_plus: jax.Array,
+    active_owner_mask: jax.Array,
+    layer_count: int,
+) -> tuple[jax.Array, jax.Array, dict[str, jax.Array]]:
+    """Blend owner values toward all selected FCI wall endpoint targets.
+
+    Physical FCI endpoints are row-local and can occur away from the
+    coordinate upper-x face.  A double-hit owner has two directional targets;
+    when they disagree, the startup owner value is the stiffness-weighted
+    compromise while the production flux retains both directional targets.
+    Influence is extended only inward in logical ``u`` and never across eta
+    shards or inactive RLP aliases.
+    """
+    values = tuple(
+        jnp.asarray(value, dtype=jnp.float64)
+        for value in (
+            vi_owned, ve_owned, backward_target, forward_target,
+            backward_alpha, forward_alpha, dx_minus, dx_plus,
+        )
+    )
+    vi_owned, ve_owned, backward_target, forward_target, backward_alpha, forward_alpha, dx_minus, dx_plus = values
+    selected_backward = jnp.asarray(selected_backward, dtype=bool)
+    selected_forward = jnp.asarray(selected_forward, dtype=bool)
+    active_owner_mask = jnp.asarray(active_owner_mask, dtype=bool)
+    if vi_owned.ndim != 3 or ve_owned.shape != vi_owned.shape:
+        raise ValueError("Vi and Ve owner fields must have identical 3-D shapes")
+    if backward_target.shape != vi_owned.shape + (2,) or forward_target.shape != vi_owned.shape + (2,):
+        raise ValueError("wall targets must have owner shape plus final (Vi, Ve) components")
+    for name, value in (
+        ("selected_backward", selected_backward), ("selected_forward", selected_forward),
+        ("backward_alpha", backward_alpha), ("forward_alpha", forward_alpha),
+        ("dx_minus", dx_minus), ("dx_plus", dx_plus),
+        ("active_owner_mask", active_owner_mask),
+    ):
+        if value.shape != vi_owned.shape:
+            raise ValueError(f"{name} must have owner shape {vi_owned.shape}, got {value.shape}")
+    if int(layer_count) < 1:
+        raise ValueError("layer_count must be positive")
+
+    selected_backward &= active_owner_mask
+    selected_forward &= active_owner_mask
+    # Targets are passed as (..., 2), one component for Vi and Ve.
+    if backward_target.shape[-1:] != (2,) or forward_target.shape[-1:] != (2,):
+        raise ValueError("wall targets must have final dimension (Vi, Ve)")
+    finite_backward = jnp.all(jnp.isfinite(backward_target), axis=-1)
+    finite_forward = jnp.all(jnp.isfinite(forward_target), axis=-1)
+    valid_backward = selected_backward & finite_backward
+    valid_forward = selected_forward & finite_forward
+    backward_weight = jnp.abs(backward_alpha) / jnp.maximum(jnp.abs(dx_minus), 1.0e-30)
+    forward_weight = jnp.abs(forward_alpha) / jnp.maximum(jnp.abs(dx_plus), 1.0e-30)
+    weight_sum = jnp.maximum(backward_weight + forward_weight, 1.0e-30)
+    double_target = (
+        backward_weight[..., None] * backward_target
+        + forward_weight[..., None] * forward_target
+    ) / weight_sum[..., None]
+    single_target = jnp.where(valid_backward[..., None], backward_target, vi_owned[..., None])
+    single_target = jnp.where(valid_forward[..., None], forward_target, single_target)
+    both_target = jnp.where(valid_backward[..., None] & valid_forward[..., None], double_target, single_target)
+    seed_mask = valid_backward | valid_forward
+    conflict = valid_backward & valid_forward & (
+        jnp.max(jnp.abs(backward_target - forward_target), axis=-1) > 1.0e-12
+    )
+    nearest_distance = jnp.full(vi_owned.shape, int(layer_count), dtype=jnp.int32)
+    nearest_target = jnp.broadcast_to(vi_owned[..., None], vi_owned.shape + (2,))
+    for distance in range(int(layer_count)):
+        if distance == 0:
+            candidate_mask = seed_mask
+            candidate_target = both_target
+        else:
+            candidate_mask = jnp.concatenate(
+                (seed_mask[distance:], jnp.zeros((distance,) + seed_mask.shape[1:], dtype=bool)),
+                axis=0,
+            )
+            candidate_target = jnp.concatenate(
+                (both_target[distance:], jnp.broadcast_to(vi_owned[-1:, ..., None], (distance,) + vi_owned.shape[1:] + (2,))),
+                axis=0,
+            )
+        better = candidate_mask & (nearest_distance == int(layer_count))
+        nearest_distance = jnp.where(better, distance, nearest_distance)
+        nearest_target = jnp.where(better[..., None], candidate_target, nearest_target)
+    depth = nearest_distance.astype(jnp.float64)
+    normalized = jnp.clip((float(layer_count) - depth) / float(layer_count), 0.0, 1.0)
+    smooth_weight = normalized * normalized * (3.0 - 2.0 * normalized)
+    blend_weight = jnp.where(
+        (nearest_distance < int(layer_count)) & active_owner_mask,
+        smooth_weight,
+        0.0,
+    )
+    vi = vi_owned + blend_weight * (nearest_target[..., 0] - vi_owned)
+    ve = ve_owned + blend_weight * (nearest_target[..., 1] - ve_owned)
+    diagnostics = {
+        "selected_backward": selected_backward,
+        "selected_forward": selected_forward,
+        "double_hit": valid_backward & valid_forward,
+        "double_hit_conflict": conflict,
+        "target_mismatch": jnp.max(jnp.abs(backward_target - forward_target), axis=-1),
+        "modified_owner": blend_weight > 0.0,
+    }
+    return vi, ve, diagnostics
+
+
+def _initialize_rung3_wall_layer_local(
+    model: LocalFciDrbEBRhs,
+    local_state: FciDrbEBState,
+    *,
+    timestep: float,
+    layer_count: int,
+) -> tuple[FciDrbEBState, jax.Array]:
+    """Execute one local Rung-3 FCI wall-layer initialization pass."""
+    local_state = model._owner_state(local_state)
+    face_bc = model._face_bcs(local_state)
+    active_owner_mask = (
+        model.control_volume_geometry.cells.is_active_owner
+        if model.control_volume_geometry is not None
+        else model.geometry.active_cell_mask_owned
+    )
+    state_halo = model._prepare_state_halo(local_state, face_bc)
+    operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
+        state_halo,
+        model.geometry,
+        model.domain,
+        face_bc,
+        tau=model.parameters.tau,
+    )
+    parallel_boundary = model._parallel_operator_boundary(
+        state_halo=state_halo,
+        operator_boundary=operator_boundary,
+    )
+    characteristic_data = model._fci_parallel_characteristic_wall_data(
+        state_halo=state_halo,
+        face_bc=face_bc,
+        parallel_boundary=parallel_boundary,
+        context=model._stencil_builder_context(),
+        short_leg_selection_dt=timestep,
+        evaluate_wall_data=True,
+    )
+    wall_data = characteristic_data["wall_data"]
+    if wall_data is None:
+        raise RuntimeError("Rung-3 initializer requires live wall data")
+    backward_target = jnp.stack(
+        (wall_data["backward_endpoint_state"][..., 3],
+         wall_data["backward_endpoint_state"][..., 4]), axis=-1
+    )
+    forward_target = jnp.stack(
+        (wall_data["forward_endpoint_state"][..., 3],
+         wall_data["forward_endpoint_state"][..., 4]), axis=-1
+    )
+    primitive_stencils = characteristic_data["primitive_stencils"]
+    vi, ve, layer_diagnostics = _blend_rung3_fci_wall_layer(
+        local_state.Vi,
+        local_state.Ve,
+        backward_target,
+        forward_target,
+        wall_data["selected_backward_wall"],
+        wall_data["selected_forward_wall"],
+        wall_data["backward_alpha"],
+        wall_data["forward_alpha"],
+        primitive_stencils[0].dx_min,
+        primitive_stencils[0].dx_plus,
+        active_owner_mask,
+        layer_count,
+    )
+    adjusted = model._owner_state(local_state.replace(Vi=vi, Ve=ve))
+
+    def spmd_reduce(value, operation):
+        result = jnp.asarray(value)
+        for axis_name in model.domain.mesh_axis_names:
+            if axis_name is None:
+                continue
+            result = (
+                jax.lax.psum(result, axis_name=axis_name)
+                if operation == "sum"
+                else jax.lax.pmax(result, axis_name=axis_name)
+            )
+        return result
+
+    diagnostic_vector = jnp.asarray(
+        (
+            spmd_reduce(jnp.sum(layer_diagnostics["selected_backward"]), "sum"),
+            spmd_reduce(jnp.sum(layer_diagnostics["selected_forward"]), "sum"),
+            spmd_reduce(jnp.sum(layer_diagnostics["double_hit"]), "sum"),
+            spmd_reduce(jnp.sum(layer_diagnostics["double_hit_conflict"]), "sum"),
+            spmd_reduce(jnp.max(layer_diagnostics["target_mismatch"]), "max"),
+            spmd_reduce(jnp.sum(layer_diagnostics["modified_owner"]), "sum"),
+        ),
+        dtype=jnp.float64,
+    )
+    compatible, compatibility_diagnostics = initialize_boundary_compatible_rung3(
+        model,
+        adjusted,
+        layer_count=layer_count,
+    )
+    return compatible, jnp.concatenate(
+        (diagnostic_vector, compatibility_diagnostics), axis=0
+    )
+
+
 def build_face_bc_bundle(
     state: FciDrbEBState,
     geometry: LocalFciGeometry3D,
@@ -2219,6 +2629,7 @@ def build_face_bc_bundle(
     parallel_velocity_wall_bc: str = "neumann",
     physical_wall_model: str = "legacy-velocity-trace",
     conducting_sheath_wall_potential: float | None = None,
+    topology_halos: dict[str, jax.Array] | None = None,
 ) -> LocalFciDrbEBPhysicalWallBundle:
     """Build one stage-local physical wall bundle.
 
@@ -2232,6 +2643,10 @@ def build_face_bc_bundle(
         legacy_parallel_velocity_wall_bc=parallel_velocity_wall_bc,
         conducting_sheath_wall_potential=conducting_sheath_wall_potential,
     )
+    if physical_wall_model == "simplified-gbs-mpe":
+        return model(
+            state, geometry, domain, parameters, topology_halos=topology_halos
+        )
     return model(state, geometry, domain, parameters)
 
 
@@ -2784,6 +3199,8 @@ def build_local_eb_model(
     conducting_sheath_wall_potential: float | None = None,
     parallel_operator_scheme: str = "coordinate",
     poisson_bracket_scheme: str = "direct",
+    polarization_operator_form: str = "conservative",
+    polarization_coarse_data=None,
     parallel_material_scheme: str | None = None,
     control_volume_geometry=None,
     control_volume_boundary_bc=None,
@@ -2846,6 +3263,16 @@ def build_local_eb_model(
             "'material-scalar-third-order-upwind', or "
             "'material-scalar-vorticity-compatible-upwind', "
             f"got {poisson_bracket_scheme!r}"
+        )
+    if polarization_operator_form not in (
+        "conservative",
+        "weighted-symmetric",
+        "support-paired",
+    ):
+        raise ValueError(
+            "polarization_operator_form must be 'conservative', "
+            "'weighted-symmetric', or 'support-paired', got "
+            f"{polarization_operator_form!r}"
         )
     if parallel_material_scheme is None:
         parallel_material_scheme = os.environ.get(
@@ -2927,7 +3354,9 @@ def build_local_eb_model(
         if curvature_face_coefficients_override is not None
         else build_local_curvature_face_coefficients(geometry, domain)
     )
-    def face_bc_builder(state, local_geometry, local_domain, local_parameters):
+    def face_bc_builder(
+        state, local_geometry, local_domain, local_parameters, *, topology_halos=None
+    ):
         return build_face_bc_bundle(
             state,
             local_geometry,
@@ -2936,6 +3365,7 @@ def build_local_eb_model(
             parallel_velocity_wall_bc=parallel_velocity_wall_bc,
             physical_wall_model=physical_wall_model,
             conducting_sheath_wall_potential=conducting_sheath_wall_potential,
+            topology_halos=topology_halos,
         )
 
     rhs_kwargs = dict(
@@ -2972,6 +3402,8 @@ def build_local_eb_model(
         axis_regular_axes=domain.axis_regular_axes,
         curvature_face_coefficients=curvature_face_coefficients,
         poisson_bracket_scheme=poisson_bracket_scheme,
+        polarization_operator_form=polarization_operator_form,
+        polarization_coarse_data=polarization_coarse_data,
         control_volume_geometry=control_volume_geometry,
         control_volume_boundary_bc=control_volume_boundary_bc,
     )
@@ -3233,11 +3665,104 @@ def _format_state_diagnostics(
     return " ".join(parts)
 
 
+def _rk_stage_diagnostics_have_finite_bit(
+    rk_stage_diagnostics: np.ndarray,
+) -> bool:
+    """Return the host-side acceptance bit from the compiled stage payload.
+
+    Newer payloads carry an explicit finiteness slot in the last column so that
+    the host no longer needs to infer safety from extrema reductions alone.  We
+    keep a backward-compatible fallback for older four-slot payloads.
+    """
+
+    diagnostics = np.asarray(rk_stage_diagnostics)
+    if diagnostics.ndim >= 3 and diagnostics.shape[-1] >= 5:
+        return bool(np.all(diagnostics[..., 4] > 0.5))
+    return bool(np.all(np.isfinite(diagnostics[..., :3])))
+
+
 _PHI_DIAGNOSTIC_RHS_INCOMPATIBLE_REL = 4
 _PHI_DIAGNOSTIC_FINAL_INCOMPATIBLE_REL = 5
 _PHI_DIAGNOSTIC_FINAL_FULL_REL = 6
-_PHI_DIAGNOSTIC_WIDTH = 7
+_PHI_DIAGNOSTIC_WIDTH = 19
 _PHI_DIAGNOSTIC_NORM_FLOOR = 1.0e-30
+_PHI_SOLVER_DIAGNOSTIC_NAMES = (
+    "gmres_num_steps",
+    "gmres_final_residual_rel_l2",
+    "gmres_failed",
+    "gmres_converged",
+    "phi_lambda",
+    "phi_raw_compatibility_defect",
+    "phi_final_gauge_residual",
+    "phi_initial_residual_l2",
+    "phi_final_residual_l2",
+    "phi_rhs_l2",
+    "phi_projected_rhs_l2",
+    "phi_solution_finite",
+    "phi_rhs_finite",
+    "phi_guess_finite",
+    "phi_final_operator_residual_l2",
+    "phi_input_rhs_finite",
+    "phi_boundary_source_finite",
+    "phi_input_rhs_max_abs",
+    "phi_boundary_source_max_abs",
+)
+
+# These slots are replicated by ``reconstruct_stage_phi`` and are therefore
+# safe to inspect between the separately compiled staged kernels.  The
+# ``converged`` bit is the solver's acceptance bit (it is deliberately not
+# synonymous with reaching the tighter target tolerance), while ``failed``
+# is its complement.  The additional finiteness bits protect the dependent
+# explicit RHS from consuming a bad phi result even when a Krylov backend
+# returns a numerically finite-looking residual.
+_PHI_DIAGNOSTIC_FINITE_SLOTS = (11, 12, 13, 15, 16)
+
+
+def _coupled_phi_diagnostics_accepted(info: object) -> bool:
+    """Return the strict acceptance predicate for coupled final phi data."""
+    values = np.asarray(info, dtype=np.float64)
+    return bool(
+        values.ndim == 1
+        and values.shape[0] >= _PHI_DIAGNOSTIC_WIDTH
+        and np.all(np.isfinite(values))
+        and values[3] > 0.5
+        and np.all(values[list(_PHI_DIAGNOSTIC_FINITE_SLOTS)] > 0.5)
+        and abs(values[6]) <= 1.0e-10
+    )
+
+
+def _validate_staged_phi_solver_diagnostics(
+    info: object,
+    stage_name: str,
+) -> np.ndarray:
+    """Validate a staged phi solve before its result is consumed.
+
+    Staged IMEX advances are orchestrated in Python between compiled kernels,
+    so this host-side check can stop immediately after each inversion.  The
+    monolithic/fused paths retain their existing end-of-step validation.
+    """
+
+    jax.block_until_ready(info)
+    diagnostics = np.asarray(info, dtype=np.float64)
+    if diagnostics.ndim != 1 or diagnostics.shape[0] < _PHI_DIAGNOSTIC_WIDTH:
+        raise FloatingPointError(
+            f"staged {stage_name} phi inversion returned malformed diagnostics: "
+            f"shape={diagnostics.shape}"
+        )
+    finite = bool(np.all(np.isfinite(diagnostics)))
+    finite_flags = bool(
+        np.all(diagnostics[list(_PHI_DIAGNOSTIC_FINITE_SLOTS)] > 0.5)
+    )
+    failed = bool(diagnostics[2] > 0.5)
+    converged = bool(diagnostics[3] > 0.5)
+    if not finite or not finite_flags or failed or not converged:
+        raise FloatingPointError(
+            f"staged {stage_name} phi inversion rejected: "
+            f"iters={diagnostics[0]:.0f}, relres={diagnostics[1]:.3e}, "
+            f"failed={failed}, converged={converged}, "
+            f"diagnostics_finite={finite}, payload_finite={finite_flags}"
+        )
+    return diagnostics
 
 
 def _format_phi_solver_diagnostics(
@@ -3253,7 +3778,76 @@ def _format_phi_solver_diagnostics(
             jnp.asarray(info.converged, dtype=jnp.float64),
         )
     )
-    return jnp.concatenate((first_four, jnp.zeros(3, dtype=jnp.float64)))
+    base_info = getattr(info, "base_info", info)
+    return jnp.concatenate(
+        (
+            first_four,
+            jnp.stack(
+                (
+                    jnp.asarray(
+                        getattr(info, "compatibility_multiplier", 0.0),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(info, "raw_compatibility_defect", 0.0),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(info, "final_gauge_residual", 0.0),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(base_info, "initial_residual_l2", 0.0),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(base_info, "final_residual_l2", 0.0),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(base_info, "rhs_l2", 0.0),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(base_info, "projected_rhs_l2", 0.0),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(base_info, "phi_is_finite", True),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(base_info, "rhs_is_finite", True),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(base_info, "guess_is_finite", True),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(info, "final_operator_residual_l2", 0.0),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(info, "input_rhs_is_finite", True),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(info, "boundary_source_is_finite", True),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(info, "input_rhs_max_abs", 0.0),
+                        dtype=jnp.float64,
+                    ),
+                    jnp.asarray(
+                        getattr(info, "boundary_source_max_abs", 0.0),
+                        dtype=jnp.float64,
+                    ),
+                )
+            ),
+        )
+    )
 
 
 def _print_rk_stage_diagnostics(
@@ -3496,6 +4090,7 @@ def run_full_eb(
     gmres_preconditioner: str,
     gmres_residual_correction_steps: int = 0,
     time_integrator: str,
+    imex_split: str = "historical",
     advance_execution: str = "compiled",
     num_steps: int,
     timestep: float,
@@ -3522,6 +4117,8 @@ def run_full_eb(
     conducting_sheath_wall_potential: float | None = None,
     parallel_operator_scheme: str = "coordinate",
     poisson_bracket_scheme: str = "direct",
+    polarization_operator_form: str = "conservative",
+    polarization_coarse_data=None,
     parallel_material_scheme: str | None = None,
     track_curvature_chain_rule_defect: bool = False,
     control_volume_descriptor=None,
@@ -3536,6 +4133,8 @@ def run_full_eb(
     staged_audit_cells: tuple[tuple[int, int, int], ...] = (),
     staged_audit_output: Path | None = None,
     staged_audit_explicit_ablation: str = "none",
+    initialize_rung3_wall_layer: bool = False,
+    rung3_wall_layer_cells: int = 8,
 ) -> FciDrbEBState | FrozenEbDiagnosticResult:
     """Advance the global EB state or evaluate its sharded frozen diagnostic."""
 
@@ -3557,6 +4156,17 @@ def run_full_eb(
         raise ValueError("control_volume_field_count must be positive")
     if time_integrator not in ("rk4", "imex-ssp222"):
         raise ValueError("time_integrator must be 'rk4' or 'imex-ssp222'")
+    if imex_split not in ("historical", "coupled-boundary"):
+        raise ValueError("imex_split must be 'historical' or 'coupled-boundary'")
+    if imex_split == "coupled-boundary":
+        if time_integrator != "imex-ssp222":
+            raise ValueError("coupled-boundary requires time_integrator='imex-ssp222'")
+        if advance_execution != "eager":
+            raise ValueError("coupled-boundary currently requires eager execution")
+        if shard_counts != (1, 1, 1):
+            raise ValueError("coupled-boundary currently supports one device only")
+        if parallel_operator_scheme != "fci":
+            raise ValueError("coupled-boundary requires parallel_operator_scheme='fci'")
     if advance_execution not in ("compiled", "staged-compiled", "eager"):
         raise ValueError(
             "advance_execution must be 'compiled', 'staged-compiled', or 'eager'"
@@ -3605,6 +4215,41 @@ def run_full_eb(
             f"physical_wall_model must be one of {PHYSICAL_WALL_MODEL_NAMES}, "
             f"got {physical_wall_model!r}"
         )
+    if int(rung3_wall_layer_cells) < 1:
+        raise ValueError("rung3_wall_layer_cells must be positive")
+    if initialize_rung3_wall_layer and physical_wall_model != "simplified-gbs-mpe":
+        raise ValueError(
+            "initialize_rung3_wall_layer requires physical_wall_model="
+            "'simplified-gbs-mpe'"
+        )
+    if initialize_rung3_wall_layer:
+        validate_boundary_compatible_initialization_support(
+            sharded_geometry.domain,
+            int(rung3_wall_layer_cells),
+        )
+    run_metadata = {
+        **(run_metadata or {}),
+        "rung3_wall_layer_initialization_requested": bool(
+            initialize_rung3_wall_layer
+        ),
+        "rung3_wall_layer_initialization_effective": bool(
+            initialize_rung3_wall_layer
+            and physical_wall_model == "simplified-gbs-mpe"
+        ),
+        "rung3_wall_layer_cells_requested": int(rung3_wall_layer_cells),
+        "rung3_wall_layer_cells_effective": (
+            int(rung3_wall_layer_cells)
+            if initialize_rung3_wall_layer
+            else 0
+        ),
+        "rung3_wall_layer_initialization_algorithm": (
+            "cubic-smoothstep-owner-rings-to-live-directional-fci-wall-targets-"
+            "then-compact-quintic-boundary-compatible-upper-wall-traces-"
+            "wall-area-phi-gauge-and-polarization-derived-vorticity"
+            if initialize_rung3_wall_layer
+            else None
+        ),
+    }
     if (
         physical_wall_model != "legacy-velocity-trace"
         and parameters.parallel_characteristic_wall_law != "physical-boundary-state"
@@ -3646,13 +4291,13 @@ def run_full_eb(
     short_leg_treatment = os.environ.get(
         "DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"
     )
-    if short_leg_treatment == "local-backward-euler" and time_integrator != "imex-ssp222":
+    if imex_split == "historical" and short_leg_treatment == "local-backward-euler" and time_integrator != "imex-ssp222":
         raise ValueError(
             "local-backward-euler short legs require the stage-wise "
             "time_integrator='imex-ssp222'; post-step RK4 splitting is not "
             "a consistent handoff"
         )
-    if time_integrator == "imex-ssp222" and short_leg_treatment != "local-backward-euler":
+    if imex_split == "historical" and time_integrator == "imex-ssp222" and short_leg_treatment != "local-backward-euler":
         raise ValueError(
             "time_integrator='imex-ssp222' currently requires "
             "parallel_short_leg_treatment='local-backward-euler'"
@@ -3837,7 +4482,13 @@ def run_full_eb(
             host_domain,
         ).axes
     )
-    curvature_face_axes = curvature_face_setup()
+    # Coupled eager execution still permits this invariant setup kernel to
+    # compile in isolation; never widen the scope to the advance/Newton path.
+    if imex_split == "coupled-boundary" and advance_execution == "eager":
+        with jax.disable_jit(False):
+            curvature_face_axes = curvature_face_setup()
+    else:
+        curvature_face_axes = curvature_face_setup()
     jax.block_until_ready(curvature_face_axes)
     host_curvature_faces = LocalCurvatureFaceCoefficients3D(
         layout=host_local_geometry.layout,
@@ -3924,17 +4575,26 @@ def run_full_eb(
             layout,
         )
 
+    runtime_polarization_coarse_data = polarization_coarse_data
+
     def build_local_model(
         cell_fields_owned: jax.Array,
         map_fields_owned: jax.Array,
         control_volume_fields_owned: jax.Array,
+        preconditioner_override: str | None = None,
+        host: bool = False,
     ) -> LocalFciDrbEBRhs:
         geometry_fields_owned = cell_fields_owned[..., :geometry_field_count]
-        local_geometry = assemble_local_fci_geometry(
-            sharded_geometry,
-            geometry_fields_owned,
-            map_fields_owned if parallel_operator_scheme == "fci" else None,
-        )
+        if host:
+            local_geometry = host_local_geometry
+            local_domain = host_domain
+        else:
+            local_geometry = assemble_local_fci_geometry(
+                sharded_geometry,
+                geometry_fields_owned,
+                map_fields_owned if parallel_operator_scheme == "fci" else None,
+            )
+            local_domain = domain
         local_curvature_face_coefficients = (
             unpack_local_curvature_face_coefficients(
                 cell_fields_owned,
@@ -3952,13 +4612,13 @@ def run_full_eb(
         )
         return build_local_eb_model(
             local_geometry,
-            domain,
+            local_domain,
             parameters,
             gmres_target_tolerance=float(gmres_target_tolerance),
             gmres_acceptance_tolerance=float(gmres_acceptance_tolerance),
             gmres_max_iterations=int(gmres_max_iterations),
             gmres_restart=int(gmres_restart),
-            gmres_preconditioner=str(gmres_preconditioner),
+            gmres_preconditioner=str(gmres_preconditioner if preconditioner_override is None else preconditioner_override),
             gmres_residual_correction_steps=int(
                 gmres_residual_correction_steps
             ),
@@ -3969,11 +4629,244 @@ def run_full_eb(
             parallel_operator_scheme=parallel_operator_scheme,
             parallel_material_scheme=parallel_material_scheme,
             poisson_bracket_scheme=poisson_bracket_scheme,
+            polarization_operator_form=polarization_operator_form,
+            polarization_coarse_data=runtime_polarization_coarse_data,
             control_volume_geometry=local_control_volume_geometry,
             control_volume_boundary_bc=control_volume_boundary_bc,
             curvature_face_coefficients_override=(
                 local_curvature_face_coefficients
             ),
+        )
+
+    if gmres_preconditioner in ("coarse-additive", "coarse-multiplicative"):
+        if polarization_coarse_data is not None:
+            raise ValueError("coarse preconditioning builds its polarization coarse data internally")
+        if polarization_operator_form != "support-paired" or physical_wall_model != "simplified-gbs-mpe":
+            raise ValueError("coarse preconditioning requires support-paired simplified-gbs-mpe")
+        from drbx.native import fci_operators as _polar_ops
+        coarse_start = time.perf_counter()
+        # Build one host model with the ordinary Jacobi route; this avoids
+        # recursively requesting the coarse payload while constructing A.
+        host_control_volume_geometry = (
+            None if control_volume_descriptor is None else control_volume_assembler(
+                control_volume_descriptor,
+                jnp.asarray(control_volume_fields_host, dtype=jnp.float64),
+                host_local_geometry,
+            )
+        )
+        host_model = build_local_eb_model(
+            host_local_geometry, host_domain, parameters,
+            gmres_target_tolerance=float(gmres_target_tolerance),
+            gmres_acceptance_tolerance=float(gmres_acceptance_tolerance),
+            gmres_max_iterations=int(gmres_max_iterations), gmres_restart=int(gmres_restart),
+            gmres_preconditioner="jacobi",
+            gmres_residual_correction_steps=int(gmres_residual_correction_steps),
+            neumann_ghost_scheme=neumann_ghost_scheme,
+            parallel_velocity_wall_bc=parallel_velocity_wall_bc,
+            physical_wall_model=physical_wall_model,
+            conducting_sheath_wall_potential=conducting_sheath_wall_potential,
+            parallel_operator_scheme=parallel_operator_scheme,
+            parallel_material_scheme=parallel_material_scheme,
+            poisson_bracket_scheme=poisson_bracket_scheme,
+            polarization_operator_form=polarization_operator_form,
+            control_volume_geometry=host_control_volume_geometry,
+            control_volume_boundary_bc=control_volume_boundary_bc,
+            curvature_face_coefficients_override=host_curvature_faces,
+        )
+        host_state = FciDrbEBState(**{name: jnp.asarray(getattr(initial_state, name), dtype=jnp.float64) for name in initial_state.field_names()})
+        host_face = host_model._face_bcs(host_state)
+        host_solver = host_model._polarization_solver(
+            _polar_ops._homogeneous_local_face_bc(host_face.phi),
+            config=replace(host_model.gmres_config, regularization_epsilon=0.0),
+        )
+        active_host, weights_host = host_solver._operator_mass_weights()
+        active_host = jnp.asarray(active_host, dtype=bool)
+        weights_host = jnp.asarray(weights_host, dtype=jnp.float64)
+        host_hface = _polar_ops._homogeneous_local_face_bc(host_face.phi)
+        host_hcv = (None if host_solver.control_volume_boundary_bc is None else
+                    _polar_ops._homogeneous_local_control_volume_boundary_bc(host_solver.control_volume_boundary_bc))
+        # The coarse operator follows the full physical action, including its
+        # matched Neumann surface term; the resulting coarse solve is LU.
+        apply_host_operator = jax.jit(lambda values: host_solver._apply_A(
+            values, face_bc=host_hface, control_volume_boundary_bc=host_hcv,
+            project_mean_zero=True, boundary_is_homogeneous=True,
+        ))
+        if imex_split == "coupled-boundary" and advance_execution == "eager":
+            with jax.disable_jit(False):
+                coarse_data = build_coarse_data(
+                    lambda values: apply_host_operator(values), active_host, weights_host,
+                    global_shape=tuple(int(v) for v in sharded_geometry.global_shape),
+                )
+        else:
+            coarse_data = build_coarse_data(
+                lambda values: apply_host_operator(values), active_host, weights_host,
+                global_shape=tuple(int(v) for v in sharded_geometry.global_shape),
+            )
+        if not np.all(np.isfinite(np.asarray(coarse_data.H_lu))):
+            raise ValueError("coarse setup produced non-finite H factor")
+        runtime_polarization_coarse_data = coarse_data
+        run_metadata.update({
+            "polarization_coarse_preconditioner": str(gmres_preconditioner),
+            "polarization_coarse_multiplicative_cycles": 1 if gmres_preconditioner == "coarse-multiplicative" else 0,
+            "polarization_coarse_setup_rank": int(coarse_data.rank),
+            "polarization_coarse_setup_seconds": float(time.perf_counter() - coarse_start),
+            "polarization_coarse_setup_count": 1,
+        })
+        print(
+            f"[simulation] {gmres_preconditioner} setup complete: "
+            f"rank={int(coarse_data.rank)}, seconds={time.perf_counter()-coarse_start:.3f}",
+            flush=True,
+        )
+
+    rung3_wall_layer_effective_cells = int(rung3_wall_layer_cells)
+    rung3_wall_layer_initialize_sharded = None
+    rung3_wall_layer_derive_sharded = None
+    if initialize_rung3_wall_layer:
+        if owner_host_geometry is not None:
+            outer_active = np.asarray(
+                owner_host_geometry.topology.is_active_owner, dtype=bool
+            )[-rung3_wall_layer_effective_cells:]
+            if not np.all(outer_active):
+                raise ValueError(
+                    "boundary-compatible Rung-3 initialization requires every "
+                    "owner in the outer patch band to be canonical and active"
+                )
+
+        def initialize_rung3_wall_layer_kernel(
+            local_state: FciDrbEBState,
+            cell_fields_owned: jax.Array,
+            map_fields_owned: jax.Array,
+            control_volume_fields_owned: jax.Array,
+        ) -> tuple[FciDrbEBState, jax.Array]:
+            model = build_local_model(
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+            return _initialize_rung3_wall_layer_local(
+                model,
+                local_state,
+                timestep=timestep,
+                layer_count=rung3_wall_layer_effective_cells,
+            )
+
+        rung3_wall_layer_initialize_sharded = jax.shard_map(
+            initialize_rung3_wall_layer_kernel,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+            ),
+            out_specs=(state_spec, replicated_spec),
+            check_vma=False,
+        )
+
+        def derive_rung3_vorticity_kernel(
+            local_state: FciDrbEBState,
+            cell_fields_owned: jax.Array,
+            map_fields_owned: jax.Array,
+            control_volume_fields_owned: jax.Array,
+        ) -> FciDrbEBState:
+            model = build_local_model(
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+            face_bc = model._face_bcs(local_state)
+            vorticity = model._vorticity_from_polarization(
+                local_state.phi,
+                local_state.Ti,
+                face_bc.phi,
+                face_bc.Ti,
+            )
+            return model._owner_state(local_state.replace(vorticity=vorticity))
+
+        rung3_wall_layer_derive_sharded = jax.shard_map(
+            derive_rung3_vorticity_kernel,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+            ),
+            out_specs=state_spec,
+            check_vma=False,
+        )
+
+        rung3_wall_layer_start = time.perf_counter()
+        print(
+            "[rung3-init] compiling FCI blend and boundary-compatible wall-layer initializer "
+            f"(requested_cells={int(rung3_wall_layer_cells)}, "
+            f"effective_cells={rung3_wall_layer_effective_cells})",
+            flush=True,
+        )
+        rung3_wall_layer_initialize = jax.jit(
+            rung3_wall_layer_initialize_sharded
+        )
+        state, rung3_wall_layer_diagnostics = rung3_wall_layer_initialize(
+            state,
+            cell_fields,
+            map_fields,
+            control_volume_fields,
+        )
+        jax.block_until_ready((state, rung3_wall_layer_diagnostics))
+        rung3_wall_layer_diagnostics_host = np.asarray(
+            rung3_wall_layer_diagnostics
+        )
+        compatibility_diagnostics_host = rung3_wall_layer_diagnostics_host[6:]
+        compatibility_failures = boundary_compatibility_acceptance_failures(
+            compatibility_diagnostics_host
+        )
+        if compatibility_failures:
+            raise FloatingPointError(
+                "boundary-compatible Rung-3 initialization rejected: "
+                + "; ".join(compatibility_failures)
+            )
+        compatibility_metadata = {
+            f"rung3_wall_layer_{name}": float(value)
+            for name, value in zip(
+                BOUNDARY_COMPATIBILITY_DIAGNOSTIC_NAMES,
+                compatibility_diagnostics_host,
+                strict=True,
+            )
+        }
+        run_metadata.update(
+            {
+                "rung3_wall_layer_selected_backward_hits": int(
+                    rung3_wall_layer_diagnostics_host[0]
+                ),
+                "rung3_wall_layer_selected_forward_hits": int(
+                    rung3_wall_layer_diagnostics_host[1]
+                ),
+                "rung3_wall_layer_double_hit_owners": int(
+                    rung3_wall_layer_diagnostics_host[2]
+                ),
+                "rung3_wall_layer_double_hit_conflicts": int(
+                    rung3_wall_layer_diagnostics_host[3]
+                ),
+                "rung3_wall_layer_max_double_hit_target_mismatch": float(
+                    rung3_wall_layer_diagnostics_host[4]
+                ),
+                "rung3_wall_layer_modified_owners": int(
+                    rung3_wall_layer_diagnostics_host[5]
+                ),
+                "rung3_wall_layer_compatibility_accepted": True,
+                **compatibility_metadata,
+            }
+        )
+        print(
+            "[rung3-init] wall-layer initializer completed in "
+            f"{time.perf_counter() - rung3_wall_layer_start:.3f} s; "
+            "Vi/Ve targets began from live FCI wall endpoint values; "
+            f"modified_owners={int(rung3_wall_layer_diagnostics_host[5])}, "
+            f"double_hit_conflicts={int(rung3_wall_layer_diagnostics_host[3])}; "
+            "upper coordinate-wall density/phi normal data and velocity targets "
+            "passed compatibility checks; vorticity is derived from the adjusted "
+            "polarization state",
+            flush=True,
         )
 
     phi_start = time.perf_counter()
@@ -4002,7 +4895,7 @@ def run_full_eb(
             map_fields_owned,
             control_volume_fields_owned,
         ).reconstruct_phi(local_state, return_diagnostics=True)
-        return phi, info.num_steps
+        return phi, _format_phi_solver_diagnostics(info)
 
     reconstruct_phi_sharded = jax.shard_map(
         reconstruct_initial_phi_kernel,
@@ -4599,20 +5492,55 @@ def run_full_eb(
         )
         return state
     if reconstruct_initial_phi:
-        initial_phi, initial_phi_iterations = reconstruct_phi(
+        initial_phi, initial_phi_diagnostics = reconstruct_phi(
             state,
             cell_fields,
             map_fields,
             control_volume_fields,
         )
-        jax.block_until_ready((initial_phi, initial_phi_iterations))
-        state = state.replace(phi=initial_phi)
+        jax.block_until_ready((initial_phi, initial_phi_diagnostics))
+        initial_phi_diagnostics_host = np.asarray(initial_phi_diagnostics)
+        initial_phi_failed = bool(initial_phi_diagnostics_host[2] > 0.5)
         initial_phi_iteration_text = (
-            f"GMRES iterations={int(np.asarray(initial_phi_iterations))}"
+            f"GMRES iterations={int(initial_phi_diagnostics_host[0])}"
+            f" relres={initial_phi_diagnostics_host[1]:.3e}"
         )
+        if initial_phi_failed:
+            print(
+                "[diagnostics] initial phi reconstruction rejected: "
+                f"{initial_phi_iteration_text}",
+                flush=True,
+            )
+            raise FloatingPointError(
+                "initial phi reconstruction did not satisfy the solver's "
+                "acceptance semantics"
+            )
+        state = state.replace(phi=initial_phi)
     else:
         jax.block_until_ready(state)
         initial_phi_iteration_text = "GMRES reconstruction skipped"
+    if (
+        initialize_rung3_wall_layer
+        and reconstruct_initial_phi
+        and rung3_wall_layer_derive_sharded is not None
+    ):
+        # The first initializer pass derives omega from the restart phi before
+        # the normal phi reconstruction.  Re-derive it once more after that
+        # reconstruction so the tuple entering the first IMEX stage remains
+        # exactly compatible with the selected Rung-3 polarization operator.
+        rung3_wall_layer_derive = jax.jit(rung3_wall_layer_derive_sharded)
+        state = rung3_wall_layer_derive(
+            state,
+            cell_fields,
+            map_fields,
+            control_volume_fields,
+        )
+        jax.block_until_ready(state)
+        print(
+            "[rung3-init] re-derived vorticity after initial phi "
+            "reconstruction for discrete polarization consistency",
+            flush=True,
+        )
     print(
         f"[simulation] initial sharded phi ready in "
         f"{time.perf_counter() - phi_start:.3f} s; "
@@ -4714,19 +5642,49 @@ def run_full_eb(
             ))
             for stage in diagnostic_states
         ))
+        state_finites = jnp.stack(tuple(
+            jnp.stack(tuple(
+                jnp.all(jnp.isfinite(value)).astype(jnp.int32)
+                for _, value in stage.field_items()
+            ))
+            # Finiteness is a validity property of canonical owner storage,
+            # not merely of its materialized diagnostic view.  Checking the
+            # raw stage catches poisoned owner/alias entries before expansion
+            # can replace or hide them.
+            for stage in stage_states
+        ))
         rhs_abs_maxs = jnp.stack(tuple(
             jnp.stack(tuple(
                 jnp.max(jnp.abs(value)) for _, value in rhs.field_items()
             ))
             for rhs in stage_rates
         ))
-        for mesh_axis_name in ("x", "y", "z"):
+        rhs_finites = jnp.stack(tuple(
+            jnp.stack(tuple(
+                jnp.all(jnp.isfinite(value)).astype(jnp.int32)
+                for _, value in rhs.field_items()
+            ))
+            for rhs in stage_rates
+        ))
+        for mesh_axis_name in tuple(
+            name for name in model.domain.mesh_axis_names if name is not None
+        ):
             state_mins = jax.lax.pmin(state_mins, mesh_axis_name)
             state_maxs = jax.lax.pmax(state_maxs, mesh_axis_name)
             state_abs_maxs = jax.lax.pmax(state_abs_maxs, mesh_axis_name)
+            state_finites = jax.lax.pmin(state_finites, mesh_axis_name)
             rhs_abs_maxs = jax.lax.pmax(rhs_abs_maxs, mesh_axis_name)
+            rhs_finites = jax.lax.pmin(rhs_finites, mesh_axis_name)
+        stage_finites = jnp.logical_and(state_finites > 0, rhs_finites > 0)
         stage_diagnostics = jnp.stack(
-            (state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs), axis=-1
+            (
+                state_mins,
+                state_maxs,
+                state_abs_maxs,
+                rhs_abs_maxs,
+                stage_finites.astype(jnp.float64),
+            ),
+            axis=-1,
         )
 
         # Keep this a fixed-shape compiled payload.  Each reduction is local
@@ -4744,7 +5702,9 @@ def run_full_eb(
         field_abs_maxs = jnp.stack(
             tuple(jnp.max(jnp.abs(value)) for value in field_values)
         )
-        for mesh_axis_name in ("x", "y", "z"):
+        for mesh_axis_name in tuple(
+            name for name in model.domain.mesh_axis_names if name is not None
+        ):
             field_mins = jax.lax.pmin(field_mins, mesh_axis_name)
             field_maxs = jax.lax.pmax(field_maxs, mesh_axis_name)
             field_abs_maxs = jax.lax.pmax(field_abs_maxs, mesh_axis_name)
@@ -4753,7 +5713,9 @@ def run_full_eb(
             curvature_diagnostics = (
                 model.ion_temperature_curvature_chain_rule_diagnostics(next_state)
             )
-            for mesh_axis_name in ("x", "y", "z"):
+            for mesh_axis_name in tuple(
+                name for name in model.domain.mesh_axis_names if name is not None
+            ):
                 curvature_diagnostics = jax.lax.pmax(
                     curvature_diagnostics, mesh_axis_name
                 )
@@ -4847,14 +5809,12 @@ def run_full_eb(
             map_fields_owned,
             control_volume_fields_owned,
         )
-        gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * dt
-
-        def implicit_stage(base: FciDrbEBState):
+        def implicit_stage(base: FciDrbEBState, _model, solve_dt, selection_dt):
             updated, increment, _info = (
                 model.apply_short_leg_implicit_material_step(
                     base,
-                    solve_dt=gamma_dt,
-                    selection_dt=dt,
+                    solve_dt=solve_dt,
+                    selection_dt=selection_dt,
                     phi_owned=base.phi,
                     return_increment=True,
                 )
@@ -4862,60 +5822,167 @@ def run_full_eb(
             stage_phi, phi_info = reconstruct_stage_phi(updated, model)
             stage = updated.replace(phi=stage_phi)
             implicit_rate = increment.map_fields(
-                lambda value: value / gamma_dt
+                lambda value: value / solve_dt
             )
             return stage, implicit_rate, phi_info
-
-        # The persisted current state already carries its consistent algebraic
-        # potential.  Solve the complete selected-wall residual before the
-        # first explicit evaluation, not after a finished timestep.
-        stage_1, implicit_1, gmres_info_1 = implicit_stage(current)
-        source_1 = source_stages.replace(
-            density=source_stages.density[0], phi=source_stages.phi[0],
-            Te=source_stages.Te[0], Ti=source_stages.Ti[0],
-            Vi=source_stages.Vi[0], Ve=source_stages.Ve[0],
-            vorticity=source_stages.vorticity[0],
+        next_state, stage_states, stage_rates, phi_infos = historical_imex_ssp222_stage(
+            current, model, source_stages, dt,
+            implicit_stage=implicit_stage,
+            explicit_operator=evaluate_operators,
+            reconstruct_phi=reconstruct_stage_phi,
         )
-        source_2 = source_stages.replace(
-            density=source_stages.density[1], phi=source_stages.phi[1],
-            Te=source_stages.Te[1], Ti=source_stages.Ti[1],
-            Vi=source_stages.Vi[1], Ve=source_stages.Ve[1],
-            vorticity=source_stages.vorticity[1],
-        )
-        explicit_1 = evaluate_operators(
-            stage_1, stage_1.phi, model, source_1
-        )
-
-        stage_2_base = current.axpy(explicit_1, scale=dt).axpy(
-            implicit_1,
-            scale=(1.0 - 2.0 * IMEX_SSP222_GAMMA) * dt,
-        )
-        stage_2_base_phi, gmres_info_2_base = reconstruct_stage_phi(
-            stage_2_base, model
-        )
-        stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
-        stage_2, implicit_2, gmres_info_2 = implicit_stage(stage_2_base)
-        explicit_2 = evaluate_operators(
-            stage_2, stage_2.phi, model, source_2
-        )
-
-        weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
-            implicit_1, scale=1.0
-        ).axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value)
-        next_state = current.axpy(weighted_rate, scale=dt)
-        next_phi, gmres_info_next = reconstruct_stage_phi(next_state, model)
-        next_state = next_state.replace(phi=next_phi)
         return finalize_advance(
             next_state,
             model,
-            (current, stage_1, stage_2_base, stage_2, next_state),
-            (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
-            (gmres_info_1, gmres_info_2_base, gmres_info_2, gmres_info_next),
+            stage_states,
+            stage_rates,
+            phi_infos,
+        )
+
+    def coupled_host_advance(
+        current, cell_fields_owned, map_fields_owned,
+        control_volume_fields_owned, source_stages, current_time,
+    ):
+        """Eager single-device host orchestration for the coupled contract."""
+        del current_time
+        from drbx.native.fci_boundary_imex import (
+            advance_ssp222_coupled, solve_coupled_boundary_stage,
+        )
+        from drbx.native.fci_boundary_imex_model import CoupledBoundaryStageContext
+        from drbx.native.fci_boundary_imex_split import evaluate_boundary_imex_split
+        from drbx.native.fci_boundary_imex_model import evaluate_coupled_stage_admissibility
+        if not hasattr(coupled_host_advance, "_resources"):
+            from drbx.native.fci_boundary_imex_kernels import build_coupled_residual_kernel
+            resource_model = build_local_model(
+                cell_fields_owned, map_fields_owned, control_volume_fields_owned,
+                host=True,
+            )
+            coupled_host_advance._resources = (
+                resource_model, build_coupled_residual_kernel(resource_model)
+            )
+        model, residual_kernel = coupled_host_advance._resources
+        stage_states = []
+        stage_rates = []
+        stage_infos = []
+        stage_multipliers = []
+        stage_bases = [current]
+        explicit_rates = []
+        coupled_phi_infos = []
+        final_phi_info = [None]
+        solve_index = [0]
+        explicit_index = [0]
+
+        def source_at(index):
+            return source_stages.replace(**{
+                name: getattr(source_stages, name)[index]
+                for name in source_stages.field_names()
+            })
+
+        def solve_stage(base, stage_dt):
+            stage_bases.append(base)
+            source = source_at(min(solve_index[0], 1))
+            solve_index[0] += 1
+            stage, multiplier, info = solve_coupled_boundary_stage(
+                model, base, solve_dt=stage_dt, source_owned=source,
+                residual_kernel=residual_kernel,
+                progress=lambda event: print(
+                    f"[coupled stage {solve_index[0]}] {event}", flush=True),
+            )
+            if not info.converged:
+                coupled_stage_records.append({
+                    "success": False, "stage": solve_index[0],
+                    "info": asdict(info), "failure_reason": str(info.reason),
+                })
+                raise RuntimeError(f"coupled boundary stage failed: {info.reason}")
+            split = evaluate_boundary_imex_split(
+                model, stage, source_owned=source,
+                polarization_multiplier=multiplier,
+            )
+            rate = split.implicit
+            stage_states.append(stage)
+            stage_rates.append(rate)
+            stage_multipliers.append(multiplier)
+            context = CoupledBoundaryStageContext(model, base, stage_dt, source)
+            pd = context.polarization_diagnostics(
+                context.pack(stage, multiplier)
+            )
+            diag = jnp.zeros((_PHI_DIAGNOSTIC_WIDTH,), dtype=jnp.float64)
+            diag = diag.at[0].set(info.linear_iterations)
+            diag = diag.at[1].set(pd["polarization_relative"])
+            diag = diag.at[2].set(0.0)
+            diag = diag.at[3].set(1.0)
+            diag = diag.at[4].set(multiplier)
+            diag = diag.at[5].set(pd["raw_compatibility_defect"])
+            diag = diag.at[6].set(pd["gauge"])
+            diag = diag.at[8].set(pd["polarization_l2"])
+            diag = diag.at[9].set(pd["raw_rhs_l2"])
+            diag = diag.at[11].set(jnp.all(jnp.isfinite(stage.phi)))
+            diag = diag.at[12].set(jnp.all(jnp.isfinite(pd["raw_rhs_l2"])))
+            diag = diag.at[13].set(1.0)
+            diag = diag.at[15].set(1.0)
+            diag = diag.at[16].set(1.0)
+            coupled_phi_infos.append(diag)
+            stage_infos.append(info)
+            return stage, rate, {"converged": True, "multiplier": float(multiplier)}
+
+        def explicit(stage, source):
+            multiplier = stage_multipliers[min(explicit_index[0], len(stage_multipliers) - 1)]
+            explicit_index[0] += 1
+            explicit_rate = evaluate_boundary_imex_split(
+                model, stage, source_owned=source,
+                polarization_multiplier=multiplier,
+            ).explicit
+            explicit_rates.append(explicit_rate)
+            return explicit_rate
+
+        def reconstruct(final):
+            phi, phi_info = reconstruct_stage_phi(final, model)
+            final_phi_info[0] = phi_info
+            accepted = _coupled_phi_diagnostics_accepted(phi_info)
+            gauge_ok = bool(np.asarray(np.abs(phi_info[6]) <= 1.0e-10))
+            admissibility = evaluate_coupled_stage_admissibility(
+                model, final.replace(phi=phi)
+            )
+            return final.replace(phi=phi), {
+                "converged": accepted and gauge_ok and bool(admissibility["admissible"]),
+                "phi_diagnostics": np.asarray(phi_info).tolist(),
+                "admissibility": admissibility,
+            }
+
+        result, orchestration_info = advance_ssp222_coupled(
+            current, float(timestep), solve_stage=solve_stage,
+            explicit=explicit, source_stages=source_stages,
+            reconstruct_final=reconstruct,
+        )
+        if not orchestration_info.get("converged", False):
+            raise RuntimeError(f"coupled boundary advance failed: {orchestration_info}")
+        weighted = stage_rates[0].axpy(explicit_rates[0], scale=1.0).axpy(
+            stage_rates[1], scale=1.0
+        ).axpy(explicit_rates[1], scale=1.0).map_fields(
+            lambda value: 0.5 * value
+        )
+        phi_infos = (
+            coupled_phi_infos[0], coupled_phi_infos[0], coupled_phi_infos[1],
+            final_phi_info[0],
+        )
+        coupled_stage_records.append({
+            "stages": [asdict(info) for info in stage_infos],
+            "multipliers": [float(np.asarray(value)) for value in stage_multipliers],
+            "final_phi_diagnostics": np.asarray(final_phi_info[0]).tolist(),
+            "success": True,
+        })
+        return finalize_advance(
+            result, model,
+            (current, stage_states[0], stage_bases[2], stage_states[1], result),
+            (stage_rates[0], explicit_rates[0], stage_rates[1], explicit_rates[1], weighted),
+            phi_infos,
         )
 
     full_advance = (
         full_rk4_advance if time_integrator == "rk4" else full_imex_advance
     )
+    if imex_split == "coupled-boundary":
+        full_advance = coupled_host_advance
     stage_description = (
         "4 operator stages, 4 SOLVAX FGMRES solves"
         if time_integrator == "rk4"
@@ -5329,7 +6396,7 @@ def run_full_eb(
             map_fields,
             control_volume_fields,
         )
-        zero_info = jnp.zeros((7,), dtype=jnp.float64)
+        zero_info = jnp.zeros((_PHI_DIAGNOSTIC_WIDTH,), dtype=jnp.float64)
         staged_finalize = compile_staged_kernel(
             "stage-diagnostics",
             staged_finalize_sharded,
@@ -5563,6 +6630,7 @@ def run_full_eb(
                 gamma_dt,
                 dt_dynamic,
             )
+            _validate_staged_phi_solver_diagnostics(gmres_info_1, "imex1")
             implicit_1 = increment_1.map_fields(
                 lambda value: value / gamma_dt
             )
@@ -5622,6 +6690,9 @@ def run_full_eb(
                 map_fields_owned,
                 control_volume_fields_owned,
             )
+            _validate_staged_phi_solver_diagnostics(
+                gmres_info_2_base, "stage2-base"
+            )
             stage_2_base = stage_2_base_before_phi.replace(phi=stage_2_base_phi)
             stage_2, increment_2, gmres_info_2 = staged_implicit(
                 stage_2_base,
@@ -5631,6 +6702,7 @@ def run_full_eb(
                 gamma_dt,
                 dt_dynamic,
             )
+            _validate_staged_phi_solver_diagnostics(gmres_info_2, "imex2")
             implicit_2 = increment_2.map_fields(
                 lambda value: value / gamma_dt
             )
@@ -5678,6 +6750,7 @@ def run_full_eb(
                 map_fields_owned,
                 control_volume_fields_owned,
             )
+            _validate_staged_phi_solver_diagnostics(gmres_info_next, "next")
             next_state = next_state.replace(phi=next_phi)
             if audit_active:
                 audit_stage_names = (
@@ -5819,6 +6892,11 @@ def run_full_eb(
             )
 
         compiled_advance = staged_execute_advance
+
+    # The coupled solver is intentionally a host/eager transaction: Python
+    # Newton control must never be traced through shard_map or the fused path.
+    if imex_split == "coupled-boundary":
+        compiled_advance = coupled_host_advance
 
     rhs_term_inspection = None
     if track_rhs_terms:
@@ -6235,6 +7313,22 @@ def run_full_eb(
     snapshot_schedule = tuple(sorted(float(value) for value in snapshot_times))
     snapshot_root = Path(snapshot_dir) if snapshot_dir is not None else output_path.parent
     metadata = dict(run_metadata or {})
+    coupled_stage_records: list[dict[str, object]] = []
+    metadata["coupled_stage_diagnostics"] = coupled_stage_records
+    metadata["imex_split"] = str(imex_split)
+    metadata["coupled_residual_execution"] = (
+        "isolated-jit-kernel" if imex_split == "coupled-boundary" else "historical"
+    )
+    if imex_split == "coupled-boundary":
+        metadata["coupled_phi_diagnostic_semantics"] = {
+            "slot_0": "coupled_linear_iterations",
+            "slot_1": "polarization_relative_residual",
+            "slot_4": "compatibility_multiplier",
+            "slot_5": "raw_compatibility_defect",
+            "slot_6": "gauge_residual",
+            "slot_8": "polarization_residual_l2",
+            "slot_9": "raw_polarization_rhs_l2",
+        }
     metadata.update(
         {
             "time_integrator": str(time_integrator),
@@ -6288,6 +7382,25 @@ def run_full_eb(
             ],
         }
     )
+    if imex_split == "coupled-boundary":
+        metadata.update({
+            "coupled_implicit_terms": [
+                "complete-parallel-material-and-geometric",
+                "generalized-electron-force-phi-plus-tau-Ti",
+                "vorticity-parallel-advection-current",
+                "enabled-parallel-diffusion-and-collisions",
+                "physical-minus-reference-perpendicular-PB-diffusion-curvature",
+            ],
+            "coupled_explicit_terms": [
+                "plasma-support-perpendicular-bulk", "prescribed-sources",
+            ],
+            "historical_local_wall_update_applied": False,
+            "parallel_short_leg_explicit_energy_pair": None,
+            "parallel_short_leg_time_handoff": "inactive-coupled-stage",
+            "advance_execution_kernel_layout": (
+                "host-eager-newton-isolated-residual-fgmres",
+            ),
+        })
 
     def save_snapshot(
         requested_time: float,
@@ -6295,6 +7408,7 @@ def run_full_eb(
         step: int,
         *,
         inspected: tuple[np.ndarray, ...] | None = None,
+        phi_solver_diagnostics: np.ndarray | None = None,
         failure_reason: str | None = None,
         periodic_checkpoint: bool = False,
     ) -> None:
@@ -6332,6 +7446,32 @@ def run_full_eb(
                 ),
             }
         )
+        if phi_solver_diagnostics is not None:
+            phi_solver_diagnostics = np.asarray(
+                phi_solver_diagnostics, dtype=np.float64
+            )
+            payload["phi_solver_diagnostics"] = phi_solver_diagnostics
+            if phi_solver_diagnostics.ndim == 1:
+                phi_solver_diagnostics = phi_solver_diagnostics[None, :]
+            snapshot_metadata["phi_solver_diagnostics"] = {
+                "field_names": list(_PHI_SOLVER_DIAGNOSTIC_NAMES),
+                "stage_values": phi_solver_diagnostics.tolist(),
+                "max_abs": {
+                    name: float(np.max(np.abs(phi_solver_diagnostics[:, index])))
+                    for index, name in enumerate(_PHI_SOLVER_DIAGNOSTIC_NAMES)
+                },
+            }
+            print(
+                "[snapshot] phi solver: "
+                + ", ".join(
+                    (
+                        f"{name}="
+                        f"{snapshot_metadata['phi_solver_diagnostics']['max_abs'][name]:.3e}"
+                    )
+                    for name in _PHI_SOLVER_DIAGNOSTIC_NAMES[4:]
+                ),
+                flush=True,
+            )
         if inspected is not None:
             if snapshot_term_fields:
                 (
@@ -6439,8 +7579,20 @@ def run_full_eb(
     accumulated_gmres_iterations = 0.0
 
     def execute_advance(*advance_args):
-        with jax.disable_jit(advance_execution == "eager"):
-            return compiled_advance(*advance_args)
+        try:
+            with jax.disable_jit(advance_execution == "eager"):
+                return compiled_advance(*advance_args)
+        except Exception as exc:
+            if imex_split == "coupled-boundary":
+                coupled_stage_records.append({
+                    "success": False,
+                    "failure_reason": repr(exc),
+                })
+                save_snapshot(
+                    step_time, step_time, max(int(step) - 1, 0),
+                    failure_reason="coupled-stage-failed",
+                )
+            raise
 
     for step in range(1, int(num_steps) + 1):
         step_start = time.perf_counter()
@@ -6548,8 +7700,8 @@ def run_full_eb(
         Ti_max = float(diagnostics_host[Ti_index, 1])
         temperature_min = min(Te_min, Ti_min)
         state_diagnostics = _format_state_diagnostics(field_names, diagnostics_host)
-        stage_finite = bool(
-            np.all(np.isfinite(rk_stage_diagnostics_host[:, :, :3]))
+        stage_finite = _rk_stage_diagnostics_have_finite_bit(
+            rk_stage_diagnostics_host
         )
         stage_density_min = float(
             np.min(rk_stage_diagnostics_host[:, density_index, 0])
@@ -6582,6 +7734,7 @@ def run_full_eb(
                 current_time,
                 current_time,
                 step,
+                phi_solver_diagnostics=gmres_stage_diagnostics_host,
                 failure_reason=f"invalid-{time_integrator}-stage",
             )
             raise FloatingPointError(
@@ -6617,6 +7770,7 @@ def run_full_eb(
                 current_time,
                 current_time,
                 step,
+                phi_solver_diagnostics=gmres_stage_diagnostics_host,
                 failure_reason="unaccepted-phi-inversion",
             )
             raise FloatingPointError(
@@ -6640,6 +7794,7 @@ def run_full_eb(
                 current_time,
                 current_time,
                 step,
+                phi_solver_diagnostics=gmres_stage_diagnostics_host,
                 failure_reason="nonfinite-eb-state",
             )
             raise FloatingPointError(f"nonfinite EB state after step {step}")
@@ -6658,6 +7813,7 @@ def run_full_eb(
                 current_time,
                 current_time,
                 step,
+                phi_solver_diagnostics=gmres_stage_diagnostics_host,
                 failure_reason="nonpositive-eb-state",
             )
             raise FloatingPointError(
@@ -6716,6 +7872,7 @@ def run_full_eb(
                 current_time,
                 step,
                 inspected=inspection_host,
+                phi_solver_diagnostics=gmres_stage_diagnostics_host,
             )
             next_snapshot += 1
         if periodic_checkpoint_due:
@@ -6724,6 +7881,7 @@ def run_full_eb(
                 current_time,
                 step,
                 inspected=inspection_host,
+                phi_solver_diagnostics=gmres_stage_diagnostics_host,
                 periodic_checkpoint=True,
             )
         line = _progress_line(
@@ -7272,6 +8430,18 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
     """Validate native production/diagnostic selectors before compilation."""
 
     framework = str(args.flux_framework)
+    if getattr(args, "parallel_current_pairing", "reference") == "live-gradient-prototype":
+        if not (
+            framework == "production-split"
+            and args.parallel_operator_scheme == "fci"
+            and args.parallel_flux_pairing == "support-core"
+            and args.parallel_boundary_pairing == "characteristic-sat"
+            and args.physical_wall_model == "simplified-gbs-mpe"
+        ):
+            raise ValueError(
+                "live-gradient-prototype requires production-split / fci / "
+                "support-core / characteristic-sat / simplified-gbs-mpe"
+            )
     if args.physical_wall_model != "legacy-velocity-trace":
         if args.parallel_characteristic_wall_law != "physical-boundary-state":
             raise ValueError(
@@ -7322,7 +8492,8 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
     ):
         raise ValueError("--parallel-short-leg-cfl-limit must be finite and positive")
     if (
-        args.parallel_short_leg_treatment == "local-backward-euler"
+        getattr(args, "imex_split", "historical") == "historical"
+        and args.parallel_short_leg_treatment == "local-backward-euler"
         and framework != "production-split"
     ):
         raise ValueError(
@@ -7330,7 +8501,8 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
             "--flux-framework production-split"
         )
     if (
-        args.parallel_short_leg_treatment == "local-backward-euler"
+        getattr(args, "imex_split", "historical") == "historical"
+        and args.parallel_short_leg_treatment == "local-backward-euler"
         and args.time_integrator != "imex-ssp222"
     ):
         raise ValueError(
@@ -7339,7 +8511,8 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
             "is solved at every stage"
         )
     if (
-        args.time_integrator == "imex-ssp222"
+        getattr(args, "imex_split", "historical") == "historical"
+        and args.time_integrator == "imex-ssp222"
         and args.parallel_short_leg_treatment != "local-backward-euler"
     ):
         raise ValueError(
@@ -7376,6 +8549,15 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
         "material-scalar-vorticity-compatible-upwind",
     ):
         raise ValueError("production-split requires compatible Poisson brackets")
+    if args.physical_wall_model == "simplified-gbs-mpe" and not _simplified_gbs_mpe_selector_bundle_is_exact(args):
+        raise ValueError(
+            "simplified-gbs-mpe requires the exact rung-3 selector bundle: "
+            "production-split / fci / support-core / characteristic-sat / "
+            "local-backward-euler / all-physical-walls / "
+            "physical-boundary-state / imex-ssp222 / "
+            "material-scalar-vorticity-compatible-upwind / "
+            "support-paired / jacobi, line-u, coarse-additive, or coarse-multiplicative"
+        )
 
 
 def _configure_runtime_selectors(args: argparse.Namespace) -> None:
@@ -7384,6 +8566,9 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
     os.environ["DRBX_FLUX_FRAMEWORK"] = str(args.flux_framework)
     os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] = str(args.parallel_characteristic_wall_law)
     os.environ["DRBX_PARALLEL_FLUX_PAIRING"] = str(args.parallel_flux_pairing)
+    os.environ["DRBX_PARALLEL_CURRENT_PAIRING"] = str(
+        getattr(args, "parallel_current_pairing", "reference")
+    )
     os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] = (
         str(args.parallel_boundary_pairing)
         if args.parallel_flux_pairing == "support-core"
@@ -7492,6 +8677,45 @@ def _parallel_characteristic_wall_metadata(wall_law: str) -> dict[str, object]:
             "parallel_characteristic_wall_energy_normalizer_source": None,
         }
     raise ValueError(f"unknown parallel characteristic wall law: {wall_law!r}")
+
+
+def _physical_wall_model_provenance(args: argparse.Namespace) -> str:
+    """Name the selected wall-model rung/preset without changing the CLI."""
+
+    if args.physical_wall_model == "simplified-gbs-mpe":
+        return "simplified-gbs-mpe"
+    if args.physical_wall_model == "simple-conducting-sheath":
+        return "production-rung2-simple-conducting-sheath"
+    if args.physical_wall_model == "no-flow":
+        return "no-flow-rung1"
+    return "legacy-compatibility"
+
+
+def _simplified_gbs_mpe_selector_bundle_is_exact(args: argparse.Namespace) -> bool:
+    """Return whether the explicit rung-3 selector bundle is fully enabled."""
+
+    return (
+        args.flux_framework == "production-split"
+        and args.parallel_operator_scheme == "fci"
+        and args.parallel_flux_pairing == "support-core"
+        and args.parallel_boundary_pairing == "characteristic-sat"
+        and args.parallel_short_leg_treatment == "local-backward-euler"
+        and args.parallel_short_leg_selection == "all-physical-walls"
+        and args.parallel_characteristic_wall_law == "physical-boundary-state"
+        and args.time_integrator == "imex-ssp222"
+        and args.poisson_bracket_scheme
+        == "material-scalar-vorticity-compatible-upwind"
+        # Rung 3 requires the support-paired homogeneous Neumann action so the
+        # polarization solve, the Ti term, and the derived vorticity trace use
+        # one metric-weighted gather/scatter contract.
+        and args.polarization_operator_form == "support-paired"
+        and args.gmres_preconditioner in (
+            "jacobi",
+            "line-u",
+            "coarse-additive",
+            "coarse-multiplicative",
+        )
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -7603,6 +8827,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--parallel-current-pairing",
+        choices=("reference", "live-gradient-prototype"),
+        default="reference",
+        help=(
+            "Current divergence paired with the reference or complete live "
+            "generalized-potential gradient. The prototype retains the "
+            "canonical endpoint-current lift and requires simplified-gbs-mpe."
+        ),
+    )
+    parser.add_argument(
         "--parallel-characteristic-wall-law",
         choices=(
             "primitive-least-residual",
@@ -7681,7 +8915,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Physical wall bundle model. 'no-flow' supplies Vi=Ve=0; "
             "'simple-conducting-sheath' supplies the grounded conducting-sheath "
-            "trace with warm-ion Bohm outflow and electron saturation response. "
+            "trace with warm-ion Bohm outflow and electron saturation response; "
+            "'simplified-gbs-mpe' selects the explicit rung-3 production "
+            "bundle with the physical-boundary-state characteristic wall law. "
             "Named models require the physical-boundary-state characteristic law. "
             "The legacy adapter preserves --parallel-velocity-wall-bc for old runs."
         ),
@@ -7732,6 +8968,20 @@ def _build_parser() -> argparse.ArgumentParser:
             "'material-scalar-vorticity-compatible-upwind' keeps that "
             "material transport and adds the physical A_phi upwind "
             "correction to the compatible vorticity bracket."
+        ),
+    )
+    parser.add_argument(
+        "--polarization-operator-form",
+        choices=("conservative", "weighted-symmetric", "support-paired"),
+        default="conservative",
+        help=(
+            "Perpendicular polarization operator. 'conservative' preserves "
+            "the historical independently assembled face gradient/divergence. "
+            "'weighted-symmetric' uses the exact physical-volume weighted "
+            "self-adjoint homogeneous action for both phi and Ti while "
+            "retaining affine boundary sources exactly once. "
+            "'support-paired' constructs the homogeneous action directly as "
+            "the metric-weighted face-gradient Gram operator G^dagger W G."
         ),
     )
     parser.add_argument("--makegrid", type=Path, default=DEFAULT_MAKEGRID)
@@ -7864,6 +9114,37 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=-1,
         help="Frame to load from a history NPZ; ignored for a single snapshot.",
+    )
+    parser.add_argument(
+        "--reconstruct-restart-phi",
+        action="store_true",
+        help=(
+            "Reconstruct phi with the current polarization operator and wall "
+            "closure after loading a restart. Use this when the restart was "
+            "produced by a different boundary/operator configuration; by "
+            "default restart phi is preserved for exact continuation."
+        ),
+    )
+    parser.add_argument(
+        "--initialize-rung3-wall-layer",
+        action="store_true",
+        help=(
+            "For simplified-gbs-mpe, smoothly initialize Vi and Ve over "
+            "the inward owner rings from every selected FCI physical-hit target, "
+            "enforce compatible upper-radial wall traces and the wall-area phi "
+            "gauge, then derive vorticity from the polarization state. Disabled "
+            "by default so unrelated restarts are unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--rung3-wall-layer-cells",
+        type=int,
+        default=8,
+        metavar="N",
+        help=(
+            "Number of outer radial owner rings used by "
+            "--initialize-rung3-wall-layer (default: 8)."
+        ),
     )
     parser.add_argument(
         "--diagnostic-every",
@@ -8082,6 +9363,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--imex-split",
+        choices=("historical", "coupled-boundary"),
+        default="historical",
+        help=(
+            "IMEX stage contract. 'historical' selects the existing split; "
+            "'coupled-boundary' is the guarded eager, single-device nonlinear "
+            "boundary-stage path."
+        ),
+    )
+    parser.add_argument(
         "--advance-execution",
         choices=("auto", "compiled", "staged-compiled", "eager"),
         default="auto",
@@ -8138,11 +9429,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "line-u",
             "line-v",
             "line-uv",
+            "coarse-additive",
+            "coarse-multiplicative",
         ),
         default="line-u",
         help=(
             "SOLVAX right preconditioner for the phi inversion. Line "
-            "preconditioners use local complete u and/or v grid lines."
+            "preconditioners use local complete u and/or v grid lines. "
+            "coarse-multiplicative uses one line-u/coarse/line-u cycle."
         ),
     )
     parser.add_argument(
@@ -8182,16 +9476,26 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.imex_split == "coupled-boundary":
+        if args.time_integrator != "imex-ssp222":
+            parser.error("--imex-split coupled-boundary requires --time-integrator imex-ssp222")
+        if args.advance_execution not in ("auto", "eager"):
+            parser.error("--imex-split coupled-boundary rejects compiled/staged execution")
+        if tuple(int(v) for v in args.shard_counts) != (1, 1, 1):
+            parser.error("--imex-split coupled-boundary currently requires one device")
+        args.advance_execution = "eager"
     try:
         _validate_flux_framework(args)
     except ValueError as error:
         parser.error(str(error))
     _configure_runtime_selectors(args)
+    physical_wall_model_provenance = _physical_wall_model_provenance(args)
     print(
         "[simulation] flux_framework="
         f"{args.flux_framework}; "
         "parallel_velocities=cell-centered; "
         f"parallel_flux_pairing={args.parallel_flux_pairing}; "
+        f"parallel_current_pairing={args.parallel_current_pairing}; "
         f"parallel_characteristic_wall_law={args.parallel_characteristic_wall_law}; "
         f"physical_wall_model={args.physical_wall_model}; "
         "parallel_boundary_pairing="
@@ -8242,6 +9546,24 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--parallel-operator-scheme=fci requires --topology=toroidal")
     if args.fci_trace_substeps < 1:
         parser.error("--fci-trace-substeps must be positive")
+    if args.rung3_wall_layer_cells < 1:
+        parser.error("--rung3-wall-layer-cells must be positive")
+    if (
+        args.initialize_rung3_wall_layer
+        and args.physical_wall_model != "simplified-gbs-mpe"
+    ):
+        parser.error(
+            "--initialize-rung3-wall-layer requires "
+            "--physical-wall-model=simplified-gbs-mpe"
+        )
+    if args.initialize_rung3_wall_layer and args.topology != "toroidal":
+        parser.error(
+            "--initialize-rung3-wall-layer currently requires --topology=toroidal"
+        )
+    if args.initialize_rung3_wall_layer and args.halo_width < 2:
+        parser.error(
+            "--initialize-rung3-wall-layer requires --halo-width at least 2"
+        )
     shard_counts = tuple(int(value) for value in args.shard_counts)
     if any(value < 1 for value in shard_counts):
         parser.error("--shard-counts entries must be positive")
@@ -8250,8 +9572,26 @@ def main(argv: Sequence[str] | None = None) -> None:
             "production sharding is eta-only; use --shard-counts 1 1 NETA_SHARDS"
         )
     if args.topology == "toroidal":
-        if args.gmres_preconditioner not in ("none", "line-u"):
-            parser.error("toroidal RLP supports only --gmres-preconditioner none or line-u")
+        if args.gmres_preconditioner not in (
+            "none",
+            "jacobi",
+            "line-u",
+            "coarse-additive",
+            "coarse-multiplicative",
+        ):
+            parser.error(
+                "toroidal RLP supports only --gmres-preconditioner "
+                "none, jacobi, line-u, coarse-additive, or coarse-multiplicative"
+            )
+        if args.gmres_preconditioner in ("coarse-additive", "coarse-multiplicative") and (
+            args.polarization_operator_form != "support-paired"
+            or args.physical_wall_model != "simplified-gbs-mpe"
+        ):
+            parser.error(
+                "coarse preconditioning requires "
+                "--polarization-operator-form=support-paired and "
+                "--physical-wall-model=simplified-gbs-mpe"
+            )
         if args.poisson_bracket_scheme not in (
             "compatible-flux",
             "compatible-third-order-upwind",
@@ -8362,6 +9702,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             "--rhs-replay-electron-force-wall-audit requires --rhs-replay-history"
         )
     requested_advance_execution = str(args.advance_execution)
+    if args.imex_split == "coupled-boundary":
+        requested_advance_execution = "eager"
+        args.advance_execution = "eager"
     requested_rhs_replay_execution = str(args.rhs_replay_execution)
     args.advance_execution = _resolve_execution_mode(
         requested_advance_execution,
@@ -8810,6 +10153,16 @@ def main(argv: Sequence[str] | None = None) -> None:
             "including phi",
             flush=True,
         )
+        print(
+            "[simulation] restart phi policy: "
+            + (
+                "reconstruct with the current polarization/wall closure"
+                if args.reconstruct_restart_phi
+                else "preserve saved phi for exact continuation"
+            )
+            + " (source=--reconstruct-restart-phi)",
+            flush=True,
+        )
     elif args.blob_initialization == "field-aligned":
         print(
             "[simulation] initialized density-only field-aligned filament; "
@@ -8864,8 +10217,19 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(
         "[simulation] physical wall model: "
         f"{str(args.physical_wall_model)} ("
-        f"{'production-rung2-simple-conducting-sheath' if args.physical_wall_model == 'simple-conducting-sheath' else 'no-flow' if args.physical_wall_model == 'no-flow' else 'legacy'}"
+        f"{physical_wall_model_provenance}"
         ")",
+        flush=True,
+    )
+    print(
+        "[simulation] Rung-3 wall-layer initialization: "
+        + (
+            f"enabled ({int(args.rung3_wall_layer_cells)} requested radial "
+            "owner cells; live FCI velocity blend followed by compatible "
+            "upper-wall traces, phi gauge, and derived vorticity)"
+            if args.initialize_rung3_wall_layer
+            else "disabled"
+        ),
         flush=True,
     )
     print(
@@ -8924,6 +10288,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         ),
         parallel_operator_scheme=str(args.parallel_operator_scheme),
         time_integrator=str(args.time_integrator),
+        imex_split=str(args.imex_split),
         advance_execution=str(args.advance_execution),
         num_steps=int(args.num_steps),
         timestep=timestep,
@@ -8944,12 +10309,51 @@ def main(argv: Sequence[str] | None = None) -> None:
             args.rhs_replay_electron_force_wall_audit
         ),
         rhs_replay_execution=str(args.rhs_replay_execution),
+        initialize_rung3_wall_layer=bool(args.initialize_rung3_wall_layer),
+        rung3_wall_layer_cells=int(args.rung3_wall_layer_cells),
         run_metadata={
             "command": " ".join(sys.argv),
             "drbx_source_root": str(DRBX_SRC),
             **_topology_metadata(descriptor),
             "restart_from": None if args.restart_from is None else str(args.restart_from),
             "restart_frame": int(args.restart_frame),
+            "reconstruct_restart_phi_requested": bool(
+                args.reconstruct_restart_phi
+            ),
+            "reconstruct_initial_phi_effective": bool(
+                (not restart_used) or args.reconstruct_restart_phi
+            ),
+            "reconstruct_initial_phi_source": (
+                "new-initial-state"
+                if not restart_used
+                else (
+                    "simulate_hsx_blob.py:--reconstruct-restart-phi"
+                    if args.reconstruct_restart_phi
+                    else "restart-state-preserved"
+                )
+            ),
+            "rung3_wall_layer_initialization_requested": bool(
+                args.initialize_rung3_wall_layer
+            ),
+            "rung3_wall_layer_initialization_effective": bool(
+                args.initialize_rung3_wall_layer
+                and args.physical_wall_model == "simplified-gbs-mpe"
+            ),
+            "rung3_wall_layer_cells_requested": int(
+                args.rung3_wall_layer_cells
+            ),
+            "rung3_wall_layer_cells_effective": (
+                int(args.rung3_wall_layer_cells)
+                if args.initialize_rung3_wall_layer
+                else 0
+            ),
+            "rung3_wall_layer_initialization_algorithm": (
+                "cubic-smoothstep-owner-rings-to-live-directional-fci-wall-targets-"
+                "then-compact-quintic-boundary-compatible-upper-wall-traces-"
+                "wall-area-phi-gauge-and-polarization-derived-vorticity"
+                if args.initialize_rung3_wall_layer
+                else None
+            ),
             "final_time": float(args.final_time),
             "num_steps": int(args.num_steps),
             "dt": float(timestep),
@@ -8973,6 +10377,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "eta_projection_iterations": int(args.eta_projection_iterations),
             "parallel_operator_scheme": str(args.parallel_operator_scheme),
             "parallel_flux_pairing": os.environ.get("DRBX_PARALLEL_FLUX_PAIRING", "legacy"),
+            "parallel_current_pairing": str(args.parallel_current_pairing),
+            "parallel_current_pairing_source": "simulate_hsx_blob.py:--parallel-current-pairing",
             "parallel_characteristic_wall_law": str(args.parallel_characteristic_wall_law),
             "parallel_characteristic_wall_law_env": os.environ.get("DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"),
             "parallel_characteristic_wall_law_source": "simulate_hsx_blob.py:--parallel-characteristic-wall-law",
@@ -8985,7 +10391,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "parallel_short_leg_cfl_limit": float(os.environ.get("DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT", "2.5")),
             "parallel_short_leg_cfl_limit_source": "simulate_hsx_blob.py:--parallel-short-leg-cfl-limit",
             "parallel_short_leg_implicit_terms": (
-                [
+                [] if args.imex_split == "coupled-boundary" else [
                     "selected-characteristic-material-action",
                     "selected-mu-tau-grad-parallel-Ti",
                 ]
@@ -8993,9 +10399,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 else []
             ),
             "parallel_short_leg_explicit_energy_pair": (
+                None if args.imex_split == "coupled-boundary" else
                 "mu-grad-parallel-phi<->weighted-adjoint-current-divergence"
             ),
             "parallel_short_leg_time_handoff": (
+                "inactive-coupled-stage"
+                if args.imex_split == "coupled-boundary" else
                 "imex-ssp222-stage-wise"
                 if args.parallel_short_leg_treatment == "local-backward-euler"
                 else "none"
@@ -9026,6 +10435,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 args.electron_collision_frequency
             ),
             "time_integrator": str(args.time_integrator),
+            "imex_split": str(args.imex_split),
             "advance_execution": str(args.advance_execution),
             "advance_execution_requested": requested_advance_execution,
             "staged_audit_cells": [
@@ -9041,14 +10451,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                 args.staged_audit_explicit_ablation
             ),
             "advance_execution_kernel_layout": (
-                (
+                ("host-eager-coupled-boundary-stage", "complete-E-plus-I-split", "stage-diagnostics")
+                if args.imex_split == "coupled-boundary" else (
+                    (
                     "implicit-short-leg-plus-phi",
                     "explicit-rhs",
                     "standalone-phi",
                     "stage-diagnostics",
-                )
+                    )
                 if args.advance_execution == "staged-compiled"
                 else ("monolithic-advance",)
+                )
             ),
             "rhs_replay_execution": str(args.rhs_replay_execution),
             "rhs_replay_execution_requested": requested_rhs_replay_execution,
@@ -9086,6 +10499,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 args.gmres_residual_correction_steps
             ),
             "gmres_preconditioner": str(args.gmres_preconditioner),
+            "phi_solver_diagnostic_width": int(_PHI_DIAGNOSTIC_WIDTH),
+            "phi_solver_diagnostic_names": list(_PHI_SOLVER_DIAGNOSTIC_NAMES),
+            "phi_inversion_regularization": float(
+                parameters.phi_inversion_regularization
+            ),
+            "phi_inversion_regularization_source": (
+                "simulate_hsx_blob.py:parameters.phi_inversion_regularization"
+            ),
             "phi_solver_space": (
                 "owner-grid-RLP"
                 if control_volume_descriptor is not None
@@ -9098,17 +10519,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if args.conducting_sheath_wall_potential is None
                 else float(args.conducting_sheath_wall_potential)
             ),
-            "physical_wall_model_provenance": (
-                "production-rung2-simple-conducting-sheath"
-                if args.physical_wall_model == "simple-conducting-sheath"
-                else "no-flow-rung1"
-                if args.physical_wall_model == "no-flow"
-                else "legacy-compatibility"
+            "physical_wall_model_provenance": physical_wall_model_provenance,
+            "physical_wall_model_provenance_source": (
+                "simulate_hsx_blob.py:selector-derived"
             ),
             "parallel_velocity_wall_bc": str(
                 args.parallel_velocity_wall_bc
             ),
             "poisson_bracket_scheme": str(args.poisson_bracket_scheme),
+            "polarization_operator_form": str(
+                args.polarization_operator_form
+            ),
             "axis_treatment": (
                 "radius-dependent-angular-rlp"
                 if args.topology == "toroidal"
@@ -9179,7 +10600,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 )
             ),
         },
-        reconstruct_initial_phi=not restart_used,
+        reconstruct_initial_phi=(not restart_used) or bool(
+            args.reconstruct_restart_phi
+        ),
         neumann_ghost_scheme=str(args.neumann_ghost_scheme),
         parallel_velocity_wall_bc=str(args.parallel_velocity_wall_bc),
         physical_wall_model=str(args.physical_wall_model),
@@ -9189,6 +10612,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             else float(args.conducting_sheath_wall_potential)
         ),
         poisson_bracket_scheme=str(args.poisson_bracket_scheme),
+        polarization_operator_form=str(args.polarization_operator_form),
         parallel_material_scheme=(
             "production-path"
             if str(args.flux_framework) == "production-split"

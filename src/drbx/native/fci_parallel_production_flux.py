@@ -98,6 +98,95 @@ def _matvec(matrix: jnp.ndarray, value: jnp.ndarray) -> jnp.ndarray:
     return jnp.einsum("...ij,...j->...i", matrix, value)
 
 
+def _nonuniform_second_order_backward_derivative(
+    q0: jnp.ndarray,
+    qminus: jnp.ndarray,
+    qminus2: jnp.ndarray,
+    distance: Any,
+    second_distance: Any,
+) -> jnp.ndarray:
+    """Differentiate at ``q0`` using two nonuniform upstream samples.
+
+    ``distance`` is the distance from ``q0`` to ``qminus`` and
+    ``second_distance`` is the distance from ``qminus`` to ``qminus2``.  The
+    caller is responsible for deciding whether those data are valid; small
+    positive floors here only keep the unused/fallback branch finite under
+    JAX's eager evaluation of ``where`` operands.
+    """
+
+    q0, qminus, qminus2 = jnp.broadcast_arrays(
+        _as_state(q0), _as_state(qminus), _as_state(qminus2)
+    )
+    distance = jnp.maximum(jnp.abs(jnp.asarray(distance, dtype=jnp.float64)), _LOG_FLOOR)
+    second_distance = jnp.maximum(
+        jnp.abs(jnp.asarray(second_distance, dtype=jnp.float64)), _LOG_FLOOR
+    )
+    distance, second_distance = jnp.broadcast_arrays(distance, second_distance)
+    first_slope = (q0 - qminus) / distance[..., None]
+    second_slope = (qminus - qminus2) / second_distance[..., None]
+    total = distance + second_distance
+    return (
+        ((2.0 * distance + second_distance) / total)[..., None] * first_slope
+        - (distance / total)[..., None] * second_slope
+    )
+
+
+def _nonuniform_second_order_forward_derivative(
+    q0: jnp.ndarray,
+    qplus: jnp.ndarray,
+    qplus2: jnp.ndarray,
+    distance: Any,
+    second_distance: Any,
+) -> jnp.ndarray:
+    """Forward analogue of the nonuniform second-order upwind derivative."""
+
+    q0, qplus, qplus2 = jnp.broadcast_arrays(
+        _as_state(q0), _as_state(qplus), _as_state(qplus2)
+    )
+    distance = jnp.maximum(jnp.abs(jnp.asarray(distance, dtype=jnp.float64)), _LOG_FLOOR)
+    second_distance = jnp.maximum(
+        jnp.abs(jnp.asarray(second_distance, dtype=jnp.float64)), _LOG_FLOOR
+    )
+    distance, second_distance = jnp.broadcast_arrays(distance, second_distance)
+    first_slope = (qplus - q0) / distance[..., None]
+    second_slope = (qplus2 - qplus) / second_distance[..., None]
+    total = distance + second_distance
+    return (
+        ((2.0 * distance + second_distance) / total)[..., None] * first_slope
+        - (distance / total)[..., None] * second_slope
+    )
+
+
+def _nonuniform_quadratic_center_derivative(
+    qminus: jnp.ndarray,
+    q0: jnp.ndarray,
+    qplus: jnp.ndarray,
+    distance_minus: Any,
+    distance_plus: Any,
+) -> jnp.ndarray:
+    """Differentiate the quadratic through unequal immediate endpoints."""
+
+    qminus, q0, qplus = jnp.broadcast_arrays(
+        _as_state(qminus), _as_state(q0), _as_state(qplus)
+    )
+    distance_minus = jnp.maximum(
+        jnp.abs(jnp.asarray(distance_minus, dtype=jnp.float64)), _LOG_FLOOR
+    )
+    distance_plus = jnp.maximum(
+        jnp.abs(jnp.asarray(distance_plus, dtype=jnp.float64)), _LOG_FLOOR
+    )
+    distance_minus, distance_plus = jnp.broadcast_arrays(
+        distance_minus, distance_plus
+    )
+    backward = (q0 - qminus) / distance_minus[..., None]
+    forward = (qplus - q0) / distance_plus[..., None]
+    total = distance_minus + distance_plus
+    return (
+        distance_plus[..., None] * backward
+        + distance_minus[..., None] * forward
+    ) / total[..., None]
+
+
 def parallel_production_principal_matrix(
     density: Any,
     Te: Any,
@@ -1148,6 +1237,12 @@ def _material_directional_data(
         # candidate values.
         "backward_wall_projected_state": wall_minus,
         "forward_wall_projected_state": wall_plus,
+        # Preserve the physical model's raw candidate even when validation
+        # deliberately replaces the consumed endpoint with NaNs.  This is
+        # required to distinguish a non-finite trace from a finite but
+        # thermodynamically inadmissible boundary state.
+        "backward_physical_candidate_state": reported_backward_candidate,
+        "forward_physical_candidate_state": reported_forward_candidate,
         "backward_projected_state": minus_used,
         "forward_projected_state": plus_used,
         "backward_endpoint_state": minus_used,
@@ -1214,6 +1309,15 @@ def parallel_target_row_material_residual(
     forward_wall: Any = False,
     backward_wall_state: jnp.ndarray | None = None,
     forward_wall_state: jnp.ndarray | None = None,
+    spatial_order: int = 1,
+    minus2: jnp.ndarray | None = None,
+    plus2: jnp.ndarray | None = None,
+    dx_minus2: Any | None = None,
+    dx_plus2: Any | None = None,
+    backward_second_valid: Any = False,
+    forward_second_valid: Any = False,
+    backward_centered_closure: Any = False,
+    forward_centered_closure: Any = False,
     equilibrium: jnp.ndarray | None = None,
     parallel_characteristic_wall_law: str = "primitive-least-residual",
     div_b: Any = 0.0,
@@ -1229,7 +1333,7 @@ def parallel_target_row_material_residual(
 ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
     """Apply the live-face production material update to every mapped row.
 
-    The backward fluctuation is evaluated on the oriented path
+    With ``spatial_order=1``, the backward fluctuation is evaluated on the oriented path
     ``minus -> center`` and the forward fluctuation on ``center -> plus``:
 
     ``residual = -(D_plus_backward / dx_minus + D_minus_forward / dx_plus)``.
@@ -1245,8 +1349,32 @@ def parallel_target_row_material_residual(
     wall direction and never ordinary mapped legs.  Selected directions are
     omitted from this explicit material contribution; the caller can add them
     with :func:`parallel_short_wall_backward_euler`.  Each leg uses one
-    canonical face state and one live characteristic eigendecomposition.
+    canonical face state and one live characteristic eigendecomposition.  The
+    production material path explicitly selects ``spatial_order=2``.
+
+    ``spatial_order=2`` opts into a nonuniform second-order reconstruction.
+    On an ordinary backward/forward leg, ``minus2``/``plus2`` is the second
+    upstream state and ``dx_minus2``/``dx_plus2`` is its distance from the
+    immediate endpoint (not its cumulative distance from ``center``).  The
+    corresponding ``*_second_valid`` flag must also be true; unavailable,
+    non-finite, or degenerate data explicitly retain the original first-order
+    directional residual.  An explicit ``*_centered_closure`` flag permits an
+    ordinary direction next to a wall to use the unequal-spacing quadratic
+    through the two immediate endpoints instead of a missing second hop.  At
+    an immediate physical wall, the quadratic
+    through the resolved backward endpoint, center, and resolved forward
+    endpoint is used instead.  The second-order split is always evaluated
+    with ``A(center)``.  Selected short-wall legs retain their original
+    first-order implicit base.  The correction stays bounded for one shrinking
+    wall leg with its opposite fixed; frozen energy-wall IMEX damping covers
+    both short.  Reused ``resolved_wall_data`` with a different owner center
+    falls back to first order and reports ``wall_center_reconstruction_mismatch``.
     """
+    if spatial_order not in (1, 2):
+        raise ValueError(f"spatial_order must be 1 or 2, got {spatial_order!r}")
+    high_order_center, high_order_minus, high_order_plus = jnp.broadcast_arrays(
+        _as_state(center), _as_state(minus), _as_state(plus)
+    )
     div_b = jnp.asarray(div_b, dtype=jnp.float64)
     if resolved_wall_data is None:
         (
@@ -1294,6 +1422,8 @@ def parallel_target_row_material_residual(
     else:
         selected_backward = backward_wall & (backward_cfl > cfl_limit)
         selected_forward = forward_wall & (forward_cfl > cfl_limit)
+    backward_first_order_full = -backward_action / dxm_safe[..., None]
+    forward_first_order_full = -forward_action / dxp_safe[..., None]
     omit_backward = selected_backward | (
         backward_wall & jnp.asarray(omit_backward_wall, dtype=bool)
     )
@@ -1303,9 +1433,362 @@ def parallel_target_row_material_residual(
     backward_action = jnp.where(omit_backward[..., None], 0.0, backward_action)
     forward_action = jnp.where(omit_forward[..., None], 0.0, forward_action)
     residual = -(
-        backward_action / jnp.maximum(jnp.abs(dx_minus), _LOG_FLOOR)[..., None]
-        + forward_action / jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)[..., None]
+        backward_action / dxm_safe[..., None]
+        + forward_action / dxp_safe[..., None]
     )
+
+    false_mask = jnp.zeros_like(backward_wall, dtype=bool)
+    backward_high_order_valid = false_mask
+    forward_high_order_valid = false_mask
+    backward_high_order_fallback = false_mask
+    forward_high_order_fallback = false_mask
+    backward_centered_closure_used = false_mask
+    forward_centered_closure_used = false_mask
+    high_order_center_valid = jnp.all(jnp.isfinite(high_order_center), axis=-1)
+    backward_high_order_characteristic_valid = jnp.ones_like(false_mask)
+    forward_high_order_characteristic_valid = jnp.ones_like(false_mask)
+    high_order_characteristic_valid = jnp.ones_like(false_mask)
+    second_order_spectral_fallback = false_mask
+    wall_center_reconstruction_mismatch = false_mask
+    backward_reconstruction_correction = jnp.zeros_like(center)
+    forward_reconstruction_correction = jnp.zeros_like(center)
+    if spatial_order == 2:
+        # ``resolved_wall_data`` remains authoritative for the original
+        # first-order/implicit wall block and for wall endpoint targets.  The
+        # caller's states are independently authoritative for the desired
+        # second-order explicit reconstruction.
+        resolved_minus = _as_state(directional["backward_endpoint_state"])
+        resolved_plus = _as_state(directional["forward_endpoint_state"])
+        immediate_minus = jnp.where(
+            backward_wall[..., None], resolved_minus, high_order_minus
+        )
+        immediate_plus = jnp.where(
+            forward_wall[..., None], resolved_plus, high_order_plus
+        )
+        base_center = _as_state(center)
+        (
+            high_order_center,
+            base_center,
+            immediate_minus,
+            immediate_plus,
+        ) = jnp.broadcast_arrays(
+            high_order_center, base_center, immediate_minus, immediate_plus
+        )
+
+        minus2_present = minus2 is not None and dx_minus2 is not None
+        plus2_present = plus2 is not None and dx_plus2 is not None
+        second_minus = immediate_minus if minus2 is None else _as_state(minus2)
+        second_plus = immediate_plus if plus2 is None else _as_state(plus2)
+        second_minus = jnp.broadcast_to(second_minus, high_order_center.shape)
+        second_plus = jnp.broadcast_to(second_plus, high_order_center.shape)
+        row_shape = high_order_center.shape[:-1]
+        raw_dx_minus2 = (
+            jnp.ones(row_shape, dtype=jnp.float64)
+            if dx_minus2 is None
+            else jnp.asarray(dx_minus2, dtype=jnp.float64)
+        )
+        raw_dx_plus2 = (
+            jnp.ones(row_shape, dtype=jnp.float64)
+            if dx_plus2 is None
+            else jnp.asarray(dx_plus2, dtype=jnp.float64)
+        )
+        (
+            raw_dx_minus2,
+            raw_dx_plus2,
+            backward_second_valid_array,
+            forward_second_valid_array,
+            backward_centered_closure_array,
+            forward_centered_closure_array,
+        ) = jnp.broadcast_arrays(
+            raw_dx_minus2,
+            raw_dx_plus2,
+            jnp.asarray(backward_second_valid, dtype=bool),
+            jnp.asarray(forward_second_valid, dtype=bool),
+            jnp.asarray(backward_centered_closure, dtype=bool),
+            jnp.asarray(forward_centered_closure, dtype=bool),
+        )
+
+        def thermodynamic_state_valid(state: jnp.ndarray) -> jnp.ndarray:
+            return jnp.all(jnp.isfinite(state), axis=-1) & jnp.all(
+                state[..., :3] > positivity_floor, axis=-1
+            )
+
+        center_finite = jnp.all(jnp.isfinite(high_order_center), axis=-1)
+        center_admissible = thermodynamic_state_valid(high_order_center)
+        base_center_finite = jnp.all(jnp.isfinite(base_center), axis=-1)
+        immediate_minus_finite = jnp.all(jnp.isfinite(immediate_minus), axis=-1)
+        immediate_plus_finite = jnp.all(jnp.isfinite(immediate_plus), axis=-1)
+        second_minus_finite = jnp.all(jnp.isfinite(second_minus), axis=-1)
+        second_plus_finite = jnp.all(jnp.isfinite(second_plus), axis=-1)
+        immediate_minus_admissible = thermodynamic_state_valid(immediate_minus)
+        immediate_plus_admissible = thermodynamic_state_valid(immediate_plus)
+        second_minus_admissible = thermodynamic_state_valid(second_minus)
+        second_plus_admissible = thermodynamic_state_valid(second_plus)
+        dx_minus_valid = jnp.isfinite(dx_minus) & (jnp.abs(dx_minus) > _LOG_FLOOR)
+        dx_plus_valid = jnp.isfinite(dx_plus) & (jnp.abs(dx_plus) > _LOG_FLOOR)
+        dx_minus2_valid = jnp.isfinite(raw_dx_minus2) & (
+            jnp.abs(raw_dx_minus2) > _LOG_FLOOR
+        )
+        dx_plus2_valid = jnp.isfinite(raw_dx_plus2) & (
+            jnp.abs(raw_dx_plus2) > _LOG_FLOOR
+        )
+        wall_row = backward_wall | forward_wall
+        centers_equal = jnp.all(high_order_center == base_center, axis=-1)
+        wall_center_reconstruction_mismatch = wall_row & ~centers_equal
+        # Legacy projected energy-wall endpoints are not necessarily complete
+        # positive primitive states.  Preserve that wall contract, while an
+        # ordinary endpoint used by the quadratic must be admissible.
+        wall_minus_endpoint_valid = immediate_minus_finite & jnp.where(
+            backward_wall, True, immediate_minus_admissible
+        )
+        wall_plus_endpoint_valid = immediate_plus_finite & jnp.where(
+            forward_wall, True, immediate_plus_admissible
+        )
+        centered_wall_valid = (
+            center_admissible
+            & base_center_finite
+            & ~wall_center_reconstruction_mismatch
+            & wall_minus_endpoint_valid
+            & wall_plus_endpoint_valid
+            & dx_minus_valid
+            & dx_plus_valid
+        )
+        centered_ordinary_valid = (
+            center_admissible
+            & immediate_minus_admissible
+            & immediate_plus_admissible
+            & dx_minus_valid
+            & dx_plus_valid
+        )
+        backward_second_upstream_valid = (
+            minus2_present
+            & backward_second_valid_array
+            & center_admissible
+            & immediate_minus_admissible
+            & second_minus_admissible
+            & dx_minus_valid
+            & dx_minus2_valid
+        )
+        forward_second_upstream_valid = (
+            plus2_present
+            & forward_second_valid_array
+            & center_admissible
+            & immediate_plus_admissible
+            & second_plus_admissible
+            & dx_plus_valid
+            & dx_plus2_valid
+        )
+        backward_centered_closure_used = (
+            ~backward_wall
+            & backward_centered_closure_array
+            & centered_ordinary_valid
+        )
+        forward_centered_closure_used = (
+            ~forward_wall
+            & forward_centered_closure_array
+            & centered_ordinary_valid
+        )
+        backward_ordinary_valid = jnp.where(
+            backward_centered_closure_array,
+            centered_ordinary_valid,
+            backward_second_upstream_valid,
+        )
+        forward_ordinary_valid = jnp.where(
+            forward_centered_closure_array,
+            centered_ordinary_valid,
+            forward_second_upstream_valid,
+        )
+        backward_high_order_valid = jnp.where(
+            backward_wall, centered_wall_valid, backward_ordinary_valid
+        )
+        forward_high_order_valid = jnp.where(
+            forward_wall, centered_wall_valid, forward_ordinary_valid
+        )
+        backward_high_order_fallback = ~backward_high_order_valid
+        forward_high_order_fallback = ~forward_high_order_valid
+        high_order_center_valid = center_admissible
+
+        # Sanitize only the eagerly evaluated, subsequently masked branch.
+        # The validity masks above ensure these placeholders can never be
+        # reported as a successful second-order reconstruction.
+        default_state = jnp.asarray(
+            (1.0, 1.0, 1.0, 0.0, 0.0), dtype=jnp.float64
+        )
+        center_for_calculation = jnp.where(
+            center_admissible[..., None], high_order_center, default_state
+        )
+        base_center_for_calculation = jnp.where(
+            base_center_finite[..., None], base_center, default_state
+        )
+        minus_for_calculation = jnp.where(
+            immediate_minus_finite[..., None], immediate_minus, center_for_calculation
+        )
+        plus_for_calculation = jnp.where(
+            immediate_plus_finite[..., None], immediate_plus, center_for_calculation
+        )
+        minus2_for_calculation = jnp.where(
+            second_minus_finite[..., None], second_minus, minus_for_calculation
+        )
+        plus2_for_calculation = jnp.where(
+            second_plus_finite[..., None], second_plus, plus_for_calculation
+        )
+        dx_minus2_for_calculation = jnp.where(
+            dx_minus2_valid, jnp.abs(raw_dx_minus2), 1.0
+        )
+        dx_plus2_for_calculation = jnp.where(
+            dx_plus2_valid, jnp.abs(raw_dx_plus2), 1.0
+        )
+
+        backward_ordinary_derivative = _nonuniform_second_order_backward_derivative(
+            center_for_calculation,
+            minus_for_calculation,
+            minus2_for_calculation,
+            dx_minus,
+            dx_minus2_for_calculation,
+        )
+        forward_ordinary_derivative = _nonuniform_second_order_forward_derivative(
+            center_for_calculation,
+            plus_for_calculation,
+            plus2_for_calculation,
+            dx_plus,
+            dx_plus2_for_calculation,
+        )
+        centered_ordinary_derivative = _nonuniform_quadratic_center_derivative(
+            minus_for_calculation,
+            center_for_calculation,
+            plus_for_calculation,
+            dx_minus,
+            dx_plus,
+        )
+        backward_ordinary_derivative = jnp.where(
+            backward_centered_closure_used[..., None],
+            centered_ordinary_derivative,
+            backward_ordinary_derivative,
+        )
+        forward_ordinary_derivative = jnp.where(
+            forward_centered_closure_used[..., None],
+            centered_ordinary_derivative,
+            forward_ordinary_derivative,
+        )
+        first_backward_derivative = (
+            base_center_for_calculation - minus_for_calculation
+        ) / dxm_safe[..., None]
+        first_forward_derivative = (
+            plus_for_calculation - base_center_for_calculation
+        ) / dxp_safe[..., None]
+
+        high_order_basis = _spectral_basis(
+            parallel_matrix_from_state(center_for_calculation, tau, mu),
+            eigenvalue_tolerance=eigenvalue_tolerance,
+            max_condition=max_condition,
+        )
+        base_center_basis = _spectral_basis(
+            parallel_matrix_from_state(base_center_for_calculation, tau, mu),
+            eigenvalue_tolerance=eigenvalue_tolerance,
+            max_condition=max_condition,
+        )
+        high_order_center_spectral_valid = high_order_basis[3] & center_admissible
+        base_center_spectral_valid = base_center_basis[3] & base_center_finite
+        backward_high_order_characteristic_valid = jnp.where(
+            backward_wall,
+            base_center_spectral_valid,
+            high_order_center_spectral_valid,
+        )
+        forward_high_order_characteristic_valid = jnp.where(
+            forward_wall,
+            base_center_spectral_valid,
+            high_order_center_spectral_valid,
+        )
+        high_order_characteristic_valid = (
+            backward_high_order_characteristic_valid
+            & forward_high_order_characteristic_valid
+        )
+        second_order_spectral_fallback = (
+            (backward_high_order_valid & ~backward_high_order_characteristic_valid)
+            | (forward_high_order_valid & ~forward_high_order_characteristic_valid)
+        )
+        backward_second_action, _, _ = _live_characteristic_leg_action(
+            center_for_calculation,
+            backward_ordinary_derivative,
+            tau,
+            mu,
+            1.0,
+            branch="plus",
+            eigenvalue_tolerance=eigenvalue_tolerance,
+            max_condition=max_condition,
+            basis=high_order_basis,
+        )
+        forward_second_action, _, _ = _live_characteristic_leg_action(
+            center_for_calculation,
+            forward_ordinary_derivative,
+            tau,
+            mu,
+            1.0,
+            branch="minus",
+            eigenvalue_tolerance=eigenvalue_tolerance,
+            max_condition=max_condition,
+            basis=high_order_basis,
+        )
+        backward_second_full = -backward_second_action
+        forward_second_full = -forward_second_action
+
+        # Form the wall derivative differences directly.  These expressions
+        # are algebraically equal to D_quadratic-D_first but avoid subtracting
+        # two O(1/h_wall) quantities when an endpoint is very close.
+        wall_distance_total = dxm_safe + dxp_safe
+        backward_wall_derivative_correction = (
+            dxm_safe / wall_distance_total
+        )[..., None] * (first_forward_derivative - first_backward_derivative)
+        forward_wall_derivative_correction = (
+            dxp_safe / wall_distance_total
+        )[..., None] * (first_backward_derivative - first_forward_derivative)
+        backward_wall_delta_action, _, _ = _live_characteristic_leg_action(
+            base_center_for_calculation,
+            backward_wall_derivative_correction,
+            tau,
+            mu,
+            1.0,
+            branch="plus",
+            eigenvalue_tolerance=eigenvalue_tolerance,
+            max_condition=max_condition,
+            basis=base_center_basis,
+        )
+        forward_wall_delta_action, _, _ = _live_characteristic_leg_action(
+            base_center_for_calculation,
+            forward_wall_derivative_correction,
+            tau,
+            mu,
+            1.0,
+            branch="minus",
+            eigenvalue_tolerance=eigenvalue_tolerance,
+            max_condition=max_condition,
+            basis=base_center_basis,
+        )
+        backward_candidate_correction = jnp.where(
+            backward_wall[..., None],
+            -backward_wall_delta_action,
+            backward_second_full - backward_first_order_full,
+        )
+        forward_candidate_correction = jnp.where(
+            forward_wall[..., None],
+            -forward_wall_delta_action,
+            forward_second_full - forward_first_order_full,
+        )
+        backward_reconstruction_correction = jnp.where(
+            backward_high_order_valid[..., None],
+            backward_candidate_correction,
+            0.0,
+        )
+        forward_reconstruction_correction = jnp.where(
+            forward_high_order_valid[..., None],
+            forward_candidate_correction,
+            0.0,
+        )
+        residual = (
+            residual
+            + backward_reconstruction_correction
+            + forward_reconstruction_correction
+        )
     backward_valid_live = directional["backward_valid"]
     forward_valid_live = directional["forward_valid"]
     backward_clipped = directional["backward_clipped"]
@@ -1313,9 +1796,18 @@ def parallel_target_row_material_residual(
     backward_candidate_fallback = directional["backward_candidate_fallback"]
     forward_candidate_fallback = directional["forward_candidate_fallback"]
 
-    density, Te, Ti, Vi, Ve = [center[..., i] for i in range(STATE_SIZE)]
+    if spatial_order == 2:
+        use_high_order_source = (
+            high_order_center_valid & ~wall_center_reconstruction_mismatch
+        )
+        source_center = jnp.where(
+            use_high_order_source[..., None], high_order_center, center
+        )
+    else:
+        source_center = center
+    density, Te, Ti, Vi, Ve = [source_center[..., i] for i in range(STATE_SIZE)]
     current = density * (Vi - Ve)
-    geometric = jnp.zeros_like(center)
+    geometric = jnp.zeros_like(source_center)
     geometric = geometric.at[..., 0].set(-density * Ve * div_b)
     geometric = geometric.at[..., 1].set(
         (2.0 * Te / (3.0 * jnp.maximum(density, _LOG_FLOOR)))
@@ -1332,7 +1824,36 @@ def parallel_target_row_material_residual(
         "forward_wall": forward_wall,
         "wall_row": backward_wall | forward_wall,
         "ordinary_row": ~(backward_wall | forward_wall),
-        "spectral_fallback": ~backward_valid_live | ~forward_valid_live,
+        "spatial_order": jnp.full_like(
+            backward_wall, spatial_order, dtype=jnp.int32
+        ),
+        "backward_high_order_valid": backward_high_order_valid,
+        "forward_high_order_valid": forward_high_order_valid,
+        "backward_high_order_fallback": backward_high_order_fallback,
+        "forward_high_order_fallback": forward_high_order_fallback,
+        "backward_centered_closure_used": backward_centered_closure_used,
+        "forward_centered_closure_used": forward_centered_closure_used,
+        "high_order_center_valid": high_order_center_valid,
+        "backward_high_order_characteristic_valid": (
+            backward_high_order_characteristic_valid
+        ),
+        "forward_high_order_characteristic_valid": (
+            forward_high_order_characteristic_valid
+        ),
+        "high_order_characteristic_valid": high_order_characteristic_valid,
+        "second_order_spectral_fallback": second_order_spectral_fallback,
+        "wall_center_reconstruction_mismatch": (
+            wall_center_reconstruction_mismatch
+        ),
+        # Exact additions to the explicit residual, in residual units.  These
+        # remain present (and zero) for the API-compatible first-order path.
+        "backward_reconstruction_correction": backward_reconstruction_correction,
+        "forward_reconstruction_correction": forward_reconstruction_correction,
+        "spectral_fallback": (
+            ~backward_valid_live
+            | ~forward_valid_live
+            | second_order_spectral_fallback
+        ),
         "backward_clipped": backward_clipped,
         "forward_clipped": forward_clipped,
         "positivity_fallback": backward_clipped | forward_clipped,
@@ -1351,6 +1872,9 @@ def parallel_target_row_material_residual(
         "wall_spectral_fallback": (~backward_valid_live & backward_wall) | (~forward_valid_live & forward_wall),
         "fallback": (
             (~backward_valid_live | ~forward_valid_live)
+            | second_order_spectral_fallback
+            | backward_high_order_fallback
+            | forward_high_order_fallback
             | backward_clipped | forward_clipped
             | backward_candidate_fallback | forward_candidate_fallback
             | (
@@ -1372,6 +1896,9 @@ def parallel_target_row_material_residual(
         ),
         "admissible": (
             backward_valid_live & forward_valid_live
+            & ~second_order_spectral_fallback
+            & ~backward_high_order_fallback
+            & ~forward_high_order_fallback
             & ~backward_clipped & ~forward_clipped
             & ~backward_candidate_fallback & ~forward_candidate_fallback
             & ~(

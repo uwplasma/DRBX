@@ -70,10 +70,13 @@ class SolvaxGmresConfig:
             "line-u",
             "line-v",
             "line-uv",
+            "coarse-additive",
+            "coarse-multiplicative",
         ):
             raise ValueError(
                 "SolvaxGmresConfig.preconditioner must be one of "
-                "'none', 'jacobi', 'line-u', 'line-v', or 'line-uv'"
+                "'none', 'jacobi', 'line-u', 'line-v', 'line-uv', "
+                "'coarse-additive', or 'coarse-multiplicative'"
             )
         object.__setattr__(self, "tol", float(self.tol))
         object.__setattr__(self, "atol", float(self.atol))
@@ -526,18 +529,41 @@ def solvax_gmres_solve(
                 active_mask,
             )
 
-    result = solvax_gmres(
-        masked_apply_A,
-        rhs,
-        x0=guess,
-        precond=effective_preconditioner,
-        inner_product=global_inner_product,
-        restart=restart,
-        rtol=float(config.tol),
-        atol=float(config.atol),
-        max_restarts=max_restarts,
+    # SOLVAX normalizes the first Arnoldi vector.  For an already-solved
+    # state that vector is exactly zero, so entering Arnoldi would create a
+    # spurious breakdown even though the requested solution is already
+    # available.  Keep this branch JAX-safe: both branches are traced, but
+    # the SOLVAX iteration is not executed when the independently measured
+    # initial residual is within the strict solve threshold.
+    initially_done = jnp.isfinite(initial_residual) & (
+        initial_residual <= threshold
     )
-    phi = _mask_inactive_owned(result.x, active_mask)
+
+    def run_gmres(_unused):
+        result = solvax_gmres(
+            masked_apply_A,
+            rhs,
+            x0=guess,
+            precond=effective_preconditioner,
+            inner_product=global_inner_product,
+            restart=restart,
+            rtol=float(config.tol),
+            atol=float(config.atol),
+            max_restarts=max_restarts,
+        )
+        return _mask_inactive_owned(result.x, active_mask), jnp.asarray(
+            result.iterations, dtype=jnp.int32
+        )
+
+    def skip_gmres(_unused):
+        return guess, jnp.asarray(0, dtype=jnp.int32)
+
+    phi, total_iterations = lax.cond(
+        ~initially_done,
+        run_gmres,
+        skip_gmres,
+        operand=jnp.asarray(0, dtype=jnp.int32),
+    )
     if config.project_mean_zero:
         phi = _spmd_remove_weighted_mean(
             phi, geometry, domain, active_mask, volume_weights
@@ -549,8 +575,6 @@ def solvax_gmres_solve(
         active_mask,
         volume_weights,
     )
-    total_iterations = jnp.asarray(result.iterations, dtype=jnp.int32)
-
     # A long flexible Arnoldi cycle can report a small projected residual
     # while the independently recomputed physical residual remains above the
     # configured acceptance floor.  Only in that otherwise-rejected case,

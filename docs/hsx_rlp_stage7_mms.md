@@ -235,6 +235,17 @@ initial fixed 64-grid evaluator uses this cache; each resolution-local build
 reuses the in-memory `metric_context`. Add `--rebuild-metric-cache` only when
 deliberately regenerating that fixed evaluator.
 
+Metric-cache identity is independent of checkout location and file mtimes. It
+uses the metric numerical options, content fingerprints for the MAKEGRID and
+vessel inputs, and the explicit `METRIC_BUILDER_REVISION` contract in
+`simulate_hsx_blob.py`. Bump that revision when metric fitting or wall
+coordinate numerics change; unrelated source edits do not invalidate the
+cache. FCI maps carry a separate `FCI_MAP_TRACER_REVISION`, so tracer changes
+invalidate/retrace maps without refitting the metric. Existing format-7 metric
+caches remain discoverable by matching their numerical options and input
+sizes, and copied caches no longer invalidate the derived polar-agglomeration
+host geometry merely because their path or mtime changed.
+
 ```bash
 mkdir -p work/stage7_mms
 PYTHONPATH=src python3 simulate_hsx_mms.py \

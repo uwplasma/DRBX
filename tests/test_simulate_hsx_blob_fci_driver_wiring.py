@@ -537,3 +537,137 @@ def test_production_split_metadata_contract_is_recorded():
     assert '"canonical-face-state"' in source
     assert '"fixed production method"' in source
     assert "DRBX_PRODUCTION_CHARACTERISTIC_SOLVER" not in source
+
+
+def test_initial_phi_reconstruction_fails_fast_when_gmres_does_not_accept(
+    monkeypatch,
+    tmp_path,
+):
+    hsx = _driver_module()
+    real_make_shard_mesh = hsx.make_shard_mesh
+
+    def _replace(value, **changes):
+        payload = dict(vars(value))
+        payload.update(changes)
+        return SimpleNamespace(**payload)
+
+    monkeypatch.setattr(hsx, "replace", _replace)
+    monkeypatch.setattr(hsx, "make_shard_mesh", lambda counts: real_make_shard_mesh(counts))
+    layout = SimpleNamespace(halo_width=2)
+    domain = SimpleNamespace(
+        layout=layout,
+        periodic_axes=(False, True, True),
+        axis_regular_axes=(True, False, False),
+        mesh_axis_names=("x", "y", "z"),
+    )
+    global_geometry = SimpleNamespace(shape=(1, 1, 1))
+    sharded_geometry = SimpleNamespace(
+        global_shape=(1, 1, 1),
+        shard_counts=(1, 1, 1),
+        maps_valid=True,
+        map_fields=np.zeros((1, 1, 1, len(hsx.FCI_MAP_FIELDS)), dtype=np.float64),
+        cell_fields=np.zeros((1, 1, 1, 1), dtype=np.float64),
+        domain=domain,
+    )
+    monkeypatch.setattr(
+        hsx,
+        "build_local_fci_geometries",
+        lambda *args, **kwargs: SimpleNamespace(
+            domain=SimpleNamespace(mesh_axis_names=("x", "y", "z"))
+        ),
+    )
+    monkeypatch.setattr(
+        hsx,
+        "assemble_single_device_local_fci_geometry",
+        lambda *_args, **_kwargs: SimpleNamespace(layout=layout),
+    )
+    monkeypatch.setattr(
+        hsx,
+        "build_local_curvature_face_coefficients",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            axes=(
+                np.ones((2, 1, 1), dtype=np.float64),
+                np.ones((1, 2, 1), dtype=np.float64),
+                np.ones((1, 1, 2), dtype=np.float64),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        hsx,
+        "LocalCurvatureFaceCoefficients3D",
+        lambda **kwargs: SimpleNamespace(
+            axes=(kwargs["x"], kwargs["y"], kwargs["z"]),
+            **kwargs,
+        ),
+    )
+    monkeypatch.setattr(
+        hsx,
+        "assemble_local_fci_geometry",
+        lambda *_args, **_kwargs: SimpleNamespace(layout=layout),
+    )
+
+    info = SimpleNamespace(
+        num_steps=1000,
+        final_residual_rel_l2=1.0e-2,
+        failed=True,
+        converged=False,
+    )
+
+    class _FakeModel:
+        def reconstruct_phi(self, _state, *, return_diagnostics=False):
+            assert return_diagnostics
+            return np.zeros((1, 1, 1), dtype=np.float64), info
+
+    monkeypatch.setattr(hsx, "build_local_eb_model", lambda *_a, **_k: _FakeModel())
+
+    state = hsx.FciDrbEBState(
+        density=np.ones((1, 1, 1), dtype=np.float64),
+        phi=np.zeros((1, 1, 1), dtype=np.float64),
+        Te=np.ones((1, 1, 1), dtype=np.float64),
+        Ti=np.ones((1, 1, 1), dtype=np.float64),
+        Vi=np.zeros((1, 1, 1), dtype=np.float64),
+        Ve=np.zeros((1, 1, 1), dtype=np.float64),
+        vorticity=np.zeros((1, 1, 1), dtype=np.float64),
+    )
+    parameters = hsx.FciDrbEBRhsParameters(
+        parallel_characteristic_wall_law="physical-boundary-state"
+    )
+
+    with pytest.raises(FloatingPointError, match="initial phi reconstruction"):
+        hsx.run_full_eb(
+            state,
+            global_geometry=global_geometry,
+            cell_positions=np.zeros((1, 1, 1, 3), dtype=np.float64),
+            nfp=1,
+            sharded_geometry=sharded_geometry,
+            mesh=real_make_shard_mesh((1, 1, 1)),
+            parameters=parameters,
+            metric_cache_path=None,
+            gmres_target_tolerance=1.0e-8,
+            gmres_acceptance_tolerance=5.0e-5,
+            gmres_max_iterations=10,
+            gmres_restart=10,
+            gmres_preconditioner="none",
+            time_integrator="rk4",
+            advance_execution="compiled",
+            num_steps=1,
+            timestep=1.0e-4,
+            start_time=0.0,
+            output_path=tmp_path / "out.npz",
+            save_every=1,
+            phase_timing=False,
+            reconstruct_initial_phi=True,
+            parallel_operator_scheme="fci",
+            parallel_material_scheme="production-path",
+            physical_wall_model="no-flow",
+        )
+
+
+def test_rk_stage_diagnostics_have_explicit_finite_bit_gate():
+    hsx = _driver_module()
+    diagnostics = np.ones((5, 7, 5), dtype=np.float64)
+    diagnostics[2, 3, 4] = 0.0
+    assert not hsx._rk_stage_diagnostics_have_finite_bit(diagnostics)
+
+    diagnostics[2, 3, 4] = 1.0
+    assert hsx._rk_stage_diagnostics_have_finite_bit(diagnostics)

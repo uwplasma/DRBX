@@ -111,11 +111,20 @@ def test_production_guards_prevent_incompatible_legacy_paths():
 def test_production_path_builds_all_five_dense_mapped_rows():
     start = SOURCE.index('if self.parallel_material_scheme == "production-path":')
     end = SOURCE.index('        result = {', start)
-    block = SOURCE[start:end]
+    helper_start = SOURCE.index("def _fci_parallel_characteristic_wall_data")
+    helper_end = SOURCE.index("    def _fci_parallel_terms", helper_start)
+    block = SOURCE[start:end] + SOURCE[helper_start:helper_end]
     assert "parallel_target_row_material_residual(" in block
     assert "backward_wall=backward_wall" in block
     assert "forward_wall=forward_wall" in block
-    assert "resolve_fci_material_wall_endpoint_state(" in block
+    # Wall endpoint construction is factored into the shared helper used by
+    # both the production RHS and the Rung-3 startup initializer.
+    assert "_fci_parallel_characteristic_wall_data(" in SOURCE
+    assert (
+        'for name in ("density", "Te", "Ti", "Vi", "Ve", "phi")'
+        in block
+    )
+    assert 'for name in ("density", "Te", "Ti", "Vi", "Ve")' in block
     assert "backward_wall_state=backward_wall_state" in block
     assert "forward_wall_state=forward_wall_state" in block
     assert "endpoint_b_contra_x" in block

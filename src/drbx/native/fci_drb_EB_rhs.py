@@ -62,10 +62,13 @@ from .fci_operators import (
     local_poisson_bracket_op_from_gradients,
     expand_local_control_volume_owner_field,
     aggregate_local_control_volume_average,
+    local_control_volume_diffusion_cell_volume,
+    local_control_volume_projected_fine_cell_volume,
+    reconstruct_local_control_volume_poisson_field,
     _mask_inactive_owned,
     _mask_state_inactive_owned,
 )
-from .fci_gmres import SolvaxGmresConfig, SolvaxGmresInfo
+from .fci_gmres import SolvaxGmresConfig, SolvaxGmresInfo, _spmd_sum
 from .fci_support_pair import build_weighted_negative_adjoint
 from .fci_parallel_production_flux import (
     parallel_characteristic_wall_data,
@@ -73,7 +76,12 @@ from .fci_parallel_production_flux import (
     parallel_target_row_material_residual,
     parallel_vorticity_upwind_residual,
 )
-from .fci_physical_wall import resolve_fci_material_wall_endpoint_state
+from .fci_rlp_diffusion import apply_rlp_cell_average_prolongation
+from .fci_physical_wall import (
+    equilibrium_warm_ion_floating_sheath_drop,
+    resolve_fci_material_wall_endpoint_state,
+    warm_ion_floating_sheath_face_potential_target,
+)
 
 
 @jax.tree_util.register_pytree_node_class
@@ -904,6 +912,8 @@ class LocalFciDrbEBRhs:
     conducting_sheath_wall_potential: float | None = None
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None
     control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None = None
+    # Optional setup-time factorized coarse correction for support-paired RLP.
+    polarization_coarse_data: object | None = None
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False)
     # Complete five-field parallel material flux.  ``legacy`` preserves the
     # existing mapped operators; ``production-path`` uses one canonical-face
@@ -925,6 +935,14 @@ class LocalFciDrbEBRhs:
     # upwinding for the five material equations and applies the compatible
     # core plus the same physical-generator correction only to vorticity.
     poisson_bracket_scheme: str = "direct"
+    # Discrete Boussinesq polarization operator.  Angular-RLP ``conservative``
+    # uses the reconstruction-matched weak action while retaining the ordinary
+    # fine-grid conservative fluxes.  ``weighted-symmetric`` uses the owner-
+    # volume weighted self-adjoint part.  ``support-paired`` instead constructs
+    # the homogeneous action directly as G^dagger W G.  Affine boundary data
+    # are split and added once.  The same selection is applied to evolved
+    # diffusion, phi, Ti, and polarization diagnostics.
+    polarization_operator_form: str = "conservative"
     # Select the parallel operator family.  This is intentionally a static
     # Python option so JIT compilation cannot silently mix coordinate and FCI
     # discretizations within one compiled RHS.
@@ -937,6 +955,13 @@ class LocalFciDrbEBRhs:
         default_factory=lambda: os.environ.get(
             "DRBX_PARALLEL_FLUX_PAIRING", "legacy"
         )
+    )
+    # Explicit opt-in prototype; the driver defaults to the reference pair.
+    # Pair the complete live generalized-potential gradient with current
+    # divergence, retaining the canonical characteristic endpoint injection.
+    # Its induced wall-work trace is not yet qualified as physical quadrature.
+    parallel_current_pairing: str = field(
+        default_factory=lambda: os.environ.get("DRBX_PARALLEL_CURRENT_PAIRING", "reference")
     )
     # Boundary composition for the support-core phi/current pair.  ``legacy``
     # retains the former independent wall-row closures for replay ablation;
@@ -993,6 +1018,7 @@ class LocalFciDrbEBRhs:
             "legacy-velocity-trace",
             "no-flow",
             "simple-conducting-sheath",
+            "simplified-gbs-mpe",
         ):
             raise ValueError(
                 "physical_wall_model_name must identify a supported physical "
@@ -1011,6 +1037,16 @@ class LocalFciDrbEBRhs:
                 "'material-scalar-third-order-upwind', or "
                 "'material-scalar-vorticity-compatible-upwind', got "
                 f"{self.poisson_bracket_scheme!r}"
+            )
+        if self.polarization_operator_form not in (
+            "conservative",
+            "weighted-symmetric",
+            "support-paired",
+        ):
+            raise ValueError(
+                "polarization_operator_form must be 'conservative', "
+                "'weighted-symmetric', or 'support-paired', got "
+                f"{self.polarization_operator_form!r}"
             )
         has_cv = self.control_volume_geometry is not None
         if has_cv != (self.control_volume_boundary_bc is not None):
@@ -1092,6 +1128,19 @@ class LocalFciDrbEBRhs:
             raise ValueError(
                 "parallel_flux_pairing must be 'legacy' or 'support-core', got "
                 f"{self.parallel_flux_pairing!r}"
+            )
+        if self.parallel_current_pairing not in ("reference", "live-gradient-prototype"):
+            raise ValueError("unknown parallel_current_pairing")
+        if self.parallel_current_pairing == "live-gradient-prototype" and (
+            self.parallel_operator_scheme != "fci"
+            or self.parallel_flux_pairing != "support-core"
+            or self.parallel_material_scheme != "production-path"
+            or self.parallel_boundary_pairing != "characteristic-sat"
+            or self.physical_wall_model_name != "simplified-gbs-mpe"
+        ):
+            raise ValueError(
+                "live-gradient-prototype requires FCI support-core, production-path, "
+                "characteristic-sat, and simplified-gbs-mpe Neumann wall closure"
             )
         if self.parallel_boundary_pairing not in (
             "legacy", "current-phi", "characteristic-sat"
@@ -1275,6 +1324,10 @@ class LocalFciDrbEBRhs:
                 characteristic_scheme=characteristic_scheme,
                 g_field_halo=g_field_halo,
                 g_positivity_floor=g_positivity_floor,
+                cell_volume=local_control_volume_projected_fine_cell_volume(
+                    self.geometry,
+                    getattr(self, "control_volume_geometry", None),
+                ),
             )
         bmag = jnp.maximum(
             jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
@@ -1287,11 +1340,364 @@ class LocalFciDrbEBRhs:
         ) / bmag
 
     def _face_bcs(self, state_owned: FciDrbEBState) -> LocalFciDrbEBFaceBCBundle:
-        return self.face_bc_builder(
-            state_owned,
+        # Wall laws are evaluated on the fine-grid representation.  In RLP
+        # mode the evolved state is owner-space storage: merged source slots
+        # are intentionally sparse (and may contain stale/non-finite values
+        # in callers constructing diagnostic states).  Expand only canonical
+        # active-owner values before handing the state to a physical wall
+        # model, so a wall face can never read an alias slot directly.
+        # Call the implementation directly so lightweight test/integration
+        # stubs that exercise ``_face_bcs`` need not duplicate this helper.
+        wall_state = LocalFciDrbEBRhs._materialized_wall_state(self, state_owned)
+        if self.physical_wall_model_name == "simplified-gbs-mpe":
+            def topology_halo(values):
+                halo = inject_owned_field_to_halo(values, self.domain.layout)
+                if self.halo_exchange is not None:
+                    halo = self.halo_exchange(halo, self.domain)
+                if self.topology_filler is not None:
+                    halo = self.topology_filler(halo, self.domain)
+                return halo
+
+            topology_halos = {
+                name: topology_halo(getattr(wall_state, name))
+                for name in ("density", "phi", "Vi", "Te", "Ti")
+            }
+            face_bc = self.face_bc_builder(
+                wall_state,
+                self.geometry,
+                self.domain,
+                self.parameters,
+                topology_halos=topology_halos,
+            )
+        else:
+            face_bc = self.face_bc_builder(
+                wall_state,
+                self.geometry,
+                self.domain,
+                self.parameters,
+            )
+            return face_bc
+
+        phi_bc = face_bc.phi
+        phi_neumann = replace(
+            phi_bc,
+            kind_x=jnp.where(phi_bc.mask_x, BC_NEUMANN, phi_bc.kind_x),
+            kind_y=jnp.where(phi_bc.mask_y, BC_NEUMANN, phi_bc.kind_y),
+            kind_z=jnp.where(phi_bc.mask_z, BC_NEUMANN, phi_bc.kind_z),
+        )
+        vorticity_bc = replace(
+            face_bc.vorticity,
+            kind_x=jnp.where(
+                face_bc.vorticity.mask_x, BC_NEUMANN, face_bc.vorticity.kind_x
+            ),
+            kind_y=jnp.where(
+                face_bc.vorticity.mask_y, BC_NEUMANN, face_bc.vorticity.kind_y
+            ),
+            kind_z=jnp.where(
+                face_bc.vorticity.mask_z, BC_NEUMANN, face_bc.vorticity.kind_z
+            ),
+        )
+        return replace(face_bc, phi=phi_neumann, vorticity=vorticity_bc)
+
+    def _materialized_wall_state(self, state_owned: FciDrbEBState) -> FciDrbEBState:
+        """Return the fine-grid state used by physical wall closures.
+
+        RLP state arrays are stored in canonical owner space.  Materializing
+        through ``owner_i/j/k`` is required before a wall model evaluates
+        boundary owners or derivatives; zeroing merged sources alone is not
+        sufficient because it leaves their fine-grid faces at zero.  Exchange
+        the owner halo first so remote owners remain valid on eta-sharded
+        layouts.
+        """
+
+        owner_state = LocalFciDrbEBRhs._owner_state(self, state_owned)
+        if self.control_volume_geometry is None:
+            return owner_state
+        cells = self.control_volume_geometry.cells
+
+        def materialize(values: jnp.ndarray) -> jnp.ndarray:
+            values = self._owner_field(values)
+            owner_halo = inject_owned_field_to_halo(values, self.domain.layout)
+            if self.halo_exchange is not None:
+                owner_halo = self.halo_exchange(owner_halo, self.domain)
+            return expand_local_control_volume_owner_field(
+                values,
+                cells,
+                owner_values_halo=owner_halo,
+            )
+
+        return owner_state.replace(
+            density=materialize(owner_state.density),
+            phi=materialize(owner_state.phi),
+            Te=materialize(owner_state.Te),
+            Ti=materialize(owner_state.Ti),
+            Vi=materialize(owner_state.Vi),
+            Ve=materialize(owner_state.Ve),
+            vorticity=materialize(owner_state.vorticity),
+        )
+
+    def _effective_physical_wall_model_name(self) -> str:
+        """Return the resolver name used by the existing wall module."""
+
+        if self.physical_wall_model_name == "simplified-gbs-mpe":
+            return "simple-conducting-sheath"
+        return self.physical_wall_model_name
+
+    def _simplified_gbs_mpe_phi_gauge_data(
+        self,
+        state_owned: FciDrbEBState,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Return wall-area gauge weights, affine offset, and target."""
+
+        phi_face_bc = face_bc.phi
+        regular = self.geometry.regular_face_geometry
+        active_area_x = (
+            jnp.asarray(phi_face_bc.mask_x, dtype=jnp.float64)
+            * jnp.asarray(regular.x_area, dtype=jnp.float64)
+            * jnp.asarray(regular.x_area_fraction, dtype=jnp.float64)
+            * jnp.asarray(regular.x_open_mask, dtype=jnp.float64)
+        )
+        active_area_y = (
+            jnp.asarray(phi_face_bc.mask_y, dtype=jnp.float64)
+            * jnp.asarray(regular.y_area, dtype=jnp.float64)
+            * jnp.asarray(regular.y_area_fraction, dtype=jnp.float64)
+            * jnp.asarray(regular.y_open_mask, dtype=jnp.float64)
+        )
+        active_area_z = (
+            jnp.asarray(phi_face_bc.mask_z, dtype=jnp.float64)
+            * jnp.asarray(regular.z_area, dtype=jnp.float64)
+            * jnp.asarray(regular.z_area_fraction, dtype=jnp.float64)
+            * jnp.asarray(regular.z_open_mask, dtype=jnp.float64)
+        )
+        total_area = jnp.sum(active_area_x) + jnp.sum(active_area_y) + jnp.sum(
+            active_area_z
+        )
+        try:
+            if bool(jnp.asarray(total_area <= 0.0)):
+                raise ValueError(
+                    "simplified-gbs-mpe requires at least one physical wall "
+                    "face with nonzero area"
+                )
+        except (jax.errors.TracerBoolConversionError, jax.errors.ConcretizationTypeError):
+            pass
+
+        def _spmd_sum(value: jnp.ndarray) -> jnp.ndarray:
+            result = jnp.asarray(value)
+            for axis_name in self.domain.mesh_axis_names:
+                if axis_name is not None:
+                    result = jax.lax.psum(result, axis_name=axis_name)
+            return result
+
+        def wall_face_average(phi_owned: jnp.ndarray) -> jnp.ndarray:
+            phi_halo = self._prepare_phi_halo(
+                _mask_inactive_owned(
+                    jnp.asarray(phi_owned, dtype=jnp.float64),
+                    self.geometry,
+                ),
+                phi_face_bc,
+            )
+            trace = build_local_boundary_face_trace_from_halo(
+                phi_halo,
+                self.geometry,
+                self.domain,
+                phi_face_bc,
+            )
+            trace_value_x = jnp.where(
+                jnp.logical_and(phi_face_bc.mask_x, active_area_x > 0.0),
+                trace.value_x,
+                0.0,
+            )
+            trace_value_y = jnp.where(
+                jnp.logical_and(phi_face_bc.mask_y, active_area_y > 0.0),
+                trace.value_y,
+                0.0,
+            )
+            trace_value_z = jnp.where(
+                jnp.logical_and(phi_face_bc.mask_z, active_area_z > 0.0),
+                trace.value_z,
+                0.0,
+            )
+            weighted_sum = (
+                jnp.sum(active_area_x * trace_value_x)
+                + jnp.sum(active_area_y * trace_value_y)
+                + jnp.sum(active_area_z * trace_value_z)
+            )
+            weighted_sum = _spmd_sum(weighted_sum)
+            global_total_area = _spmd_sum(total_area)
+            return weighted_sum / jnp.maximum(global_total_area, 1.0e-30)
+
+        zero_phi = jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
+        (gauge_weights,) = jax.linear_transpose(wall_face_average, zero_phi)(
+            jnp.asarray(1.0, dtype=jnp.float64)
+        )
+        gauge_affine_offset = wall_face_average(zero_phi)
+        wall_potential = (
+            jnp.asarray(self.conducting_sheath_wall_potential, dtype=jnp.float64)
+            if self.conducting_sheath_wall_potential is not None
+            else -equilibrium_warm_ion_floating_sheath_drop(
+                self.parameters.Te0,
+                self.parameters.Ti0,
+                tau=self.parameters.tau,
+                mi_over_me=self.parameters.mi_over_me,
+            )
+        )
+        gauge_target = warm_ion_floating_sheath_face_potential_target(
+            wall_potential,
+            self.parameters.Te0,
+            self.parameters.Ti0,
+            tau=self.parameters.tau,
+            mi_over_me=self.parameters.mi_over_me,
+        )
+        return gauge_weights, gauge_affine_offset, gauge_target
+
+    def _vorticity_from_polarization(
+        self,
+        phi_owned: jnp.ndarray,
+        Ti_owned: jnp.ndarray,
+        phi_face_bc: LocalBoundaryFaceBC3D,
+        Ti_face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        """Derive omega from the polarization balance relation.
+
+        This is a post-reconstruction helper, not a boundary condition.  The
+        evolved vorticity state remains untouched; callers may use this when
+        a downstream trace or diagnostic needs the wall-consistent
+        polarization image of ``phi + tau Ti``.  The two fields retain their
+        own physical face payloads, so the selected action is evaluated as
+        ``-A(phi; phi_face_bc) - tau A(Ti; Ti_face_bc)``; this preserves
+        distinct affine Dirichlet/Neumann data rather than combining fields
+        before applying one boundary closure.
+        """
+
+        solver = self._polarization_solver(
+            phi_face_bc,
+            config=replace(self.gmres_config, regularization_epsilon=0.0)
+            if self.physical_wall_model_name == "simplified-gbs-mpe"
+            else None,
+        )
+        phi_action = self._positive_polarization_action(
+            solver,
+            jnp.asarray(phi_owned, dtype=jnp.float64),
+            phi_face_bc,
+        )
+        ti_action = self._positive_polarization_action(
+            solver,
+            jnp.asarray(Ti_owned, dtype=jnp.float64),
+            Ti_face_bc,
+        )
+        return -phi_action - jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_action
+
+    def recover_polarization_multiplier(
+        self,
+        state_owned: FciDrbEBState,
+        phi_owned: jnp.ndarray | None = None,
+        face_bc: LocalFciDrbEBFaceBCBundle | None = None,
+    ) -> jnp.ndarray:
+        """Recover the augmented polarization multiplier from its raw residual.
+
+        For the simplified GBS-MPE all-Neumann solve, the augmented equation
+        uses ``A phi + lambda*1 = -tau*A(Ti) - omega``.  Hence the exact
+        weighted raw-residual convention is
+        ``lambda = -mean_M(A(phi) + tau*A(Ti) + omega)``.  This helper does
+        not solve for ``phi`` and leaves the raw polarization image unchanged.
+        Non-augmented wall models have no such multiplier and return zero.
+        """
+        if self.physical_wall_model_name != "simplified-gbs-mpe":
+            return jnp.asarray(0.0, dtype=jnp.float64)
+        if face_bc is None:
+            face_bc = self._face_bcs(state_owned)
+        if phi_owned is None:
+            phi_owned = state_owned.phi
+        solver = self._polarization_solver(
+            face_bc.phi,
+            config=replace(self.gmres_config, regularization_epsilon=0.0),
+        )
+        phi_action = self._positive_polarization_action(
+            solver, jnp.asarray(phi_owned, dtype=jnp.float64), face_bc.phi
+        )
+        ti_action = self._positive_polarization_action(
+            solver, jnp.asarray(state_owned.Ti, dtype=jnp.float64), face_bc.Ti
+        )
+        active, volume_weights = solver._operator_mass_weights()
+        active = jnp.asarray(active, dtype=bool)
+        weights = jnp.where(active, jnp.asarray(volume_weights, dtype=jnp.float64), 0.0)
+        raw = jnp.where(
+            active,
+            phi_action
+            + jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_action
+            + jnp.asarray(state_owned.vorticity, dtype=jnp.float64),
+            0.0,
+        )
+        numerator = _spmd_sum(jnp.sum(weights * raw), self.domain)
+        denominator = _spmd_sum(jnp.sum(weights), self.domain)
+        return -numerator / jnp.maximum(denominator, 1.0e-30)
+
+    def _derived_vorticity_face_bc_from_polarization(
+        self,
+        state_owned: FciDrbEBState,
+        phi_owned: jnp.ndarray,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+        polarization_multiplier: jnp.ndarray | None = None,
+    ) -> LocalBoundaryFaceBC3D:
+        """Return a derived wall-facing vorticity BC from polarization."""
+
+        physical_masks = (
+            face_bc.phi.mask_x,
+            face_bc.phi.mask_y,
+            face_bc.phi.mask_z,
+        )
+        homogeneous_neumann_vorticity_bc = replace(
+            face_bc.vorticity,
+            kind_x=jnp.where(physical_masks[0], BC_NEUMANN, face_bc.vorticity.kind_x),
+            kind_y=jnp.where(physical_masks[1], BC_NEUMANN, face_bc.vorticity.kind_y),
+            kind_z=jnp.where(physical_masks[2], BC_NEUMANN, face_bc.vorticity.kind_z),
+            value_x=jnp.where(physical_masks[0], 0.0, face_bc.vorticity.value_x),
+            value_y=jnp.where(physical_masks[1], 0.0, face_bc.vorticity.value_y),
+            value_z=jnp.where(physical_masks[2], 0.0, face_bc.vorticity.value_z),
+            mask_x=physical_masks[0],
+            mask_y=physical_masks[1],
+            mask_z=physical_masks[2],
+        )
+        omega_pol = self._vorticity_from_polarization(
+            phi_owned,
+            state_owned.Ti,
+            face_bc.phi,
+            face_bc.Ti,
+        )
+        if polarization_multiplier is None:
+            polarization_multiplier = self.recover_polarization_multiplier(
+                state_owned, phi_owned=phi_owned, face_bc=face_bc
+            )
+        # The augmented multiplier belongs only to the simplified GBS-MPE
+        # polarization solve.  Keep non-augmented wall models independent of
+        # an accidentally supplied optional value.
+        if self.physical_wall_model_name == "simplified-gbs-mpe":
+            omega_pol = omega_pol - jnp.asarray(
+                polarization_multiplier, dtype=omega_pol.dtype
+            )
+        omega_pol_halo = self._prepare_scalar_halo(
+            omega_pol,
+            homogeneous_neumann_vorticity_bc,
+        )
+        omega_pol_trace = build_local_boundary_face_trace_from_halo(
+            omega_pol_halo,
             self.geometry,
             self.domain,
-            self.parameters,
+            homogeneous_neumann_vorticity_bc,
+        )
+        return _dirichlet_face_bc_from_values(
+            (
+                omega_pol_trace.value_x,
+                omega_pol_trace.value_y,
+                omega_pol_trace.value_z,
+            ),
+            self.domain.layout,
+            (
+                omega_pol_trace.mask_x,
+                omega_pol_trace.mask_y,
+                omega_pol_trace.mask_z,
+            ),
         )
 
     def _prepare_scalar_halo(
@@ -1310,11 +1716,19 @@ class LocalFciDrbEBRhs:
             values_storage,
             self.domain.layout,
         )
-        return LocalHaloClosure3D(
+        closure = LocalHaloClosure3D(
             physical_ghost_filler=self.physical_ghost_filler,
             halo_exchange=self.halo_exchange,
             topology_filler=self.topology_filler,
-        )(field_halo, self.domain, face_bc)
+        )
+        closed = closure(field_halo, self.domain, face_bc)
+        # A width-two centered face gradient reads axis/periodic and
+        # axis/shard corner cells.  The standard ordered topology pass fills
+        # periodic slabs before polar-axis ghosts, so one further pass is
+        # required to propagate the newly filled axis values into those
+        # tangential corners.  Keep this local to the bracket until the wider
+        # halo-closure contract is migrated with the parallel/diffusion work.
+        return closure.topology_closure(closed, self.domain)
 
     def _prepare_poisson_bracket_support_halo(
         self,
@@ -1331,7 +1745,53 @@ class LocalFciDrbEBRhs:
         """
 
         support_bc = self._prepare_poisson_bracket_support_face_bc(template_bc)
-        return self._prepare_scalar_halo(values_owned, support_bc)
+        return self._prepare_poisson_bracket_halo(
+            values_owned,
+            support_bc,
+        )
+
+    def _prepare_poisson_bracket_halo(
+        self,
+        values_owned: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        """Close the bracket-specific smooth projected-fine representation.
+
+        RLP owner averages are reconstructed by one common conservative map
+        before the nonlinear face algebra.  This representation remains
+        linear for every operand.  Material-scalar admissibility is handled
+        later by the existing face-state fallback, not by damping ``H``.
+        """
+
+        values_owned = self._owner_field(values_owned)
+        values_storage = values_owned
+        if self.control_volume_geometry is not None:
+            owner_halo = inject_owned_field_to_halo(
+                values_owned,
+                self.domain.layout,
+            )
+            if self.halo_exchange is not None:
+                owner_halo = self.halo_exchange(owner_halo, self.domain)
+            values_storage = reconstruct_local_control_volume_poisson_field(
+                values_owned,
+                self.control_volume_geometry,
+                self.domain,
+                owner_values_halo=owner_halo,
+            )
+        field_halo = inject_owned_field_to_halo(
+            values_storage,
+            self.domain.layout,
+        )
+        closure = LocalHaloClosure3D(
+            physical_ghost_filler=self.physical_ghost_filler,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+        )
+        closed = closure(field_halo, self.domain, face_bc)
+        # Width-two face gradients read polar-axis/tangential corner cells.
+        # The ordered topology pass fills periodic or sharded slabs before
+        # polar ghosts, so propagate the new axis values once more.
+        return closure.topology_closure(closed, self.domain)
 
     def _prepare_poisson_bracket_support_face_bc(
         self,
@@ -1674,22 +2134,57 @@ class LocalFciDrbEBRhs:
     ) -> jnp.ndarray:
         if float(coefficient) == 0.0:
             return jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
+        if (
+            self.control_volume_geometry is not None
+            and self.control_volume_geometry.diffusion_prolongation is not None
+        ):
+            owned = self.domain.layout.owned_slices_cell
+            owner_values = jnp.where(
+                self.control_volume_geometry.cells.is_active_owner,
+                jnp.asarray(field_halo[owned], dtype=jnp.float64),
+                0.0,
+            )
+            # Route evolved RLP diffusion through the same selected physical
+            # action as potential inversion, Ti polarization, and balance
+            # diagnostics.  Algebraic solve regularization is never a
+            # physical diffusion term.  The completed stage is later
+            # restricted by R, so materialize the owner result with P and use
+            # R P = I without changing unrelated fine-grid contributions.
+            physical_solver = self._polarization_solver(
+                face_bc,
+                config=replace(self.gmres_config, regularization_epsilon=0.0),
+            )
+            positive_owner = self._positive_polarization_action(
+                physical_solver,
+                owner_values,
+                face_bc,
+            )
+            owner_result = -jnp.asarray(coefficient, dtype=jnp.float64) * positive_owner
+            return expand_local_control_volume_owner_field(
+                owner_result,
+                self.control_volume_geometry.cells,
+            )
         context = self._stencil_builder_context()
         conservative = build_local_conservative_stencil_from_field(
             field_halo,
             self.geometry,
             context,
         )
-        return jnp.asarray(coefficient, dtype=jnp.float64) * local_perp_laplacian_conservative_op(
+        fine_result = jnp.asarray(coefficient, dtype=jnp.float64) * local_perp_laplacian_conservative_op(
             conservative,
             self.geometry,
             self.domain,
             face_projectors=self.face_projectors,
             face_bc=face_bc,
+            cell_volume=local_control_volume_diffusion_cell_volume(
+                self.geometry,
+                self.control_volume_geometry,
+            ),
             regular_face_geometry=self.geometry.regular_face_geometry,
             axis_regular_axes=self.axis_regular_axes,
             neumann_normal_scheme=self.neumann_normal_scheme,
         )
+        return fine_result
 
     def _field_parallel_diffusion(
         self,
@@ -1808,6 +2303,477 @@ class LocalFciDrbEBRhs:
             forward_remote_values=forward_remote,
             backward_remote_values=backward_remote,
         )
+
+    @staticmethod
+    def _fci_material_support_bc(
+        template_bc: LocalBoundaryFaceBC3D,
+    ) -> LocalBoundaryFaceBC3D:
+        """Return the plasma-side homogeneous support closure for material data."""
+
+        return replace(
+            template_bc,
+            kind_x=jnp.where(template_bc.mask_x, BC_NEUMANN, template_bc.kind_x),
+            kind_y=jnp.where(template_bc.mask_y, BC_NEUMANN, template_bc.kind_y),
+            kind_z=jnp.where(template_bc.mask_z, BC_NEUMANN, template_bc.kind_z),
+            value_x=jnp.zeros_like(template_bc.value_x),
+            value_y=jnp.zeros_like(template_bc.value_y),
+            value_z=jnp.zeros_like(template_bc.value_z),
+        )
+
+    def _fci_material_fine_stencil(
+        self,
+        values_fine_owned: jnp.ndarray,
+        template_bc: LocalBoundaryFaceBC3D,
+        context: StencilBuilderContext,
+        *,
+        maps=None,
+    ):
+        """Map one derived fine-storage field without applying owner P again."""
+
+        if maps is None:
+            maps = self.geometry.material_maps
+        if maps is None:
+            raise ValueError("third-order material endpoint maps are unavailable")
+        material_geometry = replace(self.geometry, maps=maps)
+        field_halo = self._prepare_fine_storage_halo(
+            jnp.asarray(values_fine_owned, dtype=jnp.float64),
+            self._fci_material_support_bc(template_bc),
+        )
+        exchange = RemoteFciDependencyExchange()
+        forward_remote = exchange(
+            field_halo=field_halo,
+            direction=maps.forward,
+            context=context,
+            cut_wall_bc=None,
+        )
+        backward_remote = exchange(
+            field_halo=field_halo,
+            direction=maps.backward,
+            context=context,
+            cut_wall_bc=None,
+        )
+        return build_local_fci_stencil_from_field(
+            field_halo,
+            material_geometry,
+            context,
+            forward_remote_values=forward_remote,
+            backward_remote_values=backward_remote,
+        )
+
+    def _fci_second_order_material_data(
+        self,
+        characteristic_data: dict[str, Any],
+        face_bc: LocalFciDrbEBFaceBCBundle,
+        context: StencilBuilderContext,
+        fallback_div_b: jnp.ndarray | None = None,
+    ) -> dict[str, jnp.ndarray]:
+        """Build third-order endpoints and valid same-direction second hops.
+
+        Angular RLP owners are first reconstructed to raw-cell averages by H.
+        All later endpoint and distance fields remain fine-storage data: applying
+        owner P to those derived fields would erase their high-order variation.
+        A second hop is admitted only when every nonzero quadratic donor has a
+        valid ordinary first hop and a finite positive first-leg distance.
+        Physical second hops are deliberately rejected because interpolating a
+        categorical wall hit cannot define an unambiguous second upstream state.
+        If wall targets are the only obstruction in an ordinary second-hop
+        support, a separate flag selects the immediate minus/center/plus
+        quadratic instead of silently dropping to first order.
+        """
+
+        material_div_b_data = self._fci_second_order_material_div_b(
+            face_bc,
+            context,
+            fallback_div_b=fallback_div_b,
+        )
+        material_maps = self.geometry.material_maps
+        if material_maps is None:
+            zeros = jnp.zeros(self.geometry.owned_shape, dtype=bool)
+            return {
+                "center": characteristic_data["center"],
+                "minus": characteristic_data["minus"],
+                "plus": characteristic_data["plus"],
+                "minus2": characteristic_data["minus"],
+                "plus2": characteristic_data["plus"],
+                "dx_minus2": characteristic_data["primitive_stencils"][0].dx_min,
+                "dx_plus2": characteristic_data["primitive_stencils"][0].dx_plus,
+                "backward_second_valid": zeros,
+                "forward_second_valid": zeros,
+                "backward_centered_closure": zeros,
+                "forward_centered_closure": zeros,
+                **material_div_b_data,
+            }
+
+        primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
+        raw_fields = characteristic_data["raw_fields"]
+        prolongation = None
+        if (
+            self.control_volume_geometry is not None
+            and self.control_volume_geometry.has_angular_agglomeration
+        ):
+            prolongation = self.control_volume_geometry.diffusion_prolongation
+            if prolongation is None:
+                raise ValueError(
+                    "second-order angular-RLP material transport requires "
+                    "diffusion_prolongation"
+                )
+
+        def reconstruct_raw(name: str) -> jnp.ndarray:
+            values = jnp.asarray(raw_fields[name], dtype=jnp.float64)
+            if prolongation is None:
+                return values
+            return apply_rlp_cell_average_prolongation(
+                values,
+                prolongation,
+                domain=self.domain,
+            )
+
+        first_stencils = {
+            name: self._fci_material_fine_stencil(
+                reconstruct_raw(name), getattr(face_bc, name), context
+            )
+            for name in primitive_names
+        }
+        center = jnp.stack(
+            tuple(first_stencils[name].center for name in primitive_names), axis=-1
+        )
+        ordinary_minus = jnp.stack(
+            tuple(first_stencils[name].minus for name in primitive_names), axis=-1
+        )
+        ordinary_plus = jnp.stack(
+            tuple(first_stencils[name].plus for name in primitive_names), axis=-1
+        )
+        backward_wall = characteristic_data["backward_wall"]
+        forward_wall = characteristic_data["forward_wall"]
+        resolved = characteristic_data["wall_data"]
+        backward_target = (
+            resolved["backward_endpoint_state"]
+            if resolved is not None
+            else characteristic_data["backward_wall_state"]
+        )
+        forward_target = (
+            resolved["forward_endpoint_state"]
+            if resolved is not None
+            else characteristic_data["forward_wall_state"]
+        )
+        minus = jnp.where(backward_wall[..., None], backward_target, ordinary_minus)
+        plus = jnp.where(forward_wall[..., None], forward_target, ordinary_plus)
+
+        second_stencils = {
+            name: self._fci_material_fine_stencil(
+                minus[..., index], getattr(face_bc, name), context
+            )
+            for index, name in enumerate(primitive_names)
+        }
+        forward_second_stencils = {
+            name: self._fci_material_fine_stencil(
+                plus[..., index], getattr(face_bc, name), context
+            )
+            for index, name in enumerate(primitive_names)
+        }
+        minus2 = jnp.stack(
+            tuple(second_stencils[name].minus for name in primitive_names), axis=-1
+        )
+        plus2 = jnp.stack(
+            tuple(
+                forward_second_stencils[name].plus for name in primitive_names
+            ),
+            axis=-1,
+        )
+
+        dx_minus = jnp.asarray(
+            material_maps.backward.connection_length, dtype=jnp.float64
+        )
+        dx_plus = jnp.asarray(
+            material_maps.forward.connection_length, dtype=jnp.float64
+        )
+        distance_bc = face_bc.density
+        dx_minus2 = self._fci_material_fine_stencil(
+            dx_minus, distance_bc, context
+        ).minus
+        dx_plus2 = self._fci_material_fine_stencil(
+            dx_plus, distance_bc, context
+        ).plus
+
+        def absolute_direction(direction):
+            remote = direction.remote
+            if remote is not None:
+                remote = replace(remote, weight=jnp.abs(remote.weight))
+            return replace(
+                direction,
+                local=replace(direction.local, weight=jnp.abs(direction.local.weight)),
+                remote=remote,
+            )
+
+        absolute_maps = replace(
+            material_maps,
+            forward=absolute_direction(material_maps.forward),
+            backward=absolute_direction(material_maps.backward),
+        )
+        backward_first_valid = (
+            material_maps.backward.target_valid
+            & (material_maps.backward.endpoint_kind == FCI_DEP_FIELD_INTERIOR)
+            & jnp.isfinite(dx_minus)
+            & (dx_minus > 0.0)
+        )
+        forward_first_valid = (
+            material_maps.forward.target_valid
+            & (material_maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR)
+            & jnp.isfinite(dx_plus)
+            & (dx_plus > 0.0)
+        )
+        backward_first_supported = (
+            material_maps.backward.target_valid
+            & (
+                (material_maps.backward.endpoint_kind == FCI_DEP_FIELD_INTERIOR)
+                | (
+                    material_maps.backward.endpoint_kind
+                    == FCI_DEP_PHYSICAL_BOUNDARY
+                )
+            )
+            & jnp.isfinite(dx_minus)
+            & (dx_minus > 0.0)
+        )
+        forward_first_supported = (
+            material_maps.forward.target_valid
+            & (
+                (material_maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR)
+                | (
+                    material_maps.forward.endpoint_kind
+                    == FCI_DEP_PHYSICAL_BOUNDARY
+                )
+            )
+            & jnp.isfinite(dx_plus)
+            & (dx_plus > 0.0)
+        )
+        backward_bad = self._fci_material_fine_stencil(
+            (~backward_first_valid).astype(jnp.float64),
+            distance_bc,
+            context,
+            maps=absolute_maps,
+        ).minus
+        forward_bad = self._fci_material_fine_stencil(
+            (~forward_first_valid).astype(jnp.float64),
+            distance_bc,
+            context,
+            maps=absolute_maps,
+        ).plus
+        backward_unsupported = self._fci_material_fine_stencil(
+            (~backward_first_supported).astype(jnp.float64),
+            distance_bc,
+            context,
+            maps=absolute_maps,
+        ).minus
+        forward_unsupported = self._fci_material_fine_stencil(
+            (~forward_first_supported).astype(jnp.float64),
+            distance_bc,
+            context,
+            maps=absolute_maps,
+        ).plus
+        backward_wall_support = self._fci_material_fine_stencil(
+            (
+                material_maps.backward.endpoint_kind
+                == FCI_DEP_PHYSICAL_BOUNDARY
+            ).astype(jnp.float64),
+            distance_bc,
+            context,
+            maps=absolute_maps,
+        ).minus
+        forward_wall_support = self._fci_material_fine_stencil(
+            (
+                material_maps.forward.endpoint_kind
+                == FCI_DEP_PHYSICAL_BOUNDARY
+            ).astype(jnp.float64),
+            distance_bc,
+            context,
+            maps=absolute_maps,
+        ).plus
+        backward_second_valid = (
+            ~backward_wall
+            & material_maps.backward.target_valid
+            & (backward_bad == 0.0)
+            & jnp.isfinite(dx_minus2)
+            & (dx_minus2 > 0.0)
+            & jnp.all(jnp.isfinite(minus2), axis=-1)
+        )
+        forward_second_valid = (
+            ~forward_wall
+            & material_maps.forward.target_valid
+            & (forward_bad == 0.0)
+            & jnp.isfinite(dx_plus2)
+            & (dx_plus2 > 0.0)
+            & jnp.all(jnp.isfinite(plus2), axis=-1)
+        )
+        immediate_states_finite = (
+            jnp.all(jnp.isfinite(center), axis=-1)
+            & jnp.all(jnp.isfinite(minus), axis=-1)
+            & jnp.all(jnp.isfinite(plus), axis=-1)
+        )
+        backward_centered_closure = (
+            ~backward_wall
+            & backward_first_valid
+            & forward_first_supported
+            & (backward_wall_support > 0.0)
+            & (backward_unsupported == 0.0)
+            & immediate_states_finite
+        )
+        forward_centered_closure = (
+            ~forward_wall
+            & forward_first_valid
+            & backward_first_supported
+            & (forward_wall_support > 0.0)
+            & (forward_unsupported == 0.0)
+            & immediate_states_finite
+        )
+        return {
+            "center": center,
+            "minus": minus,
+            "plus": plus,
+            "minus2": minus2,
+            "plus2": plus2,
+            "dx_minus2": dx_minus2,
+            "dx_plus2": dx_plus2,
+            "backward_second_valid": backward_second_valid,
+            "forward_second_valid": forward_second_valid,
+            "backward_centered_closure": backward_centered_closure,
+            "forward_centered_closure": forward_centered_closure,
+            **material_div_b_data,
+        }
+
+    def _fci_second_order_material_div_b(
+        self,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+        context: StencilBuilderContext,
+        *,
+        fallback_div_b: jnp.ndarray | None = None,
+    ) -> dict[str, jnp.ndarray]:
+        """Return raw-metric, quadratic-endpoint ``div(b)`` for material rows.
+
+        The canonical inverse-B path is part of the current/potential support
+        pairing and therefore retains its owner P expansion under angular RLP.
+        Material transport instead samples the known fine-grid ``1/B`` metric
+        directly through the dedicated tensor-quadratic maps.  Physical FCI
+        endpoints use the traced endpoint B magnitude carried by the map.
+        Invalid metric or map data fall back rowwise to the canonical source.
+        """
+
+        if fallback_div_b is None:
+            inverse_halo, inverse_forward, inverse_backward = (
+                self._fci_prepare_inverse_b(face_bc, context)
+            )
+            fallback_div_b = local_parallel_div_b_fci_from_q_op(
+                inverse_halo,
+                self.geometry,
+                context=context,
+                forward_remote_q_values=inverse_forward,
+                backward_remote_q_values=inverse_backward,
+            )
+        fallback = jnp.asarray(fallback_div_b, dtype=jnp.float64)
+        if fallback.shape != self.geometry.owned_shape:
+            raise ValueError(
+                "fallback_div_b must match geometry.owned_shape; "
+                f"got {fallback.shape}, expected {self.geometry.owned_shape}"
+            )
+
+        maps = self.geometry.material_maps
+        if maps is None:
+            valid = jnp.zeros(self.geometry.owned_shape, dtype=bool)
+            return {
+                "material_div_b": fallback,
+                "material_div_b_valid": valid,
+                "material_div_b_fallback": ~valid,
+            }
+
+        B0 = jnp.asarray(
+            self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64
+        )
+        center_valid = jnp.isfinite(B0) & (B0 > 0.0)
+        inverse_B0 = jnp.where(center_valid, 1.0 / B0, 0.0)
+        stencil = self._fci_material_fine_stencil(
+            inverse_B0,
+            face_bc.phi,
+            context,
+        )
+        def absolute_direction(direction):
+            remote = direction.remote
+            if remote is not None:
+                remote = replace(remote, weight=jnp.abs(remote.weight))
+            return replace(
+                direction,
+                local=replace(
+                    direction.local, weight=jnp.abs(direction.local.weight)
+                ),
+                remote=remote,
+            )
+
+        absolute_maps = replace(
+            maps,
+            forward=absolute_direction(maps.forward),
+            backward=absolute_direction(maps.backward),
+        )
+        invalid_B_stencil = self._fci_material_fine_stencil(
+            (~center_valid).astype(jnp.float64),
+            face_bc.phi,
+            context,
+            maps=absolute_maps,
+        )
+
+        def endpoint_inverse(direction, ordinary_value, ordinary_invalid):
+            physical = direction.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
+            ordinary = direction.endpoint_kind == FCI_DEP_FIELD_INTERIOR
+            endpoint_B = jnp.asarray(direction.endpoint_bmag, dtype=jnp.float64)
+            physical_valid = jnp.isfinite(endpoint_B) & (endpoint_B > 0.0)
+            physical_value = jnp.where(physical_valid, 1.0 / endpoint_B, 0.0)
+            value = jnp.where(physical, physical_value, ordinary_value)
+            valid = (
+                direction.target_valid
+                & (ordinary | physical)
+                & jnp.where(
+                    physical,
+                    physical_valid,
+                    (ordinary_invalid == 0.0)
+                    & jnp.isfinite(ordinary_value)
+                    & (ordinary_value > 0.0),
+                )
+            )
+            return value, valid
+
+        inverse_minus, minus_valid = endpoint_inverse(
+            maps.backward, stencil.minus, invalid_B_stencil.minus
+        )
+        inverse_plus, plus_valid = endpoint_inverse(
+            maps.forward, stencil.plus, invalid_B_stencil.plus
+        )
+        hm = jnp.asarray(maps.backward.connection_length, dtype=jnp.float64)
+        hp = jnp.asarray(maps.forward.connection_length, dtype=jnp.float64)
+        distance_valid = (
+            jnp.isfinite(hm)
+            & (hm > 0.0)
+            & jnp.isfinite(hp)
+            & (hp > 0.0)
+        )
+        safe_hm = jnp.where(distance_valid, hm, 1.0)
+        safe_hp = jnp.where(distance_valid, hp, 1.0)
+        total = safe_hm + safe_hp
+        backward_slope = (inverse_B0 - inverse_minus) / safe_hm
+        forward_slope = (inverse_plus - inverse_B0) / safe_hp
+        derivative = (
+            safe_hp / total * backward_slope
+            + safe_hm / total * forward_slope
+        )
+        candidate = B0 * derivative
+        valid = (
+            center_valid
+            & minus_valid
+            & plus_valid
+            & distance_valid
+            & jnp.isfinite(candidate)
+        )
+        return {
+            "material_div_b": jnp.where(valid, candidate, fallback),
+            "material_div_b_valid": valid,
+            "material_div_b_fallback": ~valid,
+        }
 
     def _fci_prepare_flux_q(
         self,
@@ -2001,21 +2967,145 @@ class LocalFciDrbEBRhs:
         Callable[[jnp.ndarray], jnp.ndarray],
         jnp.ndarray,
     ]:
+        """Dispatch the explicit current-pair selection for every SAT path."""
+        if self.parallel_current_pairing == "live-gradient-prototype":
+            return self._fci_live_current_phi_boundary_pair(
+                face_bc=face_bc,
+                context=context,
+                wall_endpoint_current_values=wall_endpoint_current_values,
+                build_adjoint=build_adjoint,
+            )
+        return self._fci_reference_current_phi_boundary_pair(
+            face_bc=face_bc,
+            context=context,
+            wall_endpoint_current_values=wall_endpoint_current_values,
+            build_adjoint=build_adjoint,
+        )
+
+    def _fci_complete_homogeneous_parallel_gradient(
+        self,
+        *,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+        context: StencilBuilderContext,
+    ) -> Callable[[jnp.ndarray], jnp.ndarray]:
+        """Matrix-free homogeneous part of the live common phi/tau-Ti map.
+
+        Prescribed normal data are removed before transposition. The actual
+        production force continues to include its existing phi/Ti affine
+        contributions through _compose_parallel_phi_ti_gradient. This builder
+        covers the MPE common-Neumann topology admitted by the prototype.
+        """
+        active = self.geometry.active_cell_mask_owned
+        scalar_bc = replace(
+            face_bc.phi,
+            value_x=jnp.zeros_like(face_bc.phi.value_x),
+            value_y=jnp.zeros_like(face_bc.phi.value_y),
+            value_z=jnp.zeros_like(face_bc.phi.value_z),
+        )
+        support, _, core = self._fci_support_core_pair(face_bc=face_bc, context=context)
+        inverse_halo, inverse_forward, inverse_backward = self._fci_prepare_inverse_b(
+            face_bc, context
+        )
+        div_b = local_parallel_div_b_fci_from_q_op(
+            inverse_halo, self.geometry, context=context,
+            forward_remote_q_values=inverse_forward,
+            backward_remote_q_values=inverse_backward,
+        )
+
+        def gradient(values_owned: jnp.ndarray) -> jnp.ndarray:
+            values = jnp.where(active, jnp.asarray(values_owned, dtype=jnp.float64), 0.0)
+            halo = self._prepare_fine_storage_halo(values, scalar_bc)
+            trace = build_local_boundary_face_trace_from_halo(
+                halo, self.geometry, self.domain, scalar_bc
+            )
+            q_halo, forward, backward = self._fci_prepare_flux_q(values, trace, context)
+            legacy = local_grad_parallel_op_fci_compatible_from_q(
+                q_halo, self.geometry, context=context, field_owned=values, div_b=div_b,
+                forward_remote_q_values=forward, backward_remote_q_values=backward,
+            )
+            return jnp.where(active, support(values) + jnp.where(core, 0.0, legacy), 0.0)
+
+        return gradient
+
+    def _fci_live_current_phi_boundary_pair(
+        self,
+        *,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+        context: StencilBuilderContext,
+        wall_endpoint_current_values: tuple[jnp.ndarray, jnp.ndarray] | None = None,
+        build_adjoint: bool = True,
+    ) -> tuple[
+        Callable[[jnp.ndarray], jnp.ndarray],
+        Callable[[jnp.ndarray], jnp.ndarray],
+        jnp.ndarray,
+    ]:
+        """Opt-in prototype: D_h=-M^-1 G_live^T M plus the canonical lift.
+
+        The transpose may scatter to any active cell; do not truncate it to
+        support-core or old current target rows. The endpoint lift is computed
+        at zero interior current using the reference injection, so the old
+        homogeneous divergence cannot be added a second time. Its dual trace
+        is an algebraic work trace, not a verified sheath-side physical trace.
+        """
+        active = self.geometry.active_cell_mask_owned
+        mass = self._fci_pair_cell_mass()
+        gradient = self._fci_complete_homogeneous_parallel_gradient(
+            face_bc=face_bc, context=context
+        )
+        homogeneous = build_weighted_negative_adjoint(
+            gradient, mass, mass, primal_active=active, dual_active=active
+        )
+        zeros = jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
+        lift = zeros
+        if wall_endpoint_current_values is not None:
+            _, reference_physical, _ = self._fci_reference_current_phi_boundary_pair(
+                face_bc=face_bc, context=context,
+                wall_endpoint_current_values=wall_endpoint_current_values,
+                build_adjoint=False,
+            )
+            _, reference_zero, _ = self._fci_reference_current_phi_boundary_pair(
+                face_bc=face_bc, context=context,
+                wall_endpoint_current_values=(zeros, zeros), build_adjoint=False,
+            )
+            lift = jnp.where(active, reference_physical(zeros) - reference_zero(zeros), 0.0)
+
+        def divergence(values_owned: jnp.ndarray) -> jnp.ndarray:
+            return homogeneous(values_owned) + lift
+
+        exported_gradient = gradient if build_adjoint else lambda values: jnp.zeros_like(values)
+        return exported_gradient, divergence, active
+
+    def _fci_reference_current_phi_boundary_pair(
+        self,
+        *,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+        context: StencilBuilderContext,
+        wall_endpoint_current_values: tuple[jnp.ndarray, jnp.ndarray] | None = None,
+        build_adjoint: bool = True,
+    ) -> tuple[
+        Callable[[jnp.ndarray], jnp.ndarray],
+        Callable[[jnp.ndarray], jnp.ndarray],
+        jnp.ndarray,
+    ]:
         """Build the wall-closed ``current-divergence/grad(phi)`` pair.
 
-        The scalar current receives a direct zero-Neumann physical closure.
-        This is the linear composite-current consequence of the primitive
-        zero-Neumann density/Vi/Ve conditions.  With
+        The derived scalar current receives a homogeneous zero-Neumann
+        physical support closure independent of primitive wall payloads.  In
+        particular, the MPE density normal derivative must not become an
+        affine current source on mapped ghost-supported legs; only its
+        physical masks and topology are retained as the support template. With
         ``wall_endpoint_current_values`` supplied, only the mapped physical
         endpoint values are replaced by ``j_w/B``; ordinary mapped endpoints
         retain the prepared FCI stencil.  Such a closure is affine and must
         be used with ``build_adjoint=False``.  The homogeneous zero-endpoint
         variant is the one paired with ``G=-M^-1 D^T M``.
 
-        No constant-nullspace correction belongs here: the adjoint potential
-        has homogeneous Dirichlet wall data, so an interior constant is not a
-        constant boundary state.  Physical ``phi*j`` wall power is zero for
-        the present ``phi_wall=0`` closure.
+        This is the Rung-2 zero-operator-trace reference pair. Its adjoint is
+        not the live Rung-3 generalized-potential gradient. A material-wall
+        ``phi_wall=0`` does not establish a zero plasma/operator trace or zero
+        boundary work. Do not add a constant-nullspace correction here without
+        reconciling the volume operator and its dual SAT trace together; see
+        ``docs/characteristic_wall_boundary_design.md``.
         """
 
         target = self._fci_pair_target_mask(include_physical_wall=True)
@@ -2054,6 +3144,34 @@ class LocalFciDrbEBRhs:
             )
             endpoint_backward, endpoint_forward = wall_endpoint_current_values
 
+        # Current is a derived support field, so its coordinate-wall closure
+        # must be homogeneous even when the primitive density wall law carries
+        # a nonzero normal derivative.  Retain the density template's physical
+        # masks (and therefore its shard/topology selection), but do not let
+        # primitive density data become an affine current source on ordinary
+        # mapped legs that sample radial ghost storage.
+        current_support_bc = replace(
+            face_bc.density,
+            kind_x=jnp.where(
+                face_bc.density.mask_x, BC_NEUMANN, face_bc.density.kind_x
+            ),
+            kind_y=jnp.where(
+                face_bc.density.mask_y, BC_NEUMANN, face_bc.density.kind_y
+            ),
+            kind_z=jnp.where(
+                face_bc.density.mask_z, BC_NEUMANN, face_bc.density.kind_z
+            ),
+            value_x=jnp.where(
+                face_bc.density.mask_x, 0.0, face_bc.density.value_x
+            ),
+            value_y=jnp.where(
+                face_bc.density.mask_y, 0.0, face_bc.density.value_y
+            ),
+            value_z=jnp.where(
+                face_bc.density.mask_z, 0.0, face_bc.density.value_z
+            ),
+        )
+
         def current_divergence(values_owned: jnp.ndarray) -> jnp.ndarray:
             values = jnp.where(
                 active,
@@ -2062,13 +3180,13 @@ class LocalFciDrbEBRhs:
             )
             current_halo = self._prepare_fine_storage_halo(
                 values,
-                face_bc.density,
+                current_support_bc,
             )
             current_trace = build_local_boundary_face_trace_from_halo(
                 current_halo,
                 self.geometry,
                 self.domain,
-                face_bc.density,
+                current_support_bc,
             )
             q_trace_values = (
                 current_trace.value_x / face_b[0],
@@ -2208,6 +3326,192 @@ class LocalFciDrbEBRhs:
         )
         return support_gradient, support_divergence, core_target
 
+    def _fci_parallel_characteristic_wall_data(
+        self,
+        *,
+        state_halo: FciDrbEBState,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+        parallel_boundary: LocalFciDrbEBOperatorBoundaryBundle,
+        context: StencilBuilderContext,
+        short_leg_selection_dt: Any = 0.0,
+        evaluate_wall_data: bool = True,
+    ) -> dict[str, Any]:
+        """Build the canonical production FCI material wall data.
+
+        This is the single owner-to-endpoint path used by both the RHS and
+        startup diagnostics.  In particular, nonlinear physical-wall laws
+        are evaluated from plasma-side endpoint stencils and endpoint-local
+        magnetic-field samples; regular coordinate-face traces are never
+        interpolated as already-branched wall values.
+        """
+        if self.parallel_material_scheme != "production-path":
+            raise ValueError(
+                "characteristic wall data requires parallel_material_scheme="
+                "'production-path'"
+            )
+        owned = self.domain.layout.owned_slices_cell
+        fields = {
+            name: getattr(state_halo, name)[owned]
+            for name in ("density", "Te", "Ti", "Vi", "Ve", "phi")
+        }
+        traces = {
+            name: getattr(parallel_boundary, name)
+            for name in ("density", "Te", "Ti", "Vi", "Ve")
+        }
+        primitive_stencils = []
+        for name in ("density", "Te", "Ti", "Vi", "Ve"):
+            field_halo, forward_remote, backward_remote = self._fci_prepare_q(
+                fields[name], traces[name], context
+            )
+            primitive_stencils.append(
+                build_local_fci_stencil_from_field(
+                    field_halo,
+                    self.geometry,
+                    context,
+                    forward_remote_values=forward_remote,
+                    backward_remote_values=backward_remote,
+                )
+            )
+
+        # Mapped field-interior endpoints must be evaluated from the
+        # plasma-side support halo.  The ordinary FCI halo carries physical
+        # ghost payloads for coordinate-face closure; those payloads are
+        # valid on physical endpoints, but are unrelated to an interior map
+        # target and can otherwise leak into the material characteristic
+        # state.  Keep physical endpoints and all stencil geometry unchanged.
+        interior_forward = (
+            self.geometry.maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR
+        )
+        interior_backward = (
+            self.geometry.maps.backward.endpoint_kind == FCI_DEP_FIELD_INTERIOR
+        )
+        plasma_stencils = {
+            name: self._fci_plasma_side_stencil(
+                fields[name], getattr(face_bc, name), context
+            )
+            for name in ("density", "Te", "Ti", "Vi", "Ve")
+        }
+        primitive_stencils = [
+            stencil.replace(
+                minus=jnp.where(
+                    interior_backward,
+                    plasma_stencils[name].minus,
+                    stencil.minus,
+                ),
+                plus=jnp.where(
+                    interior_forward,
+                    plasma_stencils[name].plus,
+                    stencil.plus,
+                ),
+            )
+            for name, stencil in zip(
+                ("density", "Te", "Ti", "Vi", "Ve"), primitive_stencils
+            )
+        ]
+        center = jnp.stack(
+            tuple(stencil.center for stencil in primitive_stencils), axis=-1
+        )
+        minus = jnp.stack(
+            tuple(stencil.minus for stencil in primitive_stencils), axis=-1
+        )
+        plus = jnp.stack(
+            tuple(stencil.plus for stencil in primitive_stencils), axis=-1
+        )
+        backward_wall = (
+            self.geometry.maps.backward.endpoint_kind
+            == FCI_DEP_PHYSICAL_BOUNDARY
+        )
+        forward_wall = (
+            self.geometry.maps.forward.endpoint_kind
+            == FCI_DEP_PHYSICAL_BOUNDARY
+        )
+        backward_wall_state = minus
+        forward_wall_state = plus
+        if self.physical_wall_model_name in (
+            "simple-conducting-sheath",
+            "simplified-gbs-mpe",
+        ):
+            plasma_stencils = dict(plasma_stencils)
+            plasma_stencils["phi"] = self._fci_plasma_side_stencil(
+                fields["phi"], face_bc.phi, context
+            )
+
+            def endpoint_plasma_state(direction: str):
+                endpoint_name = "minus" if direction == "backward" else "plus"
+                return jnp.stack(
+                    tuple(
+                        getattr(plasma_stencils[name], endpoint_name)
+                        for name in ("density", "Te", "Ti", "Vi", "Ve")
+                    ),
+                    axis=-1,
+                )
+
+            backward_resolved = resolve_fci_material_wall_endpoint_state(
+                self._effective_physical_wall_model_name(),
+                endpoint_plasma_state("backward"),
+                plasma_stencils["phi"].minus,
+                self.geometry.maps.backward.endpoint_b_contra_x,
+                self.geometry.maps.backward.endpoint_bmag,
+                self.parameters,
+                conducting_sheath_wall_potential=self.conducting_sheath_wall_potential,
+            )
+            forward_resolved = resolve_fci_material_wall_endpoint_state(
+                self._effective_physical_wall_model_name(),
+                endpoint_plasma_state("forward"),
+                plasma_stencils["phi"].plus,
+                self.geometry.maps.forward.endpoint_b_contra_x,
+                self.geometry.maps.forward.endpoint_bmag,
+                self.parameters,
+                conducting_sheath_wall_potential=self.conducting_sheath_wall_potential,
+            )
+            backward_wall_state = jnp.where(
+                backward_wall[..., None], backward_resolved, minus
+            )
+            forward_wall_state = jnp.where(
+                forward_wall[..., None], forward_resolved, plus
+            )
+        wall_data = None
+        if evaluate_wall_data:
+            wall_data = parallel_characteristic_wall_data(
+                center,
+                minus,
+                plus,
+                primitive_stencils[0].dx_min,
+                primitive_stencils[0].dx_plus,
+                self.parameters.tau,
+                self.parameters.mi_over_me,
+                selection_dt=short_leg_selection_dt
+                if self.parallel_short_leg_treatment == "local-backward-euler"
+                else 0.0,
+                cfl_limit=self.parallel_short_leg_cfl_limit,
+                parallel_short_leg_selection=self.parallel_short_leg_selection,
+                backward_wall=backward_wall,
+                forward_wall=forward_wall,
+                backward_wall_state=backward_wall_state,
+                forward_wall_state=forward_wall_state,
+                parallel_characteristic_wall_law=(
+                    self.parameters.parallel_characteristic_wall_law
+                ),
+            )
+        return {
+            "primitive_stencils": primitive_stencils,
+            # The owned slice is P-expanded fine storage in projected-owner
+            # mode.  The second-order material path applies angular H to these
+            # owner values before any dedicated high-order endpoint sampling.
+            "raw_fields": {
+                name: fields[name]
+                for name in ("density", "Te", "Ti", "Vi", "Ve")
+            },
+            "center": center,
+            "minus": minus,
+            "plus": plus,
+            "backward_wall": backward_wall,
+            "forward_wall": forward_wall,
+            "backward_wall_state": backward_wall_state,
+            "forward_wall_state": forward_wall_state,
+            "wall_data": wall_data,
+        }
+
     def _fci_parallel_terms(
         self,
         *,
@@ -2288,9 +3592,9 @@ class LocalFciDrbEBRhs:
                     context=context,
                 )
             )
-            # Support-core production always uses the homogeneous current/phi
-            # weighted-adjoint pair.  Characteristic-SAT changes only the
-            # endpoint current lift below; it does not replace this pair.
+            # The explicit current-pair selector supplies the homogeneous
+            # pair. Characteristic-SAT adds the canonical endpoint lift below
+            # for both the reference and live-gradient prototype variants.
             use_current_phi_boundary_pair = True
             if use_current_phi_boundary_pair:
                 # For characteristic-SAT, D0 is the derivative with the
@@ -2486,9 +3790,9 @@ class LocalFciDrbEBRhs:
         # The electron parallel force is a generalized-potential derivative,
         # not two independent primitive derivatives.  In particular, the
         # support transpose used for Ti must also see phi through the same
-        # owner-to-face gather/scatter map.  Keep the current/phi pair above
-        # for the physical vorticity current SAT; this separate composite
-        # path is only for the algebraic ``grad(phi) + tau*grad(Ti)`` force.
+        # owner-to-face gather/scatter map. The live-gradient current prototype
+        # pairs its homogeneous part with exactly this complete map; affine
+        # phi/Ti normal data still enter the force here, once.
         legacy_phi_gradient = legacy_grad("phi")
         legacy_ti_gradient = legacy_grad("Ti")
         composite_phi_ti_gradient = _compose_parallel_phi_ti_gradient(
@@ -2570,30 +3874,32 @@ class LocalFciDrbEBRhs:
             "forward_wall_current": jnp.zeros(self.geometry.owned_shape),
         }
         if self.parallel_material_scheme == "production-path":
-            primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
-            primitive_stencils = []
-            for name in primitive_names:
-                field_halo, forward_remote, backward_remote = self._fci_prepare_q(
-                    fields[name][owned], traces[name], context
-                )
-                primitive_stencils.append(
-                    build_local_fci_stencil_from_field(
-                        field_halo,
-                        self.geometry,
-                        context,
-                        forward_remote_values=forward_remote,
-                        backward_remote_values=backward_remote,
-                    )
-                )
-            center = jnp.stack(
-                tuple(stencil.center for stencil in primitive_stencils), axis=-1
+            characteristic_data = self._fci_parallel_characteristic_wall_data(
+                state_halo=state_halo,
+                face_bc=face_bc,
+                parallel_boundary=parallel_boundary,
+                context=context,
+                short_leg_selection_dt=short_leg_selection_dt,
+                # The second-order material correction must remain anchored to
+                # the exact first-order wall/base resolution even when no SAT
+                # or replay diagnostic otherwise needs the wall payload.
+                evaluate_wall_data=True,
             )
-            minus = jnp.stack(
-                tuple(stencil.minus for stencil in primitive_stencils), axis=-1
+            primitive_stencils = characteristic_data["primitive_stencils"]
+            second_order_material = self._fci_second_order_material_data(
+                characteristic_data,
+                face_bc,
+                context,
+                fallback_div_b=div_b,
             )
-            plus = jnp.stack(
-                tuple(stencil.plus for stencil in primitive_stencils), axis=-1
-            )
+            center = second_order_material["center"]
+            minus = second_order_material["minus"]
+            plus = second_order_material["plus"]
+            backward_wall = characteristic_data["backward_wall"]
+            forward_wall = characteristic_data["forward_wall"]
+            backward_wall_state = characteristic_data["backward_wall_state"]
+            forward_wall_state = characteristic_data["forward_wall_state"]
+            wall_data = characteristic_data["wall_data"]
             # Vorticity is a scalar advected by the live ion parallel speed,
             # not a member of the five-field material eigensystem.  Build its
             # raw mapped stencil with the same operator trace used by the
@@ -2618,106 +3924,11 @@ class LocalFciDrbEBRhs:
                     vorticity_stencil.center,
                     vorticity_stencil.minus,
                     vorticity_stencil.plus,
-                    center[..., 3],
+                    characteristic_data["center"][..., 3],
                     vorticity_stencil.dx_min,
                     vorticity_stencil.dx_plus,
                 )
             )
-            backward_wall = (
-                self.geometry.maps.backward.endpoint_kind
-                == FCI_DEP_PHYSICAL_BOUNDARY
-            )
-            forward_wall = (
-                self.geometry.maps.forward.endpoint_kind
-                == FCI_DEP_PHYSICAL_BOUNDARY
-            )
-            backward_wall_state = minus
-            forward_wall_state = plus
-            if self.physical_wall_model_name == "simple-conducting-sheath":
-                # Interpolate smooth primitive inputs and geometry to each FCI
-                # hit before evaluating sign(B.n), Bohm pass-through, or the
-                # electron exponential.  The regular face bundle remains the
-                # correct source for coordinate-face operators, but its
-                # already-branched velocity values must not be interpolated to
-                # a distinct mapped endpoint.
-                plasma_stencils = {
-                    name: self._fci_plasma_side_stencil(
-                        fields[name][owned], getattr(face_bc, name), context
-                    )
-                    for name in ("Vi", "Ve", "phi")
-                }
-
-                def endpoint_plasma_state(direction: str):
-                    base = minus if direction == "backward" else plus
-                    values = [base[..., index] for index in range(3)]
-                    values.extend(
-                        getattr(plasma_stencils[name], "minus" if direction == "backward" else "plus")
-                        for name in ("Vi", "Ve")
-                    )
-                    return jnp.stack(tuple(values), axis=-1)
-
-                backward_plasma = endpoint_plasma_state("backward")
-                forward_plasma = endpoint_plasma_state("forward")
-                backward_resolved = resolve_fci_material_wall_endpoint_state(
-                    self.physical_wall_model_name,
-                    backward_plasma,
-                    plasma_stencils["phi"].minus,
-                    self.geometry.maps.backward.endpoint_b_contra_x,
-                    self.geometry.maps.backward.endpoint_bmag,
-                    self.parameters,
-                    conducting_sheath_wall_potential=(
-                        self.conducting_sheath_wall_potential
-                    ),
-                )
-                forward_resolved = resolve_fci_material_wall_endpoint_state(
-                    self.physical_wall_model_name,
-                    forward_plasma,
-                    plasma_stencils["phi"].plus,
-                    self.geometry.maps.forward.endpoint_b_contra_x,
-                    self.geometry.maps.forward.endpoint_bmag,
-                    self.parameters,
-                    conducting_sheath_wall_potential=(
-                        self.conducting_sheath_wall_potential
-                    ),
-                )
-                backward_wall_state = jnp.where(
-                    backward_wall[..., None], backward_resolved, minus
-                )
-                forward_wall_state = jnp.where(
-                    forward_wall[..., None], forward_resolved, plus
-                )
-            # Keep one canonical live wall-data evaluation for the material
-            # residual and, when selected, the characteristic current closure.
-            # Legacy projected laws export their first-order characteristic
-            # current; resolved physical-wall laws export the exact nonlinear
-            # current of their resolved face.  Both consumers receive the
-            # same wall-data object, so the endpoint contract cannot drift.
-            wall_data = None
-            if (
-                self.parallel_boundary_pairing == "characteristic-sat"
-                or return_electron_force_diagnostics
-            ):
-                wall_data = parallel_characteristic_wall_data(
-                    center,
-                    minus,
-                    plus,
-                    primitive_stencils[0].dx_min,
-                    primitive_stencils[0].dx_plus,
-                    self.parameters.tau,
-                    self.parameters.mi_over_me,
-                    selection_dt=short_leg_selection_dt
-                    if self.parallel_short_leg_treatment == "local-backward-euler"
-                    else 0.0,
-                    cfl_limit=self.parallel_short_leg_cfl_limit,
-                    parallel_short_leg_selection=self.parallel_short_leg_selection,
-                    backward_wall=backward_wall,
-                    forward_wall=forward_wall,
-                    backward_wall_state=backward_wall_state,
-                    forward_wall_state=forward_wall_state,
-                    parallel_characteristic_wall_law=(
-                        self.parameters.parallel_characteristic_wall_law
-                    ),
-                )
             if self.parallel_boundary_pairing == "characteristic-sat":
                 # The homogeneous pair is the weighted-adjoint operator used
                 # for grad(phi).  The characteristic wall trace is evaluated
@@ -2768,7 +3979,26 @@ class LocalFciDrbEBRhs:
                     forward_wall=forward_wall,
                     backward_wall_state=backward_wall_state,
                     forward_wall_state=forward_wall_state,
-                    div_b=div_b,
+                    spatial_order=2,
+                    minus2=second_order_material["minus2"],
+                    plus2=second_order_material["plus2"],
+                    dx_minus2=second_order_material["dx_minus2"],
+                    dx_plus2=second_order_material["dx_plus2"],
+                    backward_second_valid=second_order_material[
+                        "backward_second_valid"
+                    ],
+                    forward_second_valid=second_order_material[
+                        "forward_second_valid"
+                    ],
+                    backward_centered_closure=second_order_material[
+                        "backward_centered_closure"
+                    ],
+                    forward_centered_closure=second_order_material[
+                        "forward_centered_closure"
+                    ],
+                    # The five-field geometric source uses raw metric data;
+                    # canonical div_b below remains paired with current/phi.
+                    div_b=second_order_material["material_div_b"],
                     selection_dt=short_leg_selection_dt
                     if self.parallel_short_leg_treatment == "local-backward-euler"
                     else 0.0,
@@ -2780,23 +4010,72 @@ class LocalFciDrbEBRhs:
                     resolved_wall_data=wall_data,
                 )
             )
+            material_map_available = self.geometry.material_maps is not None
+            material_source_fallback = second_order_material[
+                "material_div_b_fallback"
+            ]
+            parallel_material_diagnostics = {
+                **parallel_material_diagnostics,
+                # Aggregate fallback/admissibility cover the full material
+                # row, including a canonical fallback of its geometric source.
+                "fallback": (
+                    parallel_material_diagnostics["fallback"]
+                    | material_source_fallback
+                ),
+                "admissible": (
+                    parallel_material_diagnostics["admissible"]
+                    & ~material_source_fallback
+                ),
+                "material_endpoint_third_order_available": jnp.full(
+                    self.geometry.owned_shape,
+                    material_map_available,
+                    dtype=bool,
+                ),
+                "material_endpoint_interpolation_order": jnp.full(
+                    self.geometry.owned_shape,
+                    3 if material_map_available else 2,
+                    dtype=jnp.int32,
+                ),
+                "backward_second_valid": second_order_material[
+                    "backward_second_valid"
+                ],
+                "forward_second_valid": second_order_material[
+                    "forward_second_valid"
+                ],
+                "material_div_b": second_order_material["material_div_b"],
+                "material_div_b_valid": second_order_material[
+                    "material_div_b_valid"
+                ],
+                "material_div_b_fallback": second_order_material[
+                    "material_div_b_fallback"
+                ],
+            }
             if return_electron_force_diagnostics and wall_data is not None:
                 # Exact additive split of the *live explicit* production
-                # residual. Selected physical-wall legs are advanced by the
-                # local implicit solve and therefore contribute zero here;
+                # residual. The first-order base on a selected physical-wall
+                # leg is advanced by the local implicit solve; only its bounded
+                # reconstruction correction remains explicit here.
                 # the middle lane retains the geometric div(b) source and
                 # any algebraic remainder. This uses the already-live
                 # directional actions rather than restoring the retired
                 # full-grid provenance diagnostics.
+                backward_reconstruction_correction = parallel_material_diagnostics[
+                    "backward_reconstruction_correction"
+                ]
+                forward_reconstruction_correction = parallel_material_diagnostics[
+                    "forward_reconstruction_correction"
+                ]
                 explicit_backward_residual = jnp.where(
                     wall_data["selected_backward_wall"][..., None],
-                    0.0,
-                    wall_data["backward_residual"],
+                    backward_reconstruction_correction,
+                    wall_data["backward_residual"]
+                    + backward_reconstruction_correction,
                 )
                 explicit_forward_residual = jnp.where(
                     wall_data["selected_forward_wall"][..., None],
-                    0.0,
-                    wall_data["forward_residual"],
+                    forward_reconstruction_correction,
+                    wall_data["forward_residual"]
+                    + forward_reconstruction_correction,
                 )
                 explicit_center_geometric_residual = (
                     parallel_material_residual
@@ -2811,12 +4090,13 @@ class LocalFciDrbEBRhs:
                     ),
                     axis=-2,
                 )
-                # The production path has the same directional residuals and
-                # endpoint states as the wall helper.  Retain them in the
-                # replay diagnostics so the electron-force report does not
-                # silently show zero characteristic terms in production mode.
-                backward_residual = wall_data["backward_residual"]
-                forward_residual = wall_data["forward_residual"]
+                # Attribute the live second-order correction to its direction
+                # in the older electron-force replay lanes as well.  These are
+                # the explicit residuals, so a selected wall excludes its old
+                # implicit base while retaining any explicit reconstruction
+                # correction.
+                backward_residual = explicit_backward_residual
+                forward_residual = explicit_forward_residual
                 material_upwind_principal = (
                     backward_residual + forward_residual
                 )
@@ -2838,6 +4118,10 @@ class LocalFciDrbEBRhs:
                     ),
                     axis=-2,
                 )
+                # Endpoint, current, and projector payloads below intentionally
+                # remain the canonical first-order wall/base quantities used by
+                # the implicit companion stage.
+                wall_base_center = characteristic_data["center"]
                 material_characteristic_leg_lengths = jnp.stack(
                     (
                         primitive_stencils[0].dx_min,
@@ -2862,24 +4146,26 @@ class LocalFciDrbEBRhs:
                 incoming_deltas = jnp.einsum(
                     "...dij,...dj->...di",
                     incoming_projectors,
-                    endpoint_states - center[..., None, :],
+                    endpoint_states - wall_base_center[..., None, :],
                 )
                 material_characteristic_effective_face_states = (
-                    center[..., None, :] + incoming_deltas
+                    wall_base_center[..., None, :] + incoming_deltas
                 )
 
                 def nonlinear_current(state):
                     return state[..., 0] * (state[..., 3] - state[..., 4])
 
-                owner_current = nonlinear_current(center)
+                owner_current = nonlinear_current(wall_base_center)
                 effective_current = nonlinear_current(
                     material_characteristic_effective_face_states
                 )
                 effective_linearized_current = (
                     owner_current[..., None]
-                    + (center[..., 3] - center[..., 4])[..., None]
+                    + (wall_base_center[..., 3] - wall_base_center[..., 4])[
+                        ..., None
+                    ]
                     * incoming_deltas[..., 0]
-                    + center[..., 0, None]
+                    + wall_base_center[..., 0, None]
                     * (incoming_deltas[..., 3] - incoming_deltas[..., 4])
                 )
                 if self.parallel_boundary_pairing == "characteristic-sat":
@@ -2935,11 +4221,11 @@ class LocalFciDrbEBRhs:
                 )
                 current_gradient = jnp.stack(
                     (
-                        center[..., 3] - center[..., 4],
-                        jnp.zeros_like(center[..., 0]),
-                        jnp.zeros_like(center[..., 0]),
-                        center[..., 0],
-                        -center[..., 0],
+                        wall_base_center[..., 3] - wall_base_center[..., 4],
+                        jnp.zeros_like(wall_base_center[..., 0]),
+                        jnp.zeros_like(wall_base_center[..., 0]),
+                        wall_base_center[..., 0],
+                        -wall_base_center[..., 0],
                     ),
                     axis=-1,
                 )
@@ -3266,6 +4552,49 @@ class LocalFciDrbEBRhs:
             "grad_vorticity": grad_vorticity,
         }
 
+    def _polarization_solver(
+        self,
+        phi_face_bc: LocalBoundaryFaceBC3D,
+        *,
+        config: SolvaxGmresConfig | None = None,
+        coarse_data: object | None = None,
+    ) -> LocalPerpLaplacianInverseSolver:
+        """Build the inverse using the selected shared polarization action."""
+
+        return LocalPerpLaplacianInverseSolver(
+            geometry=self.geometry,
+            domain=self.domain,
+            control_volume_geometry=self.control_volume_geometry,
+            control_volume_boundary_bc=self.control_volume_boundary_bc,
+            stencil_builder=build_local_conservative_stencil_from_field,
+            stencil_builder_context=self._stencil_builder_context(),
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+            physical_ghost_filler=self.physical_ghost_filler,
+            face_projectors=self.face_projectors,
+            face_bc=phi_face_bc,
+            axis_regular_axes=self.axis_regular_axes,
+            neumann_normal_scheme=self.neumann_normal_scheme,
+            operator_form=self.polarization_operator_form,
+            config=self.gmres_config if config is None else config,
+            coarse_data=self.polarization_coarse_data if coarse_data is None else coarse_data,
+        )
+
+    def _positive_polarization_action(
+        self,
+        solver: LocalPerpLaplacianInverseSolver,
+        values_owned: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        """Return the selected positive action ``A(q) = -L_perp(q)``."""
+
+        return solver.apply_positive_operator(
+            jnp.asarray(values_owned, dtype=jnp.float64),
+            face_bc=face_bc,
+            control_volume_boundary_bc=self.control_volume_boundary_bc,
+            project_mean_zero=False,
+        )
+
     def _reconstruct_phi_from_prepared(
         self,
         state_owned: FciDrbEBState,
@@ -3274,45 +4603,48 @@ class LocalFciDrbEBRhs:
         *,
         return_diagnostics: bool = False,
     ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
-        context = self._stencil_builder_context()
-        ti_conservative = build_local_conservative_stencil_from_field(
-            state_halo.Ti,
-            self.geometry,
-            context,
+        solver = self._polarization_solver(face_bc.phi)
+        # Ti contributes the physical Laplacian, never the algebraic solver
+        # regularization.  Route every operator form through the same selected
+        # positive action so conservative RLP also receives H and raw-volume
+        # normalization.
+        physical_solver = self._polarization_solver(
+            face_bc.phi,
+            config=replace(self.gmres_config, regularization_epsilon=0.0),
         )
-        ti_laplacian = local_perp_laplacian_conservative_op(
-            ti_conservative,
-            self.geometry,
-            self.domain,
-            face_projectors=self.face_projectors,
-            face_bc=face_bc.Ti,
-            regular_face_geometry=self.geometry.regular_face_geometry,
-            axis_regular_axes=self.axis_regular_axes,
-            neumann_normal_scheme=self.neumann_normal_scheme,
+        positive_ti_action = self._positive_polarization_action(
+            physical_solver,
+            state_owned.Ti,
+            face_bc.Ti,
         )
-        ti_laplacian = self._restrict_fine_field(ti_laplacian)
-        owned = self.domain.layout.owned_slices_cell
+        ti_laplacian = -positive_ti_action
         phi_rhs = (
             jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_laplacian
             - jnp.asarray(state_owned.vorticity, dtype=jnp.float64)
         )
+        if self.physical_wall_model_name == "simplified-gbs-mpe":
+            augmented_solver = self._polarization_solver(
+                face_bc.phi,
+                config=replace(self.gmres_config, regularization_epsilon=0.0),
+            )
+            gauge_weights, gauge_affine_offset, gauge_target = (
+                self._simplified_gbs_mpe_phi_gauge_data(state_owned, face_bc)
+            )
+            phi_result = augmented_solver.solve_augmented_neumann(
+                phi_rhs,
+                gauge_weights_owned=gauge_weights,
+                gauge_target=gauge_target,
+                gauge_affine_offset=gauge_affine_offset,
+                guess_owned=state_owned.phi,
+                return_diagnostics=return_diagnostics,
+            )
+            if return_diagnostics:
+                phi_owned, info = phi_result
+                return self._owner_result(
+                    _mask_inactive_owned(phi_owned, self.geometry)
+                ), info
+            return self._owner_result(_mask_inactive_owned(phi_result, self.geometry))
         phi_lift = jnp.asarray(state_owned.phi, dtype=jnp.float64)
-        solver = LocalPerpLaplacianInverseSolver(
-            geometry=self.geometry,
-            domain=self.domain,
-            control_volume_geometry=self.control_volume_geometry,
-            control_volume_boundary_bc=self.control_volume_boundary_bc,
-            stencil_builder=build_local_conservative_stencil_from_field,
-            stencil_builder_context=context,
-            halo_exchange=self.halo_exchange,
-            topology_filler=self.topology_filler,
-            physical_ghost_filler=self.physical_ghost_filler,
-            face_projectors=self.face_projectors,
-            face_bc=face_bc.phi,
-            axis_regular_axes=self.axis_regular_axes,
-            neumann_normal_scheme=self.neumann_normal_scheme,
-            config=self.gmres_config,
-        )
         if self.control_volume_geometry is not None:
             # Pole-CV has a distinct owner-space unknown topology.  Keep this
             # route explicit so it cannot accidentally fall through the
@@ -3382,47 +4714,30 @@ class LocalFciDrbEBRhs:
         """
 
         face_bc = self._face_bcs(state_owned)
-        state_halo = self._prepare_state_halo(state_owned, face_bc)
         if phi_owned is None:
             phi_owned = state_owned.phi
         phi_owned = _mask_inactive_owned(
             jnp.asarray(phi_owned, dtype=jnp.float64), self.geometry
         )
-        phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
-        context = self._stencil_builder_context()
-        phi_conservative = build_local_conservative_stencil_from_field(
-            phi_halo, self.geometry, context
+        solver = self._polarization_solver(
+            face_bc.phi,
+            config=replace(self.gmres_config, regularization_epsilon=0.0),
         )
-        ti_conservative = build_local_conservative_stencil_from_field(
-            state_halo.Ti, self.geometry, context
+        phi_action = self._positive_polarization_action(
+            solver,
+            phi_owned,
+            face_bc.phi,
         )
-        phi_laplacian = local_perp_laplacian_conservative_op(
-            phi_conservative,
-            self.geometry,
-            self.domain,
-            face_projectors=self.face_projectors,
-            face_bc=face_bc.phi,
-            regular_face_geometry=self.geometry.regular_face_geometry,
-            axis_regular_axes=self.axis_regular_axes,
-            neumann_normal_scheme=self.neumann_normal_scheme,
+        ti_action = self._positive_polarization_action(
+            solver,
+            state_owned.Ti,
+            face_bc.Ti,
         )
-        ti_laplacian = local_perp_laplacian_conservative_op(
-            ti_conservative,
-            self.geometry,
-            self.domain,
-            face_projectors=self.face_projectors,
-            face_bc=face_bc.Ti,
-            regular_face_geometry=self.geometry.regular_face_geometry,
-            axis_regular_axes=self.axis_regular_axes,
-            neumann_normal_scheme=self.neumann_normal_scheme,
-        )
-        phi_laplacian = self._restrict_fine_field(phi_laplacian)
-        ti_laplacian = self._restrict_fine_field(ti_laplacian)
         return jnp.stack(
             (
-                -phi_laplacian,
-                jnp.asarray(self.parameters.tau, dtype=jnp.float64)
-                * ti_laplacian,
+                phi_action,
+                -jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+                * ti_action,
                 -jnp.asarray(state_owned.vorticity, dtype=jnp.float64),
             ),
             axis=0,
@@ -3946,6 +5261,7 @@ class LocalFciDrbEBRhs:
         return_curvature_component_fields: bool = False,
         return_parallel_material_component_fields: bool = False,
         short_leg_selection_dt: Any = 0.0,
+        polarization_multiplier: jnp.ndarray | None = None,
     ) -> (
         FciDrbEBState
         | tuple[FciDrbEBState, jnp.ndarray]
@@ -4044,16 +5360,38 @@ class LocalFciDrbEBRhs:
                 )
             phi_owned = _mask_inactive_owned(phi_owned, self.geometry)
         phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
-        state_halo = state_halo_without_phi.replace(phi=phi_halo)
+        if self.physical_wall_model_name == "simplified-gbs-mpe":
+            derived_vorticity_face_bc = self._derived_vorticity_face_bc_from_polarization(
+                state_owned,
+                phi_owned,
+                face_bc,
+                polarization_multiplier=polarization_multiplier,
+            )
+            face_bc = replace(face_bc, vorticity=derived_vorticity_face_bc)
+            vorticity_halo = self._prepare_scalar_halo(
+                state_owned.vorticity,
+                derived_vorticity_face_bc,
+            )
+        else:
+            vorticity_halo = state_halo_without_phi.vorticity
+        state_halo = state_halo_without_phi.replace(
+            phi=phi_halo,
+            vorticity=vorticity_halo,
+        )
         # Perpendicular advection has its own physical support extension for
         # the six advected RHS fields.  The electric potential is the
         # generator and retains its physically closed state halo below.
         poisson_bracket_support_halos = {
             name: self._prepare_poisson_bracket_support_halo(
-                getattr(state_owned, name), getattr(face_bc, name)
+                getattr(state_owned, name),
+                getattr(face_bc, name),
             )
             for name in POISSON_BRACKET_SUPPORT_FIELD_NAMES
         }
+        phi_poisson_bracket_halo = self._prepare_poisson_bracket_halo(
+            phi_owned,
+            face_bc.phi,
+        )
         operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
             state_halo, self.geometry, self.domain, face_bc, tau=self.parameters.tau
         )
@@ -4104,9 +5442,15 @@ class LocalFciDrbEBRhs:
             )
             for name, halo in poisson_bracket_support_halos.items()
         }
-        phi_pb_gradient = phi_gradient
+        phi_pb_gradient = build_gradient(
+            phi_poisson_bracket_halo,
+            self.geometry,
+            context,
+        )
         phi_pb_conservative_stencil = build_local_conservative_stencil_from_field(
-            state_halo.phi, self.geometry, context
+            phi_poisson_bracket_halo,
+            self.geometry,
+            context,
         )
         density_pb_gradient = poisson_bracket_gradients["density"]
         Te_pb_gradient = poisson_bracket_gradients["Te"]
