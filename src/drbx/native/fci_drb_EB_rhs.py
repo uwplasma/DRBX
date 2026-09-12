@@ -71,7 +71,12 @@ from .fci_operators import (
 from .fci_gmres import SolvaxGmresConfig, SolvaxGmresInfo, _spmd_sum
 from .fci_support_pair import build_weighted_negative_adjoint
 from .fci_parallel_production_flux import (
+    _live_characteristic_leg_action,
+    _nonuniform_quadratic_center_derivative,
+    _nonuniform_second_order_backward_derivative,
+    _nonuniform_second_order_forward_derivative,
     parallel_characteristic_wall_data,
+    parallel_matrix_from_state,
     parallel_short_wall_backward_euler,
     parallel_target_row_material_residual,
     parallel_vorticity_upwind_residual,
@@ -1791,6 +1796,37 @@ class LocalFciDrbEBRhs:
         # Width-two face gradients read polar-axis/tangential corner cells.
         # The ordered topology pass fills periodic or sharded slabs before
         # polar ghosts, so propagate the new axis values once more.
+        return closure.topology_closure(closed, self.domain)
+
+    def _prepare_raw_poisson_bracket_halo(
+        self,
+        values_fine_owned: jnp.ndarray,
+        face_bc: LocalBoundaryFaceBC3D,
+    ) -> jnp.ndarray:
+        """Close an MMS exact-fine bracket operand without applying ``H``.
+
+        This is a diagnostic-only counterpart of
+        :meth:`_prepare_poisson_bracket_halo`.  The supplied values include
+        every fine storage slot, including RLP aliases, so owner masking or
+        reconstruction would destroy the raw/H operand control.
+        """
+
+        values_fine_owned = jnp.asarray(values_fine_owned, dtype=jnp.float64)
+        if values_fine_owned.shape != self.geometry.owned_shape:
+            raise ValueError(
+                "raw Poisson-bracket operands must have shape "
+                f"{self.geometry.owned_shape}, got {values_fine_owned.shape}"
+            )
+        field_halo = inject_owned_field_to_halo(
+            values_fine_owned,
+            self.domain.layout,
+        )
+        closure = LocalHaloClosure3D(
+            physical_ghost_filler=self.physical_ghost_filler,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+        )
+        closed = closure(field_halo, self.domain, face_bc)
         return closure.topology_closure(closed, self.domain)
 
     def _prepare_poisson_bracket_support_face_bc(
@@ -3860,6 +3896,12 @@ class LocalFciDrbEBRhs:
         parallel_material_explicit_components = jnp.zeros(
             self.geometry.owned_shape + (3, 5,), dtype=jnp.float64
         )
+        material_counterfactual_fields = jnp.zeros(
+            self.geometry.owned_shape + (4, 5,), dtype=jnp.float64
+        )
+        material_ti_force_fields = jnp.zeros(
+            self.geometry.owned_shape + (3,), dtype=jnp.float64
+        )
         parallel_material_diagnostics = {
             "backward_wall": jnp.zeros(self.geometry.owned_shape, dtype=bool),
             "forward_wall": jnp.zeros(self.geometry.owned_shape, dtype=bool),
@@ -4089,6 +4131,91 @@ class LocalFciDrbEBRhs:
                         explicit_forward_residual,
                     ),
                     axis=-2,
+                )
+                dx_minus = primitive_stencils[0].dx_min
+                dx_plus = primitive_stencils[0].dx_plus
+                centered_derivative = _nonuniform_quadratic_center_derivative(
+                    minus,
+                    center,
+                    plus,
+                    dx_minus,
+                    dx_plus,
+                )
+                centered_principal = -jnp.einsum(
+                    "...ij,...j->...i",
+                    parallel_matrix_from_state(
+                        center,
+                        self.parameters.tau,
+                        self.parameters.mi_over_me,
+                    ),
+                    centered_derivative,
+                )
+                live_branchwise_principal = (
+                    explicit_backward_residual + explicit_forward_residual
+                )
+                common_centered_residual = (
+                    explicit_center_geometric_residual + centered_principal
+                )
+                common_centered_residual = jnp.where(
+                    parallel_material_diagnostics["ordinary_row"][..., None],
+                    common_centered_residual,
+                    parallel_material_residual,
+                )
+                material_counterfactual_fields = jnp.stack(
+                    (
+                        parallel_material_residual,
+                        common_centered_residual,
+                        parallel_material_residual - common_centered_residual,
+                        live_branchwise_principal,
+                    ),
+                    axis=-2,
+                )
+
+                # Isolate the Ti-column contribution of the same live
+                # branchwise two-hop characteristic action.  Its sum with
+                # the canonical +mu*tau*G(Ti) force should converge to zero.
+                backward_derivative = _nonuniform_second_order_backward_derivative(
+                    center,
+                    minus,
+                    second_order_material["minus2"],
+                    dx_minus,
+                    second_order_material["dx_minus2"],
+                )
+                forward_derivative = _nonuniform_second_order_forward_derivative(
+                    center,
+                    plus,
+                    second_order_material["plus2"],
+                    dx_plus,
+                    second_order_material["dx_plus2"],
+                )
+                ti_backward_derivative = jnp.zeros_like(backward_derivative).at[
+                    ..., 2
+                ].set(backward_derivative[..., 2])
+                ti_forward_derivative = jnp.zeros_like(forward_derivative).at[
+                    ..., 2
+                ].set(forward_derivative[..., 2])
+                backward_ti_action, _, _ = _live_characteristic_leg_action(
+                    center,
+                    ti_backward_derivative,
+                    self.parameters.tau,
+                    self.parameters.mi_over_me,
+                    1.0,
+                    branch="plus",
+                    eigenvalue_tolerance=1.0e-10,
+                    max_condition=1.0e10,
+                )
+                forward_ti_action, _, _ = _live_characteristic_leg_action(
+                    center,
+                    ti_forward_derivative,
+                    self.parameters.tau,
+                    self.parameters.mi_over_me,
+                    1.0,
+                    branch="minus",
+                    eigenvalue_tolerance=1.0e-10,
+                    max_condition=1.0e10,
+                )
+                material_ti_force_fields = material_ti_force_fields.at[..., 0].set(
+                    -(backward_ti_action + forward_ti_action)[..., 4]
                 )
                 # Attribute the live second-order correction to its direction
                 # in the older electron-force replay lanes as well.  These are
@@ -4376,6 +4503,10 @@ class LocalFciDrbEBRhs:
                     "parallel_material_explicit_components": (
                         parallel_material_explicit_components
                     ),
+                    "material_counterfactual_fields": (
+                        material_counterfactual_fields
+                    ),
+                    "material_ti_force_fields": material_ti_force_fields,
                 }
             )
         for name, coefficient in (
@@ -5260,6 +5391,8 @@ class LocalFciDrbEBRhs:
         return_rhs_term_fields: bool = False,
         return_curvature_component_fields: bool = False,
         return_parallel_material_component_fields: bool = False,
+        return_mms_counterfactual_fields: bool = False,
+        diagnostic_raw_state: FciDrbEBState | None = None,
         short_leg_selection_dt: Any = 0.0,
         polarization_multiplier: jnp.ndarray | None = None,
     ) -> (
@@ -5306,6 +5439,12 @@ class LocalFciDrbEBRhs:
         and forward order. It is available only with
         ``return_rhs_term_fields=True`` and is intended for selected-cell
         staged audits.
+
+        ``return_mms_counterfactual_fields=True`` adds three diagnostic-only
+        payloads: four material-row controls, four Ti-force controls, and the
+        four raw/H Poisson-bracket operand combinations.  It requires both
+        ``return_rhs_term_fields=True`` and an exact fine-storage
+        ``diagnostic_raw_state``.  No counterfactual enters the evolved RHS.
         """
 
         legacy_diagnostic_count = sum(
@@ -5317,6 +5456,7 @@ class LocalFciDrbEBRhs:
                 return_rhs_term_fields
                 or return_curvature_component_fields
                 or return_parallel_material_component_fields
+                or return_mms_counterfactual_fields
             )
         ):
             raise ValueError(
@@ -5329,6 +5469,14 @@ class LocalFciDrbEBRhs:
             raise ValueError(
                 "parallel-material component fields require "
                 "return_rhs_term_fields=True"
+            )
+        if return_mms_counterfactual_fields and not return_rhs_term_fields:
+            raise ValueError(
+                "MMS counterfactual fields require return_rhs_term_fields=True"
+            )
+        if return_mms_counterfactual_fields and diagnostic_raw_state is None:
+            raise ValueError(
+                "MMS counterfactual fields require diagnostic_raw_state"
             )
 
         if source_owned is None:
@@ -5410,6 +5558,7 @@ class LocalFciDrbEBRhs:
                 short_leg_selection_dt=short_leg_selection_dt,
                 return_electron_force_diagnostics=(
                     return_parallel_material_component_fields
+                    or return_mms_counterfactual_fields
                 ),
             )
             if self.parallel_operator_scheme == "fci"
@@ -5687,6 +5836,121 @@ class LocalFciDrbEBRhs:
             g_field_halo=poisson_bracket_support_halos["vorticity"],
             equation_family="vorticity",
         )
+        poisson_counterfactual_fields = None
+        if return_mms_counterfactual_fields:
+            if not isinstance(diagnostic_raw_state, FciDrbEBState):
+                raise TypeError("diagnostic_raw_state must be FciDrbEBState")
+            raw_normal_halos = FciDrbEBState(**{
+                name: self._prepare_raw_poisson_bracket_halo(
+                    getattr(diagnostic_raw_state, name),
+                    getattr(face_bc, name),
+                )
+                for name in (
+                    "density", "phi", "Te", "Ti", "Vi", "Ve", "vorticity"
+                )
+            })
+            raw_operator_boundary = (
+                build_local_fci_drb_eb_operator_boundary_bundle(
+                    raw_normal_halos,
+                    self.geometry,
+                    self.domain,
+                    face_bc,
+                    tau=self.parameters.tau,
+                )
+            )
+            raw_support_halos = {
+                name: self._prepare_raw_poisson_bracket_halo(
+                    getattr(diagnostic_raw_state, name),
+                    self._prepare_poisson_bracket_support_face_bc(
+                        getattr(face_bc, name)
+                    ),
+                )
+                for name in POISSON_BRACKET_SUPPORT_FIELD_NAMES
+            }
+            raw_phi_halo = self._prepare_raw_poisson_bracket_halo(
+                diagnostic_raw_state.phi,
+                face_bc.phi,
+            )
+            raw_gradients = {
+                name: build_gradient(halo, self.geometry, context)
+                for name, halo in raw_support_halos.items()
+            }
+            raw_stencils = {
+                name: build_local_conservative_stencil_from_field(
+                    halo, self.geometry, context
+                )
+                for name, halo in raw_support_halos.items()
+            }
+            raw_phi_gradient = build_gradient(
+                raw_phi_halo, self.geometry, context
+            )
+            raw_phi_stencil = build_local_conservative_stencil_from_field(
+                raw_phi_halo, self.geometry, context
+            )
+            live_poisson = {
+                "density": poisson_density,
+                "Te": poisson_Te,
+                "Ti": poisson_Ti,
+                "Vi": poisson_Vi,
+                "Ve": poisson_Ve,
+                "vorticity": poisson_vorticity,
+            }
+            positivity_floors = {
+                "density": 1.0e-12,
+                "Te": 1.0e-12,
+                "Ti": 1.0e-12,
+                "Vi": None,
+                "Ve": None,
+                "vorticity": None,
+            }
+
+            def bracket_control(name, *, raw_phi: bool, raw_g: bool):
+                return self._poisson_bracket_over_B(
+                    raw_phi_gradient if raw_phi else phi_pb_gradient,
+                    raw_gradients[name]
+                    if raw_g else poisson_bracket_gradients[name],
+                    raw_phi_stencil if raw_phi else phi_pb_conservative_stencil,
+                    raw_stencils[name]
+                    if raw_g else poisson_bracket_conservative_stencils[name],
+                    f_boundary_trace=(
+                        raw_operator_boundary.phi
+                        if raw_phi else operator_boundary.phi
+                    ),
+                    g_boundary_trace=(
+                        getattr(raw_operator_boundary, name)
+                        if raw_g else getattr(operator_boundary, name)
+                    ),
+                    g_field_halo=(
+                        raw_support_halos[name]
+                        if raw_g else poisson_bracket_support_halos[name]
+                    ),
+                    g_positivity_floor=positivity_floors[name],
+                    equation_family=(
+                        "vorticity" if name == "vorticity" else "material"
+                    ),
+                )
+
+            poisson_controls = []
+            for raw_phi, raw_g in (
+                (True, True),
+                (False, True),
+                (True, False),
+                (False, False),
+            ):
+                fields = []
+                for name in RHS_TERM_FIELD_NAMES:
+                    value = (
+                        live_poisson[name]
+                        if not raw_phi and not raw_g
+                        else bracket_control(
+                            name, raw_phi=raw_phi, raw_g=raw_g
+                        )
+                    )
+                    fields.append(-(value / rho_star))
+                poisson_controls.append(jnp.stack(tuple(fields), axis=0))
+            poisson_counterfactual_fields = jnp.stack(
+                tuple(poisson_controls), axis=0
+            )
 
         if self.parallel_operator_scheme == "coordinate":
             stage_parallel_terms = self._coordinate_stage_parallel_terms(
@@ -5806,6 +6070,30 @@ class LocalFciDrbEBRhs:
             )
         else:
             Ve_electrostatic_term = Ve_phi_force_term + Ve_Ti_force_term
+        material_ti_force_controls = None
+        if return_mms_counterfactual_fields:
+            material_ti_force_controls = fci_parallel_terms[
+                "material_ti_force_fields"
+            ]
+            material_ti_force_controls = material_ti_force_controls.at[
+                ..., 1
+            ].set(Ve_Ti_force_complete_term)
+            material_ti_force_controls = material_ti_force_controls.at[
+                ..., 2
+            ].set(
+                material_ti_force_controls[..., 0]
+                + material_ti_force_controls[..., 1]
+            )
+            material_ti_force_controls = jnp.concatenate(
+                (
+                    material_ti_force_controls,
+                    (
+                        production_material_residual[..., 4]
+                        + Ve_electrostatic_term
+                    )[..., None],
+                ),
+                axis=-1,
+            )
         vorticity_current_term = (
             (bmag * bmag / density_safe) * vorticity_current_flux_divergence
         )
@@ -6126,6 +6414,38 @@ class LocalFciDrbEBRhs:
                     material_components
                 )
                 diagnostic_outputs.append(material_components)
+            if return_mms_counterfactual_fields:
+                restrict_component = lambda value: self._owner_field(
+                    _mask_inactive_owned(
+                        self._restrict_fine_field(value), self.geometry
+                    )
+                )
+                material_counterfactuals = jnp.moveaxis(
+                    fci_parallel_terms["material_counterfactual_fields"],
+                    (-2, -1),
+                    (0, 1),
+                )
+                material_counterfactuals = jax.vmap(
+                    jax.vmap(restrict_component)
+                )(material_counterfactuals)
+                material_force_controls = jnp.moveaxis(
+                    material_ti_force_controls,
+                    -1,
+                    0,
+                )
+                material_force_controls = jax.vmap(restrict_component)(
+                    material_force_controls
+                )
+                poisson_controls = jax.vmap(jax.vmap(restrict_component))(
+                    poisson_counterfactual_fields
+                )
+                diagnostic_outputs.extend(
+                    (
+                        material_counterfactuals,
+                        material_force_controls,
+                        poisson_controls,
+                    )
+                )
             return tuple(diagnostic_outputs)
         if return_curvature_component_fields:
             return result, curvature_component_fields

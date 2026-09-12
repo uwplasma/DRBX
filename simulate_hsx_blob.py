@@ -4088,6 +4088,7 @@ class FrozenEbDiagnosticRequest:
     source_state: FciDrbEBState
     implicit_solve_dt: float
     implicit_selection_dt: float
+    raw_reference_state: FciDrbEBState | None = None
     execution: str = "compiled"
 
 
@@ -4107,6 +4108,9 @@ class FrozenEbDiagnosticResult:
     exact_selected_wall: jax.Array
     reconstructed_implicit_complete_residual_owner: jax.Array
     reconstructed_selected_wall: jax.Array
+    material_counterfactual_fields: jax.Array | None = None
+    material_ti_force_fields: jax.Array | None = None
+    poisson_operand_counterfactual_fields: jax.Array | None = None
 
 
 def run_full_eb(
@@ -4970,6 +4974,31 @@ def run_full_eb(
                 np.asarray(value, dtype=np.float64), state_sharding
             )
         )
+        raw_reference_state = frozen_diagnostic.raw_reference_state
+        if raw_reference_state is not None:
+            if not isinstance(raw_reference_state, FciDrbEBState):
+                raise TypeError(
+                    "frozen diagnostic raw_reference_state must be FciDrbEBState"
+                )
+            for name, value in raw_reference_state.field_items():
+                host_value = np.asarray(value, dtype=np.float64)
+                if host_value.shape != expected_shape:
+                    raise ValueError(
+                        f"frozen diagnostic raw reference field {name!r} has "
+                        f"shape {host_value.shape}, expected {expected_shape}"
+                    )
+                if not np.all(np.isfinite(host_value)):
+                    raise ValueError(
+                        f"frozen diagnostic raw reference field {name!r} "
+                        "contains non-finite values"
+                    )
+            sharded_raw_reference = raw_reference_state.map_fields(
+                lambda value: jax.device_put(
+                    np.asarray(value, dtype=np.float64), state_sharding
+                )
+            )
+        else:
+            sharded_raw_reference = None
         zero_source = state.zeros_like()
         solve_dt = jnp.asarray(
             float(frozen_diagnostic.implicit_solve_dt), dtype=jnp.float64
@@ -5009,6 +5038,48 @@ def run_full_eb(
                 geometry_spec,
             ),
             out_specs=(state_spec, P(None, None, "x", "y", "z")),
+            check_vma=False,
+        )
+
+        def frozen_counterfactual_kernel(
+            local_state: FciDrbEBState,
+            local_raw_reference: FciDrbEBState,
+            cell_fields_owned: jax.Array,
+            map_fields_owned: jax.Array,
+            control_volume_fields_owned: jax.Array,
+        ):
+            model = build_local_model(
+                cell_fields_owned,
+                map_fields_owned,
+                control_volume_fields_owned,
+            )
+            return model.evaluate_stage(
+                local_state,
+                source_owned=local_state.zeros_like(),
+                phi_owned=local_state.phi,
+                short_leg_selection_dt=selection_dt,
+                return_rhs_term_fields=True,
+                return_mms_counterfactual_fields=True,
+                diagnostic_raw_state=local_raw_reference,
+            )
+
+        frozen_counterfactual_sharded = jax.shard_map(
+            frozen_counterfactual_kernel,
+            mesh=mesh,
+            in_specs=(
+                state_spec,
+                state_spec,
+                geometry_spec,
+                geometry_spec,
+                geometry_spec,
+            ),
+            out_specs=(
+                state_spec,
+                P(None, None, "x", "y", "z"),
+                P(None, None, "x", "y", "z"),
+                P(None, "x", "y", "z"),
+                P(None, None, "x", "y", "z"),
+            ),
             check_vma=False,
         )
 
@@ -5077,10 +5148,12 @@ def run_full_eb(
         )
         if frozen_diagnostic.execution == "compiled":
             frozen_stage = jax.jit(frozen_stage_sharded)
+            frozen_counterfactual = jax.jit(frozen_counterfactual_sharded)
             frozen_implicit = jax.jit(frozen_implicit_sharded)
             frozen_reconstruct_phi = jax.jit(frozen_reconstruct_phi_sharded)
         else:
             frozen_stage = frozen_stage_sharded
+            frozen_counterfactual = frozen_counterfactual_sharded
             frozen_implicit = frozen_implicit_sharded
             frozen_reconstruct_phi = frozen_reconstruct_phi_sharded
 
@@ -5091,12 +5164,29 @@ def run_full_eb(
             return result
 
         common_geometry = (cell_fields, map_fields, control_volume_fields)
-        exact_explicit, exact_terms = execute(
-            frozen_stage,
-            state,
-            zero_source,
-            *common_geometry,
-        )
+        material_counterfactuals = None
+        material_ti_forces = None
+        poisson_operand_counterfactuals = None
+        if sharded_raw_reference is None:
+            exact_explicit, exact_terms = execute(
+                frozen_stage,
+                state,
+                zero_source,
+                *common_geometry,
+            )
+        else:
+            (
+                exact_explicit,
+                exact_terms,
+                material_counterfactuals,
+                material_ti_forces,
+                poisson_operand_counterfactuals,
+            ) = execute(
+                frozen_counterfactual,
+                state,
+                sharded_raw_reference,
+                *common_geometry,
+            )
         sourced_explicit, sourced_terms = execute(
             frozen_stage,
             state,
@@ -5145,6 +5235,11 @@ def run_full_eb(
                 reconstructed_implicit
             ),
             reconstructed_selected_wall=reconstructed_selected_wall,
+            material_counterfactual_fields=material_counterfactuals,
+            material_ti_force_fields=material_ti_forces,
+            poisson_operand_counterfactual_fields=(
+                poisson_operand_counterfactuals
+            ),
         )
     if rhs_replay_history is not None:
         if rhs_replay_output is None or not rhs_replay_frames:
