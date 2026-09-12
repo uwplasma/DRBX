@@ -565,6 +565,60 @@ def test_split_system_selector_routes_material_and_vorticity_differently(
     assert calls == ["scalar-third-order-upwind", "compatible-third-order-upwind"]
 
 
+def test_rhs_routes_compiled_face_fit_into_characteristic_bracket(monkeypatch):
+    operator_calls = []
+    builder_calls = []
+
+    def fake_operator(*args, **kwargs):
+        operator_calls.append(kwargs)
+        return "face-fit-bracket"
+
+    def fake_builder(*args, **kwargs):
+        builder_calls.append((args, kwargs))
+        return None, "left-fit", "right-fit"
+
+    monkeypatch.setattr(
+        rhs_module, "local_poisson_bracket_compatible_flux_op", fake_operator
+    )
+    monkeypatch.setattr(
+        rhs_module,
+        "build_local_control_volume_poisson_face_stencil",
+        fake_builder,
+    )
+    model = SimpleNamespace(
+        poisson_bracket_scheme="material-scalar-third-order-upwind",
+        geometry="geometry",
+        domain="domain",
+        axis_regular_axes=(True, False, False),
+        control_volume_geometry=SimpleNamespace(
+            face_functionals=object(), diffusion_prolongation=None
+        ),
+        control_volume_boundary_bc="cv-bc",
+        halo_exchange="exchange",
+        topology_filler="topology",
+        _stencil_builder_context=lambda: "context",
+        _owner_field=lambda value: ("owner", value),
+    )
+    result = LocalFciDrbEBRhs._poisson_bracket_over_B(
+        model,
+        None,
+        None,
+        "f-stencil",
+        "g-stencil",
+        g_field_halo="g-halo",
+        g_owner_values="g-owner",
+        equation_family="material",
+    )
+
+    assert result == "face-fit-bracket"
+    assert len(builder_calls) == 1
+    assert builder_calls[0][1]["owner_values_owned"] == ("owner", "g-owner")
+    assert operator_calls[0]["g_direct_face_states"] == (
+        "left-fit",
+        "right-fit",
+    )
+
+
 def test_third_order_characteristic_scheme_validates_halo_and_selector():
     geometry, domain, context, f, g = _polar_pair(shape=(4, 8, 2))
     fs = _conservative(f, geometry, context)

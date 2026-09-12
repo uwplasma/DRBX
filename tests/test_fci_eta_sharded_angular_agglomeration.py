@@ -38,6 +38,7 @@ from drbx.native.fci_operators import (
     LocalPerpLaplacianInverseSolver,
     _local_control_volume_integrated_divergence,
     build_local_control_volume_field_closure,
+    build_local_control_volume_poisson_face_stencil,
     inject_owned_field_to_halo,
 )
 from drbx.native.fci_gmres import SolvaxGmresConfig
@@ -205,6 +206,27 @@ def test_moment_shared_transition_faces_are_canonical_and_reproduce_cubics():
     assert abs(float(integrated_total)) < 2.0e-13
 
 
+def test_eta_sharded_transition_payload_reports_per_shard_row_count():
+    shape = (4, 8, 4)
+    host = _host(shape)
+    geometry = build_shifted_torus_geometry(shape, construct_fci_maps=False)
+    fci = build_local_fci_geometries(geometry, (1, 1, 2), halo_width=2)
+    descriptor, _packed = build_sharded_polar_angular_agglomeration_payload(
+        host,
+        fci.domain,
+        compile_compact_transition_faces=True,
+    )
+    transition_count = int(
+        np.count_nonzero(np.diff(np.asarray(host.angular_group_size)) != 0)
+    )
+    assert descriptor.global_compact_face_count == (
+        transition_count * shape[1] * shape[2]
+    )
+    assert descriptor.compact_face_count == (
+        transition_count * shape[1] * (shape[2] // 2)
+    )
+
+
 def test_eta_assembly_is_callable_inside_shard_map():
     shape = (3, 8, 4)
     host = _host(shape)
@@ -277,6 +299,117 @@ def test_eta_assembly_two_shard_map_matches_global_payload_when_available():
         )
     )(fci_fields, rlp_fields)
     np.testing.assert_allclose(np.asarray(mapped), host.aggregate_chart_volume)
+
+
+def test_eta_sharded_face_fit_matches_one_device_when_available():
+    if len(jax.devices()) < 2:
+        pytest.skip("requires two JAX devices for a two-eta-shard execution test")
+    shape = (4, 8, 4)
+    host = _host(shape)
+    global_geometry = build_shifted_torus_geometry(
+        shape, construct_fci_maps=False
+    )
+    ii, jj, kk = np.indices(shape)
+    owner = np.where(
+        np.asarray(host.topology.is_active_owner),
+        0.2 * ii - 0.07 * jj + np.sin(2.0 * np.pi * (kk + 0.3) / shape[2]),
+        0.0,
+    )
+    topology = TopologyHaloFiller3D(
+        (LocalPeriodicTopologyRule3D((False, True, True)),)
+    )
+
+    one = build_local_fci_geometries(
+        global_geometry, (1, 1, 1), halo_width=2
+    )
+    one_local = assemble_single_device_local_fci_geometry(one)
+    one_rlp = lower_polar_angular_agglomeration_geometry(
+        host, one_local, compile_direct_poisson_faces=True
+    )
+    one_domain = replace(one.domain, mesh_axis_names=(None, None, None))
+    one_halo = inject_owned_field_to_halo(jnp.asarray(owner), one_local.layout)
+    one_halo = topology(one_halo, one_domain)
+    _, expected_left, expected_right = (
+        build_local_control_volume_poisson_face_stencil(
+            one_halo,
+            one_local,
+            one_domain,
+            StencilBuilderContext(layout=one_domain.layout, domain=one_domain),
+            one_rlp,
+            LocalControlVolumeBoundaryBC3D.empty(
+                max_rows=one_rlp.irregular_faces.max_rows
+            ),
+            owner_values_owned=jnp.asarray(owner),
+            halo_exchange=HaloExchange3D(),
+            topology_filler=topology,
+        )
+    )
+
+    split = build_local_fci_geometries(
+        global_geometry, (1, 1, 2), halo_width=2
+    )
+    descriptor, packed = build_sharded_polar_angular_agglomeration_payload(
+        host,
+        split.domain,
+        compile_compact_transition_faces=True,
+    )
+    mesh = make_shard_mesh((1, 1, 2))
+    spec = P("x", "y", "z", None)
+
+    def kernel(fci_owned, rlp_owned, owner_owned):
+        local_fci = assemble_local_fci_geometry(split, fci_owned)
+        local_rlp = assemble_local_polar_angular_agglomeration_geometry(
+            descriptor, rlp_owned, local_fci
+        )
+        exchange = HaloExchange3D()
+        field_halo = inject_owned_field_to_halo(owner_owned, local_fci.layout)
+        field_halo = exchange(field_halo, split.domain)
+        field_halo = topology(field_halo, split.domain)
+        _, left, right = build_local_control_volume_poisson_face_stencil(
+            field_halo,
+            local_fci,
+            split.domain,
+            StencilBuilderContext(
+                layout=split.domain.layout, domain=split.domain
+            ),
+            local_rlp,
+            LocalControlVolumeBoundaryBC3D.empty(
+                max_rows=descriptor.compact_face_count
+            ),
+            owner_values_owned=owner_owned,
+            halo_exchange=exchange,
+            topology_filler=topology,
+        )
+        return left.x, right.x
+
+    got_left, got_right = jax.jit(
+        jax.shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(spec, descriptor.cell_partition_spec, P("x", "y", "z")),
+            out_specs=(P("x", "y", "z"), P("x", "y", "z")),
+            check_vma=False,
+        )
+    )(
+        jax.device_put(split.cell_fields, NamedSharding(mesh, spec)),
+        jax.device_put(packed, NamedSharding(mesh, descriptor.cell_partition_spec)),
+        jax.device_put(owner, NamedSharding(mesh, P("x", "y", "z"))),
+    )
+    transition_i = np.flatnonzero(
+        np.diff(np.asarray(host.angular_group_size)) != 0
+    ) + 1
+    np.testing.assert_allclose(
+        np.asarray(got_left)[transition_i],
+        np.asarray(expected_left.x)[transition_i],
+        rtol=2.0e-12,
+        atol=2.0e-12,
+    )
+    np.testing.assert_allclose(
+        np.asarray(got_right)[transition_i],
+        np.asarray(expected_right.x)[transition_i],
+        rtol=2.0e-12,
+        atol=2.0e-12,
+    )
 
 
 def test_eta_sharded_full_diffusion_matches_global_with_varying_weights_when_available():
