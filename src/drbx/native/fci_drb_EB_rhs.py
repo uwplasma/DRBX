@@ -60,6 +60,7 @@ from .fci_operators import (
     local_curvature_production_path_op,
     local_poisson_bracket_compatible_flux_op,
     local_poisson_bracket_op_from_gradients,
+    build_local_control_volume_poisson_face_stencil,
     expand_local_control_volume_owner_field,
     aggregate_local_control_volume_average,
     local_control_volume_diffusion_cell_volume,
@@ -1289,6 +1290,7 @@ class LocalFciDrbEBRhs:
         f_boundary_trace: LocalBoundaryFaceTrace3D | None = None,
         g_boundary_trace: LocalBoundaryFaceTrace3D | None = None,
         g_field_halo: jnp.ndarray | None = None,
+        g_owner_values: jnp.ndarray | None = None,
         g_positivity_floor: float | None = None,
         equation_family: str = "material",
     ) -> jnp.ndarray:
@@ -1318,6 +1320,36 @@ class LocalFciDrbEBRhs:
                 )
             else:
                 characteristic_scheme = "scalar-third-order-upwind"
+            direct_face_states = None
+            control_volume_geometry = getattr(
+                self, "control_volume_geometry", None
+            )
+            if (
+                characteristic_scheme
+                in (
+                    "scalar-third-order-upwind",
+                    "compatible-third-order-upwind",
+                )
+                and control_volume_geometry is not None
+                and control_volume_geometry.face_functionals is not None
+                and g_owner_values is not None
+            ):
+                _, fitted_left, fitted_right = (
+                    build_local_control_volume_poisson_face_stencil(
+                        g_field_halo,
+                        self.geometry,
+                        self.domain,
+                        self._stencil_builder_context(),
+                        control_volume_geometry,
+                        self.control_volume_boundary_bc,
+                        owner_values_owned=self._owner_field(g_owner_values),
+                        boundary_trace=g_boundary_trace,
+                        positivity_floor=g_positivity_floor,
+                        halo_exchange=self.halo_exchange,
+                        topology_filler=self.topology_filler,
+                    )
+                )
+                direct_face_states = (fitted_left, fitted_right)
             return local_poisson_bracket_compatible_flux_op(
                 f_conservative_stencil,
                 g_conservative_stencil,
@@ -1328,6 +1360,7 @@ class LocalFciDrbEBRhs:
                 g_boundary_trace=g_boundary_trace,
                 characteristic_scheme=characteristic_scheme,
                 g_field_halo=g_field_halo,
+                g_direct_face_states=direct_face_states,
                 g_positivity_floor=g_positivity_floor,
                 cell_volume=local_control_volume_projected_fine_cell_volume(
                     self.geometry,
@@ -4093,32 +4126,17 @@ class LocalFciDrbEBRhs:
                 ],
             }
             if return_electron_force_diagnostics and wall_data is not None:
-                # Exact additive split of the *live explicit* production
-                # residual. The first-order base on a selected physical-wall
-                # leg is advanced by the local implicit solve; only its bounded
-                # reconstruction correction remains explicit here.
-                # the middle lane retains the geometric div(b) source and
-                # any algebraic remainder. This uses the already-live
-                # directional actions rather than restoring the retired
-                # full-grid provenance diagnostics.
-                backward_reconstruction_correction = parallel_material_diagnostics[
-                    "backward_reconstruction_correction"
+                # Exact split of the *live explicit* production residual.
+                # Ordinary rows carry the directly assembled third-order
+                # upwind face flux.  A selected physical-wall direction omits
+                # its first-order base (advanced by local backward Euler) and
+                # retains only its bounded explicit wall completion.
+                explicit_backward_residual = parallel_material_diagnostics[
+                    "backward_material_residual"
                 ]
-                forward_reconstruction_correction = parallel_material_diagnostics[
-                    "forward_reconstruction_correction"
+                explicit_forward_residual = parallel_material_diagnostics[
+                    "forward_material_residual"
                 ]
-                explicit_backward_residual = jnp.where(
-                    wall_data["selected_backward_wall"][..., None],
-                    backward_reconstruction_correction,
-                    wall_data["backward_residual"]
-                    + backward_reconstruction_correction,
-                )
-                explicit_forward_residual = jnp.where(
-                    wall_data["selected_forward_wall"][..., None],
-                    forward_reconstruction_correction,
-                    wall_data["forward_residual"]
-                    + forward_reconstruction_correction,
-                )
                 explicit_center_geometric_residual = (
                     parallel_material_residual
                     - explicit_backward_residual
@@ -4172,21 +4190,41 @@ class LocalFciDrbEBRhs:
                 )
 
                 # Isolate the Ti-column contribution of the same live
-                # branchwise two-hop characteristic action.  Its sum with
-                # the canonical +mu*tau*G(Ti) force should converge to zero.
-                backward_derivative = _nonuniform_second_order_backward_derivative(
-                    center,
-                    minus,
-                    second_order_material["minus2"],
-                    dx_minus,
-                    second_order_material["dx_minus2"],
+                # branchwise action.  Ordinary valid rows use the direct
+                # reconstructed-face derivative; exceptional closures retain
+                # their established one-sided derivative.  Its sum with the
+                # canonical +mu*tau*G(Ti) force should converge to zero.
+                fallback_backward_derivative = (
+                    _nonuniform_second_order_backward_derivative(
+                        center,
+                        minus,
+                        second_order_material["minus2"],
+                        dx_minus,
+                        second_order_material["dx_minus2"],
+                    )
                 )
-                forward_derivative = _nonuniform_second_order_forward_derivative(
-                    center,
-                    plus,
-                    second_order_material["plus2"],
-                    dx_plus,
-                    second_order_material["dx_plus2"],
+                fallback_forward_derivative = (
+                    _nonuniform_second_order_forward_derivative(
+                        center,
+                        plus,
+                        second_order_material["plus2"],
+                        dx_plus,
+                        second_order_material["dx_plus2"],
+                    )
+                )
+                backward_derivative = jnp.where(
+                    parallel_material_diagnostics[
+                        "backward_direct_upwind_used"
+                    ][..., None],
+                    parallel_material_diagnostics["direct_positive_derivative"],
+                    fallback_backward_derivative,
+                )
+                forward_derivative = jnp.where(
+                    parallel_material_diagnostics[
+                        "forward_direct_upwind_used"
+                    ][..., None],
+                    parallel_material_diagnostics["direct_negative_derivative"],
+                    fallback_forward_derivative,
                 )
                 ti_backward_derivative = jnp.zeros_like(backward_derivative).at[
                     ..., 2
@@ -4217,11 +4255,10 @@ class LocalFciDrbEBRhs:
                 material_ti_force_fields = material_ti_force_fields.at[..., 0].set(
                     -(backward_ti_action + forward_ti_action)[..., 4]
                 )
-                # Attribute the live second-order correction to its direction
-                # in the older electron-force replay lanes as well.  These are
-                # the explicit residuals, so a selected wall excludes its old
-                # implicit base while retaining any explicit reconstruction
-                # correction.
+                # Attribute the live direct material flux to its direction in
+                # the older electron-force replay lanes as well.  These are
+                # explicit residuals, so a selected wall excludes its implicit
+                # base while retaining any explicit wall completion.
                 backward_residual = explicit_backward_residual
                 forward_residual = explicit_forward_residual
                 material_upwind_principal = (
@@ -5786,6 +5823,7 @@ class LocalFciDrbEBRhs:
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.density,
             g_field_halo=poisson_bracket_support_halos["density"],
+            g_owner_values=state_owned.density,
             g_positivity_floor=1.0e-12,
         )
         poisson_Te = self._poisson_bracket_over_B(
@@ -5796,6 +5834,7 @@ class LocalFciDrbEBRhs:
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Te,
             g_field_halo=poisson_bracket_support_halos["Te"],
+            g_owner_values=state_owned.Te,
             g_positivity_floor=1.0e-12,
         )
         poisson_Ti = self._poisson_bracket_over_B(
@@ -5806,6 +5845,7 @@ class LocalFciDrbEBRhs:
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.Ti,
             g_field_halo=poisson_bracket_support_halos["Ti"],
+            g_owner_values=state_owned.Ti,
             g_positivity_floor=1.0e-12,
         )
         poisson_Vi = self._poisson_bracket_over_B(
@@ -5816,6 +5856,7 @@ class LocalFciDrbEBRhs:
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=perpendicular_operator_boundary.Vi,
             g_field_halo=poisson_bracket_support_halos["Vi"],
+            g_owner_values=state_owned.Vi,
         )
         poisson_Ve = self._poisson_bracket_over_B(
             phi_pb_gradient,
@@ -5825,6 +5866,7 @@ class LocalFciDrbEBRhs:
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=perpendicular_operator_boundary.Ve,
             g_field_halo=poisson_bracket_support_halos["Ve"],
+            g_owner_values=state_owned.Ve,
         )
         poisson_vorticity = self._poisson_bracket_over_B(
             phi_pb_gradient,
@@ -5834,6 +5876,7 @@ class LocalFciDrbEBRhs:
             f_boundary_trace=operator_boundary.phi,
             g_boundary_trace=operator_boundary.vorticity,
             g_field_halo=poisson_bracket_support_halos["vorticity"],
+            g_owner_values=state_owned.vorticity,
             equation_family="vorticity",
         )
         poisson_counterfactual_fields = None

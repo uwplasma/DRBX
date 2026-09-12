@@ -187,6 +187,74 @@ def _nonuniform_quadratic_center_derivative(
     ) / total[..., None]
 
 
+def _third_order_upwind_face_derivatives(
+    minus2: jnp.ndarray,
+    minus: jnp.ndarray,
+    center: jnp.ndarray,
+    plus: jnp.ndarray,
+    plus2: jnp.ndarray,
+    dx_minus: Any,
+    dx_plus: Any,
+    *,
+    positivity_floor: float,
+) -> tuple[
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+]:
+    """Return direct positive/negative third-order face-flux derivatives.
+
+    The canonical cell-average reconstruction is evaluated on the overlapping
+    four-cell stencils ``(minus2, minus, center, plus)`` and
+    ``(minus, center, plus, plus2)``.  The positive characteristic derivative
+    uses the left state at both faces and the negative derivative uses the
+    right state.  The physical control width is the distance between the two
+    half-leg faces.  Smooth mapped grids may have unequal adjacent leg lengths,
+    but the face lift remains the canonical cell-average formula rather than
+    an incompatible point-value Lagrange interpolation.
+    """
+
+    minus2, minus, center, plus, plus2 = jnp.broadcast_arrays(
+        *(_as_state(value) for value in (minus2, minus, center, plus, plus2))
+    )
+    hm, hp = jnp.broadcast_arrays(
+        *(
+            jnp.maximum(
+                jnp.abs(jnp.asarray(value, dtype=jnp.float64)), _LOG_FLOOR
+            )
+            for value in (dx_minus, dx_plus)
+        )
+    )
+    backward_faces, backward_fallback = third_order_face_reconstruction(
+        jnp.stack((minus2, minus, center, plus), axis=-2),
+        positivity_floor=positivity_floor,
+        return_fallback=True,
+    )
+    forward_faces, forward_fallback = third_order_face_reconstruction(
+        jnp.stack((minus, center, plus, plus2), axis=-2),
+        positivity_floor=positivity_floor,
+        return_fallback=True,
+    )
+    control_width = 0.5 * (hm + hp)
+    positive_derivative = (
+        forward_faces[..., 0, :] - backward_faces[..., 0, :]
+    ) / control_width[..., None]
+    negative_derivative = (
+        forward_faces[..., 1, :] - backward_faces[..., 1, :]
+    ) / control_width[..., None]
+    return (
+        positive_derivative,
+        negative_derivative,
+        backward_faces,
+        forward_faces,
+        backward_fallback,
+        forward_fallback,
+    )
+
+
 def parallel_production_principal_matrix(
     density: Any,
     Te: Any,
@@ -1352,23 +1420,32 @@ def parallel_target_row_material_residual(
     canonical face state and one live characteristic eigendecomposition.  The
     production material path explicitly selects ``spatial_order=2``.
 
-    ``spatial_order=2`` opts into a nonuniform second-order reconstruction.
+    ``spatial_order=2`` opts into direct third-order upwind face
+    reconstruction (and therefore a second-order-or-better row derivative).
     On an ordinary backward/forward leg, ``minus2``/``plus2`` is the second
     upstream state and ``dx_minus2``/``dx_plus2`` is its distance from the
     immediate endpoint (not its cumulative distance from ``center``).  The
-    corresponding ``*_second_valid`` flag must also be true; unavailable,
-    non-finite, or degenerate data explicitly retain the original first-order
-    directional residual.  An explicit ``*_centered_closure`` flag permits an
+    overlapping quadratic reconstructions produce left/right states at both
+    half-leg faces; the positive/negative characteristic branches are applied
+    directly to their corresponding face-state differences.  No additive
+    dissipation or reconstruction correction is used on an ordinary valid
+    row.  The corresponding ``*_second_valid`` flag must also be true;
+    unavailable, non-finite, degenerate, or inadmissible reconstructed data
+    explicitly retain the original first-order directional residual.  An
+    explicit ``*_centered_closure`` flag permits an
     ordinary direction next to a wall to use the unequal-spacing quadratic
     through the two immediate endpoints instead of a missing second hop.  At
     an immediate physical wall, the quadratic
     through the resolved backward endpoint, center, and resolved forward
     endpoint is used instead.  The second-order split is always evaluated
     with ``A(center)``.  Selected short-wall legs retain their original
-    first-order implicit base.  The correction stays bounded for one shrinking
-    wall leg with its opposite fixed; frozen energy-wall IMEX damping covers
-    both short.  Reused ``resolved_wall_data`` with a different owner center
-    falls back to first order and reports ``wall_center_reconstruction_mismatch``.
+    first-order implicit base.  Only physical-wall rows retain a bounded
+    additive completion because that is the explicit companion of the local
+    backward-Euler base; ordinary rows are always direct fluxes.  The wall
+    completion stays bounded for one shrinking wall leg with its opposite
+    fixed; frozen energy-wall IMEX damping covers both short.  Reused
+    ``resolved_wall_data`` with a different owner center falls back to first
+    order and reports ``wall_center_reconstruction_mismatch``.
     """
     if spatial_order not in (1, 2):
         raise ValueError(f"spatial_order must be 1 or 2, got {spatial_order!r}")
@@ -1430,12 +1507,13 @@ def parallel_target_row_material_residual(
     omit_forward = selected_forward | (
         forward_wall & jnp.asarray(omit_forward_wall, dtype=bool)
     )
-    backward_action = jnp.where(omit_backward[..., None], 0.0, backward_action)
-    forward_action = jnp.where(omit_forward[..., None], 0.0, forward_action)
-    residual = -(
-        backward_action / dxm_safe[..., None]
-        + forward_action / dxp_safe[..., None]
+    backward_material_residual = jnp.where(
+        omit_backward[..., None], 0.0, backward_first_order_full
     )
+    forward_material_residual = jnp.where(
+        omit_forward[..., None], 0.0, forward_first_order_full
+    )
+    residual = backward_material_residual + forward_material_residual
 
     false_mask = jnp.zeros_like(backward_wall, dtype=bool)
     backward_high_order_valid = false_mask
@@ -1450,6 +1528,14 @@ def parallel_target_row_material_residual(
     high_order_characteristic_valid = jnp.ones_like(false_mask)
     second_order_spectral_fallback = false_mask
     wall_center_reconstruction_mismatch = false_mask
+    backward_direct_upwind_used = false_mask
+    forward_direct_upwind_used = false_mask
+    backward_face_reconstruction_fallback = false_mask
+    forward_face_reconstruction_fallback = false_mask
+    direct_positive_derivative = jnp.zeros_like(center)
+    direct_negative_derivative = jnp.zeros_like(center)
+    backward_reconstructed_face_states = jnp.stack((center, center), axis=-2)
+    forward_reconstructed_face_states = jnp.stack((center, center), axis=-2)
     backward_reconstruction_correction = jnp.zeros_like(center)
     forward_reconstruction_correction = jnp.zeros_like(center)
     if spatial_order == 2:
@@ -1565,16 +1651,20 @@ def parallel_target_row_material_residual(
             & backward_second_valid_array
             & center_admissible
             & immediate_minus_admissible
+            & immediate_plus_admissible
             & second_minus_admissible
             & dx_minus_valid
+            & dx_plus_valid
             & dx_minus2_valid
         )
         forward_second_upstream_valid = (
             plus2_present
             & forward_second_valid_array
             & center_admissible
+            & immediate_minus_admissible
             & immediate_plus_admissible
             & second_plus_admissible
+            & dx_minus_valid
             & dx_plus_valid
             & dx_plus2_valid
         )
@@ -1639,20 +1729,64 @@ def parallel_target_row_material_residual(
             dx_plus2_valid, jnp.abs(raw_dx_plus2), 1.0
         )
 
-        backward_ordinary_derivative = _nonuniform_second_order_backward_derivative(
-            center_for_calculation,
-            minus_for_calculation,
+        (
+            direct_positive_derivative,
+            direct_negative_derivative,
+            backward_reconstructed_face_states,
+            forward_reconstructed_face_states,
+            backward_face_side_fallback,
+            forward_face_side_fallback,
+        ) = _third_order_upwind_face_derivatives(
             minus2_for_calculation,
-            dx_minus,
-            dx_minus2_for_calculation,
-        )
-        forward_ordinary_derivative = _nonuniform_second_order_forward_derivative(
+            minus_for_calculation,
             center_for_calculation,
             plus_for_calculation,
             plus2_for_calculation,
+            dx_minus,
             dx_plus,
-            dx_plus2_for_calculation,
+            positivity_floor=positivity_floor,
         )
+
+        def reconstructed_state_valid(state: jnp.ndarray) -> jnp.ndarray:
+            return jnp.all(jnp.isfinite(state), axis=-1) & jnp.all(
+                state[..., :3] > positivity_floor, axis=-1
+            )
+
+        backward_left_valid = reconstructed_state_valid(
+            backward_reconstructed_face_states[..., 0, :]
+        )
+        backward_right_valid = reconstructed_state_valid(
+            backward_reconstructed_face_states[..., 1, :]
+        )
+        forward_left_valid = reconstructed_state_valid(
+            forward_reconstructed_face_states[..., 0, :]
+        )
+        forward_right_valid = reconstructed_state_valid(
+            forward_reconstructed_face_states[..., 1, :]
+        )
+        backward_face_reconstruction_fallback = ~(
+            backward_left_valid & forward_left_valid
+        ) | backward_face_side_fallback[..., 0] | forward_face_side_fallback[
+            ..., 0
+        ]
+        forward_face_reconstruction_fallback = ~(
+            backward_right_valid & forward_right_valid
+        ) | backward_face_side_fallback[..., 1] | forward_face_side_fallback[
+            ..., 1
+        ]
+        # A positivity failure falls back to the complete first-order branch;
+        # never mix a reconstructed face with an owner face in one derivative.
+        backward_high_order_valid = backward_high_order_valid & jnp.where(
+            backward_wall, True, ~backward_face_reconstruction_fallback
+        )
+        forward_high_order_valid = forward_high_order_valid & jnp.where(
+            forward_wall, True, ~forward_face_reconstruction_fallback
+        )
+        backward_high_order_fallback = ~backward_high_order_valid
+        forward_high_order_fallback = ~forward_high_order_valid
+
+        backward_ordinary_derivative = direct_positive_derivative
+        forward_ordinary_derivative = direct_negative_derivative
         centered_ordinary_derivative = _nonuniform_quadratic_center_derivative(
             minus_for_calculation,
             center_for_calculation,
@@ -1764,15 +1898,16 @@ def parallel_target_row_material_residual(
             max_condition=max_condition,
             basis=base_center_basis,
         )
+        # Ordinary mapped rows are assembled directly from the reconstructed
+        # characteristic face fluxes.  The additive correction is retained
+        # only for physical-wall rows, where the first-order base belongs to
+        # the local backward-Euler split and only its bounded high-order
+        # completion may remain explicit.
         backward_candidate_correction = jnp.where(
-            backward_wall[..., None],
-            -backward_wall_delta_action,
-            backward_second_full - backward_first_order_full,
+            backward_wall[..., None], -backward_wall_delta_action, 0.0
         )
         forward_candidate_correction = jnp.where(
-            forward_wall[..., None],
-            -forward_wall_delta_action,
-            forward_second_full - forward_first_order_full,
+            forward_wall[..., None], -forward_wall_delta_action, 0.0
         )
         backward_reconstruction_correction = jnp.where(
             backward_high_order_valid[..., None],
@@ -1784,11 +1919,45 @@ def parallel_target_row_material_residual(
             forward_candidate_correction,
             0.0,
         )
-        residual = (
-            residual
+        backward_direct_upwind_used = (
+            ~backward_wall
+            & backward_high_order_valid
+            & ~backward_centered_closure_used
+        )
+        forward_direct_upwind_used = (
+            ~forward_wall
+            & forward_high_order_valid
+            & ~forward_centered_closure_used
+        )
+        backward_ordinary_residual = jnp.where(
+            backward_high_order_valid[..., None],
+            backward_second_full,
+            backward_first_order_full,
+        )
+        forward_ordinary_residual = jnp.where(
+            forward_high_order_valid[..., None],
+            forward_second_full,
+            forward_first_order_full,
+        )
+        backward_wall_residual = (
+            jnp.where(omit_backward[..., None], 0.0, backward_first_order_full)
             + backward_reconstruction_correction
+        )
+        forward_wall_residual = (
+            jnp.where(omit_forward[..., None], 0.0, forward_first_order_full)
             + forward_reconstruction_correction
         )
+        backward_material_residual = jnp.where(
+            backward_wall[..., None],
+            backward_wall_residual,
+            backward_ordinary_residual,
+        )
+        forward_material_residual = jnp.where(
+            forward_wall[..., None],
+            forward_wall_residual,
+            forward_ordinary_residual,
+        )
+        residual = backward_material_residual + forward_material_residual
     backward_valid_live = directional["backward_valid"]
     forward_valid_live = directional["forward_valid"]
     backward_clipped = directional["backward_clipped"]
@@ -1845,8 +2014,25 @@ def parallel_target_row_material_residual(
         "wall_center_reconstruction_mismatch": (
             wall_center_reconstruction_mismatch
         ),
-        # Exact additions to the explicit residual, in residual units.  These
-        # remain present (and zero) for the API-compatible first-order path.
+        "backward_direct_upwind_used": backward_direct_upwind_used,
+        "forward_direct_upwind_used": forward_direct_upwind_used,
+        "direct_third_order_upwind_used": (
+            backward_direct_upwind_used | forward_direct_upwind_used
+        ),
+        "backward_face_reconstruction_fallback": (
+            backward_face_reconstruction_fallback
+        ),
+        "forward_face_reconstruction_fallback": (
+            forward_face_reconstruction_fallback
+        ),
+        "direct_positive_derivative": direct_positive_derivative,
+        "direct_negative_derivative": direct_negative_derivative,
+        "backward_reconstructed_face_states": backward_reconstructed_face_states,
+        "forward_reconstructed_face_states": forward_reconstructed_face_states,
+        "backward_material_residual": backward_material_residual,
+        "forward_material_residual": forward_material_residual,
+        # Exact wall-only additions to the explicit residual, in residual
+        # units.  Ordinary direct-upwind rows never use these corrections.
         "backward_reconstruction_correction": backward_reconstruction_correction,
         "forward_reconstruction_correction": forward_reconstruction_correction,
         "spectral_fallback": (

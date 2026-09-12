@@ -253,9 +253,16 @@ PYTHONPATH=src python3 simulate_hsx_mms.py \
   --shard-counts 1 1 4 \
   --metric-cache-dir work/stage7_mms/metric_cache \
   --time 1e-6 --final-time 1e-6 --dt 1e-6 \
+  --skip-counterfactuals \
   --advance-execution compiled \
   --output work/stage7_mms/hsx_mms_frozen_32_48_64.npz
 ```
+
+`--skip-counterfactuals` omits only the diagnostic material/force/raw-vs-H
+control graph. The production frozen RHS, independent-source pairing,
+reconstructed-phi replay, complete term ledger, and regional convergence are
+still evaluated. Re-enable the counterfactuals only when attribution among
+those controls is needed after the primary frozen gate.
 
 Inspect these arrays before evolving:
 

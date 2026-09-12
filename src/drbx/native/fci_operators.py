@@ -2109,6 +2109,9 @@ def local_poisson_bracket_compatible_flux_op(
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
     characteristic_scheme: str = "centered",
     g_field_halo: jnp.ndarray | None = None,
+    g_direct_face_states: tuple[
+        CoordinateFaceValues3D, CoordinateFaceValues3D
+    ] | None = None,
     g_positivity_floor: float | None = None,
     b_floor: float = 1.0e-30,
     jacobian_floor: float = 1.0e-30,
@@ -2145,7 +2148,12 @@ def local_poisson_bracket_compatible_flux_op(
     volume balance; the ordinary cell-centred metric remains the default.
 
     The characteristic
-    speed is the physical normal E x B face flux ``U_f``; no dissipation
+    ``g_direct_face_states`` may provide owner-reconstructed left/right
+    values directly on the coordinate faces.  When present it replaces the
+    halo-based characteristic face lift; this keeps the upwind decision in
+    the bracket while avoiding an intermediate projected-fine field.
+
+    The characteristic speed is the physical normal E x B face flux ``U_f``; no dissipation
     coefficient is tunable.  Regular bulk and
     shard faces use the same third-order reconstruction as the production
     curvature/parallel systems.  Physical coordinate faces and compact RLP
@@ -2186,26 +2194,44 @@ def local_poisson_bracket_compatible_flux_op(
         "compatible-third-order-upwind",
     )
     if characteristic_upwind:
-        if g_field_halo is None:
+        if g_direct_face_states is not None:
+            if (
+                not isinstance(g_direct_face_states, tuple)
+                or len(g_direct_face_states) != 2
+                or not all(
+                    isinstance(value, CoordinateFaceValues3D)
+                    for value in g_direct_face_states
+                )
+            ):
+                raise TypeError(
+                    "g_direct_face_states must be a pair of CoordinateFaceValues3D"
+                )
+            left_g, right_g = g_direct_face_states
+            if left_g.shape != geometry.owned_shape or right_g.shape != geometry.owned_shape:
+                raise ValueError(
+                    "g_direct_face_states must match geometry.owned_shape"
+                )
+        elif g_field_halo is None:
             raise ValueError(
-                "g_field_halo is required for third-order characteristic "
-                "Poisson-bracket upwinding"
+                "g_field_halo or g_direct_face_states is required for "
+                "third-order characteristic Poisson-bracket upwinding"
             )
-        g_field_halo = jnp.asarray(g_field_halo, dtype=jnp.float64)
-        if g_field_halo.shape != geometry.halo_shape:
-            raise ValueError(
-                "g_field_halo must match geometry.halo_shape; "
-                f"got {g_field_halo.shape}, expected {geometry.halo_shape}"
+        else:
+            g_field_halo = jnp.asarray(g_field_halo, dtype=jnp.float64)
+            if g_field_halo.shape != geometry.halo_shape:
+                raise ValueError(
+                    "g_field_halo must match geometry.halo_shape; "
+                    f"got {g_field_halo.shape}, expected {geometry.halo_shape}"
+                )
+            left_g, right_g, _g_reconstruction_fallback = (
+                _third_order_scalar_face_states_from_halo(
+                    g_field_halo,
+                    geometry,
+                    boundary_trace=g_boundary_trace,
+                    axis_regular_axes=axis_regular_axes,
+                    positivity_floor=g_positivity_floor,
+                )
             )
-        left_g, right_g, _g_reconstruction_fallback = (
-            _third_order_scalar_face_states_from_halo(
-                g_field_halo,
-                geometry,
-                boundary_trace=g_boundary_trace,
-                axis_regular_axes=axis_regular_axes,
-                positivity_floor=g_positivity_floor,
-            )
-        )
 
     supplied_geometries = tuple(
         geometry_value for geometry_value in (
@@ -2461,7 +2487,14 @@ def local_poisson_bracket_compatible_flux_op(
             )
         )
         if characteristic_upwind:
-            assert g_field_halo is not None
+            if g_field_halo is None:
+                # Direct coordinate-face states currently target the
+                # projected-fine route.  Compact embedded faces need their
+                # own owner-side traces and therefore still require a halo.
+                raise ValueError(
+                    "g_field_halo remains required when direct face states "
+                    "are combined with compact control-volume faces"
+                )
             characteristic_f_action = _characteristic_action(
                 f_stencil,
                 g_stencil,
@@ -8068,6 +8101,188 @@ def evaluate_local_control_volume_polynomial(
         )
     )
     return point_value, point_gradient, owner_valid
+
+
+def build_local_control_volume_poisson_face_stencil(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    context: StencilBuilderContext,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    boundary_bc: LocalControlVolumeBoundaryBC3D,
+    *,
+    owner_values_owned: jnp.ndarray | None = None,
+    regular_face_bc: LocalBoundaryFaceBC3D | None = None,
+    boundary_trace: LocalBoundaryFaceTrace3D | None = None,
+    positivity_floor: float | None = None,
+    halo_exchange: HaloExchange3D | None = None,
+    topology_filler: TopologyHaloFiller3D | None = None,
+) -> tuple[
+    ConservativeStencil3D,
+    CoordinateFaceValues3D,
+    CoordinateFaceValues3D,
+]:
+    """Patch projected-fine Poisson states with face-centred RLP fits.
+
+    ``field_halo`` supplies the established H-prolongated representation and
+    remains authoritative away from radial changes in angular group size.
+    At every such transition, two cubic moment rows evaluate the same physical
+    face trace directly from ``owner_values_owned``.  Their least-squares norms
+    are biased toward the minus and plus side respectively, but their common
+    face-centred polynomial constraints make their difference annihilate every
+    reproduced polynomial.
+
+    The returned conservative stencil is deliberately the established H-based
+    centered stencil.  Only the characteristic left/right states are patched;
+    this isolates the face-fit question without changing the compatible core,
+    generator velocity, metric sampling, or ordinary-grid reconstruction.
+    """
+
+    if not isinstance(control_volume_geometry, LocalEmbeddedControlVolumeGeometry3D):
+        raise TypeError(
+            "control_volume_geometry must be LocalEmbeddedControlVolumeGeometry3D"
+        )
+    if not control_volume_geometry.has_angular_agglomeration:
+        raise ValueError("direct Poisson faces require angular RLP geometry")
+    rows = control_volume_geometry.face_functionals
+    faces = control_volume_geometry.irregular_faces
+    if rows is None or int(rows.max_rows) == 0:
+        raise ValueError(
+            "angular RLP geometry was not compiled with direct Poisson face rows"
+        )
+    if owner_values_owned is None:
+        raise ValueError("owner_values_owned is required for direct Poisson face rows")
+    owner_values_owned = jnp.asarray(owner_values_owned, dtype=jnp.float64)
+    if owner_values_owned.shape != geometry.owned_shape:
+        raise ValueError(
+            "owner_values_owned must match geometry.owned_shape; got "
+            f"{owner_values_owned.shape}, expected {geometry.owned_shape}"
+        )
+    if int(domain.shard_spec.shard_counts[2]) > 1 and halo_exchange is None:
+        raise ValueError(
+            "eta-sharded Poisson face fits require halo_exchange"
+        )
+    owner_values_halo = inject_owned_field_to_halo(
+        owner_values_owned, geometry.layout
+    )
+    if halo_exchange is not None:
+        owner_values_halo = halo_exchange(owner_values_halo, domain)
+    if topology_filler is not None:
+        owner_values_halo = topology_filler(owner_values_halo, domain)
+
+    baseline = build_local_conservative_stencil_from_field(
+        field_halo,
+        geometry,
+        context,
+    )
+    ordinary_left, ordinary_right, _ordinary_fallback = (
+        _third_order_scalar_face_states_from_halo(
+            field_halo,
+            geometry,
+            boundary_trace=boundary_trace,
+            axis_regular_axes=tuple(bool(value) for value in domain.axis_regular_axes),
+            positivity_floor=positivity_floor,
+        )
+    )
+    nx, ny, nz = geometry.owned_shape
+    hx, hy, hz = geometry.halo_shape
+    owned_in_bounds = (
+        (rows.owned_i >= 0)
+        & (rows.owned_i < nx)
+        & (rows.owned_j >= 0)
+        & (rows.owned_j < ny)
+        & (rows.owned_k >= 0)
+        & (rows.owned_k < nz)
+    )
+    halo_in_bounds = (
+        (rows.halo_i >= 0)
+        & (rows.halo_i < hx)
+        & (rows.halo_j >= 0)
+        & (rows.halo_j < hy)
+        & (rows.halo_k >= 0)
+        & (rows.halo_k < hz)
+    )
+    owned_sample = owner_values_owned[
+        jnp.clip(rows.owned_i, 0, nx - 1),
+        jnp.clip(rows.owned_j, 0, ny - 1),
+        jnp.clip(rows.owned_k, 0, nz - 1),
+    ]
+    halo_sample = owner_values_halo[
+        jnp.clip(rows.halo_i, 0, hx - 1),
+        jnp.clip(rows.halo_j, 0, hy - 1),
+        jnp.clip(rows.halo_k, 0, hz - 1),
+    ]
+    is_owned = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_CELL
+    is_halo = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL
+    observation = jnp.where(is_owned, owned_sample, halo_sample)
+    observation = jnp.where(rows.observation_active, observation, 0.0)
+    minus_quadrature = jnp.einsum(
+        "rpqe,re->rpq", rows.upwind_minus_value_weights, observation
+    )
+    plus_quadrature = jnp.einsum(
+        "rpqe,re->rpq", rows.upwind_plus_value_weights, observation
+    )
+    quadrature_active = jnp.asarray(faces.quadrature_active, dtype=bool)
+    quadrature_measure = jnp.where(
+        quadrature_active,
+        jnp.asarray(faces.J, dtype=jnp.float64)
+        * jnp.linalg.norm(
+            jnp.asarray(faces.area_covector_weight, dtype=jnp.float64), axis=-1
+        ),
+        0.0,
+    )
+    measure_sum = jnp.sum(quadrature_measure, axis=(1, 2))
+    minus_value = jnp.sum(
+        quadrature_measure * minus_quadrature, axis=(1, 2)
+    ) / jnp.maximum(measure_sum, 1.0e-30)
+    plus_value = jnp.sum(
+        quadrature_measure * plus_quadrature, axis=(1, 2)
+    ) / jnp.maximum(measure_sum, 1.0e-30)
+    row_valid = (
+        rows.active
+        & faces.active
+        & (faces.logical_axis == 0)
+        & (measure_sum > 0.0)
+        & jnp.all(
+            (~rows.observation_active)
+            | (
+                is_owned
+                & owned_in_bounds
+                & jnp.isfinite(owned_sample)
+            )
+            | (
+                is_halo
+                & halo_in_bounds
+                & jnp.isfinite(halo_sample)
+            ),
+            axis=1,
+        )
+        & jnp.isfinite(minus_value)
+        & jnp.isfinite(plus_value)
+    )
+    if positivity_floor is not None:
+        row_valid = row_valid & (minus_value > positivity_floor) & (
+            plus_value > positivity_floor
+        )
+
+    face_index = (
+        faces.logical_face_i,
+        faces.logical_face_j,
+        faces.logical_face_k,
+    )
+    old_minus = ordinary_left.x[face_index]
+    old_plus = ordinary_right.x[face_index]
+    fitted_left_x = ordinary_left.x.at[face_index].set(
+        jnp.where(row_valid, minus_value, old_minus)
+    )
+    fitted_right_x = ordinary_right.x.at[face_index].set(
+        jnp.where(row_valid, plus_value, old_plus)
+    )
+    return (
+        baseline,
+        CoordinateFaceValues3D(fitted_left_x, ordinary_left.y, ordinary_left.z),
+        CoordinateFaceValues3D(fitted_right_x, ordinary_right.y, ordinary_right.z),
+    )
 
 
 def replace_local_control_volume_projected_flux_with_owner_polynomials(

@@ -674,7 +674,7 @@ def _runtime(geometry, host, args):
     sharded_descriptor, sharded_control_fields = build_sharded_polar_angular_agglomeration_payload(
         host,
         sharded_local.domain,
-        compile_compact_transition_faces=False,
+        compile_compact_transition_faces=True,
     )
     params = blob.FciDrbEBRhsParameters(
         tau=PHYSICAL_PARAMETERS["tau"],
@@ -1177,6 +1177,30 @@ def _audit_one(geometry, cell_positions, nfp, args):
     qdot = _owner_project(point_qdot, host)
     source = _owner_project(point_source, host)
     continuum = _owner_project(point_continuum, host)
+    counterfactuals_enabled = not bool(
+        getattr(args, "skip_counterfactuals", False)
+    )
+
+    def unavailable_counterfactuals():
+        shape = tuple(int(value) for value in geometry.shape)
+        return (
+            blob.jnp.full(
+                (len(MATERIAL_COUNTERFACTUAL_NAMES), 5) + shape,
+                blob.jnp.nan,
+                dtype=blob.jnp.float64,
+            ),
+            blob.jnp.full(
+                (len(MATERIAL_FORCE_CONTROL_NAMES),) + shape,
+                blob.jnp.nan,
+                dtype=blob.jnp.float64,
+            ),
+            blob.jnp.full(
+                (len(POISSON_OPERAND_CONTROL_NAMES), len(EVOLVED)) + shape,
+                blob.jnp.nan,
+                dtype=blob.jnp.float64,
+            ),
+        )
+
     if runtime.frozen_execution == "eta-sharded":
         frozen = blob.run_full_eb(
             state,
@@ -1223,7 +1247,9 @@ def _audit_one(geometry, cell_positions, nfp, args):
                     blob.IMEX_SSP222_GAMMA * float(args.dt)
                 ),
                 implicit_selection_dt=float(args.dt),
-                raw_reference_state=point_state,
+                raw_reference_state=(
+                    point_state if counterfactuals_enabled else None
+                ),
                 execution=str(args.advance_execution),
             ),
         )
@@ -1248,6 +1274,12 @@ def _audit_one(geometry, cell_positions, nfp, args):
         poisson_operand_controls = (
             frozen.poisson_operand_counterfactual_fields
         )
+        if not counterfactuals_enabled:
+            (
+                material_counterfactuals,
+                material_force_controls,
+                poisson_operand_controls,
+            ) = unavailable_counterfactuals()
         # The general production hook exposes all three ledgers.  The MMS
         # needs only the exact-phi ledger after source pairing is established.
         del frozen
@@ -1278,37 +1310,46 @@ def _audit_one(geometry, cell_positions, nfp, args):
                 return_rhs_term_fields=True,
             )
         )
-        frozen_exact_diagnostic = blob.jax.jit(
-            lambda q, raw: model.evaluate_stage(
-                q,
-                source_owned=q.zeros_like(),
-                phi_owned=q.phi,
-                short_leg_selection_dt=float(args.dt),
-                return_rhs_term_fields=True,
-                return_mms_counterfactual_fields=True,
-                diagnostic_raw_state=raw,
+        if counterfactuals_enabled:
+            frozen_exact_diagnostic = blob.jax.jit(
+                lambda q, raw: model.evaluate_stage(
+                    q,
+                    source_owned=q.zeros_like(),
+                    phi_owned=q.phi,
+                    short_leg_selection_dt=float(args.dt),
+                    return_rhs_term_fields=True,
+                    return_mms_counterfactual_fields=True,
+                    diagnostic_raw_state=raw,
+                )
             )
-        )
-        (
-            spatial,
-            ledger,
-            material_counterfactuals,
-            material_force_controls,
-            poisson_operand_controls,
-        ) = frozen_exact_diagnostic(state, point_state)
-        (
-            spatial,
-            ledger,
-            material_counterfactuals,
-            material_force_controls,
-            poisson_operand_controls,
-        ) = blob.jax.block_until_ready((
-            spatial,
-            ledger,
-            material_counterfactuals,
-            material_force_controls,
-            poisson_operand_controls,
-        ))
+            (
+                spatial,
+                ledger,
+                material_counterfactuals,
+                material_force_controls,
+                poisson_operand_controls,
+            ) = frozen_exact_diagnostic(state, point_state)
+            (
+                spatial,
+                ledger,
+                material_counterfactuals,
+                material_force_controls,
+                poisson_operand_controls,
+            ) = blob.jax.block_until_ready((
+                spatial,
+                ledger,
+                material_counterfactuals,
+                material_force_controls,
+                poisson_operand_controls,
+            ))
+        else:
+            spatial, ledger = frozen_stage(state, state.zeros_like())
+            spatial, ledger = blob.jax.block_until_ready((spatial, ledger))
+            (
+                material_counterfactuals,
+                material_force_controls,
+                poisson_operand_controls,
+            ) = unavailable_counterfactuals()
         sourced, sourced_ledger = frozen_stage(state, source)
         sourced, sourced_ledger = blob.jax.block_until_ready(
             (sourced, sourced_ledger)
@@ -1618,6 +1659,7 @@ def _audit_one(geometry, cell_positions, nfp, args):
                     partitioned_material_force_control_norms
                 ),
                 poisson_operand_error_norms=poisson_operand_error_norms,
+                counterfactuals_enabled=counterfactuals_enabled,
                 partitioned_poisson_operand_error_norms=(
                     partitioned_poisson_operand_error_norms
                 ),
@@ -2103,6 +2145,9 @@ def run(args):
                  device_count=np.asarray(device_count, dtype=np.int32),
                  frozen_execution=np.asarray(rows[0]["frozen_execution"]),
                  evolved_execution=np.asarray("eta-sharded"),
+                 counterfactuals_enabled=np.asarray(
+                     rows[0]["counterfactuals_enabled"], dtype=bool
+                 ),
                  metric_cache_dir=np.asarray(str(args.metric_cache_dir)),
                  rebuild_metric_cache=np.asarray(
                      bool(args.rebuild_metric_cache), dtype=bool
@@ -2382,6 +2427,15 @@ def main(argv: Sequence[str] | None = None):
         type=int,
         default=1,
         help="Save every N accepted IMEX steps in each per-resolution history.",
+    )
+    p.add_argument(
+        "--skip-counterfactuals",
+        action="store_true",
+        help=(
+            "Skip the diagnostic-only material/force/Poisson control graph. "
+            "The production frozen RHS, source pairing, reconstructed-phi "
+            "replay, term ledger, and regional convergence are unchanged."
+        ),
     )
     p.add_argument(
         "--reuse-history",

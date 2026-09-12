@@ -19,6 +19,7 @@ from drbx.native.fci_parallel_production_flux import (
     parallel_short_wall_backward_euler,
     parallel_short_wall_material_data,
     parallel_target_row_material_residual,
+    third_order_face_reconstruction,
 )
 
 
@@ -154,6 +155,76 @@ def test_second_order_smooth_row_converges_at_physical_parameters():
         errors.append(np.linalg.norm(actual - exact) / np.linalg.norm(exact))
     observed = np.log2(errors[-2] / errors[-1])
     assert observed >= 1.8, (errors, observed)
+
+
+def test_ordinary_rows_use_direct_third_order_faces_not_additive_correction():
+    data = _row_inputs(16, nonuniform=False)
+    center, minus, plus, minus2, plus2, dxm, dxp, dxm2, dxp2, _ = data
+    residual, info = parallel_target_row_material_residual(
+        center,
+        minus,
+        plus,
+        dxm,
+        dxp,
+        TAU,
+        MU,
+        spatial_order=2,
+        minus2=minus2,
+        plus2=plus2,
+        dx_minus2=dxm2,
+        dx_plus2=dxp2,
+        backward_second_valid=jnp.ones(16, dtype=bool),
+        forward_second_valid=jnp.ones(16, dtype=bool),
+        div_b=0.0,
+    )
+    backward_faces = third_order_face_reconstruction(
+        jnp.stack((minus2, minus, center, plus), axis=-2)
+    )
+    forward_faces = third_order_face_reconstruction(
+        jnp.stack((minus, center, plus, plus2), axis=-2)
+    )
+    np.testing.assert_allclose(
+        info["backward_reconstructed_face_states"], backward_faces,
+        rtol=2.0e-13, atol=2.0e-13,
+    )
+    np.testing.assert_allclose(
+        info["forward_reconstructed_face_states"], forward_faces,
+        rtol=2.0e-13, atol=2.0e-13,
+    )
+    np.testing.assert_array_equal(info["backward_direct_upwind_used"], True)
+    np.testing.assert_array_equal(info["forward_direct_upwind_used"], True)
+    np.testing.assert_array_equal(info["backward_reconstruction_correction"], 0.0)
+    np.testing.assert_array_equal(info["forward_reconstruction_correction"], 0.0)
+    np.testing.assert_allclose(
+        residual,
+        info["backward_material_residual"] + info["forward_material_residual"],
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+def test_direct_face_upwind_improves_over_first_order_base_convergence():
+    first_errors = []
+    direct_errors = []
+    for n in (32, 64, 128):
+        direct, exact, _ = _second_order_row(n, nonuniform=False)
+        center, minus, plus, *_tail = _row_inputs(n, nonuniform=False)
+        dxm, dxp = _tail[2], _tail[3]
+        first, _ = parallel_target_row_material_residual(
+            center, minus, plus, dxm, dxp, TAU, MU, div_b=0.0
+        )
+        first_errors.append(
+            np.linalg.norm(np.asarray(first) - exact) / np.linalg.norm(exact)
+        )
+        direct_errors.append(np.linalg.norm(direct - exact) / np.linalg.norm(exact))
+    first_order = np.log2(first_errors[-2] / first_errors[-1])
+    direct_order = np.log2(direct_errors[-2] / direct_errors[-1])
+    assert first_order < 1.3, (first_errors, first_order)
+    assert direct_order >= 1.8, (direct_errors, direct_order)
+    assert direct_errors[-1] < 0.1 * first_errors[-1], (
+        first_errors,
+        direct_errors,
+    )
 
 
 def _variable_b_row(n: int):

@@ -45,10 +45,15 @@ def test_pb_calls_use_support_halos_and_support_traces_with_vorticity_generator(
     assert "poisson_bracket_support_traces" not in source
     assert "phi_conservative_stencil = phi_pb_conservative_stencil" in source
     calls = [
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "_poisson_bracket_over_B"
+        n.value
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Assign)
+        and len(n.targets) == 1
+        and isinstance(n.targets[0], ast.Name)
+        and n.targets[0].id.startswith("poisson_")
+        and isinstance(n.value, ast.Call)
+        and isinstance(n.value.func, ast.Attribute)
+        and n.value.func.attr == "_poisson_bracket_over_B"
     ]
     assert len(calls) == 6
     for call in calls:

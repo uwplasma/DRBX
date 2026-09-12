@@ -2692,6 +2692,13 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
     value_weights: jnp.ndarray | None = None
     logical_gradient_weights: jnp.ndarray | None = None
     polynomial_basis_size: jnp.ndarray | None = None
+    # Optional face-centred biased scalar traces.  Both rows use the same
+    # observation/moment system as ``value_weights``; only their least-squares
+    # distance bias differs.  They are kept separate from the generic flux
+    # functionals because their selection depends on the runtime sign of the
+    # characteristic face velocity.
+    upwind_minus_value_weights: jnp.ndarray | None = None
+    upwind_plus_value_weights: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.layout, HaloLayout3D):
@@ -2779,6 +2786,34 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
                 raise ValueError(
                     "logical_gradient_weights must have shape "
                     f"{gradient_weight_shape}, got {logical_gradient_weights.shape}"
+                )
+        if self.upwind_minus_value_weights is None:
+            upwind_minus_value_weights = jnp.zeros(
+                value_weight_shape, dtype=jnp.float64
+            )
+        else:
+            upwind_minus_value_weights = jnp.asarray(
+                self.upwind_minus_value_weights, dtype=jnp.float64
+            )
+            if upwind_minus_value_weights.shape != value_weight_shape:
+                raise ValueError(
+                    "upwind_minus_value_weights must have shape "
+                    f"{value_weight_shape}, got "
+                    f"{upwind_minus_value_weights.shape}"
+                )
+        if self.upwind_plus_value_weights is None:
+            upwind_plus_value_weights = jnp.zeros(
+                value_weight_shape, dtype=jnp.float64
+            )
+        else:
+            upwind_plus_value_weights = jnp.asarray(
+                self.upwind_plus_value_weights, dtype=jnp.float64
+            )
+            if upwind_plus_value_weights.shape != value_weight_shape:
+                raise ValueError(
+                    "upwind_plus_value_weights must have shape "
+                    f"{value_weight_shape}, got "
+                    f"{upwind_plus_value_weights.shape}"
                 )
         polynomial_order = _row(self.polynomial_order, jnp.int32, "polynomial_order")
         rank = _row(self.rank, jnp.int32, "rank")
@@ -2882,6 +2917,16 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
                 axis=(1, 2, 3),
             )
             & jnp.all(
+                (~active[:, None, None, None])
+                | jnp.isfinite(upwind_minus_value_weights),
+                axis=(1, 2, 3),
+            )
+            & jnp.all(
+                (~active[:, None, None, None])
+                | jnp.isfinite(upwind_plus_value_weights),
+                axis=(1, 2, 3),
+            )
+            & jnp.all(
                 (~active[:, None, None, None]) | logical_gradient_finite,
                 axis=(1, 2, 3),
             )
@@ -2942,6 +2987,24 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             "logical_gradient_weights",
             jnp.where(active[:, None, None, None, None], logical_gradient_weights, 0.0),
         )
+        object.__setattr__(
+            self,
+            "upwind_minus_value_weights",
+            jnp.where(
+                active[:, None, None, None],
+                upwind_minus_value_weights,
+                0.0,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "upwind_plus_value_weights",
+            jnp.where(
+                active[:, None, None, None],
+                upwind_plus_value_weights,
+                0.0,
+            ),
+        )
         object.__setattr__(self, "polynomial_order", jnp.where(active, polynomial_order, 0))
         object.__setattr__(self, "rank", jnp.where(active, rank, 0))
         object.__setattr__(self, "polynomial_basis_size", polynomial_basis_size)
@@ -2990,6 +3053,12 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             ),
             logical_gradient_weights=jnp.zeros(
                 (max_rows, 4, 4, 3, max_equations), dtype=jnp.float64
+            ),
+            upwind_minus_value_weights=jnp.zeros(
+                (max_rows, 4, 4, max_equations), dtype=jnp.float64
+            ),
+            upwind_plus_value_weights=jnp.zeros(
+                (max_rows, 4, 4, max_equations), dtype=jnp.float64
             ),
             polynomial_order=jnp.zeros(row, dtype=jnp.int32),
             rank=jnp.zeros(row, dtype=jnp.int32),

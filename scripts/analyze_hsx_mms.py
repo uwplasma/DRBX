@@ -1256,6 +1256,21 @@ def _mms_counterfactual_report(
 ) -> dict[str, Any]:
     """Summarize diagnostic-only material and raw/H bracket controls."""
 
+    enabled_markers = [
+        _row_value(row, "counterfactuals_enabled") for row in rows
+    ]
+    explicit_markers = [
+        bool(np.asarray(value).reshape(-1)[0])
+        for value in enabled_markers
+        if value is not None and np.asarray(value).size
+    ]
+    if explicit_markers and not any(explicit_markers):
+        return _status(
+            "mms_material_and_poisson_counterfactuals",
+            "unavailable",
+            reason="counterfactual graph was explicitly disabled for this run",
+        )
+
     specifications = (
         (
             "material",

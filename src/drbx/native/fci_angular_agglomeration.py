@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 
 import jax.numpy as jnp
 import numpy as np
+from jax import lax
 from jax.sharding import PartitionSpec as P
 
 from ..geometry import (
@@ -34,6 +35,7 @@ from ..geometry.fci_control_volumes import (
 from .fci_boundaries import (
     CV_FACE_INTERIOR,
     CV_RECONSTRUCTION_EQUATION_CELL,
+    CV_RECONSTRUCTION_EQUATION_REMOTE_CELL,
     LocalControlVolumeBoundaryBC3D,
     LocalControlVolumeFaceRows3D,
     LocalEmbeddedControlVolumeGeometry3D,
@@ -175,6 +177,18 @@ class ShardedPolarAngularAgglomerationDescriptor:
 
     @property
     def compact_face_count(self) -> int:
+        """Number of transition rows owned by one eta shard."""
+
+        payload = self.compact_transition_payload
+        if payload is None:
+            return 0
+        eta_shards = self.shard_counts[2]
+        if payload.max_rows % eta_shards != 0:
+            raise ValueError("compact transition rows do not divide eta shards")
+        return payload.max_rows // eta_shards
+
+    @property
+    def global_compact_face_count(self) -> int:
         payload = self.compact_transition_payload
         return 0 if payload is None else payload.max_rows
 
@@ -187,12 +201,24 @@ def _fit_transition_face_value_weights(
     *,
     origin: np.ndarray,
     scale: np.ndarray,
+    observation_weight: np.ndarray | None = None,
 ) -> tuple[np.ndarray, int, int, float, float]:
     """Fit moment-preserving point traces, with controlled order fallback."""
 
     displacement = (centroid - origin[None, :]) / scale[None, :]
     distance2 = np.einsum("ni,ni->n", displacement, displacement)
-    observation_weight = 1.0 / np.maximum(distance2, 0.25)
+    if observation_weight is None:
+        observation_weight = 1.0 / np.maximum(distance2, 0.25)
+    else:
+        observation_weight = np.asarray(observation_weight, dtype=np.float64)
+        if observation_weight.shape != distance2.shape:
+            raise ValueError("transition face observation weights have wrong shape")
+        if np.any(~np.isfinite(observation_weight)) or np.any(
+            observation_weight <= 0.0
+        ):
+            raise ValueError(
+                "transition face observation weights must be finite and positive"
+            )
     sqrt_weight = np.sqrt(observation_weight)
     for order in (3, 2, 1):
         exponents = monomial_exponents(order)
@@ -250,6 +276,19 @@ def _compile_compact_radial_transition_payload(
         q[storage[interior, 0] - 1] != q[storage[interior, 0]]
     )
     selected = np.flatnonzero(transition & (minus_id >= 0) & (plus_id >= 0))
+    # Eta-major row order makes each contiguous eta shard a contiguous slice
+    # of the compact payload.  Within a plane, preserve deterministic radial
+    # then poloidal ordering.
+    selected_storage = storage[selected]
+    selected = selected[
+        np.lexsort(
+            (
+                selected_storage[:, 1],
+                selected_storage[:, 0],
+                selected_storage[:, 2],
+            )
+        )
+    ]
     row_count = int(selected.size)
     if row_count == 0:
         raise ValueError("angular RLP profile has no radial coarse-fine transitions")
@@ -292,6 +331,8 @@ def _compile_compact_radial_transition_payload(
     value_weights = np.zeros(
         (row_count, max_patches, 4, max_equations), dtype=np.float64
     )
+    upwind_minus_value_weights = np.zeros_like(value_weights)
+    upwind_plus_value_weights = np.zeros_like(value_weights)
     polynomial_order = np.zeros((row_count,), dtype=np.int32)
     polynomial_basis_size = np.zeros((row_count,), dtype=np.int32)
     rank = np.zeros((row_count,), dtype=np.int32)
@@ -375,15 +416,73 @@ def _compile_compact_radial_transition_payload(
                 scale=scale,
             )
         )
+        displacement = (candidate_centroid - face_origin[None, :]) / scale[None, :]
+        distance2 = np.einsum("ni,ni->n", displacement, displacement)
+        base_weight = 1.0 / np.maximum(distance2, 0.25)
+        theta_mid = 0.5 * (theta_bounds[0] + theta_bounds[1])
+        outward = np.asarray(
+            (np.cos(theta_mid), np.sin(theta_mid), 0.0), dtype=np.float64
+        )
+        signed_normal = (
+            (candidate_centroid - face_origin[None, :]) @ outward
+        ) / max(local_dr, 1.0e-30)
+        # This is the irregular-control-volume analogue of the two ordinary
+        # third-order biased stencils.  Both rows use one face-centred moment
+        # matrix and the same trace targets.  Only the least-squares norm is
+        # biased: the minus row favors inward donors and the plus row favors
+        # outward donors, while retaining observations on both sides.
+        minus_observation_weight = base_weight * np.where(
+            signed_normal <= 0.0, 4.0, 1.0
+        )
+        plus_observation_weight = base_weight * np.where(
+            signed_normal >= 0.0, 4.0, 1.0
+        )
+        (
+            minus_weights,
+            minus_order,
+            minus_rank,
+            minus_condition,
+            minus_residual,
+        ) = _fit_transition_face_value_weights(
+            candidate_centroid,
+            candidate_second,
+            candidate_third,
+            chart_q,
+            origin=face_origin,
+            scale=scale,
+            observation_weight=minus_observation_weight,
+        )
+        (
+            plus_weights,
+            plus_order,
+            plus_rank,
+            plus_condition,
+            plus_residual,
+        ) = _fit_transition_face_value_weights(
+            candidate_centroid,
+            candidate_second,
+            candidate_third,
+            chart_q,
+            origin=face_origin,
+            scale=scale,
+            observation_weight=plus_observation_weight,
+        )
         count = candidate_owner.shape[0]
         observation_active[row, :count] = True
         observation_owner[row, :count] = candidate_owner
         value_weights[row, 0, :, :count] = weights
-        polynomial_order[row] = order
-        polynomial_basis_size[row] = len(monomial_exponents(order))
-        rank[row] = fitted_rank
-        condition[row] = fitted_condition
-        residual[row] = fitted_residual
+        upwind_minus_value_weights[row, 0, :, :count] = minus_weights
+        upwind_plus_value_weights[row, 0, :, :count] = plus_weights
+        common_order = min(order, minus_order, plus_order)
+        polynomial_order[row] = common_order
+        polynomial_basis_size[row] = len(monomial_exponents(common_order))
+        rank[row] = min(fitted_rank, minus_rank, plus_rank)
+        condition[row] = max(
+            fitted_condition, minus_condition, plus_condition
+        )
+        residual[row] = max(
+            fitted_residual, minus_residual, plus_residual
+        )
 
     qshape = (row_count, max_patches, 4)
     identity = np.broadcast_to(np.eye(3), qshape + (3, 3)).copy()
@@ -443,6 +542,8 @@ def _compile_compact_radial_transition_payload(
         "parallel_flux_weights": zero_observation_float,
         "parallel_gradient_flux_weights": zero_observation_float,
         "value_weights": value_weights,
+        "upwind_minus_value_weights": upwind_minus_value_weights,
+        "upwind_plus_value_weights": upwind_plus_value_weights,
         "logical_gradient_weights": np.zeros(
             (row_count, max_patches, 4, 3, max_equations),
             dtype=np.float64,
@@ -458,6 +559,115 @@ def _compile_compact_radial_transition_payload(
         "active": np.ones((row_count,), dtype=bool),
     }
     return _PolarAngularCompactTransitionPayload(faces, functionals)
+
+
+def _lower_compact_transition_payload(
+    compact: _PolarAngularCompactTransitionPayload,
+    local_geometry: LocalFciGeometry3D,
+    *,
+    global_eta_count: int | None = None,
+    eta_shard_count: int = 1,
+    eta_axis_name: str | None = None,
+) -> tuple[LocalControlVolumeFaceRows3D, LocalMomentFittedFaceRows3D]:
+    """Lower the eta-local slice of face-fit rows into local containers."""
+
+    local_eta_count = int(local_geometry.owned_shape[2])
+    if global_eta_count is None:
+        global_eta_count = local_eta_count
+    global_eta_count = int(global_eta_count)
+    eta_shard_count = int(eta_shard_count)
+    if global_eta_count < 1 or eta_shard_count < 1:
+        raise ValueError("eta counts must be positive")
+    if global_eta_count != local_eta_count * eta_shard_count:
+        raise ValueError(
+            "global eta extent must equal local extent times shard count"
+        )
+    if compact.max_rows % global_eta_count != 0:
+        raise ValueError("compact transition rows must be uniform in eta")
+    rows_per_eta = compact.max_rows // global_eta_count
+    local_row_count = rows_per_eta * local_eta_count
+    if eta_shard_count > 1:
+        if not eta_axis_name:
+            raise ValueError("eta-sharded transition rows require a mesh axis name")
+        eta_shard_index = lax.axis_index(eta_axis_name)
+    else:
+        eta_shard_index = jnp.asarray(0, dtype=jnp.int32)
+    global_eta_start = eta_shard_index * local_eta_count
+
+    def eta_local(value):
+        array = jnp.asarray(value)
+        shaped = array.reshape(
+            (global_eta_count, rows_per_eta) + tuple(array.shape[1:])
+        )
+        selected = lax.dynamic_slice_in_dim(
+            shaped,
+            global_eta_start,
+            local_eta_count,
+            axis=0,
+        )
+        return selected.reshape((local_row_count,) + tuple(array.shape[1:]))
+
+    face_kwargs = {
+        name: eta_local(value) for name, value in compact.faces.items()
+    }
+    face_global_k = face_kwargs["logical_face_k"]
+    face_kwargs["logical_face_k"] = face_global_k - global_eta_start
+    face_kwargs["minus_owner_k"] = (
+        face_kwargs["minus_owner_k"] - global_eta_start
+    )
+    face_kwargs["plus_owner_k"] = (
+        face_kwargs["plus_owner_k"] - global_eta_start
+    )
+    irregular_faces = LocalControlVolumeFaceRows3D(
+        layout=local_geometry.layout,
+        max_rows=local_row_count,
+        max_patches=4,
+        **face_kwargs,
+    )
+    functional_kwargs = {
+        name: eta_local(value) for name, value in compact.functionals.items()
+    }
+    observation_active = functional_kwargs["observation_active"]
+    observation_global_k = functional_kwargs["owned_k"]
+    observation_local_k = observation_global_k - global_eta_start
+    observation_is_local = (
+        (observation_local_k >= 0)
+        & (observation_local_k < local_eta_count)
+    )
+    periodic_delta_k = jnp.mod(
+        observation_global_k
+        - face_global_k[:, None]
+        + global_eta_count // 2,
+        global_eta_count,
+    ) - global_eta_count // 2
+    halo_width = int(local_geometry.layout.halo_width)
+    functional_kwargs["observation_kind"] = jnp.where(
+        observation_active,
+        jnp.where(
+            observation_is_local,
+            CV_RECONSTRUCTION_EQUATION_CELL,
+            CV_RECONSTRUCTION_EQUATION_REMOTE_CELL,
+        ),
+        0,
+    )
+    functional_kwargs["owned_k"] = jnp.where(
+        observation_is_local, observation_local_k, 0
+    )
+    functional_kwargs["halo_i"] = functional_kwargs["owned_i"] + halo_width
+    functional_kwargs["halo_j"] = functional_kwargs["owned_j"] + halo_width
+    functional_kwargs["halo_k"] = (
+        face_kwargs["logical_face_k"][:, None]
+        + periodic_delta_k
+        + halo_width
+    )
+    face_functionals = LocalMomentFittedFaceRows3D(
+        layout=local_geometry.layout,
+        max_rows=local_row_count,
+        max_equations=compact.max_equations,
+        max_patches=4,
+        **functional_kwargs,
+    )
+    return irregular_faces, face_functionals
 
 
 def _pack_rlp_channels(
@@ -528,10 +738,6 @@ def build_sharded_polar_angular_agglomeration_payload(
         raise ValueError("host geometry and sharded domain global shapes do not match")
     compact_payload = None
     if compile_compact_transition_faces:
-        if counts != (1, 1, 1):
-            raise ValueError(
-                "moment-fitted RLP transition faces currently require one device"
-            )
         compact_payload = _compile_compact_radial_transition_payload(
             host_geometry
         )
@@ -712,25 +918,14 @@ def assemble_local_polar_angular_agglomeration_geometry(
         )
         face_functionals = None
     else:
-        face_kwargs = {
-            name: jnp.asarray(value) for name, value in compact.faces.items()
-        }
-        irregular_faces = LocalControlVolumeFaceRows3D(
-            layout=local_geometry.layout,
-            max_rows=compact.max_rows,
-            max_patches=4,
-            **face_kwargs,
-        )
-        functional_kwargs = {
-            name: jnp.asarray(value)
-            for name, value in compact.functionals.items()
-        }
-        face_functionals = LocalMomentFittedFaceRows3D(
-            layout=local_geometry.layout,
-            max_rows=compact.max_rows,
-            max_equations=compact.max_equations,
-            max_patches=4,
-            **functional_kwargs,
+        irregular_faces, face_functionals = (
+            _lower_compact_transition_payload(
+                compact,
+                local_geometry,
+                global_eta_count=sharded_geometry.global_shape[2],
+                eta_shard_count=counts[2],
+                eta_axis_name=sharded_geometry.domain.mesh_axis_names[2],
+            )
         )
         # These rows replace scalar traces in the ordinary radial face array;
         # they are not additional embedded faces.  Keep the regular face open
@@ -781,8 +976,15 @@ def lower_polar_angular_agglomeration_geometry(
     local_geometry: LocalFciGeometry3D,
     *,
     shard_counts: tuple[int, int, int] = (1, 1, 1),
+    compile_direct_poisson_faces: bool = False,
 ) -> LocalEmbeddedControlVolumeGeometry3D:
-    """Lower one complete production RLP owner/volume geometry."""
+    """Lower one complete production RLP owner/volume geometry.
+
+    ``compile_direct_poisson_faces`` additionally prepares cubic, face-centred
+    minus/plus scalar rows on radial RLP transition faces.  Those rows support
+    the experimental direct owner-to-face Poisson-bracket path; the ordinary
+    diffusion/polarization lowering remains unchanged.
+    """
 
     if not isinstance(host_geometry, PolarAngularAgglomerationGeometry3D):
         raise TypeError("host_geometry must be PolarAngularAgglomerationGeometry3D")
@@ -809,14 +1011,22 @@ def lower_polar_angular_agglomeration_geometry(
         host_geometry,
         max_observations=RLP_DIFFUSION_MAX_OBSERVATIONS,
     )
+    reconstruction = LocalMomentReconstruction3D.empty(
+        local_geometry.layout, max_rows=0, max_equations=1
+    )
+    irregular_faces = LocalControlVolumeFaceRows3D.empty(local_geometry.layout)
+    face_functionals = None
+    if compile_direct_poisson_faces:
+        compact = _compile_compact_radial_transition_payload(host_geometry)
+        irregular_faces, face_functionals = (
+            _lower_compact_transition_payload(compact, local_geometry)
+        )
     return LocalEmbeddedControlVolumeGeometry3D(
         cells=cells,
         regular_faces=local_geometry.regular_face_geometry,
-        irregular_faces=LocalControlVolumeFaceRows3D.empty(local_geometry.layout),
-        reconstruction=LocalMomentReconstruction3D.empty(
-            local_geometry.layout, max_rows=0, max_equations=1
-        ),
-        face_functionals=None,
+        irregular_faces=irregular_faces,
+        reconstruction=reconstruction,
+        face_functionals=face_functionals,
         angular_group_sizes=tuple(
             int(value) for value in np.asarray(host_geometry.angular_group_size)
         ),

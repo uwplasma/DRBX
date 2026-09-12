@@ -718,6 +718,7 @@ def test_runtime_avoids_duplicate_host_model_for_sharded_frozen_diagnostic(
     monkeypatch.setattr(driver, "replace", lambda obj, **changes: obj)
     calls = []
     descriptors = []
+    payload_options = []
 
     class Local:
         def __init__(self, counts):
@@ -730,6 +731,7 @@ def test_runtime_avoids_duplicate_host_model_for_sharded_frozen_diagnostic(
         return Local(counts)
 
     def fake_payload(host, domain, **kwargs):
+        payload_options.append(kwargs)
         descriptor = SimpleNamespace(compact_face_count=0, token=len(descriptors))
         descriptors.append(descriptor)
         return descriptor, f"control-{descriptor.token}"
@@ -797,6 +799,7 @@ def test_runtime_avoids_duplicate_host_model_for_sharded_frozen_diagnostic(
     runtime = driver._runtime(geometry, object(), args)
 
     assert calls == [(1, 1, 2)]
+    assert payload_options == [{"compile_compact_transition_faces": True}]
     assert runtime.sharded_geometry.shard_counts == (1, 1, 2)
     assert runtime.control_volume_descriptor is descriptors[0]
     assert runtime.host_control_volume_descriptor is None
