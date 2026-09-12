@@ -57,6 +57,10 @@ class RLPCellAverageReconstructionDiagnostics:
     maximum_conservation_residual: float
     maximum_eta_line_residual: float = 0.0
     maximum_row_weight_l1_norm: float = 1.0
+    row_weight_l1_limit: float | None = None
+    minimum_planar_donor_count: int = 0
+    maximum_planar_donor_count: int = 0
+    expanded_planar_owner_count: int = 0
 
 
 @jax.tree_util.register_pytree_node_class
@@ -254,11 +258,14 @@ def _fit_average_weights(
 def compile_rlp_cell_average_prolongation(
     host: PolarAngularAgglomerationGeometry3D,
     *,
-    max_observations: int = 120,
+    max_observations: int = 160,
     eta_radius: int = 2,
     radial_radius: int = 4,
     polynomial_degree: int = 3,
     condition_limit: float = 1.0e12,
+    row_weight_l1_limit: float | None = 8.0,
+    minimum_planar_donors: int = 24,
+    planar_donor_growth: int = 4,
 ) -> RLPCellAverageProlongation:
     """Compile a conservative sparse owner-to-raw-average prolongation.
 
@@ -274,6 +281,17 @@ def compile_rlp_cell_average_prolongation(
     that choice in ``diagnostics.fallback_reason``.  Eta degree is limited by
     the number of distinct periodic eta planes, so ``neta == 1`` uses the full
     two-dimensional planar basis.
+
+    Donors are selected adaptively for each planar owner.  Compilation starts
+    with ``minimum_planar_donors`` and grows the k-independent planar stencil
+    until every finalized row satisfies ``row_weight_l1_limit``.  This bounds
+    the induced infinity-norm amplification of ``H`` after the conservation
+    and eta-line corrections, rather than treating polynomial rank or fit
+    residual as a sufficient stencil-quality test.  ``max_observations`` is
+    the fixed-shape storage cap.  If no stencil within that cap meets the
+    bound, compilation fails instead of lowering an unstable reconstruction.
+    Passing ``row_weight_l1_limit=None`` disables adaptive rejection and is
+    intended only for diagnostic comparison with legacy stencils.
     """
 
     if not isinstance(host, PolarAngularAgglomerationGeometry3D):
@@ -283,6 +301,10 @@ def compile_rlp_cell_average_prolongation(
     radial_radius = int(radial_radius)
     polynomial_degree = int(polynomial_degree)
     condition_limit = float(condition_limit)
+    if row_weight_l1_limit is not None:
+        row_weight_l1_limit = float(row_weight_l1_limit)
+    minimum_planar_donors = int(minimum_planar_donors)
+    planar_donor_growth = int(planar_donor_growth)
     if max_observations < 1:
         raise ValueError("max_observations must be positive")
     if eta_radius < 0 or eta_radius > 2:
@@ -293,6 +315,14 @@ def compile_rlp_cell_average_prolongation(
         raise ValueError("production RLP reconstruction requires polynomial_degree=3")
     if not np.isfinite(condition_limit) or condition_limit <= 1.0:
         raise ValueError("condition_limit must be finite and greater than one")
+    if row_weight_l1_limit is not None and (
+        not np.isfinite(row_weight_l1_limit) or row_weight_l1_limit < 1.0
+    ):
+        raise ValueError("row_weight_l1_limit must be finite and at least one")
+    if minimum_planar_donors < 1:
+        raise ValueError("minimum_planar_donors must be positive")
+    if planar_donor_growth < 1:
+        raise ValueError("planar_donor_growth must be positive")
 
     shape = tuple(int(value) for value in host.topology.shape)
     nx, ny, nz = shape
@@ -316,11 +346,11 @@ def compile_rlp_cell_average_prolongation(
         if power[2] <= eta_polynomial_degree
     )
     basis_size = len(basis_exponents)
-    planar_count = max_observations // len(eta_offsets)
+    planar_capacity = max_observations // len(eta_offsets)
     planar_basis_size = (polynomial_degree + 1) * (polynomial_degree + 2) // 2
     if (
-        planar_count < planar_basis_size
-        or planar_count * len(eta_offsets) < basis_size
+        planar_capacity < planar_basis_size
+        or planar_capacity * len(eta_offsets) < basis_size
     ):
         raise ValueError(
             "max_observations is too small for a cubic tensor-spanning stencil"
@@ -356,6 +386,10 @@ def compile_rlp_cell_average_prolongation(
             maximum_conservation_residual=0.0,
             maximum_eta_line_residual=0.0,
             maximum_row_weight_l1_norm=1.0,
+            row_weight_l1_limit=row_weight_l1_limit,
+            minimum_planar_donor_count=0,
+            maximum_planar_donor_count=0,
+            expanded_planar_owner_count=0,
         )
         return RLPCellAverageProlongation(
             empty,
@@ -384,158 +418,242 @@ def compile_rlp_cell_average_prolongation(
     }
     ranks: list[int] = []
     conditions: list[float] = []
+    selected_planar_counts: list[int] = []
+    expanded_planar_owner_count = 0
 
     planar_owners = np.argwhere(active_owner[..., 0]).astype(np.int32)
+    available_planar_count = int(planar_owners.shape[0])
+    maximum_planar_count = min(planar_capacity, available_planar_count)
+    minimum_required_planar_count = max(
+        planar_basis_size,
+        int(np.ceil(basis_size / len(eta_offsets))),
+    )
+    initial_planar_count = min(
+        max(minimum_planar_donors, minimum_required_planar_count),
+        maximum_planar_count,
+    )
+    candidate_planar_counts = list(
+        range(
+            initial_planar_count,
+            maximum_planar_count + 1,
+            planar_donor_growth,
+        )
+    )
+    if candidate_planar_counts[-1] != maximum_planar_count:
+        candidate_planar_counts.append(maximum_planar_count)
+
     for planar_owner in planar_owners:
         oi, oj = (int(value) for value in planar_owner)
         if q[oi] == 1:
             continue
-        planar_donors = _planar_owner_stencil(
-            host,
-            oi,
-            oj,
-            planar_count=planar_count,
-            radial_radius=radial_radius,
-        )
-        donor_pattern = np.asarray(
-            [
-                (int(di), int(dj), int(offset))
-                for di, dj in planar_donors
-                for offset in eta_offsets
-            ],
-            dtype=np.int32,
-        )
-        donor_count = int(donor_pattern.shape[0])
-        self_mask = (
-            (donor_pattern[:, 0] == oi)
-            & (donor_pattern[:, 1] == oj)
-            & (donor_pattern[:, 2] == 0)
-        )
-        if np.count_nonzero(self_mask) != 1:
-            raise AssertionError("target owner must occur exactly once in its stencil")
-        self_column = int(np.flatnonzero(self_mask)[0])
-
-        for k in range(nz):
-            members = np.column_stack(
-                (
-                    np.full((int(q[oi]),), oi, dtype=np.int32),
-                    np.arange(oj, oj + int(q[oi]), dtype=np.int32),
-                    np.full((int(q[oi]),), k, dtype=np.int32),
-                )
+        accepted = None
+        last_failure = "no candidate stencil was evaluated"
+        for candidate_index, planar_count in enumerate(candidate_planar_counts):
+            planar_donors = _planar_owner_stencil(
+                host,
+                oi,
+                oj,
+                planar_count=planar_count,
+                radial_radius=radial_radius,
             )
-            rows = np.asarray(
-                [row_lookup[tuple(int(value) for value in member)] for member in members],
+            donor_pattern = np.asarray(
+                [
+                    (int(di), int(dj), int(offset))
+                    for di, dj in planar_donors
+                    for offset in eta_offsets
+                ],
                 dtype=np.int32,
             )
-            dk = (k + donor_pattern[:, 2]) % nz
-            di = donor_pattern[:, 0]
-            dj = donor_pattern[:, 1]
-            centroid = owner_centroid[di, dj, dk].copy()
-            origin = owner_centroid[oi, oj, k].copy()
-            # Choose the intended signed periodic image, including the
-            # otherwise ambiguous half-period offset on even eta grids.
-            nominal_deta = host.eta_period / nz
-            branch_target = origin[2] + donor_pattern[:, 2] * nominal_deta
-            centroid[:, 2] += host.eta_period * np.round(
-                (branch_target - centroid[:, 2]) / host.eta_period
+            donor_count = int(donor_pattern.shape[0])
+            self_mask = (
+                (donor_pattern[:, 0] == oi)
+                & (donor_pattern[:, 1] == oj)
+                & (donor_pattern[:, 2] == 0)
             )
-            target_centroid = raw_centroid[
-                members[:, 0], members[:, 1], members[:, 2]
-            ].copy()
-            target_centroid[:, 2] += host.eta_period * np.round(
-                (origin[2] - target_centroid[:, 2]) / host.eta_period
-            )
+            if np.count_nonzero(self_mask) != 1:
+                raise AssertionError(
+                    "target owner must occur exactly once in its stencil"
+                )
+            self_column = int(np.flatnonzero(self_mask)[0])
+            candidate_rows = []
+            candidate_ranks = []
+            candidate_conditions = []
+            candidate_max_l1 = 0.0
+            fit_failed = False
 
-            displacement = centroid - origin[None, :]
-            scale = np.sqrt(np.mean(displacement * displacement, axis=0))
-            local_floor = np.asarray(
-                (
-                    host.radial_widths[oi],
-                    host.radial_widths[oi],
-                    nominal_deta,
-                ),
-                dtype=np.float64,
-            )
-            scale = np.maximum(scale, local_floor)
-            observation_basis = control_volume_average_basis(
-                centroid,
-                owner_second[di, dj, dk],
-                owner_third[di, dj, dk],
-                origin=origin,
-                scale=scale,
-                exponents=basis_exponents,
-            )
-            target_basis = control_volume_average_basis(
-                target_centroid,
-                raw_second[members[:, 0], members[:, 1], members[:, 2]],
-                raw_third[members[:, 0], members[:, 1], members[:, 2]],
-                origin=origin,
-                scale=scale,
-                exponents=basis_exponents,
-            )
-            # Perpendicular diffusion must retain its field-line nullspace.
-            # In the straight-field limit, any owner field that is constant
-            # over each perpendicular plane (with arbitrary eta dependence)
-            # must reconstruct to that same plane-wise constant.  Polynomial
-            # reproduction alone only guarantees this for low eta modes and
-            # lets the reconstructed-space energy form spuriously couple the
-            # remaining modes.  Enforce zero total weight in every nonlocal
-            # eta-offset block; constant reproduction then fixes the offset-0
-            # block sum to one.  These constraints are compatible with the
-            # mixed chart-polynomial moments and leave cross-eta donors
-            # available for genuinely mixed spatial variation.
-            nonzero_offsets = tuple(offset for offset in eta_offsets if offset != 0)
-            if nonzero_offsets:
-                eta_constraints = np.column_stack(
-                    tuple(
-                        donor_pattern[:, 2] == offset
-                        for offset in nonzero_offsets
-                    )
-                ).astype(np.float64)
-                fit_basis = np.column_stack((observation_basis, eta_constraints))
-                fit_target = np.column_stack(
+            for k in range(nz):
+                members = np.column_stack(
                     (
-                        target_basis,
-                        np.zeros(
-                            (target_basis.shape[0], len(nonzero_offsets)),
-                            dtype=np.float64,
-                        ),
+                        np.full((int(q[oi]),), oi, dtype=np.int32),
+                        np.arange(oj, oj + int(q[oi]), dtype=np.int32),
+                        np.full((int(q[oi]),), k, dtype=np.int32),
                     )
                 )
-            else:
-                fit_basis = observation_basis
-                fit_target = target_basis
-            fitted, rank, condition, _ = _fit_average_weights(
-                fit_basis,
-                fit_target,
-                centroid,
-                origin=origin,
-                condition_limit=condition_limit,
-                minimum_rank=basis_size,
-            )
-            # First make the constant row explicit, then enforce R H = I by
-            # subtracting the same coefficient defect from every member.
-            fitted[:, self_column] += 1.0 - np.sum(fitted, axis=1)
-            member_volume = raw_volume[
-                members[:, 0], members[:, 1], members[:, 2]
-            ]
-            alpha = member_volume / np.sum(member_volume)
-            mean_weights = alpha @ fitted
-            desired = np.zeros((donor_count,), dtype=np.float64)
-            desired[self_column] = 1.0
-            fitted += (desired - mean_weights)[None, :]
-            # A second round removes only floating-point residue left by the
-            # two exact linear constraints.
-            fitted[:, self_column] += 1.0 - np.sum(fitted, axis=1)
-            fitted += (desired - alpha @ fitted)[None, :]
+                rows = np.asarray(
+                    [
+                        row_lookup[tuple(int(value) for value in member)]
+                        for member in members
+                    ],
+                    dtype=np.int32,
+                )
+                dk = (k + donor_pattern[:, 2]) % nz
+                di = donor_pattern[:, 0]
+                dj = donor_pattern[:, 1]
+                centroid = owner_centroid[di, dj, dk].copy()
+                origin = owner_centroid[oi, oj, k].copy()
+                # Choose the intended signed periodic image, including the
+                # otherwise ambiguous half-period offset on even eta grids.
+                nominal_deta = host.eta_period / nz
+                branch_target = origin[2] + donor_pattern[:, 2] * nominal_deta
+                centroid[:, 2] += host.eta_period * np.round(
+                    (branch_target - centroid[:, 2]) / host.eta_period
+                )
+                target_centroid = raw_centroid[
+                    members[:, 0], members[:, 1], members[:, 2]
+                ].copy()
+                target_centroid[:, 2] += host.eta_period * np.round(
+                    (origin[2] - target_centroid[:, 2]) / host.eta_period
+                )
 
+                displacement = centroid - origin[None, :]
+                scale = np.sqrt(np.mean(displacement * displacement, axis=0))
+                local_floor = np.asarray(
+                    (
+                        host.radial_widths[oi],
+                        host.radial_widths[oi],
+                        nominal_deta,
+                    ),
+                    dtype=np.float64,
+                )
+                scale = np.maximum(scale, local_floor)
+                observation_basis = control_volume_average_basis(
+                    centroid,
+                    owner_second[di, dj, dk],
+                    owner_third[di, dj, dk],
+                    origin=origin,
+                    scale=scale,
+                    exponents=basis_exponents,
+                )
+                target_basis = control_volume_average_basis(
+                    target_centroid,
+                    raw_second[members[:, 0], members[:, 1], members[:, 2]],
+                    raw_third[members[:, 0], members[:, 1], members[:, 2]],
+                    origin=origin,
+                    scale=scale,
+                    exponents=basis_exponents,
+                )
+                # Preserve arbitrary eta-line constants, not only the low
+                # eta polynomial modes contained in the cubic fit.
+                nonzero_offsets = tuple(
+                    offset for offset in eta_offsets if offset != 0
+                )
+                if nonzero_offsets:
+                    eta_constraints = np.column_stack(
+                        tuple(
+                            donor_pattern[:, 2] == offset
+                            for offset in nonzero_offsets
+                        )
+                    ).astype(np.float64)
+                    fit_basis = np.column_stack(
+                        (observation_basis, eta_constraints)
+                    )
+                    fit_target = np.column_stack(
+                        (
+                            target_basis,
+                            np.zeros(
+                                (target_basis.shape[0], len(nonzero_offsets)),
+                                dtype=np.float64,
+                            ),
+                        )
+                    )
+                else:
+                    fit_basis = observation_basis
+                    fit_target = target_basis
+                try:
+                    fitted, rank, condition, _ = _fit_average_weights(
+                        fit_basis,
+                        fit_target,
+                        centroid,
+                        origin=origin,
+                        condition_limit=condition_limit,
+                        minimum_rank=basis_size,
+                    )
+                except ValueError as error:
+                    last_failure = str(error)
+                    fit_failed = True
+                    break
+
+                # Enforce constants and R H = I before judging amplification;
+                # the final map, rather than the unconstrained least-squares
+                # fit, is the object used by every production operator.
+                fitted[:, self_column] += 1.0 - np.sum(fitted, axis=1)
+                member_volume = raw_volume[
+                    members[:, 0], members[:, 1], members[:, 2]
+                ]
+                alpha = member_volume / np.sum(member_volume)
+                desired = np.zeros((donor_count,), dtype=np.float64)
+                desired[self_column] = 1.0
+                fitted += (desired - alpha @ fitted)[None, :]
+                fitted[:, self_column] += 1.0 - np.sum(fitted, axis=1)
+                fitted += (desired - alpha @ fitted)[None, :]
+
+                candidate_max_l1 = max(
+                    candidate_max_l1,
+                    float(np.max(np.sum(np.abs(fitted), axis=1))),
+                )
+                candidate_rows.append((rows, fitted))
+                candidate_ranks.append(rank)
+                candidate_conditions.append(condition)
+
+            if fit_failed:
+                continue
+            if (
+                row_weight_l1_limit is not None
+                and candidate_max_l1 > row_weight_l1_limit
+            ):
+                last_failure = (
+                    f"final row L1 norm {candidate_max_l1:.6g} exceeds "
+                    f"limit {row_weight_l1_limit:.6g}"
+                )
+                continue
+            accepted = (
+                planar_donors,
+                donor_pattern,
+                candidate_rows,
+                candidate_ranks,
+                candidate_conditions,
+            )
+            if candidate_index > 0:
+                expanded_planar_owner_count += 1
+            break
+
+        if accepted is None:
+            raise ValueError(
+                "RLP cell-average reconstruction has no stable donor stencil "
+                f"for owner ({oi}, {oj}), q={int(q[oi])}, "
+                f"planar_capacity={maximum_planar_count}, "
+                f"max_observations={max_observations}: {last_failure}"
+            )
+
+        (
+            planar_donors,
+            donor_pattern,
+            candidate_rows,
+            candidate_ranks,
+            candidate_conditions,
+        ) = accepted
+        donor_count = int(donor_pattern.shape[0])
+        di = donor_pattern[:, 0]
+        dj = donor_pattern[:, 1]
+        for (rows, fitted) in candidate_rows:
             donor_i[rows, :donor_count] = di[None, :]
             donor_j[rows, :donor_count] = dj[None, :]
             donor_offset[rows, :donor_count] = donor_pattern[:, 2][None, :]
             observation_active[rows, :donor_count] = True
             weights[rows, :donor_count] = fitted
-            ranks.append(rank)
-            conditions.append(condition)
+        ranks.extend(candidate_ranks)
+        conditions.extend(candidate_conditions)
+        selected_planar_counts.append(int(planar_donors.shape[0]))
 
     reproduction_residual = 0.0
     conservation_residual = 0.0
@@ -642,6 +760,10 @@ def compile_rlp_cell_average_prolongation(
         maximum_row_weight_l1_norm=float(
             np.max(np.sum(np.abs(weights), axis=1))
         ),
+        row_weight_l1_limit=row_weight_l1_limit,
+        minimum_planar_donor_count=min(selected_planar_counts),
+        maximum_planar_donor_count=max(selected_planar_counts),
+        expanded_planar_owner_count=expanded_planar_owner_count,
     )
     return RLPCellAverageProlongation(
         raw_i=jnp.asarray(raw_rows[:, 0]),

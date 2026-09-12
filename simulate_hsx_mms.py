@@ -1134,6 +1134,9 @@ def _implicit_material_state(material, state):
 def _audit_one(geometry, cell_positions, nfp, args):
     host, _ = blob.build_metric_aware_polar_angular_agglomeration_geometry(geometry, args.metric_context.metric_evaluator)
     runtime = _runtime(geometry, host, args)
+    reconstruction_diagnostics = (
+        runtime.control_volume_descriptor.diffusion_diagnostics
+    )
     model = runtime.model
     projector = _QuadratureProjector(args.reference, geometry, host)
     point_state, point_qdot, point_source, point_continuum = _reference_state(args.reference, geometry, host, args.time, projector)
@@ -1412,6 +1415,35 @@ def _audit_one(geometry, cell_positions, nfp, args):
                 phi_converged=phi_converged,
                 phi_failed=phi_failed,
                 term_ledger_stats=ledger_stats, representation_error=representation,
+                rlp_reconstruction_diagnostics={
+                    "maximum_row_weight_l1_norm": (
+                        reconstruction_diagnostics.maximum_row_weight_l1_norm
+                    ),
+                    "row_weight_l1_limit": (
+                        reconstruction_diagnostics.row_weight_l1_limit
+                    ),
+                    "minimum_planar_donor_count": (
+                        reconstruction_diagnostics.minimum_planar_donor_count
+                    ),
+                    "maximum_planar_donor_count": (
+                        reconstruction_diagnostics.maximum_planar_donor_count
+                    ),
+                    "expanded_planar_owner_count": (
+                        reconstruction_diagnostics.expanded_planar_owner_count
+                    ),
+                    "maximum_condition_number": (
+                        reconstruction_diagnostics.maximum_condition_number
+                    ),
+                    "maximum_reproduction_residual": (
+                        reconstruction_diagnostics.maximum_reproduction_residual
+                    ),
+                    "maximum_conservation_residual": (
+                        reconstruction_diagnostics.maximum_conservation_residual
+                    ),
+                    "maximum_eta_line_residual": (
+                        reconstruction_diagnostics.maximum_eta_line_residual
+                    ),
+                },
                 region_cell_counts={name: int(np.count_nonzero(mask))
                                     for name, mask in masks.items()},
                 region_volumes=region_volumes,
@@ -1717,10 +1749,15 @@ def run(args):
             key: value for key, value in result.items()
             if not key.startswith("_")
         })
+        reconstruction = result["rlp_reconstruction_diagnostics"]
         print(f"N={n} exact-phi RMS={np.mean(list(result['exact_phi_residual'].values())):.6e} "
               f"forced RMS={np.mean(list(result['forced_residual'].values())):.6e} "
               f"source-pairing={max(result['source_increment'].values()):.3e} "
-              f"phi-converged={result['phi_converged']} representation={max(result['representation_error'].values()):.3e}")
+              f"phi-converged={result['phi_converged']} representation={max(result['representation_error'].values()):.3e} "
+              f"H-L1={reconstruction['maximum_row_weight_l1_norm']:.3e} "
+              f"H-planar-donors={reconstruction['minimum_planar_donor_count']}-"
+              f"{reconstruction['maximum_planar_donor_count']} "
+              f"H-expanded={reconstruction['expanded_planar_owner_count']}")
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         exact = np.asarray([[r['exact_phi_residual'][n] for n in EVOLVED] for r in rows])
@@ -1897,6 +1934,49 @@ def run(args):
                  forced_residual=forced, forced_observed_order=order(forced),
                  source_increment=sourced, source_observed_order=order(sourced),
                  representation_error=repr_err, representation_observed_order=order(repr_err),
+                 rlp_reconstruction_maximum_row_weight_l1_norm=np.asarray([
+                     r["rlp_reconstruction_diagnostics"]
+                     ["maximum_row_weight_l1_norm"]
+                     for r in rows
+                 ], dtype=np.float64),
+                 rlp_reconstruction_row_weight_l1_limit=np.asarray([
+                     r["rlp_reconstruction_diagnostics"]["row_weight_l1_limit"]
+                     for r in rows
+                 ], dtype=np.float64),
+                 rlp_reconstruction_planar_donor_count=np.asarray([
+                     [
+                         r["rlp_reconstruction_diagnostics"]
+                         ["minimum_planar_donor_count"],
+                         r["rlp_reconstruction_diagnostics"]
+                         ["maximum_planar_donor_count"],
+                     ]
+                     for r in rows
+                 ], dtype=np.int32),
+                 rlp_reconstruction_expanded_planar_owner_count=np.asarray([
+                     r["rlp_reconstruction_diagnostics"]
+                     ["expanded_planar_owner_count"]
+                     for r in rows
+                 ], dtype=np.int32),
+                 rlp_reconstruction_maximum_condition_number=np.asarray([
+                     r["rlp_reconstruction_diagnostics"]
+                     ["maximum_condition_number"]
+                     for r in rows
+                 ], dtype=np.float64),
+                 rlp_reconstruction_maximum_reproduction_residual=np.asarray([
+                     r["rlp_reconstruction_diagnostics"]
+                     ["maximum_reproduction_residual"]
+                     for r in rows
+                 ], dtype=np.float64),
+                 rlp_reconstruction_maximum_conservation_residual=np.asarray([
+                     r["rlp_reconstruction_diagnostics"]
+                     ["maximum_conservation_residual"]
+                     for r in rows
+                 ], dtype=np.float64),
+                 rlp_reconstruction_maximum_eta_line_residual=np.asarray([
+                     r["rlp_reconstruction_diagnostics"]
+                     ["maximum_eta_line_residual"]
+                     for r in rows
+                 ], dtype=np.float64),
                  phi_reconstruction_difference=np.asarray([r['phi_reconstruction_difference'] for r in rows]),
                  reconstructed_phi_residual=reconstructed_phi_residual,
                  reconstructed_phi_residual_observed_order=order(

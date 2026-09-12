@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from drbx.geometry.fci_control_volumes import (
     build_polar_angular_agglomeration_geometry,
@@ -56,6 +57,33 @@ def _warped_intermediate_q2_host():
     )
 
 
+def _warped_refined_q2_host():
+    """Refined analogue whose 24-planar-donor stencil exceeds the H bound."""
+
+    shape = (16, 48, 16)
+    u = np.linspace(0.0, 1.0, shape[0] + 1)
+    theta = np.linspace(-np.pi, np.pi, shape[1] + 1)
+    eta = np.linspace(-np.pi, np.pi, shape[2] + 1)
+
+    def jacobian(points):
+        points = np.asarray(points)
+        radial = np.maximum(points[..., 0], 1.0e-14)
+        return radial * (
+            1.0 + 0.45 * np.sin(points[..., 1] + 0.7 * points[..., 2])
+        )
+
+    return build_polar_angular_agglomeration_geometry(
+        u,
+        theta,
+        eta,
+        jacobian,
+        quadrature_order=3,
+        angular_group_size=(
+            48, 16, 8, 8, 4, 4, 4, 4, 2, 2, 2, 2, 2, 2, 2, 1,
+        ),
+    )
+
+
 def test_compiler_emits_bounded_relative_eta_sparse_contract():
     host = _host()
     prolongation = compile_rlp_cell_average_prolongation(host)
@@ -64,10 +92,10 @@ def test_compiler_emits_bounded_relative_eta_sparse_contract():
         * np.count_nonzero(host.angular_group_size > 1)
     )
     assert prolongation.row_count == expected_rows
-    assert prolongation.max_observations == 120
-    assert prolongation.owner_i.shape == (expected_rows, 120)
-    assert prolongation.owner_j.shape == (expected_rows, 120)
-    assert prolongation.owner_eta_offset.shape == (expected_rows, 120)
+    assert prolongation.max_observations == 160
+    assert prolongation.owner_i.shape == (expected_rows, 160)
+    assert prolongation.owner_j.shape == (expected_rows, 160)
+    assert prolongation.owner_eta_offset.shape == (expected_rows, 160)
     assert np.max(np.abs(np.asarray(prolongation.owner_eta_offset))) <= 2
     assert np.all(np.asarray(prolongation.raw_row_active))
     raw_rows = np.column_stack(
@@ -227,13 +255,17 @@ def test_oversampled_cubic_stencil_bounds_warped_intermediate_q2_weights():
 
     # This fixture retains the failure signature found on the intermediate
     # q=2 rings of the cached HSX N32 host with the old 12-planar-donor fit.
-    legacy = compile_rlp_cell_average_prolongation(host, max_observations=64)
+    legacy = compile_rlp_cell_average_prolongation(
+        host,
+        max_observations=64,
+        row_weight_l1_limit=None,
+    )
     assert legacy.diagnostics.maximum_row_weight_l1_norm > 1.0e3
 
     prolongation = compile_rlp_cell_average_prolongation(host)
     weights = np.asarray(prolongation.weights)
     row_l1 = np.sum(np.abs(weights), axis=1)
-    assert prolongation.max_observations == 120
+    assert prolongation.max_observations == 160
     assert prolongation.diagnostics.maximum_row_weight_l1_norm == np.max(row_l1)
     assert prolongation.diagnostics.maximum_row_weight_l1_norm < 7.0
     assert prolongation.diagnostics.maximum_reproduction_residual < 1.0e-12
@@ -296,3 +328,39 @@ def test_oversampled_cubic_stencil_bounds_warped_intermediate_q2_weights():
         rtol=0.0,
         atol=5.0e-13,
     )
+
+
+def test_adaptive_donors_expand_and_reject_an_unstable_storage_cap():
+    host = _warped_intermediate_q2_host()
+
+    with pytest.raises(ValueError, match="no stable donor stencil"):
+        compile_rlp_cell_average_prolongation(host, max_observations=64)
+
+    prolongation = compile_rlp_cell_average_prolongation(
+        host,
+        max_observations=120,
+        minimum_planar_donors=12,
+    )
+    diagnostics = prolongation.diagnostics
+    assert diagnostics.row_weight_l1_limit == 8.0
+    assert diagnostics.expanded_planar_owner_count > 0
+    assert diagnostics.minimum_planar_donor_count >= 12
+    assert diagnostics.maximum_planar_donor_count > 12
+    assert diagnostics.maximum_row_weight_l1_norm <= 8.0
+
+
+def test_default_adaptive_contract_expands_refined_q2_stencils():
+    host = _warped_refined_q2_host()
+    fixed_24 = compile_rlp_cell_average_prolongation(
+        host,
+        max_observations=120,
+        row_weight_l1_limit=None,
+    )
+    assert fixed_24.diagnostics.maximum_row_weight_l1_norm > 8.0
+
+    adaptive = compile_rlp_cell_average_prolongation(host)
+    diagnostics = adaptive.diagnostics
+    assert diagnostics.expanded_planar_owner_count > 0
+    assert diagnostics.minimum_planar_donor_count == 24
+    assert diagnostics.maximum_planar_donor_count == 28
+    assert diagnostics.maximum_row_weight_l1_norm <= 8.0
