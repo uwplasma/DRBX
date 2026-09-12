@@ -133,6 +133,7 @@ GLOBAL_NORM_KEYS = (
     "exact_phi_residual",
     "forced_residual",
     "source_increment",
+    "source_total_subtraction_residual",
     "representation_error",
     "phi_reconstruction_difference",
     "reconstructed_phi_residual",
@@ -659,10 +660,34 @@ def _finite_norm_check(artifacts: Sequence[Artifact], rows: Sequence[Mapping[str
 def _source_pairing_check(artifacts: Sequence[Artifact], tolerance: float) -> dict[str, Any]:
     failures: list[str] = []
     maxima: list[float] = []
+    subtraction_maxima: list[float] = []
+    legacy: list[str] = []
     for artifact in artifacts:
         values = artifact.arrays.get("source_increment")
         if values is None:
             failures.append(f"{artifact.path}: missing source_increment")
+            continue
+        # Artifacts predating the direct term-ledger audit computed
+        # ``(F+s)-F-s`` from total RHS values.  That subtraction is badly
+        # conditioned when F is large and cannot establish source pairing at
+        # roundoff.  New artifacts identify the direct-ledger semantics
+        # explicitly and retain that old result under its diagnostic name.
+        subtraction = artifact.arrays.get("source_total_subtraction_residual")
+        pairing_method = _text_scalar(
+            artifact.arrays.get("source_pairing_method")
+        )
+        if pairing_method != "direct-source-term-ledger":
+            legacy_values = np.asarray(values, dtype=np.float64)
+            if not _array_finite(legacy_values):
+                failures.append(f"{artifact.path}: source_increment is non-finite")
+                continue
+            subtraction_maxima.append(
+                float(np.max(np.abs(legacy_values))) if legacy_values.size else 0.0
+            )
+            legacy.append(
+                f"{artifact.path}: legacy source_increment uses cancellation-prone "
+                "total-RHS subtraction; rerun to obtain the direct source-ledger audit"
+            )
             continue
         values = np.asarray(values, dtype=np.float64)
         if not _array_finite(values):
@@ -671,13 +696,22 @@ def _source_pairing_check(artifacts: Sequence[Artifact], tolerance: float) -> di
         maxima.append(float(np.max(np.abs(values))) if values.size else 0.0)
         if values.size and np.max(np.abs(values)) > tolerance:
             failures.append(f"{artifact.path}: source pairing {np.max(np.abs(values)):.3e} exceeds {tolerance:.3e}")
-    status = "fail" if failures else ("pass" if maxima else "warning")
+        subtraction = np.asarray(subtraction, dtype=np.float64)
+        if _array_finite(subtraction):
+            subtraction_maxima.append(
+                float(np.max(np.abs(subtraction))) if subtraction.size else 0.0
+            )
+    status = "fail" if failures else ("pass" if maxima and not legacy else "warning")
     return _status(
         "independent_source_pairing_roundoff",
         status,
         tolerance=float(tolerance),
         maximum=float(max(maxima)) if maxima else None,
         per_artifact_maximum=maxima,
+        total_subtraction_maximum=(
+            float(max(subtraction_maxima)) if subtraction_maxima else None
+        ),
+        legacy_diagnostics=legacy,
         failures=failures,
     )
 
@@ -791,6 +825,8 @@ def _primary_field_gate(
 
     values = np.asarray(values, dtype=np.float64)
     failures: list[str] = []
+    decrease_failures: list[str] = []
+    order_failures: list[str] = []
     if values.shape != (len(CANONICAL_SPATIAL_RESOLUTIONS), len(fields)):
         return {
             "quantity": quantity,
@@ -809,9 +845,13 @@ def _primary_field_gate(
         field_failures: list[str] = []
         if not finite_positive[index]:
             field_failures.append("L2 errors must be finite and positive at 32/48/64")
+            decrease_failures.append(field)
+            if minimum_order is not None:
+                order_failures.append(field)
         else:
             if not bool(np.all(pair_decrease[:, index])):
                 field_failures.append("L2 error does not strictly decrease on both refinement pairs")
+                decrease_failures.append(field)
             if minimum_order is not None and (
                 not math.isfinite(float(finest_orders[index]))
                 or finest_orders[index] < minimum_order
@@ -819,6 +859,7 @@ def _primary_field_gate(
                 field_failures.append(
                     f"48-to-64 L2 order {float(finest_orders[index]):.6g} is below {minimum_order:.6g}"
                 )
+                order_failures.append(field)
         failures.extend(f"{field}: {message}" for message in field_failures)
         field_reports.append({
             "field": str(field),
@@ -830,6 +871,15 @@ def _primary_field_gate(
             "finest_pair_order": (
                 float(finest_orders[index]) if math.isfinite(float(finest_orders[index])) else None
             ),
+            "minimum_finest_pair_order": minimum_order,
+            "observed_order_status": (
+                "not-required"
+                if minimum_order is None
+                else ("fail" if field in order_failures else "pass")
+            ),
+            "full_second_order_acceptance": bool(
+                minimum_order is not None and not field_failures
+            ),
             "status": "fail" if field_failures else "pass",
             "failures": field_failures,
         })
@@ -837,6 +887,16 @@ def _primary_field_gate(
         "quantity": quantity,
         "status": "fail" if failures else "pass",
         "norm": "owner-volume-weighted-L2",
+        "strict_decrease_status": "fail" if decrease_failures else "pass",
+        "observed_order_status": (
+            "not-required"
+            if minimum_order is None
+            else ("fail" if order_failures else "pass")
+        ),
+        "minimum_finest_pair_order": minimum_order,
+        "full_second_order_acceptance": bool(
+            minimum_order is not None and not failures
+        ),
         "fields": field_reports,
         "failures": failures,
     }
@@ -1002,7 +1062,7 @@ def _spatial_gate(
         }
     else:
         exact_report = _primary_field_gate(
-            exact, fields, quantity="exact_phi_residual", minimum_order=None
+            exact, fields, quantity="exact_phi_residual", minimum_order=minimum_order
         )
     failures.extend(exact_report.get("failures", ()))
 
@@ -1188,6 +1248,73 @@ def _continuum_total_error_report(rows: Sequence[Mapping[str, Any]]) -> dict[str
             "total continuum error includes spatial/reconstruction and temporal "
             "components; no temporal order is inferred from these values"
         ),
+    )
+
+
+def _mms_counterfactual_report(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Summarize diagnostic-only material and raw/H bracket controls."""
+
+    specifications = (
+        (
+            "material",
+            "material_counterfactual_error_norms",
+            "partitioned_material_counterfactual_error_norms",
+            "material_counterfactual_names_json",
+        ),
+        (
+            "material_force",
+            "material_force_control_norms",
+            "partitioned_material_force_control_norms",
+            "material_force_control_names_json",
+        ),
+        (
+            "poisson_operands",
+            "poisson_operand_error_norms",
+            "partitioned_poisson_operand_error_norms",
+            "poisson_operand_control_names_json",
+        ),
+    )
+    result: dict[str, Any] = {}
+    for label, global_key, regional_key, names_key in specifications:
+        matrix = _matrix_from_rows(rows, global_key)
+        if matrix is None:
+            continue
+        resolutions, values = matrix
+        artifact = next(
+            row["artifact"] for row in rows
+            if _row_value(row, global_key) is not None
+        )
+        names = _tuple_of_strings(
+            _json_scalar(artifact.arrays, names_key),
+        )
+        entry: dict[str, Any] = {
+            "control_names": list(names),
+            "global": _order_summary(resolutions, values),
+        }
+        regional = _matrix_from_rows(rows, regional_key)
+        if regional is not None and "rlp_transition_rings" in artifact.regions:
+            regional_resolutions, regional_values = regional
+            region_index = artifact.regions.index("rlp_transition_rings")
+            entry["rlp_transition_rings"] = _order_summary(
+                regional_resolutions,
+                regional_values[:, region_index],
+            )
+        result[label] = entry
+    if not result:
+        return _status(
+            "mms_material_and_poisson_counterfactuals",
+            "unavailable",
+            reason="artifact predates diagnostic counterfactual payloads",
+        )
+    finite = all(
+        item["global"]["finite_order_count"] > 0 for item in result.values()
+    )
+    return _status(
+        "mms_material_and_poisson_counterfactuals",
+        "pass" if finite else "warning",
+        diagnostics=result,
     )
 
 
@@ -2032,6 +2159,7 @@ def analyze(
         checks.append(_evolved_prerequisite_gate(artifacts))
     checks.append(_phi_report(rows))
     checks.append(_owner_representation_report(rows))
+    checks.append(_mms_counterfactual_report(rows))
     checks.append(_continuum_total_error_report(rows))
     checks.append(_complete_stage7_report(artifacts, required=require_complete))
     checks.append(_short_leg_report(artifacts))
@@ -2081,10 +2209,17 @@ def _print_summary(report: Mapping[str, Any]) -> None:
         print(f"  {check['status'].upper():9s} {check['name']}")
         if check["name"] == "independent_source_pairing_roundoff":
             print(f"             max={check.get('maximum')!r} tolerance={check.get('tolerance'):.3e}")
+            if check.get("total_subtraction_maximum") is not None:
+                print(
+                    "             cancellation-prone total-subtraction max="
+                    f"{check['total_subtraction_maximum']:.3e}"
+                )
+            for message in check.get("legacy_diagnostics", ())[:1]:
+                print(f"             warning: {message}")
         if check["name"] == "spatial_convergence_gate":
             print(
                 f"             scope={check.get('scope')} "
-                f"minimum evolved-field finest-pair order="
+                f"minimum exact/evolved-field finest-pair order="
                 f"{check.get('minimum_finest_pair_l2_order')!r}"
             )
             for failure in check.get("failures", [])[:3]:

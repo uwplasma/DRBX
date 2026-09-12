@@ -90,7 +90,7 @@ def _relative_l2(actual, exact, weight, active):
     return float(jnp.sqrt(error2 / exact2))
 
 
-def _case(ntheta):
+def _case(ntheta, characteristic_scheme="centered"):
     geometry, domain, context, coords, cv, face_bc, closure = _setup(ntheta)
     cells = cv.cells
     f_halo, g_halo, exact_halo = _fields(coords)
@@ -103,13 +103,15 @@ def _case(ntheta):
         return closure(inject_owned_field_to_halo(values, geometry.layout), domain, face_bc)
 
     def action_from_closed(f_closed, g_closed):
+        upwind = characteristic_scheme != "centered"
         fine = local_poisson_bracket_compatible_flux_op(
             build_local_conservative_stencil_from_field(f_closed, geometry, context),
             build_local_conservative_stencil_from_field(g_closed, geometry, context),
             geometry,
             domain=domain,
             axis_regular_axes=(True, False, False),
-            characteristic_scheme="centered",
+            characteristic_scheme=characteristic_scheme,
+            g_field_halo=g_closed if upwind else None,
             cell_volume=local_control_volume_projected_fine_cell_volume(geometry, cv),
         )
         return aggregate_local_control_volume_average(fine, cells, domain)
@@ -159,6 +161,16 @@ def test_bracket_specific_reconstruction_removes_transition_order_loss():
     # transition-limited contribution; H reduces that action defect by well
     # over an order of magnitude without changing the bracket algebra.
     assert cases[-1]["reconstructed_action_error"] < 0.1 * cases[-1]["piecewise_action_error"]
+
+
+def test_production_scalar_upwind_bracket_is_second_order_through_rlp_transitions():
+    cases = [
+        _case(n, characteristic_scheme="scalar-third-order-upwind")
+        for n in (16, 32, 64)
+    ]
+    errors = [case["continuum_error"] for case in cases]
+    orders = [math.log(a / b, 2.0) for a, b in zip(errors[:-1], errors[1:])]
+    assert min(orders) > 1.8, (errors, orders)
 
 
 def test_rhs_prepared_centered_reconstruction_is_antisymmetric_and_constant_exact():

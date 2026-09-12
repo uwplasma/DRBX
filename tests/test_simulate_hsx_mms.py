@@ -604,7 +604,7 @@ def test_host_frozen_stage_uses_requested_dt_for_short_leg_selection():
     source = DRIVER.read_text(encoding="utf-8")
     host_branch = source[
         source.index("else:\n        short_leg_step"):
-        source.index("spatial, ledger = frozen_stage", source.index("else:\n        short_leg_step"))
+        source.index("reconstruct_phi = blob.jax.jit", source.index("else:\n        short_leg_step"))
     ]
     assert "short_leg_selection_dt=float(args.dt)" in host_branch
 
@@ -691,6 +691,9 @@ def test_frozen_diagnostic_hook_assembles_global_two_device_outputs():
     assert payload["exact_term_shape"] == [6, 10, 2, 3, 4]
     assert payload["sourced_term_shape"] == [6, 10, 2, 3, 4]
     assert payload["reconstructed_term_shape"] == [6, 10, 2, 3, 4]
+    assert payload["material_counterfactual_shape"] == [4, 5, 2, 3, 4]
+    assert payload["material_force_shape"] == [4, 2, 3, 4]
+    assert payload["poisson_counterfactual_shape"] == [4, 6, 2, 3, 4]
     assert payload["implicit_shape"] == [2, 3, 4, 5]
     assert payload["selected_all"]
     assert payload["reconstructed_selected_all"]

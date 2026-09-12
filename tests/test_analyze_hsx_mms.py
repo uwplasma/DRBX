@@ -91,6 +91,11 @@ def _write_aggregate(
     regional = ns[:, None, None] ** -2 * np.ones((nrows, len(REGIONS), len(FIELDS)))
     regional_terms = ns[:, None, None, None] ** -2 * np.ones((nrows, len(REGIONS), len(FIELDS), len(TERMS)))
     term_errors = ns[:, None, None] ** -2 * np.ones((nrows, len(FIELDS), len(TERMS)))
+    material_controls = ns[:, None, None] ** -2 * np.ones((nrows, 4, 5))
+    material_force_controls = ns[:, None] ** -2 * np.ones((nrows, 4))
+    poisson_controls = ns[:, None, None] ** -2 * np.ones(
+        (nrows, 4, len(FIELDS))
+    )
     counts = np.full((nrows, len(REGIONS)), 10, dtype=np.int64)
     if integration_scale is None:
         integration = np.full(nrows, np.nan)
@@ -130,6 +135,8 @@ def _write_aggregate(
         exact_phi_residual=errors,
         forced_residual=errors * 1.1,
         source_increment=source,
+        source_total_subtraction_residual=source,
+        source_pairing_method=np.asarray("direct-source-term-ledger"),
         representation_error=representation,
         phi_reconstruction_difference=errors[:, 0],
         reconstructed_phi_residual=errors[:, 0] * 1.2,
@@ -143,10 +150,32 @@ def _write_aggregate(
         partitioned_rhs_term_norms=regional_terms,
         rhs_term_error_norms=term_errors,
         partitioned_rhs_term_error_norms=regional_terms,
+        material_counterfactual_error_norms=material_controls,
+        partitioned_material_counterfactual_error_norms=np.broadcast_to(
+            material_controls[:, None], (nrows, len(REGIONS), 4, 5)
+        ),
+        material_force_control_norms=material_force_controls,
+        partitioned_material_force_control_norms=np.broadcast_to(
+            material_force_controls[:, None], (nrows, len(REGIONS), 4)
+        ),
+        poisson_operand_error_norms=poisson_controls,
+        partitioned_poisson_operand_error_norms=np.broadcast_to(
+            poisson_controls[:, None],
+            (nrows, len(REGIONS), 4, len(FIELDS)),
+        ),
         region_cell_counts=counts,
         field_names_json=np.asarray(json.dumps(FIELDS)),
         region_names_json=np.asarray(json.dumps(REGIONS)),
         rhs_term_names_json=np.asarray(json.dumps(TERMS)),
+        material_counterfactual_names_json=np.asarray(json.dumps(
+            ("live", "centered", "difference", "principal")
+        )),
+        material_force_control_names_json=np.asarray(json.dumps(
+            ("material_ti", "canonical_ti", "sum", "complete")
+        )),
+        poisson_operand_control_names_json=np.asarray(json.dumps(
+            ("raw_raw", "H_raw", "raw_H", "H_H")
+        )),
         production_configuration_json=np.asarray(json.dumps(config)),
         command_json=np.asarray(json.dumps(command)),
         short_leg_diagnostics_paths_json=np.asarray(json.dumps(diagnostic_paths)),
@@ -262,6 +291,12 @@ def test_analyzer_merges_spatial_temporal_and_short_leg_artifacts(tmp_path: Path
     assert checks["finite_populated_region_norms"]["status"] == "pass"
     assert checks["independent_source_pairing_roundoff"]["status"] == "pass"
     assert checks["phi_reconstruction_evidence"]["status"] == "pass"
+    counterfactuals = checks["mms_material_and_poisson_counterfactuals"]
+    assert counterfactuals["status"] == "pass"
+    assert np.allclose(
+        counterfactuals["diagnostics"]["material"]["global"]["orders"],
+        2.0,
+    )
     total = checks["continuum_total_error_by_timestep"]
     assert total["status"] == "diagnostic"
     assert "no temporal order is inferred" in total["interpretation"]
@@ -321,6 +356,34 @@ def test_analyzer_reports_hard_gate_failures(tmp_path: Path):
     assert checks["production_configuration_and_fixed_metric"]["status"] == "fail"
     assert checks["independent_source_pairing_roundoff"]["status"] == "fail"
     assert report["failure_count"] >= 2
+
+
+def test_legacy_total_rhs_source_subtraction_is_not_a_pairing_failure(tmp_path: Path):
+    analyzer = _load()
+    artifact = _write_aggregate(tmp_path / "legacy_source.npz", (32, 48, 64))
+    with np.load(artifact, allow_pickle=False) as stored:
+        payload = {
+            key: np.asarray(stored[key])
+            for key in stored.files
+            if key not in {
+                "source_total_subtraction_residual",
+                "source_pairing_method",
+            }
+        }
+    payload["source_increment"] = np.full((3, len(FIELDS)), 2.1e-6)
+    np.savez(artifact, **payload)
+
+    report = analyzer.analyze((artifact,))
+    check = {item["name"]: item for item in report["checks"]}[
+        "independent_source_pairing_roundoff"
+    ]
+    assert check["status"] == "warning"
+    assert check["maximum"] is None
+    assert np.isclose(check["total_subtraction_maximum"], 2.1e-6)
+    assert check["legacy_diagnostics"]
+    # A legacy cancellation diagnostic is advisory: it cannot prove pairing,
+    # but it must not turn an otherwise valid artifact into a hard failure.
+    assert report["ok"]
 
 
 def test_physical_parameters_are_required_and_identical(tmp_path: Path):
@@ -431,6 +494,22 @@ def test_require_spatial_rejects_subthreshold_evolved_finest_pair_order(tmp_path
     gate = {check["name"]: check for check in report["checks"]}["spatial_convergence_gate"]
     assert gate["status"] == "fail"
     assert gate["evolved_field_error"]["fields"][0]["finest_pair_order"] < 1.8
+
+
+def test_require_spatial_distinguishes_decrease_from_second_order(tmp_path: Path):
+    analyzer = _load()
+    low_order = _write_aggregate(
+        tmp_path / "low_order_frozen.npz", (32, 48, 64), exact_power=-1.0
+    )
+    report = analyzer.analyze((low_order,), require_spatial=True)
+    gate = {check["name"]: check for check in report["checks"]}[
+        "spatial_convergence_gate"
+    ]
+    exact = gate["exact_phi_owner_residual"]
+    assert exact["strict_decrease_status"] == "pass"
+    assert exact["observed_order_status"] == "fail"
+    assert exact["full_second_order_acceptance"] is False
+    assert gate["status"] == "fail"
 
 
 def test_require_spatial_gates_evolved_fields_when_present(tmp_path: Path):

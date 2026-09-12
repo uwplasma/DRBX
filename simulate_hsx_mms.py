@@ -32,6 +32,24 @@ REFERENCE_PROJECTION_ORDER = 2
 AXIS_REGULAR_AXES = (True, False, False)
 FIELDS = tuple(blob.FciDrbEBState.__dataclass_fields__)
 EVOLVED = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")
+MATERIAL_COUNTERFACTUAL_NAMES = (
+    "live_branchwise_material_residual",
+    "common_centered_material_residual",
+    "branchwise_minus_common_centered",
+    "live_branchwise_principal",
+)
+MATERIAL_FORCE_CONTROL_NAMES = (
+    "ordinary_live_material_Ti_column",
+    "ordinary_canonical_mu_tau_grad_Ti",
+    "ordinary_Ti_column_plus_canonical",
+    "ordinary_complete_Ve_parallel_force",
+)
+POISSON_OPERAND_CONTROL_NAMES = (
+    "raw_phi_raw_g",
+    "H_phi_raw_g",
+    "raw_phi_H_g",
+    "H_phi_H_g",
+)
 REGIONS = (
     "ordinary_bulk",
     "rlp_rings",
@@ -1205,6 +1223,7 @@ def _audit_one(geometry, cell_positions, nfp, args):
                     blob.IMEX_SSP222_GAMMA * float(args.dt)
                 ),
                 implicit_selection_dt=float(args.dt),
+                raw_reference_state=point_state,
                 execution=str(args.advance_execution),
             ),
         )
@@ -1215,6 +1234,7 @@ def _audit_one(geometry, cell_positions, nfp, args):
         spatial = frozen.exact_explicit
         ledger = frozen.exact_rhs_term_fields
         sourced = frozen.sourced_explicit
+        sourced_ledger = frozen.sourced_rhs_term_fields
         reconstructed = frozen.reconstructed_phi
         reconstructed_spatial = frozen.reconstructed_explicit
         reconstructed_implicit_material = (
@@ -1223,6 +1243,11 @@ def _audit_one(geometry, cell_positions, nfp, args):
         phi_diagnostics = np.asarray(frozen.phi_solver_diagnostics)
         phi_failed = bool(phi_diagnostics[2])
         phi_converged = bool(phi_diagnostics[3])
+        material_counterfactuals = frozen.material_counterfactual_fields
+        material_force_controls = frozen.material_ti_force_fields
+        poisson_operand_controls = (
+            frozen.poisson_operand_counterfactual_fields
+        )
         # The general production hook exposes all three ledgers.  The MMS
         # needs only the exact-phi ledger after source pairing is established.
         del frozen
@@ -1253,10 +1278,41 @@ def _audit_one(geometry, cell_positions, nfp, args):
                 return_rhs_term_fields=True,
             )
         )
-        spatial, ledger = frozen_stage(state, state.zeros_like())
-        spatial, ledger = blob.jax.block_until_ready((spatial, ledger))
-        sourced, _ = frozen_stage(state, source)
-        sourced = blob.jax.block_until_ready(sourced)
+        frozen_exact_diagnostic = blob.jax.jit(
+            lambda q, raw: model.evaluate_stage(
+                q,
+                source_owned=q.zeros_like(),
+                phi_owned=q.phi,
+                short_leg_selection_dt=float(args.dt),
+                return_rhs_term_fields=True,
+                return_mms_counterfactual_fields=True,
+                diagnostic_raw_state=raw,
+            )
+        )
+        (
+            spatial,
+            ledger,
+            material_counterfactuals,
+            material_force_controls,
+            poisson_operand_controls,
+        ) = frozen_exact_diagnostic(state, point_state)
+        (
+            spatial,
+            ledger,
+            material_counterfactuals,
+            material_force_controls,
+            poisson_operand_controls,
+        ) = blob.jax.block_until_ready((
+            spatial,
+            ledger,
+            material_counterfactuals,
+            material_force_controls,
+            poisson_operand_controls,
+        ))
+        sourced, sourced_ledger = frozen_stage(state, source)
+        sourced, sourced_ledger = blob.jax.block_until_ready(
+            (sourced, sourced_ledger)
+        )
         reconstruct_phi = blob.jax.jit(
             lambda q: model.reconstruct_phi(q, return_diagnostics=True)
         )
@@ -1292,6 +1348,22 @@ def _audit_one(geometry, cell_positions, nfp, args):
     ledger = ledger.at[:5, 1].add(
         blob.jnp.moveaxis(implicit_material, -1, 0)
     )
+    implicit_material_fields = blob.jnp.moveaxis(implicit_material, -1, 0)
+    material_counterfactuals = material_counterfactuals.at[0].add(
+        implicit_material_fields
+    )
+    material_counterfactuals = material_counterfactuals.at[1].add(
+        implicit_material_fields
+    )
+    material_counterfactuals = material_counterfactuals.at[2].set(
+        material_counterfactuals[0] - material_counterfactuals[1]
+    )
+    ordinary_force_mask = ~blob.jnp.asarray(selected_wall, dtype=bool)
+    material_force_controls = blob.jnp.where(
+        ordinary_force_mask[None, ...],
+        material_force_controls,
+        0.0,
+    )
     exact_phi_residual = {
         n: _weighted_norm(getattr(spatial, n) - getattr(continuum, n), host)
         for n in EVOLVED}
@@ -1302,7 +1374,19 @@ def _audit_one(geometry, cell_positions, nfp, args):
     forced_residual = {
         n: _weighted_norm(getattr(sourced, n) - getattr(qdot, n), host)
         for n in EVOLVED}
+    # Read the independently packed source lane rather than recovering a
+    # small source by subtracting two potentially large total RHS values.
+    # The latter is retained as a conditioning diagnostic, but it is not a
+    # valid roundoff-level source-pairing contract.
     source_increment = {
+        field: _weighted_norm(
+            sourced_ledger[field_index, len(blob.RHS_TERM_NAMES[field_index]) - 1]
+            - getattr(source, field),
+            host,
+        )
+        for field_index, field in enumerate(EVOLVED)
+    }
+    source_total_subtraction_residual = {
         n: _weighted_norm(getattr(sourced, n) - getattr(spatial, n) - getattr(source, n), host)
         for n in EVOLVED}
     phi_compare = _weighted_norm(reconstructed - state.phi, host)
@@ -1347,6 +1431,63 @@ def _audit_one(geometry, cell_positions, nfp, args):
     continuum_term_ledger = _continuum_term_ledger(
         raw_continuum_terms, host
     )
+    material_counterfactual_array = np.asarray(material_counterfactuals)
+    material_counterfactual_error = material_counterfactual_array.copy()
+    material_counterfactual_error[:2] -= continuum_term_ledger[:5, 1][None, ...]
+    material_counterfactual_error_norms = np.asarray([
+        [
+            _weighted_norm(material_counterfactual_error[row, field], host)
+            for field in range(5)
+        ]
+        for row in range(len(MATERIAL_COUNTERFACTUAL_NAMES))
+    ])
+    partitioned_material_counterfactual_error_norms = {
+        region: np.asarray([
+            [
+                _masked_weighted_norm(
+                    material_counterfactual_error[row, field], host, mask
+                )
+                for field in range(5)
+            ]
+            for row in range(len(MATERIAL_COUNTERFACTUAL_NAMES))
+        ])
+        for region, mask in masks.items()
+    }
+    material_force_control_array = np.asarray(material_force_controls)
+    material_force_control_norms = np.asarray([
+        _weighted_norm(material_force_control_array[row], host)
+        for row in range(len(MATERIAL_FORCE_CONTROL_NAMES))
+    ])
+    partitioned_material_force_control_norms = {
+        region: np.asarray([
+            _masked_weighted_norm(material_force_control_array[row], host, mask)
+            for row in range(len(MATERIAL_FORCE_CONTROL_NAMES))
+        ])
+        for region, mask in masks.items()
+    }
+    poisson_operand_array = np.asarray(poisson_operand_controls)
+    poisson_operand_error = (
+        poisson_operand_array - continuum_term_ledger[:, 0][None, ...]
+    )
+    poisson_operand_error_norms = np.asarray([
+        [
+            _weighted_norm(poisson_operand_error[row, field], host)
+            for field in range(len(EVOLVED))
+        ]
+        for row in range(len(POISSON_OPERAND_CONTROL_NAMES))
+    ])
+    partitioned_poisson_operand_error_norms = {
+        region: np.asarray([
+            [
+                _masked_weighted_norm(
+                    poisson_operand_error[row, field], host, mask
+                )
+                for field in range(len(EVOLVED))
+            ]
+            for row in range(len(POISSON_OPERAND_CONTROL_NAMES))
+        ])
+        for region, mask in masks.items()
+    }
     term_error_array = ledger_array - continuum_term_ledger
     rhs_term_error_norms = np.asarray([
         [
@@ -1407,6 +1548,9 @@ def _audit_one(geometry, cell_positions, nfp, args):
                     float(np.sqrt(np.mean(ledger_array**2))))
     return dict(exact_phi_residual=exact_phi_residual, forced_residual=forced_residual,
                 source_increment=source_increment,
+                source_total_subtraction_residual=(
+                    source_total_subtraction_residual
+                ),
                 phi_reconstruction_difference=phi_compare,
                 reconstructed_phi_residual=reconstructed_phi_residual,
                 phi_reconstruction_rhs_difference=(
@@ -1463,6 +1607,20 @@ def _audit_one(geometry, cell_positions, nfp, args):
                 rhs_term_error_norms=rhs_term_error_norms,
                 partitioned_rhs_term_error_norms=partitioned_term_errors,
                 partitioned_rhs_term_error_statistics=term_error_statistics,
+                material_counterfactual_error_norms=(
+                    material_counterfactual_error_norms
+                ),
+                partitioned_material_counterfactual_error_norms=(
+                    partitioned_material_counterfactual_error_norms
+                ),
+                material_force_control_norms=material_force_control_norms,
+                partitioned_material_force_control_norms=(
+                    partitioned_material_force_control_norms
+                ),
+                poisson_operand_error_norms=poisson_operand_error_norms,
+                partitioned_poisson_operand_error_norms=(
+                    partitioned_poisson_operand_error_norms
+                ),
                 _region_masks=masks,
                 _model=model, _state=state, _host=host, _geometry=geometry,
                 _projector=projector, _runtime=runtime)
@@ -1763,6 +1921,10 @@ def run(args):
         exact = np.asarray([[r['exact_phi_residual'][n] for n in EVOLVED] for r in rows])
         forced = np.asarray([[r['forced_residual'][n] for n in EVOLVED] for r in rows])
         sourced = np.asarray([[r['source_increment'][n] for n in EVOLVED] for r in rows])
+        source_total_subtraction = np.asarray([
+            [r["source_total_subtraction_residual"][n] for n in EVOLVED]
+            for r in rows
+        ])
         repr_err = np.asarray([[r['representation_error'][n] for n in EVOLVED] for r in rows])
         reconstructed_phi_residual = np.asarray([
             [r["reconstructed_phi_residual"][field] for field in EVOLVED]
@@ -1801,6 +1963,36 @@ def run(args):
         partitioned_term_errors = np.asarray([
             [
                 r["partitioned_rhs_term_error_norms"][region]
+                for region in REGIONS
+            ]
+            for r in rows
+        ])
+        material_counterfactual_errors = np.asarray([
+            r["material_counterfactual_error_norms"] for r in rows
+        ])
+        partitioned_material_counterfactual_errors = np.asarray([
+            [
+                r["partitioned_material_counterfactual_error_norms"][region]
+                for region in REGIONS
+            ]
+            for r in rows
+        ])
+        material_force_controls = np.asarray([
+            r["material_force_control_norms"] for r in rows
+        ])
+        partitioned_material_force_controls = np.asarray([
+            [
+                r["partitioned_material_force_control_norms"][region]
+                for region in REGIONS
+            ]
+            for r in rows
+        ])
+        poisson_operand_errors = np.asarray([
+            r["poisson_operand_error_norms"] for r in rows
+        ])
+        partitioned_poisson_operand_errors = np.asarray([
+            [
+                r["partitioned_poisson_operand_error_norms"][region]
                 for region in REGIONS
             ]
             for r in rows
@@ -1933,6 +2125,8 @@ def run(args):
                  exact_phi_residual=exact, exact_phi_observed_order=order(exact),
                  forced_residual=forced, forced_observed_order=order(forced),
                  source_increment=sourced, source_observed_order=order(sourced),
+                 source_total_subtraction_residual=source_total_subtraction,
+                 source_pairing_method=np.asarray("direct-source-term-ledger"),
                  representation_error=repr_err, representation_observed_order=order(repr_err),
                  rlp_reconstruction_maximum_row_weight_l1_norm=np.asarray([
                      r["rlp_reconstruction_diagnostics"]
@@ -2014,6 +2208,36 @@ def run(args):
                  partitioned_rhs_term_error_observed_order=order(
                      partitioned_term_errors
                  ),
+                 material_counterfactual_error_norms=(
+                     material_counterfactual_errors
+                 ),
+                 material_counterfactual_observed_order=order(
+                     material_counterfactual_errors
+                 ),
+                 partitioned_material_counterfactual_error_norms=(
+                     partitioned_material_counterfactual_errors
+                 ),
+                 partitioned_material_counterfactual_observed_order=order(
+                     partitioned_material_counterfactual_errors
+                 ),
+                 material_force_control_norms=material_force_controls,
+                 material_force_control_observed_order=order(
+                     material_force_controls
+                 ),
+                 partitioned_material_force_control_norms=(
+                     partitioned_material_force_controls
+                 ),
+                 partitioned_material_force_control_observed_order=order(
+                     partitioned_material_force_controls
+                 ),
+                 poisson_operand_error_norms=poisson_operand_errors,
+                 poisson_operand_observed_order=order(poisson_operand_errors),
+                 partitioned_poisson_operand_error_norms=(
+                     partitioned_poisson_operand_errors
+                 ),
+                 partitioned_poisson_operand_observed_order=order(
+                     partitioned_poisson_operand_errors
+                 ),
                  region_cell_counts=region_cell_counts,
                  region_volumes=region_volumes,
                  region_volume_fractions=region_volume_fractions,
@@ -2057,6 +2281,15 @@ def run(args):
                  field_names_json=np.asarray(json.dumps(EVOLVED)),
                  region_names_json=np.asarray(json.dumps(REGIONS)),
                  rhs_term_names_json=np.asarray(json.dumps(blob.RHS_TERM_NAMES)),
+                 material_counterfactual_names_json=np.asarray(json.dumps(
+                     MATERIAL_COUNTERFACTUAL_NAMES
+                 )),
+                 material_force_control_names_json=np.asarray(json.dumps(
+                     MATERIAL_FORCE_CONTROL_NAMES
+                 )),
+                 poisson_operand_control_names_json=np.asarray(json.dumps(
+                     POISSON_OPERAND_CONTROL_NAMES
+                 )),
                  production_configuration_json=np.asarray(json.dumps({
                      **_production_configuration(shard_counts, device_count),
                      "shard_counts": list(shard_counts),

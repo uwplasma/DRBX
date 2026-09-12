@@ -29,6 +29,7 @@ class _FakeModel:
         *,
         phi_owned=None,
         return_rhs_term_fields=False,
+        return_mms_counterfactual_fields=False,
         **_kwargs,
     ):
         assert return_rhs_term_fields
@@ -61,7 +62,12 @@ class _FakeModel:
             terms = terms.at[field_index, source_slot].set(
                 getattr(source_owned, name)
             )
-        return result, terms
+        if not return_mms_counterfactual_fields:
+            return result, terms
+        material = jnp.ones((4, 5) + phi.shape, dtype=jnp.float64)
+        forces = jnp.ones((4,) + phi.shape, dtype=jnp.float64)
+        poisson = jnp.ones((4, 6) + phi.shape, dtype=jnp.float64)
+        return result, terms, material, forces, poisson
 
     @staticmethod
     def apply_short_leg_implicit_material_step(state, **_kwargs):
@@ -145,6 +151,7 @@ def run_case() -> dict[str, object]:
         source_state=source,
         implicit_solve_dt=1.0e-4,
         implicit_selection_dt=2.0e-4,
+        raw_reference_state=state,
         execution="compiled",
     )
     result = blob.run_full_eb(
@@ -177,7 +184,7 @@ def run_case() -> dict[str, object]:
         frozen_diagnostic=request,
         history_dtype="float64",
     )
-    source_pairing = max(
+    source_total_subtraction = max(
         float(np.max(np.abs(
             np.asarray(getattr(result.sourced_explicit, name))
             - np.asarray(getattr(result.exact_explicit, name))
@@ -185,17 +192,34 @@ def run_case() -> dict[str, object]:
         )))
         for name in blob.RHS_TERM_FIELD_NAMES
     )
+    source_pairing = max(
+        float(np.max(np.abs(
+            np.asarray(result.sourced_rhs_term_fields[
+                field_index, len(blob.RHS_TERM_NAMES[field_index]) - 1
+            ])
+            - np.asarray(getattr(source, name))
+        )))
+        for field_index, name in enumerate(blob.RHS_TERM_FIELD_NAMES)
+    )
     reconstructed_shift = float(np.max(np.abs(
         np.asarray(result.reconstructed_phi) - np.asarray(state.phi) - 0.25
     )))
     return {
         "device_count": len(jax.devices()),
         "source_pairing": source_pairing,
+        "source_total_subtraction": source_total_subtraction,
         "reconstructed_shift": reconstructed_shift,
         "exact_term_shape": list(result.exact_rhs_term_fields.shape),
         "sourced_term_shape": list(result.sourced_rhs_term_fields.shape),
         "reconstructed_term_shape": list(
             result.reconstructed_rhs_term_fields.shape
+        ),
+        "material_counterfactual_shape": list(
+            result.material_counterfactual_fields.shape
+        ),
+        "material_force_shape": list(result.material_ti_force_fields.shape),
+        "poisson_counterfactual_shape": list(
+            result.poisson_operand_counterfactual_fields.shape
         ),
         "implicit_shape": list(
             result.exact_implicit_complete_residual_owner.shape

@@ -20,6 +20,9 @@ from drbx.native import FciDrbEBState  # noqa: E402
 from drbx.native.fci_boundaries import (  # noqa: E402
     LocalControlVolumeBoundaryBC3D,
 )
+from drbx.native.fci_operators import (  # noqa: E402
+    aggregate_local_control_volume_average,
+)
 from drbx.native.fci_angular_agglomeration import (  # noqa: E402
     assemble_local_polar_angular_agglomeration_geometry,
     build_sharded_polar_angular_agglomeration_payload,
@@ -37,8 +40,14 @@ from shifted_torus_eb_mms_data import (  # noqa: E402
 SHEAR = 0.37
 
 
-def _material_source_case(n: int = 16):
-    shape = (3, n, n)
+def _material_source_case(
+    n: int = 16,
+    *,
+    radial_count: int = 3,
+    rlp_jacobian=None,
+    angular_group_size=None,
+):
+    shape = (int(radial_count), n, n)
     context = build_shifted_torus_eb_mms_context(shape)
     context = replace(
         context,
@@ -107,13 +116,21 @@ def _material_source_case(n: int = 16):
     )
     rhs = _build_rhs(context, host_sharded, local)
 
+    if rlp_jacobian is None:
+        rlp_jacobian = lambda points: np.maximum(
+            np.asarray(points)[..., 0], 1.0e-14
+        )
     host_rlp = build_polar_angular_agglomeration_geometry(
         np.asarray(base.grid.x_faces),
         np.asarray(base.grid.y_faces),
         np.asarray(base.grid.z_faces),
-        lambda points: np.maximum(np.asarray(points)[..., 0], 1.0e-14),
+        rlp_jacobian,
         quadrature_order=3,
-        angular_group_size=(n, 2, 1),
+        angular_group_size=(
+            angular_group_size
+            if angular_group_size is not None
+            else ((n, 2, 1) if radial_count == 3 else None)
+        ),
     )
     descriptor, packed = build_sharded_polar_angular_agglomeration_payload(
         host_rlp, host_sharded.domain
@@ -182,4 +199,69 @@ def test_material_geometry_source_invalid_raw_donor_uses_fallback():
     np.testing.assert_array_equal(
         np.asarray(result["material_div_b"])[mask],
         np.full(np.count_nonzero(mask), 23.0),
+    )
+
+
+def test_mms_counterfactual_payload_preserves_live_identities():
+    _rhs, rhs, _face_bc, _context, _exact = _material_source_case(8)
+    geometry = rhs.geometry
+    cells = rhs.control_volume_geometry.cells
+    domain = rhs.domain
+    y = jnp.asarray(geometry.grid.y_centers_owned)[None, :, None]
+    z = jnp.asarray(geometry.grid.z_centers_owned)[None, None, :]
+    phase = y + 0.7 * z
+
+    def fine(base, amplitude, shift=0.0):
+        return jnp.broadcast_to(
+            base + amplitude * jnp.sin(phase + shift),
+            geometry.owned_shape,
+        )
+
+    raw = FciDrbEBState(
+        density=fine(2.0, 0.08),
+        phi=fine(0.1, 0.03, 0.2),
+        Te=fine(3.0, 0.06, 0.4),
+        Ti=fine(5.0, 0.07, 0.7),
+        Vi=fine(0.15, 0.04, 0.1),
+        Ve=fine(-0.08, 0.03, 0.5),
+        vorticity=fine(0.02, 0.01, 0.9),
+    )
+    state = raw.map_fields(
+        lambda value: aggregate_local_control_volume_average(
+            value, cells, domain
+        )
+    )
+    result = rhs.evaluate_stage(
+        state,
+        source_owned=state.zeros_like(),
+        phi_owned=state.phi,
+        return_rhs_term_fields=True,
+        return_mms_counterfactual_fields=True,
+        diagnostic_raw_state=raw,
+    )
+    _rhs_state, ledger, material, forces, poisson = result
+
+    assert material.shape == (4, 5) + geometry.owned_shape
+    assert forces.shape == (4,) + geometry.owned_shape
+    assert poisson.shape == (4, 6) + geometry.owned_shape
+    assert bool(np.all(np.isfinite(np.asarray(material))))
+    assert bool(np.all(np.isfinite(np.asarray(forces))))
+    assert bool(np.all(np.isfinite(np.asarray(poisson))))
+    np.testing.assert_allclose(
+        np.asarray(material[2]),
+        np.asarray(material[0] - material[1]),
+        rtol=2.0e-13,
+        atol=2.0e-13,
+    )
+    np.testing.assert_allclose(
+        np.asarray(forces[2]),
+        np.asarray(forces[0] + forces[1]),
+        rtol=2.0e-13,
+        atol=2.0e-13,
+    )
+    np.testing.assert_allclose(
+        np.asarray(poisson[3]),
+        np.asarray(ledger[:, 0]),
+        rtol=2.0e-13,
+        atol=2.0e-13,
     )
