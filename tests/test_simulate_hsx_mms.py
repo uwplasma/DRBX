@@ -533,6 +533,16 @@ def test_harness_requires_real_resolution_local_maps_and_canonical_imex():
     assert "reference_derivative_order" in source
 
 
+def test_harness_persists_resolution_local_fci_maps_separately():
+    source = DRIVER.read_text(encoding="utf-8")
+    target_build = source[source.index("for n in resolutions") :]
+    assert "def _fci_map_cache_path" in source
+    assert '"resolution": int(resolution)' in source
+    assert '"map_source": blob._hsx_fci_map_source_fingerprint()' in source
+    assert "metric_cache_dir=None" in target_build
+    assert "fci_map_cache_path=_fci_map_cache_path(args, n)" in target_build
+
+
 def test_canonical_evolved_schedule_is_20_steps():
     driver = _load(DRIVER, "simulate_hsx_mms_step_schedule_test")
     steps, timestep = driver._step_schedule(0.0, 2.0e-5, 1.0e-6)

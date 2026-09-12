@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -39,6 +40,34 @@ REGIONS = (
     "short_leg_topology_transition",
     "double_hit",
 )
+
+
+def _fci_map_cache_path(args, resolution: int) -> Path:
+    """Return a validated, resolution-local FCI-map cache location.
+
+    The Stage-7 harness samples one shared 64-grid continuous metric at each
+    PDE resolution.  The corresponding field-line maps are grid-specific, so
+    they must not be placed in the shared metric payload.  The key contains
+    every geometric/tracing input and the map-builder source fingerprint;
+    ``build_hsx_fci_geometry`` additionally validates its stored shape,
+    tracer metadata, and map invariants before accepting a hit.
+    """
+
+    identity = {
+        "format": "hsx-mms-fci-map-cache-v1",
+        "resolution": int(resolution),
+        "topology": "toroidal",
+        "makegrid": blob._metric_input_content_identity(args.makegrid),
+        "vessel": blob._metric_input_content_identity(args.vessel),
+        "makegrid_currents": list(blob.DEFAULT_HSX_QHS_MAKEGRID_CURRENTS),
+        "trace_substeps": 4,
+        "map_source": blob._hsx_fci_map_source_fingerprint(),
+    }
+    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    digest = hashlib.sha256(encoded).hexdigest()[:24]
+    return Path(args.metric_cache_dir) / "fci_maps" / (
+        f"hsx_fci_maps_N{int(resolution)}_{digest}.npz"
+    )
 
 
 def _fourth_order_fd_weights(coordinates, center, derivative_order):
@@ -1497,7 +1526,8 @@ def run(args):
             metric_radial_degree=17, metric_poloidal_modes=15, metric_toroidal_modes=3,
             metric_context=args.metric_context, construct_fci_maps=True,
             fci_trace_substeps=4,
-            metric_cache_dir=None)
+            metric_cache_dir=None,
+            fci_map_cache_path=_fci_map_cache_path(args, n))
         geometry, cell_positions = built[0], built[1]
         result = _audit_one(geometry, cell_positions, nfp, args)
         # Preserve the compact execution label before private runtime objects

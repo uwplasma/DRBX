@@ -600,7 +600,17 @@ def _build_or_load_hsx_fci_maps(
     )
     payload = None if cache_payload is None else dict(cache_payload)
     maps = None
-    if payload is not None:
+    # A map-only cache is deliberately created empty on its first use.  That
+    # is a normal cache miss, not an invalid cached map set, so only enter the
+    # validation path once map metadata is actually present.
+    if payload is not None and any(
+        name in payload
+        for name in (
+            "fci_maps_trace_substeps",
+            "fci_maps_source_fingerprint",
+            "fci_maps_shape",
+        )
+    ):
         try:
             cached_substeps = int(
                 np.asarray(payload["fci_maps_trace_substeps"]).item()
@@ -1525,6 +1535,7 @@ def build_hsx_fci_geometry(
     construct_fci_maps: bool = False,
     fci_trace_substeps: int = 4,
     metric_cache_dir: Path | None = DEFAULT_METRIC_CACHE_DIR,
+    fci_map_cache_path: Path | None = None,
     rebuild_metric_cache: bool = False,
     metric_context: HSXMetricContext | None = None,
     return_metric_evaluator: bool = False,
@@ -2252,13 +2263,38 @@ def build_hsx_fci_geometry(
         y=y_face_bfield,
         z=z_face_bfield,
     )
+    # A caller that deliberately reuses a fitted ``metric_context`` has no
+    # resolution-local metric payload to serialize.  It can still provide a
+    # separate map-only cache: FCI maps depend on the PDE grid while the
+    # continuous metric representation remains shared.  Keep this distinct
+    # from the metric cache so its metadata never claims that the evaluator
+    # was refit on the target resolution.
+    map_cache_path = cache_path
+    map_cache_payload = cache_payload
+    if fci_map_cache_path is not None:
+        map_cache_path = Path(fci_map_cache_path).resolve()
+        map_cache_payload = {}
+        if map_cache_path.is_file():
+            try:
+                with np.load(map_cache_path, allow_pickle=False) as cached:
+                    map_cache_payload = {
+                        name: np.array(cached[name], copy=True)
+                        for name in cached.files
+                    }
+            except (EOFError, OSError, ValueError, zipfile.BadZipFile) as error:
+                print(
+                    f"[fci-map-cache] ignored unreadable map cache "
+                    f"({error}); regenerating",
+                    flush=True,
+                )
+                map_cache_payload = {}
     maps, cache_payload, bfield = _build_or_load_hsx_fci_maps(
         grid=grid,
         topology=topology,
         construct_fci_maps=bool(construct_fci_maps),
         fci_trace_substeps=int(fci_trace_substeps),
-        cache_payload=cache_payload,
-        cache_path=cache_path,
+        cache_payload=map_cache_payload,
+        cache_path=map_cache_path,
         metric_evaluator=metric_evaluator,
         bfield=bfield,
         makegrid_path=makegrid_path,
