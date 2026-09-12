@@ -52,7 +52,7 @@ from .fci_rlp_diffusion import (
 )
 
 
-RLP_DIFFUSION_MAX_OBSERVATIONS = 120
+RLP_DIFFUSION_MAX_OBSERVATIONS = 160
 
 
 # The packed payload is deliberately cell-shaped.  This lets callers place it
