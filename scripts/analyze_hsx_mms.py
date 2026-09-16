@@ -62,6 +62,7 @@ EXPECTED_CONFIGURATION: dict[str, Any] = {
     "parallel_material_div_b_fallback_scheme": "raw-metric",
     "curvature_scheme": "conservative",
     "curvature_operator": "production-characteristic-owner-face",
+    "curvature_edge_one_form": "direct-continuous-shared-edge",
     "curvature_rlp_face_scheme": "lean-all-interior-radial-direct",
     "curvature_wall_flux_closure": (
         "bc-characteristic-operator-trace-canonical-face-state"

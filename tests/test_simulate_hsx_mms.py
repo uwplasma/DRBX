@@ -441,7 +441,9 @@ def test_mms_physical_parameter_contract_enables_only_perpendicular_diffusion():
 
 def test_mms_uses_complete_current_production_contract():
     driver = _load(DRIVER, "simulate_hsx_mms_production_contract_test")
-    config = driver._production_configuration((1, 1, 4), 4)
+    config = driver._production_configuration(
+        (1, 1, 4), 4, curvature_edge_one_form=True
+    )
 
     assert driver.PRODUCTION_GMRES == {
         "target_tolerance": 1.0e-8,
@@ -462,6 +464,9 @@ def test_mms_uses_complete_current_production_contract():
     assert config["curvature_scheme"] == "conservative"
     assert config["curvature_operator"] == (
         "production-characteristic-owner-face"
+    )
+    assert config["curvature_edge_one_form"] == (
+        "direct-continuous-shared-edge"
     )
     assert config["curvature_rlp_face_scheme"] == (
         "lean-all-interior-radial-direct"
@@ -490,7 +495,9 @@ def test_evolved_mms_starts_from_analytic_manufactured_phi():
 
 def test_canonical_wiring_path_uses_current_production_selectors(capsys):
     driver = _load(DRIVER, "simulate_hsx_mms_test")
-    driver.main(("--self-test", "--wiring-only"))
+    driver.main((
+        "--self-test", "--wiring-only", "--curvature-edge-one-form"
+    ))
     output = capsys.readouterr().out
     for selector in (
         "production-split",
@@ -505,6 +512,7 @@ def test_canonical_wiring_path_uses_current_production_selectors(capsys):
         "h-mf-second-order",
         "h-mf-consistent",
         "raw-metric",
+        "direct-continuous-shared-edge",
     ):
         assert selector in output
 
@@ -532,7 +540,9 @@ def test_harness_requires_real_resolution_local_maps_and_canonical_imex():
     target_build = source[source.index("for n in resolutions") :]
     assert "construct_fci_maps=True" in target_build
     assert "fci_trace_substeps=4" in target_build
+    assert "return_curvature_edge_one_form=bool(" in target_build
     assert "blob.run_full_eb(" in target_build
+    assert "curvature_edge_one_form=curvature_edge_one_form" in target_build
     assert 'time_integrator="imex-ssp222"' in target_build
     assert "source_evaluator=stage_source" in target_build
     assert 'history_dtype="float64"' in target_build
@@ -915,27 +925,34 @@ def test_runtime_preserves_single_device_host_frozen_path(monkeypatch):
     )
     monkeypatch.setattr(driver.blob, "build_local_eb_model", lambda *a, **k: model)
 
-    runtime = driver._runtime(
-        SimpleNamespace(
-            shape=(8, 8, 8),
-            grid=SimpleNamespace(
-                y=SimpleNamespace(faces=np.asarray((-2.0, -1.0, 0.0))),
-                z=SimpleNamespace(faces=np.asarray((0.25, 1.25, 2.25))),
-            ),
-        ),
-        object(),
-        SimpleNamespace(
-            shard_counts=(1, 1, 1),
-            metric_context=SimpleNamespace(
-                metric_evaluator=object(), bfield=object()
-            ),
-            reference=SimpleNamespace(B0=1.0),
+    geometry = SimpleNamespace(
+        shape=(8, 8, 8),
+        grid=SimpleNamespace(
+            y=SimpleNamespace(faces=np.asarray((-2.0, -1.0, 0.0))),
+            z=SimpleNamespace(faces=np.asarray((0.25, 1.25, 2.25))),
         ),
     )
+    args = SimpleNamespace(
+        shard_counts=(1, 1, 1),
+        metric_context=SimpleNamespace(
+            metric_evaluator=object(), bfield=object()
+        ),
+        reference=SimpleNamespace(B0=1.0),
+    )
+    runtime = driver._runtime(geometry, object(), args)
     assert runtime.model is model
     assert runtime.local_geometry is not None
     assert runtime.host_control_volume_descriptor is descriptor
     assert runtime.frozen_execution == "host-single-device"
+
+    # The exact shared-edge payload is consumed by run_full_eb. Do not route
+    # that selector through the legacy host-local model, even with one device.
+    args.curvature_edge_one_form = True
+    exact_runtime = driver._runtime(geometry, object(), args)
+    assert exact_runtime.model is None
+    assert exact_runtime.local_geometry is None
+    assert exact_runtime.host_control_volume_descriptor is None
+    assert exact_runtime.frozen_execution == "eta-sharded"
 
 
 def test_direct_face_geometry_sampler_batches_metric_calls_and_normalizes_B():

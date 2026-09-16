@@ -99,6 +99,7 @@ def test_launcher_leaves_scheduler_allocation_to_operator():
     assert "#SBATCH" not in source
     assert "must run inside a Slurm allocation" not in source
     assert "--shard-counts 1 1 4" in source
+    assert "--curvature-edge-one-form" in source
     assert "scheduler_allocation=operator-managed" in source
     assert "-type f -name '*.py' -print0" in source
     assert "read -r -d '' source_path" in source
@@ -136,6 +137,7 @@ def test_dry_run_builds_manifest_without_launching(
     assert "shard_counts=1,1,4" in manifest
     assert "command_shell=" in manifest
     assert "simulate_hsx_mms.py" in manifest
+    assert "--curvature-edge-one-form" in manifest
     assert "scheduler_allocation=operator-managed" in manifest
     assert "sha256_begin" in manifest and "sha256_end" in manifest
     assert "simulate_hsx_mms.py" in manifest

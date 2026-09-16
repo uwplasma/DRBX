@@ -130,6 +130,7 @@ PYTHON_ARGS=(
   --makegrid "$MAKEGRID"
   --vessel "$VESSEL"
   --metric-cache-dir "$METRIC_CACHE_DIR"
+  --curvature-edge-one-form
   --resolutions "$RESOLUTIONS"
   --shard-counts 1 1 4
   --time "$START_TIME"
@@ -371,7 +372,7 @@ export PYTHONPATH="$DRBX_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
   > "$LOG_DIR/gpu_preflight.log" 2>&1
 
 "$PYTHON_BIN" -u "$DRIVER" \
-  --shard-counts 1 1 4 --self-test --wiring-only \
+  --shard-counts 1 1 4 --curvature-edge-one-form --self-test --wiring-only \
   > "$LOG_DIR/mms_preflight.log" 2>&1
 
 "${RUN_COMMAND[@]}" \
