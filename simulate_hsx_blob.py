@@ -5364,10 +5364,57 @@ def run_full_eb(
             check_vma=False,
         )
         if frozen_diagnostic.execution == "compiled":
-            frozen_stage = jax.jit(frozen_stage_sharded)
-            frozen_counterfactual = jax.jit(frozen_counterfactual_sharded)
-            frozen_implicit = jax.jit(frozen_implicit_sharded)
-            frozen_reconstruct_phi = jax.jit(frozen_reconstruct_phi_sharded)
+            # ``shard_map`` owns the logical PartitionSpecs, while the outer
+            # JIT must still publish concrete global shardings for returned
+            # arrays.  Without explicit output shardings, sufficiently large
+            # compiled graphs can escape with JAX's internal
+            # ``UnspecifiedValue`` layout.  Such an array completes device
+            # execution but cannot participate in ordinary JAX arithmetic or
+            # even be transferred to NumPy for MMS postprocessing.
+            state_output_sharding = initial_state.map_fields(
+                lambda _value: state_sharding
+            )
+            term_output_sharding = NamedSharding(
+                mesh, P(None, None, "x", "y", "z")
+            )
+            material_force_output_sharding = NamedSharding(
+                mesh, P(None, "x", "y", "z")
+            )
+            implicit_output_sharding = NamedSharding(
+                mesh, P("x", "y", "z", None)
+            )
+            replicated_output_sharding = NamedSharding(mesh, replicated_spec)
+            frozen_stage = jax.jit(
+                frozen_stage_sharded,
+                out_shardings=(
+                    state_output_sharding,
+                    term_output_sharding,
+                ),
+            )
+            frozen_counterfactual = jax.jit(
+                frozen_counterfactual_sharded,
+                out_shardings=(
+                    state_output_sharding,
+                    term_output_sharding,
+                    term_output_sharding,
+                    material_force_output_sharding,
+                    term_output_sharding,
+                ),
+            )
+            frozen_implicit = jax.jit(
+                frozen_implicit_sharded,
+                out_shardings=(
+                    implicit_output_sharding,
+                    state_sharding,
+                ),
+            )
+            frozen_reconstruct_phi = jax.jit(
+                frozen_reconstruct_phi_sharded,
+                out_shardings=(
+                    state_sharding,
+                    replicated_output_sharding,
+                ),
+            )
         else:
             frozen_stage = frozen_stage_sharded
             frozen_counterfactual = frozen_counterfactual_sharded

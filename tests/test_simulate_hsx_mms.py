@@ -751,6 +751,8 @@ def test_frozen_diagnostic_hook_assembles_global_two_device_outputs():
     assert payload["selected_all"]
     assert payload["reconstructed_selected_all"]
     assert payload["phi_diagnostics"][2:4] == [0.0, 1.0]
+    assert payload["all_outputs_named_sharding"]
+    assert payload["all_outputs_host_convertible"]
 
 
 def test_runtime_avoids_duplicate_host_model_for_sharded_frozen_diagnostic(
