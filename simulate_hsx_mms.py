@@ -205,7 +205,12 @@ PRODUCTION_GMRES = {
 }
 
 
-def _production_configuration(shard_counts, device_count):
+def _production_configuration(
+    shard_counts,
+    device_count,
+    *,
+    curvature_edge_one_form: bool = False,
+):
     """Return the complete auditable production contract used by the MMS."""
 
     return {
@@ -237,6 +242,11 @@ def _production_configuration(shard_counts, device_count):
         "parallel_material_div_b_fallback_scheme": "raw-metric",
         "curvature_scheme": "conservative",
         "curvature_operator": "production-characteristic-owner-face",
+        "curvature_edge_one_form": (
+            "direct-continuous-shared-edge"
+            if curvature_edge_one_form
+            else "cell-centered-edge-average"
+        ),
         "curvature_rlp_face_scheme": "lean-all-interior-radial-direct",
         "curvature_wall_flux_closure": (
             "bc-characteristic-operator-trace-canonical-face-state"
@@ -760,7 +770,9 @@ def _runtime(geometry, host, args):
     cv = None
     model = None
     frozen_execution = "eta-sharded"
-    if shard_counts == (1, 1, 1):
+    if shard_counts == (1, 1, 1) and not bool(
+        getattr(args, "curvature_edge_one_form", False)
+    ):
         # Preserve the inexpensive local path for development and the real-HSX
         # wiring smoke.  Multi-device campaigns must not construct this second
         # full-torus geometry/model solely for frozen diagnostics.
@@ -1203,7 +1215,14 @@ def _implicit_material_state(material, state):
     )
 
 
-def _audit_one(geometry, cell_positions, nfp, args):
+def _audit_one(
+    geometry,
+    cell_positions,
+    nfp,
+    args,
+    *,
+    curvature_edge_one_form=None,
+):
     host, _ = blob.build_metric_aware_polar_angular_agglomeration_geometry(geometry, args.metric_context.metric_evaluator)
     runtime = _runtime(geometry, host, args)
     reconstruction_diagnostics = (
@@ -1259,6 +1278,7 @@ def _audit_one(geometry, cell_positions, nfp, args):
         frozen = blob.run_full_eb(
             state,
             global_geometry=geometry,
+            curvature_edge_one_form=curvature_edge_one_form,
             cell_positions=cell_positions,
             nfp=int(nfp),
             sharded_geometry=runtime.sharded_geometry,
@@ -1743,12 +1763,17 @@ def run(args):
     if args.self_test:
         print(f"[mms-self-test] {analytic_self_test()}")
     if args.wiring_only:
+        curvature_edge_source = (
+            "direct-continuous-shared-edge"
+            if args.curvature_edge_one_form
+            else "cell-centered-edge-average"
+        )
         print(
             "[mms-wiring] production-split/fci/support-core/"
             "characteristic-sat/energy-absorbing/all-physical-walls/"
             "local-backward-euler/imex-ssp222/"
             "material-scalar-third-order-upwind/h-mf-second-order/"
-            "h-mf-consistent/raw-metric"
+            f"h-mf-consistent/raw-metric/{curvature_edge_source}"
         )
         return
     # The reference is kept in a small independent module so no production
@@ -1817,9 +1842,21 @@ def run(args):
             metric_context=args.metric_context, construct_fci_maps=True,
             fci_trace_substeps=4,
             metric_cache_dir=None,
-            fci_map_cache_path=_fci_map_cache_path(args, n))
+            fci_map_cache_path=_fci_map_cache_path(args, n),
+            return_curvature_edge_one_form=bool(
+                args.curvature_edge_one_form
+            ))
         geometry, cell_positions = built[0], built[1]
-        result = _audit_one(geometry, cell_positions, nfp, args)
+        curvature_edge_one_form = (
+            built[4] if args.curvature_edge_one_form else None
+        )
+        result = _audit_one(
+            geometry,
+            cell_positions,
+            nfp,
+            args,
+            curvature_edge_one_form=curvature_edge_one_form,
+        )
         # Preserve the compact execution label before private runtime objects
         # are deliberately dropped between resolutions.
         result["frozen_execution"] = result["_runtime"].frozen_execution
@@ -1862,7 +1899,11 @@ def run(args):
                         history,
                         history_path,
                         expected_configuration=_production_configuration(
-                            shard_counts, device_count
+                            shard_counts,
+                            device_count,
+                            curvature_edge_one_form=bool(
+                                args.curvature_edge_one_form
+                            ),
                         ),
                         expected_initial_state=exact_initial,
                         start_time=args.time,
@@ -1880,6 +1921,7 @@ def run(args):
                 advanced = blob.run_full_eb(
                     result["_state"],
                     global_geometry=geometry,
+                    curvature_edge_one_form=curvature_edge_one_form,
                     cell_positions=cell_positions,
                     nfp=int(nfp),
                     sharded_geometry=runtime.sharded_geometry,
@@ -1932,7 +1974,11 @@ def run(args):
                     history_dtype="float64",
                     run_metadata={
                         **_production_configuration(
-                            shard_counts, device_count
+                            shard_counts,
+                            device_count,
+                            curvature_edge_one_form=bool(
+                                args.curvature_edge_one_form
+                            ),
                         ),
                         "diagnostic": "hsx-rlp-stage7-mms",
                         "metric_reference_resolution": [64, 64, 64],
@@ -2397,7 +2443,13 @@ def run(args):
                      POISSON_OPERAND_CONTROL_NAMES
                  )),
                  production_configuration_json=np.asarray(json.dumps({
-                     **_production_configuration(shard_counts, device_count),
+                     **_production_configuration(
+                         shard_counts,
+                         device_count,
+                         curvature_edge_one_form=bool(
+                             args.curvature_edge_one_form
+                         ),
+                     ),
                      "shard_counts": list(shard_counts),
                      "device_count": int(device_count),
                      "frozen_execution": rows[0]["frozen_execution"],
@@ -2473,6 +2525,14 @@ def main(argv: Sequence[str] | None = None):
         "--rebuild-metric-cache",
         action="store_true",
         help="Rebuild the fixed 64-grid metric cache before the MMS campaign.",
+    )
+    p.add_argument(
+        "--curvature-edge-one-form",
+        action="store_true",
+        help=(
+            "Use direct continuous shared-edge one-form samples for the "
+            "compatible host curvature curl instead of cell-to-edge averaging."
+        ),
     )
     p.add_argument("--time", type=float, default=0.0)
     p.add_argument("--final-time", type=float, default=0.01)

@@ -16,7 +16,8 @@ resolution-local FCI maps and the production-split configuration:
 - local backward Euler on all physical wall material legs;
 - IMEX-SSP222 with forcing evaluated at every actual stage time;
 - material-scalar third-order upwind Poisson brackets;
-- conservative projected-fine RLP curvature;
+- conservative compatible curvature from direct continuous shared-edge
+  one-form samples, with lean direct radial RLP faces;
 - automatic radius-dependent angular RLP; and
 - four FCI trace substeps.
 
@@ -62,7 +63,8 @@ All 42 metadata keys shared by that run and the MMS production contract agree
 exactly. Removed historical selectors were traced to their current fixed
 implementations rather than reintroduced: centered cell-centred FCI, central
 operator traces, the homogeneous current/phi pair and affine SAT lift, full
-conservative characteristic curvature, and projected-fine RLP behavior.
+conservative characteristic curvature from the direct continuous shared-edge
+one-form, and lean direct radial RLP behavior.
 
 The audit corrected the trajectory-affecting solver discrepancy: the MMS had
 used an 80-iteration/restart-40/no-correction GMRES policy with acceptance
@@ -82,7 +84,8 @@ spatial or time-advance operators.
 Run from the repository root with the repository source tree on `PYTHONPATH`.
 
 ```bash
-PYTHONPATH=src python3 simulate_hsx_mms.py --self-test --wiring-only
+PYTHONPATH=src python3 simulate_hsx_mms.py \
+  --curvature-edge-one-form --self-test --wiring-only
 PYTHONPATH=src pytest -q \
   tests/test_simulate_hsx_mms.py \
   tests/test_analyze_hsx_mms.py \
@@ -252,6 +255,7 @@ PYTHONPATH=src python3 simulate_hsx_mms.py \
   --resolutions 32,48,64 \
   --shard-counts 1 1 4 \
   --metric-cache-dir work/stage7_mms/metric_cache \
+  --curvature-edge-one-form \
   --time 1e-6 --final-time 1e-6 --dt 1e-6 \
   --skip-counterfactuals \
   --advance-execution compiled \
