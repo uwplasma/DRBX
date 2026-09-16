@@ -57,9 +57,12 @@ EXPECTED_CONFIGURATION: dict[str, Any] = {
     "time_integrator": "imex-ssp222",
     "poisson_bracket_scheme": "material-scalar-third-order-upwind",
     "parallel_material_scheme": "production-path",
+    "parallel_vorticity_advection_scheme": "h-mf-second-order",
+    "parallel_material_fallback_representation": "h-mf-consistent",
+    "parallel_material_div_b_fallback_scheme": "raw-metric",
     "curvature_scheme": "conservative",
     "curvature_operator": "production-characteristic-owner-face",
-    "curvature_rlp_face_scheme": "projected-fine",
+    "curvature_rlp_face_scheme": "lean-all-interior-radial-direct",
     "curvature_wall_flux_closure": (
         "bc-characteristic-operator-trace-canonical-face-state"
     ),

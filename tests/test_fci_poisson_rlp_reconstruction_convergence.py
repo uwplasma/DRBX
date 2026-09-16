@@ -52,7 +52,12 @@ def _neumann_filler(layout):
 
 
 @lru_cache(maxsize=None)
-def _setup(ntheta, direct_faces=False):
+def _setup(
+    ntheta,
+    direct_faces=False,
+    direct_face_band_radius=0,
+    radial_curvature_faces=False,
+):
     nr = ntheta // 2
     shape = (nr, ntheta, 4)
     geometry, domain, context, coords, exchange, scalar_filler, *_ = polar_fixture(
@@ -69,6 +74,8 @@ def _setup(ntheta, direct_faces=False):
         host,
         geometry,
         compile_direct_poisson_faces=direct_faces,
+        compile_radial_curvature_faces=radial_curvature_faces,
+        direct_face_band_radius=direct_face_band_radius,
     )
     face_bc = LocalBoundaryFaceBC3D.empty(geometry.layout)
     face_bc = replace(

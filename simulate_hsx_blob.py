@@ -60,6 +60,7 @@ from jax.sharding import Mesh, NamedSharding, PartitionSpec as P  # noqa: E402
 from drbx.geometry import (  # noqa: E402
     BFieldGeometry,
     CellCenteredGrid3D,
+    CurvatureEdgeOneForm3D,
     FaceBFieldGeometry,
     FaceMetricGeometry,
     FciGeometry3D,
@@ -1258,6 +1259,102 @@ def _rotate_field_period_positions(
     return np.concatenate(periods, axis=2)
 
 
+def _build_hsx_curvature_edge_one_form(
+    *,
+    metric_evaluator: MetricEvaluator,
+    bfield: object,
+    u_faces: np.ndarray,
+    v_faces: np.ndarray,
+    eta0: float,
+    eta_period: float,
+    nfp: int,
+    neta: int,
+    reference_magnetic_field: float,
+) -> CurvatureEdgeOneForm3D:
+    """Sample the continuous ``(b/B)_alpha`` one-form on unique edges.
+
+    Each edge is queried once at its logical midpoint.  The collapsed
+    ``u=0`` rows are reconstructed from the first positive radial layer using
+    the same half-turn trace used by the toroidal metric assembly; the
+    singular evaluator is therefore never queried directly on the axis.
+    """
+
+    u_faces = np.asarray(u_faces, dtype=np.float64)
+    v_faces = np.asarray(v_faces, dtype=np.float64)
+    nfp = int(nfp)
+    neta = int(neta)
+    if nfp < 1 or neta < 1 or neta % nfp:
+        raise ValueError("nfp must divide positive neta when sampling curvature edges")
+    b0 = float(reference_magnetic_field)
+    if not np.isfinite(b0) or b0 <= 0.0:
+        raise ValueError("reference_magnetic_field must be positive and finite")
+    nu = int(u_faces.size - 1)
+    nv = int(v_faces.size - 1)
+    neta_period = neta // nfp
+    u_centers = 0.5 * (u_faces[:-1] + u_faces[1:])
+    v_centers = 0.5 * (v_faces[:-1] + v_faces[1:])
+    eta_faces_period = eta0 + np.arange(neta_period + 1, dtype=np.float64) * (
+        float(eta_period) / float(neta_period)
+    )
+    eta_centers_period = 0.5 * (eta_faces_period[:-1] + eta_faces_period[1:])
+
+    def sample(points: np.ndarray) -> np.ndarray:
+        metric = metric_evaluator.evaluate(points)
+        magnetic = metric_evaluator.evaluate_magnetic_field(points, bfield)
+        bcontra = np.asarray(magnetic.B_contravariant, dtype=np.float64) / b0
+        bmag = np.maximum(np.asarray(magnetic.magnitude, dtype=np.float64) / b0, 1.0e-30)
+        result = np.einsum(
+            "...ij,...j->...i",
+            np.asarray(metric.g_cov, dtype=np.float64),
+            bcontra / bmag[..., None],
+        ) / bmag[..., None]
+        if not np.all(np.isfinite(result)):
+            raise ValueError("continuous curvature edge one-form evaluation is not finite")
+        return result
+
+    def points(u: np.ndarray, v: np.ndarray, eta: np.ndarray) -> np.ndarray:
+        return np.stack(np.meshgrid(u, v, eta, indexing="ij"), axis=-1)
+
+    # Positive-u portions of the two edge families that touch the collapsed
+    # axis.  The axis rows are supplied below from a finite proxy layer.
+    az_positive = sample(points(u_faces[1:], v_faces, eta_centers_period))[..., 2]
+    ay_positive = sample(points(u_faces[1:], v_centers, eta_faces_period))[..., 1]
+    ax_period = sample(points(u_centers, v_faces, eta_faces_period))[..., 0]
+
+    half_turn = nv // 2
+    if nv % 2:
+        raise ValueError("toroidal curvature edge sampling requires an even theta count")
+    proxy_u = np.asarray([u_centers[0]], dtype=np.float64)
+    az_proxy = sample(points(proxy_u, v_faces, eta_centers_period))[..., 2][0]
+    ay_proxy = sample(points(proxy_u, v_centers, eta_faces_period))[..., 1][0]
+    az_axis = 0.5 * (az_proxy + np.roll(az_proxy, half_turn, axis=0))
+    ay_axis = 0.5 * (ay_proxy + np.roll(ay_proxy, half_turn, axis=0))
+    az_period = np.concatenate((az_axis[None, ...], az_positive), axis=0)
+    ay_period = np.concatenate((ay_axis[None, ...], ay_positive), axis=0)
+
+    # The duplicate logical theta edge and the retained eta endpoint are
+    # shared seams, not additional samples.  Normalize them explicitly so
+    # every field-period copy enters the same incidence complex.
+    az_period[:, -1, :] = az_period[:, 0, :]
+    ay_period[:, :, -1] = ay_period[:, :, 0]
+    ax_period[..., -1] = ax_period[..., 0]
+    ax_period[:, -1, :] = ax_period[:, 0, :]
+    if not (
+        np.allclose(az_period[:, -1, :], az_period[:, 0, :], rtol=0.0, atol=0.0)
+        and np.allclose(ay_period[:, :, -1], ay_period[:, :, 0], rtol=0.0, atol=0.0)
+        and np.allclose(ax_period[..., -1], ax_period[..., 0], rtol=0.0, atol=0.0)
+        and np.allclose(ax_period[:, -1, :], ax_period[:, 0, :], rtol=0.0, atol=0.0)
+    ):
+        raise ValueError("curvature edge one-form seam closure failed")
+
+    result = CurvatureEdgeOneForm3D(
+        Az_xy=_repeat_field_period_cells(az_period, nfp),
+        Ay_xz=_repeat_field_period_eta_faces(ay_period, nfp),
+        Ax_yz=_repeat_field_period_eta_faces(ax_period, nfp),
+    )
+    return result
+
+
 def build_hsx_metric_evaluator(
     *,
     makegrid_path: Path,
@@ -1539,8 +1636,18 @@ def build_hsx_fci_geometry(
     rebuild_metric_cache: bool = False,
     metric_context: HSXMetricContext | None = None,
     return_metric_evaluator: bool = False,
+    return_curvature_edge_one_form: bool = False,
 ) -> tuple[FciGeometry3D, np.ndarray, int, Path | None] | tuple[
     FciGeometry3D, np.ndarray, int, Path | None, MetricEvaluator
+] | tuple[
+    FciGeometry3D, np.ndarray, int, Path | None, CurvatureEdgeOneForm3D
+] | tuple[
+    FciGeometry3D,
+    np.ndarray,
+    int,
+    Path | None,
+    MetricEvaluator,
+    CurvatureEdgeOneForm3D,
 ]:
     """Build the global HSX geometry and its Cartesian cell embedding."""
 
@@ -2230,6 +2337,46 @@ def build_hsx_fci_geometry(
                     flush=True,
                 )
 
+    curvature_edge_one_form = None
+    if return_curvature_edge_one_form:
+        if topology != "toroidal":
+            raise ValueError(
+                "return_curvature_edge_one_form is currently supported only "
+                "for topology='toroidal'"
+            )
+        if metric_evaluator is None:
+            raise RuntimeError(
+                "a MetricEvaluator is required for curvature edge sampling"
+            )
+        if bfield is None:
+            print(
+                "[geometry] loading MAKEGRID magnetic field for curvature edges",
+                flush=True,
+            )
+            bfield = bfield_evaluator_from_makegrid(
+                makegrid_path,
+                currents=makegrid_current_array,
+                method="cubic",
+            )
+        curvature_edge_one_form = _build_hsx_curvature_edge_one_form(
+            metric_evaluator=metric_evaluator,
+            bfield=bfield,
+            u_faces=u_faces,
+            v_faces=v_faces,
+            eta0=float(metric_evaluator.eta[0]),
+            eta_period=float(metric_evaluator.period),
+            nfp=nfp,
+            neta=neta,
+            reference_magnetic_field=reference_magnetic_field,
+        )
+        print(
+            "[geometry] sampled exact shared curvature edge one-form "
+            f"(Az_xy={curvature_edge_one_form.Az_xy.shape}, "
+            f"Ay_xz={curvature_edge_one_form.Ay_xz.shape}, "
+            f"Ax_yz={curvature_edge_one_form.Ax_yz.shape})",
+            flush=True,
+        )
+
     assembly_start = time.perf_counter()
     print("[geometry] assembling FciGeometry3D", flush=True)
     u_centers = 0.5 * (u_faces[:-1] + u_faces[1:])
@@ -2348,12 +2495,25 @@ def build_hsx_fci_geometry(
         if cache_path is not None and cache_path.is_file()
         else None
     )
+    if return_metric_evaluator and return_curvature_edge_one_form:
+        if metric_evaluator is None or curvature_edge_one_form is None:
+            raise RuntimeError("requested curvature edge payload was not built")
+        return (
+            geometry,
+            cell_positions,
+            nfp,
+            usable_cache_path,
+            metric_evaluator,
+            curvature_edge_one_form,
+        )
     if return_metric_evaluator:
         if metric_evaluator is None:
             raise RuntimeError(
                 "return_metric_evaluator=True requires a continuous evaluator"
             )
         return geometry, cell_positions, nfp, usable_cache_path, metric_evaluator
+    if return_curvature_edge_one_form:
+        return geometry, cell_positions, nfp, usable_cache_path, curvature_edge_one_form
     return geometry, cell_positions, nfp, usable_cache_path
 
 
@@ -3238,6 +3398,9 @@ def build_local_eb_model(
     polarization_operator_form: str = "conservative",
     polarization_coarse_data=None,
     parallel_material_scheme: str | None = None,
+    parallel_vorticity_advection_scheme: str | None = None,
+    parallel_material_fallback_representation: str | None = None,
+    parallel_material_div_b_fallback_scheme: str | None = None,
     control_volume_geometry=None,
     control_volume_boundary_bc=None,
     curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
@@ -3313,6 +3476,18 @@ def build_local_eb_model(
     if parallel_material_scheme is None:
         parallel_material_scheme = os.environ.get(
             "DRBX_PARALLEL_MATERIAL_SCHEME", "legacy"
+        )
+    if parallel_vorticity_advection_scheme is None:
+        parallel_vorticity_advection_scheme = os.environ.get(
+            "DRBX_PARALLEL_VORTICITY_ADVECTION_SCHEME", "first-order"
+        )
+    if parallel_material_fallback_representation is None:
+        parallel_material_fallback_representation = os.environ.get(
+            "DRBX_PARALLEL_MATERIAL_FALLBACK_REPRESENTATION", "legacy-p"
+        )
+    if parallel_material_div_b_fallback_scheme is None:
+        parallel_material_div_b_fallback_scheme = os.environ.get(
+            "DRBX_PARALLEL_MATERIAL_DIV_B_FALLBACK_SCHEME", "legacy-p"
         )
     halo_exchange = HaloExchange3D()
     topology_filler = (
@@ -3432,6 +3607,15 @@ def build_local_eb_model(
         ),
         parallel_operator_scheme=str(parallel_operator_scheme),
         parallel_material_scheme=str(parallel_material_scheme),
+        parallel_vorticity_advection_scheme=str(
+            parallel_vorticity_advection_scheme
+        ),
+        parallel_material_fallback_representation=str(
+            parallel_material_fallback_representation
+        ),
+        parallel_material_div_b_fallback_scheme=str(
+            parallel_material_div_b_fallback_scheme
+        ),
         face_bc_builder=face_bc_builder,
         physical_wall_model_name=str(physical_wall_model),
         conducting_sheath_wall_potential=conducting_sheath_wall_potential,
@@ -4117,6 +4301,7 @@ def run_full_eb(
     initial_state: FciDrbEBState,
     *,
     global_geometry: FciGeometry3D,
+    curvature_edge_one_form: CurvatureEdgeOneForm3D | None = None,
     cell_positions: np.ndarray,
     nfp: int,
     sharded_geometry: ShardedFciGeometry3D,
@@ -4160,6 +4345,9 @@ def run_full_eb(
     polarization_operator_form: str = "conservative",
     polarization_coarse_data=None,
     parallel_material_scheme: str | None = None,
+    parallel_vorticity_advection_scheme: str | None = None,
+    parallel_material_fallback_representation: str | None = None,
+    parallel_material_div_b_fallback_scheme: str | None = None,
     track_curvature_chain_rule_defect: bool = False,
     control_volume_descriptor=None,
     control_volume_fields_host=None,
@@ -4516,12 +4704,23 @@ def run_full_eb(
     )
     # Do not run this sizeable JAX geometry calculation primitive by primitive
     # in eager mode. It is an invariant setup kernel reused by every RHS stage.
-    curvature_face_setup = jax.jit(
-        lambda: build_local_curvature_face_coefficients(
-            host_local_geometry,
-            host_domain,
-        ).axes
-    )
+    if curvature_edge_one_form is None:
+        # Preserve the historical call contract exactly for the default path,
+        # including frozen diagnostics that substitute a minimal builder.
+        curvature_face_setup = jax.jit(
+            lambda: build_local_curvature_face_coefficients(
+                host_local_geometry,
+                host_domain,
+            ).axes
+        )
+    else:
+        curvature_face_setup = jax.jit(
+            lambda: build_local_curvature_face_coefficients(
+                host_local_geometry,
+                host_domain,
+                shared_edge_one_form=curvature_edge_one_form,
+            ).axes
+        )
     # Coupled eager execution still permits this invariant setup kernel to
     # compile in isolation; never widen the scope to the advance/Newton path.
     if imex_split == "coupled-boundary" and advance_execution == "eager":
@@ -4668,6 +4867,15 @@ def run_full_eb(
             conducting_sheath_wall_potential=conducting_sheath_wall_potential,
             parallel_operator_scheme=parallel_operator_scheme,
             parallel_material_scheme=parallel_material_scheme,
+            parallel_vorticity_advection_scheme=(
+                parallel_vorticity_advection_scheme
+            ),
+            parallel_material_fallback_representation=(
+                parallel_material_fallback_representation
+            ),
+            parallel_material_div_b_fallback_scheme=(
+                parallel_material_div_b_fallback_scheme
+            ),
             poisson_bracket_scheme=poisson_bracket_scheme,
             polarization_operator_form=polarization_operator_form,
             polarization_coarse_data=runtime_polarization_coarse_data,
@@ -4707,6 +4915,15 @@ def run_full_eb(
             conducting_sheath_wall_potential=conducting_sheath_wall_potential,
             parallel_operator_scheme=parallel_operator_scheme,
             parallel_material_scheme=parallel_material_scheme,
+            parallel_vorticity_advection_scheme=(
+                parallel_vorticity_advection_scheme
+            ),
+            parallel_material_fallback_representation=(
+                parallel_material_fallback_representation
+            ),
+            parallel_material_div_b_fallback_scheme=(
+                parallel_material_div_b_fallback_scheme
+            ),
             poisson_bracket_scheme=poisson_bracket_scheme,
             polarization_operator_form=polarization_operator_form,
             control_volume_geometry=host_control_volume_geometry,
@@ -9186,6 +9403,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--eta-projection-iterations", type=int, default=0,
         help="Toroidal metric interior eta projection iterations.",
     )
+    parser.add_argument(
+        "--curvature-edge-one-form",
+        action="store_true",
+        help=(
+            "Opt into direct continuous shared-edge sampling for the host "
+            "curvature curl. The default retains cell-to-edge averaging."
+        ),
+    )
     parser.add_argument("--axis-core-radius", type=float, default=0.03)
     parser.add_argument(
         "--final-time",
@@ -9664,6 +9889,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     if args.square_agglomeration != "none" and args.topology != "square":
         parser.error("--square-agglomeration applies only to --topology=square")
+    if args.curvature_edge_one_form and args.topology != "toroidal":
+        parser.error("--curvature-edge-one-form requires --topology=toroidal")
     if args.agglomeration_volume_ratio <= 1.0:
         parser.error("--agglomeration-volume-ratio must be greater than one")
     if (
@@ -9702,6 +9929,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error(
             "production sharding is eta-only; use --shard-counts 1 1 NETA_SHARDS"
         )
+    curvature_edge_one_form = None
     if args.topology == "toroidal":
         if args.gmres_preconditioner not in (
             "none",
@@ -9986,18 +10214,32 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
             rebuild_metric_cache=bool(args.rebuild_metric_cache),
             return_metric_evaluator=(args.topology == "toroidal"),
+            return_curvature_edge_one_form=bool(
+                args.curvature_edge_one_form and args.topology == "toroidal"
+            ),
         )
     )
     if args.topology == "toroidal":
-        (
-            global_geometry,
-            cell_positions,
-            nfp,
-            metric_cache_path,
-            metric_evaluator,
-        ) = geometry_result
+        if args.curvature_edge_one_form:
+            (
+                global_geometry,
+                cell_positions,
+                nfp,
+                metric_cache_path,
+                metric_evaluator,
+                curvature_edge_one_form,
+            ) = geometry_result
+        else:
+            (
+                global_geometry,
+                cell_positions,
+                nfp,
+                metric_cache_path,
+                metric_evaluator,
+            ) = geometry_result
     else:
         global_geometry, cell_positions, nfp, metric_cache_path = geometry_result
+        curvature_edge_one_form = None
     lowering_start = time.perf_counter()
     print(
         f"[geometry] preparing shard-local geometry inputs "
@@ -10403,6 +10645,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     run_full_eb(
         initial_state,
         global_geometry=global_geometry,
+        curvature_edge_one_form=curvature_edge_one_form,
         cell_positions=cell_positions,
         nfp=nfp,
         sharded_geometry=sharded_geometry,
@@ -10611,12 +10854,48 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
             "curvature_operator": "production-characteristic-owner-face",
             "curvature_operator_source": "fixed production method",
+            "curvature_edge_one_form": (
+                "direct-continuous-shared-edge"
+                if args.curvature_edge_one_form
+                else "cell-centered-edge-average"
+            ),
             "parallel_material_scheme": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME"),
             "parallel_material_scheme_env": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME"),
             "parallel_material_scheme_source": (
                 "DRBX_PARALLEL_MATERIAL_SCHEME"
                 if os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME") is not None
                 else None
+            ),
+            "parallel_vorticity_advection_scheme": os.environ.get(
+                "DRBX_PARALLEL_VORTICITY_ADVECTION_SCHEME", "first-order"
+            ),
+            "parallel_vorticity_advection_scheme_source": (
+                "DRBX_PARALLEL_VORTICITY_ADVECTION_SCHEME"
+                if os.environ.get("DRBX_PARALLEL_VORTICITY_ADVECTION_SCHEME")
+                is not None
+                else "default"
+            ),
+            "parallel_material_fallback_representation": os.environ.get(
+                "DRBX_PARALLEL_MATERIAL_FALLBACK_REPRESENTATION", "legacy-p"
+            ),
+            "parallel_material_fallback_representation_source": (
+                "DRBX_PARALLEL_MATERIAL_FALLBACK_REPRESENTATION"
+                if os.environ.get(
+                    "DRBX_PARALLEL_MATERIAL_FALLBACK_REPRESENTATION"
+                )
+                is not None
+                else "default"
+            ),
+            "parallel_material_div_b_fallback_scheme": os.environ.get(
+                "DRBX_PARALLEL_MATERIAL_DIV_B_FALLBACK_SCHEME", "legacy-p"
+            ),
+            "parallel_material_div_b_fallback_scheme_source": (
+                "DRBX_PARALLEL_MATERIAL_DIV_B_FALLBACK_SCHEME"
+                if os.environ.get(
+                    "DRBX_PARALLEL_MATERIAL_DIV_B_FALLBACK_SCHEME"
+                )
+                is not None
+                else "default"
             ),
             "gmres_target_tolerance": float(
                 args.gmres_target_tolerance
@@ -10748,6 +11027,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             "production-path"
             if str(args.flux_framework) == "production-split"
             else "legacy"
+        ),
+        parallel_material_fallback_representation=os.environ.get(
+            "DRBX_PARALLEL_MATERIAL_FALLBACK_REPRESENTATION", "legacy-p"
+        ),
+        parallel_material_div_b_fallback_scheme=os.environ.get(
+            "DRBX_PARALLEL_MATERIAL_DIV_B_FALLBACK_SCHEME", "legacy-p"
         ),
         track_curvature_chain_rule_defect=bool(
             args.track_curvature_chain_rule_defect

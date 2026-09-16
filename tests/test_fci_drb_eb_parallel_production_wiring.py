@@ -3,10 +3,12 @@
 from dataclasses import replace
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from jax.sharding import NamedSharding, PartitionSpec as P
 
@@ -66,6 +68,21 @@ def _mapped_fixture():
 def test_parallel_material_selector_is_environment_backed_and_legacy_default():
     assert 'DRBX_PARALLEL_MATERIAL_SCHEME", "legacy"' in SOURCE
     assert 'self.parallel_material_scheme not in ("legacy", "production-path")' in SOURCE
+    assert (
+        'DRBX_PARALLEL_VORTICITY_ADVECTION_SCHEME", "first-order"'
+        in SOURCE
+    )
+    assert (
+        'DRBX_PARALLEL_MATERIAL_FALLBACK_REPRESENTATION", "legacy-p"'
+        in SOURCE
+    )
+    assert (
+        'DRBX_PARALLEL_MATERIAL_DIV_B_FALLBACK_SCHEME", "legacy-p"'
+        in SOURCE
+    )
+    assert '"raw-metric"' in SOURCE
+    assert '"h-mf-consistent"' in SOURCE
+    assert '"h-mf-second-order"' in SOURCE
     assert "DRBX_PRODUCTION_CHARACTERISTIC_SOLVER" not in SOURCE
     assert "production_characteristic_solver" not in SOURCE
 
@@ -88,17 +105,41 @@ def test_shared_builder_hardwires_production_curvature():
         ") -> LocalFciDrbEBRhs:", source.index("def build_local_eb_model(")
     )]
     assert "parallel_material_scheme: str | None = None" in signature
+    assert "parallel_vorticity_advection_scheme: str | None = None" in signature
+    assert (
+        "parallel_material_fallback_representation: str | None = None"
+        in signature
+    )
+    assert (
+        "parallel_material_div_b_fallback_scheme: str | None = None"
+        in signature
+    )
     assert "curvature_scheme" not in signature
     assert "curvature_split_scheme" not in signature
     assert "build_local_curvature_face_coefficients(geometry, domain)" in source
     assert "curvature_face_coefficients=curvature_face_coefficients" in source
     assert "parallel_material_scheme=str(parallel_material_scheme)" in source
+    assert "parallel_vorticity_advection_scheme=str(" in source
+    assert "parallel_material_fallback_representation=str(" in source
+    assert "parallel_material_div_b_fallback_scheme=str(" in source
     run_signature = source[source.index("def run_full_eb("):source.index(
         ") -> FciDrbEBState:", source.index("def run_full_eb(")
     )]
     assert "curvature_scheme" not in run_signature
     assert "curvature_split_scheme" not in run_signature
     assert "parallel_material_scheme: str | None = None" in run_signature
+    assert (
+        "parallel_vorticity_advection_scheme: str | None = None"
+        in run_signature
+    )
+    assert (
+        "parallel_material_fallback_representation: str | None = None"
+        in run_signature
+    )
+    assert (
+        "parallel_material_div_b_fallback_scheme: str | None = None"
+        in run_signature
+    )
 
 
 def test_production_guards_prevent_incompatible_legacy_paths():
@@ -106,6 +147,78 @@ def test_production_guards_prevent_incompatible_legacy_paths():
     assert "parallel_operator_scheme != \"fci\"" in SOURCE
     assert "parallel_flux_pairing != \"support-core\"" in SOURCE
     assert "parallel_material_scheme='production-path' requires" in SOURCE
+    assert "and self.geometry.material_maps is None" in SOURCE
+    assert '"requires material_maps"' in SOURCE
+
+
+def test_h_mf_fallback_guard_rejects_incompatible_models():
+    context, mesh, local, partition, _fields, cell_fields = (
+        _context_and_sharded_inputs()
+    )
+
+    def construct(cells, representation):
+        geometry = assemble_local_fci_geometry(local, cells)
+        rhs = _build_rhs(context, local, geometry)
+        replace(rhs, parallel_material_fallback_representation=representation)
+        return jnp.asarray(0.0)
+
+    with pytest.raises(
+        ValueError,
+        match="parallel_material_fallback_representation must be",
+    ):
+        jax.shard_map(
+            lambda cells: construct(cells, "unknown"),
+            mesh=mesh,
+            in_specs=partition,
+            out_specs=P(),
+            check_vma=False,
+        )(cell_fields)
+    with pytest.raises(
+        ValueError,
+        match="requires parallel_material_scheme='production-path'",
+    ):
+        jax.shard_map(
+            lambda cells: construct(cells, "h-mf-consistent"),
+            mesh=mesh,
+            in_specs=partition,
+            out_specs=P(),
+            check_vma=False,
+        )(cell_fields)
+
+
+def test_raw_metric_div_b_fallback_guard_rejects_incompatible_models():
+    context, mesh, local, partition, _fields, cell_fields = (
+        _context_and_sharded_inputs()
+    )
+
+    def construct(cells, scheme):
+        geometry = assemble_local_fci_geometry(local, cells)
+        rhs = _build_rhs(context, local, geometry)
+        replace(rhs, parallel_material_div_b_fallback_scheme=scheme)
+        return jnp.asarray(0.0)
+
+    with pytest.raises(
+        ValueError,
+        match="parallel_material_div_b_fallback_scheme must be",
+    ):
+        jax.shard_map(
+            lambda cells: construct(cells, "unknown"),
+            mesh=mesh,
+            in_specs=partition,
+            out_specs=P(),
+            check_vma=False,
+        )(cell_fields)
+    with pytest.raises(
+        ValueError,
+        match="requires parallel_material_scheme='production-path'",
+    ):
+        jax.shard_map(
+            lambda cells: construct(cells, "raw-metric"),
+            mesh=mesh,
+            in_specs=partition,
+            out_specs=P(),
+            check_vma=False,
+        )(cell_fields)
 
 
 def test_production_path_builds_all_five_dense_mapped_rows():
@@ -148,6 +261,186 @@ def test_evaluate_stage_replaces_material_package_and_uses_psi_force():
     assert "0.0 if production_parallel else Ve_characteristic_upwind_term" in rhs_block
 
 
+def _curvature_contribution_probe(
+    monkeypatch, *, with_direct_faces, omit_phi_owner=False, lean=False
+):
+    """Exercise curvature face payload selection without constructing a mesh."""
+
+    import drbx.native.fci_drb_EB_rhs as rhs_module
+
+    shape = (1, 1, 1)
+    zeros = jnp.zeros(shape, dtype=jnp.float64)
+    calls = []
+    direct_calls = []
+    patch_calls = []
+    halo_calls = []
+    stencil_calls = []
+
+    def fake_direct(**kwargs):
+        direct_calls.append(kwargs)
+        return f"direct-{len(direct_calls)}"
+
+    def fake_patch(*args, **kwargs):
+        patch_calls.append((args, kwargs))
+        return "patched-psi-stencil"
+
+    def fake_lean_direct(**kwargs):
+        direct_calls.append(kwargs)
+        return "lean-direct"
+
+    def fake_stencil(*args, **kwargs):
+        stencil_calls.append(args[0])
+        return f"stencil-{len(stencil_calls)}"
+
+    def fake_curvature(*args, **kwargs):
+        return zeros
+
+    def fake_production(*args, **kwargs):
+        calls.append({"args": args, **kwargs})
+        return jnp.zeros(shape + (4,), dtype=jnp.float64)
+
+    def fake_periodic_endpoints(*args, **kwargs):
+        return "periodic-endpoint-states"
+
+    monkeypatch.setattr(rhs_module, "build_local_control_volume_direct_face_states", fake_direct)
+    monkeypatch.setattr(rhs_module, "build_local_radial_curvature_face_states", fake_lean_direct)
+    monkeypatch.setattr(rhs_module, "patch_local_control_volume_direct_face_values", fake_patch)
+    monkeypatch.setattr(rhs_module, "patch_local_radial_curvature_face_values", fake_patch)
+    monkeypatch.setattr(rhs_module, "build_local_conservative_stencil_from_field", fake_stencil)
+    monkeypatch.setattr(rhs_module, "local_curvature_production_path_op", fake_production)
+    monkeypatch.setattr(
+        rhs_module,
+        "build_periodic_curvature_endpoint_face_states",
+        fake_periodic_endpoints,
+    )
+    monkeypatch.setattr(rhs_module, "_combine_operator_traces", lambda *a, **k: "psi-trace")
+
+    control_volume = (
+        SimpleNamespace(
+            has_angular_agglomeration=True,
+            face_functionals=None if lean else SimpleNamespace(max_rows=1),
+            radial_curvature_faces=(
+                SimpleNamespace(max_rows=1) if lean else None
+            ),
+        )
+        if with_direct_faces else None
+    )
+    rhs = SimpleNamespace(
+        control_volume_geometry=control_volume,
+        geometry=SimpleNamespace(layout=SimpleNamespace(halo_width=2)),
+        domain=SimpleNamespace(periodic_axes=(False, True, True)),
+        halo_exchange="exchange",
+        topology_filler="topology",
+        curvature_face_coefficients="coefficients",
+        parameters=SimpleNamespace(n0=1.0, Te0=1.0, Ti0=1.0),
+        _conservative_curvature=fake_curvature,
+        _conservative_curvature_components=fake_curvature,
+    )
+    if with_direct_faces:
+        def fake_halo(values, boundary):
+            halo_calls.append((values, boundary))
+            return jnp.full(shape, float(len(halo_calls)))
+
+        rhs._prepare_rlp_reconstructed_halo = fake_halo
+    state_halo = SimpleNamespace(phi=zeros, Ti=zeros)
+    boundary = SimpleNamespace(density=None, Te=None, Ti=None, phi=None, vorticity=None)
+    owners = dict(
+        density_owner=jnp.ones(shape),
+        Te_owner=jnp.ones(shape),
+        Ti_owner=jnp.ones(shape),
+        vorticity_owner=zeros,
+        phi_owner=zeros,
+    )
+    if omit_phi_owner:
+        owners.pop("phi_owner")
+    result = rhs_module.LocalFciDrbEBRhs._curvature_rhs_contributions(
+        rhs,
+        state_halo=state_halo,
+        context="context",
+        density=jnp.ones(shape),
+        Te=jnp.ones(shape),
+        Ti=jnp.ones(shape),
+        bmag=jnp.ones(shape),
+        tau=0.7,
+        density_conservative_stencil="density-stencil",
+        Te_conservative_stencil="Te-stencil",
+        Ti_conservative_stencil="Ti-stencil",
+        vorticity_conservative_stencil="vorticity-stencil",
+        operator_boundary=boundary,
+        face_bc=SimpleNamespace(
+            density="density-bc", Te="Te-bc", Ti="Ti-bc",
+            vorticity="vorticity-bc", phi="phi-bc",
+        ),
+        **owners if with_direct_faces else {},
+    )
+    return result, calls, direct_calls, patch_calls, halo_calls, stencil_calls
+
+
+def test_curvature_rhs_wires_direct_quadrature_and_patches_psi(monkeypatch):
+    _result, calls, direct_calls, patch_calls, halo_calls, stencil_calls = _curvature_contribution_probe(
+        monkeypatch, with_direct_faces=True
+    )
+    assert len(direct_calls) == 5
+    assert [call["positivity_floor"] for call in direct_calls] == [
+        1.0e-12, 1.0e-12, 1.0e-12, None, None
+    ]
+    assert all(call["halo_exchange"] == "exchange" for call in direct_calls)
+    assert all(call["topology_filler"] == "topology" for call in direct_calls)
+    assert len(halo_calls) == 5
+    assert [entry[1] for entry in halo_calls] == [
+        "density-bc", "Te-bc", "Ti-bc", "vorticity-bc", "phi-bc"
+    ]
+    np.testing.assert_array_equal(halo_calls[0][0], jnp.ones((1, 1, 1)))
+    np.testing.assert_array_equal(halo_calls[1][0], jnp.ones((1, 1, 1)))
+    np.testing.assert_array_equal(halo_calls[2][0], jnp.ones((1, 1, 1)))
+    np.testing.assert_array_equal(halo_calls[3][0], jnp.zeros((1, 1, 1)))
+    np.testing.assert_array_equal(halo_calls[4][0], jnp.zeros((1, 1, 1)))
+    assert calls[0]["args"][0] == (
+        "stencil-1", "stencil-2", "stencil-3", "stencil-4"
+    )
+    assert calls[0]["direct_face_quadrature_states"] == (
+        "direct-1", "direct-2", "direct-3", "direct-4"
+    )
+    assert calls[0]["periodic_endpoint_face_states"] == "periodic-endpoint-states"
+    assert patch_calls[0][0][1] == "direct-5"
+    assert patch_calls[0][1] == {"transition_only": False}
+
+
+def test_curvature_rhs_prefers_one_batched_lean_radial_payload(monkeypatch):
+    _result, calls, direct_calls, patch_calls, halo_calls, _stencil_calls = (
+        _curvature_contribution_probe(
+            monkeypatch, with_direct_faces=True, lean=True
+        )
+    )
+    assert len(direct_calls) == 1
+    assert direct_calls[0]["owner_values_owned"].shape == (1, 1, 1, 5)
+    assert direct_calls[0]["positive_field_count"] == 3
+    assert calls[0]["direct_face_quadrature_states"] is None
+    assert calls[0]["radial_curvature_face_states"] == "lean-direct"
+    assert calls[0]["periodic_endpoint_face_states"] == "periodic-endpoint-states"
+    assert patch_calls[0][0][1] == "lean-direct"
+    assert patch_calls[0][1] == {"field_index": 4}
+    assert len(halo_calls) == 5
+
+
+def test_curvature_rhs_preserves_legacy_path_without_direct_payload(monkeypatch):
+    _result, calls, direct_calls, patch_calls, halo_calls, stencil_calls = _curvature_contribution_probe(
+        monkeypatch, with_direct_faces=False
+    )
+    assert len(calls) == 1
+    assert calls[0]["direct_face_quadrature_states"] is None
+    assert direct_calls == []
+    assert patch_calls == []
+    assert halo_calls == []
+
+
+def test_curvature_rhs_rejects_missing_phi_owner_before_direct_build(monkeypatch):
+    with pytest.raises(ValueError, match="phi owner"):
+        _curvature_contribution_probe(
+            monkeypatch, with_direct_faces=True, omit_phi_owner=True
+        )
+
+
 def test_div_b_source_is_not_reapplied_by_old_material_terms_in_production():
     assert "if production_parallel else -parallel_density_flux_divergence" in SOURCE
     assert "if production_parallel else Te_parallel_advection" in SOURCE
@@ -167,6 +460,9 @@ def test_production_material_terms_run_on_every_mapped_row_under_jit():
             parallel_operator_scheme="fci",
             parallel_flux_pairing="support-core",
             parallel_material_scheme="production-path",
+            parallel_vorticity_advection_scheme="h-mf-second-order",
+            parallel_material_fallback_representation="h-mf-consistent",
+            parallel_material_div_b_fallback_scheme="raw-metric",
         )
         state = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
         face_bc = rhs._face_bcs(state)
@@ -187,12 +483,22 @@ def test_production_material_terms_run_on_every_mapped_row_under_jit():
         residual = terms["parallel_material_residual"]
         diagnostics = terms["parallel_material_diagnostics"]
         covered = diagnostics["ordinary_row"] | diagnostics["wall_row"]
+        vorticity_advection = terms["vorticity_parallel_advection"]
         return jnp.asarray(
             (
                 residual.shape[-1],
                 jnp.all(jnp.isfinite(residual)),
                 jnp.all(covered),
                 jnp.max(jnp.abs(residual)),
+                jnp.all(jnp.isfinite(vorticity_advection)),
+                jnp.all(diagnostics["vorticity_h_second_order_used"]),
+                jnp.max(jnp.abs(vorticity_advection)),
+                jnp.all(diagnostics["material_h_mf_fallback_used"]),
+                jnp.any(diagnostics["wall_center_reconstruction_mismatch"]),
+                jnp.max(jnp.abs(
+                    terms["parallel_characteristic_wall_data"]["center"]
+                    - terms["parallel_material_implicit_data"]["center"]
+                )),
             )
         )
 
@@ -205,11 +511,28 @@ def test_production_material_terms_run_on_every_mapped_row_under_jit():
             check_vma=False,
         )
     )
-    lanes, finite, covered, amplitude = np.asarray(compiled(*fields, cell_fields, map_fields))
+    (
+        lanes,
+        finite,
+        covered,
+        amplitude,
+        vorticity_finite,
+        vorticity_h_second_order,
+        vorticity_amplitude,
+        material_h_mf_fallback,
+        wall_center_mismatch,
+        implicit_center_error,
+    ) = np.asarray(compiled(*fields, cell_fields, map_fields))
     assert lanes == 5
     assert finite
     assert covered
     assert amplitude > 0.0
+    assert vorticity_finite
+    assert vorticity_h_second_order
+    assert vorticity_amplitude > 0.0
+    assert material_h_mf_fallback
+    assert not wall_center_mismatch
+    assert implicit_center_error == 0.0
 
 
 def test_production_ve_diagnostic_uses_coupled_material_lane():
