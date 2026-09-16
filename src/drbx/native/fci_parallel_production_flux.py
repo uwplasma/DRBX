@@ -87,6 +87,123 @@ def parallel_vorticity_upwind_residual(
     )
 
 
+def parallel_vorticity_second_order_upwind_residual(
+    omega_center: Any,
+    omega_minus: Any,
+    omega_plus: Any,
+    omega_minus2: Any,
+    omega_plus2: Any,
+    Vi: Any,
+    dx_minus: Any,
+    dx_plus: Any,
+    dx_minus2: Any,
+    dx_plus2: Any,
+    *,
+    backward_second_valid: Any = True,
+    forward_second_valid: Any = True,
+) -> jnp.ndarray:
+    r"""Return the nonuniform second-order scalar mapped upwind residual.
+
+    The immediate mapped endpoints and their same-direction second hops must
+    all belong to one fine-storage representation.  Each directional
+    derivative is the quadratic one-sided derivative at the owner center.
+    A false validity flag falls only that directional contribution back to the
+    first-order derivative.  This lets a wall-blocked downwind hop coexist with
+    a valid second-order upwind hop without mixing representations.
+
+    ``dx_minus2`` and ``dx_plus2`` are consecutive leg lengths: center to the
+    immediate endpoint uses ``dx_minus``/``dx_plus`` and immediate endpoint to
+    the second endpoint uses ``dx_minus2``/``dx_plus2``.
+    """
+
+    (
+        omega_center,
+        omega_minus,
+        omega_plus,
+        omega_minus2,
+        omega_plus2,
+        Vi,
+        dx_minus,
+        dx_plus,
+        dx_minus2,
+        dx_plus2,
+    ) = (
+        jnp.asarray(value, dtype=jnp.float64)
+        for value in (
+            omega_center,
+            omega_minus,
+            omega_plus,
+            omega_minus2,
+            omega_plus2,
+            Vi,
+            dx_minus,
+            dx_plus,
+            dx_minus2,
+            dx_plus2,
+        )
+    )
+    (
+        omega_center,
+        omega_minus,
+        omega_plus,
+        omega_minus2,
+        omega_plus2,
+        Vi,
+        dx_minus,
+        dx_plus,
+        dx_minus2,
+        dx_plus2,
+    ) = jnp.broadcast_arrays(
+        omega_center,
+        omega_minus,
+        omega_plus,
+        omega_minus2,
+        omega_plus2,
+        Vi,
+        dx_minus,
+        dx_plus,
+        dx_minus2,
+        dx_plus2,
+    )
+    dx_minus = jnp.maximum(jnp.abs(dx_minus), _LOG_FLOOR)
+    dx_plus = jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)
+    dx_minus2 = jnp.maximum(jnp.abs(dx_minus2), _LOG_FLOOR)
+    dx_plus2 = jnp.maximum(jnp.abs(dx_plus2), _LOG_FLOOR)
+
+    backward_first = (omega_center - omega_minus) / dx_minus
+    backward_second_slope = (omega_minus - omega_minus2) / dx_minus2
+    backward_total = dx_minus + dx_minus2
+    backward_second = (
+        (2.0 * dx_minus + dx_minus2) / backward_total * backward_first
+        - dx_minus / backward_total * backward_second_slope
+    )
+
+    forward_first = (omega_plus - omega_center) / dx_plus
+    forward_second_slope = (omega_plus2 - omega_plus) / dx_plus2
+    forward_total = dx_plus + dx_plus2
+    forward_second = (
+        (2.0 * dx_plus + dx_plus2) / forward_total * forward_first
+        - dx_plus / forward_total * forward_second_slope
+    )
+
+    backward_second_valid = jnp.broadcast_to(
+        jnp.asarray(backward_second_valid, dtype=bool), omega_center.shape
+    )
+    forward_second_valid = jnp.broadcast_to(
+        jnp.asarray(forward_second_valid, dtype=bool), omega_center.shape
+    )
+    backward_derivative = jnp.where(
+        backward_second_valid, backward_second, backward_first
+    )
+    forward_derivative = jnp.where(
+        forward_second_valid, forward_second, forward_first
+    )
+    return -(
+        jnp.maximum(Vi, 0.0) * backward_derivative
+        + jnp.minimum(Vi, 0.0) * forward_derivative
+    )
+
+
 def _as_state(value: Any) -> jnp.ndarray:
     value = jnp.asarray(value, dtype=jnp.float64)
     if value.shape[-1:] != (STATE_SIZE,):
@@ -2394,6 +2511,7 @@ def parallel_characteristic_wall_data(
 __all__ = [
     "STATE_SIZE",
     "parallel_vorticity_upwind_residual",
+    "parallel_vorticity_second_order_upwind_residual",
     "parallel_production_principal_matrix",
     "parallel_characteristic_matrix",
     "parallel_principal_matrix",

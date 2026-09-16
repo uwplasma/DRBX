@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from drbx.native.fci_parallel_production_flux import (
+    parallel_vorticity_second_order_upwind_residual,
     parallel_vorticity_upwind_residual,
 )
 
@@ -167,3 +168,130 @@ def test_periodic_smooth_wave_has_first_order_convergence(speed):
     medium_to_fine = errors[1] / errors[2]
     assert coarse_to_medium > 1.8
     assert medium_to_fine > 1.8
+
+
+@pytest.mark.parametrize("speed", (1.25, -1.25))
+def test_periodic_smooth_wave_has_second_order_convergence(speed):
+    """Two same-direction mapped legs recover the selected order-two action."""
+
+    errors = []
+    for n in (32, 64, 128):
+        dx = 2.0 * np.pi / n
+        x = jnp.arange(n, dtype=jnp.float64) * dx
+        omega = jnp.sin(x)
+        numerical = parallel_vorticity_second_order_upwind_residual(
+            omega,
+            jnp.roll(omega, 1),
+            jnp.roll(omega, -1),
+            jnp.roll(omega, 2),
+            jnp.roll(omega, -2),
+            speed,
+            dx,
+            dx,
+            dx,
+            dx,
+        )
+        exact = -speed * jnp.cos(x)
+        errors.append(float(jnp.max(jnp.abs(numerical - exact))))
+
+    coarse_to_medium = errors[0] / errors[1]
+    medium_to_fine = errors[1] / errors[2]
+    assert coarse_to_medium > 3.8
+    assert medium_to_fine > 3.8
+
+
+@pytest.mark.parametrize("speed", (1.25, -1.25))
+def test_nonuniform_second_order_upwind_is_quadratic_exact(speed):
+    """Consecutive unequal mapped legs reproduce the center derivative."""
+
+    dm, dm2 = 0.3, 0.55
+    dp, dp2 = 0.4, 0.2
+
+    def field(x):
+        return 2.0 + 1.7 * x - 0.6 * x * x
+
+    actual = parallel_vorticity_second_order_upwind_residual(
+        field(0.0),
+        field(-dm),
+        field(dp),
+        field(-(dm + dm2)),
+        field(dp + dp2),
+        speed,
+        dm,
+        dp,
+        dm2,
+        dp2,
+    )
+    np.testing.assert_allclose(actual, -speed * 1.7, rtol=0.0, atol=2.0e-14)
+
+
+def test_second_order_invalid_row_falls_back_to_complete_first_order_action():
+    inputs = dict(
+        omega_center=jnp.asarray((2.0, 3.0)),
+        omega_minus=jnp.asarray((1.0, 1.5)),
+        omega_plus=jnp.asarray((4.0, 5.0)),
+        Vi=jnp.asarray((1.25, -0.75)),
+        dx_minus=jnp.asarray((0.3, 0.4)),
+        dx_plus=jnp.asarray((0.5, 0.6)),
+    )
+    expected = parallel_vorticity_upwind_residual(**inputs)
+    actual = parallel_vorticity_second_order_upwind_residual(
+        **inputs,
+        omega_minus2=jnp.asarray((-7.0, -9.0)),
+        omega_plus2=jnp.asarray((11.0, 13.0)),
+        dx_minus2=jnp.asarray((0.7, 0.8)),
+        dx_plus2=jnp.asarray((0.9, 1.0)),
+        backward_second_valid=False,
+        forward_second_valid=False,
+    )
+    np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("speed", (1.25, -0.75))
+def test_invalid_downwind_second_endpoint_does_not_poison_selected_direction(
+    speed,
+):
+    inputs = dict(
+        omega_center=2.0,
+        omega_minus=1.3,
+        omega_plus=2.9,
+        omega_minus2=0.2 if speed > 0.0 else jnp.nan,
+        omega_plus2=jnp.nan if speed > 0.0 else 4.1,
+        Vi=speed,
+        dx_minus=0.3,
+        dx_plus=0.5,
+        dx_minus2=0.7,
+        dx_plus2=0.9,
+        backward_second_valid=speed > 0.0,
+        forward_second_valid=speed < 0.0,
+    )
+    actual = parallel_vorticity_second_order_upwind_residual(**inputs)
+    assert bool(jnp.isfinite(actual))
+
+    if speed > 0.0:
+        expected = parallel_vorticity_second_order_upwind_residual(
+            **{**inputs, "omega_plus2": 123.0}
+        )
+    else:
+        expected = parallel_vorticity_second_order_upwind_residual(
+            **{**inputs, "omega_minus2": -123.0}
+        )
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_second_order_constant_is_exact_and_jittable():
+    constant = jnp.full((3, 2), 4.25)
+    speed = jnp.asarray([[2.0, -2.0], [0.0, 4.0], [-3.0, 0.0]])
+    result = jax.jit(parallel_vorticity_second_order_upwind_residual)(
+        constant,
+        constant,
+        constant,
+        constant,
+        constant,
+        speed,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+    )
+    np.testing.assert_array_equal(np.asarray(result), 0.0)

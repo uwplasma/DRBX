@@ -51,6 +51,16 @@ includes the RHS `1/B` factor. Conservative curvature uses shared face
 coefficients. Operator-specific physical-wall traces are supplied when an
 operator needs a scalar value or flux.
 
+On toroidal HSX geometry, `--curvature-edge-one-form` opts into sampling the
+continuous covariant one-form `b/B` once on each unique logical edge before
+applying the same compatible incidence curl. The default remains the
+cell-center-to-edge average for reproducibility. The opt-in path constructs
+the full-torus face coefficients on the host, packs both faces of every cell,
+and then lowers those invariant channels to eta shards; shared shard-interface
+faces therefore remain identical. Axis projection and physical-boundary edge
+patching are unchanged, and the resulting `Q = J K/B` retains discrete
+`div(curl)=0` closure to roundoff.
+
 The coordinate parallel family evaluates conservative coordinate-space face
 fluxes. The FCI family traces to adjacent eta planes and evaluates parallel
 operators from forward/backward mapped data. FCI map construction supports

@@ -16,15 +16,29 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from jax.sharding import PartitionSpec as P
+from jax.sharding import NamedSharding, PartitionSpec as P
 
 _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
 from drbx.native import FciDrbEBState  # noqa: E402
+from drbx.geometry.fci_control_volumes import (  # noqa: E402
+    build_polar_angular_agglomeration_geometry,
+)
+from drbx.native.fci_angular_agglomeration import (  # noqa: E402
+    assemble_local_polar_angular_agglomeration_geometry,
+    build_sharded_polar_angular_agglomeration_payload,
+    lower_polar_angular_agglomeration_geometry,
+)
+from drbx.native.fci_boundaries import (  # noqa: E402
+    LocalControlVolumeBoundaryBC3D,
+)
 from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
     build_local_fci_drb_eb_operator_boundary_bundle,
+)
+from drbx.native.fci_operators import (  # noqa: E402
+    aggregate_local_control_volume_average,
 )
 from drbx.native.fci_parallel_production_flux import (  # noqa: E402
     parallel_characteristic_matrix,
@@ -32,6 +46,7 @@ from drbx.native.fci_parallel_production_flux import (  # noqa: E402
 )
 from drbx.native.fci_sharding import (  # noqa: E402
     assemble_local_fci_geometry,
+    assemble_single_device_local_fci_geometry,
     build_local_fci_geometries,
     make_shard_mesh,
 )
@@ -208,7 +223,15 @@ def _synthetic_runtime_case(
     return prod_context, original, custom, state_fields, derivative, mesh, partition
 
 
-def _material_residual(case, *, spatial_order: int, use_material_div_b: bool = False):
+def _material_residual(
+    case,
+    *,
+    spatial_order: int,
+    use_material_div_b: bool = False,
+    fallback_representation: str = "legacy-p",
+    div_b_fallback_scheme: str = "legacy-p",
+    force_material_div_b_fallback: bool = False,
+):
     context, original, custom, state_fields, derivative, mesh, partition = case
 
     def kernel(density, te, ti, vi, ve, phi, vorticity, dstate, cells, maps, material_maps):
@@ -216,7 +239,24 @@ def _material_residual(case, *, spatial_order: int, use_material_div_b: bool = F
         material = assemble_local_fci_geometry(custom, cells, material_maps)
         # Keep canonical maps for current/phi and install only the dedicated
         # material map lowered from the fractional shear payload.
-        geometry = replace(canonical, material_maps=material.material_maps)
+        material_map = material.material_maps
+        if force_material_div_b_fallback:
+            material_map = replace(
+                material_map,
+                forward=replace(
+                    material_map.forward,
+                    target_valid=jnp.zeros_like(
+                        material_map.forward.target_valid
+                    ),
+                ),
+                backward=replace(
+                    material_map.backward,
+                    target_valid=jnp.zeros_like(
+                        material_map.backward.target_valid
+                    ),
+                ),
+            )
+        geometry = replace(canonical, material_maps=material_map)
         builder_context = replace(
             context,
             parameters=replace(
@@ -229,6 +269,8 @@ def _material_residual(case, *, spatial_order: int, use_material_div_b: bool = F
             parallel_operator_scheme="fci",
             parallel_flux_pairing="support-core",
             parallel_material_scheme="production-path",
+            parallel_material_fallback_representation=fallback_representation,
+            parallel_material_div_b_fallback_scheme=div_b_fallback_scheme,
             parallel_boundary_pairing="characteristic-sat",
             parameters=context.parameters,
         )
@@ -247,7 +289,7 @@ def _material_residual(case, *, spatial_order: int, use_material_div_b: bool = F
             face_bc=face_bc,
             parallel_boundary=parallel_boundary,
             context=stencil_context,
-            evaluate_wall_data=False,
+            evaluate_wall_data=fallback_representation == "h-mf-consistent",
         )
         second = rhs._fci_second_order_material_data(
             characteristic_data, face_bc, stencil_context
@@ -268,6 +310,11 @@ def _material_residual(case, *, spatial_order: int, use_material_div_b: bool = F
                 second["material_div_b"]
                 if use_material_div_b
                 else jnp.zeros_like(dx_minus)
+            ),
+            resolved_wall_data=(
+                second["wall_data"]
+                if fallback_representation == "h-mf-consistent"
+                else None
             ),
         )
         matrix = jax.vmap(
@@ -324,6 +371,151 @@ def _material_residual(case, *, spatial_order: int, use_material_div_b: bool = F
             original.cell_fields,
             original.map_fields,
             custom.map_fields,
+        )
+    )
+
+
+def _vorticity_residual(case):
+    """Return the production H/MF vorticity lane and its branch masks."""
+
+    context, original, custom, state_fields, _derivative, mesh, partition = case
+    axis_regular = (True, False, False)
+    shape = tuple(int(value) for value in state_fields.shape[:-1])
+    global_geometry = _fractional_shear_geometry(context, shear=SHEAR)
+    eta_shards = int(original.domain.shard_spec.shard_counts[2])
+    original = build_local_fci_geometries(
+        global_geometry,
+        (1, 1, eta_shards),
+        halo_width=2,
+        periodic_axes=(False, True, True),
+        axis_regular_axes=axis_regular,
+    )
+    custom = build_local_fci_geometries(
+        global_geometry,
+        (1, 1, eta_shards),
+        halo_width=2,
+        periodic_axes=(False, True, True),
+        axis_regular_axes=axis_regular,
+    )
+    grid = global_geometry.grid
+    host_rlp = build_polar_angular_agglomeration_geometry(
+        np.asarray(grid.x_faces),
+        np.asarray(grid.y_faces),
+        np.asarray(grid.z_faces),
+        lambda points: np.maximum(np.asarray(points)[..., 0], 1.0e-14),
+        quadrature_order=3,
+        angular_group_size=(shape[1], 2, 1),
+    )
+    one = build_local_fci_geometries(
+        global_geometry,
+        (1, 1, 1),
+        halo_width=2,
+        periodic_axes=(False, True, True),
+        axis_regular_axes=axis_regular,
+    )
+    one_local = assemble_single_device_local_fci_geometry(one)
+    one_rlp = lower_polar_angular_agglomeration_geometry(host_rlp, one_local)
+    one_domain = replace(one.domain, mesh_axis_names=(None, None, None))
+    theta = jnp.asarray(grid.y_centers)[None, :, None]
+    eta = jnp.asarray(grid.z_centers)[None, None, :]
+    omega_fine = jnp.broadcast_to(
+        0.2 + 0.07 * jnp.sin(theta + 0.7 * eta - 0.1), shape
+    )
+    zeros = jnp.zeros(shape, dtype=jnp.float64)
+    raw_fields = tuple(jnp.asarray(state_fields[..., index]) for index in range(5))
+    owner_fields = tuple(
+        aggregate_local_control_volume_average(value, one_rlp.cells, one_domain)
+        for value in (*raw_fields, zeros, omega_fine)
+    )
+    descriptor, packed = build_sharded_polar_angular_agglomeration_payload(
+        host_rlp, original.domain
+    )
+
+    def kernel(
+        density,
+        te,
+        ti,
+        vi,
+        ve,
+        phi,
+        vorticity,
+        cells,
+        maps,
+        material_maps,
+        rlp_cells,
+    ):
+        canonical = assemble_local_fci_geometry(original, cells, maps)
+        material = assemble_local_fci_geometry(custom, cells, material_maps)
+        geometry = replace(canonical, material_maps=material.material_maps)
+        local_rlp = assemble_local_polar_angular_agglomeration_geometry(
+            descriptor, rlp_cells, geometry
+        )
+        builder_context = replace(
+            context,
+            parameters=replace(
+                context.parameters,
+                parallel_characteristic_wall_law="energy-absorbing",
+            ),
+        )
+        rhs = replace(
+            _build_rhs(builder_context, original, geometry),
+            control_volume_geometry=local_rlp,
+            control_volume_boundary_bc=LocalControlVolumeBoundaryBC3D.empty(),
+            axis_regular_axes=(True, False, False),
+            poisson_bracket_scheme="compatible-flux",
+            parallel_operator_scheme="fci",
+            parallel_flux_pairing="support-core",
+            parallel_material_scheme="production-path",
+            parallel_boundary_pairing="characteristic-sat",
+            parallel_vorticity_advection_scheme="h-mf-second-order",
+            parallel_material_fallback_representation="h-mf-consistent",
+            parallel_material_div_b_fallback_scheme="raw-metric",
+        )
+        state = FciDrbEBState(density, phi, te, ti, vi, ve, vorticity)
+        face_bc = rhs._face_bcs(state)
+        state_halo = rhs._prepare_state_halo(state, face_bc)
+        operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
+            state_halo, geometry, rhs.domain, face_bc, tau=rhs.parameters.tau
+        )
+        parallel_boundary = rhs._parallel_operator_boundary(
+            state_halo=state_halo, operator_boundary=operator_boundary
+        )
+        terms = rhs._fci_parallel_terms(
+            state_halo=state_halo,
+            face_bc=face_bc,
+            operator_boundary=operator_boundary,
+            parallel_boundary=parallel_boundary,
+            context=rhs._stencil_builder_context(),
+        )
+        diagnostics = terms["parallel_material_diagnostics"]
+        return (
+            terms["vorticity_parallel_advection"],
+            diagnostics["vorticity_h_second_order_used"],
+            diagnostics["vorticity_h_first_order_fallback_used"],
+            diagnostics["vorticity_legacy_p_fallback_used"],
+            diagnostics["vorticity_backward_second_valid"],
+            diagnostics["vorticity_forward_second_valid"],
+        )
+
+    compiled = jax.jit(
+        jax.shard_map(
+            kernel,
+            mesh=mesh,
+            in_specs=(partition,) * 10 + (descriptor.cell_partition_spec,),
+            out_specs=(partition,) * 6,
+            check_vma=False,
+        )
+    )
+    sharding = NamedSharding(mesh, partition)
+    rlp_sharding = NamedSharding(mesh, descriptor.cell_partition_spec)
+    return tuple(
+        np.asarray(value)
+        for value in compiled(
+            *(jax.device_put(value, sharding) for value in owner_fields),
+            jax.device_put(original.cell_fields, sharding),
+            jax.device_put(original.map_fields, sharding),
+            jax.device_put(custom.map_fields, sharding),
+            jax.device_put(packed, rlp_sharding),
         )
     )
 
@@ -424,9 +616,48 @@ def test_constant_b_material_div_b_is_zero_and_valid():
 
 @pytest.mark.skipif(jax.local_device_count() < 4, reason="requires four local CPU devices")
 def test_material_map_four_eta_shards_matches_single_device():
-    single = _material_residual(_synthetic_runtime_case(16), spatial_order=2)
+    single = _material_residual(
+        _synthetic_runtime_case(16),
+        spatial_order=2,
+        fallback_representation="h-mf-consistent",
+    )
     sharded = _material_residual(
-        _synthetic_runtime_case(16, eta_shards=4), spatial_order=2
+        _synthetic_runtime_case(16, eta_shards=4),
+        spatial_order=2,
+        fallback_representation="h-mf-consistent",
     )
     for expected, actual in zip(single, sharded):
         np.testing.assert_allclose(np.asarray(actual), np.asarray(expected), rtol=2.0e-12, atol=2.0e-12)
+
+
+@pytest.mark.skipif(jax.local_device_count() < 4, reason="requires four local CPU devices")
+def test_h_mf_vorticity_matches_four_eta_shards_with_rlp():
+    single = _vorticity_residual(_synthetic_runtime_case(8))
+    sharded = _vorticity_residual(
+        _synthetic_runtime_case(8, eta_shards=4)
+    )
+    for expected, actual in zip(single, sharded):
+        np.testing.assert_allclose(
+            np.asarray(actual), np.asarray(expected), rtol=2.0e-12, atol=2.0e-12
+        )
+    assert bool(np.all(single[1]))
+    assert not bool(np.any(single[2]))
+    assert not bool(np.any(single[3]))
+
+
+@pytest.mark.skipif(jax.local_device_count() < 4, reason="requires four local CPU devices")
+def test_raw_metric_div_b_fallback_matches_four_eta_shards():
+    options = dict(
+        spatial_order=2,
+        use_material_div_b=True,
+        div_b_fallback_scheme="raw-metric",
+        force_material_div_b_fallback=True,
+    )
+    single = _material_residual(_synthetic_runtime_case(16), **options)
+    sharded = _material_residual(
+        _synthetic_runtime_case(16, eta_shards=4), **options
+    )
+    for expected, actual in zip(single, sharded):
+        np.testing.assert_allclose(
+            np.asarray(actual), np.asarray(expected), rtol=2.0e-12, atol=2.0e-12
+        )

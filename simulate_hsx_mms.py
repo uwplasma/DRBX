@@ -232,9 +232,12 @@ def _production_configuration(shard_counts, device_count):
         "time_integrator": "imex-ssp222",
         "poisson_bracket_scheme": "material-scalar-third-order-upwind",
         "parallel_material_scheme": "production-path",
+        "parallel_vorticity_advection_scheme": "h-mf-second-order",
+        "parallel_material_fallback_representation": "h-mf-consistent",
+        "parallel_material_div_b_fallback_scheme": "raw-metric",
         "curvature_scheme": "conservative",
         "curvature_operator": "production-characteristic-owner-face",
-        "curvature_rlp_face_scheme": "projected-fine",
+        "curvature_rlp_face_scheme": "lean-all-interior-radial-direct",
         "curvature_wall_flux_closure": (
             "bc-characteristic-operator-trace-canonical-face-state"
         ),
@@ -292,6 +295,9 @@ def _production_selector_args():
         parallel_short_leg_cfl_limit=2.5,
         time_integrator="imex-ssp222",
         poisson_bracket_scheme="material-scalar-third-order-upwind",
+        parallel_vorticity_advection_scheme="h-mf-second-order",
+        parallel_material_fallback_representation="h-mf-consistent",
+        parallel_material_div_b_fallback_scheme="raw-metric",
         rhs_replay_history=None,
     )
 
@@ -649,6 +655,39 @@ def _reference_state(reference, geometry, host, time, projector=None):
     return state, qdot, source, continuum
 
 
+def _make_direct_face_geometry_sampler(args):
+    """Build the batched physical metric callback used by direct face rows.
+
+    The angular compiler supplies logical ``(u, theta, eta)`` points in one
+    array.  Keep the evaluator calls batched so the direct face payload uses
+    the same fitted metric and magnetic-field normalization as the MMS
+    reference, without introducing a second geometry representation.
+    """
+
+    B0 = float(args.reference.B0)
+    if not np.isfinite(B0) or B0 <= 0.0:
+        raise ValueError(f"reference B0 must be positive and finite, got {B0!r}")
+
+    def sampler(logical_points):
+        metric = args.metric_context.metric_evaluator.evaluate(logical_points)
+        magnetic = args.metric_context.metric_evaluator.evaluate_magnetic_field(
+            logical_points, args.metric_context.bfield
+        )
+        return {
+            "J": np.asarray(metric.signed_J, dtype=np.float64),
+            "g_contra": np.asarray(
+                metric.contravariant_metric, dtype=np.float64
+            ),
+            "g_cov": np.asarray(metric.covariant_metric, dtype=np.float64),
+            "B_contra": np.asarray(
+                magnetic.B_contravariant, dtype=np.float64
+            ) / B0,
+            "Bmag": np.asarray(magnetic.magnitude, dtype=np.float64) / B0,
+        }
+
+    return sampler
+
+
 def _runtime(geometry, host, args):
     """Build host diagnostics and the eta-sharded production run payload."""
 
@@ -671,10 +710,19 @@ def _runtime(geometry, host, args):
         periodic_axes=PERIODIC_AXES,
         axis_regular_axes=AXIS_REGULAR_AXES,
     )
+    direct_face_geometry_sampler = _make_direct_face_geometry_sampler(args)
+    direct_face_angular_origins = (
+        float(np.asarray(geometry.grid.y.faces)[0]),
+        float(np.asarray(geometry.grid.z.faces)[0]),
+    )
     sharded_descriptor, sharded_control_fields = build_sharded_polar_angular_agglomeration_payload(
         host,
         sharded_local.domain,
-        compile_compact_transition_faces=True,
+        compile_direct_face_functionals=True,
+        compile_radial_curvature_faces=True,
+        direct_face_band_radius=0,
+        direct_face_geometry_sampler=direct_face_geometry_sampler,
+        direct_face_angular_origins=direct_face_angular_origins,
     )
     params = blob.FciDrbEBRhsParameters(
         tau=PHYSICAL_PARAMETERS["tau"],
@@ -744,12 +792,18 @@ def _runtime(geometry, host, args):
             poisson_bracket_scheme="material-scalar-third-order-upwind",
             parallel_operator_scheme="fci",
             parallel_material_scheme="production-path",
+            parallel_vorticity_advection_scheme="h-mf-second-order",
+            parallel_material_fallback_representation="h-mf-consistent",
+            parallel_material_div_b_fallback_scheme="raw-metric",
             control_volume_geometry=cv,
             control_volume_boundary_bc=host_boundary_bc,
         )
         expected_contract = {
             "parallel_operator_scheme": "fci",
             "parallel_material_scheme": "production-path",
+            "parallel_vorticity_advection_scheme": "h-mf-second-order",
+            "parallel_material_fallback_representation": "h-mf-consistent",
+            "parallel_material_div_b_fallback_scheme": "raw-metric",
             "parallel_flux_pairing": "support-core",
             "parallel_boundary_pairing": "characteristic-sat",
             "parallel_short_leg_treatment": "local-backward-euler",
@@ -1235,6 +1289,9 @@ def _audit_one(geometry, cell_positions, nfp, args):
             parallel_operator_scheme="fci",
             poisson_bracket_scheme="material-scalar-third-order-upwind",
             parallel_material_scheme="production-path",
+            parallel_vorticity_advection_scheme="h-mf-second-order",
+            parallel_material_fallback_representation="h-mf-consistent",
+            parallel_material_div_b_fallback_scheme="raw-metric",
             control_volume_descriptor=runtime.control_volume_descriptor,
             control_volume_fields_host=runtime.control_volume_fields,
             control_volume_boundary_bc=runtime.control_volume_boundary_bc,
@@ -1690,7 +1747,8 @@ def run(args):
             "[mms-wiring] production-split/fci/support-core/"
             "characteristic-sat/energy-absorbing/all-physical-walls/"
             "local-backward-euler/imex-ssp222/"
-            "material-scalar-third-order-upwind"
+            "material-scalar-third-order-upwind/h-mf-second-order/"
+            "h-mf-consistent/raw-metric"
         )
         return
     # The reference is kept in a small independent module so no production
@@ -1862,6 +1920,9 @@ def run(args):
                     parallel_operator_scheme="fci",
                     poisson_bracket_scheme="material-scalar-third-order-upwind",
                     parallel_material_scheme="production-path",
+                    parallel_vorticity_advection_scheme="h-mf-second-order",
+                    parallel_material_fallback_representation="h-mf-consistent",
+                    parallel_material_div_b_fallback_scheme="raw-metric",
                     control_volume_descriptor=runtime.control_volume_descriptor,
                     control_volume_fields_host=runtime.control_volume_fields,
                     control_volume_boundary_bc=runtime.control_volume_boundary_bc,

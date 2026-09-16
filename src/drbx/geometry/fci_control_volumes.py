@@ -111,6 +111,9 @@ class PolarAngularAgglomerationGeometry3D:
     raw_chart_centroid: np.ndarray
     raw_chart_second_moment: np.ndarray
     raw_chart_third_moment: np.ndarray
+    raw_radial_centroid: np.ndarray
+    raw_radial_second_moment: np.ndarray
+    raw_radial_third_moment: np.ndarray
     aggregate_chart_volume: np.ndarray
     aggregate_chart_centroid: np.ndarray
     aggregate_chart_second_moment: np.ndarray
@@ -136,6 +139,9 @@ class PolarAngularAgglomerationGeometry3D:
             ("aggregate_chart_second_moment", (3, 3)),
             ("raw_chart_third_moment", (3, 3, 3)),
             ("aggregate_chart_third_moment", (3, 3, 3)),
+            ("raw_radial_centroid", ()),
+            ("raw_radial_second_moment", ()),
+            ("raw_radial_third_moment", ()),
         ):
             value = np.asarray(getattr(self, name), dtype=np.float64)
             expected = shape + suffix if name not in {"radial_centers", "radial_widths"} else (shape[0],)
@@ -227,7 +233,8 @@ def integrate_polar_regular_chart_cell_moments(
     eta_unwrap_origin: float | None = None,
     eta_period: float | None = None,
     jacobian_chunk_size: int = 32768,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    return_logical_radial_moments: bool = False,
+) -> tuple[np.ndarray, ...]:
     """Integrate J-weighted regular-chart cell moments on a logical grid.
 
     Parameters
@@ -247,6 +254,10 @@ def integrate_polar_regular_chart_cell_moments(
     volume, centroid, second_moment, third_moment:
         J-weighted volume and normalized central moments with shapes matching
         ``GlobalControlVolumeTopology3D`` raw moment arrays.
+        When ``return_logical_radial_moments=True``, the tuple additionally
+        contains the J-weighted logical-radial centroid, second central
+        moment, and third central moment.  These are distinct from the first
+        component of the regular Cartesian chart.
     """
 
     u_faces = _validate_logical_faces(u_faces, "u_faces")
@@ -300,7 +311,28 @@ def integrate_polar_regular_chart_cell_moments(
     centroid = centroid_flat.reshape(shape + (3,))
     second = second_flat.reshape(shape + (3, 3))
     third = third_flat.reshape(shape + (3, 3, 3))
-    return volume, centroid, second, third
+    if not return_logical_radial_moments:
+        return volume, centroid, second, third
+    logical_radial = logical_flat[:, 0].reshape((cell_count, nq))
+    radial_centroid_flat = (
+        np.sum(weighted * logical_radial, axis=1) / volume_flat
+    )
+    radial_displacement = logical_radial - radial_centroid_flat[:, None]
+    radial_second_flat = (
+        np.sum(weighted * radial_displacement**2, axis=1) / volume_flat
+    )
+    radial_third_flat = (
+        np.sum(weighted * radial_displacement**3, axis=1) / volume_flat
+    )
+    return (
+        volume,
+        centroid,
+        second,
+        third,
+        radial_centroid_flat.reshape(shape),
+        radial_second_flat.reshape(shape),
+        radial_third_flat.reshape(shape),
+    )
 
 
 def combine_volume_moments_by_aggregate(
@@ -1203,10 +1235,24 @@ def build_polar_angular_agglomeration_geometry(
     order = int(quadrature_order)
     if order < 1:
         raise ValueError("quadrature_order must be positive")
-    raw_volume, raw_centroid, raw_second, raw_third = integrate_polar_regular_chart_cell_moments(
-        u_faces, theta_faces, eta_faces, jacobian,
-        quadrature_order=order, jacobian_chunk_size=jacobian_chunk_size,
-        eta_unwrap_origin=float(eta_faces[0]), eta_period=eta_period,
+    (
+        raw_volume,
+        raw_centroid,
+        raw_second,
+        raw_third,
+        raw_radial_centroid,
+        raw_radial_second,
+        raw_radial_third,
+    ) = integrate_polar_regular_chart_cell_moments(
+        u_faces,
+        theta_faces,
+        eta_faces,
+        jacobian,
+        quadrature_order=order,
+        jacobian_chunk_size=jacobian_chunk_size,
+        eta_unwrap_origin=float(eta_faces[0]),
+        eta_period=eta_period,
+        return_logical_radial_moments=True,
     )
     shape = raw_volume.shape
     q = build_radius_dependent_angular_group_profile(
@@ -1264,6 +1310,9 @@ def build_polar_angular_agglomeration_geometry(
         raw_chart_centroid=raw_centroid,
         raw_chart_second_moment=raw_second,
         raw_chart_third_moment=raw_third,
+        raw_radial_centroid=raw_radial_centroid,
+        raw_radial_second_moment=raw_radial_second,
+        raw_radial_third_moment=raw_radial_third,
         aggregate_chart_volume=topology.aggregate_volume,
         aggregate_chart_centroid=topology.aggregate_centroid,
         aggregate_chart_second_moment=topology.aggregate_second_moment,

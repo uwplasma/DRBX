@@ -454,13 +454,18 @@ def test_mms_uses_complete_current_production_contract():
     assert config["parallel_velocity_layout"] == "cell-centered"
     assert config["characteristic_sat_affine_current_lift"] == "enabled"
     assert config["parallel_current_phi_pair"] == "enabled"
+    assert config["parallel_vorticity_advection_scheme"] == "h-mf-second-order"
+    assert config["parallel_material_fallback_representation"] == "h-mf-consistent"
+    assert config["parallel_material_div_b_fallback_scheme"] == "raw-metric"
     assert config["parallel_inflow_closure"] == "central"
     assert config["fci_parallel_leg_scheme"] == "centered"
     assert config["curvature_scheme"] == "conservative"
     assert config["curvature_operator"] == (
         "production-characteristic-owner-face"
     )
-    assert config["curvature_rlp_face_scheme"] == "projected-fine"
+    assert config["curvature_rlp_face_scheme"] == (
+        "lean-all-interior-radial-direct"
+    )
     assert config["curvature_wall_flux_closure"] == (
         "bc-characteristic-operator-trace-canonical-face-state"
     )
@@ -497,6 +502,9 @@ def test_canonical_wiring_path_uses_current_production_selectors(capsys):
         "local-backward-euler",
         "imex-ssp222",
         "material-scalar-third-order-upwind",
+        "h-mf-second-order",
+        "h-mf-consistent",
+        "raw-metric",
     ):
         assert selector in output
 
@@ -740,6 +748,9 @@ def test_runtime_avoids_duplicate_host_model_for_sharded_frozen_diagnostic(
         return SimpleNamespace(
             parallel_operator_scheme="fci",
             parallel_material_scheme="production-path",
+            parallel_vorticity_advection_scheme="h-mf-second-order",
+            parallel_material_fallback_representation="h-mf-consistent",
+            parallel_material_div_b_fallback_scheme="raw-metric",
             parallel_flux_pairing="support-core",
             parallel_boundary_pairing="characteristic-sat",
             parallel_short_leg_treatment="local-backward-euler",
@@ -794,12 +805,29 @@ def test_runtime_avoids_duplicate_host_model_for_sharded_frozen_diagnostic(
     )
     monkeypatch.setattr(driver.blob, "build_local_eb_model", fake_model)
 
-    args = SimpleNamespace(shard_counts=(1, 1, 2))
-    geometry = SimpleNamespace(shape=(8, 8, 8))
+    args = SimpleNamespace(
+        shard_counts=(1, 1, 2),
+        metric_context=SimpleNamespace(
+            metric_evaluator=object(), bfield=object()
+        ),
+        reference=SimpleNamespace(B0=1.0),
+    )
+    geometry = SimpleNamespace(
+        shape=(8, 8, 8),
+        grid=SimpleNamespace(
+            y=SimpleNamespace(faces=np.asarray((-2.0, -1.0, 0.0))),
+            z=SimpleNamespace(faces=np.asarray((0.25, 1.25, 2.25))),
+        ),
+    )
     runtime = driver._runtime(geometry, object(), args)
 
     assert calls == [(1, 1, 2)]
-    assert payload_options == [{"compile_compact_transition_faces": True}]
+    assert len(payload_options) == 1
+    assert payload_options[0]["compile_direct_face_functionals"] is True
+    assert payload_options[0]["direct_face_band_radius"] == 0
+    assert payload_options[0]["compile_radial_curvature_faces"] is True
+    assert payload_options[0]["direct_face_angular_origins"] == (-2.0, 0.25)
+    assert callable(payload_options[0]["direct_face_geometry_sampler"])
     assert runtime.sharded_geometry.shard_counts == (1, 1, 2)
     assert runtime.control_volume_descriptor is descriptors[0]
     assert runtime.host_control_volume_descriptor is None
@@ -832,6 +860,9 @@ def test_runtime_preserves_single_device_host_frozen_path(monkeypatch):
     model = SimpleNamespace(
         parallel_operator_scheme="fci",
         parallel_material_scheme="production-path",
+        parallel_vorticity_advection_scheme="h-mf-second-order",
+        parallel_material_fallback_representation="h-mf-consistent",
+        parallel_material_div_b_fallback_scheme="raw-metric",
         parallel_flux_pairing="support-core",
         parallel_boundary_pairing="characteristic-sat",
         parallel_short_leg_treatment="local-backward-euler",
@@ -885,14 +916,81 @@ def test_runtime_preserves_single_device_host_frozen_path(monkeypatch):
     monkeypatch.setattr(driver.blob, "build_local_eb_model", lambda *a, **k: model)
 
     runtime = driver._runtime(
-        SimpleNamespace(shape=(8, 8, 8)),
+        SimpleNamespace(
+            shape=(8, 8, 8),
+            grid=SimpleNamespace(
+                y=SimpleNamespace(faces=np.asarray((-2.0, -1.0, 0.0))),
+                z=SimpleNamespace(faces=np.asarray((0.25, 1.25, 2.25))),
+            ),
+        ),
         object(),
-        SimpleNamespace(shard_counts=(1, 1, 1)),
+        SimpleNamespace(
+            shard_counts=(1, 1, 1),
+            metric_context=SimpleNamespace(
+                metric_evaluator=object(), bfield=object()
+            ),
+            reference=SimpleNamespace(B0=1.0),
+        ),
     )
     assert runtime.model is model
     assert runtime.local_geometry is not None
     assert runtime.host_control_volume_descriptor is descriptor
     assert runtime.frozen_execution == "host-single-device"
+
+
+def test_direct_face_geometry_sampler_batches_metric_calls_and_normalizes_B():
+    driver = _load(DRIVER, "simulate_hsx_mms_direct_face_sampler_test")
+    points = np.asarray(
+        ((0.2, -0.4, 0.5), (0.7, 1.1, 2.3)), dtype=np.float64
+    )
+    calls = []
+    bfield = object()
+
+    class Evaluator:
+        def evaluate(self, logical_points):
+            calls.append(("metric", logical_points))
+            return SimpleNamespace(
+                signed_J=np.asarray((2.0, 3.0)),
+                contravariant_metric=np.asarray(
+                    (
+                        np.diag((0.5, 1.0 / 3.0, 0.25)),
+                        np.diag((0.5, 1.0 / 3.0, 0.25)),
+                    )
+                ),
+                covariant_metric=np.asarray(
+                    (np.diag((2.0, 3.0, 4.0)), np.diag((2.0, 3.0, 4.0)))
+                ),
+            )
+
+        def evaluate_magnetic_field(self, logical_points, supplied_bfield):
+            calls.append(("magnetic", logical_points, supplied_bfield))
+            return SimpleNamespace(
+                B_contravariant=np.asarray(
+                    ((4.0, 0.0, 8.0), (0.0, 6.0, 2.0))
+                ),
+                magnitude=np.asarray((10.0, 12.0)),
+            )
+
+    args = SimpleNamespace(
+        metric_context=SimpleNamespace(
+            metric_evaluator=Evaluator(), bfield=bfield
+        ),
+        reference=SimpleNamespace(B0=2.0),
+    )
+    sampled = driver._make_direct_face_geometry_sampler(args)(points)
+
+    assert set(sampled) == {"J", "g_contra", "g_cov", "B_contra", "Bmag"}
+    assert len(calls) == 2
+    assert calls[0][0] == "metric"
+    assert calls[1][0] == "magnetic"
+    np.testing.assert_array_equal(calls[0][1], points)
+    np.testing.assert_array_equal(calls[1][1], points)
+    assert calls[1][2] is bfield
+    np.testing.assert_allclose(sampled["J"], (2.0, 3.0))
+    np.testing.assert_allclose(sampled["g_contra"][0], np.diag((0.5, 1.0 / 3.0, 0.25)))
+    np.testing.assert_allclose(sampled["g_cov"][1], np.diag((2.0, 3.0, 4.0)))
+    np.testing.assert_allclose(sampled["B_contra"], ((2.0, 0.0, 4.0), (0.0, 3.0, 1.0)))
+    np.testing.assert_allclose(sampled["Bmag"], (5.0, 6.0))
 
 
 def test_region_partition_is_disjoint_and_complete_for_active_owners():

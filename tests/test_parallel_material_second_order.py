@@ -539,6 +539,118 @@ def test_wall_center_reconstruction_mismatch_is_reported_and_falls_back():
     assert bool(info["backward_high_order_fallback"][0])
 
 
+def test_h_mf_wall_payload_keeps_fallback_and_short_leg_on_one_center():
+    p_center = jnp.asarray([[2.0, 3.0, 5.0, 0.2, -0.1]], dtype=jnp.float64)
+    h_center = p_center + jnp.asarray([[0.08, 0.03, 0.02, -0.01, 0.01]])
+    h_minus = h_center + jnp.asarray([[-0.1, 0.02, 0.03, 0.01, -0.02]])
+    h_plus = h_center + jnp.asarray([[0.01, -0.02, 0.01, -0.01, 0.02]])
+    # This is prescribed exterior data: it is intentionally held fixed while
+    # the plasma-side H/MF representation changes.
+    exterior_wall = jnp.asarray([[1.7, 2.8, 4.6, 0.0, 0.0]])
+    backward_wall = jnp.ones(1, dtype=bool)
+    forward_wall = jnp.zeros(1, dtype=bool)
+    resolved = flux.parallel_characteristic_wall_data(
+        h_center,
+        h_minus,
+        h_plus,
+        0.01,
+        0.2,
+        TAU,
+        MU,
+        selection_dt=1.0,
+        parallel_short_leg_selection="all-physical-walls",
+        backward_wall=backward_wall,
+        forward_wall=forward_wall,
+        backward_wall_state=exterior_wall,
+        parallel_characteristic_wall_law="physical-boundary-state",
+    )
+    residual, info = parallel_target_row_material_residual(
+        h_center,
+        h_minus,
+        h_plus,
+        0.01,
+        0.2,
+        TAU,
+        MU,
+        backward_wall=backward_wall,
+        forward_wall=forward_wall,
+        spatial_order=2,
+        minus2=h_minus,
+        plus2=h_plus,
+        dx_minus2=0.01,
+        dx_plus2=0.2,
+        backward_second_valid=False,
+        forward_second_valid=True,
+        resolved_wall_data=resolved,
+        div_b=0.0,
+    )
+    assert bool(jnp.all(jnp.isfinite(residual)))
+    assert not bool(info["wall_center_reconstruction_mismatch"][0])
+    assert bool(info["backward_high_order_valid"][0])
+
+    explicit, _ = parallel_target_row_material_residual(
+        h_center,
+        h_minus,
+        h_plus,
+        0.01,
+        0.2,
+        TAU,
+        MU,
+        backward_wall=backward_wall,
+        forward_wall=forward_wall,
+        spatial_order=2,
+        minus2=h_minus,
+        plus2=h_plus,
+        dx_minus2=0.01,
+        dx_plus2=0.2,
+        backward_second_valid=False,
+        forward_second_valid=True,
+        selection_dt=1.0,
+        parallel_short_leg_selection="all-physical-walls",
+        resolved_wall_data=resolved,
+        div_b=0.0,
+    )
+    implicit_base, _implicit_jacobian, _ = parallel_short_wall_material_data(
+        h_center,
+        h_minus,
+        h_plus,
+        0.01,
+        0.2,
+        TAU,
+        MU,
+        selection_dt=1.0,
+        parallel_short_leg_selection="all-physical-walls",
+        backward_wall=backward_wall,
+        forward_wall=forward_wall,
+        resolved_wall_data=resolved,
+    )
+    np.testing.assert_allclose(
+        residual,
+        explicit + implicit_base,
+        rtol=2.0e-10,
+        atol=2.0e-11,
+    )
+
+    updated, increment, be_info = parallel_short_wall_backward_euler(
+        h_center,
+        h_minus,
+        h_plus,
+        0.01,
+        0.2,
+        TAU,
+        MU,
+        selection_dt=1.0,
+        solve_dt=1.0e-6,
+        parallel_short_leg_selection="all-physical-walls",
+        backward_wall=backward_wall,
+        forward_wall=forward_wall,
+        resolved_wall_data=resolved,
+    )
+    np.testing.assert_allclose(be_info["center"], h_center, rtol=0.0, atol=0.0)
+    assert bool(jnp.all(jnp.isfinite(updated)))
+    assert bool(jnp.all(jnp.isfinite(increment)))
+
+
 def test_constant_coefficient_eigenmode_polynomial_exactness(monkeypatch):
     """Scalar/eigenmode contract with the production matrix frozen explicitly."""
 

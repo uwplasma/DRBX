@@ -8,6 +8,7 @@ import sys
 
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
@@ -16,12 +17,19 @@ if str(_TESTS) not in sys.path:
 from drbx.geometry.fci_control_volumes import (  # noqa: E402
     build_polar_angular_agglomeration_geometry,
 )
+from drbx.geometry import FCI_DEP_PHYSICAL_BOUNDARY  # noqa: E402
 from drbx.native import FciDrbEBState  # noqa: E402
+from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
+    build_local_fci_drb_eb_operator_boundary_bundle,
+)
 from drbx.native.fci_boundaries import (  # noqa: E402
     LocalControlVolumeBoundaryBC3D,
 )
 from drbx.native.fci_operators import (  # noqa: E402
     aggregate_local_control_volume_average,
+)
+from drbx.native.fci_parallel_production_flux import (  # noqa: E402
+    parallel_vorticity_second_order_upwind_residual,
 )
 from drbx.native.fci_angular_agglomeration import (  # noqa: E402
     assemble_local_polar_angular_agglomeration_geometry,
@@ -38,6 +46,33 @@ from shifted_torus_eb_mms_data import (  # noqa: E402
 
 
 SHEAR = 0.37
+
+
+def _mark_forward_eta_wall(maps):
+    return replace(
+        maps,
+        forward=replace(
+            maps.forward,
+            endpoint_kind=maps.forward.endpoint_kind.at[..., -1].set(
+                FCI_DEP_PHYSICAL_BOUNDARY
+            ),
+            target_valid=maps.forward.target_valid.at[..., -1].set(True),
+        ),
+    )
+
+
+def _invalidate_material_map_targets(maps):
+    return replace(
+        maps,
+        forward=replace(
+            maps.forward,
+            target_valid=jnp.zeros_like(maps.forward.target_valid),
+        ),
+        backward=replace(
+            maps.backward,
+            target_valid=jnp.zeros_like(maps.backward.target_valid),
+        ),
+    )
 
 
 def _material_source_case(
@@ -199,6 +234,329 @@ def test_material_geometry_source_invalid_raw_donor_uses_fallback():
     np.testing.assert_array_equal(
         np.asarray(result["material_div_b"])[mask],
         np.full(np.count_nonzero(mask), 23.0),
+    )
+
+    raw_result = replace(
+        rhs_bad,
+        parallel_material_div_b_fallback_scheme="raw-metric",
+    )._fci_second_order_material_div_b(
+        face_bc, context, fallback_div_b=fallback
+    )
+    raw_used = np.asarray(raw_result["material_div_b_raw_fallback_used"])
+    legacy_used = np.asarray(raw_result["material_div_b_legacy_fallback_used"])
+    assert bool(np.any(raw_used))
+    assert bool(np.any(legacy_used))
+    assert not bool(np.any(raw_used & legacy_used))
+    np.testing.assert_array_equal(
+        np.asarray(raw_result["material_div_b"])[legacy_used],
+        np.full(np.count_nonzero(legacy_used), 23.0),
+    )
+
+
+def test_raw_metric_div_b_fallback_converges_without_owner_projection():
+    errors = []
+    for n in (16, 32):
+        _plain, rhs, face_bc, context, exact = _material_source_case(n)
+        rhs = replace(
+            rhs,
+            geometry=replace(
+                rhs.geometry,
+                material_maps=_invalidate_material_map_targets(
+                    rhs.geometry.material_maps
+                ),
+            ),
+            parallel_material_div_b_fallback_scheme="raw-metric",
+        )
+        legacy = jnp.full(rhs.geometry.owned_shape, -17.0, dtype=jnp.float64)
+        result = rhs._fci_second_order_material_div_b(
+            face_bc,
+            context,
+            fallback_div_b=legacy,
+        )
+        assert not bool(np.any(np.asarray(result["material_div_b_valid"])))
+        assert bool(
+            np.all(np.asarray(result["material_div_b_raw_fallback_used"]))
+        )
+        assert not bool(
+            np.any(np.asarray(result["material_div_b_legacy_fallback_used"]))
+        )
+        value = np.asarray(result["material_div_b"])
+        assert bool(np.all(np.isfinite(value)))
+        assert not bool(np.any(value == -17.0))
+        errors.append(np.linalg.norm(value - exact) / np.linalg.norm(exact))
+    observed = np.log2(errors[0] / errors[1])
+    assert observed >= 1.8, (errors, observed)
+
+
+def test_raw_metric_div_b_fallback_uses_physical_endpoint_bmag():
+    _plain, rhs, face_bc, context, _exact = _material_source_case(8)
+    material_maps = _invalidate_material_map_targets(rhs.geometry.material_maps)
+    canonical_maps = _mark_forward_eta_wall(rhs.geometry.maps)
+
+    def evaluate(endpoint_bmag: float):
+        forward = canonical_maps.forward
+        wall_bmag = forward.endpoint_bmag.at[..., -1].set(endpoint_bmag)
+        geometry = replace(
+            rhs.geometry,
+            maps=replace(
+                canonical_maps,
+                forward=replace(forward, endpoint_bmag=wall_bmag),
+            ),
+            material_maps=material_maps,
+        )
+        result = replace(
+            rhs,
+            geometry=geometry,
+            parallel_material_div_b_fallback_scheme="raw-metric",
+        )._fci_second_order_material_div_b(
+            face_bc,
+            context,
+            fallback_div_b=jnp.full(geometry.owned_shape, -17.0),
+        )
+        assert bool(
+            np.all(np.asarray(result["material_div_b_raw_fallback_used"]))
+        )
+        assert not bool(
+            np.any(np.asarray(result["material_div_b_legacy_fallback_used"]))
+        )
+        return np.asarray(result["material_div_b"]), geometry
+
+    value_2, geometry = evaluate(2.0)
+    value_4, _ = evaluate(4.0)
+    wall = np.zeros(geometry.owned_shape, dtype=bool)
+    wall[..., -1] = True
+    np.testing.assert_array_equal(value_4[~wall], value_2[~wall])
+
+    B0 = np.asarray(geometry.cell_bfield.Bmag_owned)
+    hm = np.asarray(geometry.maps.backward.connection_length)
+    hp = np.asarray(geometry.maps.forward.connection_length)
+    expected_delta = B0 * hm / (hp * (hm + hp)) * (1.0 / 4.0 - 1.0 / 2.0)
+    np.testing.assert_allclose(
+        value_4[wall] - value_2[wall],
+        expected_delta[wall],
+        rtol=2.0e-13,
+        atol=2.0e-13,
+    )
+
+
+@pytest.mark.parametrize("ion_speed", (0.17, -0.17))
+def test_h_mf_vorticity_wall_uses_directional_second_hop_or_h_first_order(
+    ion_speed,
+):
+    """A downwind wall must not force the selected H/MF lane through P."""
+
+    _plain, rhs, _face_bc, _context, _exact = _material_source_case(8)
+    geometry = replace(
+        rhs.geometry,
+        maps=_mark_forward_eta_wall(rhs.geometry.maps),
+        material_maps=_mark_forward_eta_wall(rhs.geometry.material_maps),
+    )
+    rhs = replace(
+        rhs,
+        geometry=geometry,
+        parallel_operator_scheme="fci",
+        parallel_flux_pairing="support-core",
+        parallel_material_scheme="production-path",
+        parallel_boundary_pairing="characteristic-sat",
+        parallel_vorticity_advection_scheme="h-mf-second-order",
+        parallel_material_fallback_representation="h-mf-consistent",
+        parallel_material_div_b_fallback_scheme="raw-metric",
+    )
+    shape = geometry.owned_shape
+    theta = jnp.asarray(geometry.grid.y_centers_owned)[None, :, None]
+    eta = jnp.asarray(geometry.grid.z_centers_owned)[None, None, :]
+    phase = theta + 0.7 * eta
+
+    def fine(value):
+        return jnp.broadcast_to(value, shape)
+
+    raw = FciDrbEBState(
+        density=fine(2.0 + 0.04 * jnp.sin(phase)),
+        phi=fine(0.1 + 0.01 * jnp.cos(phase)),
+        Te=fine(3.0 + 0.03 * jnp.cos(phase + 0.2)),
+        Ti=fine(5.0 + 0.02 * jnp.sin(2.0 * phase)),
+        Vi=fine(ion_speed),
+        Ve=fine(-0.03),
+        vorticity=fine(0.2 + 0.07 * jnp.sin(phase - 0.1)),
+    )
+    cells = rhs.control_volume_geometry.cells
+    state = raw.map_fields(
+        lambda value: aggregate_local_control_volume_average(
+            value, cells, rhs.domain
+        )
+    )
+    face_bc = rhs._face_bcs(state)
+    state_halo = rhs._prepare_state_halo(state, face_bc)
+    operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
+        state_halo,
+        geometry,
+        rhs.domain,
+        face_bc,
+        tau=rhs.parameters.tau,
+    )
+    parallel_boundary = rhs._parallel_operator_boundary(
+        state_halo=state_halo,
+        operator_boundary=operator_boundary,
+    )
+    context = rhs._stencil_builder_context()
+    terms = rhs._fci_parallel_terms(
+        state_halo=state_halo,
+        face_bc=face_bc,
+        operator_boundary=operator_boundary,
+        parallel_boundary=parallel_boundary,
+        context=context,
+    )
+    diagnostics = terms["parallel_material_diagnostics"]
+
+    backward_valid = np.asarray(
+        diagnostics["vorticity_backward_second_valid"]
+    )
+    forward_valid = np.asarray(
+        diagnostics["vorticity_forward_second_valid"]
+    )
+    second_used = np.asarray(diagnostics["vorticity_h_second_order_used"])
+    h_first_used = np.asarray(
+        diagnostics["vorticity_h_first_order_fallback_used"]
+    )
+    p_used = np.asarray(diagnostics["vorticity_legacy_p_fallback_used"])
+    selected_valid = backward_valid if ion_speed > 0.0 else forward_valid
+    np.testing.assert_array_equal(second_used, selected_valid)
+    np.testing.assert_array_equal(h_first_used, ~selected_valid)
+    assert not bool(np.any(p_used))
+    wall = np.zeros(shape, dtype=bool)
+    wall[..., -1] = True
+    assert not bool(np.any(forward_valid[wall]))
+    if ion_speed > 0.0:
+        assert bool(np.all(second_used[wall]))
+        assert not bool(np.any(h_first_used[wall]))
+    else:
+        assert not bool(np.any(second_used[wall]))
+        assert bool(np.all(h_first_used[wall]))
+
+    characteristic = rhs._fci_parallel_characteristic_wall_data(
+        state_halo=state_halo,
+        face_bc=face_bc,
+        parallel_boundary=parallel_boundary,
+        context=context,
+        evaluate_wall_data=True,
+    )
+    material = rhs._fci_second_order_material_data(
+        characteristic,
+        face_bc,
+        context,
+    )
+    vorticity = rhs._fci_second_order_vorticity_data(
+        state.vorticity,
+        face_bc,
+        context,
+        material,
+    )
+    expected = parallel_vorticity_second_order_upwind_residual(
+        vorticity["center"],
+        vorticity["minus"],
+        vorticity["plus"],
+        vorticity["minus2"],
+        vorticity["plus2"],
+        material["center"][..., 3],
+        vorticity["dx_minus"],
+        vorticity["dx_plus"],
+        vorticity["dx_minus2"],
+        vorticity["dx_plus2"],
+        backward_second_valid=vorticity["backward_second_valid"],
+        forward_second_valid=vorticity["forward_second_valid"],
+    )
+    np.testing.assert_allclose(
+        np.asarray(terms["vorticity_parallel_advection"]),
+        np.asarray(expected),
+        rtol=2.0e-13,
+        atol=2.0e-13,
+    )
+
+
+@pytest.mark.slow
+def test_h_mf_rlp_wall_local_be_restricts_only_selected_active_owners():
+    """Exercise the repaired wall/implicit representation on angular owners."""
+
+    _plain, rhs, _face_bc, _context, _exact = _material_source_case(8)
+    geometry = replace(
+        rhs.geometry,
+        maps=_mark_forward_eta_wall(rhs.geometry.maps),
+        material_maps=_mark_forward_eta_wall(rhs.geometry.material_maps),
+    )
+    rhs = replace(
+        rhs,
+        geometry=geometry,
+        parameters=replace(
+            rhs.parameters,
+            parallel_characteristic_wall_law="physical-boundary-state",
+        ),
+        physical_wall_model_name="no-flow",
+        parallel_operator_scheme="fci",
+        parallel_flux_pairing="support-core",
+        parallel_material_scheme="production-path",
+        parallel_boundary_pairing="characteristic-sat",
+        parallel_material_fallback_representation="h-mf-consistent",
+        parallel_short_leg_treatment="local-backward-euler",
+        parallel_short_leg_selection="all-physical-walls",
+    )
+    shape = geometry.owned_shape
+    theta = jnp.asarray(geometry.grid.y_centers_owned)[None, :, None]
+    eta = jnp.asarray(geometry.grid.z_centers_owned)[None, None, :]
+    phase = theta + eta
+
+    def fine(value):
+        return jnp.broadcast_to(value, shape)
+
+    raw = FciDrbEBState(
+        density=fine(2.0 + 0.08 * jnp.sin(phase)),
+        phi=fine(0.1 + 0.02 * jnp.cos(phase)),
+        Te=fine(3.0 + 0.06 * jnp.cos(phase + 0.2)),
+        Ti=fine(5.0 + 0.07 * jnp.sin(2.0 * phase)),
+        Vi=fine(0.04 * jnp.sin(eta)),
+        Ve=fine(-0.03 * jnp.sin(eta)),
+        vorticity=jnp.zeros(shape, dtype=jnp.float64),
+    )
+    cells = rhs.control_volume_geometry.cells
+    state = raw.map_fields(
+        lambda value: aggregate_local_control_volume_average(
+            value, cells, rhs.domain
+        )
+    )
+    dy = float(
+        geometry.grid.y_centers_owned[1] - geometry.grid.y_centers_owned[0]
+    )
+    dz = float(
+        geometry.grid.z_centers_owned[1] - geometry.grid.z_centers_owned[0]
+    )
+    solve_dt = float(np.hypot(SHEAR * dy, dz)) * 1.0e-8
+    updated, increment, info = rhs.apply_short_leg_implicit_material_step(
+        state,
+        solve_dt=solve_dt,
+        selection_dt=solve_dt,
+        phi_owned=state.phi,
+        return_increment=True,
+    )
+
+    increment_values = jnp.stack(
+        tuple(
+            getattr(increment, name)
+            for name in ("density", "Te", "Ti", "Vi", "Ve")
+        ),
+        axis=-1,
+    )
+    complete = info["selected_complete_residual_owner"]
+    active = np.asarray(cells.is_active_owner)
+    assert int(np.count_nonzero(np.asarray(info["selected_wall"]))) == 3 * 8
+    assert bool(np.all(np.asarray(info["implicit_finite"])))
+    np.testing.assert_array_equal(np.asarray(increment_values)[~active], 0.0)
+    np.testing.assert_array_equal(np.asarray(complete)[~active], 0.0)
+    relative_tangent_defect = np.linalg.norm(
+        np.asarray(increment_values / solve_dt - complete)[active]
+    ) / np.linalg.norm(np.asarray(complete)[active])
+    assert relative_tangent_defect < 1.0e-5
+    np.testing.assert_array_equal(np.asarray(updated.phi), np.asarray(state.phi))
+    np.testing.assert_array_equal(
+        np.asarray(updated.vorticity), np.asarray(state.vorticity)
     )
 
 

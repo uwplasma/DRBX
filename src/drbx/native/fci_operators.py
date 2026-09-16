@@ -88,6 +88,9 @@ from .fci_boundaries import (
     LocalCellGradient3D,
     LocalControlVolumeBoundaryBC3D,
     LocalControlVolumeFieldClosure3D,
+    LocalControlVolumeDirectFaceStates3D,
+    LocalRadialCurvatureFaceRows3D,
+    LocalRadialCurvatureFaceStates3D,
     LocalControlVolumeFaceRows3D,
     LocalMomentFittedFaceRows3D,
     LocalControlVolumePolynomial3D,
@@ -1030,6 +1033,7 @@ def local_parallel_diffusion_fci_op(
     backward_remote_inverse_b_values: jnp.ndarray | None = None,
     forward_cut_wall_inverse_b_values: jnp.ndarray | None = None,
     backward_cut_wall_inverse_b_values: jnp.ndarray | None = None,
+    prepared_field_stencil: LocalStencil1D | None = None,
 ) -> jnp.ndarray:
     """Return a mapped conservative/support-form parallel diffusion.
 
@@ -1048,7 +1052,9 @@ def local_parallel_diffusion_fci_op(
     is omitted, the legacy convenience path derives ``B`` from the geometry
     halo.  Physical wall values for the field, diffusivity, and inverse ``B``
     must be supplied through their direction-aware endpoint arguments when a
-    trace terminates at a wall.
+    trace terminates at a wall.  An optional ``prepared_field_stencil`` allows
+    an opt-in caller to replace only the field samples after native endpoint
+    closure; all coefficient and connection-length stencils remain native.
     """
 
     if not isinstance(geometry, LocalFciGeometry3D):
@@ -1072,17 +1078,29 @@ def local_parallel_diffusion_fci_op(
                 f"got {diffusivity_halo_full.shape}, expected {geometry.halo_shape}"
             )
 
-    field_stencil = _build_mapped_stencil(
-        field_halo_full,
-        geometry,
-        context,
-        fci_stencil_builder=fci_stencil_builder,
-        forward_remote_values=forward_remote_values,
-        backward_remote_values=backward_remote_values,
-        cut_wall_values=cut_wall_values,
-        forward_cut_wall_values=forward_cut_wall_values,
-        backward_cut_wall_values=backward_cut_wall_values,
-    )
+    if prepared_field_stencil is None:
+        field_stencil = _build_mapped_stencil(
+            field_halo_full,
+            geometry,
+            context,
+            fci_stencil_builder=fci_stencil_builder,
+            forward_remote_values=forward_remote_values,
+            backward_remote_values=backward_remote_values,
+            cut_wall_values=cut_wall_values,
+            forward_cut_wall_values=forward_cut_wall_values,
+            backward_cut_wall_values=backward_cut_wall_values,
+        )
+    else:
+        field_stencil = prepared_field_stencil
+        if not isinstance(field_stencil, LocalStencil1D):
+            raise TypeError(
+                "prepared_field_stencil must be a LocalStencil1D instance"
+            )
+        if field_stencil.shape != geometry.owned_shape:
+            raise ValueError(
+                "prepared_field_stencil must match geometry.owned_shape; "
+                f"got {field_stencil.shape}, expected {geometry.owned_shape}"
+            )
     diffusivity_stencil = _build_mapped_stencil(
         diffusivity_halo_full,
         geometry,
@@ -1882,6 +1900,87 @@ def _axis_face_samples_from_halo(
         left_outer = left_owner
         right_outer = right_owner
     return left_outer, left_owner, right_owner, right_outer
+
+
+def build_periodic_curvature_endpoint_face_states(
+    material_halos: tuple[jax.Array, ...],
+    geometry: LocalFciGeometry3D,
+    *,
+    periodic_axes: tuple[bool, bool, bool],
+    positivity_floor: float = 1.0e-12,
+) -> tuple[
+    tuple[tuple[jax.Array, jax.Array], tuple[jax.Array, jax.Array]] | None,
+    tuple[tuple[jax.Array, jax.Array], tuple[jax.Array, jax.Array]] | None,
+    tuple[tuple[jax.Array, jax.Array], tuple[jax.Array, jax.Array]] | None,
+]:
+    """Build third-order material traces at periodic coordinate endpoints.
+
+    ``material_halos`` are the four already closed H fields.  The helper only
+    materializes four samples on each endpoint (eight samples total) for each
+    periodic axis, so endpoint traces use the exchanged two-cell halo at
+    theta/eta seams without rolling a local shard.  A ``None`` entry leaves
+    that axis to the local operator's legacy path.  The returned pairs retain
+    a singleton axis-first face dimension.
+    """
+
+    if len(material_halos) != 4:
+        raise ValueError(
+            "periodic curvature endpoint states require four material halos"
+        )
+    if len(periodic_axes) != 3:
+        raise ValueError("periodic_axes must contain three axis flags")
+    if not (np.isfinite(float(positivity_floor)) and float(positivity_floor) > 0.0):
+        raise ValueError("positivity_floor must be finite and positive")
+    if any(bool(value) for value in periodic_axes) and int(geometry.layout.halo_width) < 2:
+        raise ValueError(
+            "periodic curvature endpoint states require halo_width >= 2"
+        )
+
+    for halo in material_halos:
+        if jnp.asarray(halo).shape != geometry.halo_shape:
+            raise ValueError(
+                "material halos must match geometry.halo_shape; "
+                f"got {jnp.asarray(halo).shape}, expected {geometry.halo_shape}"
+            )
+
+    result = []
+    for axis, is_periodic in enumerate(periodic_axes):
+        if not bool(is_periodic):
+            result.append(None)
+            continue
+
+        owned_shape = tuple(int(value) for value in geometry.owned_shape)
+
+        def support_at(face_index: int) -> tuple[jax.Array, ...]:
+            support = []
+            halo_width = int(geometry.layout.halo_width)
+            for offset in (-2, -1, 0, 1):
+                fields = []
+                for halo in material_halos:
+                    slices = [
+                        slice(halo_width, halo_width + owned_shape[component])
+                        for component in range(3)
+                    ]
+                    start = halo_width + face_index + offset
+                    slices[axis] = slice(start, start + 1)
+                    fields.append(
+                        jnp.moveaxis(jnp.asarray(halo)[tuple(slices)], axis, 0)
+                    )
+                support.append(jnp.stack(tuple(fields), axis=-1))
+            return tuple(support)
+
+        lower_support = support_at(0)
+        upper_support = support_at(owned_shape[axis])
+        lower_left, lower_right, _ = reconstruct_third_order_face_states(
+            *lower_support,
+            positivity_floor=positivity_floor,
+        )
+        upper_left, upper_right, _ = reconstruct_third_order_face_states(
+            *upper_support,
+            positivity_floor=positivity_floor,
+        )
+        result.append(((lower_left, lower_right), (upper_left, upper_right)))
+    return tuple(result)
 
 
 def _boundary_trace_planes(
@@ -3079,12 +3178,11 @@ def _patch_local_axis_face_gradients(
         - 9.0 * upper_center
         + upper_prev_center
     ) / jnp.maximum(6.0 * upper_distance, 1.0e-30)
-    if boundary_weights is not None and boundary_weights_valid is not None:
-        if geometry.owned_shape[axis] < 3:
-            raise ValueError(
-                "finite-volume regular boundary derivative requires at least "
-                "three owned cells in the normal direction"
-            )
+    if (
+        boundary_weights is not None
+        and boundary_weights_valid is not None
+        and geometry.owned_shape[axis] >= 3
+    ):
         inward_values = jnp.moveaxis(values_owned, axis, 0)
         lower_samples = inward_values[:3]
         upper_samples = jnp.flip(inward_values[-3:], axis=0)
@@ -3528,6 +3626,25 @@ def local_curvature_production_path_op(
     tau: float | jnp.ndarray,
     domain: LocalDomain3D | None = None,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
+    direct_transition_face_states: tuple[
+        tuple[CoordinateFaceValues3D, CoordinateFaceValues3D],
+        tuple[CoordinateFaceValues3D, CoordinateFaceValues3D],
+        tuple[CoordinateFaceValues3D, CoordinateFaceValues3D],
+        tuple[CoordinateFaceValues3D, CoordinateFaceValues3D],
+    ] | None = None,
+    direct_face_quadrature_states: tuple[
+        LocalControlVolumeDirectFaceStates3D,
+        LocalControlVolumeDirectFaceStates3D,
+        LocalControlVolumeDirectFaceStates3D,
+        LocalControlVolumeDirectFaceStates3D,
+    ] | None = None,
+    radial_curvature_face_states: LocalRadialCurvatureFaceStates3D | None = None,
+    periodic_endpoint_face_states: tuple[
+        tuple[tuple[jax.Array, jax.Array], tuple[jax.Array, jax.Array]] | None,
+        tuple[tuple[jax.Array, jax.Array], tuple[jax.Array, jax.Array]] | None,
+        tuple[tuple[jax.Array, jax.Array], tuple[jax.Array, jax.Array]] | None,
+    ] | None = None,
+    theta_face_states: tuple[jax.Array, jax.Array, jax.Array] | None = None,
     equilibrium: jnp.ndarray | None = None,
     boundary_traces: tuple[
         LocalBoundaryFaceTrace3D,
@@ -3550,11 +3667,46 @@ def local_curvature_production_path_op(
     with equal/opposite signs to the two actual aggregate
     owners, then divided by the summed owner ``raw_volume/B`` measure.  This is
     a wave-propagation update; it does not add a centered scalar operator or a
-    post-hoc penalty.  The first output is the full residual, while optional
-    diagnostics expose its ``(u, theta, eta)`` directional residuals.
+    post-hoc penalty.  ``direct_transition_face_states`` may replace the two
+    reconstructed traces only on compact RLP transition faces.  The canonical
+    face state remains the one carried by each supplied stencil, allowing its
+    centered value to be patched by the same owner-to-face representation.
+    ``direct_face_quadrature_states`` is the nonlinear companion: on active
+    radial compact rows it evaluates the characteristic split at each
+    quadrature point before integrating the fluctuations.  The collapsed
+    transition payload remains supported for callers that have not opted into
+    the quadrature-resolved path. ``radial_curvature_face_states`` supplies
+    the same pointwise action from the lean all-radial descriptor and is
+    mutually exclusive with the generic compact payload.
+    ``periodic_endpoint_face_states`` optionally supplies third-order endpoint
+    traces built from exchanged material halos.  It is consumed only on
+    periodic axes; omitted entries preserve the legacy endpoint behavior.
+    ``theta_face_states`` is an explicit native-layout override for the
+    centered, left, and right theta-face states.  It is accepted only for a
+    periodic theta axis and is otherwise unused.
+    The first output is the full residual, while optional diagnostics expose
+    its ``(u, theta, eta)`` directional residuals.
     """
     if len(stencils) != 4:
         raise ValueError("production curvature requires four coupled stencils")
+    if periodic_endpoint_face_states is not None and len(periodic_endpoint_face_states) != 3:
+        raise ValueError("periodic endpoint face states require three axis entries")
+    if theta_face_states is not None:
+        if len(theta_face_states) != 3:
+            raise ValueError("theta_face_states require centered, left, and right arrays")
+        if domain is None or not bool(domain.periodic_axes[1]):
+            raise ValueError(
+                "theta_face_states require a periodic theta axis (domain.periodic_axes[1])"
+            )
+        theta_face_shape = geometry.layout.face_control_shape(1) + (4,)
+        theta_face_states = tuple(
+            jnp.asarray(value, dtype=jnp.float64) for value in theta_face_states
+        )
+        if any(value.shape != theta_face_shape for value in theta_face_states):
+            raise ValueError(
+                "theta_face_states must have native shape "
+                f"{theta_face_shape}"
+            )
     if not isinstance(geometry, LocalFciGeometry3D):
         raise TypeError("geometry must be LocalFciGeometry3D")
     if not isinstance(coefficients, LocalCurvatureFaceCoefficients3D):
@@ -3562,6 +3714,81 @@ def local_curvature_production_path_op(
     centers = tuple(jnp.asarray(stencil.x.center, dtype=jnp.float64) for stencil in stencils)
     if any(value.shape != geometry.owned_shape for value in centers):
         raise ValueError("coupled curvature stencils must match geometry.owned_shape")
+    if direct_transition_face_states is not None:
+        if control_volume_geometry is None:
+            raise ValueError(
+                "direct curvature transition states require control-volume geometry"
+            )
+        if len(direct_transition_face_states) != 4:
+            raise ValueError("direct curvature transition states require four fields")
+        for pair in direct_transition_face_states:
+            if len(pair) != 2 or not all(
+                isinstance(value, CoordinateFaceValues3D) for value in pair
+            ):
+                raise TypeError(
+                    "each direct curvature transition state must be a left/right "
+                    "CoordinateFaceValues3D pair"
+                )
+            if any(value.shape != geometry.owned_shape for value in pair):
+                raise ValueError(
+                    "direct curvature transition states must match geometry.owned_shape"
+                )
+    if direct_face_quadrature_states is not None:
+        if control_volume_geometry is None:
+            raise ValueError(
+                "direct curvature quadrature states require control-volume geometry"
+            )
+        if len(direct_face_quadrature_states) != 4:
+            raise ValueError(
+                "direct curvature quadrature states require four fields"
+            )
+        faces = control_volume_geometry.irregular_faces
+        for payload in direct_face_quadrature_states:
+            if not isinstance(payload, LocalControlVolumeDirectFaceStates3D):
+                raise TypeError(
+                    "direct curvature quadrature states must be scalar direct-face payloads"
+                )
+            if payload.max_rows != faces.max_rows or payload.max_patches != faces.max_patches:
+                raise ValueError(
+                    "direct curvature quadrature states must align with irregular faces"
+                )
+        # The current local scatter cannot account for a remote residual
+        # owner.  Reject such rows explicitly instead of silently dropping a
+        # compact contribution on an eta-sharded rank.
+        remote_compact = (
+            jnp.asarray(faces.active, dtype=bool)
+            & (jnp.asarray(faces.logical_axis, dtype=jnp.int32) == 0)
+            & jnp.asarray(faces.has_remote_residual, dtype=bool)
+        )
+        if not _is_tracer(remote_compact) and bool(jnp.any(remote_compact)):
+            raise ValueError(
+                "quadrature-resolved compact curvature rows with remote "
+                "residual owners are not supported by the local scatter"
+            )
+    if radial_curvature_face_states is not None:
+        if direct_face_quadrature_states is not None:
+            raise ValueError(
+                "choose either generic compact or lean radial curvature states"
+            )
+        if control_volume_geometry is None:
+            raise ValueError(
+                "lean radial curvature states require control-volume geometry"
+            )
+        rows = control_volume_geometry.radial_curvature_faces
+        if not isinstance(rows, LocalRadialCurvatureFaceRows3D):
+            raise ValueError(
+                "control-volume geometry has no lean radial curvature rows"
+            )
+        if not isinstance(
+            radial_curvature_face_states, LocalRadialCurvatureFaceStates3D
+        ):
+            raise TypeError(
+                "radial_curvature_face_states must be a lean batched payload"
+            )
+        if radial_curvature_face_states.max_rows != rows.max_rows:
+            raise ValueError("lean radial states must align with radial rows")
+        if radial_curvature_face_states.field_count < 4:
+            raise ValueError("lean radial curvature states require four fields")
     state = jnp.stack(centers, axis=-1)
     if equilibrium is None:
         equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
@@ -3683,8 +3910,33 @@ def local_curvature_production_path_op(
             )
         is_periodic = periodic[axis]
         if is_periodic:
-            lower_left, lower_right = m[:1], c[:1]
-            upper_left, upper_right = c[-1:], p[-1:]
+            endpoint = (
+                None
+                if periodic_endpoint_face_states is None
+                else periodic_endpoint_face_states[axis]
+            )
+            if endpoint is None:
+                lower_left, lower_right = m[:1], c[:1]
+                upper_left, upper_right = c[-1:], p[-1:]
+            else:
+                if len(endpoint) != 2 or any(len(pair) != 2 for pair in endpoint):
+                    raise ValueError(
+                        "periodic endpoint face states must contain lower and upper pairs"
+                    )
+                (lower_left, lower_right), (upper_left, upper_right) = endpoint
+                expected_shape = c[:1].shape
+                if any(
+                    jnp.asarray(value).shape != expected_shape
+                    for value in (
+                        lower_left,
+                        lower_right,
+                        upper_left,
+                        upper_right,
+                    )
+                ):
+                    raise ValueError(
+                        "periodic endpoint face states must match axis-first face shape"
+                    )
         elif axis == 0:
             lower_left = jnp.broadcast_to(equilibrium, c[:1].shape)
             lower_right = c[:1]
@@ -3707,6 +3959,122 @@ def local_curvature_production_path_op(
             jnp.asarray(bfield.Bmag_owned, dtype=jnp.float64), axis, 0
         )
         qnormal = qface / jnp.maximum(jnp.abs(bface), 1.0e-30)
+        # Compact radial rows carry four-point scalar traces.  Keep the
+        # characteristic split pointwise until after its matrix action.  The
+        # normal uses the discrete Q coefficient at the logical face; this is
+        # deliberately not reconstructed from the continuous metric at a
+        # quadrature point.
+        compact_direct_mask = jnp.zeros(qface.shape, dtype=bool)
+        compact_direct_row_valid = None
+        compact_direct_centered = None
+        compact_direct_plus = None
+        compact_direct_minus = None
+        compact_direct_measure = None
+        compact_direct_normal = None
+        compact_direct_rows = None
+        compact_direct_bmag = None
+        if (
+            axis == 0
+            and (
+                direct_face_quadrature_states is not None
+                or radial_curvature_face_states is not None
+            )
+        ):
+            if radial_curvature_face_states is not None:
+                faces = control_volume_geometry.radial_curvature_faces
+                compact_direct_rows = faces
+                direct_centered = radial_curvature_face_states.centered[
+                    ..., :4
+                ][:, None, ...]
+                direct_minus = radial_curvature_face_states.minus[
+                    ..., :4
+                ][:, None, ...]
+                direct_plus = radial_curvature_face_states.plus[
+                    ..., :4
+                ][:, None, ...]
+                direct_valid = jnp.all(
+                    radial_curvature_face_states.valid[..., :4], axis=-1
+                )[:, None, :]
+                compact_active = jnp.asarray(faces.active, dtype=bool)
+                qactive = compact_active[:, None, None] & jnp.ones(
+                    (faces.max_rows, 1, 4), dtype=bool
+                )
+                qmeasure = jnp.asarray(
+                    faces.quadrature_weight, dtype=jnp.float64
+                )[:, None, :]
+                compact_direct_bmag = jnp.asarray(
+                    faces.Bmag, dtype=jnp.float64
+                )[:, None, :]
+            else:
+                faces = control_volume_geometry.irregular_faces
+                compact_direct_rows = faces
+                row_payloads = direct_face_quadrature_states
+                direct_centered = jnp.stack(
+                    tuple(payload.centered for payload in row_payloads), axis=-1
+                )
+                direct_minus = jnp.stack(
+                    tuple(payload.minus for payload in row_payloads), axis=-1
+                )
+                direct_plus = jnp.stack(
+                    tuple(payload.plus for payload in row_payloads), axis=-1
+                )
+                direct_valid = jnp.all(
+                    jnp.stack(
+                        tuple(payload.valid for payload in row_payloads), axis=-1
+                    ),
+                    axis=-1,
+                )
+                compact_active = (
+                    jnp.asarray(faces.active, dtype=bool)
+                    & (jnp.asarray(faces.logical_axis, dtype=jnp.int32) == 0)
+                )
+                qactive = jnp.asarray(faces.quadrature_active, dtype=bool)
+                qmeasure = jnp.where(
+                    qactive,
+                    jnp.linalg.norm(
+                        jnp.asarray(
+                            faces.area_covector_weight, dtype=jnp.float64
+                        ),
+                        axis=-1,
+                    ),
+                    0.0,
+                )
+                compact_direct_bmag = jnp.asarray(
+                    faces.Bmag, dtype=jnp.float64
+                )
+            compact_direct_row_valid = compact_active & jnp.all(
+                direct_valid | ~qactive, axis=(1, 2)
+            )
+            qnormal_row = (
+                jnp.asarray(
+                    coefficient[
+                        faces.logical_face_i,
+                        faces.logical_face_j,
+                        faces.logical_face_k,
+                    ],
+                    dtype=jnp.float64,
+                )[:, None, None]
+                / jnp.maximum(
+                    compact_direct_bmag, 1.0e-30
+                )
+            )
+            compact_direct_plus = direct_plus
+            compact_direct_minus = direct_minus
+            compact_direct_centered = direct_centered
+            compact_direct_measure = qmeasure
+            compact_direct_normal = qnormal_row
+            native_index = (
+                faces.logical_face_i,
+                faces.logical_face_j,
+                faces.logical_face_k,
+            )
+            axis_first_index = (
+                native_index[axis],
+                *(native_index[d] for d in range(3) if d != axis),
+            )
+            compact_direct_mask = compact_direct_mask.at[axis_first_index].set(
+                compact_direct_row_valid
+            )
         lower_wall_face_state = None
         upper_wall_face_state = None
         if (
@@ -3798,6 +4166,47 @@ def local_curvature_production_path_op(
             contract_lower_mask, contract_upper_mask,
             axis=0, axis_regular_axes=contract_axis_regular_axes,
         )
+        if direct_transition_face_states is not None:
+            faces = control_volume_geometry.irregular_faces
+            native_index = (
+                faces.logical_face_i,
+                faces.logical_face_j,
+                faces.logical_face_k,
+            )
+            axis_first_index = (
+                native_index[axis],
+                *(native_index[d] for d in range(3) if d != axis),
+            )
+            direct_left = jnp.stack(
+                tuple(
+                    jnp.asarray(getattr(pair[0], name), dtype=jnp.float64)[
+                        native_index
+                    ]
+                    for pair in direct_transition_face_states
+                ),
+                axis=-1,
+            )
+            direct_right = jnp.stack(
+                tuple(
+                    jnp.asarray(getattr(pair[1], name), dtype=jnp.float64)[
+                        native_index
+                    ]
+                    for pair in direct_transition_face_states
+                ),
+                axis=-1,
+            )
+            direct_active = (
+                jnp.asarray(faces.active, dtype=bool)
+                & (jnp.asarray(faces.logical_axis, dtype=jnp.int32) == axis)
+            )
+            old_left = left_face[axis_first_index]
+            old_right = right_face[axis_first_index]
+            left_face = left_face.at[axis_first_index].set(
+                jnp.where(direct_active[..., None], direct_left, old_left)
+            )
+            right_face = right_face.at[axis_first_index].set(
+                jnp.where(direct_active[..., None], direct_right, old_right)
+            )
         # The axis-first layout keeps the face index at zero for all three
         # directions, while owner coordinates below are explicitly mapped
         # back to native (i,j,k) order.
@@ -3817,6 +4226,11 @@ def local_curvature_production_path_op(
             ),
             axis=-1,
         )
+        if axis == 1 and theta_face_states is not None:
+            theta_centered, theta_left, theta_right = theta_face_states
+            canonical_face_state = jnp.moveaxis(theta_centered, 1, 0)
+            left_face = jnp.moveaxis(theta_left, 1, 0)
+            right_face = jnp.moveaxis(theta_right, 1, 0)
         face_state = canonical_face_state
         if not is_periodic:
             face_state = face_state.at[0].set(
@@ -3829,13 +4243,30 @@ def local_curvature_production_path_op(
                 if upper_wall_face_state is None
                 else upper_wall_face_state[0]
             )
-        # Coefficients store Q=J*K and owner measures are raw_volume/B;
-        # the material matrix is the physical K-symbol, so use Q/B as its
-        # face normal to avoid inserting an extra B in the update.
+        # Coefficients store Q=J*K/B and owner measures are raw_volume/B;
+        # their ratio is therefore the physical K-symbol without an extra
+        # magnetic-field factor in the update.
         dplus, dminus = curvature_face_linearized_fluctuations(
             left_face, right_face, face_state, bface, tau, normal=qnormal,
             positivity_floor=positivity_floor,
         )
+        compact_dplus = None
+        compact_dminus = None
+        if compact_direct_row_valid is not None:
+            assert compact_direct_centered is not None
+            assert compact_direct_minus is not None
+            assert compact_direct_plus is not None
+            assert compact_direct_normal is not None
+            faces = compact_direct_rows
+            compact_dplus, compact_dminus = curvature_face_linearized_fluctuations(
+                compact_direct_minus,
+                compact_direct_plus,
+                compact_direct_centered,
+                compact_direct_bmag,
+                tau,
+                normal=compact_direct_normal,
+                positivity_floor=positivity_floor,
+            )
         # Face areas are physical regular-face measures.  Use the control
         # volume's fractions/open masks when available so merged owners see
         # the same measures as the scalar conservative operator.
@@ -3923,11 +4354,70 @@ def local_curvature_production_path_op(
         valid_right = right_valid & ~right_remote
         integrated_plus = jnp.where(valid_right[..., None], -dplus * area[..., None], 0.0)
         integrated_minus = jnp.where(valid_left[..., None], -dminus * area[..., None], 0.0)
+        # A valid compact radial row replaces the coordinate-face integral;
+        # ordinary reconstruction remains authoritative for inactive or
+        # invalid rows.
+        if compact_direct_row_valid is not None:
+            compact_face_mask = compact_direct_mask
+            integrated_plus = jnp.where(
+                compact_face_mask[..., None], 0.0, integrated_plus
+            )
+            integrated_minus = jnp.where(
+                compact_face_mask[..., None], 0.0, integrated_minus
+            )
         owner_integrated = jnp.zeros(geometry.owned_shape + (4,), dtype=jnp.float64)
         # D+ is right-going and updates the right owner; D- is left-going and
         # updates the left owner.
         owner_integrated = owner_integrated.at[left_owner].add(integrated_minus)
         owner_integrated = owner_integrated.at[right_owner].add(integrated_plus)
+        if compact_dplus is not None:
+            assert compact_dminus is not None
+            assert compact_direct_measure is not None
+            assert compact_direct_row_valid is not None
+            faces = compact_direct_rows
+            compact_plus_integrated = -jnp.sum(
+                jnp.where(
+                    qactive[..., None]
+                    & compact_direct_row_valid[:, None, None, None],
+                    compact_dplus * compact_direct_measure[..., None],
+                    0.0,
+                ),
+                axis=(1, 2),
+            )
+            compact_minus_integrated = -jnp.sum(
+                jnp.where(
+                    qactive[..., None]
+                    & compact_direct_row_valid[:, None, None, None],
+                    compact_dminus * compact_direct_measure[..., None],
+                    0.0,
+                ),
+                axis=(1, 2),
+            )
+            compact_minus_owner = (
+                jnp.asarray(faces.minus_owner_i, dtype=jnp.int32),
+                jnp.asarray(faces.minus_owner_j, dtype=jnp.int32),
+                jnp.asarray(faces.minus_owner_k, dtype=jnp.int32),
+            )
+            compact_plus_owner = (
+                jnp.asarray(faces.plus_owner_i, dtype=jnp.int32),
+                jnp.asarray(faces.plus_owner_j, dtype=jnp.int32),
+                jnp.asarray(faces.plus_owner_k, dtype=jnp.int32),
+            )
+            compact_has_plus = (
+                jnp.asarray(faces.has_plus_owner, dtype=bool)
+                if hasattr(faces, "has_plus_owner")
+                else jnp.ones((faces.max_rows,), dtype=bool)
+            )
+            owner_integrated = owner_integrated.at[compact_minus_owner].add(
+                jnp.where(compact_direct_row_valid[:, None], compact_minus_integrated, 0.0)
+            )
+            owner_integrated = owner_integrated.at[compact_plus_owner].add(
+                jnp.where(
+                    (compact_direct_row_valid & compact_has_plus)[:, None],
+                    compact_plus_integrated,
+                    0.0,
+                )
+            )
         # The interface fluctuations carry only the jump correction.  The
         # smooth physical transport is the total within-cell fluctuation
         # between the reconstructed left/right boundary states.
@@ -3961,6 +4451,76 @@ def local_curvature_production_path_op(
             -(cell_plus + cell_minus) * cell_area[..., None],
             0.0,
         )
+        if (
+            axis == 0
+            and compact_direct_row_valid is not None
+            and compact_direct_plus is not None
+            and compact_direct_minus is not None
+            and compact_direct_centered is not None
+            and compact_direct_normal is not None
+            and compact_direct_measure is not None
+        ):
+            # Map logical radial faces to rows using a max-scatter so padded
+            # inactive rows (whose logical indices are -1) cannot overwrite a
+            # real row.  A cell uses the plus trace of its lower face and the
+            # minus trace of its upper face at the same quadrature nodes.
+            faces = compact_direct_rows
+            radial_shape = qface.shape
+            radial_grid = jnp.indices(radial_shape, dtype=jnp.int32)
+            safe_i = jnp.clip(jnp.asarray(faces.logical_face_i), 0, radial_shape[0] - 1)
+            safe_j = jnp.clip(jnp.asarray(faces.logical_face_j), 0, radial_shape[1] - 1)
+            safe_k = jnp.clip(jnp.asarray(faces.logical_face_k), 0, radial_shape[2] - 1)
+            radial_active = compact_direct_row_valid
+            row_numbers = jnp.arange(faces.max_rows, dtype=jnp.int32)
+            row_grid = jnp.full(radial_shape, -1, dtype=jnp.int32).at[
+                safe_i, safe_j, safe_k
+            ].max(jnp.where(radial_active, row_numbers, -1))
+            lower_i = radial_grid[0][:-1]
+            upper_i = radial_grid[0][1:]
+            lower_j = radial_grid[1][:-1]
+            lower_k = radial_grid[2][:-1]
+            lower_row = row_grid[lower_i, lower_j, lower_k]
+            upper_row = row_grid[upper_i, lower_j, lower_k]
+            both_valid = (lower_row >= 0) & (upper_row >= 0)
+            lower_row = jnp.clip(lower_row, 0, faces.max_rows - 1)
+            upper_row = jnp.clip(upper_row, 0, faces.max_rows - 1)
+            direct_cell_left = compact_direct_plus[lower_row]
+            direct_cell_right = compact_direct_minus[upper_row]
+            direct_cell_state = 0.5 * (
+                compact_direct_centered[lower_row]
+                + compact_direct_centered[upper_row]
+            )
+            direct_cell_normal = 0.5 * (
+                compact_direct_normal[lower_row]
+                + compact_direct_normal[upper_row]
+            )
+            direct_cell_b = 0.5 * (
+                compact_direct_bmag[lower_row]
+                + compact_direct_bmag[upper_row]
+            )
+            direct_cell_plus, direct_cell_minus = (
+                curvature_face_linearized_fluctuations(
+                    direct_cell_left,
+                    direct_cell_right,
+                    direct_cell_state,
+                    direct_cell_b,
+                    tau,
+                    normal=direct_cell_normal,
+                    positivity_floor=positivity_floor,
+                )
+            )
+            direct_cell_measure = 0.5 * (
+                compact_direct_measure[lower_row]
+                + compact_direct_measure[upper_row]
+            )
+            direct_cell_integrated = -jnp.sum(
+                (direct_cell_plus + direct_cell_minus)
+                * direct_cell_measure[..., None],
+                axis=(3, 4),
+            )
+            total_integrated = jnp.where(
+                both_valid[..., None], direct_cell_integrated, total_integrated
+            )
         cell_path_integrated = jnp.zeros(
             geometry.owned_shape + (4,), dtype=jnp.float64
         ).at[cell_owner].add(total_integrated)
@@ -4005,7 +4565,7 @@ def local_curvature_conservative_op(
     """Apply the regular-grid conservative curvature operator.
 
     ``coefficients.x/y/z`` are the geometry-only shared-face flux densities
-    ``Q^alpha = J K^alpha``.  The returned quantity is
+    ``Q^alpha = J K^alpha / B``.  The returned quantity is
 
         ``C(f) = B/J * partial_alpha(Q^alpha f_face)``.
 
@@ -8103,6 +8663,355 @@ def evaluate_local_control_volume_polynomial(
     return point_value, point_gradient, owner_valid
 
 
+def build_local_control_volume_direct_face_states(
+    owner_values_owned: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    *,
+    positivity_floor: float | None = None,
+    halo_exchange: HaloExchange3D | None = None,
+    topology_filler: TopologyHaloFiller3D | None = None,
+) -> LocalControlVolumeDirectFaceStates3D:
+    """Evaluate direct scalar compact-face traces at every quadrature point.
+
+    The returned centered and biased traces retain the ``(row, patch,
+    quadrature)`` axes.  This is the operator-neutral primitive used by
+    nonlinear face consumers; callers must apply products or characteristic
+    matrices before reducing those axes.
+    """
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError("geometry must be LocalFciGeometry3D")
+    if not isinstance(domain, LocalDomain3D) or domain.layout != geometry.layout:
+        raise ValueError("domain must share geometry.layout")
+    if not isinstance(control_volume_geometry, LocalEmbeddedControlVolumeGeometry3D):
+        raise TypeError("control_volume_geometry must be LocalEmbeddedControlVolumeGeometry3D")
+    rows = control_volume_geometry.face_functionals
+    faces = control_volume_geometry.irregular_faces
+    if not isinstance(rows, LocalMomentFittedFaceRows3D):
+        raise ValueError("control-volume geometry requires direct face functionals")
+    if rows.max_rows != faces.max_rows:
+        raise ValueError("face functionals must align with irregular face rows")
+    values = jnp.asarray(owner_values_owned, dtype=jnp.float64)
+    if values.shape != geometry.owned_shape:
+        raise ValueError(f"owner_values_owned must have shape {geometry.owned_shape}")
+    owner_halo = inject_owned_field_to_halo(values, geometry.layout)
+    if halo_exchange is not None:
+        owner_halo = halo_exchange(owner_halo, domain)
+    if topology_filler is not None:
+        owner_halo = topology_filler(owner_halo, domain)
+    nx, ny, nz = geometry.owned_shape
+    owned_in_bounds = (
+        (rows.owned_i >= 0) & (rows.owned_i < nx)
+        & (rows.owned_j >= 0) & (rows.owned_j < ny)
+        & (rows.owned_k >= 0) & (rows.owned_k < nz)
+    )
+    hx, hy, hz = geometry.halo_shape
+    halo_in_bounds = (
+        (rows.halo_i >= 0) & (rows.halo_i < hx)
+        & (rows.halo_j >= 0) & (rows.halo_j < hy)
+        & (rows.halo_k >= 0) & (rows.halo_k < hz)
+    )
+    owned_sample = values[
+        jnp.clip(rows.owned_i, 0, nx - 1),
+        jnp.clip(rows.owned_j, 0, ny - 1),
+        jnp.clip(rows.owned_k, 0, nz - 1),
+    ]
+    halo_sample = owner_halo[
+        jnp.clip(rows.halo_i, 0, hx - 1),
+        jnp.clip(rows.halo_j, 0, hy - 1),
+        jnp.clip(rows.halo_k, 0, hz - 1),
+    ]
+    is_owned = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_CELL
+    is_halo = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL
+    observation = jnp.where(is_owned, owned_sample, halo_sample)
+    observation = jnp.where(rows.observation_active, observation, 0.0)
+    centered = jnp.einsum("rpqe,re->rpq", rows.value_weights, observation)
+    minus = jnp.einsum("rpqe,re->rpq", rows.upwind_minus_value_weights, observation)
+    plus = jnp.einsum("rpqe,re->rpq", rows.upwind_plus_value_weights, observation)
+    observation_valid = (
+        (~rows.observation_active)
+        | (is_owned & owned_in_bounds & jnp.isfinite(owned_sample))
+        | (is_halo & halo_in_bounds & jnp.isfinite(halo_sample))
+    )
+    valid = (
+        rows.active[:, None, None]
+        & faces.active[:, None, None]
+        & faces.quadrature_active
+        & jnp.all(observation_valid, axis=1)[:, None, None]
+        & jnp.isfinite(centered) & jnp.isfinite(minus) & jnp.isfinite(plus)
+    )
+    if positivity_floor is not None:
+        floor = float(positivity_floor)
+        if not np.isfinite(floor) or floor <= 0.0:
+            raise ValueError("positivity_floor must be finite and positive")
+        valid = valid & (centered > floor) & (minus > floor) & (plus > floor)
+    return LocalControlVolumeDirectFaceStates3D(
+        centered=centered, minus=minus, plus=plus, valid=valid,
+        active=rows.active & faces.active, max_rows=rows.max_rows,
+        max_patches=rows.max_patches,
+    )
+
+
+def build_local_radial_curvature_face_states(
+    owner_values_owned: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    *,
+    positive_field_count: int = 0,
+    positivity_floor: float = 1.0e-12,
+    halo_exchange: HaloExchange3D | None = None,
+    topology_filler: TopologyHaloFiller3D | None = None,
+) -> LocalRadialCurvatureFaceStates3D:
+    """Evaluate several fields through one lean radial-face gather/matmul."""
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError("geometry must be LocalFciGeometry3D")
+    if not isinstance(domain, LocalDomain3D) or domain.layout != geometry.layout:
+        raise ValueError("domain must share geometry.layout")
+    if not isinstance(
+        control_volume_geometry, LocalEmbeddedControlVolumeGeometry3D
+    ):
+        raise TypeError(
+            "control_volume_geometry must be LocalEmbeddedControlVolumeGeometry3D"
+        )
+    rows = control_volume_geometry.radial_curvature_faces
+    if not isinstance(rows, LocalRadialCurvatureFaceRows3D):
+        raise ValueError(
+            "control-volume geometry requires lean radial curvature faces"
+        )
+    values = jnp.asarray(owner_values_owned, dtype=jnp.float64)
+    if values.ndim != 4 or values.shape[:3] != geometry.owned_shape:
+        raise ValueError(
+            "owner_values_owned must have shape geometry.owned_shape + (fields,)"
+        )
+    field_count = int(values.shape[-1])
+    positive_field_count = int(positive_field_count)
+    if not 0 <= positive_field_count <= field_count:
+        raise ValueError("positive_field_count must be between zero and field_count")
+    floor = float(positivity_floor)
+    if positive_field_count and (not np.isfinite(floor) or floor <= 0.0):
+        raise ValueError("positivity_floor must be finite and positive")
+    owner_halo = inject_owned_vector_field_to_halo(values, geometry.layout)
+    if halo_exchange is not None:
+        owner_halo = halo_exchange(owner_halo, domain)
+    if topology_filler is not None:
+        # Scalar topology rules intentionally validate scalar shapes. Apply
+        # them componentwise after the single batched halo exchange, then
+        # retain one batched observation gather and trace contraction.
+        owner_halo = jnp.stack(
+            tuple(
+                topology_filler(owner_halo[..., index], domain)
+                for index in range(field_count)
+            ),
+            axis=-1,
+        )
+    nx, ny, nz = geometry.owned_shape
+    owned_in_bounds = (
+        (rows.owned_i >= 0) & (rows.owned_i < nx)
+        & (rows.owned_j >= 0) & (rows.owned_j < ny)
+        & (rows.owned_k >= 0) & (rows.owned_k < nz)
+    )
+    hx, hy, hz = geometry.halo_shape
+    halo_in_bounds = (
+        (rows.halo_i >= 0) & (rows.halo_i < hx)
+        & (rows.halo_j >= 0) & (rows.halo_j < hy)
+        & (rows.halo_k >= 0) & (rows.halo_k < hz)
+    )
+    owned_sample = values[
+        jnp.clip(rows.owned_i, 0, nx - 1),
+        jnp.clip(rows.owned_j, 0, ny - 1),
+        jnp.clip(rows.owned_k, 0, nz - 1),
+    ]
+    halo_sample = owner_halo[
+        jnp.clip(rows.halo_i, 0, hx - 1),
+        jnp.clip(rows.halo_j, 0, hy - 1),
+        jnp.clip(rows.halo_k, 0, hz - 1),
+    ]
+    is_owned = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_CELL
+    is_halo = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL
+    observation = jnp.where(is_owned[..., None], owned_sample, halo_sample)
+    observation = jnp.where(
+        rows.observation_active[..., None], observation, 0.0
+    )
+    centered = jnp.einsum("rqe,ref->rqf", rows.centered_weights, observation)
+    minus = jnp.einsum("rqe,ref->rqf", rows.minus_weights, observation)
+    plus = jnp.einsum("rqe,ref->rqf", rows.plus_weights, observation)
+    observation_valid = (
+        (~rows.observation_active)[..., None]
+        | (
+            is_owned[..., None]
+            & owned_in_bounds[..., None]
+            & jnp.isfinite(owned_sample)
+        )
+        | (
+            is_halo[..., None]
+            & halo_in_bounds[..., None]
+            & jnp.isfinite(halo_sample)
+        )
+    )
+    valid = (
+        rows.active[:, None, None]
+        & jnp.all(observation_valid, axis=1)[:, None, :]
+        & jnp.isfinite(centered)
+        & jnp.isfinite(minus)
+        & jnp.isfinite(plus)
+    )
+    if positive_field_count:
+        positive = jnp.arange(field_count) < positive_field_count
+        admissible = (centered > floor) & (minus > floor) & (plus > floor)
+        valid = valid & (~positive[None, None, :] | admissible)
+    return LocalRadialCurvatureFaceStates3D(
+        centered=centered,
+        minus=minus,
+        plus=plus,
+        valid=valid,
+        active=rows.active,
+        max_rows=rows.max_rows,
+        field_count=field_count,
+    )
+
+
+def patch_local_radial_curvature_face_values(
+    stencil: ConservativeStencil3D,
+    radial_states: LocalRadialCurvatureFaceStates3D,
+    geometry: LocalFciGeometry3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    *,
+    field_index: int,
+) -> ConservativeStencil3D:
+    """Patch centered radial face values from one batched lean component."""
+
+    if not isinstance(stencil, ConservativeStencil3D):
+        raise TypeError("stencil must be ConservativeStencil3D")
+    if not isinstance(radial_states, LocalRadialCurvatureFaceStates3D):
+        raise TypeError("radial_states must be LocalRadialCurvatureFaceStates3D")
+    rows = control_volume_geometry.radial_curvature_faces
+    if not isinstance(rows, LocalRadialCurvatureFaceRows3D):
+        raise ValueError("control-volume geometry has no radial curvature faces")
+    field_index = int(field_index)
+    if not 0 <= field_index < radial_states.field_count:
+        raise ValueError("field_index is outside radial_states")
+    if radial_states.max_rows != rows.max_rows:
+        raise ValueError("radial states and radial face rows must align")
+    measure = jnp.where(rows.active[:, None], rows.quadrature_weight, 0.0)
+    measure_sum = jnp.sum(measure, axis=1)
+    centered = jnp.sum(
+        measure * radial_states.centered[..., field_index], axis=1
+    ) / jnp.maximum(measure_sum, 1.0e-30)
+    row_valid = (
+        rows.active
+        & radial_states.active
+        & (measure_sum > 0.0)
+        & jnp.all(radial_states.valid[..., field_index], axis=1)
+    )
+    index = (rows.logical_face_i, rows.logical_face_j, rows.logical_face_k)
+    patched_x = stencil.face_values.x.at[index].set(
+        jnp.where(row_valid, centered, stencil.face_values.x[index])
+    )
+    return dataclass_replace(
+        stencil,
+        face_values=CoordinateFaceValues3D(
+            patched_x, stencil.face_values.y, stencil.face_values.z
+        ),
+    )
+
+
+def patch_local_control_volume_direct_face_values(
+    stencil: ConservativeStencil3D,
+    direct_face_states: LocalControlVolumeDirectFaceStates3D,
+    geometry: LocalFciGeometry3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    *,
+    transition_only: bool = False,
+) -> ConservativeStencil3D:
+    """Patch radial centered face values from an uncollapsed direct payload.
+
+    This is the operator-neutral centered consumer for direct compact-face
+    states.  It reduces only the scalar centered value, using the norm of the
+    logical area covector as its quadrature measure; no metric Jacobian is
+    introduced at this stage.  ``transition_only`` restricts the patch to
+    actual changes in ``angular_group_sizes`` and therefore leaves a compiled
+    radius-one support band untouched.
+    """
+    if not isinstance(stencil, ConservativeStencil3D):
+        raise TypeError("stencil must be ConservativeStencil3D")
+    if not isinstance(direct_face_states, LocalControlVolumeDirectFaceStates3D):
+        raise TypeError(
+            "direct_face_states must be LocalControlVolumeDirectFaceStates3D"
+        )
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError("geometry must be LocalFciGeometry3D")
+    if not isinstance(
+        control_volume_geometry, LocalEmbeddedControlVolumeGeometry3D
+    ):
+        raise TypeError(
+            "control_volume_geometry must be LocalEmbeddedControlVolumeGeometry3D"
+        )
+    faces = control_volume_geometry.irregular_faces
+    if direct_face_states.max_rows != faces.max_rows:
+        raise ValueError("direct face states and irregular faces must have equal rows")
+    if direct_face_states.max_patches != faces.max_patches:
+        raise ValueError(
+            "direct face states and irregular faces must have equal patch capacity"
+        )
+    if stencil.x.center.shape != geometry.owned_shape:
+        raise ValueError("stencil must match geometry.owned_shape")
+    logical_axis = jnp.asarray(faces.logical_axis, dtype=jnp.int32)
+    measure = jnp.where(
+        jnp.asarray(faces.quadrature_active, dtype=bool),
+        jnp.linalg.norm(
+            jnp.asarray(faces.area_covector_weight, dtype=jnp.float64), axis=-1
+        ),
+        0.0,
+    )
+    measure_sum = jnp.sum(measure, axis=(1, 2))
+    centered = jnp.sum(
+        measure * jnp.asarray(direct_face_states.centered, dtype=jnp.float64),
+        axis=(1, 2),
+    ) / jnp.maximum(measure_sum, 1.0e-30)
+    row_valid = (
+        jnp.asarray(direct_face_states.active, dtype=bool)
+        & jnp.asarray(faces.active, dtype=bool)
+        & (logical_axis == 0)
+        & (measure_sum > 0.0)
+        & jnp.all(
+            jnp.asarray(direct_face_states.valid, dtype=bool)
+            | ~jnp.asarray(faces.quadrature_active, dtype=bool),
+            axis=(1, 2),
+        )
+    )
+    if transition_only:
+        profile = control_volume_geometry.angular_group_sizes
+        if profile is None:
+            raise ValueError(
+                "transition_only requires angular_group_sizes in control-volume geometry"
+            )
+        profile = jnp.asarray(profile, dtype=jnp.int32)
+        face_i = jnp.asarray(faces.logical_face_i, dtype=jnp.int32)
+        safe_i = jnp.clip(face_i, 1, profile.shape[0] - 1)
+        row_valid = row_valid & (
+            (face_i > 0)
+            & (face_i < profile.shape[0])
+            & (profile[safe_i - 1] != profile[safe_i])
+        )
+    face_index = (
+        faces.logical_face_i,
+        faces.logical_face_j,
+        faces.logical_face_k,
+    )
+    patched_x = stencil.face_values.x.at[face_index].set(
+        jnp.where(row_valid, centered, stencil.face_values.x[face_index])
+    )
+    return dataclass_replace(
+        stencil,
+        face_values=CoordinateFaceValues3D(
+            patched_x, stencil.face_values.y, stencil.face_values.z
+        ),
+    )
+
+
 def build_local_control_volume_poisson_face_stencil(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
@@ -8115,6 +9024,7 @@ def build_local_control_volume_poisson_face_stencil(
     regular_face_bc: LocalBoundaryFaceBC3D | None = None,
     boundary_trace: LocalBoundaryFaceTrace3D | None = None,
     positivity_floor: float | None = None,
+    patch_centered_face_values: bool = False,
     halo_exchange: HaloExchange3D | None = None,
     topology_filler: TopologyHaloFiller3D | None = None,
 ) -> tuple[
@@ -8132,10 +9042,13 @@ def build_local_control_volume_poisson_face_stencil(
     face-centred polynomial constraints make their difference annihilate every
     reproduced polynomial.
 
-    The returned conservative stencil is deliberately the established H-based
-    centered stencil.  Only the characteristic left/right states are patched;
-    this isolates the face-fit question without changing the compatible core,
-    generator velocity, metric sampling, or ordinary-grid reconstruction.
+    By default the returned conservative stencil is deliberately the
+    established H-based centered stencil.  Only the characteristic left/right
+    states are patched; this preserves the production Poisson compatible core.
+    ``patch_centered_face_values=True`` also replaces the centered coordinate
+    face value with the unbiased owner-to-face row.  That opt-in is intended
+    for controlled reuse by conservative operators such as curvature, whose
+    canonical face state must share the transition-face representation.
     """
 
     if not isinstance(control_volume_geometry, LocalEmbeddedControlVolumeGeometry3D):
@@ -8162,14 +9075,6 @@ def build_local_control_volume_poisson_face_stencil(
         raise ValueError(
             "eta-sharded Poisson face fits require halo_exchange"
         )
-    owner_values_halo = inject_owned_field_to_halo(
-        owner_values_owned, geometry.layout
-    )
-    if halo_exchange is not None:
-        owner_values_halo = halo_exchange(owner_values_halo, domain)
-    if topology_filler is not None:
-        owner_values_halo = topology_filler(owner_values_halo, domain)
-
     baseline = build_local_conservative_stencil_from_field(
         field_halo,
         geometry,
@@ -8184,49 +9089,21 @@ def build_local_control_volume_poisson_face_stencil(
             positivity_floor=positivity_floor,
         )
     )
-    nx, ny, nz = geometry.owned_shape
-    hx, hy, hz = geometry.halo_shape
-    owned_in_bounds = (
-        (rows.owned_i >= 0)
-        & (rows.owned_i < nx)
-        & (rows.owned_j >= 0)
-        & (rows.owned_j < ny)
-        & (rows.owned_k >= 0)
-        & (rows.owned_k < nz)
+    direct_states = build_local_control_volume_direct_face_states(
+        owner_values_owned,
+        geometry,
+        domain,
+        control_volume_geometry,
+        positivity_floor=positivity_floor,
+        halo_exchange=halo_exchange,
+        topology_filler=topology_filler,
     )
-    halo_in_bounds = (
-        (rows.halo_i >= 0)
-        & (rows.halo_i < hx)
-        & (rows.halo_j >= 0)
-        & (rows.halo_j < hy)
-        & (rows.halo_k >= 0)
-        & (rows.halo_k < hz)
-    )
-    owned_sample = owner_values_owned[
-        jnp.clip(rows.owned_i, 0, nx - 1),
-        jnp.clip(rows.owned_j, 0, ny - 1),
-        jnp.clip(rows.owned_k, 0, nz - 1),
-    ]
-    halo_sample = owner_values_halo[
-        jnp.clip(rows.halo_i, 0, hx - 1),
-        jnp.clip(rows.halo_j, 0, hy - 1),
-        jnp.clip(rows.halo_k, 0, hz - 1),
-    ]
-    is_owned = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_CELL
-    is_halo = rows.observation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL
-    observation = jnp.where(is_owned, owned_sample, halo_sample)
-    observation = jnp.where(rows.observation_active, observation, 0.0)
-    minus_quadrature = jnp.einsum(
-        "rpqe,re->rpq", rows.upwind_minus_value_weights, observation
-    )
-    plus_quadrature = jnp.einsum(
-        "rpqe,re->rpq", rows.upwind_plus_value_weights, observation
-    )
+    minus_quadrature = direct_states.minus
+    plus_quadrature = direct_states.plus
     quadrature_active = jnp.asarray(faces.quadrature_active, dtype=bool)
     quadrature_measure = jnp.where(
         quadrature_active,
-        jnp.asarray(faces.J, dtype=jnp.float64)
-        * jnp.linalg.norm(
+        jnp.linalg.norm(
             jnp.asarray(faces.area_covector_weight, dtype=jnp.float64), axis=-1
         ),
         0.0,
@@ -8239,31 +9116,19 @@ def build_local_control_volume_poisson_face_stencil(
         quadrature_measure * plus_quadrature, axis=(1, 2)
     ) / jnp.maximum(measure_sum, 1.0e-30)
     row_valid = (
-        rows.active
-        & faces.active
-        & (faces.logical_axis == 0)
+        rows.active & faces.active & (faces.logical_axis == 0)
         & (measure_sum > 0.0)
-        & jnp.all(
-            (~rows.observation_active)
-            | (
-                is_owned
-                & owned_in_bounds
-                & jnp.isfinite(owned_sample)
-            )
-            | (
-                is_halo
-                & halo_in_bounds
-                & jnp.isfinite(halo_sample)
-            ),
-            axis=1,
-        )
-        & jnp.isfinite(minus_value)
-        & jnp.isfinite(plus_value)
+        & jnp.all(direct_states.valid | ~quadrature_active, axis=(1, 2))
     )
-    if positivity_floor is not None:
-        row_valid = row_valid & (minus_value > positivity_floor) & (
-            plus_value > positivity_floor
-        )
+    # The legacy Poisson face patch is intentionally transition-only.  A
+    # radius-one band is compiled for consumers that need both path endpoints,
+    # but non-transition rows must remain ordinary Poisson faces.
+    if control_volume_geometry.angular_group_sizes is not None:
+        profile = jnp.asarray(control_volume_geometry.angular_group_sizes, dtype=jnp.int32)
+        fi = jnp.asarray(faces.logical_face_i, dtype=jnp.int32)
+        safe = jnp.clip(fi, 1, profile.shape[0] - 1)
+        transition = (fi > 0) & (fi < profile.shape[0]) & (profile[safe - 1] != profile[safe])
+        row_valid = row_valid & transition
 
     face_index = (
         faces.logical_face_i,
@@ -8278,6 +9143,14 @@ def build_local_control_volume_poisson_face_stencil(
     fitted_right_x = ordinary_right.x.at[face_index].set(
         jnp.where(row_valid, plus_value, old_plus)
     )
+    if patch_centered_face_values:
+        baseline = patch_local_control_volume_direct_face_values(
+            baseline,
+            direct_states,
+            geometry,
+            control_volume_geometry,
+            transition_only=True,
+        )
     return (
         baseline,
         CoordinateFaceValues3D(fitted_left_x, ordinary_left.y, ordinary_left.z),

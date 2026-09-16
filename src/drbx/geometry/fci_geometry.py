@@ -1709,10 +1709,11 @@ def _local_cell_gradient_type():
 class LocalCurvatureFaceCoefficients3D(_DataclassPyTreeMixin):
     """Owned-face coefficients for a compatible conservative curvature flux.
 
-    ``x``, ``y``, and ``z`` store ``Q^alpha = J K^alpha`` on the corresponding
-    owned faces, where ``K = 0.5 curl(b/B)`` and the curl is formed from shared
-    edge values.  Consequently the matching incidence divergence of these
-    coefficients satisfies ``div_h(curl_h(A)) == 0`` to roundoff.
+    ``x``, ``y``, and ``z`` store ``Q^alpha = J K^alpha / B`` on the
+    corresponding owned faces, where ``K = 0.5 curl(b)`` and the compatible
+    curl is formed from shared samples of ``A=b/B``.  Consequently the
+    matching incidence divergence of these coefficients satisfies
+    ``div_h(curl_h(A)) == 0`` to roundoff.
     """
 
     layout: HaloLayout3D
@@ -1736,13 +1737,70 @@ class LocalCurvatureFaceCoefficients3D(_DataclassPyTreeMixin):
         return self.x, self.y, self.z
 
 
+@_pytree_base
+@dataclass(frozen=True)
+class CurvatureEdgeOneForm3D(_DataclassPyTreeMixin):
+    """Owned shared-edge samples of the covariant magnetic one-form.
+
+    The three arrays are the common edge values used by the compatible
+    incidence curl: ``Az_xy`` lives on edges parallel to ``z``, ``Ay_xz`` on
+    edges parallel to ``y``, and ``Ax_yz`` on edges parallel to ``x``.  They
+    contain only the owned host edge set; the curvature builder places them in
+    its halo work arrays before applying its existing physical-boundary and
+    axis handling.
+    """
+
+    Az_xy: jnp.ndarray
+    Ay_xz: jnp.ndarray
+    Ax_yz: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        az_shape = tuple(int(v) for v in jnp.asarray(self.Az_xy).shape)
+        if len(az_shape) != 3:
+            raise ValueError(
+                "CurvatureEdgeOneForm3D.Az_xy must be three-dimensional, "
+                f"got {az_shape}"
+            )
+        nx_cells = az_shape[0] - 1
+        ny = az_shape[1] - 1
+        nz = az_shape[2]
+        if nx_cells < 1 or ny < 1 or nz < 1:
+            raise ValueError(
+                "CurvatureEdgeOneForm3D.Az_xy must have positive edge extents"
+            )
+        # Infer the cell counts from the Az family, whose first two axes are
+        # one larger than the cell-centered extents.
+        expected = {
+            "Az_xy": (nx_cells + 1, ny + 1, nz),
+            "Ay_xz": (nx_cells + 1, ny, nz + 1),
+            "Ax_yz": (nx_cells, ny + 1, nz + 1),
+        }
+        for name, shape in expected.items():
+            object.__setattr__(
+                self,
+                name,
+                _require_float_shape(getattr(self, name), shape, f"CurvatureEdgeOneForm3D.{name}"),
+            )
+            try:
+                finite = bool(jnp.all(jnp.isfinite(getattr(self, name))))
+            except jax.errors.TracerBoolConversionError:
+                finite = True
+            if not finite:
+                raise ValueError(f"CurvatureEdgeOneForm3D.{name} must be finite")
+
+    @property
+    def axes(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        return self.Az_xy, self.Ay_xz, self.Ax_yz
+
+
 def build_local_curvature_face_coefficients(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
     *,
     b_floor: float = 1.0e-30,
+    shared_edge_one_form: CurvatureEdgeOneForm3D | None = None,
 ) -> LocalCurvatureFaceCoefficients3D:
-    """Precompute shared-face ``J K^alpha`` coefficients for conservative C.
+    """Precompute shared-face ``J K^alpha / B`` coefficients for conservative C.
 
     The cell-halo covariant one-form ``A_alpha=(b/B)_alpha`` is averaged
     symmetrically to each edge, then differentiated with the incidence curl.
@@ -1833,6 +1891,32 @@ def build_local_curvature_face_coefficients(
     ix_face = slice(h, h + nx + 1)
     iy_face = slice(h, h + ny + 1)
     iz_face = slice(h, h + nz + 1)
+
+    if shared_edge_one_form is not None:
+        if not isinstance(shared_edge_one_form, CurvatureEdgeOneForm3D):
+            raise TypeError(
+                "shared_edge_one_form must be a CurvatureEdgeOneForm3D "
+                f"instance or None, got {type(shared_edge_one_form).__name__}"
+            )
+        expected_edge_shapes = (
+            (nx + 1, ny + 1, nz),
+            (nx + 1, ny, nz + 1),
+            (nx, ny + 1, nz + 1),
+        )
+        actual_edge_shapes = tuple(
+            value.shape for value in shared_edge_one_form.axes
+        )
+        if actual_edge_shapes != expected_edge_shapes:
+            raise ValueError(
+                "shared_edge_one_form shapes must match geometry-owned edges: "
+                f"got {actual_edge_shapes}, "
+                f"expected {expected_edge_shapes}"
+            )
+        # Install the one common owned edge set before any physical-boundary
+        # patching or axis projection.  The incidence curl below is unchanged.
+        Az_xy = Az_xy.at[(ix_face, iy_face, iz)].set(shared_edge_one_form.Az_xy)
+        Ay_xz = Ay_xz.at[(ix_face, iy, iz_face)].set(shared_edge_one_form.Ay_xz)
+        Ax_yz = Ax_yz.at[(ix, iy_face, iz_face)].set(shared_edge_one_form.Ax_yz)
 
     def _face_covariant_one_form(metric: LocalMetricGeometry, bfield: LocalBFieldGeometry) -> jnp.ndarray:
         face_b = jnp.asarray(bfield.B_contra_halo, dtype=jnp.float64)
@@ -7198,7 +7282,7 @@ def interpolate_B_contravariant(
     )
 
 
-ANGULAR_AGGLOMERATION_HOST_CACHE_VERSION = 3
+ANGULAR_AGGLOMERATION_HOST_CACHE_VERSION = 4
 ANGULAR_AGGLOMERATION_HOST_IDENTITY_VERSION = 2
 
 

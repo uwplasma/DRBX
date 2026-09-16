@@ -277,3 +277,151 @@ def test_mapped_material_support_uses_plasma_side_under_jit():
     assert no_wall == 1.0
     assert interior_jvp_error < 1.0e-10
     assert selected_wall_count > 0
+
+
+def test_h_mf_no_flow_wall_uses_reconstructed_plasma_endpoint_under_jit():
+    """The no-flow wall target must derive from the H/MF plasma endpoint."""
+
+    (
+        context,
+        mesh,
+        local,
+        partition,
+        fields,
+        cell_fields,
+        _map_fields,
+        sharded,
+    ) = _mapped_fixture()
+    if sharded.map_fields is None:
+        raise AssertionError("mapped fixture did not provide FCI map fields")
+    sharding = NamedSharding(mesh, partition)
+    fields = tuple(
+        jax.device_put(value, sharding) for value in fields
+    )
+    cell_fields = jax.device_put(cell_fields, sharding)
+    map_fields = jax.device_put(sharded.map_fields, sharding)
+
+    def kernel(density, phi, Te, Ti, Vi, Ve, vorticity, cells, maps):
+        geometry = assemble_local_fci_geometry(sharded, cells, maps)
+        forward_kind = geometry.maps.forward.endpoint_kind.at[
+            0, 0, 0
+        ].set(FCI_DEP_PHYSICAL_BOUNDARY)
+        forward = replace(
+            geometry.maps.forward,
+            endpoint_kind=forward_kind,
+            target_valid=geometry.maps.forward.target_valid.at[0, 0, 0].set(True),
+        )
+        material_forward = replace(
+            geometry.material_maps.forward,
+            endpoint_kind=forward_kind,
+            target_valid=geometry.material_maps.forward.target_valid.at[
+                0, 0, 0
+            ].set(True),
+        )
+        geometry = replace(
+            geometry,
+            maps=replace(geometry.maps, forward=forward),
+            material_maps=replace(
+                geometry.material_maps,
+                forward=material_forward,
+            ),
+        )
+        physical_context = replace(
+            context,
+            parameters=replace(
+                context.parameters,
+                parallel_characteristic_wall_law="physical-boundary-state",
+            ),
+        )
+        rhs = replace(
+            _build_rhs(context, local, geometry),
+            parameters=physical_context.parameters,
+            physical_wall_model_name="no-flow",
+            parallel_operator_scheme="fci",
+            parallel_flux_pairing="support-core",
+            parallel_material_scheme="production-path",
+            parallel_boundary_pairing="characteristic-sat",
+            parallel_material_fallback_representation="h-mf-consistent",
+        )
+        state = FciDrbEBState(density, phi, Te, Ti, Vi, Ve, vorticity)
+        face = rhs._face_bcs(state)
+        state_halo = rhs._prepare_state_halo(state, face)
+        operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
+            state_halo, geometry, rhs.domain, face, tau=rhs.parameters.tau
+        )
+        parallel_boundary = rhs._parallel_operator_boundary(
+            state_halo=state_halo, operator_boundary=operator_boundary
+        )
+        stencil_context = rhs._stencil_builder_context()
+        characteristic = rhs._fci_parallel_characteristic_wall_data(
+            state_halo=state_halo,
+            face_bc=face,
+            parallel_boundary=parallel_boundary,
+            context=stencil_context,
+        )
+        second = rhs._fci_second_order_material_data(
+            characteristic,
+            face,
+            stencil_context,
+        )
+        wall_data = second["wall_data"]
+        backward_plasma = jnp.stack(
+            tuple(
+                second["first_stencils"][name].minus
+                for name in ("density", "Te", "Ti", "Vi", "Ve")
+            ),
+            axis=-1,
+        )
+        forward_plasma = jnp.stack(
+            tuple(
+                second["first_stencils"][name].plus
+                for name in ("density", "Te", "Ti", "Vi", "Ve")
+            ),
+            axis=-1,
+        )
+        backward_expected = backward_plasma.at[..., 3].set(0.0).at[..., 4].set(0.0)
+        forward_expected = forward_plasma.at[..., 3].set(0.0).at[..., 4].set(0.0)
+        backward_wall = characteristic["backward_wall"]
+        forward_wall = characteristic["forward_wall"]
+        backward_error = jnp.max(jnp.where(
+            backward_wall[..., None],
+            jnp.abs(
+                wall_data["backward_physical_candidate_state"]
+                - backward_expected
+            ),
+            0.0,
+        ))
+        forward_error = jnp.max(jnp.where(
+            forward_wall[..., None],
+            jnp.abs(
+                wall_data["forward_physical_candidate_state"]
+                - forward_expected
+            ),
+            0.0,
+        ))
+        return jnp.asarray((
+            jnp.count_nonzero(backward_wall | forward_wall),
+            backward_error,
+            forward_error,
+            jnp.max(jnp.abs(wall_data["center"] - second["center"])),
+            jnp.all(jnp.isfinite(jnp.where(
+                (backward_wall | forward_wall)[..., None],
+                jnp.where(
+                    backward_wall[..., None],
+                    wall_data["backward_endpoint_state"],
+                    wall_data["forward_endpoint_state"],
+                ),
+                1.0,
+            ))),
+        ))
+
+    result = np.asarray(jax.jit(jax.shard_map(
+        kernel,
+        mesh=mesh,
+        in_specs=(partition,) * 9,
+        out_specs=P(),
+        check_vma=False,
+    ))(*fields, cell_fields, map_fields))
+    assert result[0] > 0
+    np.testing.assert_allclose(result[1:4], 0.0, rtol=0.0, atol=2.0e-12)
+    assert result[4]

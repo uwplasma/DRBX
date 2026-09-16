@@ -92,8 +92,8 @@ def test_run_full_eb_source_hook_is_optional_and_stage_sharded():
     assert "source = source_evaluator(stage_key)" in run_source
     assert "source_owned=source_owned" in run_source
     assert "source_1" in run_source and "source_2" in run_source
-    assert "stage_1, stage_1.phi, model, source_1" in run_source
-    assert "stage_2, stage_2.phi, model, source_2" in run_source
+    assert "staged_explicit(\n                stage_1,\n                source_1," in run_source
+    assert "staged_explicit(\n                stage_2,\n                source_2," in run_source
 
 
 def test_parser_production_selector_contract():
@@ -652,9 +652,9 @@ def test_short_leg_split_is_native_to_compiled_imex_source():
     source = DRIVER.read_text(encoding="utf-8")
     assert "short_leg_selection_dt=(" in source
     assert "model.apply_short_leg_implicit_material_step(" in source
-    assert "solve_dt=gamma_dt" in source
-    assert "selection_dt=dt" in source
-    assert "full_imex_advance" in source
+    assert "solve_dt=solve_dt" in source
+    assert "selection_dt=selection_dt" in source
+    assert "historical_imex_ssp222_stage" in source
     assert "IMEX_SSP222_GAMMA" in source
 
 

@@ -3116,6 +3116,240 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
+class LocalRadialCurvatureFaceRows3D(_DataclassPyTreeMixin):
+    """Lean all-radial direct traces used by the curvature production path.
+
+    Unlike :class:`LocalMomentFittedFaceRows3D`, this payload has no patch
+    capacity and carries no gradient or generic flux functionals. Every row
+    is one interior radial logical face with four transverse Gauss points.
+    """
+
+    layout: HaloLayout3D
+    logical_face_i: jnp.ndarray
+    logical_face_j: jnp.ndarray
+    logical_face_k: jnp.ndarray
+    minus_owner_i: jnp.ndarray
+    minus_owner_j: jnp.ndarray
+    minus_owner_k: jnp.ndarray
+    plus_owner_i: jnp.ndarray
+    plus_owner_j: jnp.ndarray
+    plus_owner_k: jnp.ndarray
+    observation_kind: jnp.ndarray
+    owned_i: jnp.ndarray
+    owned_j: jnp.ndarray
+    owned_k: jnp.ndarray
+    halo_i: jnp.ndarray
+    halo_j: jnp.ndarray
+    halo_k: jnp.ndarray
+    observation_active: jnp.ndarray
+    centered_weights: jnp.ndarray
+    minus_weights: jnp.ndarray
+    plus_weights: jnp.ndarray
+    quadrature_weight: jnp.ndarray
+    Bmag: jnp.ndarray
+    active: jnp.ndarray
+    max_rows: int
+    max_equations: int
+
+    def __post_init__(self) -> None:
+        max_rows = int(self.max_rows)
+        max_equations = int(self.max_equations)
+        if max_rows < 0 or max_equations < 1:
+            raise ValueError("radial curvature sizes must be non-negative/positive")
+        row_shape = (max_rows,)
+        observation_shape = (max_rows, max_equations)
+        point_shape = (max_rows, 4)
+        weight_shape = point_shape + (max_equations,)
+        integer_rows = (
+            "logical_face_i", "logical_face_j", "logical_face_k",
+            "minus_owner_i", "minus_owner_j", "minus_owner_k",
+            "plus_owner_i", "plus_owner_j", "plus_owner_k",
+        )
+        integer_observations = (
+            "observation_kind", "owned_i", "owned_j", "owned_k",
+            "halo_i", "halo_j", "halo_k",
+        )
+        for name in integer_rows:
+            value = jnp.asarray(getattr(self, name), dtype=jnp.int32)
+            if value.shape != row_shape:
+                raise ValueError(f"{name} must have shape {row_shape}, got {value.shape}")
+            object.__setattr__(self, name, value)
+        for name in integer_observations:
+            value = jnp.asarray(getattr(self, name), dtype=jnp.int32)
+            if value.shape != observation_shape:
+                raise ValueError(
+                    f"{name} must have shape {observation_shape}, got {value.shape}"
+                )
+            object.__setattr__(self, name, value)
+        observation_active = jnp.asarray(self.observation_active, dtype=bool)
+        if observation_active.shape != observation_shape:
+            raise ValueError(
+                "observation_active must have shape "
+                f"{observation_shape}, got {observation_active.shape}"
+            )
+        object.__setattr__(self, "observation_active", observation_active)
+        for name in ("centered_weights", "minus_weights", "plus_weights"):
+            value = jnp.asarray(getattr(self, name), dtype=jnp.float64)
+            if value.shape != weight_shape:
+                raise ValueError(f"{name} must have shape {weight_shape}, got {value.shape}")
+            object.__setattr__(self, name, value)
+        for name in ("quadrature_weight", "Bmag"):
+            value = jnp.asarray(getattr(self, name), dtype=jnp.float64)
+            if value.shape != point_shape:
+                raise ValueError(f"{name} must have shape {point_shape}, got {value.shape}")
+            object.__setattr__(self, name, value)
+        active = jnp.asarray(self.active, dtype=bool)
+        if active.shape != row_shape:
+            raise ValueError(f"active must have shape {row_shape}, got {active.shape}")
+        object.__setattr__(self, "active", active)
+        object.__setattr__(self, "max_rows", max_rows)
+        object.__setattr__(self, "max_equations", max_equations)
+
+    def tree_flatten(self):
+        names = (
+            "logical_face_i", "logical_face_j", "logical_face_k",
+            "minus_owner_i", "minus_owner_j", "minus_owner_k",
+            "plus_owner_i", "plus_owner_j", "plus_owner_k",
+            "observation_kind", "owned_i", "owned_j", "owned_k",
+            "halo_i", "halo_j", "halo_k", "observation_active",
+            "centered_weights", "minus_weights", "plus_weights",
+            "quadrature_weight", "Bmag", "active",
+        )
+        return (
+            tuple(getattr(self, name) for name in names),
+            (self.layout, self.max_rows, self.max_equations),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        layout, max_rows, max_equations = aux
+        names = (
+            "logical_face_i", "logical_face_j", "logical_face_k",
+            "minus_owner_i", "minus_owner_j", "minus_owner_k",
+            "plus_owner_i", "plus_owner_j", "plus_owner_k",
+            "observation_kind", "owned_i", "owned_j", "owned_k",
+            "halo_i", "halo_j", "halo_k", "observation_active",
+            "centered_weights", "minus_weights", "plus_weights",
+            "quadrature_weight", "Bmag", "active",
+        )
+        return cls(
+            layout=layout, max_rows=max_rows, max_equations=max_equations,
+            **dict(zip(names, children)),
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalControlVolumeDirectFaceStates3D(_DataclassPyTreeMixin):
+    """Pointwise direct compact-face scalar traces.
+
+    ``centered``, ``minus``, and ``plus`` retain the compiled face
+    quadrature axes.  Keeping those axes in the payload is intentional:
+    nonlinear characteristic operators must be evaluated before the face
+    quadrature is collapsed.
+    """
+
+    centered: jnp.ndarray
+    minus: jnp.ndarray
+    plus: jnp.ndarray
+    valid: jnp.ndarray
+    active: jnp.ndarray
+    max_rows: int
+    max_patches: int = 4
+
+    def __post_init__(self) -> None:
+        max_rows = int(self.max_rows)
+        max_patches = int(self.max_patches)
+        if max_rows < 0 or max_patches < 1:
+            raise ValueError("direct-face sizes must be non-negative/positive")
+        row_shape = (max_rows,)
+        point_shape = (max_rows, max_patches, 4)
+        centered = jnp.asarray(self.centered, dtype=jnp.float64)
+        minus = jnp.asarray(self.minus, dtype=jnp.float64)
+        plus = jnp.asarray(self.plus, dtype=jnp.float64)
+        valid = jnp.asarray(self.valid, dtype=bool)
+        active = jnp.asarray(self.active, dtype=bool)
+        for name, value in (("centered", centered), ("minus", minus), ("plus", plus)):
+            if value.shape != point_shape:
+                raise ValueError(f"{name} must have shape {point_shape}, got {value.shape}")
+        for name, value in (("valid", valid),):
+            if value.shape != point_shape:
+                raise ValueError(f"{name} must have shape {point_shape}, got {value.shape}")
+        if active.shape != row_shape:
+            raise ValueError(f"active must have shape {row_shape}, got {active.shape}")
+        object.__setattr__(self, "centered", centered)
+        object.__setattr__(self, "minus", minus)
+        object.__setattr__(self, "plus", plus)
+        object.__setattr__(self, "valid", valid)
+        object.__setattr__(self, "active", active)
+        object.__setattr__(self, "max_rows", max_rows)
+        object.__setattr__(self, "max_patches", max_patches)
+
+    def tree_flatten(self):
+        return ((self.centered, self.minus, self.plus, self.valid, self.active),
+                (self.max_rows, self.max_patches))
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        max_rows, max_patches = aux
+        centered, minus, plus, valid, active = children
+        return cls(centered=centered, minus=minus, plus=plus, valid=valid,
+                   active=active, max_rows=max_rows, max_patches=max_patches)
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalRadialCurvatureFaceStates3D(_DataclassPyTreeMixin):
+    """Batched scalar states on lean radial-curvature quadrature rows."""
+
+    centered: jnp.ndarray
+    minus: jnp.ndarray
+    plus: jnp.ndarray
+    valid: jnp.ndarray
+    active: jnp.ndarray
+    max_rows: int
+    field_count: int
+
+    def __post_init__(self) -> None:
+        max_rows = int(self.max_rows)
+        field_count = int(self.field_count)
+        if max_rows < 0 or field_count < 1:
+            raise ValueError("radial curvature state sizes must be positive")
+        point_shape = (max_rows, 4, field_count)
+        for name in ("centered", "minus", "plus"):
+            value = jnp.asarray(getattr(self, name), dtype=jnp.float64)
+            if value.shape != point_shape:
+                raise ValueError(f"{name} must have shape {point_shape}, got {value.shape}")
+            object.__setattr__(self, name, value)
+        valid = jnp.asarray(self.valid, dtype=bool)
+        if valid.shape != point_shape:
+            raise ValueError(f"valid must have shape {point_shape}, got {valid.shape}")
+        active = jnp.asarray(self.active, dtype=bool)
+        if active.shape != (max_rows,):
+            raise ValueError(f"active must have shape {(max_rows,)}, got {active.shape}")
+        object.__setattr__(self, "valid", valid)
+        object.__setattr__(self, "active", active)
+        object.__setattr__(self, "max_rows", max_rows)
+        object.__setattr__(self, "field_count", field_count)
+
+    def tree_flatten(self):
+        return (
+            (self.centered, self.minus, self.plus, self.valid, self.active),
+            (self.max_rows, self.field_count),
+        )
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        max_rows, field_count = aux
+        centered, minus, plus, valid, active = children
+        return cls(
+            centered=centered, minus=minus, plus=plus, valid=valid,
+            active=active, max_rows=max_rows, field_count=field_count,
+        )
+
+
+@_pytree_base
+@dataclass(frozen=True)
 class LocalControlVolumeFieldClosure3D(_DataclassPyTreeMixin):
     """Field-dependent direct fluxes evaluated from face-functional rows."""
 
@@ -3872,6 +4106,18 @@ class LocalRegularBoundaryMomentClosure3D(_DataclassPyTreeMixin):
                 raise ValueError(
                     "active regular boundary derivative weights must be finite"
                 )
+            if self.layout.owned_shape[axis] < 3:
+                try:
+                    short_axis_active = bool(jnp.any(axis_valid))
+                except jax.errors.TracerBoolConversionError:
+                    short_axis_active = False
+                if short_axis_active:
+                    raise ValueError(
+                        "a valid finite-volume regular boundary derivative "
+                        "requires at least three owned cells on its axis; "
+                        f"axis={axis}, owned_extent="
+                        f"{self.layout.owned_shape[axis]}"
+                    )
         object.__setattr__(self, "x_face_weights", face_weights[0])
         object.__setattr__(self, "y_face_weights", face_weights[1])
         object.__setattr__(self, "z_face_weights", face_weights[2])
@@ -3971,6 +4217,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
     irregular_faces: LocalControlVolumeFaceRows3D
     reconstruction: LocalMomentReconstruction3D
     face_functionals: LocalMomentFittedFaceRows3D | None = None
+    radial_curvature_faces: LocalRadialCurvatureFaceRows3D | None = None
     centroid_J: jnp.ndarray | None = None
     centroid_g_cov: jnp.ndarray | None = None
     centroid_B_contra: jnp.ndarray | None = None
@@ -4100,6 +4347,18 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
             if has_irregular_faces:
                 raise ValueError(
                     "face_functionals are required when irregular face rows are active"
+                )
+        if self.radial_curvature_faces is not None:
+            if not isinstance(
+                self.radial_curvature_faces, LocalRadialCurvatureFaceRows3D
+            ):
+                raise TypeError(
+                    "radial_curvature_faces must be "
+                    "LocalRadialCurvatureFaceRows3D or None"
+                )
+            if self.radial_curvature_faces.layout != layout:
+                raise ValueError(
+                    "radial_curvature_faces must share the control-volume cell layout"
                 )
         if self.regular_boundary_closure is not None:
             if not isinstance(
@@ -4232,6 +4491,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                 self.centroid_curvature,
                 self.regular_boundary_closure,
                 self.diffusion_prolongation,
+                self.radial_curvature_faces,
             ),
             (self.angular_group_sizes, self.agglomeration_kind),
         )
@@ -4251,10 +4511,11 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
             "centroid_curvature",
             "regular_boundary_closure",
             "diffusion_prolongation",
+            "radial_curvature_faces",
         )
         instance = object.__new__(cls)
-        if len(children) == len(names) - 1:
-            children = tuple(children) + (None,)
+        if len(children) < len(names):
+            children = tuple(children) + (None,) * (len(names) - len(children))
         for name, value in zip(names, children):
             object.__setattr__(instance, name, value)
         # Accept the pre-tag aux form for cached/serialized older pytrees.
