@@ -1200,10 +1200,27 @@ def _short_leg_mode_history(history_path, reference_at, host, masks):
     }
 
 
+def _host_state(state):
+    """Materialize a field bundle for host-side MMS postprocessing.
+
+    The eta-sharded frozen hook returns globally assembled ``jax.Array``
+    leaves.  The MMS residual/ledger analysis below is deliberately host-side
+    (it repeatedly uses NumPy norms and regional masks), so retaining output
+    sharding metadata there has no numerical benefit and can leave an
+    ``UnspecifiedValue`` layout attached to a later ordinary JAX operation.
+    """
+
+    return state.replace(**{
+        name: np.asarray(value)
+        for name, value in state.field_items()
+    })
+
+
 def _implicit_material_state(material, state):
     """Lift the five-field implicit material residual into EB state form."""
 
-    zero = blob.jnp.zeros_like(state.density)
+    material = np.asarray(material)
+    zero = np.zeros_like(np.asarray(state.density))
     return blob.FciDrbEBState(
         density=material[..., 0],
         phi=zero,
@@ -1457,27 +1474,47 @@ def _audit_one(
         phi_converged = bool(np.asarray(info.converged))
         phi_failed = bool(np.asarray(info.failed))
 
+    # The frozen hook has completed all device work.  MMS residuals, region
+    # statistics, and ledger accounting are host diagnostics; materialize the
+    # complete boundary here instead of combining a sharded result with a new
+    # ordinary JAX operation.  This also keeps the following NumPy reductions
+    # from triggering one transfer per field/term.
+    state = _host_state(state)
+    qdot = _host_state(qdot)
+    source = _host_state(source)
+    continuum = _host_state(continuum)
+    spatial = _host_state(spatial)
+    sourced = _host_state(sourced)
+    reconstructed_spatial = _host_state(reconstructed_spatial)
+    reconstructed = np.asarray(reconstructed)
+    implicit_material = np.asarray(implicit_material)
+    reconstructed_implicit_material = np.asarray(
+        reconstructed_implicit_material
+    )
+    selected_wall = np.asarray(selected_wall, dtype=bool)
+    ledger = np.asarray(ledger)
+    sourced_ledger = np.asarray(sourced_ledger)
+    material_counterfactuals = np.asarray(material_counterfactuals)
+    material_force_controls = np.asarray(material_force_controls)
+    poisson_operand_controls = np.asarray(poisson_operand_controls)
+
     implicit_state = _implicit_material_state(implicit_material, state)
     # ``evaluate_stage`` is the explicit ARK partition and deliberately omits
     # every selected physical-wall material leg. Add the exact frozen
     # implicit residual back here so spatial truncation measures F+G, while
     # evolved runs still use the production split unchanged.
     spatial = spatial.axpy(implicit_state, scale=1.0)
-    ledger = ledger.at[:5, 1].add(
-        blob.jnp.moveaxis(implicit_material, -1, 0)
-    )
-    implicit_material_fields = blob.jnp.moveaxis(implicit_material, -1, 0)
-    material_counterfactuals = material_counterfactuals.at[0].add(
-        implicit_material_fields
-    )
-    material_counterfactuals = material_counterfactuals.at[1].add(
-        implicit_material_fields
-    )
-    material_counterfactuals = material_counterfactuals.at[2].set(
+    ledger = np.array(ledger, copy=True)
+    implicit_material_fields = np.moveaxis(implicit_material, -1, 0)
+    ledger[:5, 1] += implicit_material_fields
+    material_counterfactuals = np.array(material_counterfactuals, copy=True)
+    material_counterfactuals[0] += implicit_material_fields
+    material_counterfactuals[1] += implicit_material_fields
+    material_counterfactuals[2] = (
         material_counterfactuals[0] - material_counterfactuals[1]
     )
-    ordinary_force_mask = ~blob.jnp.asarray(selected_wall, dtype=bool)
-    material_force_controls = blob.jnp.where(
+    ordinary_force_mask = ~selected_wall
+    material_force_controls = np.where(
         ordinary_force_mask[None, ...],
         material_force_controls,
         0.0,
