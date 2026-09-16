@@ -204,6 +204,28 @@ def run_case() -> dict[str, object]:
     reconstructed_shift = float(np.max(np.abs(
         np.asarray(result.reconstructed_phi) - np.asarray(state.phi) - 0.25
     )))
+    sharded_arrays = [
+        value
+        for frozen_state in (
+            result.exact_explicit,
+            result.sourced_explicit,
+            result.reconstructed_explicit,
+        )
+        for _name, value in frozen_state.field_items()
+    ] + [
+        result.exact_rhs_term_fields,
+        result.sourced_rhs_term_fields,
+        result.reconstructed_rhs_term_fields,
+        result.exact_implicit_complete_residual_owner,
+        result.exact_selected_wall,
+        result.reconstructed_implicit_complete_residual_owner,
+        result.reconstructed_selected_wall,
+        result.reconstructed_phi,
+        result.phi_solver_diagnostics,
+        result.material_counterfactual_fields,
+        result.material_ti_force_fields,
+        result.poisson_operand_counterfactual_fields,
+    ]
     return {
         "device_count": len(jax.devices()),
         "source_pairing": source_pairing,
@@ -231,6 +253,14 @@ def run_case() -> dict[str, object]:
         "phi_diagnostics": np.asarray(
             result.phi_solver_diagnostics
         ).tolist(),
+        "all_outputs_named_sharding": all(
+            isinstance(value.sharding, jax.sharding.NamedSharding)
+            for value in sharded_arrays
+        ),
+        "all_outputs_host_convertible": all(
+            np.asarray(value).shape == value.shape
+            for value in sharded_arrays
+        ),
     }
 
 
