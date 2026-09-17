@@ -712,6 +712,7 @@ def test_frozen_diagnostic_hook_assembles_global_two_device_outputs():
     assert payload["material_counterfactual_shape"] == [4, 5, 2, 3, 4]
     assert payload["material_force_shape"] == [4, 2, 3, 4]
     assert payload["poisson_counterfactual_shape"] == [4, 6, 2, 3, 4]
+    assert payload["generalized_potential_shape"] == [5, 2, 3, 4]
     assert payload["implicit_shape"] == [2, 3, 4, 5]
     assert payload["selected_all"]
     assert payload["reconstructed_selected_all"]

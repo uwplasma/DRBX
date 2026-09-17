@@ -67,7 +67,8 @@ class _FakeModel:
         material = jnp.ones((4, 5) + phi.shape, dtype=jnp.float64)
         forces = jnp.ones((4,) + phi.shape, dtype=jnp.float64)
         poisson = jnp.ones((4, 6) + phi.shape, dtype=jnp.float64)
-        return result, terms, material, forces, poisson
+        generalized_potential = jnp.ones((5,) + phi.shape, dtype=jnp.float64)
+        return result, terms, material, forces, poisson, generalized_potential
 
     @staticmethod
     def apply_short_leg_implicit_material_step(state, **_kwargs):
@@ -220,6 +221,9 @@ def run_case() -> dict[str, object]:
         "material_force_shape": list(result.material_ti_force_fields.shape),
         "poisson_counterfactual_shape": list(
             result.poisson_operand_counterfactual_fields.shape
+        ),
+        "generalized_potential_shape": list(
+            result.generalized_potential_control_fields.shape
         ),
         "implicit_shape": list(
             result.exact_implicit_complete_residual_owner.shape

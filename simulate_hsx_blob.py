@@ -630,7 +630,8 @@ def _build_or_load_hsx_fci_maps(
             )
             validate_hsx_fci_maps(maps, grid, topology="toroidal")
             print(
-                "[fci-map-cache] validated cached full-torus HSX maps",
+                "[fci-map-cache] validated cached full-torus HSX maps from "
+                f"{cache_path}",
                 flush=True,
             )
             if (
@@ -4295,6 +4296,7 @@ class FrozenEbDiagnosticResult:
     material_counterfactual_fields: jax.Array | None = None
     material_ti_force_fields: jax.Array | None = None
     poisson_operand_counterfactual_fields: jax.Array | None = None
+    generalized_potential_control_fields: jax.Array | None = None
 
 
 def run_full_eb(
@@ -5296,6 +5298,7 @@ def run_full_eb(
                 P(None, None, "x", "y", "z"),
                 P(None, "x", "y", "z"),
                 P(None, None, "x", "y", "z"),
+                P(None, "x", "y", "z"),
             ),
             check_vma=False,
         )
@@ -5384,6 +5387,7 @@ def run_full_eb(
         material_counterfactuals = None
         material_ti_forces = None
         poisson_operand_counterfactuals = None
+        generalized_potential_controls = None
         if sharded_raw_reference is None:
             exact_explicit, exact_terms = execute(
                 frozen_stage,
@@ -5398,6 +5402,7 @@ def run_full_eb(
                 material_counterfactuals,
                 material_ti_forces,
                 poisson_operand_counterfactuals,
+                generalized_potential_controls,
             ) = execute(
                 frozen_counterfactual,
                 state,
@@ -5456,6 +5461,9 @@ def run_full_eb(
             material_ti_force_fields=material_ti_forces,
             poisson_operand_counterfactual_fields=(
                 poisson_operand_counterfactuals
+            ),
+            generalized_potential_control_fields=(
+                generalized_potential_controls
             ),
         )
     if rhs_replay_history is not None:

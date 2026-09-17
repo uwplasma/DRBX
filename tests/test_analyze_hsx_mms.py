@@ -96,6 +96,8 @@ def _write_aggregate(
     poisson_controls = ns[:, None, None] ** -2 * np.ones(
         (nrows, 4, len(FIELDS))
     )
+    generalized_controls = ns[:, None] ** -2 * np.ones((nrows, 3))
+    generalized_differences = ns[:, None] ** -2 * np.ones((nrows, 3))
     counts = np.full((nrows, len(REGIONS)), 10, dtype=np.int64)
     if integration_scale is None:
         integration = np.full(nrows, np.nan)
@@ -163,6 +165,16 @@ def _write_aggregate(
             poisson_controls[:, None],
             (nrows, len(REGIONS), 4, len(FIELDS)),
         ),
+        generalized_potential_control_error_norms=generalized_controls,
+        partitioned_generalized_potential_control_error_norms=np.broadcast_to(
+            generalized_controls[:, None],
+            (nrows, len(REGIONS), 3),
+        ),
+        generalized_potential_difference_norms=generalized_differences,
+        partitioned_generalized_potential_difference_norms=np.broadcast_to(
+            generalized_differences[:, None],
+            (nrows, len(REGIONS), 3),
+        ),
         region_cell_counts=counts,
         field_names_json=np.asarray(json.dumps(FIELDS)),
         region_names_json=np.asarray(json.dumps(REGIONS)),
@@ -176,6 +188,21 @@ def _write_aggregate(
         poisson_operand_control_names_json=np.asarray(json.dumps(
             ("raw_raw", "H_raw", "raw_H", "H_H")
         )),
+        generalized_potential_control_names_json=np.asarray(json.dumps((
+            "compatible_composite_gradient",
+            "split_primitive_gradient",
+            "explicit_electrostatic_gradient",
+        ))),
+        generalized_potential_error_control_names_json=np.asarray(json.dumps((
+            "compatible_composite_gradient",
+            "split_primitive_gradient",
+            "explicit_electrostatic_gradient",
+        ))),
+        generalized_potential_difference_names_json=np.asarray(json.dumps((
+            "compatible_minus_split",
+            "split_minus_primitive_sum",
+            "ledger_minus_explicit_control",
+        ))),
         production_configuration_json=np.asarray(json.dumps(config)),
         command_json=np.asarray(json.dumps(command)),
         short_leg_diagnostics_paths_json=np.asarray(json.dumps(diagnostic_paths)),
@@ -295,6 +322,16 @@ def test_analyzer_merges_spatial_temporal_and_short_leg_artifacts(tmp_path: Path
     assert counterfactuals["status"] == "pass"
     assert np.allclose(
         counterfactuals["diagnostics"]["material"]["global"]["orders"],
+        2.0,
+    )
+    assert np.allclose(
+        counterfactuals["diagnostics"]["generalized_potential"]["global"]
+        ["orders"],
+        2.0,
+    )
+    assert np.allclose(
+        counterfactuals["diagnostics"]["generalized_potential_identities"]
+        ["global"]["orders"],
         2.0,
     )
     total = checks["continuum_total_error_by_timestep"]
