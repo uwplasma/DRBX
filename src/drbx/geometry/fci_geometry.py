@@ -8135,6 +8135,251 @@ def _callback_fci_field_values(
     return b_contra, bmag
 
 
+def trace_fci_points_to_plane_from_callbacks(
+    grid: CellCenteredGrid3D,
+    field_evaluator: Callable[[np.ndarray], object],
+    seed_points: np.ndarray,
+    eta_step: float,
+    *,
+    substeps: int = 4,
+    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    min_abs_bz: float = 1.0e-30,
+    return_numpy: bool = False,
+) -> dict[str, jnp.ndarray]:
+    """Trace arbitrary logical points to a neighboring eta plane.
+
+    The callback is evaluated at every RK stage and at the returned endpoint,
+    so this routine is suitable for tracing owner-face vertices as well as
+    cell centers.  ``eta_step`` is signed: positive values follow increasing
+    eta and negative values follow decreasing eta.  The returned ``length``
+    is always nonnegative and ``boundary`` marks trajectories that terminate
+    on a nonperiodic physical boundary.
+
+    This is the point-tracing kernel used by the callback FCI map path.  It is
+    intentionally NumPy-host-side (the field callback need not be JAX
+    compatible), while returned arrays use the same JAX array convention as
+    the rest of :mod:`fci_geometry`.
+    """
+
+    points = np.asarray(seed_points, dtype=np.float64)
+    if points.ndim != 2 or points.shape[-1] != 3:
+        raise ValueError(f"seed_points must have shape (n, 3), got {points.shape}")
+    if int(substeps) < 1:
+        raise ValueError(f"substeps must be >= 1, got {substeps}")
+    if len(periodic_axes) != 3 or len(axis_regular_axes) != 3:
+        raise ValueError("periodic_axes and axis_regular_axes must have length 3")
+    periodic_axes = tuple(bool(value) for value in periodic_axes)
+    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
+    if any(axis_regular_axes[1:]):
+        raise ValueError(
+            "FCI axis regularity currently supports only the lower-radial x axis; "
+            f"got axis_regular_axes={axis_regular_axes}"
+        )
+    axis_regular_x = axis_regular_axes[0]
+    if axis_regular_x and (periodic_axes[0] or not periodic_axes[1] or not periodic_axes[2]):
+        raise ValueError(
+            "lower-radial axis regularity requires x nonperiodic and y/z periodic; "
+            f"got periodic_axes={periodic_axes}"
+        )
+    try:
+        eta_step = float(eta_step)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"eta_step must be a finite scalar, got {eta_step!r}") from error
+    if not np.isfinite(eta_step):
+        raise ValueError(f"eta_step must be a finite scalar, got {eta_step!r}")
+    min_abs_bz = float(min_abs_bz)
+    if not np.isfinite(min_abs_bz) or min_abs_bz <= 0.0:
+        raise ValueError(f"min_abs_bz must be positive and finite, got {min_abs_bz}")
+
+    nx, ny, nz = grid.shape
+    del nx, ny, nz
+    x_lower, x_upper = float(grid.x.faces[0]), float(grid.x.faces[-1])
+    y_lower, y_upper = float(grid.y.faces[0]), float(grid.y.faces[-1])
+    z_lower, z_upper = float(grid.z.faces[0]), float(grid.z.faces[-1])
+    y_period = y_upper - y_lower
+
+    if axis_regular_x and abs(x_lower) > 1.0e-12:
+        raise ValueError(
+            "lower-radial axis regularity requires the lower x face to be x=0; "
+            f"got {x_lower}"
+        )
+
+    def wrap_points(values: np.ndarray) -> np.ndarray:
+        result = np.asarray(values, dtype=np.float64).copy()
+        for axis, lower, upper, periodic in (
+            (0, x_lower, x_upper, periodic_axes[0]),
+            (1, y_lower, y_upper, periodic_axes[1]),
+            (2, z_lower, z_upper, periodic_axes[2]),
+        ):
+            if periodic:
+                result[:, axis] = np.mod(result[:, axis] - lower, upper - lower) + lower
+        return result
+
+    def regularize_points(values: np.ndarray) -> np.ndarray:
+        result = np.asarray(values, dtype=np.float64).copy()
+        if axis_regular_x:
+            crossed_axis = result[:, 0] < x_lower
+            result[crossed_axis, 0] = 2.0 * x_lower - result[crossed_axis, 0]
+            result[crossed_axis, 1] += 0.5 * y_period
+        return wrap_points(result)
+
+    def signed_wrap_points(values: np.ndarray) -> np.ndarray:
+        """Wrap periodic tangential coordinates while retaining signed radius."""
+
+        result = np.asarray(values, dtype=np.float64).copy()
+        tangential_axes = (
+            ((0, x_lower, x_upper, periodic_axes[0]),) if not axis_regular_x else ()
+        ) + (
+            (1, y_lower, y_upper, periodic_axes[1]),
+            (2, z_lower, z_upper, periodic_axes[2]),
+        )
+        for axis, lower, upper, periodic in tangential_axes:
+            if periodic:
+                result[:, axis] = np.mod(result[:, axis] - lower, upper - lower) + lower
+        return result
+
+    def callback_sample(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        signed_points = signed_wrap_points(values)
+        sample_points = signed_points.copy()
+        negative_branch = axis_regular_x & (sample_points[:, 0] < x_lower)
+        if axis_regular_x:
+            sample_points[:, 0] = np.abs(sample_points[:, 0] - x_lower) + x_lower
+            sample_points[negative_branch, 1] += 0.5 * y_period
+            sample_points = wrap_points(sample_points)
+            axis_epsilon = max(1.0e-12, 1.0e-8 * abs(float(grid.x.widths[0])))
+            sample_points[:, 0] = np.maximum(sample_points[:, 0], axis_epsilon)
+        for axis, lower, upper, periodic in (
+            (0, x_lower, x_upper, periodic_axes[0]),
+            (1, y_lower, y_upper, periodic_axes[1]),
+            (2, z_lower, z_upper, periodic_axes[2]),
+        ):
+            if not periodic:
+                sample_points[:, axis] = np.clip(sample_points[:, axis], lower, upper)
+        b, bmag = _callback_fci_field_values(field_evaluator, sample_points)
+        if axis_regular_x:
+            b = np.array(b, copy=True)
+            b[negative_branch, 0] *= -1.0
+        return b, bmag
+
+    def rhs(values: np.ndarray) -> np.ndarray:
+        b, _ = callback_sample(values)
+        bz = b[:, 2].copy()
+        small = np.abs(bz) < min_abs_bz
+        bz[small] = np.where(bz[small] < 0.0, -min_abs_bz, min_abs_bz)
+        return np.column_stack((b[:, 0] / bz, b[:, 1] / bz, np.ones(values.shape[0])))
+
+    def speed(values: np.ndarray) -> np.ndarray:
+        b, bmag = callback_sample(values)
+        bz = b[:, 2].copy()
+        small = np.abs(bz) < min_abs_bz
+        bz[small] = np.where(bz[small] < 0.0, -min_abs_bz, min_abs_bz)
+        return bmag / np.maximum(np.abs(bz), 1.0e-30)
+
+    def valid(values: np.ndarray) -> np.ndarray:
+        values = np.asarray(values, dtype=np.float64)
+        result = np.isfinite(values).all(axis=1)
+        for axis, lower, upper, periodic in (
+            (0, x_lower, x_upper, periodic_axes[0]),
+            (1, y_lower, y_upper, periodic_axes[1]),
+            (2, z_lower, z_upper, periodic_axes[2]),
+        ):
+            if not periodic:
+                if axis == 0 and axis_regular_x:
+                    result &= np.abs(values[:, axis] - lower) <= (upper - lower)
+                else:
+                    result &= (values[:, axis] >= lower) & (values[:, axis] <= upper)
+        return result
+
+    def boundary_hit(old: np.ndarray, new: np.ndarray, valid_new: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        fractions = np.full(old.shape[0], np.inf, dtype=np.float64)
+        for axis, lower, upper, periodic, ignore_lower in (
+            (0, x_lower, x_upper, periodic_axes[0], axis_regular_x),
+            (1, y_lower, y_upper, periodic_axes[1], False),
+            (2, z_lower, z_upper, periodic_axes[2], False),
+        ):
+            if periodic:
+                continue
+            delta = new[:, axis] - old[:, axis]
+            safe_delta = np.where(np.abs(delta) < 1.0e-300, 1.0, delta)
+            candidate = np.full(old.shape[0], np.inf, dtype=np.float64)
+            if axis == 0 and axis_regular_x:
+                candidate = np.where(
+                    new[:, axis] < (2.0 * lower - upper),
+                    ((2.0 * lower - upper) - old[:, axis]) / safe_delta,
+                    candidate,
+                )
+            elif not ignore_lower:
+                candidate = np.where(new[:, axis] < lower, (lower - old[:, axis]) / safe_delta, candidate)
+            candidate = np.minimum(
+                candidate,
+                np.where(new[:, axis] > upper, (upper - old[:, axis]) / safe_delta, np.inf),
+            )
+            candidate = np.where((candidate >= 0.0) & (candidate <= 1.0), candidate, np.inf)
+            fractions = np.minimum(fractions, candidate)
+        has_hit = (~valid_new) & np.isfinite(fractions)
+        fraction = np.where(has_hit, fractions, 1.0)
+        hit = old + fraction[:, None] * (new - old)
+        for axis, lower, upper, periodic in (
+            (0, x_lower, x_upper, periodic_axes[0]),
+            (1, y_lower, y_upper, periodic_axes[1]),
+            (2, z_lower, z_upper, periodic_axes[2]),
+        ):
+            if not periodic:
+                hit[:, axis] = np.clip(
+                    hit[:, axis],
+                    2.0 * lower - upper if axis == 0 and axis_regular_x else lower,
+                    upper,
+                )
+        return signed_wrap_points(hit), fraction
+
+    state = signed_wrap_points(points)
+    lengths = np.zeros(state.shape[0], dtype=np.float64)
+    alive = np.ones(state.shape[0], dtype=bool)
+    boundary = np.zeros(state.shape[0], dtype=bool)
+    h = eta_step / int(substeps)
+
+    def rk4_step(values: np.ndarray, step: float) -> np.ndarray:
+        k1 = rhs(values)
+        k2 = rhs(signed_wrap_points(values + 0.5 * step * k1))
+        k3 = rhs(signed_wrap_points(values + 0.5 * step * k2))
+        k4 = rhs(signed_wrap_points(values + step * k3))
+        return values + (step / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+    for _ in range(int(substeps)):
+        b0_speed = speed(state)
+        raw_next = rk4_step(state, h)
+        finite_next = np.isfinite(raw_next).all(axis=1)
+        unwrapped_next = np.where(finite_next[:, None], raw_next, state)
+        next_state = signed_wrap_points(unwrapped_next)
+        valid_next = valid(next_state)
+        active_full = alive & finite_next & valid_next
+        active_exit = alive & finite_next & (~valid_next)
+        hit_state, fraction = boundary_hit(state, unwrapped_next, valid_next)
+        b1_speed = speed(next_state)
+        hit_speed = speed(hit_state)
+        lengths += np.where(active_full, 0.5 * abs(h) * (b0_speed + b1_speed), 0.0)
+        lengths += np.where(active_exit, 0.5 * abs(h) * fraction * (b0_speed + hit_speed), 0.0)
+        state = np.where(active_full[:, None], next_state, state)
+        state = np.where(active_exit[:, None], hit_state, state)
+        state = signed_wrap_points(state)
+        boundary |= active_exit | (alive & ~finite_next)
+        alive &= finite_next & valid_next
+
+    endpoint = regularize_points(state)
+    endpoint_b_contra, endpoint_bmag = callback_sample(endpoint)
+    payload = {
+        "endpoint": endpoint,
+        "length": lengths,
+        "boundary": boundary,
+        "endpoint_b_contravariant": endpoint_b_contra,
+        "endpoint_bmag": endpoint_bmag,
+    }
+    if return_numpy:
+        return payload
+    return {name: jnp.asarray(value) for name, value in payload.items()}
+
+
 def build_fci_maps_from_callbacks(
     grid: CellCenteredGrid3D,
     field_evaluator: Callable[[np.ndarray], object],
@@ -8603,8 +8848,23 @@ def build_fci_maps_from_callbacks(
                         z_axis[target_k],
                     )
                 )
-                traced, lengths, boundaries = trace(seeds, step)
-                endpoint_b_contra, endpoint_bmag = callback_sample(traced)
+                traced_result = trace_fci_points_to_plane_from_callbacks(
+                    grid,
+                    field_evaluator,
+                    seeds,
+                    step,
+                    substeps=substeps,
+                    periodic_axes=periodic_axes,
+                    axis_regular_axes=axis_regular_axes,
+                    min_abs_bz=min_abs_bz,
+                )
+                traced = np.asarray(traced_result["endpoint"])
+                lengths = np.asarray(traced_result["length"])
+                boundaries = np.asarray(traced_result["boundary"])
+                endpoint_b_contra = np.asarray(
+                    traced_result["endpoint_b_contravariant"]
+                )
+                endpoint_bmag = np.asarray(traced_result["endpoint_bmag"])
                 outputs[f"{prefix}_x"][target_i, target_j, target_k] = (
                     fractional_index(
                         x_axis,

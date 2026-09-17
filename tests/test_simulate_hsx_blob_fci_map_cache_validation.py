@@ -1,4 +1,4 @@
-"""Focused tests for the simulation-driver FCI map cache contract."""
+"""Focused tests for the producer-side HSX FCI map cache contract."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from drbx.geometry import CellCenteredGrid3D, FciMaps3D, Grid1D  # noqa: E402
-import simulate_hsx_blob as hsx  # noqa: E402
+from drbx.geometry import hsx_fci_builder as hsx  # noqa: E402
 
 
 def _grid(shape=(3, 4, 5)):

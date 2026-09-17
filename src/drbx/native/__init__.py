@@ -147,6 +147,15 @@ from .fci_operators import (
     local_curvature_op,
     local_curvature_op_from_gradient,
 )
+from .fci_rlp_overlap import (
+    LocalRlpParallelOverlapGeometry,
+    lower_rlp_parallel_overlap_geometry,
+    build_local_rlp_parallel_overlap_geometry,
+    compile_local_rlp_parallel_overlap_geometry,
+    local_parallel_diffusion_fci_rlp_overlap_op,
+    assemble_rlp_parallel_overlap_generator,
+    audit_rlp_parallel_overlap_generator,
+)
 from .fci_control_volume_operators import (
     CUBIC_MONOMIAL_EXPONENTS,
     cubic_control_volume_average_basis,

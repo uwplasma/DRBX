@@ -16,6 +16,32 @@ from .essos_import import (
     trace_essos_vmec_initial_conditions,
 )
 from .fci_maps import FciMaps, identity_fci_maps, load_fci_maps_netcdf
+from .fci_rlp_overlap import (
+    RLP_PARALLEL_OVERLAP_CACHE_VERSION,
+    GlobalRlpParallelOverlapGeometry,
+    build_rlp_parallel_overlap_geometry,
+    merge_rlp_parallel_overlap_geometries,
+    load_rlp_parallel_overlap_geometry,
+    write_rlp_parallel_overlap_geometry,
+)
+from .fci_owner_boundary_overlap import build_owner_boundary_overlap_geometry
+from .fci_simulation_geometry import (
+    FciSimulationGeometry3D,
+    FciVertexTraceAtlas,
+    audit_fci_simulation_geometry_checksums,
+    load_fci_simulation_geometry,
+    validate_fci_simulation_geometry,
+    write_fci_simulation_geometry,
+)
+from .hsx_simulation_geometry import (
+    HsxSimulationGeometryConfig,
+    build_hsx_simulation_geometry,
+    validate_hsx_simulation_geometry,
+)
+from .hsx_fci_builder import (
+    build_hsx_fci_geometry,
+    build_hsx_metric_evaluator,
+)
 from .fci_control_volumes import (
     GlobalControlVolumeTopology3D,
     LocalControlVolumeGeometry3D,
@@ -102,6 +128,24 @@ __all__ = [
     "essos_imported_geometry_to_fci",
     "essos_runtime_available",
     "FciMaps",
+    "RLP_PARALLEL_OVERLAP_CACHE_VERSION",
+    "GlobalRlpParallelOverlapGeometry",
+    "build_rlp_parallel_overlap_geometry",
+    "merge_rlp_parallel_overlap_geometries",
+    "load_rlp_parallel_overlap_geometry",
+    "write_rlp_parallel_overlap_geometry",
+    "build_owner_boundary_overlap_geometry",
+    "FciSimulationGeometry3D",
+    "FciVertexTraceAtlas",
+    "audit_fci_simulation_geometry_checksums",
+    "load_fci_simulation_geometry",
+    "validate_fci_simulation_geometry",
+    "write_fci_simulation_geometry",
+    "HsxSimulationGeometryConfig",
+    "build_hsx_simulation_geometry",
+    "validate_hsx_simulation_geometry",
+    "build_hsx_fci_geometry",
+    "build_hsx_metric_evaluator",
     "MetricTensor3D",
     "SyntheticStellaratorGeometry",
     "VmecExtenderGrid",
@@ -204,6 +248,7 @@ from .fci_geometry import (
     Spacing3D,
     build_fci_maps_from_b_contravariant,
     build_fci_maps_from_callbacks,
+    trace_fci_points_to_plane_from_callbacks,
     build_metric_aware_polar_angular_agglomeration_geometry,
     trace_fci_eta_plane_from_callbacks,
     build_curvature_coefficients,
@@ -340,6 +385,7 @@ __all__ += [
     "build_curvature_coefficients",
     "build_fci_maps_from_b_contravariant",
     "build_fci_maps_from_callbacks",
+    "trace_fci_points_to_plane_from_callbacks",
     "trace_fci_eta_plane_from_callbacks",
     "build_local_conservative_stencil_from_field",
     "build_local_direct_stencil_one_sided_physical_from_halo",

@@ -17,9 +17,12 @@ from drbx.geometry import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_fci_geometry_axis_regular_curvature import _build_polar_geometry
-from simulate_hsx_blob import (
+from drbx.geometry.hsx_fci_builder import (
     _build_hsx_curvature_edge_one_form,
-    _build_parser,
+)
+from generate_hsx_fci_geometry import _parser as _producer_parser
+from simulate_hsx_blob import (  # noqa: E402
+    _build_parser as _consumer_parser,
     _pack_curvature_face_coefficients,
     _unpack_curvature_face_coefficients,
 )
@@ -124,9 +127,15 @@ def test_hsx_edge_sampling_closes_theta_and_eta_seams_without_axis_queries():
 
 
 def test_exact_edge_selector_is_opt_in():
-    parser = _build_parser()
-    assert parser.parse_args(()).curvature_edge_one_form is False
-    assert parser.parse_args(("--curvature-edge-one-form",)).curvature_edge_one_form is True
+    base = (
+        "--resolution", "4", "8", "8",
+        "--metric-mesh-shape", "4", "8", "4",
+        "--output", "artifact",
+    )
+    parser = _producer_parser()
+    assert parser.parse_args(base).include_curvature_edge_one_form is False
+    assert parser.parse_args(base + ("--include-curvature-edge-one-form",)).include_curvature_edge_one_form is True
+    assert not hasattr(_consumer_parser().parse_args(()), "curvature_edge_one_form")
 
 
 def test_shared_edge_curvature_faces_preserve_eta_shard_interfaces():

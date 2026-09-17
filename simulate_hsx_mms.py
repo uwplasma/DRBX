@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Short production-path HSX/RLP MMS audit.
+"""Short production-path HSX/RLP MMS audit over geometry artifacts.
 
-The continuous metric is fitted once on the 64-grid.  ``build_hsx_fci_geometry``
-samples that same context at 32, 48, and 64, while all RLP and EB operators are
+Producer-owned FCI artifacts supply the grid, maps, owner topology, and
+curvature payload for each requested resolution. RLP and EB operators remain
 the production implementations imported from ``simulate_hsx_blob``.
 """
 
@@ -62,6 +62,8 @@ GENERALIZED_POTENTIAL_DIFFERENCE_NAMES = (
     "split_minus_primitive_sum",
     "ledger_minus_explicit_control",
 )
+AUDITED_STAGE_GRAPH_CONTRACT = "shared-mms-audited-stage-graph-v1"
+LEAN_STAGE_GRAPH_CONTRACT = "shared-lean-stage-graph-v1"
 REGIONS = (
     "ordinary_bulk",
     "rlp_rings",
@@ -70,34 +72,6 @@ REGIONS = (
     "short_leg_topology_transition",
     "double_hit",
 )
-
-
-def _fci_map_cache_path(args, resolution: int) -> Path:
-    """Return a validated, resolution-local FCI-map cache location.
-
-    The Stage-7 harness samples one shared 64-grid continuous metric at each
-    PDE resolution.  The corresponding field-line maps are grid-specific, so
-    they must not be placed in the shared metric payload.  The key contains
-    every geometric/tracing input and the map-builder source fingerprint;
-    ``build_hsx_fci_geometry`` additionally validates its stored shape,
-    tracer metadata, and map invariants before accepting a hit.
-    """
-
-    identity = {
-        "format": "hsx-mms-fci-map-cache-v1",
-        "resolution": int(resolution),
-        "topology": "toroidal",
-        "makegrid": blob._metric_input_content_identity(args.makegrid),
-        "vessel": blob._metric_input_content_identity(args.vessel),
-        "makegrid_currents": list(blob.DEFAULT_HSX_QHS_MAKEGRID_CURRENTS),
-        "trace_substeps": 4,
-        "map_source": blob._hsx_fci_map_source_fingerprint(),
-    }
-    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
-    digest = hashlib.sha256(encoded).hexdigest()[:24]
-    return Path(args.metric_cache_dir) / "fci_maps" / (
-        f"hsx_fci_maps_N{int(resolution)}_{digest}.npz"
-    )
 
 
 def _fourth_order_fd_weights(coordinates, center, derivative_order):
@@ -222,9 +196,11 @@ def _production_configuration(
     device_count,
     *,
     curvature_edge_one_form: bool = False,
+    geometry_metadata=None,
 ):
     """Return the complete auditable production contract used by the MMS."""
 
+    geometry_metadata = dict(geometry_metadata or {})
     return {
         "flux_framework": "production-split",
         "parallel_operator_scheme": "fci",
@@ -270,17 +246,11 @@ def _production_configuration(
         "neumann_ghost_scheme": "physical",
         "physical_wall_model": "legacy-velocity-trace",
         "parallel_velocity_wall_bc": "neumann",
-        "fci_trace_substeps": 4,
+        "fci_trace_substeps": int(
+            geometry_metadata.get("trace_substeps", 64)
+        ),
         "halo_width": 2,
-        "fit_sample_shape": [64, 64, 64],
-        "toroidal_modes": 10,
-        "metric_reference_resolution": [64, 64, 64],
-        "metric_radial_degree": 17,
-        "metric_poloidal_modes": 15,
-        "metric_toroidal_modes": 3,
-        "eta_projection_iterations": 0,
-        "axis_core_radius": 0.03,
-        "makegrid_currents": list(blob.DEFAULT_HSX_QHS_MAKEGRID_CURRENTS),
+        "geometry_artifact_metadata": geometry_metadata,
         "gmres_target_tolerance": PRODUCTION_GMRES["target_tolerance"],
         "gmres_acceptance_tolerance": PRODUCTION_GMRES[
             "acceptance_tolerance"
@@ -1251,8 +1221,13 @@ def _audit_one(
     args,
     *,
     curvature_edge_one_form=None,
+    simulation_geometry=None,
 ):
-    host, _ = blob.build_metric_aware_polar_angular_agglomeration_geometry(geometry, args.metric_context.metric_evaluator)
+    # RLP owner geometry is part of the producer-owned simulation artifact.
+    # MMS is a consumer and must not rebuild/validate the angular geometry.
+    host = getattr(args, "_owner_geometry", None)
+    if host is None:
+        raise ValueError("MMS geometry artifact is missing owner_geometry")
     runtime = _runtime(geometry, host, args)
     reconstruction_diagnostics = (
         runtime.control_volume_descriptor.diffusion_diagnostics
@@ -1311,14 +1286,10 @@ def _audit_one(
     if runtime.frozen_execution == "eta-sharded":
         frozen = blob.run_full_eb(
             state,
-            global_geometry=geometry,
-            curvature_edge_one_form=curvature_edge_one_form,
-            cell_positions=cell_positions,
-            nfp=int(nfp),
+            simulation_geometry=simulation_geometry,
             sharded_geometry=runtime.sharded_geometry,
             mesh=runtime.mesh,
             parameters=runtime.parameters,
-            metric_cache_path=None,
             gmres_target_tolerance=PRODUCTION_GMRES["target_tolerance"],
             gmres_acceptance_tolerance=PRODUCTION_GMRES[
                 "acceptance_tolerance"
@@ -1350,7 +1321,6 @@ def _audit_one(
             control_volume_fields_host=runtime.control_volume_fields,
             control_volume_boundary_bc=runtime.control_volume_boundary_bc,
             control_volume_assembler=runtime.control_volume_assembler,
-            owner_host_geometry=host,
             history_dtype="float64",
             frozen_diagnostic=blob.FrozenEbDiagnosticRequest(
                 source_state=source,
@@ -1426,10 +1396,13 @@ def _audit_one(
             )
         )
         if counterfactuals_enabled:
-            frozen_exact_diagnostic = blob.jax.jit(
-                lambda q, raw: model.evaluate_stage(
+            # Keep exact, source-paired, and reconstructed evaluations on one
+            # compiled graph shape.  Mixing this augmented graph with the lean
+            # stage graph can change large-graph compiler specialization.
+            frozen_audited_stage = blob.jax.jit(
+                lambda q, s, raw: model.evaluate_stage(
                     q,
-                    source_owned=q.zeros_like(),
+                    source_owned=s,
                     phi_owned=q.phi,
                     short_leg_selection_dt=float(args.dt),
                     return_rhs_term_fields=True,
@@ -1444,7 +1417,9 @@ def _audit_one(
                 material_force_controls,
                 poisson_operand_controls,
                 generalized_potential_controls,
-            ) = frozen_exact_diagnostic(state, point_state)
+            ) = frozen_audited_stage(
+                state, state.zeros_like(), point_state
+            )
             (
                 spatial,
                 ledger,
@@ -1469,10 +1444,41 @@ def _audit_one(
                 poisson_operand_controls,
                 generalized_potential_controls,
             ) = unavailable_counterfactuals()
-        sourced, sourced_ledger = frozen_stage(state, source)
-        sourced, sourced_ledger = blob.jax.block_until_ready(
-            (sourced, sourced_ledger)
-        )
+        if counterfactuals_enabled:
+            (
+                sourced,
+                sourced_ledger,
+                _sourced_material_counterfactuals,
+                _sourced_material_force_controls,
+                _sourced_poisson_operand_controls,
+                _sourced_generalized_potential_controls,
+            ) = frozen_audited_stage(state, source, point_state)
+            (
+                sourced,
+                sourced_ledger,
+                _sourced_material_counterfactuals,
+                _sourced_material_force_controls,
+                _sourced_poisson_operand_controls,
+                _sourced_generalized_potential_controls,
+            ) = blob.jax.block_until_ready((
+                sourced,
+                sourced_ledger,
+                _sourced_material_counterfactuals,
+                _sourced_material_force_controls,
+                _sourced_poisson_operand_controls,
+                _sourced_generalized_potential_controls,
+            ))
+            del (
+                _sourced_material_counterfactuals,
+                _sourced_material_force_controls,
+                _sourced_poisson_operand_controls,
+                _sourced_generalized_potential_controls,
+            )
+        else:
+            sourced, sourced_ledger = frozen_stage(state, source)
+            sourced, sourced_ledger = blob.jax.block_until_ready(
+                (sourced, sourced_ledger)
+            )
         reconstruct_phi = blob.jax.jit(
             lambda q: model.reconstruct_phi(q, return_diagnostics=True)
         )
@@ -1481,12 +1487,34 @@ def _audit_one(
             (reconstructed, info)
         )
         reconstructed_state = state.replace(phi=reconstructed)
-        reconstructed_spatial, _ = frozen_stage(
-            reconstructed_state, state.zeros_like()
-        )
-        reconstructed_spatial = blob.jax.block_until_ready(
-            reconstructed_spatial
-        )
+        if counterfactuals_enabled:
+            (
+                reconstructed_spatial,
+                _reconstructed_ledger,
+                _reconstructed_material_counterfactuals,
+                _reconstructed_material_force_controls,
+                _reconstructed_poisson_operand_controls,
+                _reconstructed_generalized_potential_controls,
+            ) = frozen_audited_stage(
+                reconstructed_state, state.zeros_like(), point_state
+            )
+            reconstructed_spatial = blob.jax.block_until_ready(
+                reconstructed_spatial
+            )
+            del (
+                _reconstructed_ledger,
+                _reconstructed_material_counterfactuals,
+                _reconstructed_material_force_controls,
+                _reconstructed_poisson_operand_controls,
+                _reconstructed_generalized_potential_controls,
+            )
+        else:
+            reconstructed_spatial, _ = frozen_stage(
+                reconstructed_state, state.zeros_like()
+            )
+            reconstructed_spatial = blob.jax.block_until_ready(
+                reconstructed_spatial
+            )
         _, _, reconstructed_implicit_info = short_leg_step(
             reconstructed_state
         )
@@ -1986,12 +2014,37 @@ def _audit_one(
                 ),
                 poisson_operand_error_norms=poisson_operand_error_norms,
                 counterfactuals_enabled=counterfactuals_enabled,
+                frozen_stage_graph_contract=(
+                    AUDITED_STAGE_GRAPH_CONTRACT
+                    if counterfactuals_enabled
+                    else LEAN_STAGE_GRAPH_CONTRACT
+                ),
                 partitioned_poisson_operand_error_norms=(
                     partitioned_poisson_operand_error_norms
                 ),
                 _region_masks=masks,
                 _model=model, _state=state, _host=host, _geometry=geometry,
                 _projector=projector, _runtime=runtime)
+
+
+def _load_geometry_for_resolution(root: Path, resolution: int):
+    """Load one explicitly named ``NxNxN`` producer artifact."""
+
+    root = Path(root)
+    candidate = (
+        root
+        if (root / "manifest.json").is_file()
+        else root / f"{int(resolution)}x{int(resolution)}x{int(resolution)}"
+    )
+    artifact = blob.load_fci_simulation_geometry(candidate)
+    shape = tuple(int(value) for value in artifact.global_geometry.shape)
+    expected = (int(resolution),) * 3
+    if shape != expected:
+        raise ValueError(
+            f"explicit geometry artifact {candidate} has shape {shape}, "
+            f"expected {expected}"
+        )
+    return artifact
 
 
 def run(args):
@@ -2012,62 +2065,36 @@ def run(args):
     if args.self_test:
         print(f"[mms-self-test] {analytic_self_test()}")
     if args.wiring_only:
-        curvature_edge_source = (
-            "direct-continuous-shared-edge"
-            if args.curvature_edge_one_form
-            else "cell-centered-edge-average"
-        )
         print(
             "[mms-wiring] production-split/fci/support-core/"
             "characteristic-sat/energy-absorbing/all-physical-walls/"
             "local-backward-euler/imex-ssp222/"
             "material-scalar-third-order-upwind/h-mf-second-order/"
-            f"h-mf-consistent/raw-metric/{curvature_edge_source}"
+            "h-mf-consistent/raw-metric/artifact-owned"
         )
         return
     # The reference is kept in a small independent module so no production
     # RHS object can accidentally leak into the manufactured forcing.
     if not (ROOT / "hsx_mms_continuum_reference.py").is_file():
         raise RuntimeError("the bundled HSX continuum MMS reference is missing")
-    from hsx_mms_continuum_reference import ContinuumMmsReference
+    from hsx_mms_continuum_reference import (
+        build_continuum_reference_from_artifact,
+    )
 
-    finest = blob.build_hsx_fci_geometry(
-        makegrid_path=args.makegrid, vessel_path=args.vessel,
-        makegrid_currents=blob.DEFAULT_HSX_QHS_MAKEGRID_CURRENTS,
-        resolution=(64,64,64), fit_sample_shape=(64,64,64), radial_degree=3,
-        vertical_degree=3, toroidal_modes=10, metric_spline_degree=1,
-        mmpde_iterations=0, axis_core_radius=0.03,
-        reference_magnetic_field=None,
-        topology="toroidal", metric_mesh_shape=(64,64,64),
-        metric_radial_degree=17, metric_poloidal_modes=15,
-        # This first object supplies only the fixed continuous representation.
-        # Resolution-local production geometries below always trace real maps.
-        metric_toroidal_modes=3, construct_fci_maps=False, fci_trace_substeps=4,
-        metric_cache_dir=args.metric_cache_dir,
-        rebuild_metric_cache=bool(args.rebuild_metric_cache),
-        return_metric_evaluator=True)
-    finest_geometry, _, nfp, _, evaluator = finest
-    bfield = blob.bfield_evaluator_from_makegrid(
-        args.makegrid, currents=blob.DEFAULT_HSX_QHS_MAKEGRID_CURRENTS,
-        method="cubic")
-    center_points = np.stack(
-        np.meshgrid(
-            np.asarray(finest_geometry.grid.x.centers),
-            np.asarray(finest_geometry.grid.y.centers),
-            np.asarray(finest_geometry.grid.z.centers),
-            indexing="ij",
-        ),
-        axis=-1,
-    ).reshape((-1, 3))
-    B0 = float(np.median(np.asarray(
-        evaluator.evaluate_magnetic_field(center_points, bfield).magnitude,
-        dtype=np.float64,
-    )))
-    if not np.isfinite(B0) or B0 <= 0.0:
-        raise ValueError(f"derived 64-grid reference B0 is invalid: {B0!r}")
-    args.metric_context = blob.HSXMetricContext(evaluator, bfield, int(nfp))
-    args.reference = ContinuumMmsReference(
-        evaluator, bfield, B0,
+    artifacts = {
+        int(n): _load_geometry_for_resolution(args.geometry, int(n))
+        for n in resolutions
+    }
+    finest_artifact = artifacts[max(resolutions)]
+    nfp = int(finest_artifact.nfp)
+    # The independent reference is reconstructed from the finest artifact's
+    # serialized cell metric and B-field arrays.  No evaluator, MAKEGRID
+    # object, cache, or producer-side geometry decision crosses this boundary.
+    args.curvature_edge_one_form = (
+        getattr(finest_artifact, "curvature_edge_one_form", None) is not None
+    )
+    reference = build_continuum_reference_from_artifact(
+        finest_artifact,
         tau=PHYSICAL_PARAMETERS["tau"],
         mi_over_me=PHYSICAL_PARAMETERS["mi_over_me"],
         rho_star=PHYSICAL_PARAMETERS["rho_star"],
@@ -2075,36 +2102,31 @@ def run(args):
         perp_diffusion=PHYSICAL_PARAMETERS["density_D_perp"],
         enable_generalized_potential=True,
     )
+    args.reference = reference
+    args.metric_context = SimpleNamespace(
+        metric_evaluator=reference.metric_evaluator,
+        bfield=reference.bfield_evaluator,
+        nfp=nfp,
+    )
     rows = []
     for n in resolutions:
+        artifact = artifacts[int(n)]
+        geometry = artifact.global_geometry
+        cell_positions = artifact.cell_positions
+        nfp = int(artifact.nfp)
+        args._owner_geometry = getattr(artifact, "owner_geometry", None)
+        curvature_edge_one_form = getattr(
+            artifact, "curvature_edge_one_form", None
+        )
         if n % int(nfp):
             raise ValueError(f"resolution {n} must be divisible by HSX nfp={nfp}")
-        built = blob.build_hsx_fci_geometry(
-            makegrid_path=args.makegrid, vessel_path=args.vessel,
-            makegrid_currents=blob.DEFAULT_HSX_QHS_MAKEGRID_CURRENTS,
-            resolution=(n,n,n), fit_sample_shape=(64,64,64), radial_degree=3,
-            vertical_degree=3, toroidal_modes=10, metric_spline_degree=1,
-            mmpde_iterations=0, axis_core_radius=0.03,
-            reference_magnetic_field=B0,
-            topology="toroidal", metric_mesh_shape=(64,64,64),
-            metric_radial_degree=17, metric_poloidal_modes=15, metric_toroidal_modes=3,
-            metric_context=args.metric_context, construct_fci_maps=True,
-            fci_trace_substeps=4,
-            metric_cache_dir=None,
-            fci_map_cache_path=_fci_map_cache_path(args, n),
-            return_curvature_edge_one_form=bool(
-                args.curvature_edge_one_form
-            ))
-        geometry, cell_positions = built[0], built[1]
-        curvature_edge_one_form = (
-            built[4] if args.curvature_edge_one_form else None
-        )
         result = _audit_one(
             geometry,
             cell_positions,
             nfp,
             args,
             curvature_edge_one_form=curvature_edge_one_form,
+            simulation_geometry=artifact,
         )
         # Preserve the compact execution label before private runtime objects
         # are deliberately dropped between resolutions.
@@ -2153,6 +2175,7 @@ def run(args):
                             curvature_edge_one_form=bool(
                                 args.curvature_edge_one_form
                             ),
+                            geometry_metadata=artifact.metadata,
                         ),
                         expected_initial_state=exact_initial,
                         start_time=args.time,
@@ -2169,14 +2192,10 @@ def run(args):
             else:
                 advanced = blob.run_full_eb(
                     result["_state"],
-                    global_geometry=geometry,
-                    curvature_edge_one_form=curvature_edge_one_form,
-                    cell_positions=cell_positions,
-                    nfp=int(nfp),
+                    simulation_geometry=artifact,
                     sharded_geometry=runtime.sharded_geometry,
                     mesh=runtime.mesh,
                     parameters=runtime.parameters,
-                    metric_cache_path=None,
                     gmres_target_tolerance=PRODUCTION_GMRES[
                         "target_tolerance"
                     ],
@@ -2218,7 +2237,6 @@ def run(args):
                     control_volume_fields_host=runtime.control_volume_fields,
                     control_volume_boundary_bc=runtime.control_volume_boundary_bc,
                     control_volume_assembler=runtime.control_volume_assembler,
-                    owner_host_geometry=host,
                     source_evaluator=stage_source,
                     history_dtype="float64",
                     run_metadata={
@@ -2228,19 +2246,21 @@ def run(args):
                             curvature_edge_one_form=bool(
                                 args.curvature_edge_one_form
                             ),
+                            geometry_metadata=artifact.metadata,
                         ),
                         "diagnostic": "hsx-rlp-stage7-mms",
-                        "metric_reference_resolution": [64, 64, 64],
+                        "metric_reference_resolution": [max(resolutions)] * 3,
                         "reference_magnetic_field": B0,
-                        "fci_trace_substeps": 4,
+                        "fci_trace_substeps": int(
+                            artifact.metadata.get("trace_substeps", 64)
+                        ),
                         "forcing_partition": "explicit-imex-stage-source",
                         "history_dtype": "float64",
                         "shard_counts": list(shard_counts),
                         "device_count": int(device_count),
                         "frozen_execution": runtime.frozen_execution,
                         "evolved_execution": "eta-sharded",
-                        "metric_cache_dir": str(args.metric_cache_dir),
-                        "rebuild_metric_cache": bool(args.rebuild_metric_cache),
+                        "geometry_artifact_dir": str(args.geometry),
                     },
                 )
             target, _, _, _ = _reference_state(args.reference, geometry, host, args.final_time, projector)
@@ -2306,9 +2326,13 @@ def run(args):
             if not key.startswith("_")
         })
         reconstruction = result["rlp_reconstruction_diagnostics"]
+        stage_identity_max = max(
+            result["source_total_subtraction_residual"].values()
+        )
         print(f"N={n} exact-phi RMS={np.mean(list(result['exact_phi_residual'].values())):.6e} "
               f"forced RMS={np.mean(list(result['forced_residual'].values())):.6e} "
               f"source-pairing={max(result['source_increment'].values()):.3e} "
+              f"stage-identity={stage_identity_max:.3e} "
               f"phi-converged={result['phi_converged']} representation={max(result['representation_error'].values()):.3e} "
               f"H-L1={reconstruction['maximum_row_weight_l1_norm']:.3e} "
               f"H-planar-donors={reconstruction['minimum_planar_donor_count']}-"
@@ -2542,7 +2566,7 @@ def run(args):
             denominator_shape = (ratios.size,) + (1,) * (values.ndim - 1)
             return np.log(np.maximum(values[:-1], 1e-300) / np.maximum(values[1:], 1e-300)) / np.log(ratios).reshape(denominator_shape)
         np.savez(args.output, resolutions=np.asarray(resolutions),
-                 metric_reference_resolution=np.asarray((64,64,64)),
+                 metric_reference_resolution=np.asarray((max(resolutions),) * 3),
                  reference_magnetic_field=np.asarray(B0),
                  nfp=np.asarray(int(nfp), dtype=np.int32),
                  shard_counts=np.asarray(shard_counts, dtype=np.int32),
@@ -2552,15 +2576,14 @@ def run(args):
                  counterfactuals_enabled=np.asarray(
                      rows[0]["counterfactuals_enabled"], dtype=bool
                  ),
-                 metric_cache_dir=np.asarray(str(args.metric_cache_dir)),
-                 fci_map_cache_paths_json=np.asarray(json.dumps([
-                     str(_fci_map_cache_path(args, resolution))
-                     for resolution in resolutions
-                 ])),
-                 rebuild_metric_cache=np.asarray(
-                     bool(args.rebuild_metric_cache), dtype=bool
+                 frozen_stage_graph_contract=np.asarray(
+                     rows[0]["frozen_stage_graph_contract"]
                  ),
-                 fci_trace_substeps=np.asarray(4, dtype=np.int32),
+                 geometry_artifact_dir=np.asarray(str(args.geometry)),
+                 fci_trace_substeps=np.asarray(
+                     int(finest_artifact.metadata.get("trace_substeps", 64)),
+                     dtype=np.int32,
+                 ),
                  generalized_potential_enabled=np.asarray(True, dtype=bool),
                  reference_projection_method=np.asarray(
                      REFERENCE_PROJECTION_METHOD
@@ -2813,13 +2836,16 @@ def run(args):
                          curvature_edge_one_form=bool(
                              args.curvature_edge_one_form
                          ),
+                         geometry_metadata=finest_artifact.metadata,
                      ),
                      "shard_counts": list(shard_counts),
                      "device_count": int(device_count),
                      "frozen_execution": rows[0]["frozen_execution"],
+                     "frozen_stage_graph_contract": (
+                         rows[0]["frozen_stage_graph_contract"]
+                     ),
                      "evolved_execution": "eta-sharded",
-                     "metric_cache_dir": str(args.metric_cache_dir),
-                     "rebuild_metric_cache": bool(args.rebuild_metric_cache),
+                     "geometry_artifact_dir": str(args.geometry),
                      "generalized_potential": "static-axis-regular-psi",
                      "reference_projection_method": (
                          REFERENCE_PROJECTION_METHOD
@@ -2874,29 +2900,11 @@ def run(args):
 
 def main(argv: Sequence[str] | None = None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--makegrid", type=Path, default=blob.DEFAULT_MAKEGRID)
-    p.add_argument("--vessel", type=Path, default=blob.DEFAULT_VESSEL)
     p.add_argument(
-        "--metric-cache-dir",
+        "--geometry",
         type=Path,
-        default=blob.DEFAULT_METRIC_CACHE_DIR,
-        help=(
-            "Campaign-local cache for the fixed 64-grid metric evaluator; "
-            "resolution-local geometries reuse the in-memory evaluator."
-        ),
-    )
-    p.add_argument(
-        "--rebuild-metric-cache",
-        action="store_true",
-        help="Rebuild the fixed 64-grid metric cache before the MMS campaign.",
-    )
-    p.add_argument(
-        "--curvature-edge-one-form",
-        action="store_true",
-        help=(
-            "Use direct continuous shared-edge one-form samples for the "
-            "compatible host curvature curl instead of cell-to-edge averaging."
-        ),
+        required=True,
+        help="Directory containing producer-owned FCI geometry artifacts.",
     )
     p.add_argument("--time", type=float, default=0.0)
     p.add_argument("--final-time", type=float, default=0.01)
@@ -2949,9 +2957,11 @@ def main(argv: Sequence[str] | None = None):
     p.add_argument(
         "--wiring-only",
         action="store_true",
-        help="Validate and print the canonical production selector contract without geometry.",
+        help="Validate and print the canonical production selector contract.",
     )
     args = p.parse_args(argv)
+    if not args.geometry.is_dir():
+        p.error(f"--geometry must be an existing directory: {args.geometry}")
     if not 0.0 <= args.time < 0.15 or not 0.0 < args.final_time < 0.15:
         p.error("--time and --final-time must lie in [0,0.15)")
     if args.final_time < args.time:

@@ -51,8 +51,6 @@ def _production_args(driver, *extra: str):
         (
             "--flux-framework",
             "production-split",
-            "--topology",
-            "toroidal",
             "--parallel-operator-scheme",
             "fci",
             "--parallel-flux-pairing",

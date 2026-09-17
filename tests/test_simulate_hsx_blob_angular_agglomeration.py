@@ -59,21 +59,11 @@ def test_radius_dependent_profile_accepts_composite_ntheta():
     assert ratio >= 1.0
 
 
-def test_parser_exposes_metric_checked_diagnostic_angular_profile():
+def test_parser_removes_producer_angular_profile_control():
     parser = driver._build_parser()
-    args = parser.parse_args(
-        [
-            "--topology",
-            "toroidal",
-            "--resolution",
-            "4",
-            "8",
-            "4",
-            "--angular-group-profile",
-            "8,4,2,1",
-        ]
-    )
-    assert args.angular_group_profile == "8,4,2,1"
+    assert "angular_group_profile" not in {
+        action.dest for action in parser._actions
+    }
 
 
 def test_main_rejects_angular_profile_outside_toroidal_topology():
@@ -81,17 +71,10 @@ def test_main_rejects_angular_profile_outside_toroidal_topology():
         driver.main(["--angular-group-profile", "8,4,2,1,1,1,1,1"])
 
 
-def test_parser_exposes_manufactured_curvature_audit_output(tmp_path):
-    output = tmp_path / "manufactured_curvature.npz"
-    args = driver._build_parser().parse_args(
-        [
-            "--curvature-scheme",
-            "conservative",
-            "--curvature-manufactured-output",
-            str(output),
-        ]
-    )
-    assert args.curvature_manufactured_output == output
+def test_parser_removes_geometry_curvature_audit_controls():
+    destinations = {action.dest for action in driver._build_parser()._actions}
+    assert "curvature_scheme" not in destinations
+    assert "curvature_manufactured_output" not in destinations
 
 
 def test_main_rejects_manufactured_audit_without_conservative_curvature(tmp_path):
