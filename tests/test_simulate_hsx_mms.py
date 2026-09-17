@@ -648,6 +648,41 @@ def test_compact_rows_preserve_execution_metadata_after_private_runtime_drop():
     assert 'rows[0]["_runtime"]' not in aggregate
 
 
+def test_frozen_diagnostic_materializes_sharded_outputs_before_host_analysis():
+    """Host MMS reductions must not inherit a shard-map output layout."""
+
+    driver = _load(DRIVER, "simulate_hsx_mms_host_diagnostic_boundary_test")
+    state = driver.blob.FciDrbEBState(**{
+        name: driver.blob.jnp.asarray(np.full((2, 3, 4), index + 1.0))
+        for index, name in enumerate(driver.FIELDS)
+    })
+    host_state = driver._host_state(state)
+    assert all(
+        isinstance(value, np.ndarray)
+        for _name, value in host_state.field_items()
+    )
+
+    source = np.arange(2 * 3 * 4 * 5, dtype=np.float64).reshape(2, 3, 4, 5)
+    lifted = driver._implicit_material_state(source, host_state)
+    assert all(
+        isinstance(value, np.ndarray)
+        for _name, value in lifted.field_items()
+    )
+    np.testing.assert_array_equal(lifted.density, source[..., 0])
+    np.testing.assert_array_equal(lifted.Te, source[..., 1])
+    np.testing.assert_array_equal(lifted.Ti, source[..., 2])
+    np.testing.assert_array_equal(lifted.Vi, source[..., 3])
+    np.testing.assert_array_equal(lifted.Ve, source[..., 4])
+    np.testing.assert_array_equal(lifted.phi, np.zeros((2, 3, 4)))
+    np.testing.assert_array_equal(lifted.vorticity, np.zeros((2, 3, 4)))
+
+    source_text = DRIVER.read_text(encoding="utf-8")
+    boundary = source_text[source_text.index("# The frozen hook has completed") :]
+    assert "spatial = _host_state(spatial)" in boundary
+    assert "ledger = np.array(ledger, copy=True)" in boundary
+    assert "ledger[:5, 1] += implicit_material_fields" in boundary
+
+
 def test_harness_exposes_eta_sharded_frozen_and_evolved_runtime_contract():
     source = DRIVER.read_text(encoding="utf-8")
     assert '"--shard-counts"' in source
@@ -717,6 +752,8 @@ def test_frozen_diagnostic_hook_assembles_global_two_device_outputs():
     assert payload["selected_all"]
     assert payload["reconstructed_selected_all"]
     assert payload["phi_diagnostics"][2:4] == [0.0, 1.0]
+    assert payload["all_outputs_named_sharding"]
+    assert payload["all_outputs_host_convertible"]
 
 
 def test_runtime_avoids_duplicate_host_model_for_sharded_frozen_diagnostic(
