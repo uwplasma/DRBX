@@ -6205,9 +6205,10 @@ class LocalFciDrbEBRhs:
         ``return_rhs_term_fields=True`` and is intended for selected-cell
         staged audits.
 
-        ``return_mms_counterfactual_fields=True`` adds three diagnostic-only
-        payloads: four material-row controls, four Ti-force controls, and the
-        four raw/H Poisson-bracket operand combinations.  It requires both
+        ``return_mms_counterfactual_fields=True`` adds four diagnostic-only
+        payloads: four material-row controls, four Ti-force controls, the
+        four raw/H Poisson-bracket operand combinations, and five
+        generalized-potential gradient controls.  It requires both
         ``return_rhs_term_fields=True`` and an exact fine-storage
         ``diagnostic_raw_state``.  No counterfactual enters the evolved RHS.
         """
@@ -6842,6 +6843,7 @@ class LocalFciDrbEBRhs:
         else:
             Ve_electrostatic_term = Ve_phi_force_term + Ve_Ti_force_term
         material_ti_force_controls = None
+        generalized_potential_controls = None
         if return_mms_counterfactual_fields:
             material_ti_force_controls = fci_parallel_terms[
                 "material_ti_force_fields"
@@ -6862,6 +6864,21 @@ class LocalFciDrbEBRhs:
                         production_material_residual[..., 4]
                         + Ve_electrostatic_term
                     )[..., None],
+                ),
+                axis=-1,
+            )
+            # Keep the production composite force and the independently
+            # assembled primitive gradients in one replay payload.  The
+            # controls are expressed as gradients (the electron mass ratio
+            # is divided out) so a resolution- or sharding-specific failure
+            # cannot be hidden by the large mi/me multiplier in the Ve RHS.
+            generalized_potential_controls = jnp.stack(
+                (
+                    grad_parallel_phi_plus_tau_Ti,
+                    grad_parallel_phi + tau * grad_parallel_Ti,
+                    Ve_electrostatic_term / mi_over_me,
+                    grad_parallel_phi,
+                    tau * grad_parallel_Ti,
                 ),
                 axis=-1,
             )
@@ -7216,11 +7233,20 @@ class LocalFciDrbEBRhs:
                 poisson_controls = jax.vmap(jax.vmap(restrict_component))(
                     poisson_counterfactual_fields
                 )
+                generalized_potential_controls = jnp.moveaxis(
+                    generalized_potential_controls,
+                    -1,
+                    0,
+                )
+                generalized_potential_controls = jax.vmap(
+                    restrict_component
+                )(generalized_potential_controls)
                 diagnostic_outputs.extend(
                     (
                         material_counterfactuals,
                         material_force_controls,
                         poisson_controls,
+                        generalized_potential_controls,
                     )
                 )
             return tuple(diagnostic_outputs)

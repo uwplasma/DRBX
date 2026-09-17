@@ -20,6 +20,7 @@ from drbx.geometry.fci_control_volumes import (  # noqa: E402
 from drbx.geometry import FCI_DEP_PHYSICAL_BOUNDARY  # noqa: E402
 from drbx.native import FciDrbEBState  # noqa: E402
 from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
+    RHS_TERM_NAMES,
     build_local_fci_drb_eb_operator_boundary_bundle,
 )
 from drbx.native.fci_boundaries import (  # noqa: E402
@@ -597,14 +598,16 @@ def test_mms_counterfactual_payload_preserves_live_identities():
         return_mms_counterfactual_fields=True,
         diagnostic_raw_state=raw,
     )
-    _rhs_state, ledger, material, forces, poisson = result
+    _rhs_state, ledger, material, forces, poisson, generalized = result
 
     assert material.shape == (4, 5) + geometry.owned_shape
     assert forces.shape == (4,) + geometry.owned_shape
     assert poisson.shape == (4, 6) + geometry.owned_shape
+    assert generalized.shape == (5,) + geometry.owned_shape
     assert bool(np.all(np.isfinite(np.asarray(material))))
     assert bool(np.all(np.isfinite(np.asarray(forces))))
     assert bool(np.all(np.isfinite(np.asarray(poisson))))
+    assert bool(np.all(np.isfinite(np.asarray(generalized))))
     np.testing.assert_allclose(
         np.asarray(material[2]),
         np.asarray(material[0] - material[1]),
@@ -620,6 +623,21 @@ def test_mms_counterfactual_payload_preserves_live_identities():
     np.testing.assert_allclose(
         np.asarray(poisson[3]),
         np.asarray(ledger[:, 0]),
+        rtol=2.0e-13,
+        atol=2.0e-13,
+    )
+    np.testing.assert_allclose(
+        np.asarray(generalized[1]),
+        np.asarray(generalized[3] + generalized[4]),
+        rtol=2.0e-13,
+        atol=2.0e-13,
+    )
+    electrostatic_slot = RHS_TERM_NAMES[4].index("electrostatic")
+    np.testing.assert_allclose(
+        np.asarray(generalized[2]),
+        np.asarray(
+            ledger[4, electrostatic_slot] / rhs.parameters.mi_over_me
+        ),
         rtol=2.0e-13,
         atol=2.0e-13,
     )

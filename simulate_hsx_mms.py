@@ -50,6 +50,18 @@ POISSON_OPERAND_CONTROL_NAMES = (
     "raw_phi_H_g",
     "H_phi_H_g",
 )
+GENERALIZED_POTENTIAL_CONTROL_NAMES = (
+    "compatible_composite_gradient",
+    "split_primitive_gradient",
+    "explicit_electrostatic_gradient",
+    "phi_gradient",
+    "tau_Ti_gradient",
+)
+GENERALIZED_POTENTIAL_DIFFERENCE_NAMES = (
+    "compatible_minus_split",
+    "split_minus_primitive_sum",
+    "ledger_minus_explicit_control",
+)
 REGIONS = (
     "ordinary_bulk",
     "rlp_rings",
@@ -1272,6 +1284,11 @@ def _audit_one(
                 blob.jnp.nan,
                 dtype=blob.jnp.float64,
             ),
+            blob.jnp.full(
+                (len(GENERALIZED_POTENTIAL_CONTROL_NAMES),) + shape,
+                blob.jnp.nan,
+                dtype=blob.jnp.float64,
+            ),
         )
 
     if runtime.frozen_execution == "eta-sharded":
@@ -1351,11 +1368,15 @@ def _audit_one(
         poisson_operand_controls = (
             frozen.poisson_operand_counterfactual_fields
         )
+        generalized_potential_controls = (
+            frozen.generalized_potential_control_fields
+        )
         if not counterfactuals_enabled:
             (
                 material_counterfactuals,
                 material_force_controls,
                 poisson_operand_controls,
+                generalized_potential_controls,
             ) = unavailable_counterfactuals()
         # The general production hook exposes all three ledgers.  The MMS
         # needs only the exact-phi ledger after source pairing is established.
@@ -1405,6 +1426,7 @@ def _audit_one(
                 material_counterfactuals,
                 material_force_controls,
                 poisson_operand_controls,
+                generalized_potential_controls,
             ) = frozen_exact_diagnostic(state, point_state)
             (
                 spatial,
@@ -1412,12 +1434,14 @@ def _audit_one(
                 material_counterfactuals,
                 material_force_controls,
                 poisson_operand_controls,
+                generalized_potential_controls,
             ) = blob.jax.block_until_ready((
                 spatial,
                 ledger,
                 material_counterfactuals,
                 material_force_controls,
                 poisson_operand_controls,
+                generalized_potential_controls,
             ))
         else:
             spatial, ledger = frozen_stage(state, state.zeros_like())
@@ -1426,6 +1450,7 @@ def _audit_one(
                 material_counterfactuals,
                 material_force_controls,
                 poisson_operand_controls,
+                generalized_potential_controls,
             ) = unavailable_counterfactuals()
         sourced, sourced_ledger = frozen_stage(state, source)
         sourced, sourced_ledger = blob.jax.block_until_ready(
@@ -1583,6 +1608,154 @@ def _audit_one(
         ])
         for region, mask in masks.items()
     }
+    generalized_potential_control_array = np.asarray(
+        generalized_potential_controls
+    )
+    ve_field_index = EVOLVED.index("Ve")
+    ve_electrostatic_slot = blob.RHS_TERM_NAMES[ve_field_index].index(
+        "electrostatic"
+    )
+    exact_generalized_potential_gradient = (
+        continuum_term_ledger[ve_field_index, ve_electrostatic_slot]
+        / float(PHYSICAL_PARAMETERS["mi_over_me"])
+    )
+    generalized_potential_control_error = (
+        generalized_potential_control_array[:3]
+        - exact_generalized_potential_gradient[None, ...]
+    )
+    generalized_potential_differences = np.stack(
+        (
+            generalized_potential_control_array[0]
+            - generalized_potential_control_array[1],
+            generalized_potential_control_array[1]
+            - generalized_potential_control_array[3]
+            - generalized_potential_control_array[4],
+            ledger_array[ve_field_index, ve_electrostatic_slot]
+            / float(PHYSICAL_PARAMETERS["mi_over_me"])
+            - generalized_potential_control_array[2],
+        ),
+        axis=0,
+    )
+    generalized_potential_control_norms = np.asarray([
+        _weighted_norm(value, host)
+        for value in generalized_potential_control_array
+    ])
+    generalized_potential_control_error_norms = np.asarray([
+        _weighted_norm(value, host)
+        for value in generalized_potential_control_error
+    ])
+    generalized_potential_difference_norms = np.asarray([
+        _weighted_norm(value, host)
+        for value in generalized_potential_differences
+    ])
+    partitioned_generalized_potential_control_error_norms = {
+        region: np.asarray([
+            _masked_weighted_norm(value, host, mask)
+            for value in generalized_potential_control_error
+        ])
+        for region, mask in masks.items()
+    }
+    partitioned_generalized_potential_difference_norms = {
+        region: np.asarray([
+            _masked_weighted_norm(value, host, mask)
+            for value in generalized_potential_differences
+        ])
+        for region, mask in masks.items()
+    }
+    active_owner = np.asarray(host.topology.is_active_owner, dtype=bool)
+    eta_shards = int(runtime.shard_counts[2])
+    eta_size = int(active_owner.shape[2])
+    eta_width = eta_size // eta_shards
+    generalized_potential_per_shard_error_norms = np.full(
+        (3, eta_shards), np.nan, dtype=np.float64
+    )
+    generalized_potential_per_shard_max_abs_errors = np.full(
+        (3, eta_shards), np.nan, dtype=np.float64
+    )
+    generalized_potential_per_shard_difference_norms = np.full(
+        (3, eta_shards), np.nan, dtype=np.float64
+    )
+    generalized_potential_per_shard_max_abs_differences = np.full(
+        (3, eta_shards), np.nan, dtype=np.float64
+    )
+    for shard in range(eta_shards):
+        shard_mask = np.zeros_like(active_owner)
+        start = shard * eta_width
+        stop = (shard + 1) * eta_width
+        shard_mask[..., start:stop] = True
+        shard_mask &= active_owner
+        for control in range(3):
+            generalized_potential_per_shard_error_norms[control, shard] = (
+                _masked_weighted_norm(
+                    generalized_potential_control_error[control],
+                    host,
+                    shard_mask,
+                )
+            )
+            shard_values = np.abs(
+                generalized_potential_control_error[control][shard_mask]
+            )
+            if shard_values.size:
+                generalized_potential_per_shard_max_abs_errors[
+                    control, shard
+                ] = float(np.max(shard_values))
+        for difference in range(3):
+            generalized_potential_per_shard_difference_norms[
+                difference, shard
+            ] = _masked_weighted_norm(
+                generalized_potential_differences[difference],
+                host,
+                shard_mask,
+            )
+            shard_values = np.abs(
+                generalized_potential_differences[difference][shard_mask]
+            )
+            if shard_values.size:
+                generalized_potential_per_shard_max_abs_differences[
+                    difference, shard
+                ] = float(np.max(shard_values))
+    generalized_potential_max_error_locations = np.full(
+        (3, 3), -1, dtype=np.int64
+    )
+    generalized_potential_max_abs_errors = np.full(
+        3, np.nan, dtype=np.float64
+    )
+    generalized_potential_max_difference_locations = np.full(
+        (3, 3), -1, dtype=np.int64
+    )
+    generalized_potential_max_abs_differences = np.full(
+        3, np.nan, dtype=np.float64
+    )
+    for control in range(3):
+        absolute_error = np.where(
+            active_owner,
+            np.abs(generalized_potential_control_error[control]),
+            -np.inf,
+        )
+        if np.any(np.isfinite(absolute_error)):
+            flat_index = int(np.argmax(absolute_error))
+            location = np.unravel_index(flat_index, absolute_error.shape)
+            generalized_potential_max_error_locations[control] = location
+            generalized_potential_max_abs_errors[control] = float(
+                absolute_error[location]
+            )
+    for difference in range(3):
+        absolute_difference = np.where(
+            active_owner,
+            np.abs(generalized_potential_differences[difference]),
+            -np.inf,
+        )
+        if np.any(np.isfinite(absolute_difference)):
+            flat_index = int(np.argmax(absolute_difference))
+            location = np.unravel_index(
+                flat_index, absolute_difference.shape
+            )
+            generalized_potential_max_difference_locations[
+                difference
+            ] = location
+            generalized_potential_max_abs_differences[difference] = float(
+                absolute_difference[location]
+            )
     poisson_operand_array = np.asarray(poisson_operand_controls)
     poisson_operand_error = (
         poisson_operand_array - continuum_term_ledger[:, 0][None, ...]
@@ -1734,6 +1907,45 @@ def _audit_one(
                 material_force_control_norms=material_force_control_norms,
                 partitioned_material_force_control_norms=(
                     partitioned_material_force_control_norms
+                ),
+                generalized_potential_control_norms=(
+                    generalized_potential_control_norms
+                ),
+                generalized_potential_control_error_norms=(
+                    generalized_potential_control_error_norms
+                ),
+                generalized_potential_difference_norms=(
+                    generalized_potential_difference_norms
+                ),
+                partitioned_generalized_potential_control_error_norms=(
+                    partitioned_generalized_potential_control_error_norms
+                ),
+                partitioned_generalized_potential_difference_norms=(
+                    partitioned_generalized_potential_difference_norms
+                ),
+                generalized_potential_per_shard_error_norms=(
+                    generalized_potential_per_shard_error_norms
+                ),
+                generalized_potential_per_shard_max_abs_errors=(
+                    generalized_potential_per_shard_max_abs_errors
+                ),
+                generalized_potential_per_shard_difference_norms=(
+                    generalized_potential_per_shard_difference_norms
+                ),
+                generalized_potential_per_shard_max_abs_differences=(
+                    generalized_potential_per_shard_max_abs_differences
+                ),
+                generalized_potential_max_error_locations=(
+                    generalized_potential_max_error_locations
+                ),
+                generalized_potential_max_abs_errors=(
+                    generalized_potential_max_abs_errors
+                ),
+                generalized_potential_max_difference_locations=(
+                    generalized_potential_max_difference_locations
+                ),
+                generalized_potential_max_abs_differences=(
+                    generalized_potential_max_abs_differences
                 ),
                 poisson_operand_error_norms=poisson_operand_error_norms,
                 counterfactuals_enabled=counterfactuals_enabled,
@@ -2136,6 +2348,54 @@ def run(args):
             ]
             for r in rows
         ])
+        generalized_potential_controls = np.asarray([
+            r["generalized_potential_control_norms"] for r in rows
+        ])
+        generalized_potential_control_errors = np.asarray([
+            r["generalized_potential_control_error_norms"] for r in rows
+        ])
+        generalized_potential_differences = np.asarray([
+            r["generalized_potential_difference_norms"] for r in rows
+        ])
+        partitioned_generalized_potential_control_errors = np.asarray([
+            [
+                r["partitioned_generalized_potential_control_error_norms"][region]
+                for region in REGIONS
+            ]
+            for r in rows
+        ])
+        partitioned_generalized_potential_differences = np.asarray([
+            [
+                r["partitioned_generalized_potential_difference_norms"][region]
+                for region in REGIONS
+            ]
+            for r in rows
+        ])
+        generalized_potential_per_shard_errors = np.asarray([
+            r["generalized_potential_per_shard_error_norms"] for r in rows
+        ])
+        generalized_potential_per_shard_max_abs_errors = np.asarray([
+            r["generalized_potential_per_shard_max_abs_errors"] for r in rows
+        ])
+        generalized_potential_per_shard_differences = np.asarray([
+            r["generalized_potential_per_shard_difference_norms"] for r in rows
+        ])
+        generalized_potential_per_shard_max_abs_differences = np.asarray([
+            r["generalized_potential_per_shard_max_abs_differences"]
+            for r in rows
+        ])
+        generalized_potential_max_error_locations = np.asarray([
+            r["generalized_potential_max_error_locations"] for r in rows
+        ], dtype=np.int64)
+        generalized_potential_max_abs_errors = np.asarray([
+            r["generalized_potential_max_abs_errors"] for r in rows
+        ])
+        generalized_potential_max_difference_locations = np.asarray([
+            r["generalized_potential_max_difference_locations"] for r in rows
+        ], dtype=np.int64)
+        generalized_potential_max_abs_differences = np.asarray([
+            r["generalized_potential_max_abs_differences"] for r in rows
+        ])
         poisson_operand_errors = np.asarray([
             r["poisson_operand_error_norms"] for r in rows
         ])
@@ -2256,6 +2516,10 @@ def run(args):
                      rows[0]["counterfactuals_enabled"], dtype=bool
                  ),
                  metric_cache_dir=np.asarray(str(args.metric_cache_dir)),
+                 fci_map_cache_paths_json=np.asarray(json.dumps([
+                     str(_fci_map_cache_path(args, resolution))
+                     for resolution in resolutions
+                 ])),
                  rebuild_metric_cache=np.asarray(
                      bool(args.rebuild_metric_cache), dtype=bool
                  ),
@@ -2382,6 +2646,60 @@ def run(args):
                  partitioned_material_force_control_observed_order=order(
                      partitioned_material_force_controls
                  ),
+                 generalized_potential_control_norms=(
+                     generalized_potential_controls
+                 ),
+                 generalized_potential_control_observed_order=order(
+                     generalized_potential_controls
+                 ),
+                 generalized_potential_control_error_norms=(
+                     generalized_potential_control_errors
+                 ),
+                 generalized_potential_control_error_observed_order=order(
+                     generalized_potential_control_errors
+                 ),
+                 generalized_potential_difference_norms=(
+                     generalized_potential_differences
+                 ),
+                 generalized_potential_difference_observed_order=order(
+                     generalized_potential_differences
+                 ),
+                 partitioned_generalized_potential_control_error_norms=(
+                     partitioned_generalized_potential_control_errors
+                 ),
+                 partitioned_generalized_potential_control_error_observed_order=order(
+                     partitioned_generalized_potential_control_errors
+                 ),
+                 partitioned_generalized_potential_difference_norms=(
+                     partitioned_generalized_potential_differences
+                 ),
+                 partitioned_generalized_potential_difference_observed_order=order(
+                     partitioned_generalized_potential_differences
+                 ),
+                 generalized_potential_per_shard_error_norms=(
+                     generalized_potential_per_shard_errors
+                 ),
+                 generalized_potential_per_shard_max_abs_errors=(
+                     generalized_potential_per_shard_max_abs_errors
+                 ),
+                 generalized_potential_per_shard_difference_norms=(
+                     generalized_potential_per_shard_differences
+                 ),
+                 generalized_potential_per_shard_max_abs_differences=(
+                     generalized_potential_per_shard_max_abs_differences
+                 ),
+                 generalized_potential_max_error_locations=(
+                     generalized_potential_max_error_locations
+                 ),
+                 generalized_potential_max_abs_errors=(
+                     generalized_potential_max_abs_errors
+                 ),
+                 generalized_potential_max_difference_locations=(
+                     generalized_potential_max_difference_locations
+                 ),
+                 generalized_potential_max_abs_differences=(
+                     generalized_potential_max_abs_differences
+                 ),
                  poisson_operand_error_norms=poisson_operand_errors,
                  poisson_operand_observed_order=order(poisson_operand_errors),
                  partitioned_poisson_operand_error_norms=(
@@ -2438,6 +2756,15 @@ def run(args):
                  )),
                  material_force_control_names_json=np.asarray(json.dumps(
                      MATERIAL_FORCE_CONTROL_NAMES
+                 )),
+                 generalized_potential_control_names_json=np.asarray(json.dumps(
+                     GENERALIZED_POTENTIAL_CONTROL_NAMES
+                 )),
+                 generalized_potential_error_control_names_json=np.asarray(
+                     json.dumps(GENERALIZED_POTENTIAL_CONTROL_NAMES[:3])
+                 ),
+                 generalized_potential_difference_names_json=np.asarray(json.dumps(
+                     GENERALIZED_POTENTIAL_DIFFERENCE_NAMES
                  )),
                  poisson_operand_control_names_json=np.asarray(json.dumps(
                      POISSON_OPERAND_CONTROL_NAMES

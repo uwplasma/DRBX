@@ -1258,7 +1258,7 @@ def _continuum_total_error_report(rows: Sequence[Mapping[str, Any]]) -> dict[str
 def _mms_counterfactual_report(
     rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Summarize diagnostic-only material and raw/H bracket controls."""
+    """Summarize diagnostic-only material, bracket, and Ve-force controls."""
 
     enabled_markers = [
         _row_value(row, "counterfactuals_enabled") for row in rows
@@ -1293,6 +1293,18 @@ def _mms_counterfactual_report(
             "poisson_operand_error_norms",
             "partitioned_poisson_operand_error_norms",
             "poisson_operand_control_names_json",
+        ),
+        (
+            "generalized_potential",
+            "generalized_potential_control_error_norms",
+            "partitioned_generalized_potential_control_error_norms",
+            "generalized_potential_error_control_names_json",
+        ),
+        (
+            "generalized_potential_identities",
+            "generalized_potential_difference_norms",
+            "partitioned_generalized_potential_difference_norms",
+            "generalized_potential_difference_names_json",
         ),
     )
     result: dict[str, Any] = {}
