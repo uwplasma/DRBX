@@ -74,20 +74,8 @@ EXPECTED_CONFIGURATION: dict[str, Any] = {
     "neumann_ghost_scheme": "physical",
     "physical_wall_model": "legacy-velocity-trace",
     "parallel_velocity_wall_bc": "neumann",
-    "fci_trace_substeps": 4,
+    "fci_trace_substeps": 64,
     "halo_width": 2,
-    "fit_sample_shape": [64, 64, 64],
-    "toroidal_modes": 10,
-    "metric_reference_resolution": [64, 64, 64],
-    "metric_radial_degree": 17,
-    "metric_poloidal_modes": 15,
-    "metric_toroidal_modes": 3,
-    "eta_projection_iterations": 0,
-    "axis_core_radius": 0.03,
-    "makegrid_currents": [
-        10722.0, 10722.0, 10722.0, 10722.0, 10722.0, 10722.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-    ],
     "gmres_target_tolerance": 1.0e-8,
     "gmres_acceptance_tolerance": 5.0e-5,
     "gmres_max_iterations": 500,
@@ -171,6 +159,8 @@ CANONICAL_SPATIAL_RESOLUTIONS = (32, 48, 64)
 MINIMUM_FINEST_PAIR_L2_ORDER = 1.8
 REMOTE_SPATIAL_SHARD_COUNTS = (1, 1, 4)
 REMOTE_SPATIAL_EXECUTION = "eta-sharded"
+AUDITED_STAGE_GRAPH_CONTRACT = "shared-mms-audited-stage-graph-v1"
+FROZEN_STAGE_GRAPH_ABSOLUTE_TOLERANCE = 1.0e-8
 REFERENCE_DERIVATIVE_METHOD = "structured-nonuniform-five-point-finite-difference"
 REFERENCE_PROJECTION_METHOD = "jacobian-weighted-cell-midpoint"
 REFERENCE_PROJECTION_ORDER = 2
@@ -520,7 +510,7 @@ def _configuration_check(artifacts: Sequence[Artifact]) -> dict[str, Any]:
             failures.append(f"{artifact.path}: invalid reference_magnetic_field")
         else:
             b0_values.append(b0)
-        for key, target, values in (("nfp", None, nfp_values), ("fci_trace_substeps", 4, trace_values)):
+        for key, target, values in (("nfp", None, nfp_values), ("fci_trace_substeps", 64, trace_values)):
             if key not in arrays:
                 failures.append(f"{artifact.path}: missing {key}")
                 continue
@@ -720,7 +710,100 @@ def _source_pairing_check(artifacts: Sequence[Artifact], tolerance: float) -> di
     )
 
 
-def _matrix_from_rows(rows: Sequence[Mapping[str, Any]], key: str) -> tuple[list[int], np.ndarray] | None:
+def _frozen_stage_graph_check(
+    artifacts: Sequence[Artifact],
+    *,
+    required: bool,
+    tolerance: float = FROZEN_STAGE_GRAPH_ABSOLUTE_TOLERANCE,
+) -> dict[str, Any]:
+    """Verify that frozen qualification values share one audited executable.
+
+    The direct source ledger establishes source packing, but it cannot detect
+    two separately compiled stage graphs returning different source-free
+    values.  The total identity ``R(q, s) - R(q, 0) - s`` detects that failure,
+    while the graph-contract marker prevents a self-consistent lean graph from
+    qualifying without the MMS controls that exposed the N=64 Ve anomaly.
+    """
+
+    failures: list[str] = []
+    cautions: list[str] = []
+    records: list[dict[str, Any]] = []
+    for artifact in artifacts:
+        contract = _text_scalar(
+            artifact.arrays.get("frozen_stage_graph_contract")
+        )
+        enabled_value = artifact.arrays.get("counterfactuals_enabled")
+        counterfactuals_enabled = (
+            bool(np.asarray(enabled_value).reshape(-1)[0])
+            if enabled_value is not None and np.asarray(enabled_value).size
+            else None
+        )
+        values = artifact.arrays.get("source_total_subtraction_residual")
+        maximum: float | None = None
+        if values is None:
+            message = (
+                f"{artifact.path}: missing source_total_subtraction_residual"
+            )
+            (failures if required else cautions).append(message)
+        elif not _array_finite(values):
+            failures.append(
+                f"{artifact.path}: non-finite frozen stage identity residual"
+            )
+        else:
+            numeric = np.asarray(values, dtype=np.float64)
+            maximum = (
+                float(np.max(np.abs(numeric))) if numeric.size else 0.0
+            )
+            if maximum > tolerance:
+                failures.append(
+                    f"{artifact.path}: frozen stage identity residual "
+                    f"{maximum:.3e} exceeds {tolerance:.3e}; separately "
+                    "specialized stage evaluations are numerically inconsistent"
+                )
+
+        if contract != AUDITED_STAGE_GRAPH_CONTRACT:
+            message = (
+                f"{artifact.path}: frozen_stage_graph_contract is "
+                f"{contract!r}, expected {AUDITED_STAGE_GRAPH_CONTRACT!r}"
+            )
+            (failures if required else cautions).append(message)
+        if counterfactuals_enabled is not True:
+            message = (
+                f"{artifact.path}: MMS counterfactual controls were not "
+                "explicitly enabled"
+            )
+            (failures if required else cautions).append(message)
+        records.append({
+            "artifact": str(artifact.path),
+            "contract": contract,
+            "counterfactuals_enabled": counterfactuals_enabled,
+            "maximum_identity_residual": maximum,
+        })
+
+    status = "fail" if failures else ("warning" if cautions else "pass")
+    return _status(
+        "frozen_stage_graph_consistency",
+        status,
+        required=bool(required),
+        expected_contract=AUDITED_STAGE_GRAPH_CONTRACT,
+        absolute_tolerance=float(tolerance),
+        records=records,
+        cautions=cautions,
+        failures=failures,
+        interpretation=(
+            "qualification values use one audited compiled stage graph"
+            if status == "pass"
+            else "legacy or inconsistent graph specializations cannot qualify"
+        ),
+    )
+
+
+def _matrix_from_rows(
+    rows: Sequence[Mapping[str, Any]],
+    key: str,
+    *,
+    minimum_rows: int = 2,
+) -> tuple[list[int], np.ndarray] | None:
     selected = [row for row in rows if _row_value(row, key) is not None]
     finite_selected = []
     for row in selected:
@@ -734,10 +817,10 @@ def _matrix_from_rows(rows: Sequence[Mapping[str, Any]], key: str) -> tuple[list
     # frozen placeholder by filename order.
     if finite_selected:
         selected = finite_selected
-    if len(selected) < 2:
+    if len(selected) < minimum_rows:
         return None
     selected = _unique_spatial_rows(selected)
-    if len(selected) < 2:
+    if len(selected) < minimum_rows:
         return None
     values = [_row_value(row, key) for row in selected]
     if any(value is None for value in values):
@@ -1309,7 +1392,7 @@ def _mms_counterfactual_report(
     )
     result: dict[str, Any] = {}
     for label, global_key, regional_key, names_key in specifications:
-        matrix = _matrix_from_rows(rows, global_key)
+        matrix = _matrix_from_rows(rows, global_key, minimum_rows=1)
         if matrix is None:
             continue
         resolutions, values = matrix
@@ -1324,7 +1407,7 @@ def _mms_counterfactual_report(
             "control_names": list(names),
             "global": _order_summary(resolutions, values),
         }
-        regional = _matrix_from_rows(rows, regional_key)
+        regional = _matrix_from_rows(rows, regional_key, minimum_rows=1)
         if regional is not None and "rlp_transition_rings" in artifact.regions:
             regional_resolutions, regional_values = regional
             region_index = artifact.regions.index("rlp_transition_rings")
@@ -1339,12 +1422,21 @@ def _mms_counterfactual_report(
             "unavailable",
             reason="artifact predates diagnostic counterfactual payloads",
         )
-    finite = all(
+    finite_values = all(
+        np.all(np.isfinite(np.asarray(item["global"]["values"])))
+        for item in result.values()
+    )
+    has_orders = all(
         item["global"]["finite_order_count"] > 0 for item in result.values()
     )
     return _status(
         "mms_material_and_poisson_counterfactuals",
-        "pass" if finite else "warning",
+        "pass" if finite_values and has_orders else "warning",
+        reason=(
+            None
+            if has_orders
+            else "controls are present, but at least two resolutions are needed for observed orders"
+        ),
         diagnostics=result,
     )
 
@@ -2182,6 +2274,9 @@ def analyze(
         _physical_parameters_check(artifacts),
         _finite_norm_check(artifacts, rows),
         _source_pairing_check(artifacts, source_tolerance),
+        _frozen_stage_graph_check(
+            artifacts, required=bool(require_spatial)
+        ),
     ]
     spatial = _spatial_report(rows)
     if require_spatial:

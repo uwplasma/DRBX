@@ -54,6 +54,21 @@ PHYSICAL_PARAMETERS = {
 }
 
 
+def test_expected_configuration_uses_artifact_geometry_contract() -> None:
+    configuration = _load().EXPECTED_CONFIGURATION
+    assert configuration["fci_trace_substeps"] == 64
+    assert {
+        "fit_sample_shape",
+        "toroidal_modes",
+        "metric_radial_degree",
+        "metric_poloidal_modes",
+        "metric_toroidal_modes",
+        "eta_projection_iterations",
+        "axis_core_radius",
+        "makegrid_currents",
+    }.isdisjoint(configuration)
+
+
 def _write_aggregate(
     path: Path,
     resolutions: tuple[int, ...],
@@ -78,6 +93,8 @@ def _write_aggregate(
     device_count: int = 4,
     frozen_execution: str = "eta-sharded",
     evolved_execution: str = "eta-sharded",
+    frozen_stage_graph_contract: str = "shared-mms-audited-stage-graph-v1",
+    counterfactuals_enabled: bool = True,
     include_execution_contract: bool = True,
     include_reference_contract: bool = True,
     omit_generalized_potential: bool = False,
@@ -129,11 +146,13 @@ def _write_aggregate(
         metric_reference_resolution=np.asarray((64, 64, 64), dtype=np.int64),
         reference_magnetic_field=np.asarray(1.25),
         nfp=np.asarray(4, dtype=np.int32),
-        fci_trace_substeps=np.asarray(4, dtype=np.int32),
+        fci_trace_substeps=np.asarray(64, dtype=np.int32),
         shard_counts=np.asarray(shard_counts, dtype=np.int32),
         device_count=np.asarray(device_count, dtype=np.int32),
         frozen_execution=np.asarray(frozen_execution),
         evolved_execution=np.asarray(evolved_execution),
+        frozen_stage_graph_contract=np.asarray(frozen_stage_graph_contract),
+        counterfactuals_enabled=np.asarray(counterfactuals_enabled, dtype=bool),
         exact_phi_residual=errors,
         forced_residual=errors * 1.1,
         source_increment=source,
@@ -317,6 +336,7 @@ def test_analyzer_merges_spatial_temporal_and_short_leg_artifacts(tmp_path: Path
     assert checks["production_configuration_and_fixed_metric"]["status"] == "pass"
     assert checks["finite_populated_region_norms"]["status"] == "pass"
     assert checks["independent_source_pairing_roundoff"]["status"] == "pass"
+    assert checks["frozen_stage_graph_consistency"]["status"] == "pass"
     assert checks["phi_reconstruction_evidence"]["status"] == "pass"
     counterfactuals = checks["mms_material_and_poisson_counterfactuals"]
     assert counterfactuals["status"] == "pass"
@@ -366,6 +386,21 @@ def test_spatial_selection_prefers_multi_resolution_campaign(tmp_path: Path):
     # The N64 row must come from frozen.npz, not the single-resolution
     # temporal artifact with deliberately incompatible spatial error.
     assert np.isclose(quantity["values"][-1][0], 64.0 ** -2)
+
+
+def test_single_resolution_counterfactual_controls_remain_reported(tmp_path: Path):
+    analyzer = _load()
+    audit = _write_aggregate(tmp_path / "audit_N64.npz", (64,))
+    report = analyzer.analyze((audit,))
+    check = {item["name"]: item for item in report["checks"]}[
+        "mms_material_and_poisson_counterfactuals"
+    ]
+    assert check["status"] == "warning"
+    assert "at least two resolutions" in check["reason"]
+    material = check["diagnostics"]["material"]["global"]
+    assert material["resolutions"] == [64]
+    assert len(material["values"]) == 1
+    assert material["orders"] == []
 
 
 def test_phi_flags_are_hard_failures(tmp_path: Path):
@@ -486,6 +521,33 @@ def test_require_spatial_accepts_frozen_only_without_optional_campaigns(tmp_path
     assert gate["evolved_field_error"]["status"] == "not-run"
     assert report["spatial"]["status"] == "pass"
     assert analyzer.main([str(frozen), "--require-spatial"]) == 0
+
+
+def test_lean_frozen_graph_is_descriptive_only_and_cannot_qualify(tmp_path: Path):
+    analyzer = _load()
+    lean = _write_aggregate(
+        tmp_path / "lean.npz",
+        (32, 48, 64),
+        frozen_stage_graph_contract="shared-lean-stage-graph-v1",
+        counterfactuals_enabled=False,
+    )
+    descriptive = analyzer.analyze((lean,))
+    descriptive_check = {
+        check["name"]: check for check in descriptive["checks"]
+    }["frozen_stage_graph_consistency"]
+    assert descriptive["ok"]
+    assert descriptive_check["status"] == "warning"
+
+    qualifying = analyzer.analyze((lean,), require_spatial=True)
+    qualifying_check = {
+        check["name"]: check for check in qualifying["checks"]
+    }["frozen_stage_graph_consistency"]
+    assert not qualifying["ok"]
+    assert qualifying_check["status"] == "fail"
+    assert any(
+        "frozen_stage_graph_contract" in failure
+        for failure in qualifying_check["failures"]
+    )
 
 
 def test_require_spatial_rejects_increasing_exact_phi_errors(tmp_path: Path):

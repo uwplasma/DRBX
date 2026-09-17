@@ -8,6 +8,7 @@ from drbx.geometry.fci_geometry import (
     Grid1D,
     build_fci_maps_from_b_contravariant,
     build_fci_maps_from_callbacks,
+    trace_fci_points_to_plane_from_callbacks,
     trace_fci_eta_plane_from_callbacks,
 )
 
@@ -182,6 +183,88 @@ def test_callback_stores_field_evaluated_at_traced_endpoints():
             rtol=0.0,
             atol=2.0e-7,
         )
+
+
+def test_arbitrary_seed_tracer_matches_center_map_builder():
+    grid = _grid()
+    evaluator = _constant_field(0.15, 0.2, bmag=1.7)
+    maps = build_fci_maps_from_callbacks(grid, evaluator, substeps=2)
+    seeds = np.stack(
+        np.meshgrid(
+            np.asarray(grid.x.centers),
+            np.asarray(grid.y.centers),
+            np.asarray([grid.z.centers[0]]),
+            indexing="ij",
+        ),
+        axis=-1,
+    ).reshape(-1, 3)
+    traced = trace_fci_points_to_plane_from_callbacks(
+        grid,
+        evaluator,
+        seeds,
+        float(grid.z.centers[1] - grid.z.centers[0]),
+        substeps=2,
+    )
+    expected_endpoint = np.stack(
+        [
+            np.asarray(maps["forward_endpoint_x"])[..., 0],
+            np.asarray(maps["forward_endpoint_y"])[..., 0],
+            np.asarray(maps["forward_endpoint_z"])[..., 0],
+        ],
+        axis=-1,
+    ).reshape(-1, 3)
+    np.testing.assert_allclose(np.asarray(traced["endpoint"]), expected_endpoint)
+    np.testing.assert_allclose(np.asarray(traced["length"]), np.asarray(maps["forward_length"])[..., 0].reshape(-1))
+    np.testing.assert_array_equal(np.asarray(traced["boundary"]), np.asarray(maps["forward_boundary"])[..., 0].reshape(-1))
+    np.testing.assert_allclose(
+        np.asarray(traced["endpoint_b_contravariant"]),
+        np.stack(
+            [
+                np.asarray(maps["forward_endpoint_b_contra_x"])[..., 0],
+                np.asarray(maps["forward_endpoint_b_contra_y"])[..., 0],
+                np.asarray(maps["forward_endpoint_b_contra_z"])[..., 0],
+            ],
+            axis=-1,
+        ).reshape(-1, 3),
+    )
+    np.testing.assert_allclose(np.asarray(traced["endpoint_bmag"]), np.asarray(maps["forward_endpoint_bmag"])[..., 0].reshape(-1))
+
+
+def test_arbitrary_seed_tracer_preserves_periodic_seam_and_axis_regularization():
+    grid = _grid()
+    periodic = _constant_field(0.0, 4.0)
+    seam_seed = np.asarray([[grid.x.centers[0], grid.y.centers[-1], grid.z.centers[-1]]])
+    seam = trace_fci_points_to_plane_from_callbacks(
+        grid,
+        periodic,
+        seam_seed,
+        float(grid.z.centers[0] + 1.0 - grid.z.centers[-1]),
+        substeps=1,
+    )
+    assert not bool(np.asarray(seam["boundary"])[0])
+    expected_theta = (float(grid.y.centers[-1]) + 4.0 * 0.25) % (2.0 * np.pi)
+    np.testing.assert_allclose(float(np.asarray(seam["endpoint"])[0, 1]), expected_theta)
+
+    def axis(points):
+        points = np.asarray(points, dtype=float)
+        radial = -0.75 * np.cos(points[:, 1]) / np.cos(np.pi / 4.0)
+        return (
+            np.column_stack((radial, np.zeros(points.shape[0]), np.ones(points.shape[0]))),
+            np.ones(points.shape[0]),
+        )
+    axis_grid = _grid()
+    axis_trace = trace_fci_points_to_plane_from_callbacks(
+        axis_grid,
+        axis,
+        np.asarray([[axis_grid.x.centers[0], axis_grid.y.centers[0], axis_grid.z.centers[0]]]),
+        float(axis_grid.z.centers[1] - axis_grid.z.centers[0]),
+        substeps=1,
+        axis_regular_axes=(True, False, False),
+    )
+    endpoint = np.asarray(axis_trace["endpoint"])[0]
+    np.testing.assert_allclose(endpoint[0], 0.0625)
+    np.testing.assert_allclose(endpoint[1], 5.0 * np.pi / 4.0)
+    assert not bool(np.asarray(axis_trace["boundary"])[0])
 
 
 def test_cell_array_builder_preserves_axis_regular_option():

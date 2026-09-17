@@ -1,28 +1,62 @@
 # FCI Simulation Architecture
 
-[`simulate_hsx_blob.py`](../../../simulate_hsx_blob.py) constructs HSX
-geometry and advances the seven-field electrostatic Boussinesq model through
-the local/sharded FCI stack. This document records the currently selectable
-runtime architecture.
+[`generate_hsx_fci_geometry.py`](../../../generate_hsx_fci_geometry.py)
+constructs and qualifies HSX geometry.  [`simulate_hsx_blob.py`](../../../simulate_hsx_blob.py)
+only loads an explicitly selected geometry artifact and advances the
+seven-field electrostatic Boussinesq model through the local/sharded FCI
+stack. This document records the currently selectable runtime architecture.
 
 ## Driver pipeline
 
 ```text
-MAKEGRID + vessel
+producer: MAKEGRID + vessel + requested resolution
   -> magnetic, eta, wall, and metric evaluators
   -> global FciGeometry3D sampled on the PDE grid
-  -> optional traced forward/backward FCI maps
+  -> 64-substep cell-center maps and complete raw transverse-vertex atlas
+  -> polar owner topology and trace-free lean owner-boundary overlap graph
+  -> producer qualification and atomic directory artifact
+consumer: explicit --geometry directory
   -> ShardedFciGeometry3D and local halo topology (eta-only production sharding)
-  -> automatic angular RLP geometry for toroidal topology
   -> LocalFciDrbEBRhs
   -> classical four-stage RK4 advance
   -> history and atomic snapshot NPZ files
 ```
 
+The consumer never fits metrics, traces field lines, builds owner overlap,
+searches caches, regenerates missing arrays, or invokes producer validation.
+It trusts the selected artifact; choosing the correct qualified artifact is
+the caller's responsibility. Checksums in the manifest are audit metadata,
+not a discovery or fallback mechanism.
+
 The native model is
 [`native/fci_drb_EB_rhs.py`](../native/fci_drb_EB_rhs.py). Geometry lowering
 is in [`native/fci_sharding.py`](../native/fci_sharding.py), and scalar halo
 rules are in [`native/fci_halo.py`](../native/fci_halo.py).
+
+## Te-only conduction experiment
+
+The workspace driver [`run_hsx_sanity.py`](../../../run_hsx_sanity.py) has a
+separate heat-spot experiment that advances only the electron-temperature
+parallel conduction lane. Its `--conduction-reconstruction` option defaults
+to `legacy`, which keeps the mapped fine-cell sampler. The opt-in
+`aggregate-quadratic` value prepares a host-side degree-two evaluator with 32
+initial donors and adaptive expansion through 96 donors, then supplies that
+prepared data to the native FCI diffusion runtime. On eligible ordinary
+two-sided interior rows, the runtime replaces the source and endpoint field
+values; native coefficient, connection-length, and physical-wall row handling
+remains in force elsewhere. This option is accepted only by the `heat-spot`
+conduction experiment with angular RLP enabled; the seven-field model and
+`--no-rlp` path reject it. Geometry and reconstruction metadata are written
+with the run output so the experimental choice is reproducible.
+
+The selectors `conservative-quadratic` and
+`conservative-quadratic-volume` use the same quadratic H prolongation before
+with fixed degree two and same-eta donor fits. The first returns the fine RHS
+with H's mass adjoint; the second uses ordinary volume restriction as a local
+control. H reproduces the configured owner averages, but neither selector
+claims native FCI mass conservation or monotonicity for the complete mapped
+operator. These are conditional conduction experiments and do not activate H
+in unrelated production operators.
 
 ## State
 
@@ -51,10 +85,10 @@ includes the RHS `1/B` factor. Conservative curvature uses shared face
 coefficients. Operator-specific physical-wall traces are supplied when an
 operator needs a scalar value or flux.
 
-On toroidal HSX geometry, `--curvature-edge-one-form` opts into sampling the
+On toroidal HSX geometry, the optional curvature edge one-form is selected at
+geometry-production time and stored in the artifact. The producer samples the
 continuous covariant one-form `b/B` once on each unique logical edge before
-applying the same compatible incidence curl. The default remains the
-cell-center-to-edge average for reproducibility. The opt-in path constructs
+applying the same compatible incidence curl. This path constructs
 the full-torus face coefficients on the host, packs both faces of every cell,
 and then lowers those invariant channels to eta shards; shared shard-interface
 faces therefore remain identical. Axis projection and physical-boundary edge
@@ -104,15 +138,15 @@ where `Seta >= 1` and the eta resolution is divisible by `Seta`. Radial and
 poloidal (`x` and `theta`) coordinates are not sharded. This is a production
 contract, not merely a current test limitation.
 
-Selecting `--topology toroidal` additionally requires:
+The artifact producer requires:
 
-- an explicit `--metric-mesh-shape`;
+- an explicit resolution and output directory;
 - even `Ntheta`;
 - compatible-flux Poisson bracket;
 - conservative curvature;
 - `none`, owner-`jacobi`, or `line-u` phi preconditioning.
 
-The driver automatically creates the metric-aware angular owner profile. In
+The producer creates the metric-aware angular owner profile. In
 toroidal RLP, each owner aggregate is confined to a single eta plane, so the
 owner prolongation and physical-volume restriction remain local on an eta
 shard. Global reductions for owner-space means, compatibility, norms, and
@@ -148,6 +182,22 @@ separately from the bypassed
 legacy scalar closure selectors. The production framework requires the
 compatible FCI/owner-space contract described above; `legacy` remains the
 default for reproducibility of existing runs.
+
+## Frozen MMS diagnostic contract
+
+`simulate_hsx_mms.py` evaluates exact-phi, source-paired, and reconstructed-
+phi frozen states through the production stage operator. When MMS
+counterfactual controls are enabled, all three evaluations reuse one compiled
+augmented stage graph and differ only in their state and source inputs. This is
+recorded as `shared-mms-audited-stage-graph-v1` in the aggregate artifact.
+Keeping one graph shape is a qualification requirement: separate lean and
+augmented specializations of a very large XLA graph are not assumed to be
+numerically interchangeable.
+
+The report checks both the graph-contract marker and the algebraic identity
+`R(q,s) - R(q,0) - s`. Runs made with `--skip-counterfactuals` retain a shared
+lean graph for exploratory use, but they do not satisfy the frozen spatial
+qualification gate.
 
 ## Output and restart
 

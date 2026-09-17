@@ -60,7 +60,7 @@ def all_slices() -> tuple[PytestSlice, ...]:
             description="mesh utilities and implicit-operator checks",
             pytest_args=(
                 "tests/test_native_mesh.py",
-                "tests/test_solver_implicit.py",
+                "tests/test_fci_boundary_imex_solver.py",
             ),
         ),
         PytestSlice(

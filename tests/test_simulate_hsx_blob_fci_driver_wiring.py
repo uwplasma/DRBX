@@ -1,9 +1,8 @@
-"""Focused driver-contract tests for the selectable HSX FCI path.
+"""Focused contracts for the explicit-artifact HSX simulation consumer.
 
-These tests intentionally stop before expensive metric fitting or time
-integration.  They verify the driver owns the selection, map validation, and
-explicit map operand plumbing; the mapped operator implementation is tested
-in the DRBX library tests.
+These tests stop before time integration.  They verify that physical geometry
+production is absent and that the named artifact is only lowered and wired to
+runtime operators.
 """
 
 import ast
@@ -42,36 +41,15 @@ def _driver_module():
     return module
 
 
-def _install_toroidal_rlp_mocks(monkeypatch, hsx):
-    topology = SimpleNamespace(
-        is_active_owner=np.ones((4, 8, 12), dtype=bool),
-        is_merge_source=np.zeros((4, 8, 12), dtype=bool),
-    )
-    host = SimpleNamespace(
-        angular_group_size=np.asarray((8, 4, 2, 1)),
-        topology=topology,
-    )
-    descriptor = object()
-    fields = np.zeros((4, 8, 12, hsx.RLP_PACKED_FIELD_COUNT))
-    monkeypatch.setattr(
-        hsx,
-        "build_metric_aware_polar_angular_agglomeration_geometry",
-        lambda *_a, **_k: (host, 0.5),
-    )
-    monkeypatch.setattr(
-        hsx,
-        "build_sharded_polar_angular_agglomeration_payload",
-        lambda *_a, **_k: (descriptor, fields),
-    )
-    return host, descriptor
 
 
-def test_parser_exposes_coordinate_default_and_fci_trace_controls():
+def test_parser_requires_explicit_geometry_and_removes_producer_controls():
     hsx = _driver_module()
     parser = hsx._build_parser()
     args = parser.parse_args([])
+    assert args.geometry is None
+    assert args.blob_initialization == "logical"
     assert args.parallel_operator_scheme == "coordinate"
-    assert args.fci_trace_substeps == 4
     assert args.gmres_residual_correction_steps == 1
     assert args.checkpoint_every == 0
     assert not args.rhs_replay_electron_force_wall_audit
@@ -91,12 +69,6 @@ def test_parser_exposes_coordinate_default_and_fci_trace_controls():
         if "--parallel-operator-scheme" in action.option_strings
     )
     assert scheme_action.choices == ("coordinate", "fci")
-    trace_action = next(
-        action
-        for action in parser._actions
-        if "--fci-trace-substeps" in action.option_strings
-    )
-    assert trace_action.type("7") == 7
     electron_force_action = next(
         action
         for action in parser._actions
@@ -107,6 +79,110 @@ def test_parser_exposes_coordinate_default_and_fci_trace_controls():
         "--curvature-rlp-face-scheme" in action.option_strings
         for action in parser._actions
     )
+    retired = (
+        "--makegrid", "--vessel", "--resolution", "--metric-cache-dir",
+        "--metric-mesh-shape", "--metric-spline-degree",
+        "--fci-trace-substeps", "--fieldline-substeps-per-plane",
+        "--blob-reference-eta", "--blob-parallel-half-length",
+        "--axis-core-radius", "--agglomeration-volume-ratio",
+    )
+    option_strings = {
+        option
+        for action in parser._actions
+        for option in action.option_strings
+    }
+    assert option_strings.isdisjoint(retired)
+
+
+def test_driver_has_no_physical_geometry_producer_imports_or_helpers():
+    source = DRIVER_PATH.read_text()
+    assert "hsx_fci_builder" not in source
+    for retired_api in (
+        "bfield_evaluator_from_makegrid",
+        "scalar_potential_evaluator_from_bfield",
+        "build_metric_evaluator",
+        "build_fci_maps_from_callbacks",
+        "build_hsx_metric_evaluator",
+        "build_hsx_fci_geometry",
+        "_trace_logical_labels_to_eta_plane",
+        "build_field_aligned_filament_profile",
+        "_filament_cache_path",
+    ):
+        assert retired_api not in source
+
+
+def test_missing_geometry_fails_before_any_runtime_setup():
+    hsx = _driver_module()
+    with pytest.raises(SystemExit) as error:
+        hsx.main([])
+    assert error.value.code == 2
+
+
+def test_explicit_geometry_is_loaded_and_only_lowered(monkeypatch, tmp_path):
+    hsx = _driver_module()
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("simulation consumer attempted geometry production")
+
+    from drbx.geometry import fci_geometry as fci_geometry_module
+    from drbx.geometry import fci_owner_boundary_overlap as overlap_module
+    from drbx.geometry import hsx_fci_builder as producer_module
+    from drbx.geometry import hsx_simulation_geometry as orchestration_module
+
+    for name in (
+        "build_hsx_fci_geometry",
+        "build_hsx_metric_evaluator",
+        "_find_compatible_metric_cache",
+        "bfield_evaluator_from_makegrid",
+    ):
+        monkeypatch.setattr(producer_module, name, forbidden)
+    monkeypatch.setattr(
+        orchestration_module, "build_hsx_simulation_geometry", forbidden
+    )
+    monkeypatch.setattr(
+        overlap_module, "build_owner_boundary_overlap_geometry", forbidden
+    )
+    monkeypatch.setattr(
+        fci_geometry_module,
+        "trace_fci_points_to_plane_from_callbacks",
+        forbidden,
+    )
+    artifact = SimpleNamespace(
+        global_geometry=SimpleNamespace(shape=(4, 8, 12)),
+        cell_positions=np.zeros((4, 8, 12, 3), dtype=np.float64),
+        nfp=1,
+        topology=SimpleNamespace(name="square"),
+        curvature_edge_one_form=None,
+        owner_geometry=None,
+        owner_overlap=None,
+        metadata={},
+    )
+    loaded = []
+    monkeypatch.setattr(
+        hsx, "load_fci_simulation_geometry", lambda path: loaded.append(path) or artifact
+    )
+    monkeypatch.setattr(hsx, "make_shard_mesh", lambda counts: object())
+    lowered = []
+    monkeypatch.setattr(
+        hsx,
+        "build_local_fci_geometries",
+        lambda *args, **kwargs: lowered.append((args, kwargs)) or SimpleNamespace(
+            global_shape=(4, 8, 12),
+            shard_counts=(1, 1, 1),
+            maps_valid=True,
+            map_fields=None,
+            domain=SimpleNamespace(
+                layout=SimpleNamespace(
+                    owned_shape=(4, 8, 12), cell_halo_shape=(6, 10, 14)
+                ),
+                periodic_axes=(False, False, True),
+                axis_regular_axes=(False, False, False),
+            ),
+        ),
+    )
+    hsx.main(["--geometry", str(tmp_path), "--geometry-only"])
+    assert loaded == [tmp_path]
+    assert lowered and lowered[0][0][0] is artifact.global_geometry
 
 
 def test_periodic_checkpoint_interval_is_validated_before_geometry():
@@ -251,9 +327,8 @@ def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "shard_map"
     ]
-    # Each runtime geometry kernel carries cell geometry and map geometry as
-    # separate leading-axis-sharded operands.  The map-only coordinate path
-    # still receives the same zero placeholder and disables it at assembly.
+    # Each runtime geometry kernel carries artifact cell geometry and map
+    # geometry as separate leading-axis-sharded operands.
     for call in shard_maps:
         in_specs = next(keyword.value for keyword in call.keywords if keyword.arg == "in_specs")
         if isinstance(in_specs, ast.Tuple):
@@ -283,223 +358,6 @@ def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
     )
 
 
-def test_geometry_only_fci_requests_map_generation_and_records_substeps(
-    monkeypatch, tmp_path
-):
-    hsx = _driver_module()
-    makegrid = tmp_path / "mgrid.nc"
-    vessel = tmp_path / "vessel.txt"
-    makegrid.write_bytes(b"synthetic")
-    vessel.write_bytes(b"synthetic")
-    global_calls = []
-    lowering_calls = []
-    metric_evaluator = object()
-    _install_toroidal_rlp_mocks(monkeypatch, hsx)
-
-    monkeypatch.setattr(hsx, "make_shard_mesh", lambda *_: object())
-    monkeypatch.setattr(
-        hsx,
-        "build_hsx_fci_geometry",
-        lambda **kwargs: global_calls.append(kwargs)
-        or (object(), np.zeros((4, 8, 12, 3)), 2, None, metric_evaluator),
-    )
-    monkeypatch.setattr(
-        hsx,
-        "build_local_fci_geometries",
-        lambda *args, **kwargs: lowering_calls.append((args, kwargs))
-        or SimpleNamespace(
-            global_shape=(4, 8, 12),
-            shard_counts=(1, 1, 1),
-            cell_fields=object(),
-            maps_valid=True,
-            map_fields=np.zeros((4, 8, 12, 8)),
-            domain=SimpleNamespace(
-                layout=SimpleNamespace(
-                    owned_shape=(4, 8, 12), cell_halo_shape=(6, 10, 14)
-                ),
-                periodic_axes=(False, True, True),
-                axis_regular_axes=(True, False, False),
-            ),
-        ),
-    )
-
-    hsx.main(
-        [
-            "--topology",
-            "toroidal",
-            "--parallel-operator-scheme",
-            "fci",
-            "--fci-trace-substeps",
-            "7",
-            "--geometry-only",
-            "--makegrid",
-            str(makegrid),
-            "--vessel",
-            str(vessel),
-            "--resolution",
-            "4",
-            "8",
-            "12",
-            "--metric-mesh-shape",
-            "5",
-            "8",
-            "6",
-        ]
-    )
-    assert global_calls[0]["construct_fci_maps"] is True
-    assert global_calls[0]["fci_trace_substeps"] == 7
-    assert lowering_calls
-
-
-def test_metric_context_reuses_continuous_evaluator_across_resolutions(monkeypatch):
-    """The explicit context path samples grids without refitting HSX metrics."""
-
-    hsx = _driver_module()
-    logical_u = np.linspace(0.0, 1.0, 5)
-    logical_theta = 2.0 * np.pi * np.arange(8) / 8.0
-    logical_eta = np.pi * np.arange(6) / 6.0
-
-    class FakeMetricEvaluator:
-        topology = "toroidal"
-        nfp = 2
-        period = np.pi
-        u = logical_u
-        v = logical_theta
-        eta = logical_eta
-
-        def evaluate(self, points, **_kwargs):
-            shape = np.asarray(points).shape[:-1]
-            tensor = np.broadcast_to(np.eye(3), shape + (3, 3)).copy()
-            tensor[..., 1, 1] = 1.2
-            tensor[..., 2, 2] = 1.4
-            return SimpleNamespace(
-                signed_J=np.ones(shape),
-                g_contra=tensor,
-                g_cov=tensor,
-                position=np.zeros(shape + (3,)),
-            )
-
-        def evaluate_magnetic_field(self, points, _bfield, **_kwargs):
-            shape = np.asarray(points).shape[:-1]
-            return SimpleNamespace(
-                B_contravariant=np.broadcast_to(
-                    np.asarray((1.0, 0.0, 0.1)), shape + (3,)
-                ).copy(),
-                magnitude=np.ones(shape),
-            )
-
-    class FakeBField:
-        nfp = 2
-
-    # The production class check remains meaningful while keeping this test
-    # independent of the expensive real HSX metric construction.
-    monkeypatch.setattr(hsx, "MetricEvaluator", FakeMetricEvaluator)
-    context = hsx.HSXMetricContext(FakeMetricEvaluator(), FakeBField(), 2)
-    refit_calls = []
-    monkeypatch.setattr(
-        hsx,
-        "build_hsx_metric_evaluator",
-        lambda **_kwargs: refit_calls.append(True),
-    )
-
-    common = dict(
-        makegrid_path=Path("/tmp/unused-makegrid"),
-        vessel_path=Path("/tmp/unused-vessel"),
-        fit_sample_shape=(4, 4, 4),
-        radial_degree=2,
-        vertical_degree=2,
-        toroidal_modes=2,
-        metric_spline_degree=3,
-        mmpde_iterations=0,
-        axis_core_radius=0.1,
-        reference_magnetic_field=1.0,
-        topology="toroidal",
-        metric_mesh_shape=(5, 8, 6),
-        metric_cache_dir=None,
-        metric_context=context,
-    )
-    for radial_cells in (4, 6, 8):
-        geometry, *_ = hsx.build_hsx_fci_geometry(
-            resolution=(radial_cells, 8, 12), **common
-        )
-        assert geometry.shape == (radial_cells, 8, 12)
-    assert not refit_calls
-
-
-def test_fci_main_passes_production_scheme_and_metadata_to_run(monkeypatch, tmp_path):
-    hsx = _driver_module()
-    makegrid = tmp_path / "mgrid.nc"
-    vessel = tmp_path / "vessel.txt"
-    makegrid.write_bytes(b"synthetic")
-    vessel.write_bytes(b"synthetic")
-    monkeypatch.setattr(hsx, "make_shard_mesh", lambda *_: object())
-    _install_toroidal_rlp_mocks(monkeypatch, hsx)
-    monkeypatch.setattr(
-        hsx,
-        "build_hsx_fci_geometry",
-        lambda **kwargs: (object(), np.zeros((4, 8, 12, 3)), 2, None, object()),
-    )
-    sharded = SimpleNamespace(
-        global_shape=(4, 8, 12),
-        shard_counts=(1, 1, 1),
-        maps_valid=True,
-        map_fields=np.zeros((4, 8, 12, 8)),
-        cell_fields=object(),
-        domain=SimpleNamespace(
-            layout=SimpleNamespace(
-                owned_shape=(4, 8, 12), cell_halo_shape=(6, 10, 14)
-            ),
-            periodic_axes=(False, True, True),
-            axis_regular_axes=(True, False, False),
-        ),
-    )
-    monkeypatch.setattr(hsx, "build_local_fci_geometries", lambda *_a, **_k: sharded)
-    monkeypatch.setattr(hsx, "build_initial_state", lambda *_a, **_k: object())
-    monkeypatch.setattr(hsx, "_aggregate_initial_owner_state", lambda state, _host: state)
-    monkeypatch.setattr(hsx, "_assert_owner_sparse", lambda *_a, **_k: None)
-    calls = []
-    monkeypatch.setattr(hsx, "run_full_eb", lambda *args, **kwargs: calls.append(kwargs))
-
-    hsx.main(
-        [
-            "--topology",
-            "toroidal",
-            "--parallel-operator-scheme",
-            "fci",
-            "--fci-trace-substeps",
-            "6",
-            "--makegrid",
-            str(makegrid),
-            "--vessel",
-            str(vessel),
-            "--resolution",
-            "4",
-            "8",
-            "12",
-            "--metric-mesh-shape",
-            "5",
-            "8",
-            "6",
-            "--num-steps",
-            "1",
-            "--final-time",
-            "1e-6",
-            "--checkpoint-every",
-            "17",
-        ]
-    )
-    assert calls
-    assert calls[0]["parallel_operator_scheme"] == "fci"
-    assert calls[0]["run_metadata"]["parallel_operator_scheme"] == "fci"
-    assert calls[0]["run_metadata"]["fci_trace_substeps"] == 6
-    assert calls[0]["checkpoint_every"] == 17
-    assert calls[0]["control_volume_descriptor"] is not None
-    assert calls[0]["control_volume_fields_host"].shape == (
-        4,
-        8,
-        12,
-        hsx.RLP_PACKED_FIELD_COUNT,
-    )
 
 
 def test_production_split_guard_requires_compatible_runtime():
@@ -636,13 +494,17 @@ def test_initial_phi_reconstruction_fails_fast_when_gmres_does_not_accept(
     with pytest.raises(FloatingPointError, match="initial phi reconstruction"):
         hsx.run_full_eb(
             state,
-            global_geometry=global_geometry,
-            cell_positions=np.zeros((1, 1, 1, 3), dtype=np.float64),
-            nfp=1,
+            simulation_geometry=SimpleNamespace(
+                global_geometry=global_geometry,
+                cell_positions=np.zeros((1, 1, 1, 3), dtype=np.float64),
+                nfp=1,
+                curvature_edge_one_form=None,
+                owner_geometry=None,
+                metadata={},
+            ),
             sharded_geometry=sharded_geometry,
             mesh=real_make_shard_mesh((1, 1, 1)),
             parameters=parameters,
-            metric_cache_path=None,
             gmres_target_tolerance=1.0e-8,
             gmres_acceptance_tolerance=5.0e-5,
             gmres_max_iterations=10,

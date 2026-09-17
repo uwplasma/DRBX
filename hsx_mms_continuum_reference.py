@@ -23,6 +23,174 @@ from typing import Any, Mapping
 import numpy as np
 
 
+def _lagrange_weights(nodes: np.ndarray, coordinate: np.ndarray) -> np.ndarray:
+    """Evaluate cubic Lagrange weights for each coordinate.
+
+    Geometry artifacts contain samples at cell centres rather than a fitted
+    evaluator.  This small tensor-product interpolant gives the independent
+    MMS reference a smooth, deterministic view of those serialized samples;
+    it never consults MAKEGRID or a metric cache.
+    """
+
+    nodes = np.asarray(nodes, dtype=np.float64)
+    coordinate = np.asarray(coordinate, dtype=np.float64).reshape(-1)
+    if nodes.ndim == 1:
+        nodes = np.broadcast_to(nodes[None, :], (coordinate.size, nodes.size))
+    if nodes.ndim != 2 or nodes.shape[0] != coordinate.size:
+        raise ValueError("interpolation stencil must have shape (points, nodes)")
+    weights = np.ones(nodes.shape, dtype=np.float64)
+    for j in range(nodes.shape[1]):
+        node = nodes[:, j]
+        for k in range(nodes.shape[1]):
+            other = nodes[:, k]
+            if j != k:
+                weights[:, j] *= (coordinate - other) / (node - other)
+    return weights
+
+
+class SerializedBFieldEvaluator:
+    """Periodic tensor-product interpolant over artifact cell B samples."""
+
+    def __init__(self, axes, B_contravariant, magnitude, *, periods=None):
+        self.axes = tuple(np.asarray(axis, dtype=np.float64) for axis in axes)
+        self.B_contravariant = np.asarray(B_contravariant, dtype=np.float64)
+        self.magnitude = np.asarray(magnitude, dtype=np.float64)
+        self.periods = tuple(periods or (None, None, None))
+        if self.B_contravariant.shape != self.magnitude.shape + (3,):
+            raise ValueError("B_contravariant and magnitude shapes are inconsistent")
+
+    def _interpolate(self, points, values):
+        q = np.asarray(points, dtype=np.float64).reshape((-1, 3))
+        # Tiny artifact fixtures used by contract tests may have fewer than
+        # four samples along an axis.  They are not production MMS grids;
+        # nearest-node lookup keeps those round-trip tests well-defined while
+        # all real grids use the cubic branch below.
+        if any(axis.size < 4 for axis in self.axes):
+            indices = []
+            for axis, (nodes, period) in enumerate(zip(self.axes, self.periods)):
+                coordinate = q[:, axis]
+                if period is not None:
+                    coordinate = nodes[0] + np.mod(coordinate - nodes[0], period)
+                indices.append(np.argmin(np.abs(coordinate[:, None] - nodes[None, :]), axis=1))
+            return values[indices[0], indices[1], indices[2]]
+        index_sets = []
+        weight_sets = []
+        for axis, (nodes, period) in enumerate(zip(self.axes, self.periods)):
+            coordinate = q[:, axis].copy()
+            if period is not None:
+                spacing = float(period) / float(nodes.size)
+                coordinate = nodes[0] + np.mod(coordinate - nodes[0], float(period))
+                position = (coordinate - nodes[0]) / spacing
+                base = np.floor(position).astype(np.int64)
+                indices = (base[:, None] + np.arange(-1, 3)[None, :]) % nodes.size
+                stencil_nodes = nodes[indices]
+                stencil_nodes = stencil_nodes + float(period) * np.round(
+                    (coordinate[:, None] - stencil_nodes) / float(period)
+                )
+            else:
+                base = np.searchsorted(nodes, coordinate, side="right") - 1
+                base = np.clip(base, 1, nodes.size - 3)
+                indices = base[:, None] + np.arange(-1, 3)[None, :]
+                stencil_nodes = nodes[indices]
+            index_sets.append(indices)
+            weight_sets.append(_lagrange_weights(stencil_nodes, coordinate))
+        i0, i1, i2 = index_sets
+        gathered = values[
+            i0[:, :, None, None],
+            i1[:, None, :, None],
+            i2[:, None, None, :],
+        ]
+        result = np.einsum(
+            "na,nb,nc,nabc...->n...",
+            weight_sets[0], weight_sets[1], weight_sets[2], gathered,
+        )
+        return result
+
+    def evaluate(self, points, *, reject_nonpositive_J=False):
+        q = np.asarray(points, dtype=np.float64).reshape((-1, 3))
+        return SimpleNamespace(
+            B_contravariant=self._interpolate(q, self.B_contravariant),
+            magnitude=self._interpolate(q, self.magnitude),
+        )
+
+
+class SerializedMetricEvaluator:
+    """Metric evaluator reconstructed solely from a geometry artifact."""
+
+    def __init__(self, geometry):
+        grid = geometry.grid
+        self.axes = tuple(
+            np.asarray(axis.centers, dtype=np.float64)
+            for axis in (grid.x, grid.y, grid.z)
+        )
+        self.period = float(np.asarray(grid.z.faces)[-1] - np.asarray(grid.z.faces)[0])
+        self.periods = (None, float(np.asarray(grid.y.faces)[-1] - np.asarray(grid.y.faces)[0]), self.period)
+        metric = geometry.cell_metric
+        self.J = np.asarray(metric.J, dtype=np.float64)
+        self.g_cov = np.asarray(metric.g_cov, dtype=np.float64)
+        self.g_contra = np.asarray(metric.g_contra, dtype=np.float64)
+        self.bfield = SerializedBFieldEvaluator(
+            self.axes,
+            np.asarray(geometry.cell_bfield.B_contra, dtype=np.float64),
+            np.asarray(geometry.cell_bfield.Bmag, dtype=np.float64),
+            periods=self.periods,
+        )
+
+    def _interpolate(self, points, values):
+        return self.bfield._interpolate(points, values)
+
+    def evaluate(self, points, *, reject_nonpositive_J=False):
+        q = np.asarray(points, dtype=np.float64).reshape((-1, 3))
+        return SimpleNamespace(
+            signed_J=self._interpolate(q, self.J),
+            covariant_metric=self._interpolate(q, self.g_cov),
+            contravariant_metric=self._interpolate(q, self.g_contra),
+        )
+
+    def evaluate_magnetic_field(self, points, bfield=None, *, reject_nonpositive_J=False):
+        return self.bfield.evaluate(points, reject_nonpositive_J=reject_nonpositive_J)
+
+
+def build_continuum_reference_from_artifact(
+    artifact: Any,
+    *,
+    B0: float | None = None,
+    tau: float = 1.0,
+    mi_over_me: float = 1836.0,
+    rho_star: float = 1.0,
+    Ve_nu: float = 1.0e-3,
+    perp_diffusion: float = 1.0e-5,
+    enable_generalized_potential: bool = True,
+) -> "ContinuumMmsReference":
+    """Construct the fixed MMS reference from one serialized artifact.
+
+    The caller supplies the finest artifact once and reuses the returned
+    reference for all coarser resolutions.  The loader has already supplied
+    all arrays; this function performs no geometry generation or validation.
+    """
+
+    geometry = getattr(artifact, "global_geometry", getattr(artifact, "geometry", None))
+    if geometry is None:
+        raise TypeError("artifact must provide global_geometry or geometry")
+    if B0 is None:
+        # FciGeometry3D stores B/B0 and |B|/B0, not raw tesla.  The serialized
+        # arrays are therefore already in the continuum reference's normalized
+        # units and must not be divided by the producer's physical B0 again.
+        B0 = 1.0
+    evaluator = SerializedMetricEvaluator(geometry)
+    return ContinuumMmsReference(
+        evaluator,
+        evaluator.bfield,
+        float(B0),
+        tau=tau,
+        mi_over_me=mi_over_me,
+        rho_star=rho_star,
+        Ve_nu=Ve_nu,
+        perp_diffusion=perp_diffusion,
+        enable_generalized_potential=enable_generalized_potential,
+    )
+
+
 FIELDS = ("density", "phi", "Te", "Ti", "Vi", "Ve", "vorticity")
 EVOLVED_FIELDS = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")
 

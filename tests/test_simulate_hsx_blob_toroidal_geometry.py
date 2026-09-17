@@ -21,7 +21,8 @@ def test_topology_descriptors_distinguish_square_and_toroidal():
 
 def test_parser_defaults_use_production_operator_pair():
     args = hsx._build_parser().parse_args(())
-    assert args.topology == "square"
+    assert not hasattr(args, "topology")
+    assert args.geometry is None
     assert not hasattr(args, "curvature_scheme")
     assert args.poisson_bracket_scheme == "compatible-flux"
     assert args.gmres_preconditioner == "line-u"
@@ -42,8 +43,14 @@ def test_removed_axis_experiment_options_are_rejected():
 
 
 def test_composite_even_ntheta_is_accepted_by_parser():
-    args = hsx._build_parser().parse_args(
-        ("--topology", "toroidal", "--resolution", "8", "48", "16")
+    from generate_hsx_fci_geometry import _parser
+
+    args = _parser().parse_args(
+        (
+            "--resolution", "8", "48", "16",
+            "--metric-mesh-shape", "8", "48", "4",
+            "--output", "geometry",
+        )
     )
     assert args.resolution == [8, 48, 16]
 
@@ -71,7 +78,9 @@ def test_toroidal_production_requirements_are_explicit_in_main_source():
     source = open(hsx.__file__, encoding="utf-8").read()
     main = source[source.index("def main("):]
     assert 'args.topology == "toroidal"' in main
-    assert "build_metric_aware_polar_angular_agglomeration_geometry" in main
+    assert "simulation_geometry.owner_geometry" not in main
+    assert 'getattr(simulation_geometry, "owner_geometry", None)' in main
     assert "build_sharded_polar_angular_agglomeration_payload" in main
+    assert "build_metric_aware_polar_angular_agglomeration_geometry" not in main
     assert "lower_polar_angular_agglomeration_geometry" not in main
     assert "lower_pole_control_volume_geometry(" not in main

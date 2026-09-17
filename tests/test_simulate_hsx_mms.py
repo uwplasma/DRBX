@@ -493,11 +493,9 @@ def test_evolved_mms_starts_from_analytic_manufactured_phi():
     assert "**_production_configuration(" in evolved
 
 
-def test_canonical_wiring_path_uses_current_production_selectors(capsys):
+def test_canonical_wiring_path_uses_current_production_selectors(capsys, tmp_path):
     driver = _load(DRIVER, "simulate_hsx_mms_test")
-    driver.main((
-        "--self-test", "--wiring-only", "--curvature-edge-one-form"
-    ))
+    driver.main(("--geometry", str(tmp_path), "--self-test", "--wiring-only"))
     output = capsys.readouterr().out
     for selector in (
         "production-split",
@@ -512,12 +510,19 @@ def test_canonical_wiring_path_uses_current_production_selectors(capsys):
         "h-mf-second-order",
         "h-mf-consistent",
         "raw-metric",
-        "direct-continuous-shared-edge",
+        "artifact-owned",
     ):
         assert selector in output
 
 
-def test_wiring_only_does_not_require_cluster_device_count(capsys):
+def test_mms_cli_requires_explicit_geometry_even_for_self_test():
+    driver = _load(DRIVER, "simulate_hsx_mms_geometry_required_test")
+    with pytest.raises(SystemExit) as error:
+        driver.main(("--self-test", "--wiring-only"))
+    assert error.value.code == 2
+
+
+def test_wiring_only_does_not_require_cluster_device_count(capsys, tmp_path):
     driver = _load(DRIVER, "simulate_hsx_mms_wiring_device_count_test")
     # This repository's local test process normally exposes one device; the
     # explicit remote mesh is still valid for a no-geometry wiring check.
@@ -525,6 +530,8 @@ def test_wiring_only_does_not_require_cluster_device_count(capsys):
         (
             "--self-test",
             "--wiring-only",
+            "--geometry",
+            str(tmp_path),
             "--shard-counts",
             "1",
             "1",
@@ -538,10 +545,11 @@ def test_wiring_only_does_not_require_cluster_device_count(capsys):
 def test_harness_requires_real_resolution_local_maps_and_canonical_imex():
     source = DRIVER.read_text(encoding="utf-8")
     target_build = source[source.index("for n in resolutions") :]
-    assert "construct_fci_maps=True" in target_build
-    assert "fci_trace_substeps=4" in target_build
-    assert "return_curvature_edge_one_form=bool(" in target_build
+    assert "_load_geometry_for_resolution" in source
+    assert "build_hsx_fci_geometry(" not in target_build
+    assert "fci_trace_substeps=4" not in target_build
     assert "blob.run_full_eb(" in target_build
+    assert "simulation_geometry=artifact" in target_build
     assert "curvature_edge_one_form=curvature_edge_one_form" in target_build
     assert 'time_integrator="imex-ssp222"' in target_build
     assert "source_evaluator=stage_source" in target_build
@@ -554,11 +562,52 @@ def test_harness_requires_real_resolution_local_maps_and_canonical_imex():
 def test_harness_persists_resolution_local_fci_maps_separately():
     source = DRIVER.read_text(encoding="utf-8")
     target_build = source[source.index("for n in resolutions") :]
-    assert "def _fci_map_cache_path" in source
-    assert '"resolution": int(resolution)' in source
-    assert '"map_source": blob._hsx_fci_map_source_fingerprint()' in source
-    assert "metric_cache_dir=None" in target_build
-    assert "fci_map_cache_path=_fci_map_cache_path(args, n)" in target_build
+    assert "def _fci_map_cache_path" not in source
+    assert "blob.load_fci_simulation_geometry(candidate)" in source
+    assert "fci_map_cache_path" not in target_build
+
+
+def test_mms_reference_uses_only_round_tripped_artifact(monkeypatch, tmp_path):
+    """The continuum reference must be constructible without a producer."""
+
+    fixture = _load(
+        ROOT / "tests" / "test_fci_simulation_geometry_artifact.py",
+        "fci_simulation_geometry_artifact_fixture_for_mms",
+    )
+    from drbx.geometry.fci_simulation_geometry import (
+        load_fci_simulation_geometry,
+        write_fci_simulation_geometry,
+    )
+    reference_module = _load(
+        REFERENCE, "hsx_mms_continuum_reference_artifact_test"
+    )
+    artifact_path = write_fci_simulation_geometry(
+        fixture._artifact(), tmp_path / "artifact"
+    )
+    artifact = load_fci_simulation_geometry(artifact_path)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("MMS reference attempted geometry generation")
+
+    monkeypatch.setattr(blob_module := _load(
+        ROOT / "simulate_hsx_blob.py", "simulate_hsx_blob_artifact_test"
+    ), "build_hsx_fci_geometry", forbidden, raising=False)
+    reference = reference_module.build_continuum_reference_from_artifact(
+        artifact, enable_generalized_potential=False
+    )
+    points = np.asarray(artifact.geometry.grid.x.centers)
+    points = np.stack(
+        np.meshgrid(
+            np.asarray(artifact.geometry.grid.x.centers),
+            np.asarray(artifact.geometry.grid.y.centers),
+            np.asarray(artifact.geometry.grid.z.centers),
+            indexing="ij",
+        ),
+        axis=-1,
+    ).reshape(-1, 3)
+    prepared = reference.prepare(points)
+    assert np.all(np.isfinite(prepared.J))
+    assert np.all(np.isfinite(prepared.B))
 
 
 def test_canonical_evolved_schedule_is_20_steps():
@@ -645,6 +694,7 @@ def test_compact_rows_preserve_execution_metadata_after_private_runtime_drop():
     assert 'result["frozen_execution"] = result["_runtime"].frozen_execution' in source
     aggregate = source[source.index("np.savez(args.output") :]
     assert 'rows[0]["frozen_execution"]' in aggregate
+    assert 'rows[0]["frozen_stage_graph_contract"]' in aggregate
     assert 'rows[0]["_runtime"]' not in aggregate
 
 
@@ -692,10 +742,10 @@ def test_harness_exposes_eta_sharded_frozen_and_evolved_runtime_contract():
     assert 'frozen_execution = "eta-sharded"' in source
     assert "FrozenEbDiagnosticRequest(" in source
     assert 'evolved_execution="eta-sharded"' in source
-    assert '"--metric-cache-dir"' in source
-    assert '"--rebuild-metric-cache"' in source
-    assert "metric_cache_dir=args.metric_cache_dir" in source
-    assert "rebuild_metric_cache=bool(args.rebuild_metric_cache)" in source
+    assert '"--geometry"' in source
+    assert '"--metric-cache-dir"' not in source
+    assert '"--rebuild-metric-cache"' not in source
+    assert "build_hsx_fci_geometry(" not in source
 
 
 def test_eta_shard_configuration_rejects_invalid_or_unavailable_layouts():
@@ -740,6 +790,7 @@ def test_frozen_diagnostic_hook_assembles_global_two_device_outputs():
     payload = json.loads(completed.stdout.strip().splitlines()[-1])
     assert payload["device_count"] == 2
     assert payload["source_pairing"] < 1.0e-14
+    assert payload["source_total_subtraction"] < 1.0e-14
     assert payload["reconstructed_shift"] < 1.0e-14
     assert payload["exact_term_shape"] == [6, 10, 2, 3, 4]
     assert payload["sourced_term_shape"] == [6, 10, 2, 3, 4]

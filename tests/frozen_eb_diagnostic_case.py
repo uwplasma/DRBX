@@ -36,6 +36,11 @@ class _FakeModel:
         if source_owned is None:
             source_owned = state.zeros_like()
         phi = state.phi if phi_owned is None else phi_owned
+        # Model the large-graph specialization failure that motivated the
+        # shared audited-stage contract: lean and augmented graphs disagree.
+        specialization_bias = (
+            0.0 if return_mms_counterfactual_fields else 100.0
+        )
 
         def rhs(name):
             if name == "phi":
@@ -44,6 +49,7 @@ class _FakeModel:
                 2.0 * getattr(state, name)
                 + 0.1 * phi
                 + getattr(source_owned, name)
+                + specialization_bias
             )
 
         result = blob.FciDrbEBState(**{
@@ -157,15 +163,19 @@ def run_case() -> dict[str, object]:
     )
     result = blob.run_full_eb(
         state,
-        global_geometry=SimpleNamespace(shape=shape),
-        cell_positions=np.zeros(shape + (3,), dtype=np.float64),
-        nfp=1,
+        simulation_geometry=SimpleNamespace(
+            global_geometry=SimpleNamespace(shape=shape),
+            cell_positions=np.zeros(shape + (3,), dtype=np.float64),
+            nfp=1,
+            curvature_edge_one_form=None,
+            owner_geometry=None,
+            metadata={},
+        ),
         sharded_geometry=sharded_geometry,
         mesh=mesh,
         parameters=SimpleNamespace(
             parallel_characteristic_wall_law="energy-absorbing"
         ),
-        metric_cache_path=None,
         gmres_target_tolerance=1.0e-8,
         gmres_acceptance_tolerance=1.0e-5,
         gmres_max_iterations=4,

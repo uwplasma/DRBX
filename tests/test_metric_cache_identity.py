@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import simulate_hsx_blob as hsx  # noqa: E402
+from drbx.geometry import hsx_fci_builder as hsx  # noqa: E402
 from drbx.geometry.fci_geometry import (  # noqa: E402
     angular_agglomeration_host_geometry_cache_path,
 )
