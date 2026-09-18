@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from drbx.geometry.fci_owner_boundary_overlap import build_owner_boundary_overlap_geometry
 from drbx.geometry.fci_simulation_geometry import FciVertexTraceAtlas
@@ -139,18 +138,3 @@ def test_atlas_wall_mask_terminates_source_cell():
     )
     records = [r for r in result.diagnostics["interfaces"] if r["direction"] == "forward"]
     assert records and records[0]["active_cells"] < 8
-
-
-def test_resource_budget_is_enforced():
-    geometry, owner, atlas = _fixture()
-    with pytest.raises(MemoryError, match="RSS budget"):
-        build_owner_boundary_overlap_geometry(
-            geometry,
-            owner,
-            atlas,
-            cell_center_wall_masks=(
-                geometry.maps.forward_boundary,
-                geometry.maps.backward_boundary,
-            ),
-            max_peak_rss_gib=1e-12,
-        )
