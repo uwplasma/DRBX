@@ -285,7 +285,6 @@ def build_owner_boundary_overlap_geometry(
     metric_batch_size: int = 32768,
     max_overlap_candidates: int = 2_000_000,
     max_quadrature_points: int = 2_000_000,
-    max_peak_rss_gib: float = 6.0,
     progress_callback: Any = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> GlobalRlpParallelOverlapGeometry:
@@ -295,8 +294,8 @@ def build_owner_boundary_overlap_geometry(
     generation and qualification own tracing, while this routine only consumes
     the resulting atlas.
     """
-    if max_overlap_candidates < 1 or max_quadrature_points < 1 or max_peak_rss_gib <= 0.0:
-        raise ValueError("overlap and RSS budgets must be positive")
+    if max_overlap_candidates < 1 or max_quadrature_points < 1:
+        raise ValueError("overlap work budgets must be positive")
     if not isinstance(vertex_traces, FciVertexTraceAtlas) and not all(hasattr(vertex_traces, n) for n in ("forward_endpoint", "backward_endpoint", "forward_length", "backward_length", "forward_boundary", "backward_boundary")):
         raise TypeError("vertex_traces must be an FciVertexTraceAtlas or compatible atlas")
     shape = tuple(int(v) for v in _get(geometry, "shape", default=_get(_get(owner_geometry, "topology", default=owner_geometry), "shape")))
@@ -372,8 +371,6 @@ def build_owner_boundary_overlap_geometry(
     def check_budget() -> None:
         nonlocal peak_rss
         peak_rss = max(peak_rss, _rss_gib())
-        if peak_rss > max_peak_rss_gib:
-            raise MemoryError("owner-boundary RSS budget exceeded")
         if counters["overlap_candidates"] > max_overlap_candidates:
             raise MemoryError("owner-boundary overlap-candidate budget exceeded")
         if counters["quadrature_points"] > max_quadrature_points:
@@ -598,7 +595,6 @@ def build_owner_boundary_overlap_geometry(
         "max_bin_candidates": int(max_overlap_candidates),
         "max_overlap_candidates": int(max_overlap_candidates),
         "max_quadrature_points": int(max_quadrature_points),
-        "max_peak_rss_gib": float(max_peak_rss_gib),
         "metric_batch_size": int(metric_batch_size),
     }
     return GlobalRlpParallelOverlapGeometry(raw_shape=shape, owner_flat_ids=owner_ids, owner_volumes=volumes, link_owner_a=np.asarray([k[0] for k in ordered], dtype=np.int32), link_owner_b=np.asarray([k[1] for k in ordered], dtype=np.int32), link_interface=np.asarray([k[2] for k in ordered], dtype=np.int32), overlap_measure=np.asarray([links[k][0] for k in ordered]), transmissibility=np.asarray([links[k][1] for k in ordered]), metadata={"construction": "owner-boundary-lean-second-order", "trace_free": True, **dict(metadata or {})}, diagnostics=diagnostics)
