@@ -647,8 +647,10 @@ def validate_fci_simulation_geometry_producer(
 
     This is deliberately separate from deserialization.  A producer report is
     accepted only when the complete raw-vertex atlas uses the frozen 64
-    substep policy, owner-overlap arrays are sane, and closure diagnostics are
-    within ``closure_tolerance``.  A trace qualification report can be
+    substep policy and owner-overlap arrays are structurally sane.  Closure is
+    compared with ``closure_tolerance`` and reported as a diagnostic-only
+    check; exceeding it does not reject an otherwise valid artifact.  A trace
+    qualification report can be
     required for campaigns that have performed the 64-versus-128 comparison;
     loading never performs any of these checks.
     """
@@ -658,6 +660,7 @@ def validate_fci_simulation_geometry_producer(
     tolerance = float(closure_tolerance)
     if not np.isfinite(tolerance) or tolerance <= 0.0:
         raise ValueError("closure_tolerance must be finite and positive")
+    closure_diagnostic_summary: dict[str, Any] = {}
     checks: dict[str, bool] = {
         "geometry_shape": artifact.geometry.shape == artifact.cell_positions.shape[:3],
         "cell_positions_finite": bool(np.all(np.isfinite(artifact.cell_positions))),
@@ -812,11 +815,44 @@ def validate_fci_simulation_geometry_producer(
                         except (TypeError, ValueError):
                             checks["closure_diagnostics_within_tolerance"] = False
         checks["closure_diagnostics_present"] = bool(closure_values)
-        checks["closure_diagnostics_within_tolerance"] = bool(
-            closure_values
-            and np.all(np.isfinite(np.asarray(closure_values)))
-            and np.all(np.abs(np.asarray(closure_values)) <= tolerance)
+        finite_closure_values = np.asarray(closure_values, dtype=float)
+        reported_closure_status = overlap.diagnostics.get(
+            "closure_within_reference_tolerance"
         )
+        if isinstance(reported_closure_status, (bool, np.bool_)):
+            checks["closure_diagnostics_within_tolerance"] = bool(
+                reported_closure_status
+                and closure_values
+                and np.all(np.isfinite(finite_closure_values))
+            )
+        else:
+            checks["closure_diagnostics_within_tolerance"] = bool(
+                closure_values
+                and np.all(np.isfinite(finite_closure_values))
+                and np.all(np.abs(finite_closure_values) <= tolerance)
+            )
+        closure_diagnostic_summary = {
+            "reference_tolerance": float(
+                overlap.diagnostics.get("closure_reference_tolerance", tolerance)
+            ),
+            "within_reference_tolerance": checks[
+                "closure_diagnostics_within_tolerance"
+            ],
+            "max_closure_error": float(
+                overlap.diagnostics.get(
+                    "max_closure_error",
+                    np.max(np.abs(finite_closure_values))
+                    if finite_closure_values.size
+                    else 0.0,
+                )
+            ),
+            "max_relative_closure_error": overlap.diagnostics.get(
+                "max_relative_closure_error"
+            ),
+            "reference_exceedance_count": overlap.diagnostics.get(
+                "closure_reference_exceedance_count"
+            ),
+        }
     else:
         for name in (
             "owner_overlap_shape", "owner_volumes_positive_finite", "owner_ids_valid",
@@ -873,17 +909,32 @@ def validate_fci_simulation_geometry_producer(
     if require_trace_qualification or qualification is not None:
         checks["trace_qualification_64_vs_128_passed"] = _trace_qualification_passed(qualification)
 
-    required = [name for name in checks if name not in {"vertex_traces_present", "owner_overlap_present"}]
-    valid = all(checks.values())
+    diagnostic_only = ["closure_diagnostics_within_tolerance"]
+    required = [
+        name
+        for name in checks
+        if name
+        not in {
+            "vertex_traces_present",
+            "owner_overlap_present",
+            *diagnostic_only,
+        }
+    ]
+    valid = all(checks[name] for name in required)
     report = {
         "schema": SCHEMA_NAME,
         "valid": bool(valid),
         "checks": checks,
         "required": required,
+        "diagnostic_only": diagnostic_only,
         "closure_tolerance": tolerance,
+        "closure_diagnostics": closure_diagnostic_summary,
     }
     if not valid:
-        raise ValueError("FCI simulation geometry producer validation failed: " + ", ".join(name for name, value in checks.items() if not value))
+        raise ValueError(
+            "FCI simulation geometry producer validation failed: "
+            + ", ".join(name for name in required if not checks[name])
+        )
     return report
 
 

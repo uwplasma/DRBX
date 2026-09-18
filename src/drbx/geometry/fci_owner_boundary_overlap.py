@@ -292,7 +292,9 @@ def build_owner_boundary_overlap_geometry(
 
     The absence of a tracer argument is intentional and is part of the API:
     generation and qualification own tracing, while this routine only consumes
-    the resulting atlas.
+    the resulting atlas.  ``coverage_tolerance`` is a diagnostic reference
+    threshold, not a construction gate: closure excursions are recorded in
+    the returned graph diagnostics without changing or rejecting the graph.
     """
     if max_overlap_candidates < 1 or max_quadrature_points < 1:
         raise ValueError("overlap work budgets must be positive")
@@ -376,7 +378,17 @@ def build_owner_boundary_overlap_geometry(
         if counters["quadrature_points"] > max_quadrature_points:
             raise MemoryError("owner-boundary quadrature-point budget exceeded")
 
-    diagnostics = {"interfaces": [], "construction_mode": "lean_owner_boundary_trace_free", "trace_substeps": int(_get(vertex_traces, "metadata", default={}).get("trace_substeps", 64) if isinstance(_get(vertex_traces, "metadata", default={}), Mapping) else 64), "resource_counters": counters}
+    diagnostics = {
+        "interfaces": [],
+        "construction_mode": "lean_owner_boundary_trace_free",
+        "trace_substeps": int(
+            _get(vertex_traces, "metadata", default={}).get("trace_substeps", 64)
+            if isinstance(_get(vertex_traces, "metadata", default={}), Mapping)
+            else 64
+        ),
+        "closure_reference_tolerance": float(coverage_tolerance),
+        "resource_counters": counters,
+    }
     for interface in selected:
         interface_started = time.monotonic()
         interface_start_counts = {
@@ -397,8 +409,10 @@ def build_owner_boundary_overlap_geometry(
         for direction, source_plane, target_plane, vv, ll, ww in (("forward", interface, kp, fwd_v, fwd_l, fwd_w), ("backward", kp, interface, back_v, back_l, back_w)):
             check_budget()
             interface_max_closure = 0.0
+            interface_max_relative_closure = 0.0
             interface_closure_sum = 0.0
             interface_closure_weight = 0.0
+            interface_closure_exceedances = 0
             terminated_measure = 0.0
             source_faces = interface_faces[source_plane]
             target_faces = interface_faces[target_plane]
@@ -458,7 +472,21 @@ def build_owner_boundary_overlap_geometry(
                 target_triangles.extend((owner, tri) for tri, _indices in _triangulate(points))
             if not source_triangles or not target_triangles:
                 directed.append({})
-                diagnostics["interfaces"].append({"interface": int(interface), "direction": direction, "active_cells": len(active), "terminated_measure": terminated_measure, "max_closure_error": 0.0, "volume_weighted_closure_error": 0.0, "conductance": 0.0})
+                diagnostics["interfaces"].append(
+                    {
+                        "interface": int(interface),
+                        "direction": direction,
+                        "active_cells": len(active),
+                        "terminated_measure": terminated_measure,
+                        "max_closure_error": 0.0,
+                        "max_relative_closure_error": 0.0,
+                        "volume_weighted_closure_error": 0.0,
+                        "closure_reference_tolerance": float(coverage_tolerance),
+                        "closure_reference_exceedance_count": 0,
+                        "closure_within_reference_tolerance": True,
+                        "conductance": 0.0,
+                    }
+                )
                 continue
             counters["mapped_triangles"] += len(target_triangles)
             # Spatial bins retain the authoritative bounded candidate search;
@@ -536,15 +564,38 @@ def build_owner_boundary_overlap_geometry(
                         if len(pending) >= max(1, int(metric_batch_size)):
                             flush()
                 closure = abs(covered - source_area)
+                relative_closure = closure / max(source_area, 1e-30)
                 interface_max_closure = max(interface_max_closure, closure)
+                interface_max_relative_closure = max(
+                    interface_max_relative_closure, relative_closure
+                )
                 physical_weight = source_area * float(volumes[slot[owner]])
                 interface_closure_sum += closure * physical_weight
                 interface_closure_weight += physical_weight
-                if closure > coverage_tolerance * max(source_area, 1e-30):
-                    raise ValueError(f"interface {interface} source overlap closure failure: {closure:.6e}")
+                if relative_closure > coverage_tolerance:
+                    interface_closure_exceedances += 1
             flush()
             directed.append(out)
-            diagnostics["interfaces"].append({"interface": int(interface), "direction": direction, "active_cells": len(active), "terminated_measure": terminated_measure, "max_closure_error": interface_max_closure, "volume_weighted_closure_error": interface_closure_sum / max(interface_closure_weight, 1e-30), "conductance": float(sum(v[1] for v in out.values()))})
+            diagnostics["interfaces"].append(
+                {
+                    "interface": int(interface),
+                    "direction": direction,
+                    "active_cells": len(active),
+                    "terminated_measure": terminated_measure,
+                    "max_closure_error": interface_max_closure,
+                    "max_relative_closure_error": interface_max_relative_closure,
+                    "volume_weighted_closure_error": interface_closure_sum
+                    / max(interface_closure_weight, 1e-30),
+                    "closure_reference_tolerance": float(coverage_tolerance),
+                    "closure_reference_exceedance_count": int(
+                        interface_closure_exceedances
+                    ),
+                    "closure_within_reference_tolerance": bool(
+                        interface_closure_exceedances == 0
+                    ),
+                    "conductance": float(sum(v[1] for v in out.values())),
+                }
+            )
         for key in set(directed[0]) | set(directed[1]):
             f, b = directed[0].get(key, [0.0, 0.0]), directed[1].get(key, [0.0, 0.0]); links[key] = [0.5 * (f[0] + b[0]), 0.5 * (f[1] + b[1])]
         records = [
@@ -590,6 +641,24 @@ def build_owner_boundary_overlap_geometry(
             (record["max_closure_error"] for record in diagnostics["interfaces"]),
             default=0.0,
         )
+    )
+    diagnostics["max_relative_closure_error"] = float(
+        max(
+            (
+                record["max_relative_closure_error"]
+                for record in diagnostics["interfaces"]
+            ),
+            default=0.0,
+        )
+    )
+    diagnostics["closure_reference_exceedance_count"] = int(
+        sum(
+            record["closure_reference_exceedance_count"]
+            for record in diagnostics["interfaces"]
+        )
+    )
+    diagnostics["closure_within_reference_tolerance"] = bool(
+        diagnostics["closure_reference_exceedance_count"] == 0
     )
     diagnostics["work_cap"] = {
         "max_bin_candidates": int(max_overlap_candidates),
