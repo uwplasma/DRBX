@@ -63,7 +63,9 @@ class HsxSimulationGeometryConfig:
     map_cache_path: Path | None = None
     rebuild_metric_cache: bool = False
     include_curvature_edge_one_form: bool = False
-    trace_tolerance_cells: float = DEFAULT_ENDPOINT_TOLERANCE_CELLS
+    trace_backend: str = "jax"
+    trace_batch_size: int = 2048
+    trace_device_count: int | None = None
 
     def __post_init__(self) -> None:
         resolution = tuple(int(value) for value in self.resolution)
@@ -77,8 +79,16 @@ class HsxSimulationGeometryConfig:
             raise ValueError("resolution must satisfy NU >= 3, NV >= 3, NETA >= 4")
         if resolution[1] % 2:
             raise ValueError("toroidal HSX resolution requires an even NTHETA")
-        if not np.isfinite(self.trace_tolerance_cells) or self.trace_tolerance_cells <= 0.0:
-            raise ValueError("trace_tolerance_cells must be positive and finite")
+        if str(self.trace_backend).lower() not in {"numpy", "jax"}:
+            raise ValueError("trace_backend must be 'numpy' or 'jax'")
+        object.__setattr__(self, "trace_backend", str(self.trace_backend).lower())
+        if int(self.trace_batch_size) < 1:
+            raise ValueError("trace_batch_size must be positive")
+        object.__setattr__(self, "trace_batch_size", int(self.trace_batch_size))
+        if self.trace_device_count is not None:
+            if int(self.trace_device_count) < 1:
+                raise ValueError("trace_device_count must be positive when provided")
+            object.__setattr__(self, "trace_device_count", int(self.trace_device_count))
 
 
 def _artifact_api() -> tuple[Any, Any, Callable[..., Any], Callable[..., Any]]:
@@ -191,7 +201,16 @@ def _read_stage_checkpoint(
 
 def _call_builder(
     config: HsxSimulationGeometryConfig,
-) -> tuple[Any, np.ndarray, int, Path | None, Any, Any | None]:
+) -> tuple[
+    Any,
+    np.ndarray,
+    int,
+    Path | None,
+    Any,
+    Any | None,
+    Any | None,
+    Any | None,
+]:
     """Call the established HSX builder, fixing the producer trace policy."""
 
     # Geometry production is deliberately behind a package-owned boundary.
@@ -226,10 +245,13 @@ def _call_builder(
         eta_projection_iterations=int(config.eta_projection_iterations),
         construct_fci_maps=True,
         fci_trace_substeps=TRACE_SUBSTEPS,
+        fci_trace_backend=config.trace_backend,
+        fci_trace_batch_size=config.trace_batch_size,
+        fci_trace_device_count=config.trace_device_count,
         metric_cache_dir=config.metric_cache_dir,
         fci_map_cache_path=map_cache_path,
         rebuild_metric_cache=bool(config.rebuild_metric_cache),
-        return_metric_evaluator=True,
+        return_metric_context=True,
         return_curvature_edge_one_form=bool(
             config.include_curvature_edge_one_form
         ),
@@ -240,7 +262,14 @@ def _call_builder(
         raise ValueError(
             "HSX geometry builder returned an unexpected producer payload"
         )
-    geometry, positions, nfp, metric_cache_path, metric_evaluator, *optional = result
+    geometry, positions, nfp, metric_cache_path, metric_resource, *optional = result
+    metric_evaluator = getattr(
+        metric_resource, "metric_evaluator", metric_resource
+    )
+    bfield_evaluator = getattr(metric_resource, "bfield", None)
+    compiled_trace_field = getattr(
+        metric_resource, "compiled_trace_field", None
+    )
     curvature_edge_one_form = optional[0] if optional else None
     if tuple(int(v) for v in geometry.shape) != config.resolution:
         raise ValueError(f"builder returned shape {geometry.shape}, expected {config.resolution}")
@@ -250,11 +279,31 @@ def _call_builder(
         int(nfp),
         metric_cache_path,
         metric_evaluator,
+        bfield_evaluator,
+        compiled_trace_field,
         curvature_edge_one_form,
     )
 
 
-def _continuous_field_callback(geometry: Any, metric_evaluator: Any, config: HsxSimulationGeometryConfig) -> Callable[[np.ndarray], Any]:
+@dataclass(frozen=True)
+class _ContinuousFieldAdapter:
+    metric_evaluator: Any
+    bfield_evaluator: Any
+    compiled_evaluator: Any | None = None
+
+    def __call__(self, points: np.ndarray) -> Any:
+        return self.metric_evaluator.evaluate_magnetic_field(
+            points, self.bfield_evaluator
+        )
+
+
+def _continuous_field_callback(
+    geometry: Any,
+    metric_evaluator: Any,
+    config: HsxSimulationGeometryConfig,
+    bfield_evaluator: Any | None = None,
+    compiled_evaluator: Any | None = None,
+) -> Callable[[np.ndarray], Any]:
     """Return the continuous MAKEGRID/metric field callback used by tracing."""
 
     del geometry
@@ -264,19 +313,79 @@ def _continuous_field_callback(geometry: Any, metric_evaluator: Any, config: Hsx
         raise TypeError(
             "the HSX metric evaluator must provide evaluate_magnetic_field"
         )
-    bfield = bfield_evaluator_from_makegrid(
-        Path(config.makegrid_path),
-        currents=config.makegrid_currents,
-        method="cubic",
+    bfield = bfield_evaluator
+    if bfield is None:
+        bfield = bfield_evaluator_from_makegrid(
+            Path(config.makegrid_path),
+            currents=config.makegrid_currents,
+            method="cubic",
+        )
+
+    compiled = compiled_evaluator
+    if config.trace_backend == "jax" and compiled is None:
+        from .hsx_jax_field import JaxHsxMagneticField
+
+        compiled = JaxHsxMagneticField.from_evaluators(
+            metric_evaluator, bfield
+        )
+    return _ContinuousFieldAdapter(metric_evaluator, bfield, compiled)
+
+
+def _compiled_trace_executor(
+    geometry: Any,
+    field: Callable[[np.ndarray], Any],
+    *,
+    substeps: int,
+    batch_size: int,
+    device_count: int | None,
+) -> Any:
+    """Create the fixed-shape, leading-batch-sharded producer tracer."""
+
+    from .fci_trace_executor import FciTraceExecutor
+    from .hsx_jax_field import JaxHsxMagneticField
+
+    try:
+        compiled_field = getattr(field, "compiled_evaluator", None)
+        if compiled_field is None:
+            compiled_field = JaxHsxMagneticField.from_evaluators(
+                field.metric_evaluator, field.bfield_evaluator
+            )
+    except AttributeError as error:
+        raise TypeError(
+            "the JAX trace backend requires the producer continuous-field adapter"
+        ) from error
+    bounds = np.asarray(
+        [
+            [geometry.grid.x.faces[0], geometry.grid.x.faces[-1]],
+            [geometry.grid.y.faces[0], geometry.grid.y.faces[-1]],
+            [geometry.grid.z.faces[0], geometry.grid.z.faces[-1]],
+        ],
+        dtype=np.float64,
+    )
+    return FciTraceExecutor(
+        compiled_field,
+        batch_size,
+        device_count=device_count,
+        grid_bounds=bounds,
+        substeps=int(substeps),
+        periodic_axes=(False, True, True),
+        axis_regular_axes=(True, False, False),
+        axis_epsilon=max(
+            1.0e-12, 1.0e-8 * abs(float(geometry.grid.x.widths[0]))
+        ),
     )
 
-    def evaluate(points: np.ndarray) -> Any:
-        return metric_evaluator.evaluate_magnetic_field(points, bfield)
 
-    return evaluate
-
-
-def _trace_atlas(geometry: Any, field: Callable[[np.ndarray], Any], *, substeps: int = TRACE_SUBSTEPS, progress: Callable[[Mapping[str, Any]], None] | None = None) -> Any:
+def _trace_atlas(
+    geometry: Any,
+    field: Callable[[np.ndarray], Any],
+    *,
+    substeps: int = TRACE_SUBSTEPS,
+    trace_backend: str = "numpy",
+    trace_batch_size: int = 2048,
+    trace_device_count: int | None = None,
+    progress: Callable[[Mapping[str, Any]], None] | None = None,
+) -> Any:
     """Trace the complete canonical raw transverse vertex lattice."""
 
     shape = tuple(int(v) for v in geometry.shape)
@@ -296,6 +405,21 @@ def _trace_atlas(geometry: Any, field: Callable[[np.ndarray], Any], *, substeps:
     backward_length = np.empty_like(forward_length)
     forward_boundary = np.empty(vertex_shape, dtype=bool)
     backward_boundary = np.empty_like(forward_boundary)
+    executor = (
+        _compiled_trace_executor(
+            geometry,
+            field,
+            substeps=substeps,
+            batch_size=trace_batch_size,
+            device_count=trace_device_count,
+        )
+        if trace_backend == "jax"
+        else None
+    )
+    trace_work = {"seed_rows": 0, "padded_rows": 0, "batches": 0}
+    trace_seconds = 0.0
+    trace_peak_rss = 0
+    trace_compiled_memory: dict[str, int] = {}
     for direction, endpoint, lengths, boundaries in (
         (1, forward_endpoint, forward_length, forward_boundary),
         (-1, backward_endpoint, backward_length, backward_boundary),
@@ -308,15 +432,35 @@ def _trace_atlas(geometry: Any, field: Callable[[np.ndarray], Any], *, substeps:
             if direction < 0 and target == nz - 1:
                 step -= eta_period
             seeds = source[:, :, k, :].reshape(-1, 3)
-            result = trace_fci_points_to_plane_from_callbacks(
-                geometry.grid,
-                field,
-                seeds,
-                step,
-                substeps=int(substeps),
-                periodic_axes=(False, True, True),
-                axis_regular_axes=(True, False, False),
-            )
+            if executor is None:
+                result = trace_fci_points_to_plane_from_callbacks(
+                    geometry.grid,
+                    field,
+                    seeds,
+                    step,
+                    substeps=int(substeps),
+                    periodic_axes=(False, True, True),
+                    axis_regular_axes=(True, False, False),
+                    return_numpy=True,
+                )
+            else:
+                execution = executor.trace(seeds, step)
+                result = execution.outputs
+                for name in trace_work:
+                    trace_work[name] += int(execution.work[name])
+                trace_seconds += float(execution.timing["total_seconds"])
+                trace_peak_rss = max(
+                    trace_peak_rss,
+                    int(execution.metadata["peak_host_rss_bytes"]),
+                )
+                trace_compiled_memory.update(
+                    {
+                        str(name): int(value)
+                        for name, value in execution.metadata[
+                            "compiled_memory"
+                        ].items()
+                    }
+                )
             endpoint[:, :, k, :] = np.asarray(result["endpoint"]).reshape(nx + 1, ny, 3)
             lengths[:, :, k] = np.asarray(result["length"]).reshape(nx + 1, ny)
             boundaries[:, :, k] = np.asarray(result["boundary"]).reshape(nx + 1, ny)
@@ -329,6 +473,30 @@ def _trace_atlas(geometry: Any, field: Callable[[np.ndarray], Any], *, substeps:
         "canonical_lattice": "raw_transverse_vertices_u_faces_theta_vertices_eta_centers",
         "periodic_axes": [False, True, True],
         "axis_regular_axes": [True, False, False],
+        "trace_backend": trace_backend,
+        "trace_batch_size_requested": int(trace_batch_size),
+        "trace_batch_size": (
+            int(trace_batch_size)
+            if executor is None
+            else int(executor.batch_size)
+        ),
+        "trace_device_count": (
+            None if executor is None else int(executor.device_count)
+        ),
+        "trace_work": trace_work,
+        "trace_execution_seconds": float(trace_seconds),
+        "trace_memory": {
+            "evaluator_state_bytes_per_device": (
+                0 if executor is None else int(executor.evaluator_state_bytes)
+            ),
+            "evaluator_state_bytes_all_devices": (
+                0
+                if executor is None
+                else int(executor.evaluator_state_bytes * executor.device_count)
+            ),
+            "peak_host_rss_bytes": int(trace_peak_rss),
+            "compiled_memory": trace_compiled_memory,
+        },
     }
     return atlas_cls(
         vertex_positions=source,
@@ -348,6 +516,9 @@ def _trace_qualification(
     atlas: Any,
     *,
     tolerance_cells: float = DEFAULT_ENDPOINT_TOLERANCE_CELLS,
+    trace_backend: str = "numpy",
+    trace_batch_size: int = 2048,
+    trace_device_count: int | None = None,
 ) -> Any:
     """Qualify 64-step atlas endpoints against deterministic 128-step traces.
 
@@ -378,6 +549,24 @@ def _trace_qualification(
     selected_by_direction: dict[str, list[int]] = {}
     max_discrepancy = 0.0
     discrepancies: list[float] = []
+    executor = (
+        _compiled_trace_executor(
+            geometry,
+            field,
+            substeps=QUALIFICATION_SUBSTEPS,
+            # Qualification traces at most a small deterministic sample per
+            # plane.  A smaller fixed shape avoids running thousands of
+            # masked 128-substep trajectories merely to reuse the atlas size.
+            batch_size=min(int(trace_batch_size), 256),
+            device_count=trace_device_count,
+        )
+        if trace_backend == "jax"
+        else None
+    )
+    qualification_work = {"seed_rows": 0, "padded_rows": 0, "batches": 0}
+    qualification_seconds = 0.0
+    qualification_peak_rss = 0
+    qualification_compiled_memory: dict[str, int] = {}
     for direction, endpoints in (("forward", np.asarray(atlas.forward_endpoint)), ("backward", np.asarray(atlas.backward_endpoint))):
         entering_core = np.flatnonzero((source_flat[:, 0] > 0.03) & (endpoints.reshape(-1, 3)[:, 0] < 0.03))
         selected = sorted(samples | {int(value) for value in entering_core})
@@ -396,15 +585,37 @@ def _trace_qualification(
                 step += eta_period
             if direction == "backward" and target == nz - 1:
                 step -= eta_period
-            result = trace_fci_points_to_plane_from_callbacks(
-                geometry.grid,
-                field,
-                seeds,
-                step,
-                substeps=QUALIFICATION_SUBSTEPS,
-                periodic_axes=(False, True, True),
-                axis_regular_axes=(True, False, False),
-            )
+            if executor is None:
+                result = trace_fci_points_to_plane_from_callbacks(
+                    geometry.grid,
+                    field,
+                    seeds,
+                    step,
+                    substeps=QUALIFICATION_SUBSTEPS,
+                    periodic_axes=(False, True, True),
+                    axis_regular_axes=(True, False, False),
+                    return_numpy=True,
+                )
+            else:
+                execution = executor.trace(seeds, step)
+                result = execution.outputs
+                for name in qualification_work:
+                    qualification_work[name] += int(execution.work[name])
+                qualification_seconds += float(
+                    execution.timing["total_seconds"]
+                )
+                qualification_peak_rss = max(
+                    qualification_peak_rss,
+                    int(execution.metadata["peak_host_rss_bytes"]),
+                )
+                qualification_compiled_memory.update(
+                    {
+                        str(name): int(value)
+                        for name, value in execution.metadata[
+                            "compiled_memory"
+                        ].items()
+                    }
+                )
             endpoint_128[[selected_position[index] for index in records]] = np.asarray(result["endpoint"])
         endpoint_64 = endpoints.reshape(-1, 3)[selected]
         delta_u = endpoint_128[:, 0] - endpoint_64[:, 0]
@@ -424,6 +635,27 @@ def _trace_qualification(
         "max_endpoint_discrepancy_transverse_cells": max_discrepancy,
         "tolerance_transverse_cells": float(tolerance_cells),
         "passed": bool(max_discrepancy <= tolerance_cells),
+        "trace_backend": trace_backend,
+        "trace_batch_size": (
+            None if executor is None else int(executor.batch_size)
+        ),
+        "trace_device_count": (
+            None if executor is None else int(executor.device_count)
+        ),
+        "trace_work": qualification_work,
+        "trace_execution_seconds": float(qualification_seconds),
+        "trace_memory": {
+            "evaluator_state_bytes_per_device": (
+                0 if executor is None else int(executor.evaluator_state_bytes)
+            ),
+            "evaluator_state_bytes_all_devices": (
+                0
+                if executor is None
+                else int(executor.evaluator_state_bytes * executor.device_count)
+            ),
+            "peak_host_rss_bytes": int(qualification_peak_rss),
+            "compiled_memory": qualification_compiled_memory,
+        },
     }
     if max_discrepancy > tolerance_cells:
         raise ValueError(
@@ -450,7 +682,7 @@ def _write_artifact(
         require_vertex_traces=True,
         require_owner_overlap=True,
         closure_tolerance=closure_tolerance,
-        require_trace_qualification=True,
+        require_trace_qualification=False,
     )
     try:
         qualified = replace(artifact, producer_validation_report=report)
@@ -485,7 +717,9 @@ def build_hsx_simulation_geometry(
         "format_version": PRODUCER_FORMAT_VERSION,
         "resolution": list(config.resolution),
         "trace_substeps": TRACE_SUBSTEPS,
-        "trace_tolerance_transverse_cells": float(config.trace_tolerance_cells),
+        "trace_backend": config.trace_backend,
+        "trace_batch_size": int(config.trace_batch_size),
+        "trace_device_count_requested": config.trace_device_count,
         "vertex_trace_mode": "complete_canonical_transverse_raw_vertices",
         "owner_boundary_mode": "lean_second_order",
     }
@@ -499,15 +733,34 @@ def build_hsx_simulation_geometry(
         _log(log, f"start resolution={config.resolution}")
         state["stage"] = "metric-and-cell-maps"
         _record_status(status, state)
+        builder_payload = _call_builder(config)
+        if len(builder_payload) == 6:  # lightweight legacy test doubles
+            builder_payload = (
+                *builder_payload[:-1],
+                None,
+                None,
+                builder_payload[-1],
+            )
         (
             geometry,
             positions,
             nfp,
             metric_cache_path,
             metric_evaluator,
+            bfield_evaluator,
+            compiled_trace_field,
             curvature_edge_one_form,
-        ) = _call_builder(config)
-        field = _continuous_field_callback(geometry, metric_evaluator, config)
+        ) = builder_payload
+        # Do not let the unpacking tuple retain a second reference to the
+        # device-resident tracing state for the rest of geometry production.
+        builder_payload = None
+        field = _continuous_field_callback(
+            geometry,
+            metric_evaluator,
+            config,
+            bfield_evaluator,
+            compiled_trace_field,
+        )
         state["stage"] = "vertex-trace-atlas"
         _record_status(status, state)
         def trace_progress(event: Mapping[str, Any]) -> None:
@@ -525,12 +778,13 @@ def build_hsx_simulation_geometry(
             artifact_io._vertex_from_payload,
         )
         if atlas is None:
-            atlas = _trace_atlas(geometry, field, progress=trace_progress)
-            atlas = _trace_qualification(
+            atlas = _trace_atlas(
                 geometry,
                 field,
-                atlas,
-                tolerance_cells=config.trace_tolerance_cells,
+                trace_backend=config.trace_backend,
+                trace_batch_size=config.trace_batch_size,
+                trace_device_count=config.trace_device_count,
+                progress=trace_progress,
             )
             _write_stage_checkpoint(
                 atlas_checkpoint,
@@ -539,8 +793,16 @@ def build_hsx_simulation_geometry(
             )
         else:
             _log(log, f"reused stage checkpoint {atlas_checkpoint}")
-        state["qualification"] = dict(getattr(atlas, "metadata", {}).get("qualification", {}))
-        _record_status(status, state)
+        if isinstance(field, _ContinuousFieldAdapter):
+            # The polygon-overlap stage uses the producer's NumPy/SciPy
+            # evaluators. Drop the device evaluator after the final trace so
+            # its large MAKEGRID coefficient buffers are reclaimable instead
+            # of overlapping with polygon working memory.
+            field = _ContinuousFieldAdapter(
+                field.metric_evaluator,
+                field.bfield_evaluator,
+            )
+            compiled_trace_field = None
         state["stage"] = "angular-owner-geometry"
         _record_status(status, state)
         topology_checkpoint = checkpoint_directory / "rlp_topology.npz"
@@ -699,7 +961,7 @@ def validate_hsx_simulation_geometry(geometry: Any) -> Mapping[str, Any]:
         require_vertex_traces=True,
         require_owner_overlap=True,
         closure_tolerance=closure_tolerance,
-        require_trace_qualification=True,
+        require_trace_qualification=False,
     )
 
 

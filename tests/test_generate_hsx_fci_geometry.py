@@ -46,7 +46,6 @@ def test_producer_orchestration_and_resumable_status(monkeypatch, tmp_path: Path
     sentinel_host = object()
     sentinel_boundary = object()
     monkeypatch.setattr(producer, "_trace_atlas", lambda *_a, **_k: sentinel_atlas)
-    monkeypatch.setattr(producer, "_trace_qualification", lambda *_a, **_k: sentinel_atlas)
     monkeypatch.setattr(producer, "_read_stage_checkpoint", lambda *_a, **_k: None)
     monkeypatch.setattr(producer, "_write_stage_checkpoint", lambda *_a, **_k: None)
     monkeypatch.setattr(artifact_io, "_vertex_payload", lambda _value: {})
@@ -59,7 +58,7 @@ def test_producer_orchestration_and_resumable_status(monkeypatch, tmp_path: Path
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
     def validator(artifact, **_kwargs):
-        events.append(("validate", artifact))
+        events.append(("validate", artifact, _kwargs))
         return {"valid": True}
     def writer(artifact, path):
         events.append(("write", artifact))
@@ -92,9 +91,9 @@ def test_producer_orchestration_and_resumable_status(monkeypatch, tmp_path: Path
     result = producer.build_hsx_simulation_geometry(config)
     assert isinstance(result, FakeArtifact)
     assert events[0][0] == "validate" and events[1][0] == "write"
+    assert events[0][2]["require_trace_qualification"] is False
     assert result.vertex_traces is sentinel_atlas
     assert result.owner_overlap is sentinel_boundary
-    assert result.metadata["trace_tolerance_transverse_cells"] == 1.0e-3
     assert result.metadata["fit_sample_shape"] == [12, 13, 14]
     assert result.metadata["radial_degree"] == 5
     assert result.metadata["vertical_degree"] == 6

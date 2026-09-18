@@ -42,6 +42,11 @@ from .hsx_fci_builder import (
     build_hsx_fci_geometry,
     build_hsx_metric_evaluator,
 )
+from .fci_trace_jax import trace_fci_points_to_plane_jax
+from .fci_trace_executor import FciTraceExecutor, TraceExecutionResult
+from .jax_bfield_evaluator import JaxComponentSplineBFieldEvaluator
+from .jax_metric_evaluator import JaxMetricEvaluator
+from .hsx_jax_field import JaxHsxMagneticField
 from .fci_control_volumes import (
     GlobalControlVolumeTopology3D,
     LocalControlVolumeGeometry3D,
@@ -146,6 +151,12 @@ __all__ = [
     "validate_hsx_simulation_geometry",
     "build_hsx_fci_geometry",
     "build_hsx_metric_evaluator",
+    "trace_fci_points_to_plane_jax",
+    "FciTraceExecutor",
+    "TraceExecutionResult",
+    "JaxComponentSplineBFieldEvaluator",
+    "JaxMetricEvaluator",
+    "JaxHsxMagneticField",
     "MetricTensor3D",
     "SyntheticStellaratorGeometry",
     "VmecExtenderGrid",

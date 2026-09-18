@@ -155,6 +155,7 @@ class HSXMetricContext:
     metric_evaluator: MetricEvaluator
     bfield: object
     nfp: int
+    compiled_trace_field: object | None = None
 
 
 def _validate_hsx_metric_context(
@@ -393,11 +394,24 @@ def _build_or_load_hsx_fci_maps(
     bfield: object | None,
     makegrid_path: Path,
     makegrid_currents: np.ndarray | None = None,
-) -> tuple[FciMaps3D | None, dict[str, np.ndarray] | None, object | None]:
+    fci_trace_backend: str = "numpy",
+    fci_trace_batch_size: int = 2048,
+    fci_trace_device_count: int | None = None,
+) -> tuple[
+    FciMaps3D | None,
+    dict[str, np.ndarray] | None,
+    object | None,
+    object | None,
+]:
     """Load validated HSX maps or trace them from the continuous B callback."""
 
     if not construct_fci_maps:
-        return None, None if cache_payload is None else dict(cache_payload), bfield
+        return (
+            None,
+            None if cache_payload is None else dict(cache_payload),
+            bfield,
+            None,
+        )
     if str(topology).lower() != "toroidal":
         raise ValueError(
             "construct_fci_maps=True is currently supported only for "
@@ -407,6 +421,11 @@ def _build_or_load_hsx_fci_maps(
         raise ValueError(
             f"fci_trace_substeps must be >= 1, got {fci_trace_substeps}"
         )
+    trace_backend = str(fci_trace_backend).lower()
+    if trace_backend not in {"numpy", "jax"}:
+        raise ValueError("fci_trace_backend must be 'numpy' or 'jax'")
+    if int(fci_trace_batch_size) < 1:
+        raise ValueError("fci_trace_batch_size must be positive")
     expected_shape = tuple(int(value) for value in grid.shape)
     source_fingerprint = _hsx_fci_map_source_fingerprint()
     direction_checkpoint_path = (
@@ -437,9 +456,15 @@ def _build_or_load_hsx_fci_maps(
             cached_source = str(
                 np.asarray(payload["fci_maps_source_fingerprint"]).item()
             )
+            cached_backend = str(
+                np.asarray(
+                    payload.get("fci_maps_trace_backend", np.asarray("numpy"))
+                ).item()
+            )
             if (
                 cached_substeps != int(fci_trace_substeps)
                 or cached_source != source_fingerprint
+                or cached_backend != trace_backend
             ):
                 raise ValueError("cached FCI map tracer metadata is stale")
             maps = fci_maps_from_metric_cache_payload(
@@ -457,7 +482,7 @@ def _build_or_load_hsx_fci_maps(
                 and direction_checkpoint_path.exists()
             ):
                 direction_checkpoint_path.unlink()
-            return maps, payload, bfield
+            return maps, payload, bfield, None
         except (KeyError, TypeError, ValueError, OSError) as error:
             print(
                 f"[fci-map-cache] ignored cached maps ({error}); regenerating",
@@ -486,6 +511,71 @@ def _build_or_load_hsx_fci_maps(
         # no cell-centered/materialized B field participates in tracing.
         return metric_evaluator.evaluate_magnetic_field(points, bfield)
 
+    trace_batch = None
+    compiled_field = None
+    trace_backend_identity = "numpy-callback-v1"
+    trace_statistics: dict[str, float | int] = {}
+    if trace_backend == "jax":
+        from .fci_trace_executor import FciTraceExecutor
+        from .hsx_jax_field import JaxHsxMagneticField
+
+        compiled_field = JaxHsxMagneticField.from_evaluators(
+            metric_evaluator, bfield
+        )
+        bounds = np.asarray(
+            [
+                [grid.x.faces[0], grid.x.faces[-1]],
+                [grid.y.faces[0], grid.y.faces[-1]],
+                [grid.z.faces[0], grid.z.faces[-1]],
+            ],
+            dtype=np.float64,
+        )
+        executor = FciTraceExecutor(
+            compiled_field,
+            int(fci_trace_batch_size),
+            device_count=fci_trace_device_count,
+            grid_bounds=bounds,
+            substeps=int(fci_trace_substeps),
+            periodic_axes=(False, True, True),
+            axis_regular_axes=(True, False, False),
+            axis_epsilon=max(
+                1.0e-12, 1.0e-8 * abs(float(grid.x.widths[0]))
+            ),
+        )
+        trace_backend_identity = "jax-continuous-sharded-v1"
+
+        def compiled_trace_batch(
+            seeds: np.ndarray, step: float
+        ) -> Mapping[str, object]:
+            result = executor.trace(seeds, step)
+            trace_statistics["batches"] = int(
+                trace_statistics.get("batches", 0)
+            ) + int(result.work["batches"])
+            trace_statistics["seed_rows"] = int(
+                trace_statistics.get("seed_rows", 0)
+            ) + int(result.work["seed_rows"])
+            trace_statistics["padded_rows"] = int(
+                trace_statistics.get("padded_rows", 0)
+            ) + int(result.work["padded_rows"])
+            trace_statistics["execution_seconds"] = float(
+                trace_statistics.get("execution_seconds", 0.0)
+            ) + float(result.timing["total_seconds"])
+            trace_statistics["peak_host_rss_bytes"] = max(
+                int(trace_statistics.get("peak_host_rss_bytes", 0)),
+                int(result.metadata["peak_host_rss_bytes"]),
+            )
+            trace_statistics["evaluator_state_bytes_per_device"] = int(
+                result.metadata["evaluator_state_bytes_per_device"]
+            )
+            trace_statistics["evaluator_state_bytes_all_devices"] = int(
+                result.metadata["evaluator_state_bytes_all_devices"]
+            )
+            for name, value in result.metadata["compiled_memory"].items():
+                trace_statistics[f"compiled_{name}"] = int(value)
+            return result.outputs
+
+        trace_batch = compiled_trace_batch
+
     map_payload = build_fci_maps_from_callbacks(
         grid,
         continuous_magnetic_field,
@@ -494,6 +584,9 @@ def _build_or_load_hsx_fci_maps(
         axis_regular_axes=(True, False, False),
         endpoint_interpolation_order=2,
         direction_checkpoint_path=direction_checkpoint_path,
+        trace_batch=trace_batch,
+        trace_backend_identity=trace_backend_identity,
+        max_trace_batch_seeds=int(fci_trace_batch_size),
     )
     missing = [name for name in FCI_MAP_FIELDS if name not in map_payload]
     if missing:
@@ -514,6 +607,14 @@ def _build_or_load_hsx_fci_maps(
         f"backward_boundary={report['counts']['backward_boundary']}",
         flush=True,
     )
+    if trace_backend == "jax":
+        compiled_field = executor.device_evaluator
+        print(
+            "[fci-map-cache] compiled trace execution "
+            f"devices={executor.device_count}, "
+            f"batch_size={executor.batch_size}, work={trace_statistics}",
+            flush=True,
+        )
 
     if cache_path is not None and payload is not None:
         payload = add_fci_maps_to_metric_cache_payload(payload, maps)
@@ -521,6 +622,7 @@ def _build_or_load_hsx_fci_maps(
         payload["fci_maps_trace_substeps"] = np.asarray(
             int(fci_trace_substeps), dtype=np.int64
         )
+        payload["fci_maps_trace_backend"] = np.asarray(trace_backend)
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             _write_npz_atomic(cache_path, payload)
@@ -535,7 +637,7 @@ def _build_or_load_hsx_fci_maps(
             )
         except OSError as error:
             print(f"[fci-map-cache] map-cache write failed: {error}", flush=True)
-    return maps, payload, bfield
+    return maps, payload, bfield, compiled_field
 
 
 @dataclass(frozen=True)
@@ -1496,11 +1598,15 @@ def build_hsx_fci_geometry(
     eta_projection_iterations: int = 0,
     construct_fci_maps: bool = True,
     fci_trace_substeps: int = 64,
+    fci_trace_backend: str = "numpy",
+    fci_trace_batch_size: int = 2048,
+    fci_trace_device_count: int | None = None,
     metric_cache_dir: Path | None = DEFAULT_METRIC_CACHE_DIR,
     fci_map_cache_path: Path | None = None,
     rebuild_metric_cache: bool = False,
     metric_context: HSXMetricContext | None = None,
     return_metric_evaluator: bool = False,
+    return_metric_context: bool = False,
     return_curvature_edge_one_form: bool = False,
 ) -> tuple[FciGeometry3D, np.ndarray, int, Path | None] | tuple[
     FciGeometry3D, np.ndarray, int, Path | None, MetricEvaluator
@@ -1515,6 +1621,11 @@ def build_hsx_fci_geometry(
     CurvatureEdgeOneForm3D,
 ]:
     """Build the global HSX geometry and its Cartesian cell embedding."""
+
+    if return_metric_evaluator and return_metric_context:
+        raise ValueError(
+            "request either return_metric_evaluator or return_metric_context, not both"
+        )
 
     descriptor = topology_descriptor(topology)
     topology = descriptor.name
@@ -1532,6 +1643,12 @@ def build_hsx_fci_geometry(
         raise ValueError(
             f"fci_trace_substeps must be >= 1, got {fci_trace_substeps}"
         )
+    if str(fci_trace_backend).lower() not in {"numpy", "jax"}:
+        raise ValueError("fci_trace_backend must be 'numpy' or 'jax'")
+    if int(fci_trace_batch_size) < 1:
+        raise ValueError("fci_trace_batch_size must be positive")
+    if fci_trace_device_count is not None and int(fci_trace_device_count) < 1:
+        raise ValueError("fci_trace_device_count must be positive when provided")
     nu, nv, neta = (int(value) for value in resolution)
     if nu < 3 or nv < 3 or neta < 4:
         raise ValueError("resolution must satisfy NU >= 3, NV >= 3, NETA >= 4")
@@ -2305,11 +2422,18 @@ def build_hsx_fci_geometry(
                     flush=True,
                 )
                 map_cache_payload = {}
-    maps, cache_payload, bfield = _build_or_load_hsx_fci_maps(
+    maps, cache_payload, bfield, compiled_trace_field = _build_or_load_hsx_fci_maps(
         grid=grid,
         topology=topology,
         construct_fci_maps=bool(construct_fci_maps),
         fci_trace_substeps=int(fci_trace_substeps),
+        fci_trace_backend=str(fci_trace_backend).lower(),
+        fci_trace_batch_size=int(fci_trace_batch_size),
+        fci_trace_device_count=(
+            None
+            if fci_trace_device_count is None
+            else int(fci_trace_device_count)
+        ),
         cache_payload=map_cache_payload,
         cache_path=map_cache_path,
         metric_evaluator=metric_evaluator,
@@ -2345,17 +2469,30 @@ def build_hsx_fci_geometry(
         if cache_path is not None and cache_path.is_file()
         else None
     )
-    if return_metric_evaluator and return_curvature_edge_one_form:
-        if metric_evaluator is None or curvature_edge_one_form is None:
+    returned_metric_resource = (
+        HSXMetricContext(
+            metric_evaluator, bfield, nfp, compiled_trace_field
+        )
+        if return_metric_context
+        else metric_evaluator
+    )
+    if (return_metric_evaluator or return_metric_context) and return_curvature_edge_one_form:
+        if returned_metric_resource is None or curvature_edge_one_form is None:
             raise RuntimeError("requested curvature edge payload was not built")
         return (
             geometry,
             cell_positions,
             nfp,
             usable_cache_path,
-            metric_evaluator,
+            returned_metric_resource,
             curvature_edge_one_form,
         )
+    if return_metric_context:
+        if metric_evaluator is None or bfield is None:
+            raise RuntimeError(
+                "return_metric_context=True requires continuous metric and field evaluators"
+            )
+        return geometry, cell_positions, nfp, usable_cache_path, returned_metric_resource
     if return_metric_evaluator:
         if metric_evaluator is None:
             raise RuntimeError(

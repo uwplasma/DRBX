@@ -12,18 +12,46 @@ Generate a bundle once for a resolution:
 conda run -n drb python generate_hsx_fci_geometry.py \
   --resolution 32 32 32 \
   --metric-mesh-shape 32 32 32 \
+  --trace-backend jax \
   --output /path/to/hsx-fci-32
 ```
 
 The producer traces cell centers and raw transverse vertices with 64 RK4
-substeps everywhere, qualifies a representative sample against 128-substep
-traces, builds the current direct owner-boundary/straight-edge/centroid graph,
-and validates the completed object before publishing it atomically. Completed
+substeps everywhere, builds the current direct
+owner-boundary/straight-edge/centroid graph, and validates the completed
+object before publishing it atomically. The 128-substep comparison remains an
+explicit development diagnostic for changes to the magnetic configuration,
+eta spacing, or tracing algorithm; it is not repeated during artifact
+generation. Completed
 stage checkpoints, `process_status.json`, and `run.log` are kept in the
 output's sibling `.NAME.producer-checkpoints/` directory; that directory is
 never a valid simulation input.
 Producer-internal cache/checkpoint options affect only generation and are not
 simulation fallbacks.
+
+The default `jax` trace backend compiles the continuous Fourier--Zernike
+metric evaluation, MAKEGRID cubic-spline evaluation, Cartesian-to-logical
+field transform, and all RK4 substeps together. It shards only the leading
+trajectory batch and replicates the read-only metric/field coefficients, so
+there are no collectives between trajectories. By default all local JAX
+devices participate. `--trace-device-count N` selects a local-device prefix
+and `--trace-batch-size N` fixes the reusable compiled batch shape; padding is
+masked and omitted from output. The `numpy` backend remains available as the
+reference implementation and produces the same artifact contract. On GPU,
+use a JAX installation with 64-bit support and an FP64-capable device.
+The trace metadata records coefficient bytes per device, aggregate replicated
+coefficient bytes, peak host RSS, and XLA argument/output/temporary-buffer
+estimates. Temporary storage scales approximately with `--trace-batch-size`,
+so reduce that option if the compiler estimate approaches available device
+memory. The producer releases the device-resident coefficient state before
+the polygon-overlap stage. On a shared GPU, setting
+`XLA_PYTHON_CLIENT_PREALLOCATE=false` before launch avoids JAX reserving most
+of the device up front; this is an environment policy rather than an artifact
+or simulation setting.
+The subsequent owner-overlap build remains interface-streamed: polygon and
+quadrature temporaries are discarded after each eta interface, and completed
+link dictionaries are compacted to arrays instead of accumulating Python
+objects through the full torus.
 
 Run a consumer by naming the bundle explicitly:
 
