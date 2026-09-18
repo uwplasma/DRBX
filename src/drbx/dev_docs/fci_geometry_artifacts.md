@@ -56,7 +56,10 @@ or simulation setting.
 The subsequent owner-overlap build remains interface-streamed: polygon and
 quadrature temporaries are discarded after each eta interface, and completed
 link dictionaries are compacted to arrays instead of accumulating Python
-objects through the full torus.
+objects through the full torus. Candidate, clipping, and quadrature work totals
+are recorded as diagnostics but are not cumulative abort thresholds. Metric
+evaluation remains bounded by the configured batch size, and peak RSS remains
+passive telemetry.
 
 Run a consumer by naming the bundle explicitly:
 
