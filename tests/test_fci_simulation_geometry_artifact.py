@@ -311,15 +311,24 @@ def test_producer_validation_rejects_owner_and_link_data_errors() -> None:
         validate_fci_simulation_geometry_producer(bad_link)
 
 
-def test_producer_validation_rejects_closure_and_trace_qualification_failures() -> None:
+def test_producer_validation_reports_closure_without_rejecting() -> None:
     artifact = _artifact()
     diagnostics = {"interfaces": [{"max_closure_error": 1.0e-3, "volume_weighted_closure_error": 0.0}]}
     bad_closure = replace(
         artifact,
         owner_overlap=replace(artifact.owner_overlap, diagnostics=diagnostics),
     )
-    with np.testing.assert_raises(ValueError):
-        validate_fci_simulation_geometry_producer(bad_closure)
+    report = validate_fci_simulation_geometry_producer(bad_closure)
+    assert report["valid"] is True
+    assert report["checks"]["closure_diagnostics_present"] is True
+    assert report["checks"]["closure_diagnostics_within_tolerance"] is False
+    assert "closure_diagnostics_within_tolerance" not in report["required"]
+    assert "closure_diagnostics_within_tolerance" in report["diagnostic_only"]
+    assert report["closure_diagnostics"]["max_closure_error"] == 1.0e-3
+
+
+def test_producer_validation_rejects_trace_qualification_failure() -> None:
+    artifact = _artifact()
 
     with np.testing.assert_raises(ValueError):
         validate_fci_simulation_geometry_producer(

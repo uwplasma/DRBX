@@ -19,7 +19,12 @@ conda run -n drb python generate_hsx_fci_geometry.py \
 The producer traces cell centers and raw transverse vertices with 64 RK4
 substeps everywhere, builds the current direct
 owner-boundary/straight-edge/centroid graph, and validates the completed
-object before publishing it atomically. The 128-substep comparison remains an
+object before publishing it atomically. Owner-overlap closure is retained in
+the artifact as per-interface and aggregate diagnostic telemetry, including
+absolute and relative maxima and the number of source triangles exceeding the
+reference tolerance. It is not a publication gate; finite/nonnegative overlap
+arrays, valid links, positive owner volumes, and the other structural safety
+checks remain required. The 128-substep comparison remains an
 explicit development diagnostic for changes to the magnetic configuration,
 eta spacing, or tracing algorithm; it is not repeated during artifact
 generation. Completed

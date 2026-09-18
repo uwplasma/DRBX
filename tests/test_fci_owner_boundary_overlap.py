@@ -1,5 +1,6 @@
 """Focused tests for the trace-free lean owner-boundary producer."""
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -138,3 +139,32 @@ def test_atlas_wall_mask_terminates_source_cell():
     )
     records = [r for r in result.diagnostics["interfaces"] if r["direction"] == "forward"]
     assert records and records[0]["active_cells"] < 8
+
+
+def test_overlap_closure_excursion_is_diagnostic_not_a_gate():
+    geometry, owner, atlas = _fixture()
+    forward = np.array(atlas.forward_endpoint, copy=True)
+    backward = np.array(atlas.backward_endpoint, copy=True)
+    forward[-1, :, :, 0] = 1.1
+    backward[-1, :, :, 0] = 1.1
+    atlas = replace(
+        atlas,
+        forward_endpoint=forward,
+        backward_endpoint=backward,
+    )
+
+    result = build_owner_boundary_overlap_geometry(
+        geometry,
+        owner,
+        atlas,
+        cell_center_wall_masks=(
+            geometry.maps.forward_boundary,
+            geometry.maps.backward_boundary,
+        ),
+        coverage_tolerance=1.0e-10,
+    )
+
+    assert result.diagnostics["max_closure_error"] > 0.0
+    assert result.diagnostics["max_relative_closure_error"] > 0.0
+    assert result.diagnostics["closure_reference_exceedance_count"] > 0
+    assert result.diagnostics["closure_within_reference_tolerance"] is False
