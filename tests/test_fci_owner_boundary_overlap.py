@@ -83,6 +83,8 @@ def test_builder_has_no_tracer_parameter():
     names = inspect.signature(build_owner_boundary_overlap_geometry).parameters
     assert "trace_callback" not in names
     assert "trace_substeps" not in names
+    assert "max_overlap_candidates" not in names
+    assert "max_quadrature_points" not in names
 
 
 def test_owner_graph_invariants_and_minimum_principle():

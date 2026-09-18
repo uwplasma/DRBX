@@ -283,8 +283,6 @@ def build_owner_boundary_overlap_geometry(
     interface_indices: Iterable[int] | None = None,
     coverage_tolerance: float = 1e-10,
     metric_batch_size: int = 32768,
-    max_overlap_candidates: int = 2_000_000,
-    max_quadrature_points: int = 2_000_000,
     progress_callback: Any = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> GlobalRlpParallelOverlapGeometry:
@@ -296,8 +294,6 @@ def build_owner_boundary_overlap_geometry(
     threshold, not a construction gate: closure excursions are recorded in
     the returned graph diagnostics without changing or rejecting the graph.
     """
-    if max_overlap_candidates < 1 or max_quadrature_points < 1:
-        raise ValueError("overlap work budgets must be positive")
     if not isinstance(vertex_traces, FciVertexTraceAtlas) and not all(hasattr(vertex_traces, n) for n in ("forward_endpoint", "backward_endpoint", "forward_length", "backward_length", "forward_boundary", "backward_boundary")):
         raise TypeError("vertex_traces must be an FciVertexTraceAtlas or compatible atlas")
     shape = tuple(int(v) for v in _get(geometry, "shape", default=_get(_get(owner_geometry, "topology", default=owner_geometry), "shape")))
@@ -370,13 +366,9 @@ def build_owner_boundary_overlap_geometry(
     peak_rss = _rss_gib()
     build_started = time.monotonic()
 
-    def check_budget() -> None:
+    def sample_peak_rss() -> None:
         nonlocal peak_rss
         peak_rss = max(peak_rss, _rss_gib())
-        if counters["overlap_candidates"] > max_overlap_candidates:
-            raise MemoryError("owner-boundary overlap-candidate budget exceeded")
-        if counters["quadrature_points"] > max_quadrature_points:
-            raise MemoryError("owner-boundary quadrature-point budget exceeded")
 
     diagnostics = {
         "interfaces": [],
@@ -407,7 +399,7 @@ def build_owner_boundary_overlap_geometry(
         }
         directed = []
         for direction, source_plane, target_plane, vv, ll, ww in (("forward", interface, kp, fwd_v, fwd_l, fwd_w), ("backward", kp, interface, back_v, back_l, back_w)):
-            check_budget()
+            sample_peak_rss()
             interface_max_closure = 0.0
             interface_max_relative_closure = 0.0
             interface_closure_sum = 0.0
@@ -533,18 +525,14 @@ def build_owner_boundary_overlap_geometry(
                 source_box = (tri[:, 0].min(), tri[:, 0].max(), tri[:, 1].min(), tri[:, 1].max())
                 for target_index in candidates(source_box):
                     counters["bin_candidates"] += 1
-                    if counters["bin_candidates"] > max_overlap_candidates:
-                        raise MemoryError("owner-boundary bin-candidate budget exceeded")
                     if counters["bin_candidates"] % 4096 == 0:
-                        check_budget()
+                        sample_peak_rss()
                     target_owner, target = target_triangles[target_index]
                     target_box = boxes[target_index]
                     if target_box[1] < source_box[0] - bbox_epsilon or target_box[0] > source_box[1] + bbox_epsilon or target_box[3] < source_box[2] - bbox_epsilon or target_box[2] > source_box[3] + bbox_epsilon:
                         counters["bbox_rejections"] += 1
                         continue
                     counters["overlap_candidates"] += 1
-                    if counters["overlap_candidates"] > max_overlap_candidates:
-                        raise MemoryError("owner-boundary overlap-candidate budget exceeded")
                     overlap = _clip(tri, target); area = abs(_area(overlap))
                     if area <= max(1e-18, 1e-12 * source_area):
                         continue
@@ -559,8 +547,6 @@ def build_owner_boundary_overlap_geometry(
                         key = (min(slot[owner], slot[target_owner]), max(slot[owner], slot[target_owner]), interface)
                         pending.append((key, piece_area, centroid, qv))
                         counters["quadrature_points"] += 1
-                        if counters["quadrature_points"] > max_quadrature_points:
-                            raise MemoryError("owner-boundary quadrature-point budget exceeded")
                         if len(pending) >= max(1, int(metric_batch_size)):
                             flush()
                 closure = abs(covered - source_area)
@@ -616,7 +602,7 @@ def build_owner_boundary_overlap_geometry(
         )
         for record in records:
             record["forward_backward_conductance_mismatch"] = mismatch
-        check_budget()
+        sample_peak_rss()
         if progress_callback is not None:
             progress_callback(
                 {
@@ -660,10 +646,7 @@ def build_owner_boundary_overlap_geometry(
     diagnostics["closure_within_reference_tolerance"] = bool(
         diagnostics["closure_reference_exceedance_count"] == 0
     )
-    diagnostics["work_cap"] = {
-        "max_bin_candidates": int(max_overlap_candidates),
-        "max_overlap_candidates": int(max_overlap_candidates),
-        "max_quadrature_points": int(max_quadrature_points),
+    diagnostics["streaming_controls"] = {
         "metric_batch_size": int(metric_batch_size),
     }
     return GlobalRlpParallelOverlapGeometry(raw_shape=shape, owner_flat_ids=owner_ids, owner_volumes=volumes, link_owner_a=np.asarray([k[0] for k in ordered], dtype=np.int32), link_owner_b=np.asarray([k[1] for k in ordered], dtype=np.int32), link_interface=np.asarray([k[2] for k in ordered], dtype=np.int32), overlap_measure=np.asarray([links[k][0] for k in ordered]), transmissibility=np.asarray([links[k][1] for k in ordered]), metadata={"construction": "owner-boundary-lean-second-order", "trace_free": True, **dict(metadata or {})}, diagnostics=diagnostics)
