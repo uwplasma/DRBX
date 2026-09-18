@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import builtins
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -19,9 +20,18 @@ def test_hsx_producer_calls_package_builder(monkeypatch, tmp_path):
     class Geometry:
         shape = (4, 4, 8)
 
+    metric = object()
+    bfield = object()
+
     def fake_builder(**kwargs):
         calls.append(kwargs)
-        return Geometry(), np.zeros((4, 4, 8, 3)), 2, None, object()
+        return (
+            Geometry(),
+            np.zeros((4, 4, 8, 3)),
+            2,
+            None,
+            SimpleNamespace(metric_evaluator=metric, bfield=bfield),
+        )
 
     monkeypatch.setattr(hsx_fci_builder, "build_hsx_fci_geometry", fake_builder)
     real_import = builtins.__import__
@@ -43,3 +53,7 @@ def test_hsx_producer_calls_package_builder(monkeypatch, tmp_path):
     assert result[2] == 2
     assert calls and calls[0]["fci_trace_substeps"] == 64
     assert calls[0]["construct_fci_maps"] is True
+    assert calls[0]["return_metric_context"] is True
+    assert calls[0]["fci_trace_backend"] == "jax"
+    assert result[4] is metric
+    assert result[5] is bfield

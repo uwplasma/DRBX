@@ -210,7 +210,7 @@ def test_hsx_fci_map_cache_miss_traces_continuous_callback_and_reuses_cache(
     monkeypatch.setattr(hsx, "build_fci_maps_from_callbacks", fake_builder)
     cache_path = tmp_path / "metric.npz"
     base_payload = {"metric_sentinel": np.asarray([7.0])}
-    maps, payload, _ = hsx._build_or_load_hsx_fci_maps(
+    maps, payload, _, _ = hsx._build_or_load_hsx_fci_maps(
         grid=grid,
         topology="toroidal",
         construct_fci_maps=True,
@@ -229,7 +229,7 @@ def test_hsx_fci_map_cache_miss_traces_continuous_callback_and_reuses_cache(
 
     with np.load(cache_path, allow_pickle=False) as cached:
         cached_payload = {name: np.array(cached[name], copy=True) for name in cached.files}
-    maps_again, _, _ = hsx._build_or_load_hsx_fci_maps(
+    maps_again, _, _, _ = hsx._build_or_load_hsx_fci_maps(
         grid=grid,
         topology="toroidal",
         construct_fci_maps=True,
@@ -289,7 +289,7 @@ def test_hsx_fci_map_cache_regenerates_invalid_maps(tmp_path, monkeypatch):
     payload["fci_maps_forward_length"][0, 0, 0] = 0.0
     np.savez(cache_path, **payload)
 
-    maps, _, _ = hsx._build_or_load_hsx_fci_maps(
+    maps, _, _, _ = hsx._build_or_load_hsx_fci_maps(
         grid=grid,
         topology="toroidal",
         construct_fci_maps=True,
@@ -305,7 +305,7 @@ def test_hsx_fci_map_cache_regenerates_invalid_maps(tmp_path, monkeypatch):
 
     missing_payload = dict(payload)
     missing_payload.pop("fci_maps_forward_y")
-    maps_missing, _, _ = hsx._build_or_load_hsx_fci_maps(
+    maps_missing, _, _, _ = hsx._build_or_load_hsx_fci_maps(
         grid=grid,
         topology="toroidal",
         construct_fci_maps=True,

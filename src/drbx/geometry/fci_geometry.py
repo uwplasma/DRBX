@@ -6,7 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
-from typing import Callable, Sequence
+from typing import Callable, Mapping, Sequence
 import zipfile
 import numpy as np
 import jax
@@ -8390,6 +8390,9 @@ def build_fci_maps_from_callbacks(
     min_abs_bz: float = 1.0e-30,
     endpoint_interpolation_order: int = 2,
     direction_checkpoint_path: Path | None = None,
+    trace_batch: Callable[[np.ndarray, float], Mapping[str, object]] | None = None,
+    trace_backend_identity: str = "numpy-callback",
+    max_trace_batch_seeds: int = 2048,
 ) -> dict[str, jnp.ndarray]:
     """Build FCI maps by evaluating the magnetic field at arbitrary points.
 
@@ -8407,7 +8410,9 @@ def build_fci_maps_from_callbacks(
     radius and ``theta + pi``; the upper radial face remains physical.  An
     optional ``direction_checkpoint_path`` atomically records each completed
     forward/backward direction so long continuous-field traces can resume
-    without changing their numerical result.
+    without changing their numerical result.  Producer backends may provide a
+    batch-local ``trace_batch`` implementation (for example a jitted, sharded
+    executor); endpoint lowering and checkpoint assembly remain identical.
     """
 
     if int(substeps) < 1:
@@ -8417,6 +8422,8 @@ def build_fci_maps_from_callbacks(
             "only second-order endpoint interpolation is currently supported; "
             f"got {endpoint_interpolation_order}"
         )
+    if int(max_trace_batch_seeds) < 1:
+        raise ValueError("max_trace_batch_seeds must be positive")
     if len(periodic_axes) != 3 or len(axis_regular_axes) != 3:
         raise ValueError("periodic_axes and axis_regular_axes must have length 3")
     periodic_axes = tuple(bool(value) for value in periodic_axes)
@@ -8723,6 +8730,8 @@ def build_fci_maps_from_callbacks(
         "periodic_axes": [bool(value) for value in periodic_axes],
         "axis_regular_axes": [bool(value) for value in axis_regular_axes],
         "coordinate_sha256": coordinate_digest.hexdigest(),
+        "trace_backend": str(trace_backend_identity),
+        "max_trace_batch_seeds": int(max_trace_batch_seeds),
     }
     completed_directions: set[str] = set()
 
@@ -8815,7 +8824,6 @@ def build_fci_maps_from_callbacks(
     # independent, so batching changes only peak memory.  Permit a batch to
     # split a logical eta plane as well: one 48x48 plane is already large
     # enough to trigger transient multi-gigabyte evaluator allocations.
-    max_trace_batch_seeds = 2048
     def step_groups(direction: int) -> list[tuple[float, list[int]]]:
         grouped: dict[float, list[int]] = {}
         for index in range(nz):
@@ -8848,16 +8856,19 @@ def build_fci_maps_from_callbacks(
                         z_axis[target_k],
                     )
                 )
-                traced_result = trace_fci_points_to_plane_from_callbacks(
-                    grid,
-                    field_evaluator,
-                    seeds,
-                    step,
-                    substeps=substeps,
-                    periodic_axes=periodic_axes,
-                    axis_regular_axes=axis_regular_axes,
-                    min_abs_bz=min_abs_bz,
-                )
+                if trace_batch is None:
+                    traced_result = trace_fci_points_to_plane_from_callbacks(
+                        grid,
+                        field_evaluator,
+                        seeds,
+                        step,
+                        substeps=substeps,
+                        periodic_axes=periodic_axes,
+                        axis_regular_axes=axis_regular_axes,
+                        min_abs_bz=min_abs_bz,
+                    )
+                else:
+                    traced_result = trace_batch(seeds, step)
                 traced = np.asarray(traced_result["endpoint"])
                 lengths = np.asarray(traced_result["length"])
                 boundaries = np.asarray(traced_result["boundary"])

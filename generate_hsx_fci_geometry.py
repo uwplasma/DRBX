@@ -42,7 +42,24 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--status", type=Path, default=None, help="Resumable status JSON path.")
     parser.add_argument("--log", type=Path, default=None, help="Append-only producer log path.")
     parser.add_argument("--rebuild-metric-cache", action="store_true")
-    parser.add_argument("--trace-tolerance-cells", type=float, default=1.0e-3, help="64-vs-128 transverse endpoint tolerance in cell units.")
+    parser.add_argument(
+        "--trace-backend",
+        choices=("jax", "numpy"),
+        default="jax",
+        help="Producer tracing backend. JAX is compiled and batch-sharded; NumPy is the reference fallback.",
+    )
+    parser.add_argument(
+        "--trace-batch-size",
+        type=int,
+        default=2048,
+        help="Fixed compiled trajectory batch size (rounded up across selected devices).",
+    )
+    parser.add_argument(
+        "--trace-device-count",
+        type=int,
+        default=None,
+        help="Number of local JAX devices used to shard trajectory batches; default uses all local devices.",
+    )
     return parser
 
 
@@ -71,7 +88,9 @@ def main(argv: list[str] | None = None) -> int:
         output=args.output,
         rebuild_metric_cache=args.rebuild_metric_cache,
         include_curvature_edge_one_form=args.include_curvature_edge_one_form,
-        trace_tolerance_cells=args.trace_tolerance_cells,
+        trace_backend=args.trace_backend,
+        trace_batch_size=args.trace_batch_size,
+        trace_device_count=args.trace_device_count,
     )
     build_hsx_simulation_geometry(config, status_path=args.status, log_path=args.log)
     return 0

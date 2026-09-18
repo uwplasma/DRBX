@@ -12,7 +12,8 @@ stack. This document records the currently selectable runtime architecture.
 producer: MAKEGRID + vessel + requested resolution
   -> magnetic, eta, wall, and metric evaluators
   -> global FciGeometry3D sampled on the PDE grid
-  -> 64-substep cell-center maps and complete raw transverse-vertex atlas
+  -> compiled, trajectory-batch-sharded 64-substep cell-center maps
+     and complete raw transverse-vertex atlas
   -> polar owner topology and trace-free lean owner-boundary overlap graph
   -> producer qualification and atomic directory artifact
 consumer: explicit --geometry directory

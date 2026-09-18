@@ -1998,7 +1998,14 @@ def build_rlp_parallel_overlap_geometry(
     # Group faces by plane and keep source/destination closure accounting in
     # the same loop that emits links, so periodic last-to-first is built once.
     by_plane = {k: [face for face in faces if face.plane == k] for k in range(shape[2])}
+    # Only links on the active eta interface can share a key. Compact each
+    # completed interface into NumPy arrays instead of retaining a global
+    # Python dict whose per-entry overhead dominates large 64^3 builds.
     links: dict[tuple[int, int, int], list[float]] = {}
+    link_key_parts: list[np.ndarray] = []
+    link_measure_parts: list[np.ndarray] = []
+    link_tau_parts: list[np.ndarray] = []
+    compact_link_count = 0
     expected_source_nonwall = np.zeros(shape[2], dtype=float)
     expected_source_wall = np.zeros(shape[2], dtype=float)
     expected_dest_nonwall = np.zeros(shape[2], dtype=float)
@@ -2054,6 +2061,7 @@ def build_rlp_parallel_overlap_geometry(
             links[key][1] += float(np.sum(contributions[start:stop]))
 
     for interface in selected_interfaces:
+        links = {}
         source_plane = interface
         destination_plane = (interface + 1) % shape[2]
         source_faces = by_plane[source_plane]
@@ -2295,7 +2303,9 @@ def build_rlp_parallel_overlap_geometry(
             "destination_face_count": int(len(destination_faces)),
             "source_piece_count": int(len(source_pieces)),
             "destination_piece_count": int(len(destination_pieces)),
-            "canonical_link_count_cumulative": int(len(links)),
+            "canonical_link_count_cumulative": int(
+                compact_link_count + len(links)
+            ),
             "quadrature_buffer_peak_points": int(
                 interface_quadrature_buffer_peak
             ),
@@ -2309,6 +2319,22 @@ def build_rlp_parallel_overlap_geometry(
             },
         }
         interface_diagnostics.append(interface_record)
+        ordered_interface = sorted(links.items())
+        if ordered_interface:
+            link_key_parts.append(
+                np.asarray([key for key, _ in ordered_interface], dtype=np.int32)
+            )
+            link_measure_parts.append(
+                np.asarray(
+                    [values[0] for _, values in ordered_interface], dtype=float
+                )
+            )
+            link_tau_parts.append(
+                np.asarray(
+                    [values[1] for _, values in ordered_interface], dtype=float
+                )
+            )
+            compact_link_count += len(ordered_interface)
         # These arrays can contain the largest temporary host payload in the
         # construction.  Release them before advancing to the next eta
         # interface; only scalar link accumulators and diagnostics survive.
@@ -2320,6 +2346,8 @@ def build_rlp_parallel_overlap_geometry(
             destination_bins,
             quadrature_records,
             all_boxes,
+            links,
+            ordered_interface,
         )
         if progress_callback is not None:
             progress_callback(dict(interface_record))
@@ -2436,16 +2464,32 @@ def build_rlp_parallel_overlap_geometry(
         )
     wall_terminated_source = omitted_wall_source + source_under
     wall_terminated_dest = omitted_wall_dest + dest_under
-    ordered = sorted(links.items())
+    if link_key_parts:
+        link_keys = np.concatenate(link_key_parts, axis=0)
+        link_measure = np.concatenate(link_measure_parts, axis=0)
+        link_tau = np.concatenate(link_tau_parts, axis=0)
+        link_key_parts.clear()
+        link_measure_parts.clear()
+        link_tau_parts.clear()
+        order = np.lexsort(
+            (link_keys[:, 2], link_keys[:, 1], link_keys[:, 0])
+        )
+        link_keys = link_keys[order]
+        link_measure = link_measure[order]
+        link_tau = link_tau[order]
+    else:
+        link_keys = np.empty((0, 3), dtype=np.int32)
+        link_measure = np.empty(0, dtype=float)
+        link_tau = np.empty(0, dtype=float)
     return GlobalRlpParallelOverlapGeometry(
         raw_shape=shape,
         owner_flat_ids=owner_ids,
         owner_volumes=owner_volumes,
-        link_owner_a=np.asarray([key[0] for key, _ in ordered], dtype=np.int32),
-        link_owner_b=np.asarray([key[1] for key, _ in ordered], dtype=np.int32),
-        link_interface=np.asarray([key[2] for key, _ in ordered], dtype=np.int32),
-        overlap_measure=np.asarray([value[0] for _, value in ordered], dtype=float),
-        transmissibility=np.asarray([value[1] for _, value in ordered], dtype=float),
+        link_owner_a=link_keys[:, 0],
+        link_owner_b=link_keys[:, 1],
+        link_interface=link_keys[:, 2],
+        overlap_measure=link_measure,
+        transmissibility=link_tau,
         metadata={
             **dict(metadata or {}),
             "raw_face_count": raw_face_count,
