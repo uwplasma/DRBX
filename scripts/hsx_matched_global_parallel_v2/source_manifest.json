@@ -1,0 +1,45 @@
+{
+  "base_git_commit": "6c2b005d81d353280cdaed7b5bf0dd67cb9d1035",
+  "content_identity": {
+    "base_git_commit": "6c2b005d81d353280cdaed7b5bf0dd67cb9d1035",
+    "bytes": 1023658,
+    "file_count": 19,
+    "overlay_files_sha256": "9d3e9d09b15b13c333e4656d93fd0b38626ad5773c7e502260f7929818e498df"
+  },
+  "dirty_snapshot": false,
+  "execution_content_identity": {
+    "base_git_commit": "6c2b005d81d353280cdaed7b5bf0dd67cb9d1035",
+    "bytes": 2057844,
+    "file_count": 24,
+    "overlay_files_sha256": "e15fd0a79701628853d2363b46d2a5c4a4cea1ce66faa9e07fcf9fc2a7ffdbe6"
+  },
+  "numerical_files": [
+    {"bytes": 43978, "path": "hsx_mms_continuum_reference.py", "sha256": "7280e185821ed761ffe9472cba8120c11ce36b362770ee89eb5d94b0f5992ac7"},
+    {"bytes": 131973, "path": "simulate_hsx_mms.py", "sha256": "4b6e3edf84a6621cf5045ca87871e4a5ca01895a43b2e4870deab9bc0cf89bdf"},
+    {"bytes": 88237, "path": "scripts/audit_hsx_bracket_integrated_reference.py", "sha256": "37b7d0cdc12c7a034f713c084ffa431f883aea4b647c279512d8998d65a0b8aa"},
+    {"bytes": 43882, "path": "scripts/audit_hsx_cubic_derivative_global.py", "sha256": "6d34f5371576fb6b0a4aa2a261f7a0d570feb87a0818716839595173a7e140dd"},
+    {"bytes": 35077, "path": "scripts/audit_hsx_cubic_global_bracket.py", "sha256": "68400ec1de88bd3fa01e90d288f6bd1a43c75b0d7138a410d7c6b22a8043b098"},
+    {"bytes": 38524, "path": "scripts/audit_hsx_face_candidate_orientation.py", "sha256": "2d34ac1a0a0b362dc99a3376f377ec01edcec3ff6e26e576d7b80b93b3829e56"},
+    {"bytes": 44154, "path": "scripts/audit_hsx_generator_factorization.py", "sha256": "0e2ef1c1419bc768efea96c9c3f9e5c67dc8e69f22e391515ee1763c97b0d186"},
+    {"bytes": 62810, "path": "scripts/audit_hsx_matched_face_volume.py", "sha256": "9879ac50b649d661a0bdb11334d74c6d30a3033815e13151258486c3b028e11c"},
+    {"bytes": 53409, "path": "scripts/audit_hsx_owner_face_derivative.py", "sha256": "007fcb130b005bbfdfe2d53aa17968296acf041ab287b8e390d47cfc65afe7a0"},
+    {"bytes": 36114, "path": "scripts/audit_hsx_owner_face_derivative_adaptive.py", "sha256": "c22f7e16127e8f11dde5660bfcde87cf912ac1cc77a10942f3d7d8b1fbb96b1f"},
+    {"bytes": 41873, "path": "scripts/audit_hsx_p03_failure_localization.py", "sha256": "d2aa93fef88fda8ff53d5706e4cb1f523ff102a563315c3e264824825b86928e"},
+    {"bytes": 62929, "path": "scripts/audit_hsx_p03_fine_interval.py", "sha256": "4234e4ec132301dc5ad2c5c0e7b80ab7deadc231133145d5bef26c2a1a2bc9ff"},
+    {"bytes": 43822, "path": "scripts/audit_hsx_p04_global_bracket.py", "sha256": "936f19cbbb02e0d3267d3c9faac4d5336b5b3a26d918f7af3b9a5336bf6f15ef"},
+    {"bytes": 70293, "path": "scripts/audit_hsx_poisson_common_face_oracle.py", "sha256": "3ed82eeacbf5b0017a0da348d118da12a058f4d4d5f7bac27f7276ec85aa4cbd"},
+    {"bytes": 25826, "path": "scripts/audit_hsx_poisson_continuous_baseline.py", "sha256": "21e9454f6dff3d161e0e945290c3314f01be4441fe75d3b93eda77de150f7397"},
+    {"bytes": 46448, "path": "scripts/audit_hsx_poisson_vorticity.py", "sha256": "20314e938913d43616299a6948c32d9ea0a4a0466d0f89f0f0840b5513f14d73"},
+    {"bytes": 61832, "path": "scripts/audit_hsx_value_derivative_cross.py", "sha256": "31a14a8c87f2893fefff0ef0b90be491fa25aa4b5ee8f5154477660b732902ae"},
+    {"bytes": 27895, "path": "src/drbx/geometry/fci_aggregate_reconstruction.py", "sha256": "354b5f260a1d28439ae3a4876eb046152e42381140c87fbfde6023c57f7c8c24"},
+    {"bytes": 64582, "path": "scripts/hsx_matched_global_parallel_v2/frozen_numerics_v2.py", "sha256": "edfd32ce61d1194e5e283724797f25b01a7e05f5c2fdbef5897ab2dbd2dd2a53"}
+  ],
+  "orchestration_files": [
+    {"bytes": 29490, "path": "scripts/hsx_matched_global_parallel_v2/parallel_runner.py", "sha256": "ab00c8e221b3cb0bd6bc7c49122961a3475046630de9ec37eee8860487cc2bb5"},
+    {"bytes": 1970, "path": "scripts/hsx_matched_global_parallel_v2/portable_configuration.json", "sha256": "7fcde683fbe46a3edc82ae4a2bb415c5711805a544b0e7cc211592b48d4e450a"},
+    {"bytes": 997613, "path": "scripts/hsx_matched_global_parallel_v2/input_manifest.json", "sha256": "34427d20bf52e7db9d5d6200651774d416b96176cdbee9e010e1b7c23798ef3d"},
+    {"bytes": 477, "path": "scripts/hsx_matched_global_parallel_v2/environment.yml", "sha256": "28c830db4030b5dc29f955d5765701fca4da056d74d3bea0727db106c110e581"},
+    {"bytes": 4636, "path": "scripts/hsx_matched_global_parallel_v2/README.md", "sha256": "4539d7ccb507a2327e2eac27a5376ff511d29c162be0ac415b943101b7c53b00"}
+  ],
+  "schema": "drbx.hsx-matched-cubic-source-manifest-v2"
+}

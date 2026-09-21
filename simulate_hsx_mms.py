@@ -661,20 +661,40 @@ def _make_direct_face_geometry_sampler(args):
         raise ValueError(f"reference B0 must be positive and finite, got {B0!r}")
 
     def sampler(logical_points):
-        metric = args.metric_context.metric_evaluator.evaluate(logical_points)
+        logical_points = np.asarray(logical_points, dtype=np.float64)
+        if logical_points.ndim < 2 or logical_points.shape[-1] != 3:
+            raise ValueError(
+                "direct face logical points must have shape (..., 3), got "
+                f"{logical_points.shape}"
+            )
+        leading_shape = logical_points.shape[:-1]
+        evaluation_points = logical_points.reshape((-1, 3))
+        metric = args.metric_context.metric_evaluator.evaluate(evaluation_points)
         magnetic = args.metric_context.metric_evaluator.evaluate_magnetic_field(
-            logical_points, args.metric_context.bfield
+            evaluation_points, args.metric_context.bfield
         )
+        g_cov = np.asarray(metric.covariant_metric, dtype=np.float64).reshape(
+            leading_shape + (3, 3)
+        )
+        # Serialized MMS geometry interpolates g_cov and g_contra as separate
+        # cell-centred fields.  Those interpolants are not inverse tensors at
+        # an off-centre face quadrature point, especially near the polar axis.
+        # The direct Poisson face velocity uses g_cov to lower B, matching the
+        # continuum reference, so preserve that interpolant and construct its
+        # exact inverse for the companion geometry channel.
+        g_contra = np.linalg.inv(g_cov)
         return {
-            "J": np.asarray(metric.signed_J, dtype=np.float64),
-            "g_contra": np.asarray(
-                metric.contravariant_metric, dtype=np.float64
+            "J": np.asarray(metric.signed_J, dtype=np.float64).reshape(
+                leading_shape
             ),
-            "g_cov": np.asarray(metric.covariant_metric, dtype=np.float64),
+            "g_contra": g_contra,
+            "g_cov": g_cov,
             "B_contra": np.asarray(
                 magnetic.B_contravariant, dtype=np.float64
-            ) / B0,
-            "Bmag": np.asarray(magnetic.magnitude, dtype=np.float64) / B0,
+            ).reshape(leading_shape + (3,)) / B0,
+            "Bmag": np.asarray(
+                magnetic.magnitude, dtype=np.float64
+            ).reshape(leading_shape) / B0,
         }
 
     return sampler
