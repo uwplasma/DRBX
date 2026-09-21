@@ -116,6 +116,85 @@ def _bootstrap(deployment_root: Path, source_root: Path, output_root: Path):
     return module
 
 
+def _portable_identity_index(deployment_root: Path, input_root: Path) -> dict[tuple[str, int], list[Path]]:
+    """Map manifest identities to their relocated source/input paths."""
+
+    result: dict[tuple[str, int], list[Path]] = {}
+    for manifest_path, root in (
+        (HERE / "source_manifest.json", deployment_root),
+        (HERE / "input_manifest.json", input_root),
+    ):
+        manifest = _load_json(manifest_path)
+        for section in ("files", "numerical_files", "orchestration_files"):
+            for identity in manifest.get(section, []):
+                size = identity.get("size", identity.get("bytes"))
+                if size is None:
+                    continue
+                key = (str(identity["sha256"]), int(size))
+                result.setdefault(key, []).append(root / identity["path"])
+    return result
+
+
+def _install_relocated_cache_validation(numeric: Any, deployment_root: Path, input_root: Path) -> None:
+    """Validate frozen cache sources by content after portable relocation.
+
+    Historical bounded-cache metadata records absolute paths on the producing
+    workstation.  The portable manifests preserve the same files under new
+    roots, so path existence is not a valid identity test on the cluster.
+    This wrapper retains every schema, array, implementation, size, and SHA-256
+    check while resolving source identities through the signed manifests.
+    """
+
+    bounded = numeric.bounded
+    current = bounded._load_cache
+    if getattr(current, "_drbx_portable_relocated_validation", False):
+        return
+    identity_index = _portable_identity_index(deployment_root.resolve(), input_root.resolve())
+
+    def relocated_load_cache(path: Path, *, validate_sources: bool = True):
+        arrays, metadata = current(path, validate_sources=False)
+        if not validate_sources:
+            return arrays, metadata
+        if metadata.get("implementation_sha256") != bounded._implementation_hash():
+            raise ValueError("matched face-volume implementation changed")
+        stale: list[str] = []
+        resolved: dict[str, str] = {}
+        for name, identity in metadata["sources"].items():
+            size = identity.get("size", identity.get("bytes"))
+            key = (str(identity["sha256"]), int(size))
+            matches = []
+            for candidate in identity_index.get(key, []):
+                if (
+                    candidate.is_file()
+                    and candidate.stat().st_size == key[1]
+                    and _sha256(candidate) == key[0]
+                ):
+                    matches.append(candidate.resolve())
+            if not matches:
+                stale.append(name)
+            else:
+                resolved[name] = str(matches[0])
+        if stale:
+            raise ValueError(
+                "matched face-volume relocated source changed: " + ", ".join(stale)
+            )
+        print(
+            json.dumps(
+                {
+                    "event": "portable_relocated_cache_sources_valid",
+                    "cache": str(Path(path).resolve()),
+                    "sources": resolved,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        return arrays, metadata
+
+    relocated_load_cache._drbx_portable_relocated_validation = True
+    bounded._load_cache = relocated_load_cache
+
+
 def _materialize(
     config_path: Path, deployment_root: Path, input_root: Path, output_root: Path
 ) -> tuple[dict[str, Any], Path, Any]:
@@ -154,6 +233,7 @@ def _materialize(
     runtime_path = output_root / "runtime_configuration.json"
     _atomic_json(runtime_path, runtime)
     numeric = _bootstrap(deployment_root, source_root, output_root)
+    _install_relocated_cache_validation(numeric, deployment_root, input_root)
     return runtime, runtime_path, numeric
 
 
