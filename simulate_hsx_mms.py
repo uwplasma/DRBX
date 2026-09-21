@@ -669,11 +669,29 @@ def _make_direct_face_geometry_sampler(args):
             )
         leading_shape = logical_points.shape[:-1]
         evaluation_points = logical_points.reshape((-1, 3))
-        metric = args.metric_context.metric_evaluator.evaluate(evaluation_points)
-        magnetic = args.metric_context.metric_evaluator.evaluate_magnetic_field(
-            evaluation_points, args.metric_context.bfield
-        )
-        g_cov = np.asarray(metric.covariant_metric, dtype=np.float64).reshape(
+        batch_size = int(getattr(args, "metric_query_batch_size", 4096))
+        if batch_size < 1:
+            raise ValueError("metric_query_batch_size must be positive")
+        evaluator = args.metric_context.metric_evaluator
+        metric_parts = []
+        magnetic_parts = []
+        for first in range(0, len(evaluation_points), batch_size):
+            batch = evaluation_points[first : first + batch_size]
+            metric = evaluator.evaluate(batch)
+            if hasattr(evaluator, "project_magnetic_field"):
+                magnetic = evaluator.project_magnetic_field(
+                    metric, args.metric_context.bfield
+                )
+            else:
+                magnetic = evaluator.evaluate_magnetic_field(
+                    batch, args.metric_context.bfield
+                )
+            metric_parts.append(metric)
+            magnetic_parts.append(magnetic)
+        g_cov = np.concatenate(
+            [np.asarray(metric.covariant_metric, dtype=np.float64) for metric in metric_parts],
+            axis=0,
+        ).reshape(
             leading_shape + (3, 3)
         )
         # Serialized MMS geometry interpolates g_cov and g_contra as separate
@@ -684,16 +702,27 @@ def _make_direct_face_geometry_sampler(args):
         # exact inverse for the companion geometry channel.
         g_contra = np.linalg.inv(g_cov)
         return {
-            "J": np.asarray(metric.signed_J, dtype=np.float64).reshape(
+            "J": np.concatenate(
+                [np.asarray(metric.signed_J, dtype=np.float64) for metric in metric_parts],
+                axis=0,
+            ).reshape(
                 leading_shape
             ),
             "g_contra": g_contra,
             "g_cov": g_cov,
             "B_contra": np.asarray(
-                magnetic.B_contravariant, dtype=np.float64
+                np.concatenate(
+                    [np.asarray(magnetic.B_contravariant, dtype=np.float64) for magnetic in magnetic_parts],
+                    axis=0,
+                ),
+                dtype=np.float64,
             ).reshape(leading_shape + (3,)) / B0,
             "Bmag": np.asarray(
-                magnetic.magnitude, dtype=np.float64
+                np.concatenate(
+                    [np.asarray(magnetic.magnitude, dtype=np.float64) for magnetic in magnetic_parts],
+                    axis=0,
+                ),
+                dtype=np.float64,
             ).reshape(leading_shape) / B0,
         }
 
@@ -2967,6 +2996,12 @@ def main(argv: Sequence[str] | None = None):
             "Eta-only production decomposition (default: 1 1 1). "
             "The remote four-GPU setup uses --shard-counts 1 1 4."
         ),
+    )
+    p.add_argument(
+        "--metric-query-batch-size",
+        type=int,
+        default=4096,
+        help="maximum logical points per continuous metric evaluation",
     )
     p.add_argument("--output", type=Path, default=ROOT / "hsx_mms_residuals.npz")
     p.add_argument(

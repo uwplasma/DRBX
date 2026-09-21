@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 HERE = Path(__file__).resolve().parent
@@ -55,7 +56,19 @@ def namespace(args, **kwargs):
 
 
 def fresh_stage(args, stage, resolution=None):
-    runner.command_frozen_stage(namespace(args, stage=stage, resolution=resolution))
+    command = [
+        sys.executable,
+        str(HERE / "parallel_runner.py"),
+        "frozen-stage",
+        "--config", str(HERE / "configuration.json"),
+        "--deployment-root", str(REPO),
+        "--input-root", str(args.input_root.resolve()),
+        "--output-root", str(args.output.resolve()),
+        "--stage", stage,
+    ]
+    if resolution is not None:
+        command.extend(("--resolution", str(int(resolution))))
+    subprocess.run(command, check=True)
 
 
 def preflight(args):
@@ -77,7 +90,10 @@ def run(args):
         plan = args.output / f'N{n}.plan.json'
         runner.command_plan(namespace(args, resolution=n, coverage='global', plan=plan))
         runner.command_execute(namespace(args, plan=plan, workers=args.workers,
-            max_tasks_per_worker=args.max_tasks_per_worker, fail_unit=None))
+            max_tasks_per_worker=args.max_tasks_per_worker, fail_unit=None,
+            memory_budget_gib=args.memory_budget_gib,
+            worker_memory_gib=args.worker_memory_gib,
+            memory_reserve_gib=args.memory_reserve_gib))
         runner.command_validate(namespace(args, plan=plan))
         runner.command_assemble(namespace(args, plan=plan))
         fresh_stage(args, f'validate:case_N{n}', n)
@@ -101,9 +117,14 @@ def main():
     parser.add_argument('--input-root', type=Path, default=REPO.parent)
     parser.add_argument('--output', type=Path, default=REPO/'work/hsx_clean_remote_v3')
     parser.add_argument('--resolutions', type=int, nargs='+', choices=(32,48,64), default=[32,48,64])
-    parser.add_argument('--workers', type=int, default=64)
-    parser.add_argument('--max-tasks-per-worker', type=int, default=64)
+    parser.add_argument('--workers', type=runner._positive_int)
+    parser.add_argument('--max-tasks-per-worker', type=runner._positive_int, default=16)
+    parser.add_argument('--memory-budget-gib', type=runner._positive_float)
+    parser.add_argument('--worker-memory-gib', type=runner._positive_float)
+    parser.add_argument('--memory-reserve-gib', type=runner._nonnegative_float, default=1.0)
     args = parser.parse_args()
+    if args.command == 'run' and (args.workers is None or args.workers < 1):
+        parser.error('run requires --workers chosen for the active allocation')
     # One campaign owner, including preparation/merge, not just chunk execution.
     with runner._exclusive_output(args.output/'campaign_control'):
         identity = verify(args)

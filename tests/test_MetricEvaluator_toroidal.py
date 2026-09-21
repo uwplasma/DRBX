@@ -77,6 +77,61 @@ def test_circular_torus_position_and_jacobian_match_analytic_map():
     )
 
 
+def test_fourier_zernike_basis_reuse_is_query_scoped_and_shared(monkeypatch):
+    evaluator = make_toroidal_evaluator()
+    calls = 0
+    for channel in evaluator._channels:
+        original = channel._basis_matrix
+
+        def counted(mode, u, *, _original=original):
+            nonlocal calls
+            calls += 1
+            return _original(mode, u)
+
+        monkeypatch.setattr(channel, "_basis_matrix", counted)
+
+    q = np.asarray([[0.2, 0.4, 0.6], [0.7, 1.3, 2.1]])
+    evaluator.position(q)
+    assert calls == len(evaluator._channels[0]._active_theta_indices)
+    assert evaluator.basis_cache_diagnostics() == {
+        "policy": "query-scoped-shared-across-channels",
+        "persistent_entries": 0,
+        "persistent_value_bytes": 0,
+        "persistent_key_bytes": 0,
+    }
+
+    for offset in np.linspace(0.0, 0.5, 12):
+        evaluator.evaluate(q + np.asarray([0.0, 0.0, offset]))
+        assert evaluator.basis_cache_diagnostics()["persistent_entries"] == 0
+
+
+def test_precomputed_metric_magnetic_projection_matches_public_evaluation(monkeypatch):
+    evaluator = make_toroidal_evaluator()
+
+    class BField:
+        def evaluate_cartesian(self, points):
+            return np.stack(
+                (points[..., 1] + 1.0, 2.0 * points[..., 2], points[..., 0] - 0.5),
+                axis=-1,
+            )
+
+    q = np.asarray([[0.2, 0.4, 0.6], [0.7, 1.3, 2.1]])
+    metric = evaluator.evaluate(q)
+    projected = evaluator.project_magnetic_field(metric, BField())
+    expected = evaluator.evaluate_magnetic_field(q, BField())
+    for name in ("B_cartesian", "B_contravariant", "B_covariant", "magnitude"):
+        np.testing.assert_array_equal(getattr(projected, name), getattr(expected, name))
+
+    monkeypatch.setattr(
+        evaluator,
+        "evaluate",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("projection must reuse the supplied metric")
+        ),
+    )
+    evaluator.project_magnetic_field(metric, BField())
+
+
 def test_axis_collapses_and_ordinary_evaluate_rejects_exact_axis():
     evaluator = make_toroidal_evaluator()
     q_axis = np.array([[0.0, angle, 0.37] for angle in np.linspace(0.0, PERIOD, 9)[:-1]])

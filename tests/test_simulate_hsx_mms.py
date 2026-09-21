@@ -1247,3 +1247,90 @@ def test_short_leg_exact_initial_frame_has_zero_finite_high_mode_fraction(
     )
     assert np.all(result["high_mode_fraction"][0] == 0.0)
     assert np.all(np.isfinite(result["high_mode_fraction"]))
+
+
+def test_continuum_metric_batches_and_reuses_precomputed_projection():
+    reference = _load(REFERENCE, "hsx_mms_continuum_batched_metric_test")
+
+    class Metric:
+        period = 2.0 * np.pi
+
+        def __init__(self):
+            self.batch_sizes = []
+            self.project_calls = 0
+            self.legacy_calls = 0
+
+        def evaluate(self, points, *, reject_nonpositive_J=False):
+            q = np.asarray(points, dtype=np.float64)
+            self.batch_sizes.append(len(q))
+            eye = np.broadcast_to(np.eye(3), (len(q), 3, 3)).copy()
+            return SimpleNamespace(
+                position=q.copy(),
+                jacobian_matrix=eye,
+                signed_J=np.ones(len(q)),
+                covariant_metric=eye,
+                contravariant_metric=eye,
+            )
+
+        def project_magnetic_field(self, metric, bfield):
+            self.project_calls += 1
+            field = np.broadcast_to((0.0, 0.0, 2.0), metric.position.shape).copy()
+            return SimpleNamespace(B_contravariant=field, magnitude=np.full(len(field), 2.0))
+
+        def evaluate_magnetic_field(self, *_args, **_kwargs):
+            self.legacy_calls += 1
+            raise AssertionError("the metric must not be evaluated twice")
+
+    metric = Metric()
+    ref = reference.ContinuumMmsReference(
+        metric, object(), 2.0, metric_query_batch_size=3
+    )
+    result = ref._metric(np.linspace(0.1, 0.9, 24).reshape(8, 3))
+    assert metric.batch_sizes == [3, 3, 2]
+    assert metric.project_calls == 3
+    assert metric.legacy_calls == 0
+    np.testing.assert_array_equal(result["J"], np.ones(8))
+    np.testing.assert_array_equal(result["B"], np.ones(8))
+
+
+def test_direct_face_geometry_sampler_bounds_batches_and_reuses_metric():
+    driver = _load(DRIVER, "simulate_hsx_mms_bounded_direct_face_sampler_test")
+    points = np.linspace(0.1, 2.4, 24).reshape((8, 3))
+
+    class Evaluator:
+        def __init__(self):
+            self.batch_sizes = []
+            self.project_calls = 0
+
+        def evaluate(self, logical_points):
+            count = len(logical_points)
+            self.batch_sizes.append(count)
+            identity = np.broadcast_to(np.eye(3), (count, 3, 3)).copy()
+            return SimpleNamespace(
+                position=np.asarray(logical_points),
+                jacobian_matrix=identity,
+                signed_J=np.ones(count),
+                covariant_metric=identity,
+            )
+
+        def project_magnetic_field(self, metric, supplied_bfield):
+            self.project_calls += 1
+            count = len(metric.position)
+            return SimpleNamespace(
+                B_contravariant=np.ones((count, 3)),
+                magnitude=np.full(count, 2.0),
+            )
+
+        def evaluate_magnetic_field(self, *_args, **_kwargs):
+            raise AssertionError("the direct sampler must reuse its metric")
+
+    evaluator = Evaluator()
+    args = SimpleNamespace(
+        metric_context=SimpleNamespace(metric_evaluator=evaluator, bfield=object()),
+        reference=SimpleNamespace(B0=2.0),
+        metric_query_batch_size=3,
+    )
+    sampled = driver._make_direct_face_geometry_sampler(args)(points)
+    assert evaluator.batch_sizes == [3, 3, 2]
+    assert evaluator.project_calls == 3
+    assert sampled["J"].shape == (8,)

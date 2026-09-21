@@ -634,17 +634,23 @@ class _FourierZernikeChannel:
         coeff = np.fft.fftn(np.asarray(samples, dtype=float), axes=(1, 2))
         coeff /= self._theta.size * self._eta.size
         self._coefficients = np.asarray(coeff, dtype=complex)
+        # Kept for cache-payload compatibility and diagnostics.  Query-sized
+        # basis arrays are deliberately *not* retained here: real HSX callers
+        # issue many distinct quadrature queries, and retaining full query
+        # bytes plus every radial matrix makes process memory grow without a
+        # bound.  Evaluation-time reuse lives in the query-scoped ``prepared``
+        # mapping shared by all three coordinate channels instead.
         self._basis = {}
         self._fit_coefficients = {}
         for im in self._active_theta_indices:
             m0 = self._modes_theta[im]
             m = int(round(m0))
             orders = list(range(abs(m), self._radial_degree + 1, 2))
+            B = self._basis_matrix(m, self._u)
             coefficient_matrix = np.zeros(
                 (self._active_eta_indices.size, len(orders)), dtype=complex
             )
             for local_ine, ine in enumerate(self._active_eta_indices):
-                B = self._basis_matrix(m, self._u)
                 target = self._coefficients[:, im, ine]
                 constraint_rows = [B[-1]]
                 constraint_values = [target[-1]]
@@ -699,15 +705,11 @@ class _FourierZernikeChannel:
 
     def _basis_matrix(self, m, u):
         query = np.asarray(u, dtype=float)
-        key = (int(m), query.shape, query.tobytes())
-        if key in self._basis:
-            return self._basis[key]
         orders = list(range(abs(m), self._radial_degree + 1, 2))
         uu = query
         out = np.empty((uu.size, len(orders)), dtype=float)
         for j, ell in enumerate(orders):
             out[:, j] = uu ** abs(m) * eval_jacobi((ell - abs(m)) // 2, 0, abs(m), 2 * uu * uu - 1)
-        self._basis[key] = out
         return out
 
     def _basis_and_derivative(self, m, u):
@@ -745,25 +747,31 @@ class _FourierZernikeChannel:
         if matching.size != 1 or int(matching[0]) not in self._fit_coefficients:
             return np.zeros((u.size, self._active_eta_indices.size), complex)
         im = int(matching[0])
-        B = self._basis_matrix(m, u)
-        if theta_over_u:
-            if m == 0:
-                return np.zeros((u.size, self._active_eta_indices.size), complex)
-            B = B.copy()
-            mask = u != 0
-            if np.any(mask):
-                B[mask] = self._basis_matrix(m, u[mask]) / u[mask, None]
-            if np.any(~mask):
-                if abs(m) == 1:
-                    orders = list(range(1, self._radial_degree + 1, 2))
-                    B[~mask] = np.asarray([
-                        eval_jacobi((ell - 1) // 2, 0, 1, -1.0)
-                        for ell in orders
-                    ])[None, :]
+        cache = prepared["basis"]
+        cache_key = (self._radial_degree, int(m), int(du), bool(theta_over_u))
+        if cache_key not in cache:
+            B = self._basis_matrix(m, u)
+            if theta_over_u:
+                if m == 0:
+                    B = np.zeros_like(B)
                 else:
-                    B[~mask] = 0.0
-        elif du:
-            _, B = self._basis_and_derivative(m, u)
+                    B = B.copy()
+                    mask = u != 0
+                    if np.any(mask):
+                        B[mask] /= u[mask, None]
+                    if np.any(~mask):
+                        if abs(m) == 1:
+                            orders = list(range(1, self._radial_degree + 1, 2))
+                            B[~mask] = np.asarray([
+                                eval_jacobi((ell - 1) // 2, 0, 1, -1.0)
+                                for ell in orders
+                            ])[None, :]
+                        else:
+                            B[~mask] = 0.0
+            elif du:
+                _, B = self._basis_and_derivative(m, u)
+            cache[cache_key] = B
+        B = cache[cache_key]
         return B @ self._fit_coefficients[im].T
 
     def evaluate_prepared(self, prepared, du=0, dv=0, deta=0, theta_over_u=False):
@@ -1457,6 +1465,31 @@ class MetricEvaluator:
         residual = np.max(np.abs(np.einsum("...ik,...kj->...ij", g_cov, g_contra) - np.eye(3)), axis=(-2, -1))
         return MetricEvaluation(position, A, J, g_cov, g_contra, residual, valid)
 
+    def basis_cache_diagnostics(self) -> dict[str, Any]:
+        """Describe retained Fourier--Zernike radial-basis storage.
+
+        Radial matrices used for an evaluation are query-scoped and shared by
+        the three coordinate channels.  They disappear when that evaluation
+        returns.  This method intentionally reports only persistent storage so
+        long-running callers can verify that distinct queries do not build an
+        unbounded live cache.
+        """
+
+        caches = [getattr(channel, "_basis", {}) for channel in self._channels]
+        return {
+            "policy": "query-scoped-shared-across-channels",
+            "persistent_entries": int(sum(len(cache) for cache in caches)),
+            "persistent_value_bytes": int(
+                sum(
+                    value.nbytes
+                    for cache in caches
+                    for value in cache.values()
+                    if isinstance(value, np.ndarray)
+                )
+            ),
+            "persistent_key_bytes": 0,
+        }
+
     def evaluate_regularized(self, logical_points: Any) -> RegularizedMetricEvaluation:
         """Evaluate ``[X_u, X_theta/u, (period/2*pi) X_eta]``."""
         if self._topology != "toroidal":
@@ -2072,14 +2105,33 @@ class MetricEvaluator:
             worst_K_jump=worst_K_jump,
         )
 
-    def evaluate_magnetic_field(self, logical_points: Any, bfield_evaluator: Any, *, reject_nonpositive_J: bool = True) -> MagneticFieldEvaluation:
-        metrics = self.evaluate(logical_points, reject_nonpositive_J=reject_nonpositive_J)
-        B = np.asarray(bfield_evaluator.evaluate_cartesian(metrics.position), dtype=np.float64)
-        if B.shape != metrics.position.shape or B.shape[-1] != 3 or not np.all(np.isfinite(B)):
+    def project_magnetic_field(
+        self,
+        metrics: MetricEvaluation,
+        bfield_evaluator: Any,
+    ) -> MagneticFieldEvaluation:
+        """Project a Cartesian magnetic field through an existing metric sample."""
+
+        position = np.asarray(metrics.position, dtype=np.float64)
+        jacobian = np.asarray(metrics.jacobian_matrix, dtype=np.float64)
+        if position.ndim == 0 or position.shape[-1] != 3:
+            raise ValueError("metric position must have shape (..., 3)")
+        if jacobian.shape != position.shape[:-1] + (3, 3):
+            raise ValueError("metric Jacobian must have shape (..., 3, 3)")
+        if not np.all(np.isfinite(position)) or not np.all(np.isfinite(jacobian)):
+            raise ValueError("metric sample must be finite")
+        B = np.asarray(bfield_evaluator.evaluate_cartesian(position), dtype=np.float64)
+        if B.shape != position.shape or B.shape[-1] != 3 or not np.all(np.isfinite(B)):
             raise ValueError("B-field evaluator must return finite vectors with shape (..., 3)")
-        Bcontra = np.linalg.solve(metrics.jacobian_matrix, B[..., None])[..., 0]
-        Bcov = np.einsum("...ji,...j->...i", metrics.jacobian_matrix, B)
+        Bcontra = np.linalg.solve(jacobian, B[..., None])[..., 0]
+        Bcov = np.einsum("...ji,...j->...i", jacobian, B)
         return MagneticFieldEvaluation(B, Bcontra, Bcov, np.linalg.norm(B, axis=-1))
+
+    def evaluate_magnetic_field(self, logical_points: Any, bfield_evaluator: Any, *, reject_nonpositive_J: bool = True) -> MagneticFieldEvaluation:
+        """Evaluate the metric and project the Cartesian magnetic field."""
+
+        metrics = self.evaluate(logical_points, reject_nonpositive_J=reject_nonpositive_J)
+        return self.project_magnetic_field(metrics, bfield_evaluator)
 
     def transform_magnetic_field(self, logical_points: Any, bfield_evaluator: Any, *, reject_nonpositive_J: bool = True) -> MagneticFieldEvaluation:
         """Alias for :meth:`evaluate_magnetic_field`."""

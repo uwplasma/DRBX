@@ -15,10 +15,12 @@ as a **new remote campaign**, using
 [`scripts/hsx_remote_qualification`](../../../scripts/hsx_remote_qualification/README.md).
 The remote handoff contains repository commands only, in
 [REMOTE_COMMANDS.md](../../../scripts/hsx_remote_qualification/REMOTE_COMMANDS.md).
-Use the available CPU allocation at maximum requested parallelism (64 workers
-for the planned allocation); **no remote scaling study is required**. The
+The remote setup skill chooses concurrency to fit the active allocation and
+worker memory; the campaign requires an explicit worker count. **No remote
+scaling study is required**. The
 remote task owns execution and monitoring; the local P task remains paused.
-Worker communications go through the parent task, never another P/Q/O worker.
+Workers do not send unsolicited messages to the parent or other tasks; the
+parent inspects progress when requested.
 
 The new `selection-v3` policy resolves near-equal candidate distances by a
 documented anchored tolerance group and canonical owner ID, and applies one
@@ -39,6 +41,16 @@ agreement uses justified tolerances; a policy change receives a new numerical
 identity rather than bypassing a stale-cache check. Candidate-specific
 reference budgets and the existing two-interval >=1.8 global operator gate
 remain unchanged. Remote execution is not P04/P05 completion or promotion.
+
+The remote performance repair removes persistent query-basis growth, shares
+metric evaluations, microbatches metric/curl queries, groups owner memberships
+once, isolates preparation stages, and validates resumed chunks before worker
+startup. See the campaign [implementation validation](../../../scripts/hsx_remote_qualification/VALIDATION.md).
+It changes execution/source identity, not the frozen candidate or acceptance
+contract. Start a fresh output folder for this release. Per-worker RSS and cache
+telemetry are recorded; full-node runtime and memory remain remotely measured
+quantities. Do not infer production performance or convergence from these
+bounded implementation checks.
 
 ### Scientific contract
 

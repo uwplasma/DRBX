@@ -164,6 +164,7 @@ def build_continuum_reference_from_artifact(
     Ve_nu: float = 1.0e-3,
     perp_diffusion: float = 1.0e-5,
     enable_generalized_potential: bool = True,
+    metric_query_batch_size: int = 4096,
 ) -> "ContinuumMmsReference":
     """Construct the fixed MMS reference from one serialized artifact.
 
@@ -191,6 +192,7 @@ def build_continuum_reference_from_artifact(
         Ve_nu=Ve_nu,
         perp_diffusion=perp_diffusion,
         enable_generalized_potential=enable_generalized_potential,
+        metric_query_batch_size=metric_query_batch_size,
     )
 
 
@@ -212,6 +214,7 @@ def build_continuum_reference_from_sidecar(
     Ve_nu: float = 1.0e-3,
     perp_diffusion: float = 1.0e-5,
     enable_generalized_potential: bool = True,
+    metric_query_batch_size: int | None = None,
 ) -> "ContinuumMmsReference":
     """Restore a qualified frozen continuous HSX MMS reference.
 
@@ -263,6 +266,11 @@ def build_continuum_reference_from_sidecar(
         perp_diffusion=perp_diffusion,
         enable_generalized_potential=enable_generalized_potential,
         eta_period=float(payload["analytic_mms_eta_period"]),
+        metric_query_batch_size=int(
+            payload.get("metric_query_batch_size", 4096)
+            if metric_query_batch_size is None
+            else metric_query_batch_size
+        ),
     )
     reference.provenance = {
         "sidecar": str(sidecar_path),
@@ -461,6 +469,7 @@ class ContinuumMmsReference:
         finite_difference_step: float = 2.0e-4,
         enable_generalized_potential: bool = False,
         eta_period: float | None = None,
+        metric_query_batch_size: int = 4096,
     ) -> None:
         if not np.isfinite(B0) or B0 <= 0.0:
             raise ValueError("B0 must be finite and positive")
@@ -478,6 +487,11 @@ class ContinuumMmsReference:
         if self.finite_difference_step <= 0.0:
             raise ValueError("finite_difference_step must be positive")
         self.enable_generalized_potential = bool(enable_generalized_potential)
+        if isinstance(metric_query_batch_size, (bool, np.bool_)):
+            raise ValueError("metric_query_batch_size must be a positive integer")
+        self.metric_query_batch_size = int(metric_query_batch_size)
+        if self.metric_query_batch_size < 1:
+            raise ValueError("metric_query_batch_size must be a positive integer")
         self.eta_period = float(
             getattr(metric_evaluator, "period", 2.0 * np.pi)
             if eta_period is None else eta_period
@@ -494,11 +508,16 @@ class ContinuumMmsReference:
             (0.006, 2, -1, 0.0, -0.40, True),
         )
 
-    def _metric(self, q: np.ndarray) -> dict[str, np.ndarray]:
+    def _metric_batch(self, q: np.ndarray) -> dict[str, np.ndarray]:
         metric = self.metric_evaluator.evaluate(q, reject_nonpositive_J=False)
-        magnetic = self.metric_evaluator.evaluate_magnetic_field(
-            q, self.bfield_evaluator, reject_nonpositive_J=False
-        )
+        if hasattr(self.metric_evaluator, "project_magnetic_field"):
+            magnetic = self.metric_evaluator.project_magnetic_field(
+                metric, self.bfield_evaluator
+            )
+        else:
+            magnetic = self.metric_evaluator.evaluate_magnetic_field(
+                q, self.bfield_evaluator, reject_nonpositive_J=False
+            )
         J = np.asarray(metric.signed_J, dtype=np.float64)
         gcov = np.asarray(metric.covariant_metric, dtype=np.float64)
         gcontra = np.asarray(metric.contravariant_metric, dtype=np.float64)
@@ -508,6 +527,22 @@ class ContinuumMmsReference:
         bunit = bcontra / bmag[..., None]
         bcov = np.einsum("...ij,...j->...i", gcov, bunit)
         return {"J": J, "gcov": gcov, "gcontra": gcontra, "b": bunit, "bcov": bcov, "B": bmag}
+
+    def _metric(self, q: np.ndarray) -> dict[str, np.ndarray]:
+        points = np.asarray(q, dtype=np.float64)
+        if points.ndim != 2 or points.shape[1] != 3:
+            raise ValueError("metric queries must have shape (n, 3)")
+        size = self.metric_query_batch_size
+        if len(points) <= size:
+            return self._metric_batch(points)
+        chunks = [
+            self._metric_batch(points[first : first + size])
+            for first in range(0, len(points), size)
+        ]
+        return {
+            name: np.concatenate([chunk[name] for chunk in chunks], axis=0)
+            for name in chunks[0]
+        }
 
     def prepare(self, points: Any) -> PreparedGeometry:
         """Evaluate and cache all geometry coefficients used by the RHS."""

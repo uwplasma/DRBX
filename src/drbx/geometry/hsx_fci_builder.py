@@ -1267,7 +1267,7 @@ def _build_hsx_curvature_edge_one_form(
 
     def sample(points: np.ndarray) -> np.ndarray:
         metric = metric_evaluator.evaluate(points)
-        magnetic = metric_evaluator.evaluate_magnetic_field(points, bfield)
+        magnetic = metric_evaluator.project_magnetic_field(metric, bfield)
         bcontra = np.asarray(magnetic.B_contravariant, dtype=np.float64) / b0
         bmag = np.maximum(np.asarray(magnetic.magnitude, dtype=np.float64) / b0, 1.0e-30)
         result = np.einsum(

@@ -11,10 +11,11 @@ run from the DRBX repository. The existing input workspace is addressed by
 `--input-root`; its default layout and immutable content are specified in
 `configuration.json` and `input_manifest.json`. Output is always a new campaign
 directory. There are no environment, scheduler, transfer, or cluster-launch
-instructions and no remote scaling study. The planned allocation uses 64 CPU
-workers; one numerical-library thread per worker is enforced before imports.
+instructions and no remote scaling study. The remote setup skill chooses the allocation and supplies an explicit
+`--workers` value; one numerical-library thread per worker is enforced before
+imports. There is no default campaign worker count.
 
-Use the committed campaign source in a clean checkout. The source manifest
+Use the pinned committed campaign source. The source manifest
 covers its transitive local Python imports, including the HSX drivers, rather
 than unrelated research scripts. Local edits to a covered dependency require
 a new manifest and a new campaign directory.
@@ -74,6 +75,31 @@ candidate error. Reused absolute reference uncertainties are redivided by the
 new candidate errors for all three fields. Actual-action/constant identities
 remain scientific diagnostics, not extra convergence vetoes. Independent
 solution checks and production promotion remain later roadmap work.
+
+## Bounded-memory execution
+
+Fourier--Zernike basis matrices are shared across coordinate channels for one
+query and released after it; distinct face queries no longer accumulate in a
+persistent cache. Magnetic projection reuses that same metric evaluation.
+Metric queries use microbatches of at most 4096 points, including curl shifts
+and preparation face geometry. Preparation handles one field at a time and
+runs each stage/resolution in a separate process. Owner memberships are grouped
+once by stable sorting instead of rescanning all raw cells for every owner.
+
+Workers recycle after 16 chunks by default. Checkpoints report current RSS,
+high-water RSS, task ordinal and retained basis storage. Optional paired flags
+`--memory-budget-gib` and `--worker-memory-gib`, with `--memory-reserve-gib`, cap
+concurrency using an allocation budget and a measured per-worker allowance.
+These are estimates, not an enforced memory limit or an automatic profiler;
+the remote setup skill supplies allocation-appropriate values if used.
+Completed checkpoints are validated before starting workers. Assembly validates
+all chunks without rebuilding the reconstruction/metric context.
+
+This release changes source/configuration identities. Start a new campaign
+folder; immutable inputs are reusable, but automatic migration of old prepared
+artifacts or chunks is not implemented. Do not rewrite their provenance to
+force reuse. The bounded equivalence checks support unchanged sampled numerical
+outputs; they are not a remote full-node memory guarantee.
 
 P is paused locally. Only the remote task owns the remote processes and
 monitoring. Q's separate optimization assignment is unaffected, and this
