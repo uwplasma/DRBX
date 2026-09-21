@@ -4,8 +4,8 @@
   "files": [
     {
       "path": "hsx_mms_continuum_reference.py",
-      "bytes": 43978,
-      "sha256": "7280e185821ed761ffe9472cba8120c11ce36b362770ee89eb5d94b0f5992ac7"
+      "bytes": 45575,
+      "sha256": "fa5e25912ebf363d8794e06cab67c0e64949fef094b31d8a0ce5505c397db6f2"
     },
     {
       "path": "scripts/audit_hsx_bracket_integrated_reference.py",
@@ -39,8 +39,8 @@
     },
     {
       "path": "scripts/audit_hsx_owner_face_derivative.py",
-      "bytes": 53409,
-      "sha256": "007fcb130b005bbfdfe2d53aa17968296acf041ab287b8e390d47cfc65afe7a0"
+      "bytes": 54042,
+      "sha256": "b04dbbb2016282bc71f5b7cf1fdc173cd438071c9def594639e71df51be3063a"
     },
     {
       "path": "scripts/audit_hsx_owner_face_derivative_adaptive.py",
@@ -84,8 +84,8 @@
     },
     {
       "path": "scripts/hsx_remote_qualification/campaign.py",
-      "bytes": 5181,
-      "sha256": "1e503b89f0162a7a0e0e97cea57c114ea0244e9fa2a626711334ab4ac2b1bf24"
+      "bytes": 6177,
+      "sha256": "509d3857ce53aed97c3e3d07d70fa04e3b3ca3117eba4e76f803fc98d710fa32"
     },
     {
       "path": "scripts/hsx_remote_qualification/check_execution.py",
@@ -99,13 +99,13 @@
     },
     {
       "path": "scripts/hsx_remote_qualification/numerics.py",
-      "bytes": 55367,
-      "sha256": "28ca012d4d5ac9781d05bce98056350653be03b54e37b61897011ac370dcd17a"
+      "bytes": 57519,
+      "sha256": "dabb487a85a258f7b22edfddc4005128f97042ee550700f13b3d6d8e92853908"
     },
     {
       "path": "scripts/hsx_remote_qualification/parallel_runner.py",
-      "bytes": 31027,
-      "sha256": "e647ddb46fe690f646d5d69d5e96edf3f2c93539b3568adff57e64ff33b6e5d9"
+      "bytes": 36025,
+      "sha256": "0f8c7e05b173bc8c493445c2f6236d93ac86cef733e2fe2c673b28262fa18e25"
     },
     {
       "path": "scripts/hsx_remote_qualification/selection.py",
@@ -119,8 +119,8 @@
     },
     {
       "path": "simulate_hsx_mms.py",
-      "bytes": 131973,
-      "sha256": "4b6e3edf84a6621cf5045ca87871e4a5ca01895a43b2e4870deab9bc0cf89bdf"
+      "bytes": 133326,
+      "sha256": "1ec5b898e9329b65e345e69e0152e24960c9c00b938d80efb598c1f2a806b286"
     },
     {
       "path": "src/drbx/__init__.py",
@@ -154,8 +154,8 @@
     },
     {
       "path": "src/drbx/geometry/MetricEvaluator.py",
-      "bytes": 156769,
-      "sha256": "5f8df3ff9229a37e50818931dd5967904ff348ad31d056507ea62304c733b1ec"
+      "bytes": 159267,
+      "sha256": "fa97f44de97971d91ebdde2c83e69310c2d05023796e2aba33c61f441d5f25af"
     },
     {
       "path": "src/drbx/geometry/ScalarPotential_evaluator.py",
@@ -229,8 +229,8 @@
     },
     {
       "path": "src/drbx/geometry/hsx_fci_builder.py",
-      "bytes": 98801,
-      "sha256": "bf94c9ce3e6d9df72e1cad81f71e103638cfa29b520ba9fc3921db29a4db1e52"
+      "bytes": 98800,
+      "sha256": "7961dc9d402cf03f06f7ed4477c4a4b7610f4a7f758b8bb85db4f109b4f585ff"
     },
     {
       "path": "src/drbx/geometry/hsx_jax_field.py",

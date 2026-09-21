@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import copy
 from dataclasses import dataclass
+import gc
 import hashlib
 import json
 import math
@@ -71,6 +72,31 @@ def _max_rss_gib() -> float:
     if sys.platform != "darwin":
         value *= 1024.0
     return value / 1024.0**3
+
+
+def _current_rss_gib() -> float | None:
+    """Return current resident memory when the platform exposes it."""
+
+    statm = Path("/proc/self/statm")
+    if statm.is_file():
+        try:
+            resident_pages = int(statm.read_text().split()[1])
+            return resident_pages * os.sysconf("SC_PAGE_SIZE") / 1024.0**3
+        except (OSError, ValueError, IndexError):
+            pass
+    try:
+        import psutil  # type: ignore[import-not-found]
+
+        return float(psutil.Process().memory_info().rss) / 1024.0**3
+    except (ImportError, OSError):
+        return None
+
+
+def _metric_cache_diagnostics(reference: Any) -> dict[str, Any] | None:
+    evaluator = getattr(reference, "metric_evaluator", None)
+    if evaluator is None or not hasattr(evaluator, "basis_cache_diagnostics"):
+        return None
+    return evaluator.basis_cache_diagnostics()
 
 
 def _sha256(path: Path) -> str:
@@ -331,14 +357,19 @@ def _cell_quadrature(context: cubic.BuildContext, keys: np.ndarray) -> tuple[np.
 
 def _curl_h_vectorized(reference: Any, points: np.ndarray, step: float) -> np.ndarray:
     q = np.asarray(points, dtype=np.float64)
-    shifted_parts = []
+    batch_size = int(getattr(reference, "metric_query_batch_size", 4096))
+    if batch_size < 1:
+        raise ValueError("metric_query_batch_size must be positive")
+    values = np.empty((3, 4, len(q), 3), dtype=np.float64)
     for axis in range(3):
-        for multiplier in (-2.0, -1.0, 1.0, 2.0):
-            shifted = q.copy()
-            shifted[:, axis] += multiplier * float(step)
-            shifted_parts.append(shifted)
-    all_h = bounded._h_without_rho(reference, np.concatenate(shifted_parts, axis=0))
-    values = all_h.reshape(3, 4, len(q), 3)
+        for shift_index, multiplier in enumerate((-2.0, -1.0, 1.0, 2.0)):
+            for first in range(0, len(q), batch_size):
+                last = min(first + batch_size, len(q))
+                shifted = q[first:last].copy()
+                shifted[:, axis] += multiplier * float(step)
+                values[axis, shift_index, first:last] = bounded._h_without_rho(
+                    reference, shifted
+                )
     derivative = (
         values[:, 0] - 8.0 * values[:, 1] + 8.0 * values[:, 2] - values[:, 3]
     ) / (12.0 * float(step))
@@ -427,7 +458,6 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
     _event("prepare_inputs", resolution=resolution)
     data = integrated._load_resolution(geometry, baseline, resolution)
     artifact_path, artifact = base._load_artifact(geometry, resolution)
-    _, identity_artifact = base._load_artifact(geometry, 64)
     raw_state, regular_raw, eta_raw, _exact_raw, cache_identity = p04._load_cache(
         baseline / f"N{resolution}.reference.npz", resolution, float(config["time"])
     )
@@ -439,8 +469,9 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
         metric_context=SimpleNamespace(
             metric_evaluator=reference.metric_evaluator,
             bfield=reference.bfield_evaluator,
-            nfp=int(identity_artifact.nfp),
+            nfp=int(artifact.nfp),
         ),
+        metric_query_batch_size=int(config.get("metric_query_batch_size", 4096)),
     )
     cache_dir = output / "jax_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -455,28 +486,50 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
     model = runtime.model
     if model is None:
         raise RuntimeError("prepare requires one local model")
-    states = {
-        "actual_vorticity": raw_state,
-        "smooth_regular_scalar": raw_state.replace(vorticity=regular_raw),
-        "smooth_eta_varying_scalar": raw_state.replace(vorticity=eta_raw),
-    }
-    owner_states = {name: mms._owner_project(state, artifact.owner_geometry) for name, state in states.items()}
-    operands = {name: base._prepare_operands(model, owner_states[name], states[name]) for name in FIELDS}
-    _event("prepare_fields_ready", resolution=resolution)
     active = np.asarray(artifact.owner_geometry.topology.is_active_owner, dtype=bool)
     arrays: dict[str, np.ndarray] = {
         "owner_volume": data.owner_volume,
         "owner_keys": data.owner_keys,
         "raw_owner": data.raw_owner.astype(np.int32),
-        "center": np.stack([
-            np.asarray(operands["actual_vorticity"].phi_stencil.x.center),
-            np.asarray(operands["actual_vorticity"].omega_stencil.x.center),
-            np.asarray(operands["smooth_regular_scalar"].omega_stencil.x.center),
-            np.asarray(operands["smooth_eta_varying_scalar"].omega_stencil.x.center),
-        ]).reshape(len(ALL_FIELDS), -1),
     }
-    for field in FIELDS:
-        op = operands[field]
+    center_rows: list[np.ndarray | None] = [None] * len(ALL_FIELDS)
+    boundary_value = np.empty(
+        (len(ALL_FIELDS), resolution, resolution), dtype=np.float64
+    )
+    for field_index, field in enumerate(FIELDS):
+        state = (
+            raw_state
+            if field_index == 0
+            else raw_state.replace(
+                vorticity=regular_raw if field_index == 1 else eta_raw
+            )
+        )
+        owner_state = mms._owner_project(state, artifact.owner_geometry)
+        op = base._prepare_operands(model, owner_state, state)
+        if field_index == 0:
+            center_rows[0] = np.asarray(op.phi_stencil.x.center).reshape(-1).copy()
+            phi_values = tuple(
+                np.asarray(getattr(op.phi_stencil.face_values, name))
+                for name in "xyz"
+            )
+            for j in range(resolution):
+                for k in range(resolution):
+                    boundary_value[0, j, k] = cross._face_scalar(
+                        phi_values, (0, resolution, j, k)
+                    )
+            del phi_values
+        center_rows[field_index + 1] = (
+            np.asarray(op.omega_stencil.x.center).reshape(-1).copy()
+        )
+        omega_values = tuple(
+            np.asarray(getattr(op.omega_stencil.face_values, name))
+            for name in "xyz"
+        )
+        for j in range(resolution):
+            for k in range(resolution):
+                boundary_value[field_index + 1, j, k] = cross._face_scalar(
+                    omega_values, (0, resolution, j, k)
+                )
         runner = global_bracket._runner(model, op)
         action = runner(
             op.omega_stencil.face_values,
@@ -488,19 +541,19 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
         )
         for name in ACTIONS:
             arrays[f"baseline:{field}:{name}"] = np.asarray(action[name]).reshape(-1)[active.reshape(-1)]
+        del action, runner, omega_values, op, owner_state, state
+        gc.collect()
+    if any(row is None for row in center_rows):
+        raise RuntimeError("prepare did not materialize every field center")
+    arrays["center"] = np.stack(center_rows).reshape(len(ALL_FIELDS), -1)
+    _event("prepare_fields_ready", resolution=resolution)
     boundary_context = cubic._load_context(geometry, baseline, resolution)
     _event("prepare_boundary_rows", resolution=resolution)
     fresh_gradient, fresh_donors, fresh_counts = _boundary_derivatives(boundary_context)
-    boundary_value = np.empty((len(ALL_FIELDS), resolution, resolution), dtype=np.float64)
     boundary_gradient = np.empty((len(ALL_FIELDS), resolution, resolution, 3), dtype=np.float64)
     for field_index, field in enumerate(ALL_FIELDS):
-        op = operands["actual_vorticity"] if field == "phi" else operands[field]
-        stencil = op.phi_stencil if field == "phi" else op.omega_stencil
-        values = tuple(np.asarray(getattr(stencil.face_values, name)) for name in "xyz")
         for j in range(resolution):
             for k in range(resolution):
-                key = (0, resolution, j, k)
-                boundary_value[field_index, j, k] = cross._face_scalar(values, key)
                 boundary_gradient[field_index, j, k] = fresh_gradient[field_index, j, k]
     arrays["boundary_value"] = boundary_value
     arrays["boundary_gradient"] = boundary_gradient
@@ -734,10 +787,15 @@ def _chunk_valid(path: Path, identity: Mapping[str, Any]) -> bool:
     if not path.is_file():
         return False
     try:
-        _arrays, metadata = _load_npz(path, CHUNK_SCHEMA)
+        arrays, metadata = _load_npz(path, CHUNK_SCHEMA)
     except (OSError, KeyError, ValueError, json.JSONDecodeError):
         return False
-    return metadata.get("identity") == _json(identity) and metadata.get("status") == "complete"
+    return (
+        metadata.get("identity") == _json(identity)
+        and metadata.get("status") == "complete"
+        and metadata.get("array_sha256")
+        == _array_hash(*(arrays[name] for name in sorted(arrays)))
+    )
 
 
 def _case(args: argparse.Namespace) -> dict[str, Any]:
@@ -753,76 +811,91 @@ def _case(args: argparse.Namespace) -> dict[str, Any]:
     started = time.perf_counter()
     prepare_path = output / f"N{resolution}.prepare.npz"
     prepare, prepare_meta = _load_npz(prepare_path, PREPARE_SCHEMA)
-    context = cubic._load_context(_path(config, "geometry"), _path(config, "baseline"), resolution)
-    reference = integrated._reference(_path(config, "reference_sidecar"), verify_hashes=False)
     chunk_root = output / f"N{resolution}.chunks"
     chunk_root.mkdir(parents=True, exist_ok=True)
     source = _source_identity(config)
+    config_sha256 = _sha256(args.config)
+    prepare_sha256 = _sha256(prepare_path)
     face_total = _face_count(resolution)
     cell_total = resolution**3
     face_chunk = int(config["face_chunk"])
     cell_chunk = int(config["cell_chunk"])
     total_units = face_total + cell_total
     completed = 0
-    face_details = []
-    for first in range(0, face_total, face_chunk):
-        last = min(first + face_chunk, face_total)
-        path = chunk_root / f"face_{first:07d}_{last:07d}.npz"
-        identity = {
-            "kind": "face", "resolution": resolution, "first": first, "last": last,
-            "config_sha256": _sha256(args.config), "sources": source,
-            "prepare_sha256": _sha256(prepare_path),
-        }
-        if not _chunk_valid(path, identity):
-            chunk_started = time.perf_counter()
-            arrays, details = _compute_faces(
-                context, reference, prepare, np.arange(first, last), time_value=float(config["time"])
-            )
-            metadata = {
-                "schema": CHUNK_SCHEMA, "status": "complete", "identity": identity,
-                "details": details, "seconds": time.perf_counter() - chunk_started,
-                "maximum_rss_gib": _max_rss_gib(),
-            }
-            metadata["array_sha256"] = _array_hash(*(arrays[name] for name in sorted(arrays)))
-            _write_npz(path, arrays, metadata)
-        _arrays, metadata = _load_npz(path, CHUNK_SCHEMA)
-        face_details.append(metadata["details"] | {"seconds": metadata["seconds"]})
-        completed += last - first
-        _progress(output, resolution, "faces", completed, total_units, started)
-    cell_details = []
-    for first in range(0, cell_total, cell_chunk):
-        last = min(first + cell_chunk, cell_total)
-        path = chunk_root / f"cell_{first:07d}_{last:07d}.npz"
-        identity = {
-            "kind": "cell", "resolution": resolution, "first": first, "last": last,
-            "config_sha256": _sha256(args.config), "sources": source,
-            "prepare_sha256": _sha256(prepare_path),
-        }
-        if not _chunk_valid(path, identity):
-            chunk_started = time.perf_counter()
-            arrays, details = _compute_cells(
-                context, reference, prepare, np.arange(first, last),
-                time_value=float(config["time"]), curl_step=float(config["curl_step"]),
-            )
-            metadata = {
-                "schema": CHUNK_SCHEMA, "status": "complete", "identity": identity,
-                "details": details, "seconds": time.perf_counter() - chunk_started,
-                "maximum_rss_gib": _max_rss_gib(),
-            }
-            metadata["array_sha256"] = _array_hash(*(arrays[name] for name in sorted(arrays)))
-            _write_npz(path, arrays, metadata)
-        _arrays, metadata = _load_npz(path, CHUNK_SCHEMA)
-        cell_details.append(metadata["details"] | {"seconds": metadata["seconds"]})
-        completed += last - first
-        _progress(output, resolution, "cells", completed, total_units, started)
+    face_units = [
+        (first, min(first + face_chunk, face_total))
+        for first in range(0, face_total, face_chunk)
+    ]
+    cell_units = [
+        (first, min(first + cell_chunk, cell_total))
+        for first in range(0, cell_total, cell_chunk)
+    ]
+    if not bool(getattr(args, "validated_chunks", False)):
+        context = None
+        reference = None
+
+        def computation_context():
+            nonlocal context, reference
+            if context is None:
+                context = cubic._load_context(
+                    _path(config, "geometry"), _path(config, "baseline"), resolution
+                )
+                reference = integrated._reference(
+                    _path(config, "reference_sidecar"), verify_hashes=False
+                )
+            return context, reference
+
+        for kind, units in (("face", face_units), ("cell", cell_units)):
+            for first, last in units:
+                path = chunk_root / f"{kind}_{first:07d}_{last:07d}.npz"
+                identity = {
+                    "kind": kind,
+                    "resolution": resolution,
+                    "first": first,
+                    "last": last,
+                    "config_sha256": config_sha256,
+                    "sources": source,
+                    "prepare_sha256": prepare_sha256,
+                }
+                if not _chunk_valid(path, identity):
+                    local_context, local_reference = computation_context()
+                    chunk_started = time.perf_counter()
+                    if kind == "face":
+                        arrays, details = _compute_faces(
+                            local_context, local_reference, prepare,
+                            np.arange(first, last), time_value=float(config["time"]),
+                        )
+                    else:
+                        arrays, details = _compute_cells(
+                            local_context, local_reference, prepare,
+                            np.arange(first, last), time_value=float(config["time"]),
+                            curl_step=float(config["curl_step"]),
+                        )
+                    metadata = {
+                        "schema": CHUNK_SCHEMA,
+                        "status": "complete",
+                        "identity": identity,
+                        "details": details,
+                        "seconds": time.perf_counter() - chunk_started,
+                        "maximum_rss_gib": _max_rss_gib(),
+                    }
+                    metadata["array_sha256"] = _array_hash(
+                        *(arrays[name] for name in sorted(arrays))
+                    )
+                    _write_npz(path, arrays, metadata)
+                completed += last - first
+                _progress(output, resolution, f"{kind}s", completed, total_units, started)
 
     flux = np.empty((len(ALL_FIELDS) + 1, face_total), dtype=np.float64)
     product = np.empty((len(DIAGNOSTIC_FIELDS), 2, face_total), dtype=np.float64)
     midpoint_flux = np.empty_like(flux)
     midpoint_product = np.empty_like(product)
     reference_face = np.empty(face_total, dtype=np.float64)
-    for path in sorted(chunk_root.glob("face_*.npz")):
-        arrays, _metadata = _load_npz(path, CHUNK_SCHEMA)
+    face_details = []
+    for first, last in face_units:
+        path = chunk_root / f"face_{first:07d}_{last:07d}.npz"
+        arrays, metadata = _load_npz(path, CHUNK_SCHEMA)
+        face_details.append(metadata["details"] | {"seconds": metadata["seconds"]})
         indices = arrays["indices"]
         flux[:, indices] = arrays["flux"]
         product[:, :, indices] = arrays["product"]
@@ -840,8 +913,11 @@ def _case(args: argparse.Namespace) -> dict[str, Any]:
         "midpoint": np.zeros((len(DIAGNOSTIC_FIELDS), 2, owner_count)),
     }
     reference_owner = np.zeros(owner_count)
-    for path in sorted(chunk_root.glob("cell_*.npz")):
-        arrays, _metadata = _load_npz(path, CHUNK_SCHEMA)
+    cell_details = []
+    for first, last in cell_units:
+        path = chunk_root / f"cell_{first:07d}_{last:07d}.npz"
+        arrays, metadata = _load_npz(path, CHUNK_SCHEMA)
+        cell_details.append(metadata["details"] | {"seconds": metadata["seconds"]})
         indices = arrays["indices"].astype(np.int64)
         keys = _raw_keys(resolution, indices)
         center = prepare["center"][:, indices]

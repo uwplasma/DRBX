@@ -3,6 +3,7 @@
   "source_root": ".",
   "time": 1e-06,
   "curl_step": 0.0002,
+  "metric_query_batch_size": 4096,
   "face_chunk": 512,
   "cell_chunk": 64,
   "inputs": {

@@ -319,6 +319,24 @@ def _geometry_paths(root: Path, resolution: int) -> tuple[Path, Path, Path]:
     return directory / "manifest.json", directory / "base_geometry.npz", directory / "rlp_topology.npz"
 
 
+def _stable_owner_memberships(
+    aggregate_id: np.ndarray,
+    owner_flat_ids: np.ndarray,
+) -> list[np.ndarray]:
+    """Group raw cells once while preserving canonical membership order."""
+
+    raw_owner = np.asarray(aggregate_id).reshape(-1)
+    owners = np.asarray(owner_flat_ids).reshape(-1)
+    order = np.argsort(raw_owner, kind="stable")
+    sorted_owner = raw_owner[order]
+    starts = np.searchsorted(sorted_owner, owners, side="left")
+    ends = np.searchsorted(sorted_owner, owners, side="right")
+    return [
+        np.asarray(order[first:last], dtype=np.int64)
+        for first, last in zip(starts, ends, strict=True)
+    ]
+
+
 def _load_owner_inputs(
     geometry_root: Path,
     baseline_root: Path,
@@ -348,7 +366,7 @@ def _load_owner_inputs(
     raw_eta = mesh[2].reshape(-1)
     compact_by_flat = np.full(int(np.prod(shape)), -1, dtype=np.int64)
     compact_by_flat[owner_flat_ids] = np.arange(len(owner_flat_ids))
-    raw_by_owner = [np.flatnonzero(aggregate_id == flat) for flat in owner_flat_ids]
+    raw_by_owner = _stable_owner_memberships(aggregate_id, owner_flat_ids)
     observed_volume = np.asarray([np.sum(raw_volume[index]) for index in raw_by_owner])
     volume_reference = aggregate_chart_volume[owner_flat_ids]
     volume_mismatch = float(

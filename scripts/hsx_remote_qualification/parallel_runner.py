@@ -14,6 +14,7 @@ import fcntl
 import hashlib
 import importlib.util
 import json
+import math
 import multiprocessing as mp
 import os
 from pathlib import Path
@@ -130,12 +131,16 @@ def _materialize(
     rewritten_sidecar["makegrid"] = dict(original_sidecar["makegrid"])
     rewritten_sidecar["metric_cache"]["path"] = str(inputs["metric_cache"])
     rewritten_sidecar["makegrid"]["path"] = str(inputs["makegrid"])
+    rewritten_sidecar["metric_query_batch_size"] = int(
+        portable.get("metric_query_batch_size", 4096)
+    )
     sidecar_path = output_root / "portable_reference_sidecar.json"
     _atomic_json(sidecar_path, rewritten_sidecar)
     runtime = {
         "schema": "drbx.hsx-matched-cubic-global-config-v3",
         "time": portable["time"],
         "curl_step": portable["curl_step"],
+        "metric_query_batch_size": int(portable.get("metric_query_batch_size", 4096)),
         "face_chunk": portable["face_chunk"],
         "cell_chunk": portable["cell_chunk"],
         "paths": {
@@ -164,7 +169,18 @@ def _manifest_identity(
         "numerics_sha256": _sha256(HERE / "numerics.py")
     }
     payload = {
-        "parameters": {key: portable[key] for key in ("time", "curl_step", "face_chunk", "cell_chunk", "candidate", "scope")},
+        "parameters": {
+            **{
+                key: portable[key]
+                for key in (
+                    "time", "curl_step", "face_chunk", "cell_chunk",
+                    "candidate", "scope",
+                )
+            },
+            "metric_query_batch_size": int(
+                portable.get("metric_query_batch_size", 4096)
+            ),
+        },
         "inputs": inputs.get("content_identity", inputs),
         "sources": source.get("content_identity", source),
         "prepare_sha256": _sha256(prepare),
@@ -223,15 +239,15 @@ def _expected_execution_identity(state: Mapping[str, Any], unit: Mapping[str, An
             "resolution": state["resolution"],
             "first": int(unit["first"]),
             "last": int(unit["last"]),
-            "config_sha256": _sha256(Path(state["runtime_path"])),
-            "sources": state["numeric"]._source_identity(state["runtime"]),
-            "prepare_sha256": _sha256(Path(state["prepare_path"])),
+            "config_sha256": state["runtime_sha256"],
+            "sources": state["source_identity"],
+            "prepare_sha256": state["prepare_sha256"],
         }
     return {
         "kind": unit["kind"], "resolution": state["resolution"], "unit_id": unit["id"],
         "indices_sha256": hashlib.sha256(_unit_indices(unit).tobytes()).hexdigest(),
-        "runtime_sha256": _sha256(Path(state["runtime_path"])),
-        "prepare_sha256": _sha256(Path(state["prepare_path"])),
+        "runtime_sha256": state["runtime_sha256"],
+        "prepare_sha256": state["prepare_sha256"],
     }
 
 
@@ -256,7 +272,38 @@ def _init_worker(settings: Mapping[str, Any]) -> None:
         "numerical_identity": settings["numerical_identity"], "task_ordinal": 0,
         "initialization_seconds": time.perf_counter() - started,
         "fail_unit": settings.get("fail_unit"),
+        "runtime_sha256": settings["runtime_sha256"],
+        "prepare_sha256": settings["prepare_sha256"],
+        "source_identity": settings["source_identity"],
     })
+
+
+def _validated_checkpoint(
+    state: Mapping[str, Any],
+    unit: Mapping[str, Any],
+    path: Path,
+) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    numeric = state["numeric"]
+    try:
+        arrays, metadata = numeric._load_npz(path, numeric.CHUNK_SCHEMA)
+    except Exception as exc:
+        raise RuntimeError(f"stale or corrupt checkpoint {path}: {exc}") from exc
+    if metadata.get("status") != "complete":
+        raise RuntimeError(f"incomplete checkpoint rejected for {path}")
+    if metadata.get("identity") != numeric._json(
+        _expected_execution_identity(state, unit)
+    ):
+        raise RuntimeError(f"stale identity rejected for {path}")
+    if metadata.get("numerical_identity") != state["numerical_identity"]:
+        raise RuntimeError(f"numerical identity rejected for {path}")
+    if not np.array_equal(arrays["indices"], _unit_indices(unit)):
+        raise RuntimeError(f"index coverage mismatch for {path}")
+    payload_sha256 = numeric._array_hash(
+        *(arrays[name] for name in sorted(arrays))
+    )
+    if metadata.get("array_sha256") != payload_sha256:
+        raise RuntimeError(f"payload hash mismatch for {path}")
+    return arrays, metadata
 
 
 def _run_unit(unit: Mapping[str, Any]) -> dict[str, Any]:
@@ -267,21 +314,13 @@ def _run_unit(unit: Mapping[str, Any]) -> dict[str, Any]:
     path = _chunk_path(output, resolution, unit)
     identity = _expected_execution_identity(state, unit)
     if path.exists():
-        try:
-            arrays, metadata = numeric._load_npz(path, numeric.CHUNK_SCHEMA)
-        except Exception as exc:
-            raise RuntimeError(f"stale or corrupt checkpoint {path}: {exc}") from exc
-        if metadata.get("identity") != numeric._json(identity):
-            raise RuntimeError(f"stale identity rejected for {path}")
-        if metadata.get("numerical_identity") != state["numerical_identity"]:
-            raise RuntimeError(f"numerical identity rejected for {path}")
-        if not np.array_equal(arrays["indices"], _unit_indices(unit)):
-            raise RuntimeError(f"index coverage mismatch for {path}")
+        _validated_checkpoint(state, unit, path)
         return {"id": unit["id"], "status": "reused", "path": str(path)}
     if state.get("fail_unit") == unit["id"]:
         raise RuntimeError(f"controlled failure for {unit['id']}")
     indices = _unit_indices(unit)
     started = time.perf_counter()
+    current_rss_before = numeric._current_rss_gib()
     if unit["kind"] == "face":
         arrays, details = numeric._compute_faces(
             state["context"], state["reference"], state["prepare"], indices,
@@ -294,6 +333,7 @@ def _run_unit(unit: Mapping[str, Any]) -> dict[str, Any]:
             curl_step=float(state["runtime"]["curl_step"]),
         )
     state["task_ordinal"] += 1
+    current_rss_after = numeric._current_rss_gib()
     metadata = {
         "schema": numeric.CHUNK_SCHEMA, "status": "complete", "identity": identity,
         "numerical_identity": state["numerical_identity"], "unit_id": unit["id"],
@@ -301,6 +341,9 @@ def _run_unit(unit: Mapping[str, Any]) -> dict[str, Any]:
         "maximum_rss_gib": numeric._max_rss_gib(), "worker_pid": os.getpid(),
         "worker_initialization_seconds": state["initialization_seconds"],
         "worker_task_ordinal": state["task_ordinal"],
+        "current_rss_gib_before": current_rss_before,
+        "current_rss_gib_after": current_rss_after,
+        "metric_basis_cache": numeric._metric_cache_diagnostics(state["reference"]),
     }
     metadata["array_sha256"] = numeric._array_hash(*(arrays[name] for name in sorted(arrays)))
     numeric._write_npz(path, arrays, metadata)
@@ -338,17 +381,76 @@ def _execute_units(
         return list(pool.imap_unordered(_run_unit, units, chunksize=1))
 
 
+def _partition_units_for_resume(
+    settings: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    numeric: Any,
+) -> tuple[list[dict[str, Any]], list[Mapping[str, Any]]]:
+    """Validate reusable checkpoints before any expensive worker starts."""
+
+    state = dict(settings)
+    state.update({
+        "numeric": numeric,
+        "runtime": _load_json(Path(settings["runtime_path"])),
+    })
+    reused: list[dict[str, Any]] = []
+    pending: list[Mapping[str, Any]] = []
+    output = Path(settings["output_root"])
+    resolution = int(plan["resolution"])
+    for unit in plan["units"]:
+        path = _chunk_path(output, resolution, unit)
+        if path.is_file():
+            _validated_checkpoint(state, unit, path)
+            reused.append({"id": unit["id"], "status": "reused", "path": str(path)})
+        else:
+            pending.append(unit)
+    return reused, pending
+
+
+def _effective_worker_count(
+    requested: int,
+    *,
+    memory_budget_gib: float | None,
+    worker_memory_gib: float | None,
+    memory_reserve_gib: float,
+) -> int:
+    """Cap concurrency from an allocation budget and measured worker RSS."""
+
+    if requested < 1:
+        raise ValueError("workers must be positive")
+    if (memory_budget_gib is None) != (worker_memory_gib is None):
+        raise ValueError(
+            "memory_budget_gib and worker_memory_gib must be supplied together"
+        )
+    if memory_reserve_gib < 0.0:
+        raise ValueError("memory_reserve_gib must be nonnegative")
+    if memory_budget_gib is None:
+        return requested
+    if memory_budget_gib <= 0.0 or worker_memory_gib is None or worker_memory_gib <= 0.0:
+        raise ValueError("memory budget and measured worker memory must be positive")
+    available = memory_budget_gib - memory_reserve_gib
+    cap = math.floor(available / worker_memory_gib)
+    if cap < 1:
+        raise ValueError("memory budget cannot accommodate one measured worker")
+    return min(requested, cap)
+
+
 def _settings(args: argparse.Namespace, plan: Mapping[str, Any], runtime_path: Path, numeric: Any) -> dict[str, Any]:
     source_root = _resolve(args.deployment_root, _load_portable(args.config).get("source_root", "DRBX"))
     prepare = args.prepare or args.output_root / f"N{int(plan['resolution'])}.prepare.npz"
-    identity = _manifest_identity(args.config, args.input_manifest, prepare, numeric)["sha256"]
+    manifest = _manifest_identity(args.config, args.input_manifest, prepare, numeric)
+    identity = manifest["sha256"]
     if identity != plan["numerical_identity"]:
         raise ValueError("plan numerical identity does not match sources/inputs/prepare")
+    runtime = _load_json(runtime_path)
     return {
         "deployment_root": str(args.deployment_root.resolve()), "source_root": str(source_root),
         "output_root": str(args.output_root.resolve()), "runtime_path": str(runtime_path),
         "prepare_path": str(prepare.resolve()), "resolution": int(plan["resolution"]),
         "numerical_identity": identity, "fail_unit": getattr(args, "fail_unit", None),
+        "runtime_sha256": _sha256(runtime_path),
+        "prepare_sha256": manifest["payload"]["prepare_sha256"],
+        "source_identity": numeric._source_identity(runtime),
     }
 
 
@@ -404,18 +506,34 @@ def command_execute(args: argparse.Namespace) -> int:
         plan = _load_json(args.plan)
         _validate_plan(plan, numeric)
         settings = _settings(args, plan, runtime_path, numeric)
-        workers = int(args.workers)
+        requested_workers = int(args.workers)
+        workers = _effective_worker_count(
+            requested_workers,
+            memory_budget_gib=getattr(args, "memory_budget_gib", None),
+            worker_memory_gib=getattr(args, "worker_memory_gib", None),
+            memory_reserve_gib=float(getattr(args, "memory_reserve_gib", 1.0)),
+        )
         max_tasks_per_worker = int(args.max_tasks_per_worker)
         started = time.perf_counter()
-        results = _execute_units(
-            settings,
-            plan["units"],
-            workers=workers,
-            max_tasks_per_worker=max_tasks_per_worker,
+        reused, pending = _partition_units_for_resume(settings, plan, numeric)
+        computed = (
+            _execute_units(
+                settings,
+                pending,
+                workers=workers,
+                max_tasks_per_worker=max_tasks_per_worker,
+            )
+            if pending
+            else []
         )
+        results = reused + computed
         receipt = {
             "schema": RECEIPT_SCHEMA, "status": "complete", "resolution": plan["resolution"],
             "coverage": plan["coverage"], "workers": workers,
+            "requested_workers": requested_workers,
+            "memory_budget_gib": getattr(args, "memory_budget_gib", None),
+            "worker_memory_gib": getattr(args, "worker_memory_gib", None),
+            "memory_reserve_gib": float(getattr(args, "memory_reserve_gib", 1.0)),
             "max_tasks_per_worker": max_tasks_per_worker,
             "seconds": time.perf_counter() - started,
             "numerical_identity": plan["numerical_identity"], "plan_sha256": _sha256(args.plan),
@@ -437,13 +555,7 @@ def _validate_chunks(args: argparse.Namespace, require_receipt: bool = True) -> 
         path = _chunk_path(args.output_root, int(plan["resolution"]), unit)
         if not path.is_file():
             raise RuntimeError(f"missing checkpoint: {path}")
-        arrays, metadata = numeric._load_npz(path, numeric.CHUNK_SCHEMA)
-        if metadata.get("identity") != numeric._json(_expected_execution_identity(state, unit)):
-            raise RuntimeError(f"execution identity mismatch: {path}")
-        if metadata.get("numerical_identity") != plan["numerical_identity"]:
-            raise RuntimeError(f"numerical identity mismatch: {path}")
-        if not np.array_equal(arrays["indices"], _unit_indices(unit)):
-            raise RuntimeError(f"coverage mismatch: {path}")
+        _validated_checkpoint(state, unit, path)
     receipt = args.output_root / f"N{plan['resolution']}.parallel-receipt.json"
     if require_receipt:
         if not receipt.is_file():
@@ -465,7 +577,11 @@ def command_assemble(args: argparse.Namespace) -> int:
         plan, numeric, runtime_path = _validate_chunks(args)
         if plan["coverage"] != "global":
             raise ValueError("scientific case assembly requires a global-coverage plan")
-        namespace = argparse.Namespace(config=runtime_path, resolution=int(plan["resolution"]))
+        namespace = argparse.Namespace(
+            config=runtime_path,
+            resolution=int(plan["resolution"]),
+            validated_chunks=True,
+        )
         numeric._case(namespace)
     return 0
 
@@ -601,6 +717,20 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _positive_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0.0:
+        raise argparse.ArgumentTypeError("must be a positive finite number")
+    return parsed
+
+
+def _nonnegative_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0.0:
+        raise argparse.ArgumentTypeError("must be a nonnegative finite number")
+    return parsed
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     sub = result.add_subparsers(dest="command", required=True)
@@ -621,6 +751,22 @@ def parser() -> argparse.ArgumentParser:
             "recycle each worker after this many chunks to release retained "
             f"allocator memory (default: {DEFAULT_MAX_TASKS_PER_WORKER})"
         ),
+    )
+    execute.add_argument(
+        "--memory-budget-gib",
+        type=_positive_float,
+        help="allocation memory available to this campaign process tree",
+    )
+    execute.add_argument(
+        "--worker-memory-gib",
+        type=_positive_float,
+        help="measured sustained RSS allowance per worker",
+    )
+    execute.add_argument(
+        "--memory-reserve-gib",
+        type=_nonnegative_float,
+        default=1.0,
+        help="memory retained for the coordinator and system overhead",
     )
     execute.add_argument("--fail-unit")
     validate = sub.add_parser("validate")

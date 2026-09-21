@@ -36,6 +36,39 @@ def test_clean_inputs_exclude_reconstruction_dependent_history():
     assert not any('derivatives/' in p or 'cross_cache' in p or '.actions.npz' in p for p in paths)
 
 
+def test_memory_budget_caps_workers_and_rejects_impossible_budget():
+    runner = load_runner()
+    assert runner._effective_worker_count(12, memory_budget_gib=10,
+        worker_memory_gib=2, memory_reserve_gib=2) == 4
+    assert runner._effective_worker_count(2, memory_budget_gib=10,
+        worker_memory_gib=2, memory_reserve_gib=2) == 2
+    with pytest.raises(ValueError, match='supplied together'):
+        runner._effective_worker_count(12, memory_budget_gib=10,
+            worker_memory_gib=None, memory_reserve_gib=2)
+    with pytest.raises(ValueError, match='cannot accommodate'):
+        runner._effective_worker_count(12, memory_budget_gib=2,
+            worker_memory_gib=2, memory_reserve_gib=1)
+
+
+def test_resume_validates_existing_chunks_before_dispatch(tmp_path, monkeypatch):
+    runner = load_runner()
+    units = [{'id': 'a', 'kind': 'cell', 'indices': [0]},
+             {'id': 'b', 'kind': 'cell', 'indices': [1]}]
+    settings = {'output_root': str(tmp_path), 'runtime_path': str(tmp_path/'config.json')}
+    (tmp_path/'config.json').write_text('{}')
+    existing = runner._chunk_path(tmp_path, 32, units[0])
+    existing.parent.mkdir(parents=True)
+    existing.touch()
+    validated = []
+    monkeypatch.setattr(runner, '_validated_checkpoint',
+        lambda state, unit, path: validated.append(unit['id']))
+    reused, pending = runner._partition_units_for_resume(
+        settings, {'resolution': 32, 'units': units}, object())
+    assert validated == ['a']
+    assert [item['id'] for item in reused] == ['a']
+    assert pending == [units[1]]
+
+
 def test_new_schema_rejects_historical_plan():
     runner=load_runner()
     with pytest.raises(ValueError,match='unsupported work plan'):
