@@ -14,6 +14,27 @@ pieces fit together and which combinations are supported.
 | [FCI simulation architecture](fci_simulation_architecture.md) | HSX driver, operators, boundary closures, phi inversion, time integration, and supported configurations |
 | [FCI geometry artifacts](fci_geometry_artifacts.md) | Independent HSX producer, directory-bundle contract, qualification, and trusted consumer boundary |
 
+## Research roadmaps
+
+These describe approved future work and progress gates, not currently verified
+solver capabilities. Detailed run evidence belongs in linked research artifacts.
+
+| Roadmap | Scope |
+|---|---|
+| [Second-order perpendicular RLP operators](perpendicular_second_order_roadmap.md) | P00–P09 global operator and elliptic/MMS solution certification, with regional diagnostics; authoritative task progress ledger |
+| [Second-order parallel RLP operators](parallel_second_order_roadmap.md) | Q00–Q09 HSX diffusion certification, shared interface structure, and coupled parallel operator/solution MMS; authoritative task progress ledger |
+
+Both roadmaps require real HSX geometry from the first numerical audit.
+Idealized fixtures remain algebra/bookkeeping controls, not evidence of HSX
+convergence. They share the global operator L2 order gate and inexpensive
+midpoint MMS convention; parallel structure is promoted only after diffusion
+certification.
+
+The [clean remote global qualification commands](../../../scripts/hsx_remote_qualification/REMOTE_COMMANDS.md)
+and [implementation validation](../../../scripts/hsx_remote_qualification/VALIDATION.md)
+support the new versioned perpendicular campaign. The roadmaps retain the
+scientific acceptance gates and separate P/Q ownership.
+
 ## Topology boundaries
 
 The code contains three related but distinct geometry uses:
