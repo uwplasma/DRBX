@@ -49,6 +49,36 @@ DEGREE3_NAMES = tuple(
 )
 
 
+PLANAR_SECTOR_COUNT = 8
+PLANAR_SECTOR_BOUNDARY_ATOL = 32.0 * np.finfo(np.float64).eps
+
+
+def _planar_sector(displacement: np.ndarray) -> np.ndarray:
+    """Classify planar displacements with deterministic boundary ties.
+
+    ``atan2`` can differ by a few ulps across libm implementations.  Snap only
+    roundoff-scale normalized angles to an exact octant boundary, assigning a
+    tie to the counter-clockwise sector (with the 2*pi boundary wrapped to
+    sector zero).  Away from a boundary this is identical to the original
+    floor-based classification.
+    """
+
+    angle = np.mod(
+        np.arctan2(displacement[..., 1], displacement[..., 0]),
+        2.0 * np.pi,
+    )
+    normalized = PLANAR_SECTOR_COUNT * angle / (2.0 * np.pi)
+    boundary = np.rint(normalized)
+    normalized = np.where(
+        np.abs(normalized - boundary) <= PLANAR_SECTOR_BOUNDARY_ATOL,
+        boundary,
+        normalized,
+    )
+    return np.mod(
+        np.floor(normalized).astype(np.int8), PLANAR_SECTOR_COUNT
+    ).astype(np.int8)
+
+
 def _max_rss_gib() -> float:
     value = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     if sys.platform != "darwin":
@@ -119,8 +149,7 @@ def _balanced_indices(
     nearest = np.lexsort((owner_ids[compact], radius2))
     pool = compact[nearest[: min(pool_count, len(nearest))]]
     pool_displacement = (owner_xy[pool] - face_xy[None, :]) / planar_scale
-    angle = np.mod(np.arctan2(pool_displacement[:, 1], pool_displacement[:, 0]), 2.0 * np.pi)
-    sector = np.floor(8.0 * angle / (2.0 * np.pi)).astype(np.int8)
+    sector = _planar_sector(pool_displacement)
     pool_radius2 = np.sum(pool_displacement**2, axis=1)
     queues: list[list[int]] = []
     for sector_index in range(8):

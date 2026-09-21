@@ -57,6 +57,10 @@ POLICY = {
     "basis": list(adaptive.DEGREE3_NAMES),
     "candidate_pool_per_plane": 32,
     "planar_sectors": 8,
+    "sector_boundary_tie": (
+        "normalized angles within 32*float64-epsilon snap to the exact "
+        "boundary and enter the counter-clockwise sector"
+    ),
     "base_donors_per_plane": 24,
     "fallback_donors_per_plane": 32,
     "deficient_row_expansion_schedule": [
@@ -350,8 +354,7 @@ def _sector_select(
     displacement = (
         context.arrays["owner_centroid_xy"][pool] - xy[:, None, :]
     ) / planar_scale[:, None, None]
-    angle = np.mod(np.arctan2(displacement[..., 1], displacement[..., 0]), 2.0 * np.pi)
-    sector = np.floor(8.0 * angle / (2.0 * np.pi)).astype(np.int8)
+    sector = adaptive._planar_sector(displacement)
     radius2 = np.sum(displacement**2, axis=2)
     owner_ids = context.arrays["owner_flat_ids"][pool]
     grouped = np.lexsort((owner_ids, radius2, sector), axis=1)
