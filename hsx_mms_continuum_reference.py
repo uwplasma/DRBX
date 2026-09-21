@@ -17,6 +17,9 @@ MMS quadrature projector.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Mapping
 
@@ -189,6 +192,91 @@ def build_continuum_reference_from_artifact(
         perp_diffusion=perp_diffusion,
         enable_generalized_potential=enable_generalized_potential,
     )
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def build_continuum_reference_from_sidecar(
+    sidecar: str | Path,
+    *,
+    verify_hashes: bool = False,
+    tau: float = 1.0,
+    mi_over_me: float = 1836.0,
+    rho_star: float = 1.0,
+    Ve_nu: float = 1.0e-3,
+    perp_diffusion: float = 1.0e-5,
+    enable_generalized_potential: bool = True,
+) -> "ContinuumMmsReference":
+    """Restore a qualified frozen continuous HSX MMS reference.
+
+    The sidecar records the exact producer ``MetricEvaluator`` checkpoint,
+    matching MAKEGRID file/currents, physical normalization, and full-domain
+    analytic MMS eta period.  The continuous evaluator's own ``period`` is one
+    HSX field period and must not silently redefine the manufactured fields.
+    """
+
+    from drbx.geometry.Bfield_evaluator import bfield_evaluator_from_makegrid
+    from drbx.geometry.MetricEvaluator import MetricEvaluator
+
+    sidecar_path = Path(sidecar).resolve()
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    if payload.get("schema") != "drbx.hsx-continuous-mms-reference":
+        raise ValueError("unsupported continuous MMS reference sidecar schema")
+    if int(payload.get("version", -1)) != 1:
+        raise ValueError("unsupported continuous MMS reference sidecar version")
+    metric_cache = Path(payload["metric_cache"]["path"]).resolve()
+    makegrid = Path(payload["makegrid"]["path"]).resolve()
+    for name, path in (("metric_cache", metric_cache), ("makegrid", makegrid)):
+        if not path.is_file():
+            raise FileNotFoundError(f"continuous MMS {name} is missing: {path}")
+        expected_size = int(payload[name]["size"])
+        if path.stat().st_size != expected_size:
+            raise ValueError(f"continuous MMS {name} size does not match sidecar")
+        if verify_hashes and _sha256(path) != payload[name]["sha256"]:
+            raise ValueError(f"continuous MMS {name} hash does not match sidecar")
+    with np.load(metric_cache, allow_pickle=False) as cached:
+        evaluator = MetricEvaluator.from_cache_payload(
+            cached, prefix="metric_evaluator_"
+        )
+        cached_b0 = float(np.asarray(cached["reference_magnetic_field"]).item())
+    B0 = float(payload["reference_magnetic_field"])
+    if not np.isclose(cached_b0, B0, rtol=0.0, atol=1.0e-14):
+        raise ValueError("sidecar B0 does not match the metric checkpoint")
+    currents = np.asarray(payload["makegrid_currents"], dtype=np.float64)
+    bfield = bfield_evaluator_from_makegrid(
+        makegrid, currents=currents, method="cubic"
+    )
+    reference = ContinuumMmsReference(
+        evaluator,
+        bfield,
+        B0,
+        tau=tau,
+        mi_over_me=mi_over_me,
+        rho_star=rho_star,
+        Ve_nu=Ve_nu,
+        perp_diffusion=perp_diffusion,
+        enable_generalized_potential=enable_generalized_potential,
+        eta_period=float(payload["analytic_mms_eta_period"]),
+    )
+    reference.provenance = {
+        "sidecar": str(sidecar_path),
+        "sidecar_sha256": _sha256(sidecar_path),
+        "metric_cache": str(metric_cache),
+        "metric_cache_sha256": payload["metric_cache"]["sha256"],
+        "makegrid": str(makegrid),
+        "makegrid_sha256": payload["makegrid"]["sha256"],
+        "reference_magnetic_field": B0,
+        "continuous_evaluator_period": float(evaluator.period),
+        "analytic_mms_eta_period": float(payload["analytic_mms_eta_period"]),
+        "qualification": payload.get("qualification"),
+    }
+    return reference
 
 
 FIELDS = ("density", "phi", "Te", "Ti", "Vi", "Ve", "vorticity")
@@ -372,6 +460,7 @@ class ContinuumMmsReference:
         perp_diffusion: float = 0.0,
         finite_difference_step: float = 2.0e-4,
         enable_generalized_potential: bool = False,
+        eta_period: float | None = None,
     ) -> None:
         if not np.isfinite(B0) or B0 <= 0.0:
             raise ValueError("B0 must be finite and positive")
@@ -389,7 +478,12 @@ class ContinuumMmsReference:
         if self.finite_difference_step <= 0.0:
             raise ValueError("finite_difference_step must be positive")
         self.enable_generalized_potential = bool(enable_generalized_potential)
-        self.eta_period = float(getattr(metric_evaluator, "period", 2.0 * np.pi))
+        self.eta_period = float(
+            getattr(metric_evaluator, "period", 2.0 * np.pi)
+            if eta_period is None else eta_period
+        )
+        if not np.isfinite(self.eta_period) or self.eta_period <= 0.0:
+            raise ValueError("eta_period must be positive and finite")
         # A static, axis-regular generalized potential.  The radial envelope
         # in ``_term`` supplies u**|m| at the axis and vanishes smoothly at
         # the outer radial edge.  Two angular modes keep the resulting
