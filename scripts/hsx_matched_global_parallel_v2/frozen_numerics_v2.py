@@ -592,14 +592,21 @@ def _compute_faces(
         "condition": condition,
         "reproduction": reproduction,
     }
+    noncollapsed = ~collapsed
     details = {
         "entity_count": len(keys),
         "physical_boundary_count": int(np.count_nonzero((keys[:, 0] == 0) & (keys[:, 1] == n))),
         "collapsed_count": int(np.count_nonzero((keys[:, 0] == 0) & (keys[:, 1] == 0))),
         "maximum_condition": float(np.max(condition)),
         "maximum_reproduction": float(np.max(reproduction)),
-        "constant_value_error": float(np.max(np.abs(values[-1, ~collapsed] - 1.0))),
-        "constant_gradient_max": float(np.max(np.abs(gradients[-1, ~collapsed]))),
+        "constant_value_error": float(
+            np.max(np.abs(values[-1, noncollapsed] - 1.0))
+            if np.any(noncollapsed) else 0.0
+        ),
+        "constant_gradient_max": float(
+            np.max(np.abs(gradients[-1, noncollapsed]))
+            if np.any(noncollapsed) else 0.0
+        ),
     }
     return arrays, details
 
