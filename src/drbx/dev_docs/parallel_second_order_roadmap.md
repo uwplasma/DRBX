@@ -12,6 +12,13 @@ evidence in linked research artifacts. The separate
 
 Global qualification campaigns should use the remote CPU allocation once
 their bounded implementation checks and authorized candidate are ready.
+**Latest Q decision, 21 September:** the user stopped the planned local global
+campaign and requested remote handoff of the frozen whole-support cubic
+exchange N32/N48/N64 comparison. This supersedes the interim local exception.
+Use the self-contained [Q remote computation path](../../../scripts/q03_exchange_campaign/README.md),
+not the P runner. Q is idle and local Q compute processes are stopped. Remote
+allocation, environment setup, parallelism and monitoring belong to the remote
+worker's setup skill; remote scientific interpretation is excluded.
 Use maximum requested parallelism (64 workers for the planned allocation),
 without a prerequisite remote scaling study. The remote task receives
 repository commands, not environment, scheduler, transfer, or launch-setup
@@ -29,12 +36,23 @@ old and new caches. Reuse genuinely independent geometry/reference inputs.
 Exact historical donor equality is not a gate for a new candidate; consistency
 within its own declared policy and the HSX global accuracy gate are required.
 
-**Current Q scope:** the 22-owner N64 cubic-enrichment diagnostic is complete;
-Q has completed its frozen-selector optimization and bounded benchmarks. A global
-enriched N32/N48/N64 campaign has **not** yet been authorized or launched.
-Prepare remote-ready chunk execution as appropriate, then report its measured
-cost and candidate identity for that decision. Do not launch or operate P's
-remote/global study from Q. No change to Q03/Q04 scientific gates is implied.
+**Current Q scope:** the 22-owner N64 cubic-enrichment diagnostic, frozen-selector
+optimization, bounded benchmarks, and authorized serial N32/N48/N64 global
+cached-rank-one campaign are complete. The global candidate fails the frozen-G3
+two-interval `>=1.8` order gate in all three fields, so it is not promoted and
+Q03 remains in progress. Do not launch or operate P's remote/global study from
+Q. No Q04 certification, N128 extension, limiter stage, or production promotion
+is implied.
+
+The current follow-up is the [whole-support qualification work package](q03_whole_support_qualification_plan.md):
+freeze the 64-swap cubic candidate, run residual-blind stratified complete-cell
+comparisons on N32/N48/N64, validate a compact serial/parallel/resumable runner,
+and execute the global comparison remotely after the parent's bounded packaging
+checks. The interim local assignment is stopped. Local regressions and sample
+slopes do not add acceptance gates, and the broader proposed local sample is
+not required before the full remote run. Existing qualified geometry/reference
+inputs are frozen in the separate input bundle; all remote candidate outputs
+must be generated consistently within one new campaign folder.
 
 ### Scientific contract
 
@@ -1031,10 +1049,170 @@ combining cold-trial variation and ±30% per-face uncertainty is
 0.35--1.25/1.17--4.21/2.78--9.94 h.  These projections are not accuracy or convergence
 evidence and do not authorize the staged global study.
 
+The authorized [N32 cached-rank-one global enrichment campaign](../../../../work/parallel_q03_cubic_enrichment_global_n32_rank1_20260921/report.md)
+completed all 90,880 canonical faces and passed exact coverage, finite-action,
+shared-incidence, payload-hash, and constant checks (constant maximum
+`2.16e-12`). Relative to original-support F3, enriched global N32 exact/G3 RMS
+ratios are radial `0.945/0.713`, angular `0.663/0.659`, and mixed
+`0.958/0.804`. Thus frozen-G3 error improves in all three fields by
+`19.6--34.1%`, but the global gains are much smaller than the earlier bounded
+22-owner result. This is encouraging first-resolution evidence only: it does
+not establish an order, authorize N48 automatically, complete Q03, or promote
+the research selector.
+
+The subsequently authorized [N48/N64 continuation and combined N32/N48/N64
+report](../../../../work/parallel_q03_cubic_enrichment_global_n48_n64_rank1_20260921/report.md)
+completed all 307,152/726,528 canonical faces with exact evaluator-free action
+replay, full coverage, finite actions, shared-face incidence, and constant
+maxima `7.38e-12/1.26e-11`. Serial compute took `0.929/2.222 h` with measured
+peaks `1.384/1.740 GiB`; no selector fallback, close-case rebuild, or ambiguity
+replay occurred. Relative to original-support F3, N48/N64 exact/G3 RMS ratios
+are radial `1.022/0.911` and `0.726/0.593`, angular `0.750/0.759` and
+`0.656/0.638`, and mixed `0.809/0.753` and `0.671/0.591`. The enriched
+candidate's exact orders are radial `1.406/1.863`, angular `2.050/1.160`, and
+mixed `1.924/1.311` for N32-to-N48/N48-to-N64; frozen-G3 orders are
+`1.628/1.779`, `2.014/1.263`, and `2.071/1.237`. Thus no field passes the
+predeclared `>=1.8` gate on both intervals. Qualified reference uncertainty is
+only `0.20--0.41%` of the N64 candidate errors and does not explain the failed
+slopes. Boundary faces contribute `13.5--33.7%` of N64 frozen-G3 SSE while
+ordinary faces carry the remainder. This is a validated negative result for
+the frozen candidate: Q03 remains open, and no Q04, N128, limiter, positivity/
+dissipation, fixed-time solution, or production claim follows.
+
+The follow-on [complete-cell consistency audit](../../../../work/parallel_q03_enriched_consistency_audit_20260921/report.md)
+replays the frozen candidate at six N64 exact-action hotspots and six
+residual-blind holdouts, mapped to ordinary-interior N48 owners with complete
+incident-face assembly. Saved actions replay to `4.68e-17`; qualified-reference
+incidence closes exactly; common-owner-chart transforms close to `2.08e-15`
+relative; and cubic cell moments close to `3.41e-14` relative. Physical support
+extent contracts by a median factor `0.755`, but dimensionless extent grows by
+`1.417` at hotspots versus `0.970` at holdouts. Physicalized common-cell
+quartic response grows by `2.422` at hotspots and falls to `0.324` at holdouts;
+relative to `h^2`, the ratios are `4.314/0.573`. Hotspot exact error, absolute
+face-error budget, and surviving cancellation fraction worsen together by
+median factors radial `7.423/4.298/2.194`, angular `4.417/2.160/2.045`, and
+mixed `3.740/2.881/2.577`. Condition maxima grow (`3.527x` median), but maximum
+weighted coefficient amplification is essentially flat (`0.990x` median) and
+condition correlation with N64 error is weak/inconsistent. These data establish
+a localized support-extent/leading-moment/assembly-cancellation interaction,
+not an exclusive cause: the six hotspots cover only `1.03--1.49%` of N64 global
+exact SSE, one N48 mapping is ambiguous, and symmetry-related pairs reduce
+effective diversity. The smallest supported next comparison is an extent-matched,
+same-count/same-tier control on only those hotspot incident faces, measuring
+physicalized quartic response, absolute face budget, and signed cross terms.
+It is a recommendation, not authorization for a changed candidate or global run.
+
+The supervisor's [selector replay on these same hotspots and holdouts](../../../../work/parallel_q03_selector_hotspot_replay_20260921/report.md)
+clears the cached rank-one optimization as the cause of the sampled defect.
+On all 72 complete incident faces at each N48/N64, repeated-SVD vector ranking,
+the original scalar full-SVD selector, and cached rank-one ranking select
+identical supports and all 40 additions in identical order. Final coefficients,
+exact/G3 fluxes, and complete-cell actions/errors agree bitwise. Intermediate
+selected-score differences reach `3.03e-10`/`6.22e-9` relative but change no
+selected row; this is sampled output equivalence, not a bound on every global
+selection. Restoring full SVDs would reproduce the same sampled errors.
+Before the recommended extent-control comparison, separate original-support
+from enrichment extent and inspect full observation-leg endpoints as well as
+midpoints. Preserve residual-blind holdouts; avoid forcing an infeasible
+same-count/same-tier envelope. No changed candidate or global rerun follows
+from this replay check.
+
+The supervisor then completed the [support anatomy and bounded replacement
+controls](../../../../work/parallel_q03_support_extent_investigation_20260921/report.md).
+At all six N64 hotspots, original observations already set the largest x
+midpoint/full-endpoint extent; additions-only compaction cannot remove that
+extent. N48-derived full-endpoint envelope controls preserve the cubic fit and
+observation counts while replacing outlying additions or any outlying row.
+A follow-up control preserves exact source-plane/sector/direction joint counts.
+That same-coverage control gives hotspot G3 RMS ratios `0.890/0.845/0.932`
+(radial/angular/mixed), but holdout ratios `1.656/1.226/1.599`; across all 84
+affected owners the ratios are `0.916/0.953/0.972`. Exact-observation results
+show the same qualitative effect. All fits remain rank 19, with residuals below
+`4e-13`, and neighbor changes preserve canonical shared-face incidence.
+The same-coverage control needs 61 minimal envelope relaxations and retains a
+maximum endpoint/cap ratio of `1.787`; it does not establish exact extent
+matching. Hotspot quartic response improves only about 5% in median. These are
+bounded placement effects, not a convergence repair or a reason to launch a
+global study. Inspect the original-support/leg-geometry constraints behind the
+remaining outliers before designing further field-blind whole-support exchanges.
+Holdout regressions and condition numbers remain diagnostics, not added gates.
+
+The subsequent [fixed-budget whole-support exchange](../../../../work/parallel_q03_whole_support_exchange_20260921/report.md)
+retains those twelve locations and adds twelve residual-blind ordinary-interior
+locations at each N48/N64. Each resolution updates all 144 incident faces of
+24 owners, affecting 168 owners. Compare the frozen enriched support, exchanges
+that protect original rows, and exchanges that may replace any row. Preserve
+row/per-plane budgets and initially represented sector/direction coverage;
+minimize the existing cubic information objective with SVD-verified exchanges.
+The declared 32-to-64 swap extension triggers at both resolutions; only 4/11
+faces remain capped. Whole-support exchange reduces median objective by
+18.4%/16.7% and replaces a median 36 original rows, but is not a compaction:
+median full-endpoint x extent grows 6.2%/9.2%. N48/N64 selected-cell G3 RMS
+ratios are `0.931/0.579/0.860` and `0.696/0.693/0.674`; all-affected ratios
+are `0.996/0.981/0.994` and `1.131/0.877/0.989` (radial/angular/mixed).
+N64 affected exact-row ratios `1.098/0.881/0.984` show that the tradeoff is not
+solely G3 reconstruction error. Cubic reproduction, replay, constants and
+conservative increments check out. Original-holdout regressions remain
+diagnostics, not new acceptance gates. The 144 neighboring owners receive only
+partial face updates, so their regression cannot establish the outcome of a
+uniform global selector. The next bounded comparison should complete every
+incident face of these same 168 owners, reuse the 144 solved faces, and report
+the fully updated region separately from the new partially updated fringe.
+Keep the objective, cubic basis, candidate pools and fields frozen. Only if
+tradeoffs persist under uniform local application should the next design
+change address leading unrepresented moments/assembled cancellation. Neither
+further donor growth nor stronger minimization of coefficient amplification
+is currently a demonstrated repair. No new global run follows automatically.
+
+The [complete-update comparison](../../../../work/parallel_q03_full_update_exchange_20260921/report.md)
+then evaluates every incident face of the same 168 owners at each N48/N64:
+864 faces, comprising 144 reused fits, 716 newly solved interior faces, and
+four unchanged prescribed continuum boundary fluxes. Whole-support G3 RMS
+ratios on those fully updated owners are N48 `0.998/1.132/1.029` and N64
+`0.963/0.744/0.814`, versus the earlier partial-update N64 ratios
+`1.131/0.877/0.989`. Exact-row N64 ratios `0.941/0.765/0.829` confirm that
+the improvement is not solely G3 error cancellation. Thus the earlier N64
+neighborhood regression substantially reflected mixing changed and unchanged
+faces; it does not establish failure of the uniformly applied candidate.
+The added residual-blind 84-owner patches improve in every G3 field at both
+resolutions (`0.929/0.764/0.853` and `0.984/0.822/0.566`), while the older
+N48 holdout patches regress. Local tradeoffs persist, with no requirement that
+every cell or coarse-resolution error improve. The new 428-owner partial fringe
+is reported separately and must not be confused with the fully updated region.
+All reused results replay exactly, cubic fits retain rank 19, prescribed
+boundary fluxes are unchanged, and constants/conservative increments check out.
+Runs take 91/100 seconds with peaks below 2 GiB. Keep this frozen cubic
+whole-support candidate alive; the next accuracy assessment should broaden
+spatial coverage, not tune another objective to individual sampled errors.
+A residual-blind HSX sample spanning axis/RLP/interior/boundary regions is an
+inexpensive decision aid, not a new prerequisite gate; global qualification is
+the decisive comparison when its setup cost is acceptable. No global order,
+positivity/dissipation or Q04 certification follows from these local results.
+
 **Gate:** the identified defect improves while conservation, dissipation,
 constants, and the minimum principle remain valid. Record a structural blocker
 if no candidate satisfies the contract; do not promote signed diffusion weights
 merely to obtain a better slope.
+
+**Tracking context:** steps 1–4 of the
+[whole-support qualification plan](q03_whole_support_qualification_plan.md).
+The planned sample is 96 residual-blind owners per resolution, stratified over
+axis, transition-adjacent, agglomerated bulk, ordinary interior and boundary;
+every selected owner receives a complete incident-face evaluation. This is a
+decision aid toward global qualification, not a new local convergence gate.
+The latest user decision supersedes local execution: keep the candidate frozen
+and use the prepared remote runner for the full N32/N48/N64 comparison.
+
+The parent subsequently completed a [selector implementation optimization](../../../../work/parallel_q03_exchange_optimization_20260921/report.md):
+batch replacement scoring by source plane and reuse label/membership bookkeeping,
+while retaining SVD verification and scalar ranking fallback near ties. Paired
+speedup is 3.36–3.37x. Across 1,900 actual HSX faces at N32/N48/N64, donor paths,
+final coefficients and exact/G3 fluxes are identical to the reference. This
+changes implementation cost, not the candidate or scientific evidence. Q
+should use the optimized implementation after integrated parallel/restart
+checks, with explicit implementation identity and no global swap-history
+retention. Estimated selector work falls from about 30 to 9 CPU-hours for
+the three resolutions; integrated parallel timings must determine the ETA.
 
 ### Q04 — Certify the diffusion action
 
@@ -1174,7 +1352,7 @@ The [original Phase A task](thread://01a0b561-d18d-78b1-b85f-bfe3d67efe49?hostId
 | Q00 | Baseline and result identity | None | passed | [Phase A task](thread://01a0b561-d18d-78b1-b85f-bfe3d67efe49?hostId=local), GPT-5.6 Sol; [evidence](../../../../work/parallel_phase_a_q00_q04_20260918/PHASE_A_REPORT.md#q00--frozen-baseline-and-reliable-identity). Revision `6c2b005`, action SHA `716c2bbe`. Reuse keys geometry/graph, implementation, end time, field/source, contract and requested checks. Wall operator orders -0.980/1.408 and solution -1.004/1.549; smooth-axis -1.007/1.375 and -1.029/1.511. Completion/invariants/time pass; historical references are unqualified and convergence fails. Q01 was next. |
 | Q01 | HSX references and field catalogue | Q00 | passed | [Evidence](../../../../work/parallel_phase_a_q00_q04_20260918/PHASE_A_REPORT.md#q01--qualified-hsx-sources). Version-2 real-HSX midpoint sources cover radial–eta, angular-x, mixed-y-eta and constant fields at 32/48/64 with full-torus eta and explicit boundaries. Stratified requested-step sensitivity is at most `6.15e-8` relative; all-resolution position/B/J and bounded selected-owner quadrature are recorded. Q02 was next. |
 | Q02 | HSX diffusion error localization | Q01 | passed | [Supplement](../../../../work/parallel_phase_a_q00_q04_20260918/Q02_LOCALIZATION_SUPPLEMENT.md): corrected masks establish 81.9–98.6% of squared residual in ordinary unagglomerated interior. Selected-interface quadrature changes are small. The point-transfer comparison omitted amplitude=0.2 and is being corrected by the original task; its worsening is not valid evidence. Retracing also changes the evaluator, so it is not a pure step-size estimate. The user accepts the existing localization as sufficient to start a bounded Q03 hypothesis test; an exclusive moment defect or asymptotic floor is not yet proven. |
-| Q03 | Diffusion repair | Q02 | in progress | **Latest decision:** unchanged original-support F3/G3 fails the two-interval gate at N64, but the bounded [N64 cubic observation-enrichment experiment](../../../../work/parallel_q03_cubic_observation_enrichment_n64_20260921/report.md) identifies a stronger next candidate. On 22 frozen complete-cell owners and 325 incident faces, cubic-target information enrichment reduces radial/angular/mixed exact RMS to `0.0485/0.1061/0.0686` of original and frozen-G3 RMS to `0.0954/0.1039/0.0983`; it beats the equal-count distance control in every all-owner field. Hotspot and deterministic spatial-holdout aggregates preserve the gain, while tiny regional controls remain mixed. Coefficient/action/decomposition/evaluator-free replay checks pass. The [setup optimization](../../../../work/parallel_q03_cubic_enrichment_optimization_20260921/report.md) exactly reproduces all 324 saved N64 internal faces, accelerates cold N32 selection 3.90--7.40x and end-to-end setup 1.51--1.91x across two cold trials, and supplies a serial compact checkpoint path; it is implementation evidence, not a global result. This supports, but does not launch, an explicitly authorized N32-only staged global qualification of the frozen cubic-information rule retaining the distance control and ordinary-region budgets. No automatic Q03 completion, Q04, limiter work, N128, dissipation/positivity claim, or production promotion is authorized. |
+| Q03 | Diffusion repair | Q02 | in progress | **Latest decision:** the frozen enriched baseline fails the global gate; restoring full SVDs reproduces the sampled fast-selector outputs. [Complete-update whole-support exchange](../../../../work/parallel_q03_full_update_exchange_20260921/report.md) gives G3 RMS ratios N48 `0.998/1.132/1.029`, N64 `0.963/0.744/0.814` on the same 168 fully updated owners. The previous N64 radial regression disappears after completing faces, and added residual-blind patches improve at both resolutions. Older N48 regions retain tradeoffs. Keep the cubic candidate frozen for broader accuracy assessment; use broader residual-blind HSX sampling as a low-cost decision aid or global qualification when feasible, without making local improvement a new gate. Do not recursively expand the partial fringe or tune to sampled errors. No new run is dispatched automatically. Q03 remains open; this is not Q04, positivity/dissipation, fixed-time or production certification. |
 | Q04 | Diffusion certification | Q03 | pending | Await a repaired candidate; no operator/solution or JAX/sharding certification pass is claimed. |
 | Q05 | Shared interface structure | Q04 | pending | No promotion before certified diffusion. |
 | Q06 | Gradient/divergence pairs | Q05 | pending | Independent HSX operator and pairing checks. |

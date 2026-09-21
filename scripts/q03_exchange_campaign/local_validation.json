@@ -1,0 +1,87 @@
+{
+  "independent_original_helper_equivalence": {
+    "32": {
+      "coefficient_max_abs": 0.0,
+      "faces": 15,
+      "flux_max_abs": 0.0,
+      "moment_max_abs": 0.0,
+      "support_mismatch": 0
+    },
+    "48": {
+      "coefficient_max_abs": 0.0,
+      "faces": 15,
+      "flux_max_abs": 0.0,
+      "moment_max_abs": 0.0,
+      "support_mismatch": 0
+    },
+    "64": {
+      "coefficient_max_abs": 0.0,
+      "faces": 15,
+      "flux_max_abs": 0.0,
+      "moment_max_abs": 0.0,
+      "support_mismatch": 0
+    }
+  },
+  "portable_preflight": {
+    "identity": {
+      "input_manifest_sha256": "fbce9f2097c34a6c39c67d51b96b498a894be816b291363a743db057bf2bef4e",
+      "machine": "arm64",
+      "numpy": "2.4.6",
+      "policy": {
+        "boundary": "frozen_prescribed_continuum_flux",
+        "candidate": "whole_support",
+        "coverage": "initial_sector_and_direction_per_plane",
+        "degree": 3,
+        "max_exchanges": 64,
+        "objective": "weighted_cubic_information",
+        "observations": [
+          "exact",
+          "G3"
+        ],
+        "pool": "frozen_local_five_plane_nearest128",
+        "quadrature": 9
+      },
+      "python": "3.12.13",
+      "schema": "q03-whole-support-remote-v1",
+      "source": {
+        "campaign.py": "625263054bf0aa25aa012ffc57f51713639a0054fe587e0f5adf860129af96ae",
+        "common.py": "a24b902a2c47d3d64285fc348f77819d45f0a6627ca773546d32c27b3d64755f",
+        "numerics.py": "5db2ed3abebbb91ed53db03192a43853d85cae5c9f1a74ee211eae32b29e1fcf",
+        "optimized_exchange.py": "3d4ca799afc8d3a85cd1f6320611b253134281180ebfc50b4df0bade6d63cb4e",
+        "oracle.py": "68be20d72e29ea0e4804e5359c283fd4da0fbc35e343341e3bfe943e150b4355"
+      }
+    },
+    "resolutions": {
+      "32": {
+        "coefficient_max_abs": 0.0,
+        "faces": 15,
+        "flux_max_abs": 0.0,
+        "parallel_equal": true,
+        "resume_rebuild_passed": true,
+        "resume_reuse_passed": true,
+        "support_mismatches": 0
+      },
+      "48": {
+        "coefficient_max_abs": 0.0,
+        "faces": 15,
+        "flux_max_abs": 0.0,
+        "parallel_equal": true,
+        "resume_rebuild_passed": true,
+        "resume_reuse_passed": true,
+        "support_mismatches": 0
+      },
+      "64": {
+        "coefficient_max_abs": 0.0,
+        "faces": 15,
+        "flux_max_abs": 0.0,
+        "parallel_equal": true,
+        "resume_rebuild_passed": true,
+        "resume_reuse_passed": true,
+        "support_mismatches": 0
+      }
+    },
+    "status": "passed"
+  },
+  "pytest": "3 passed: tests/test_q03_exchange_campaign.py",
+  "scope": "bounded actual HSX; no global qualification computed locally"
+}
