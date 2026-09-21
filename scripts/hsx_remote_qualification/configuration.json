@@ -1,0 +1,46 @@
+{
+  "schema": "drbx.hsx-matched-cubic-portable-config-v3",
+  "source_root": ".",
+  "time": 1e-06,
+  "curl_step": 0.0002,
+  "face_chunk": 512,
+  "cell_chunk": 64,
+  "inputs": {
+    "geometry": "geometry_artifacts/rlp_convergence_32_48_64_20260917",
+    "baseline": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline",
+    "reference_sidecar": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json",
+    "metric_cache": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+    "makegrid": "mgrid_res2p5cm_180pln.nc",
+    "reference_root": "work/perpendicular_bracket_reference_requalification_20260920"
+  },
+  "candidate": {
+    "name": "joint_cubic_matched_q3_portable_selection_v3",
+    "degree": 3,
+    "coordinates": "regular chart (x=u cos(theta), y=u sin(theta), eta)",
+    "observations": "frozen midpoint-projected/raw-volume owner moments",
+    "donors": "selection-v3: all-sector snapping; distance tie groups ordered by canonical owner ID; same expansion schedule",
+    "face": "one polynomial per canonical face; q3 product; signed shared incidence",
+    "volume": "separate polynomial per raw-cell center; anchored q3 interior correction",
+    "normalization": "frozen physical owner volume",
+    "boundary": "legacy-velocity-trace; numerical trace value and frozen cubic gradient on physical radial faces",
+    "fit_compatibility_claim": false
+  },
+  "scope": {
+    "resolutions": [
+      32,
+      48,
+      64
+    ],
+    "global_fields": [
+      "actual_vorticity",
+      "smooth_regular_scalar",
+      "smooth_eta_varying_scalar"
+    ],
+    "centered_static_operator_only": true,
+    "material_upwinding_certified": false,
+    "energy_stability_certified": false,
+    "production_changes": [],
+    "promotion_authorized": false,
+    "campaign": "clean-remote-v3; no reuse of historical reconstruction-dependent caches"
+  }
+}
