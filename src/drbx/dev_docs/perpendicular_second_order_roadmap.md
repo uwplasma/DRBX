@@ -7,10 +7,63 @@ tasks. Keep numerical evidence and experiment logs in linked research artifacts.
 
 ## 1. Objective and acceptance contract
 
-### Current execution decision: clean remote global qualification
+### Current result: centered static bracket globally qualified
 
-The local P global campaign is paused and preserved as historical
-evidence. Continue the matched-q3 centered-bracket N32/N48/N64 qualification
+The clean selection-v3 remote campaign at revision `c54b0552` is complete and
+locally verified. The [returned-campaign analysis](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md)
+records all three fields passing the agreed real-HSX global operator gate:
+vorticity orders `2.4414/2.4690`, regular scalar `3.5135/2.6455`, and eta-varying
+scalar `3.6330/3.3759`. A and B pass separately as well as their centered C.
+The global vorticity reference is the complete analytic IBP integral; bounded
+reference budgets for all fields are 0.31–2.81% of the corresponding global
+candidate error. The prior focused-interpolant failure is not used or relabeled.
+
+Freeze the general cubic reconstruction, adaptive selection-v3 support,
+shared face values/gradients, matched q3 face/volume integration, continuous
+geometry queries, and frozen owner normalization as the centered-bracket
+foundation. Midpoint assembly with the same reconstruction still fails the
+smooth fields on the fine interval. Face-only q3 also passes these fields;
+the volume correction improves eta accuracy but is not separately proven
+necessary to reach the threshold. Preserve the complete identity without
+field-specific tuning. Regional/max-norm behavior remains diagnostic.
+
+**Milestone decision:** P03 is **passed as an HSX mechanism audit**; its old
+"acceptance failed" label described the baseline operator, not failure to
+complete the audit. P04 is **passed for numerical design and research
+qualification**, demonstrated by the globally qualified centered-bracket
+realization. These numerical dependencies are satisfied. Reusable payload
+extraction and fixed-shape JAX application remain implementation follow-through;
+they do not reopen the passed design gate or require another design campaign.
+Other operators must still establish their own accuracy and applicable
+structural properties when adopting these functionals.
+
+This is the first complete three-field, two-interval global HSX pass for this
+new centered-bracket foundation, with qualified reference budgets. Earlier
+single-field, bounded, algebraic, and baseline successes remain valid within
+their narrower scopes. The local recheck verified all 106 source files,
+8,756 planned face/cell chunks, saved-array hashes, and recomputed weighted
+errors and orders. The smallest centered order is 2.4414; even shifting errors
+adversely by the empirical reference budgets leaves a minimum of 2.4086.
+
+P05 remains partial: material upwinding is unqualified on this functional.
+Following the completed bounded decomposition and nodewise cubic-jump study,
+the user authorized the [remote N32/N48/N64 material accuracy campaign](../../../scripts/p05_material_campaign/README.md).
+Freeze the recentered jump, bias 0.75, selection-v3 supports, q3 nodes and
+existing physical-wall trace contribution. Reuse the hash-pinned completed
+centered action; verify the donor graph and central face flux on every face
+while computing only the new conservative jump correction. The smooth regular
+and eta-varying scalars are required material fields; upwind vorticity remains
+diagnostic and does not replace its accepted centered operator. Reference
+uncertainties are requalified relative to the new global errors. Positivity,
+dissipation and held-out checks remain separate scientific follow-through,
+not additional prerequisites to this authorized static accuracy measurement.
+No promotion is authorized. Curvature, diffusion/polarization and evolved MMS
+retain their own later gates.
+
+### Preserved execution contract for the completed remote campaign
+
+The earlier local P global campaign is paused and preserved as historical
+evidence. The matched-q3 centered-bracket N32/N48/N64 qualification was run
 as a **new remote campaign**, using
 [`scripts/hsx_remote_qualification`](../../../scripts/hsx_remote_qualification/README.md).
 The remote handoff contains repository commands only, in
@@ -40,7 +93,9 @@ polynomial reproduction, constants, and action diagnostics. Floating-point
 agreement uses justified tolerances; a policy change receives a new numerical
 identity rather than bypassing a stale-cache check. Candidate-specific
 reference budgets and the existing two-interval >=1.8 global operator gate
-remain unchanged. Remote execution is not P04/P05 completion or promotion.
+remain unchanged. Remote execution alone is not numerical qualification or
+promotion; the successful scientific results establish the milestone decision
+above.
 
 The remote performance repair removes persistent query-basis growth, shares
 metric evaluations, microbatches metric/curl queries, groups owner memberships
@@ -49,8 +104,11 @@ startup. See the campaign [implementation validation](../../../scripts/hsx_remot
 It changes execution/source identity, not the frozen candidate or acceptance
 contract. Start a fresh output folder for this release. Per-worker RSS and cache
 telemetry are recorded; full-node runtime and memory remain remotely measured
-quantities. Do not infer production performance or convergence from these
-bounded implementation checks.
+quantities. The returned successful attempt took 75m49s, including 47m52s
+preflight and 26m42s global computation with 48 workers. Chunk worker high-water
+RSS stayed below 0.881 GiB; these process samples do not measure whole-node
+peak memory or production-timestep cost. Do not infer production performance
+from the research campaign.
 
 ### Scientific contract
 
@@ -392,7 +450,14 @@ whether a supported same-geometry control already fails without agglomeration.
 
 **Dependencies:** P01; can proceed alongside P02.
 
-**Current HSX follow-up assignment:** use the qualified continuous producer
+**Status: passed — HSX mechanism audit complete.** The localized failures
+justified the subsequent P04 repair; the clean remote result now confirms that
+the repaired centered composition meets the global target. P03 is not held
+open because the historical baseline failed convergence. Operator-specific
+curvature, polarization, and runtime/sharding checks remain with their later
+work packages rather than becoming new prerequisites to this audit closure.
+
+**Completed HSX follow-up assignment (retained scope):** use the qualified continuous producer
 metric/B reference to re-establish the unchanged production bracket baseline
 on the existing 32³/48³/64³ HSX artifacts, and perform the bounded N32
 matched-functional comparison below. This includes the necessary supplemental
@@ -490,6 +555,16 @@ convergence of the current DRBX composition.
 
 **Dependencies:** P02–P03.
 
+**Status: passed — numerical design and research qualification.** The general
+cubic selection-v3 implementation meets the intended polynomial reproduction
+checks on HSX and its matched-q3 centered action passes globally for all three
+fields. Preserve this implementation as the qualified design baseline.
+Extraction into reusable payloads and host-compiled/JAX application is remaining
+engineering follow-through during adoption in P05–P07. Compare that extraction
+against the saved qualified action; it is not a reason to reopen donor/degree
+design or declare the present convergence result incomplete. This scoped pass
+does not certify untested operators or production stability.
+
 - Use the existing regular-chart moment machinery to evaluate **values and
   derivatives** at shared face quadrature points from the actual stored owner
   observation functional. The current candidate uses midpoint/raw-volume
@@ -526,18 +601,16 @@ alone does not require a repair if the global gates already pass.
 
 **Dependencies:** P04.
 
-**Current first milestone:** global qualification of the frozen general-cubic,
-shared-face, matched-q3 centered bracket C on the original omega, regular,
-and eta-varying fields. The [P worker](thread://01a0befd-521c-70f0-96f9-8be67df425fa?hostId=local)
-is implementing/preflighting the authorized 32/48/64 study, including global
-omega reference construction. No passing global result exists yet. There is
-no established requirement to redesign the reconstruction before this study.
-The outstanding acceptance items are complete global actions and an independently
-qualified global omega reference. Record A/B constituents diagnostically; C is this
-milestone's certified operator. Require global physical-volume-weighted L2
-order >=1.8 on both refinement intervals for each original nontrivial field,
-with the existing reference-error budget. A small predeclared held-out field
-check tests generality without tuning or adding a per-owner acceptance gate.
+**First milestone passed:** the frozen general-cubic, shared-face, matched-q3
+centered bracket C qualifies on the original omega, regular, and eta-varying
+fields at 32/48/64. The [verified remote results](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md)
+include complete global actions and a global analytic IBP omega reference with
+bounded independent qualification. All C orders exceed 1.8 on both intervals;
+A/B constituents pass separately. C is this milestone's certified operator.
+No additional field, resolution, or actual-action gate is imposed retroactively.
+A predeclared held-out-field check remains a generality diagnostic during
+implementation follow-through, without tuning the frozen design. The next
+numerical qualification within P05 is material scalar upwinding.
 
 **Scientific checks, not blockers for the current study:** constant annihilation,
 argument antisymmetry, shared-face bookkeeping, and checks of actual boundary
@@ -558,6 +631,40 @@ polarization, full-system balance checks, evolved MMS, and production promotion
 remain subsequent work; they are not additional prerequisites for this static
 centered-bracket result. Completing this first milestone does not complete
 all of P05 or certify the shared perpendicular infrastructure.
+
+**Bounded material-upwind decomposition complete (21 September 2026):** the
+[N48/N64 evidence](../../../../work/p05_material_upwind_decomposition_20260921/report.md)
+holds the qualified matched material action fixed and decomposes the existing
+production scalar traces into mean and jump flux corrections on complete-owner
+samples with axis, seam, wall, transition, sign-changing, and near-zero
+generator coverage. Full upwinding increases every bounded field error; the
+mean-trace replacement dominates, while the smaller jump-only term slightly
+improves the eta-varying scalar at both resolutions. Trace, quadrature,
+generator, boundary, anchor, volume-correction, and signed-incidence replays
+close to roundoff, including a direct replay of the real scalar action using
+the generator sign before `-1/rho_star` scaling. The diagnostic therefore does
+not support promotion or a global material-upwind campaign in its present
+form. It adds no per-owner gate and does not change the centered-static pass.
+
+**Bounded nodewise cubic-jump comparison complete (21 September 2026):** the
+[saved N48/N64 evidence](../../../../work/p05_nodewise_cubic_jump_20260921/report.md)
+uses the exact prior complete-owner samples and the qualified central fit's
+selection-v3 donors, chart, scale, and owner-moment observations. Opposite
+fixed `0.75*tanh(s)` weight biases produce two rank-revealing cubic WLS fits;
+only their nodewise jump is recentered around the unchanged qualified common
+value. The correction is materially nonzero, smaller than the legacy jump,
+improves the eta-varying scalar at both resolutions, mildly regresses the
+regular scalar, and improves diagnostic vorticity. The unrecentered same-fit
+pair no longer exhibits the legacy mean-trace failure but remains diagnostic
+because it replaces an already qualified common value. All cubic reproduction,
+selection-v3 support, action/sign, incidence, seam, collapsed-axis, and frozen
+physical-wall checks pass; positive shifts do not activate the existing trace
+floor. These bounded nonidentical samples are not global-order, dissipation,
+positivity, or stability evidence. Retain the recentered nodewise jump as the
+next candidate. The next bounded check should keep its support and bias fixed,
+add one predeclared positive held-out thermodynamic field, and audit discrete
+dissipative work and one-step positivity before any separately authorized
+global material-accuracy campaign; do not start a donor/bias scan.
 
 - Integrate consistent generator derivatives and transported traces into the MMS
   material and centered-vorticity paths.
@@ -702,11 +809,12 @@ diagnostics, and passing regression evidence.
 
 P00–P01 evidence was produced by [Set up perpendicular convergence roadmap P00–P01](thread://01a0b506-1907-73d3-997d-a66637cd7e8c?hostId=local), using GPT-5.6 Sol.
 
-**Current P worker:** this task owns the bounded P04 value/derivative cross and
-cubic transported-value comparison that follows the negative global
-balanced-cubic qualification. The P00–P03 task links and earlier
-bounded/global diagnostic reports remain historical provenance; they are not
-the current worker assignment.
+**Current campaign status:** the clean remote centered-bracket campaign is
+complete and locally reverified. No further worker run was launched by this
+review. P03/P04 are passed in the scopes stated above; P05 centered static is
+passed and material upwinding remains pending. Earlier worker assignments and
+the bounded/global diagnostics below are historical provenance, not current
+instructions to repeat those experiments.
 
 **Historical HSX qualification assignment:** P01–P03 had completed their
 original audit scope and were reopened for actual-HSX qualification. P00
@@ -750,8 +858,9 @@ passes both intervals for actual omega (`1.9305`, `2.2761`) but fails the fine
 interval for the smooth regular (`1.5764`) and eta-varying (`1.3302`) controls.
 The [structured-omega uncertainty audit](../../../work/perpendicular_second_order_hsx_p01_p03/structured_omega_differentiation.json)
 shows source-difference orders `4.80` and `3.96`, so reference differentiation
-does not explain that failure. P03 is complete with a failed shared acceptance
-gate. The [bounded N48/N64 fine-interval bridge](../../../../work/perpendicular_p03_fine_interval_design_20260919/report.md)
+does not explain that historical baseline failure. P03's audit gate is passed;
+the baseline's failed operator gate motivated the repair and is not the current
+candidate status. The [bounded N48/N64 fine-interval bridge](../../../../work/perpendicular_p03_fine_interval_design_20260919/report.md)
 then refines the baseline into disjoint axis, boundary, true size-change,
 agglomerated, and ordinary regions and tests frozen eight-owner samples before
 candidate evaluation. True interfaces carry 94.6%/91.9% of scalar-upwind omega
@@ -811,10 +920,11 @@ reduces maximum condition to `12.3/13.6` and regular `x/y/eta` amplification to
 `1.56/1.38/1.08` and `1.61/1.49/1.08`, and improves O/vorticity centered C to
 `0.351/0.326`. However, G/vorticity and every smooth-control P/G/O centered-C
 lane remain worse than production, with A/B failures exposed separately.
-HH/HE replay exactly and no production selector changed. Global qualification
-remains unwarranted; P05 needs bounded localization of the remaining stable-row
-truncation/cancellation defect before a degree, regularization, or global-run
-decision.
+HH/HE replay exactly and no production selector changed. At that stage global
+qualification of this earlier candidate was unwarranted; the remaining
+stable-row truncation/cancellation defect motivated the follow-on work below.
+This historical rejection does not apply to the now-qualified matched-q3
+cubic candidate.
 
 The follow-on [adaptive-support and truncation report](../../../../work/perpendicular_owner_face_derivative_adaptive_20260920/report.md)
 keeps coverage18_24 as the baseline and localizes its remaining O/C error to
@@ -928,7 +1038,7 @@ defect. No evidence justifies a field-specific repair, degree increase, or
 automatic donor expansion. The user has authorized global 32/48/64
 qualification of the frozen general cubic matched-integration candidate,
 with the global vorticity reference explicitly costed and qualified; the
-current P worker is preparing that study.
+study has now completed; its clean remote qualification is recorded above.
 Bounded error magnitudes do not establish its order, and improvement at every
 sampled owner is not a prerequisite. The audit itself changed no production
 path; the subsequently authorized study remains research qualification.
@@ -940,11 +1050,11 @@ revision, configuration, measured results, and unresolved failures.
 | ID | Work package | Dependencies | Status | Task / evidence / remaining failures |
 |---|---|---|---|---|
 | P00 | Baseline and reproducibility ledger | None | passed | Revision `6c2b005d`; immutable dirty-source and 32/48/64 geometry hashes, exact selectors/boundaries/precision/sharding, and a single-process N=32 bracket/curvature/diffusion/polarization baseline are in the [P00–P01 evidence bundle](../../../work/perpendicular_second_order_p00_p01/report.md) and [machine-readable manifest](../../../work/perpendicular_second_order_p00_p01/p00_p01_manifest_and_results.json). This is preservation evidence, not a convergence claim. |
-| P01 | Independent references, averages, sources, norms | P00 | smooth global qualified; global vorticity reference work in progress | The [continuous-reference sidecar](../../../work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json) preserves the continuous geometry and full-torus manufactured eta period. The [integrated-reference requalification](../../../../work/perpendicular_bracket_reference_requalification_20260920/report.md) qualifies direct q3 physical-volume integration for both smooth fields globally and direct/complete-IBP q3 for vorticity on deterministic bounded HSX samples. The [matched audit](../../../../work/perpendicular_matched_face_volume_20260920/report.md) supports the analytical identity but does not supply a global omega reference. Constructing and qualifying that reference is included in the authorized P-worker study; the previous 9.92-hour N64 estimate is a cost to measure/optimize, not a numerical-design blocker. The failed focused interpolant and historical midpoint orders remain identifiable evidence, not substitutes. Frozen owner volume remains primary. |
+| P01 | Independent references, averages, sources, norms | P00 | qualified for the centered static field catalogue | The [remote campaign analysis](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md) verifies a global complete-IBP vorticity reference and the existing direct-q3 smooth references, with candidate-relative bounded HSX qualification budgets below 2.82%. Direct/IBP independence and quadrature/step qualification remain bounded checks, not a claimed global exact-error bound. The failed focused interpolant and historical midpoint results remain separate. Frozen owner volume remains primary. Other physical operators need their own references. |
 | P02 | Reconstruction and derivative audit | P01 | complete; mechanism localized | [Task](thread://01a0b527-4aaf-7950-a06d-97a46ab517c4?hostId=local), GPT-5.6 Sol. N32 matched-functional evidence and the [N48/N64 bridge](../../../../work/perpendicular_p03_fine_interval_design_20260919/report.md) qualify the existing G/O degree-two mechanisms without changing degree or donor policy. G improves every bounded operator/field sample at both fine resolutions; O improves the failing smooth upwind controls but regresses scalar-upwind omega. This is bounded mechanism closure, not global convergence certification. |
-| P03 | Geometry, interfaces, return maps, closures | P01 | complete; acceptance failed; mechanism localized | [Task](thread://01a0b544-d74f-71b0-a705-6b21e623a3cd?hostId=local), GPT-5.6 Sol. The [corrected global baseline](../../../work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline/summary.json), [fine-interval bridge](../../../../work/perpendicular_p03_fine_interval_design_20260919/report.md), [bounded failure localization](../../../../work/perpendicular_p03_failure_localization_20260920/report.md), and [four-way factorization](../../../../work/perpendicular_generator_factorization_20260920/report.md) preserve the boundary contract and frozen owner samples. Scalar-upwind omega passes (`1.9305`, `2.2761`), while scalar-upwind regular/eta (`1.5764`, `1.3302`) and centered omega (`1.4237`, `1.3153`) fail their gates. Independent EH/HE crosses localize the sampled completed-action failure to generator differentiation rather than face geometry; center state is negligible and the upwind jump is a smaller separate effect. This is bounded localization, not operator certification. Curvature and eta-shard evidence remain separate future qualifications. |
-| P04 | Consistent owner-to-face functionals | P02, P03 | bounded audits complete; frozen candidate entering global qualification | The [matched integration audit](../../../../work/perpendicular_matched_face_volume_20260920/report.md) supports the analytical functional and bounded smooth-field benefit. The [supervisor face-factor audit](../../../../work/perpendicular_face_factor_audit_20260920/report.md) localizes finite-resolution error to both face values and gradients, with small bilinear interaction. It establishes neither a need for reconstruction redesign nor a wall/volume-only repair. Preserve the general cubic policy for the authorized global comparison; no production promotion yet. |
-| P05 | Brackets | P04 | local study paused; clean remote qualification prepared; material upwinding pending | [P worker](thread://01a0befd-521c-70f0-96f9-8be67df425fa?hostId=local) is paused. The [pause receipt](../../../../work/perpendicular_matched_global_qualification_20260920/supervision_v1_4_parallel_2w/pause_receipt.json) preserves 566 validated N64 chunks and an inactive monitor. The next global study is the new selection-v3 campaign described above; no old reconstruction-dependent chunks enter it. Current acceptance requires complete per-field global operator orders and qualified reference errors. Actual-action identities, shared-face bookkeeping, and boundary-branch checks are scientific diagnostics alongside the study, not separate blockers or convergence gates. No reconstruction-design blocker has been established by the bounded error magnitudes. Historical midpoint omega orders `2.3048/2.3077` do not certify this integrated functional. Material upwinding needs its own later qualification; an independent centered pass is permitted but does not complete P05 or authorize production promotion. |
+| P03 | Geometry, interfaces, return maps, closures | P01 | passed — HSX mechanism audit | The [bounded localization](../../../../work/perpendicular_p03_failure_localization_20260920/report.md), [factorization](../../../../work/perpendicular_generator_factorization_20260920/report.md), and [face-factor audit](../../../../work/perpendicular_face_factor_audit_20260920/report.md) identify the derivative/value/integration mechanisms on actual HSX geometry. The baseline failures remain historical evidence, not a failed task gate. The [clean remote pass](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md) validates the resulting centered-bracket repair. P04 readiness is satisfied; other operator and runtime/sharding checks follow their own work packages. |
+| P04 | Consistent owner-to-face functionals | P02, P03 | passed — numerical design/research qualification | The [clean remote evidence](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md) verifies polynomial reproduction and qualifies general cubic selection-v3 reconstruction with shared face values/gradients and matched q3 face/volume integration globally on all three fields. Freeze adaptive support, continuous geometry queries, and the boundary/owner conventions. Reusable payload/JAX extraction with saved-output replay is engineering follow-through during P05–P07 adoption, not a remaining numerical-design blocker. Other operators retain separate qualifications. |
+| P05 | Brackets | P04 | centered static passed; bounded nodewise material-jump candidate selected; material certification pending | [Remote results and local audit](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md): centered C orders omega `2.4414/2.4690`, regular `3.5135/2.6455`, eta `3.6330/3.3759`; A/B also pass independently and reference budgets pass. The [legacy material-upwind decomposition](../../../../work/p05_material_upwind_decomposition_20260921/report.md) localizes its regression primarily to mean-trace replacement. The subsequent [nodewise cubic-jump comparison](../../../../work/p05_nodewise_cubic_jump_20260921/report.md) preserves the common value, uses the same owner moments/support with fixed opposite smooth biases, and produces a materially nonzero correction: eta accuracy improves at both bounded resolutions, regular-scalar accuracy mildly regresses, and diagnostic vorticity improves. Algebra, support, incidence, boundary, reproduction, and floor-inactivity checks pass. Retain this recentered jump for a fixed-design held-out positive-field plus dissipative-work/one-step positivity audit; these nonidentical bounded samples are not global convergence or production evidence. The user has now authorized the [frozen remote material accuracy campaign](../../../scripts/p05_material_campaign/README.md); no production promotion is authorized. |
 | P06 | Complete curvature | P04 | pending | — |
 | P07 | Perpendicular diffusion/polarization | P04, P03 | pending | — |
 | P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07 | pending | — |
