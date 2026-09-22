@@ -8,19 +8,112 @@ evidence in linked research artifacts. The separate
 
 ## 1. Objective and shared acceptance contract
 
+### Current result: whole-support exchange improves accuracy but fails the gate
+
+The [returned Q03 remote campaign and independent local analysis](../../../../work/q03-exchange-tNlxO86M_analysis/report.md)
+are complete at pinned revision `afbb1ace`. The frozen 64-swap whole-support
+cubic candidate gives G3 global orders radial `1.528/1.949`, angular
+`2.231/1.634`, and mixed `2.019/1.515` on N32/N48/N64. No field passes both
+intervals. N64 errors improve by `4.76%/13.44%/11.24%` relative to the preceding
+enriched candidate, but this is not a qualification pass. Q03 remains open;
+Q04, structural/solution certification and production promotion remain pending.
+
+Exact-row orders `1.346/2.016`, `2.266/1.494`, `1.912/1.591` establish a remaining
+return/assembly accuracy limitation even without G3 endpoint error. Rechecked
+reference budgets are `0.22–2.86%` of candidate error and cannot rescue the
+failed intervals within the recorded empirical uncertainty. Source/input and
+all 2,197 chunk identities, full incidence assembly, and weighted errors were
+verified locally. All interior fits retain rank 19 with cubic residual at most
+`6.84e-13`; this is a scientific order failure, not an execution failure.
+
+N64 ordinary interiors carry `59.08%/85.91%/78.60%` of G3 squared error and
+boundary-adjacent owners `40.89%/14.07%/21.34%`; all axis/RLP strata combined
+carry under `0.07%` in each field. Prescribed continuum boundary flux remains
+the diagnostic boundary treatment. Global exact-flux cancellation improves
+for radial/mixed and is almost unchanged for angular, while the absolute
+face-error budgets shrink slowly. Do not attribute this result generically to
+RLP interfaces, incorrect wall flux, G3 alone, or worsening cancellation.
+
+The completed [weak directional-observation mode audit](../../../../work/parallel_q03_weak_modes_20260922/report.md)
+finds physical near-nullness with material target-recovery amplification, not
+a harmless transverse nullspace or floating-point breakdown.  On its bounded
+complete-owner N32/N48/N64 sample, the weakest fixed cubic projector group
+carries only `0.10--0.57%` of squared target projection but `43--67%` of
+weighted coefficient-norm squared; its physical parallel-gradient energy is only
+`6--10%` of the strong group's.  N64 hotspots have median completed physical
+quartic residual `2.34e-1` versus `5.88e-3` for residual-blind ordinary/RLP
+controls.  Matched ordinary-hotspot quartic residual grows `2.51x` from N48 to
+N64 while controls fall to `0.36x`.  Removing the weakest six modes loses
+`5.1%` median cubic target reproduction and worsens control-field RMS by
+`9.2--44x`, so no singular cutoff is supported.  Fresh degree-five diagnostics
+do not displace the leading quartic result.  The smallest follow-up internal to
+this hypothesis would be one bounded mapped/area-integrated observation control
+on the same supports, holding degree, q9 target, G3, shared incidence and
+assembly fixed.  It is not another target-quadrature, regularization,
+support/cap, global-campaign, Q04 or production authorization.
+
+The parent's parallel [direct cubic owner-to-face comparison](../../../../work/parallel_q03_direct_owner_flux_20260921/report.md)
+is complete on 32/36/36 selected owners at N32/N48/N64, with all 379/523/620
+incident subfaces. The field-independent 120-owner scalar fit reuses qualified
+q9 integrated face moments and the actual raw-midpoint owner sampling. On N64,
+complete-cell RMS improves approximately 463/519/449 times over the returned
+G3 candidate; error-blind controls improve 54/23/42 times. Independent q9/q11
+HSX reference checks are below 4.4% of the smaller errors; source sampling,
+geometry identity, polynomial reproduction, and flux/action replay checks pass.
+These are bounded results, not global convergence or structural certification.
+The sampled radial error is nonmonotone at N32/N48; no sample slope is a gate.
+Direct scalar recovery is a promising alternative, but its cross-field
+pollution, dissipation, minimum principle and global accuracy remain unqualified.
+
+The completed [direct-cubic anisotropy audit](../../../../work/parallel_q03_direct_anisotropy_20260922/report.md)
+extends the sample to 43/45/41 complete owners. Two smooth probes have over
+99.94% perpendicular gradient energy in actual HSX geometry. Their N64 errors
+are `1.25e-4/1.07e-4`, versus old G3 `0.0486/0.0505`; the original three fields
+retain 435--516x improvements. Reference quadrature differences are at most
+1.6% of the new probe errors. These remain bounded results, not global orders.
+The homogeneous rows have material negative off-diagonal coefficients (about
+53% of entries): the unrestricted linear action fails positivity/minimum
+principle for some nonnegative states. This does not prove energy growth;
+global dissipation is unqualified. An energy argument alone cannot repair the
+established positivity defect.
+
+**Current authorized next step:** prepare the remote N32/N48/N64 static global
+accuracy qualification of the frozen direct cubic scalar-owner candidate.
+Use the [direct cubic remote campaign](../../../scripts/q03_direct_campaign/REMOTE.md),
+with the original three nonconstant fields plus constants, 120 donors, cubic
+moments, fresh continuous q9/q11 references and prescribed analytical boundary
+flux. The two additional anisotropy probes remain bounded diagnostics. This
+experiment may establish accuracy of the unrestricted high-order component;
+it does not pass Q04 or relax positivity, dissipation or solution requirements.
+Do not require structural repair before measuring this component's global
+accuracy. Conversely, no passing accuracy result promotes it as a complete
+diffusion method. Conservative positivity protection is a subsequent design
+experiment, not an authorized remote modification.
+
+The [direct runner](../../../scripts/q03_direct_campaign/README.md) uses indexed
+exact donor searches, reusable centered owner moments, batched SVD, bounded
+process parallelism and identity-checked restart. Frozen scalar inputs are
+exported locally; remote reference production uses the actual corrected d58
+metric cache and continuous MAKEGRID evaluator without historical workspace
+imports. The older Q01 catalogue metric hash is retained as historical
+source-state provenance, not substituted for this campaign's evaluator hash.
+No global computation has yet run for this candidate. P and Q remain separate.
+
 ### Remote global qualification and worker ownership
 
 Global qualification campaigns should use the remote CPU allocation once
 their bounded implementation checks and authorized candidate are ready.
-**Latest Q decision, 21 September:** the user stopped the planned local global
-campaign and requested remote handoff of the frozen whole-support cubic
-exchange N32/N48/N64 comparison. This supersedes the interim local exception.
-Use the self-contained [Q remote computation path](../../../scripts/q03_exchange_campaign/README.md),
-not the P runner. Q is idle and local Q compute processes are stopped. Remote
+**Completed execution decision, 21 September:** the user stopped the planned
+local global campaign and requested remote handoff of the frozen whole-support
+cubic exchange N32/N48/N64 comparison. That remote computation has now finished;
+the scientific decision is recorded above. The local exception remains superseded.
+The completed exchange study used the [exchange runner](../../../scripts/q03_exchange_campaign/README.md).
+The newly authorized direct study uses the separate remote path above; the old
+exchange workflow remains stopped and the local Q bounded audit is complete. Remote
 allocation, environment setup, parallelism and monitoring belong to the remote
 worker's setup skill; remote scientific interpretation is excluded.
-Use maximum requested parallelism (64 workers for the planned allocation),
-without a prerequisite remote scaling study. The remote task receives
+Resource selection belongs to the remote setup skill, with separate reference
+and reconstruction worker settings and no prerequisite scaling study. The remote task receives
 repository commands, not environment, scheduler, transfer, or launch-setup
 instructions. It owns its run and monitoring. P and Q are separate campaigns;
 all coordination goes through the parent task. O is archived.
@@ -44,15 +137,13 @@ Q03 remains in progress. Do not launch or operate P's remote/global study from
 Q. No Q04 certification, N128 extension, limiter stage, or production promotion
 is implied.
 
-The current follow-up is the [whole-support qualification work package](q03_whole_support_qualification_plan.md):
-freeze the 64-swap cubic candidate, run residual-blind stratified complete-cell
-comparisons on N32/N48/N64, validate a compact serial/parallel/resumable runner,
-and execute the global comparison remotely after the parent's bounded packaging
-checks. The interim local assignment is stopped. Local regressions and sample
-slopes do not add acceptance gates, and the broader proposed local sample is
-not required before the full remote run. Existing qualified geometry/reference
-inputs are frozen in the separate input bundle; all remote candidate outputs
-must be generated consistently within one new campaign folder.
+The [whole-support qualification work package](q03_whole_support_qualification_plan.md)
+has delivered its authorized global computation and local interpretation.
+The broader proposed local sample was not a prerequisite and was superseded
+by the full remote comparison. The interim local launch remains stopped;
+no new campaign should start from these historical instructions. Preserve the
+frozen inputs, returned outputs, and negative accuracy result under their own
+identities. Regional regressions and sample slopes do not add acceptance gates.
 
 ### Scientific contract
 
@@ -1352,7 +1443,7 @@ The [original Phase A task](thread://01a0b561-d18d-78b1-b85f-bfe3d67efe49?hostId
 | Q00 | Baseline and result identity | None | passed | [Phase A task](thread://01a0b561-d18d-78b1-b85f-bfe3d67efe49?hostId=local), GPT-5.6 Sol; [evidence](../../../../work/parallel_phase_a_q00_q04_20260918/PHASE_A_REPORT.md#q00--frozen-baseline-and-reliable-identity). Revision `6c2b005`, action SHA `716c2bbe`. Reuse keys geometry/graph, implementation, end time, field/source, contract and requested checks. Wall operator orders -0.980/1.408 and solution -1.004/1.549; smooth-axis -1.007/1.375 and -1.029/1.511. Completion/invariants/time pass; historical references are unqualified and convergence fails. Q01 was next. |
 | Q01 | HSX references and field catalogue | Q00 | passed | [Evidence](../../../../work/parallel_phase_a_q00_q04_20260918/PHASE_A_REPORT.md#q01--qualified-hsx-sources). Version-2 real-HSX midpoint sources cover radial–eta, angular-x, mixed-y-eta and constant fields at 32/48/64 with full-torus eta and explicit boundaries. Stratified requested-step sensitivity is at most `6.15e-8` relative; all-resolution position/B/J and bounded selected-owner quadrature are recorded. Q02 was next. |
 | Q02 | HSX diffusion error localization | Q01 | passed | [Supplement](../../../../work/parallel_phase_a_q00_q04_20260918/Q02_LOCALIZATION_SUPPLEMENT.md): corrected masks establish 81.9–98.6% of squared residual in ordinary unagglomerated interior. Selected-interface quadrature changes are small. The point-transfer comparison omitted amplitude=0.2 and is being corrected by the original task; its worsening is not valid evidence. Retracing also changes the evaluator, so it is not a pure step-size estimate. The user accepts the existing localization as sufficient to start a bounded Q03 hypothesis test; an exclusive moment defect or asymptotic floor is not yet proven. |
-| Q03 | Diffusion repair | Q02 | in progress | **Latest decision:** the frozen enriched baseline fails the global gate; restoring full SVDs reproduces the sampled fast-selector outputs. [Complete-update whole-support exchange](../../../../work/parallel_q03_full_update_exchange_20260921/report.md) gives G3 RMS ratios N48 `0.998/1.132/1.029`, N64 `0.963/0.744/0.814` on the same 168 fully updated owners. The previous N64 radial regression disappears after completing faces, and added residual-blind patches improve at both resolutions. Older N48 regions retain tradeoffs. Keep the cubic candidate frozen for broader accuracy assessment; use broader residual-blind HSX sampling as a low-cost decision aid or global qualification when feasible, without making local improvement a new gate. Do not recursively expand the partial fringe or tune to sampled errors. No new run is dispatched automatically. Q03 remains open; this is not Q04, positivity/dissipation, fixed-time or production certification. |
+| Q03 | Diffusion repair | Q02 | open — whole-support global accuracy failed | [Remote campaign and local analysis](../../../../work/q03-exchange-tNlxO86M_analysis/report.md): G3 orders radial `1.528/1.949`, angular `2.231/1.634`, mixed `2.019/1.515`; exact rows also fail both-interval qualification. N64 improves 4.76%/13.44%/11.24% over enriched baseline, but no field passes both intervals. Reference budgets, input/source/chunk integrity, and global assembly checks pass. Error lies mainly in ordinary interior/boundary-adjacent owners; omitted face-functional truncation response is the next bounded diagnostic question. Do not infer a G3-only, wall-only or RLP-only defect. No new run dispatched, no cap/degree increase or extra gate imposed; Q04 remains pending. |
 | Q04 | Diffusion certification | Q03 | pending | Await a repaired candidate; no operator/solution or JAX/sharding certification pass is claimed. |
 | Q05 | Shared interface structure | Q04 | pending | No promotion before certified diffusion. |
 | Q06 | Gradient/divergence pairs | Q05 | pending | Independent HSX operator and pairing checks. |
