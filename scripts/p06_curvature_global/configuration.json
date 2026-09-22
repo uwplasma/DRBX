@@ -1,0 +1,47 @@
+{
+  "schema": "drbx.p06-curvature-portable-config-v1",
+  "source_root": ".",
+  "time": 0.37,
+  "curl_step": 0.0002,
+  "metric_query_batch_size": 4096,
+  "face_chunk": 128,
+  "cell_chunk": 32,
+  "inputs": {
+    "geometry": "geometry_artifacts/rlp_convergence_32_48_64_20260917",
+    "baseline": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline",
+    "reference_sidecar": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json",
+    "metric_cache": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+    "makegrid": "mgrid_res2p5cm_180pln.nc"
+  },
+  "candidate": {
+    "name": "p06_complete_curvature_point_boundary_selection_v3",
+    "degree": 3,
+    "support": "selection-v3, frozen expansion and distance weights",
+    "bias": 0.75,
+    "owner_observation": "raw midpoint values projected with physical raw_volume",
+    "cell_boundary_relation": "one homogeneous wall-center point relation: thermodynamic physical-normal derivative and phi value; omega unconstrained",
+    "face_boundary_relation": "same wall-center point relation on every geometry-selected wall-reaching central/left/right fit; left/right recentered around the constrained central value",
+    "wall_patch_convention": "half-open periodic wall patches; exact internal ties select plus interval and upper seam maps to zero; diagnostic because the selected point relation is patch independent",
+    "quadrature": "q3 tensor product at actual integration locations",
+    "reference": "independent continuous J/B/K evaluator at actual q3 points; bounded complete-owner q5/q7 qualification",
+    "characteristic": "existing coupled four-field recentered jump; physical wall branch unchanged"
+  },
+  "scope": {
+    "resolutions": [32, 48, 64],
+    "states": ["corrected_frozen_mms", "regular_chart_heldout"],
+    "equations": ["density", "Te", "Ti", "vorticity"],
+    "terms": ["material", "remainder", "total"],
+    "actions": ["centered", "U"],
+    "primary_action": {
+      "density": "U",
+      "Te": "U",
+      "Ti": "U",
+      "vorticity": "centered"
+    },
+    "acceptance": "global physical-volume L2 order >= 1.8 on 32->48 and 48->64 for every nonzero primary M/R/total component in both states; no pooled gate",
+    "production_changes": [],
+    "evolved_runs": false,
+    "sheath_migration": false,
+    "promotion_authorized": false
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "contents": "real-HSX observation/metric/wall-q3 geometry plus dynamic owner fixture values",
+  "corrected_reference": "work/p06_curvature_corrected_20260922/localized_reference_sidecar.json",
+  "donor_sha256": "49b6bdd08ed0ef5da1b5fb09135e878c57b928c54f0ea863a54bbd7c05ba05f2",
+  "parent": "work/p06_wall_followup_20260922/N32.npz",
+  "parent_sha256": "3ea6b0c176ba60a39e8771442dd8074b7f2abf019ab20bc782fefb359313e729",
+  "raw_key": [
+    31,
+    0,
+    0
+  ],
+  "resolution": 32,
+  "schema": "drbx.p06-actual-hsx-boundary-fixture-v1"
+}
