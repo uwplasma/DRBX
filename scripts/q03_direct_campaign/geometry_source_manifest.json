@@ -1,0 +1,5 @@
+{
+  "src/drbx/geometry/Bfield_evaluator.py": "3d4273feaf4439650449906dbf729dffe7b1e7ba86f17fd500b08da1cf0bed30",
+  "src/drbx/geometry/MetricEvaluator.py": "fa97f44de97971d91ebdde2c83e69310c2d05023796e2aba33c61f441d5f25af",
+  "src/drbx/geometry/solve_MMPDE.py": "a54ea29da75c87293d40f59fab75d14c648b5ed65973acdbc2c20175290ae25d"
+}

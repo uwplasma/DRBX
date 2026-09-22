@@ -1,0 +1,9 @@
+{
+  "N": 32,
+  "geometry_sha256": "2d3a0a87fd4aab63df4ab7b9cbc08d1339ba8554de268456e6a4008c1163bddc",
+  "input_manifest_sha256": "89f592928a219a10477a921aaed31b85be27a3023b78a97da69b291b2758047c",
+  "note": "Owner sampling and expected action/coefficients from independently evaluated raw-owner prototype; not a convergence fixture.",
+  "prototype_comparison_sha256": "00a29b39c6ee4e6a987eaf8be094ff23389d12086e74c976556d85fdac7f1bd1",
+  "schema": "actual-HSX-bounded-regression-v1",
+  "sha256": "2f6b58dccdd0331a94e205810bb2a9a0fcc1f3eff8da93c613de359309b9f767"
+}
