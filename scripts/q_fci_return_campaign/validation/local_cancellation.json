@@ -1,0 +1,38 @@
+{
+  "state": "cancelled",
+  "reason": "User requested stopping the remaining local N48/N64 preflight; continue prescribed preflight remotely.",
+  "cancelled_unix": 1790189942.349331,
+  "stopped_parent_pid": 78167,
+  "stopped_worker_pids": [
+    78770,
+    78771,
+    78772,
+    78773
+  ],
+  "previous_status": {
+    "command": "preflight",
+    "started_unix": 1790188461.892415,
+    "state": "running",
+    "workers": 4
+  },
+  "resolutions": {
+    "32": {
+      "complete": true,
+      "trace_chunks": 112,
+      "face_chunks": 3,
+      "volume_chunks": 2
+    },
+    "48": {
+      "complete": false,
+      "trace_chunks": 40,
+      "face_chunks": 0,
+      "volume_chunks": 0
+    },
+    "64": {
+      "complete": false,
+      "trace_chunks": 0,
+      "face_chunks": 0,
+      "volume_chunks": 0
+    }
+  }
+}

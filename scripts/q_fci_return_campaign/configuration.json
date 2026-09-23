@@ -1,0 +1,102 @@
+{
+  "schema": "q-fci-return-v1",
+  "resolutions": [
+    32,
+    48,
+    64
+  ],
+  "fields": {
+    "radial_eta": {
+      "amplitude": 0.2,
+      "chi": 0.1,
+      "eta_period": 6.283185307179586,
+      "field_formula": "u^2(1-u^2)^4 sin(m eta)",
+      "field_kind": "radial_eta",
+      "lambda": 0.3,
+      "m": 1,
+      "radial_formula": "u^2(1-u^2)^4",
+      "radial_profile": "smooth_axis"
+    },
+    "angular_x": {
+      "amplitude": 0.2,
+      "chi": 0.1,
+      "eta_period": 6.283185307179586,
+      "field_formula": "x(1-u^2)^4",
+      "field_kind": "angular_x",
+      "lambda": 0.3,
+      "m": 1,
+      "radial_formula": "u(1-u^2)^4",
+      "radial_profile": "smooth_axis"
+    },
+    "mixed_y_eta": {
+      "amplitude": 0.2,
+      "chi": 0.1,
+      "eta_period": 6.283185307179586,
+      "field_formula": "y(1-u^2)^4 sin(m eta)",
+      "field_kind": "mixed_y_eta",
+      "lambda": 0.3,
+      "m": 1,
+      "radial_formula": "u(1-u^2)^4",
+      "radial_profile": "smooth_axis"
+    },
+    "constant": {
+      "amplitude": 0.2,
+      "chi": 0.1,
+      "eta_period": 6.283185307179586,
+      "field_formula": "1",
+      "field_kind": "constant",
+      "lambda": 0.3,
+      "m": 1,
+      "radial_formula": "1",
+      "radial_profile": "smooth_axis"
+    }
+  },
+  "currents": [
+    10722.0,
+    10722.0,
+    10722.0,
+    10722.0,
+    10722.0,
+    10722.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "geometry": "geometry_artifacts/rlp_convergence_32_48_64_20260917",
+  "metric_cache": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+  "makegrid": "mgrid_res2p5cm_180pln.nc",
+  "policy": {
+    "basis": "cubic potential b.grad(p), constant removed",
+    "observations": "midpoint-volume owner cubic endpoint secants, m2 footprints, endpoint-derived potential moments",
+    "return_rows": 96,
+    "minimum_rows_per_interval": 3,
+    "halos": [
+      2,
+      3,
+      4,
+      6,
+      8
+    ],
+    "face_order": 5,
+    "reference_orders": [
+      9,
+      11
+    ],
+    "volume_order": 5,
+    "trace_rtol": 2e-10,
+    "trace_atol": 2e-12,
+    "trace_chunk_rows": 24,
+    "face_chunk": 64,
+    "volume_chunk": 32,
+    "boundary": "dynamic prescribed integrated outward scalar diffusion flux; frozen wall-envelope catalogue has zero flux",
+    "invalid_legs": "exclude wall events and outside-domain ODE trials, bisect batches to identify footprint; no geometry or fields evaluated outside wall; expand geometry-only interior support; never remove recipient owners",
+    "axis": "collapsed origin face absent; regular-chart reconstruction and complete outer ring/eta incidence",
+    "action": "positive-coordinate flux divergence: plus contribution to lower owner and minus to upper owner",
+    "reference": "independent analytical face integral divided by continuous volume; bounded independent strong-volume checks",
+    "acceptance": "global physical-volume weighted L2 order >=1.8 per nonconstant field on both intervals; empirical reference fraction <0.1; structure/evolved separate"
+  },
+  "endpoint_source_sha256": "44649f41c45a35009c019cc506208c92ed54c05ac4773879a08895072c4bf1a4"
+}

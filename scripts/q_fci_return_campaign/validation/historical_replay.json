@@ -1,0 +1,38 @@
+{
+  "32": {
+    "action_max": 1.0408340855860843e-15,
+    "faces": 90880,
+    "fresh_g_sec_max": 1.61263178158344e-10,
+    "fresh_numerical_max": 1.6047917161809977e-10,
+    "g_sec": 2.541098841762901e-20,
+    "numerical": 2.202285662861181e-20,
+    "owners": 25376,
+    "seconds": 12.563717333017848,
+    "target_defect_max": 3.192498330345558e-14,
+    "wall_faces": 1024
+  },
+  "48": {
+    "action_max": 3.0531133177191805e-16,
+    "faces": 307152,
+    "fresh_g_sec_max": 4.626339502461496e-10,
+    "fresh_numerical_max": 4.62415648307124e-10,
+    "g_sec": 5.082197683525802e-21,
+    "numerical": 4.235164736271502e-21,
+    "owners": 86016,
+    "seconds": 9.201125833089463,
+    "target_defect_max": 6.617429611477533e-14,
+    "wall_faces": 2304
+  },
+  "64": {
+    "action_max": 9.71445146547012e-16,
+    "faces": 726528,
+    "fresh_g_sec_max": 1.646634942113756e-10,
+    "fresh_numerical_max": 1.6473216714329997e-10,
+    "g_sec": 2.329340604949326e-21,
+    "numerical": 2.4352197233561135e-21,
+    "owners": 202304,
+    "seconds": 9.250984332989901,
+    "target_defect_max": 1.1598907715870927e-13,
+    "wall_faces": 4096
+  }
+}

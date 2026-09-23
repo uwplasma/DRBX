@@ -1,0 +1,78 @@
+{
+  "32": {
+    "canonical_original_tracks": [
+      {
+        "numerical_action": [
+          -0.025142422512852192,
+          0.03590950375376564,
+          -0.006908657239311693,
+          -7.883093091089411e-15
+        ],
+        "owner": 11565,
+        "reference": [
+          -0.02449390977085415,
+          0.036398469420518276,
+          -0.01014635831741651,
+          0.0
+        ],
+        "track": "ordinary"
+      },
+      {
+        "numerical_action": [
+          -0.0027334525295633484,
+          0.028820998586358892,
+          0.08414380644039561,
+          6.610084345972594e-15
+        ],
+        "owner": 2613,
+        "reference": [
+          -0.004517664435569379,
+          0.028807034636667405,
+          0.08512993297626814,
+          0.0
+        ],
+        "track": "agglomerated"
+      },
+      {
+        "numerical_action": [
+          -0.009877153561287502,
+          0.04641780245799247,
+          0.039660375134686475,
+          1.1146853094873094e-14
+        ],
+        "owner": 3645,
+        "reference": [
+          -0.009664854235972676,
+          0.04662478167158947,
+          0.04324635460858584,
+          0.0
+        ],
+        "track": "transition"
+      }
+    ],
+    "constant_max": 2.7806989454664863e-13,
+    "excluded_rows": 37,
+    "global_counts": {
+      "face_units": 1420,
+      "faces": 90880,
+      "owners": 25376,
+      "raw_cells": 32768,
+      "rows": 65536,
+      "trace_units": 2752,
+      "volume_units": 1024
+    },
+    "independent_raw_incidence_action_max": 1.7780915628762273e-17,
+    "measured_worker_seconds_per_unit": {
+      "cell": 0.09432897187652997,
+      "face": 0.2044639535392333,
+      "row": 0.7023642724095508
+    },
+    "peak_worker_gib": 0.748443603515625,
+    "projected_serial_worker_hours": 18.806333556868882,
+    "projected_trace_face_checkpoint_gib": 0.13639830062254055,
+    "reload_flux_max": 0.0,
+    "sampled_rows": 2276,
+    "uncertainty": "Planning projection only; allow factor 2-3 variability. Bounded sample overrepresents axis/wall and misses unsampled global exceptions; allocation scaling and context/I/O overhead are not included.",
+    "wall_faces": 1
+  }
+}
