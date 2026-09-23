@@ -96,7 +96,10 @@
     "axis": "collapsed origin face absent; regular-chart reconstruction and complete outer ring/eta incidence",
     "action": "positive-coordinate flux divergence: plus contribution to lower owner and minus to upper owner",
     "reference": "independent analytical face integral divided by continuous volume; bounded independent strong-volume checks",
-    "acceptance": "global physical-volume weighted L2 order >=1.8 per nonconstant field on both intervals; empirical reference fraction <0.1; structure/evolved separate"
+    "acceptance": "global physical-volume weighted L2 order >=1.8 per nonconstant field on both intervals; empirical reference fraction <0.1; structure/evolved separate",
+    "preflight_trace_chunk_rows": 4,
+    "preflight_face_chunk": 8,
+    "preflight_volume_chunk": 8
   },
   "endpoint_source_sha256": "44649f41c45a35009c019cc506208c92ed54c05ac4773879a08895072c4bf1a4"
 }

@@ -77,6 +77,16 @@ stage; geometry/maps are shared across all four fields. BLAS/OpenMP threads are
 one. This is not a distributed runner. The remote setup skill chooses allocation,
 affinity, workers, memory allowances, and walltime; GPUs are unnecessary.
 
+Both `preflight` and `run` use the requested worker pool for tracing plus endpoint
+reconstruction, shared-face maps and analytical face references, and continuous
+volume integrals. Preflight uses finer units (4 trace rows, 8 faces or 8 raw
+cells) so its bounded work can occupy remote CPUs. Global units are 24 rows,
+64 faces and 32 raw cells. The two independent strong-volume preflight controls
+also execute in worker processes. Resolutions and stage dependencies proceed
+in order, using the allocation within each stage; do not launch a separate
+writer per resolution. Final deterministic owner reduction, norms, manifest
+checks and small bookkeeping remain in the parent process.
+
 Create one uniquely named absolute `CAMPAIGN` folder. Keep logs, scheduler
 stdout/stderr, temporary files, caches, provenance, checkpoints and the final
 receipt beneath it. Save real files, not symlinks to external generated outputs.

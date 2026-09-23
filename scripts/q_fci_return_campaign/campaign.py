@@ -146,25 +146,25 @@ def pool_jobs(args,n,jobs,worker,row_dir=None):
                 if job is not None:pending.add(pool.submit(worker,job))
 
 
-def trace_plan(ctx,ids):
+def trace_plan(ctx,ids,chunk=24):
     import numpy as np
     # Bounded subsets stay bounded; each saved batch has its own content identity.
     keys=NUM.row_keys(ctx['N'],np.asarray(ids));units=[]
     for k,d in sorted(set(map(tuple,keys[:,2:]))):
         local=np.asarray(ids)[(keys[:,2]==k)&(keys[:,3]==d)]
-        units.extend(local[i:i+24].tolist() for i in range(0,len(local),24))
+        units.extend(local[i:i+chunk].tolist() for i in range(0,len(local),chunk))
     return units
 
 
 def trace_path(root,unit):return root/'trace_chunks'/(digest(unit)+'.npz')
 
 
-def trace_stage(args,n,root,ids,campaign_id):
+def trace_stage(args,n,root,ids,campaign_id,chunk=24):
     import numpy as np
     plan=root/'trace_plan.json'
     previous=read(plan)['units'] if plan.exists() else []
     done_ids=[r for u in previous for r in u]
-    units=previous+trace_plan(CTX,np.setdiff1d(ids,done_ids)) if len(np.setdiff1d(ids,done_ids)) else previous
+    units=previous+trace_plan(CTX,np.setdiff1d(ids,done_ids),chunk) if len(np.setdiff1d(ids,done_ids)) else previous
     ident=digest({'campaign':campaign_id,'N':n,'stage':'trace'})
     plan=root/'trace_plan.json'
     data={'identity':ident,'units':units}
@@ -241,6 +241,17 @@ def do_volume(job):
         out[f'q{order}']=np.sum(w*J.reshape(w.shape),axis=1)
     save(path,ids=ids,seconds=np.array(time.monotonic()-t),peak_rss_gib=np.array(rss()),**out)
     receipt(Path(path),identity,ids);return str(path)
+
+
+def do_strong(job):
+    import numpy as np
+    name,owner,reference,numerical=job
+    members=np.flatnonzero(CTX['topology']['compact_raw_owner'].ravel()==owner)
+    t=time.monotonic();value,volume=NUM.strong_reference(CTX,members,9)
+    return {'track':name,'volume_q9':volume,'reference_q9_volume':value,
+            'face_q11_minus_strong':np.asarray(reference)-value,
+            'numerical_minus_strong':np.asarray(numerical)-value,
+            'seconds':time.monotonic()-t,'worker_pid':os.getpid(),'peak_rss_gib':rss()}
 
 
 def bounded_selection(ctx):
@@ -346,22 +357,23 @@ def resolution(args,n,campaign_id,sample):
     else:ids=np.arange(2*n**3)
     if (root/'trace_plan.json').exists():ids=np.union1d(ids,[r for u in read(root/'trace_plan.json')['units'] for r in u])
     while True:
-        cat=trace_stage(args,n,root,ids,campaign_id)
-        missing=stage_units(args,n,root,faces,'face',64,do_faces,campaign_id,cat)
+        cat=trace_stage(args,n,root,ids,campaign_id,4 if sample else 24)
+        missing=stage_units(args,n,root,faces,'face',8 if sample else 64,do_faces,campaign_id,cat)
         if not missing:break
         ids=np.union1d(ids,missing)
-    stage_units(args,n,root,raw,'volume',32,do_volume,campaign_id)
+    stage_units(args,n,root,raw,'volume',8 if sample else 32,do_volume,campaign_id)
     # Worker initialization may have changed globals, restore the matching context only.
     summary=assemble(root,ctx,owners,faces,raw,campaign_id)
     if sample:
-        strong=[]
-        # Keep the independent strong-volume check bounded; all other faces retain q9/q11 controls.
-        for name in ('ordinary','wall'):
-            track=next(x for x in tracks if x['name']==name);owner=track['owner'];members=np.flatnonzero(ctx['topology']['compact_raw_owner'].ravel()==owner)
-            r,v=NUM.strong_reference(ctx,members,9)
-            with np.load(root/'actions.npz') as z:
+        jobs=[]
+        # Independent strong-volume controls use the same CPU pool as other stages.
+        with np.load(root/'actions.npz') as z:
+            for name in ('ordinary','wall'):
+                track=next(x for x in tracks if x['name']==name);owner=track['owner']
                 pos=np.flatnonzero(z['owners']==owner)[0]
-                strong.append({'track':name,'volume_q9':v,'reference_q9_volume':r,'face_q11_minus_strong':z['reference'][pos]-r,'numerical_minus_strong':z['numerical_action'][pos]-r})
+                jobs.append((name,owner,z['reference'][pos],z['numerical_action'][pos]))
+        strong=list(pool_jobs(args,n,jobs,do_strong))
+        strong.sort(key=lambda x:x['track'])
         summary['strong_volume_checks']=strong;write(root/'summary.json',summary)
     write(root/'completion.json',{'identity':campaign_id,'summary_sha256':sha(root/'summary.json'),'complete':True})
     return summary
