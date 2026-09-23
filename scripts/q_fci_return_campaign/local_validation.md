@@ -1,4 +1,8 @@
-# Local readiness evidence — 23 September 2026
+> This document describes the preceding DOP853 revision. Current RK4 evidence
+> and changed execution policy are in [rk4_validation.md](rk4_validation.md).
+> Its timing estimates and checkpoint identities must not be used for RK4.
+
+# Historical DOP853 readiness evidence — 23 September 2026
 
 This records preparation evidence, not global scientific qualification. No
 full-domain numerical run was launched locally. The cancelled Q runner remains

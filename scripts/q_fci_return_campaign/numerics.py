@@ -9,7 +9,6 @@ import hashlib
 import json
 import time
 import numpy as np
-from scipy.integrate import solve_ivp
 from .endpoints import OwnerMoments
 from ..q03_direct_campaign.frozen_mms import ManufacturedField
 
@@ -44,10 +43,12 @@ def gradient_basis(p,b,center,scale):
 
 
 def base(ctx,p):
-    metric=ctx['evaluator'].evaluate(p,reject_nonpositive_J=False)
-    magnetic=ctx['evaluator'].project_magnetic_field(metric,ctx['bfield'])
-    J=np.abs(np.asarray(metric.signed_J));Bmag=np.asarray(magnetic.magnitude)
-    return J,np.asarray(magnetic.B_contravariant)/Bmag[:,None],Bmag
+    # The frozen producer exposes this primitive; no metric inverse/diagnostic is needed.
+    position,A=ctx['evaluator']._position_and_jacobian(p)
+    B=np.asarray(ctx['bfield'].evaluate_cartesian(position))
+    Bmag=np.linalg.norm(B,axis=-1)
+    Bcontra=np.linalg.solve(A,B[...,None])[...,0]
+    return np.abs(np.linalg.det(A)),Bcontra/Bmag[:,None],Bmag
 
 
 def fields(ctx,p):
@@ -156,53 +157,31 @@ def footprint(ctx,keys):
     return p,area
 
 
-def trace(ctx,seeds,direction):
-    eta0=float(seeds[0,2]);h=2*np.pi/ctx['N'];delta=direction*h
-    y0=np.column_stack((regular(seeds,eta0)[:,:2],np.zeros((len(seeds),2)))).ravel()
-    min_beta=[np.inf]
-    class OutsideWall(Exception):pass
-    def rhs(t,y):
-        a=y.reshape(-1,4);r=np.linalg.norm(a[:,:2],axis=1);th=np.arctan2(a[:,1],a[:,0])%(2*np.pi)
-        if np.any(r>=1):raise OutsideWall
-        p=np.column_stack((r,th,np.full(len(r),(eta0+t)%(2*np.pi))))
-        _,b,Bmag=base(ctx,p);beta=b[:,2];min_beta[0]=min(min_beta[0],float(beta.min()))
-        if np.any(beta<=1e-10):raise ValueError('nonpositive b^eta: frozen orientation invalid')
-        c,s=np.cos(th),np.sin(th)
-        return np.column_stack(((c*b[:,0]-r*s*b[:,1])/beta,(s*b[:,0]+r*c*b[:,1])/beta,1/beta,1/(beta*Bmag))).ravel()
-    def wall(t,y):return 1-np.max(np.sum(y.reshape(-1,4)[:,:2]**2,axis=1))
-    wall.terminal=True
-    try:
-        sol=solve_ivp(rhs,(0,delta),y0,method='DOP853',rtol=2e-10,atol=2e-12,max_step=h/8,dense_output=True,events=wall)
-    except OutsideWall:
-        return None,{'terminated':True,'reason':'outside-domain trial; interior row excluded','nfev':0}
-    if not sol.success:raise RuntimeError(sol.message)
-    if sol.t_events[0].size:return None,{'terminated':True,'nfev':sol.nfev}
-    a=sol.y[:,-1].reshape(-1,4);r=np.linalg.norm(a[:,:2],axis=1)
-    if np.any(r>=1):return None,{'terminated':True,'nfev':sol.nfev}
-    end=np.column_stack((r,np.arctan2(a[:,1],a[:,0])%(2*np.pi),np.full(len(r),(eta0+delta)%(2*np.pi))))
-    return (end,np.abs(a[:,2])),{'terminated':False,'nfev':sol.nfev,'min_beta':min_beta[0]}
+def trace(ctx,seeds,direction,steps=None):
+    from .rk4 import advance
+    from drbx.geometry.hsx_jax_field import JaxHsxMagneticField
+    if 'rk_field' not in ctx:
+        ctx['rk_field']=JaxHsxMagneticField.from_evaluators(ctx['evaluator'],ctx['bfield'])
+    steps=int(steps or ctx['config']['policy']['trace_substeps'])
+    if steps<1:raise ValueError('RK4 substeps must be positive')
+    # Pad only the final short batch to a fixed per-stage shape, avoiding recompilation.
+    count=len(seeds);capacity=max(count,int(ctx.get('trace_capacity',count)))
+    padded=np.concatenate((seeds,np.repeat(seeds[:1],capacity-count,axis=0)))
+    result=advance(ctx['rk_field'],padded,float(direction*2*np.pi/ctx['N']),steps=steps)
+    end,ell,valid,bad=(np.asarray(x)[:count] for x in result)
+    if np.any(bad):raise ValueError('nonpositive or nonfinite b^eta: frozen orientation invalid')
+    return end,ell,valid,{'rhs_batches':4*steps,'seed_stage_evaluations':capacity*4*steps}
 
 
 def trace_rows(ctx,ids):
-    """Trace one source-plane/direction batch; bisect on a wall event.
-
-    A footprint with any terminating seed is unavailable as an interior row.
-    Its status is retained. Valid interior data are not extended through walls.
-    """
+    """Trace a source-plane/direction batch; exclude any footprint with an invalid seed."""
     t=time.monotonic();ids=np.asarray(ids,dtype=int);keys=row_keys(ctx['N'],ids)
     if len(set(keys[:,2]))!=1 or len(set(keys[:,3]))!=1:raise ValueError('mixed trace batch')
     source,area=footprint(ctx,keys);ns=len(ids)
-    end=np.full((ns,4,3),np.nan);ell=np.full((ns,4),np.nan);valid=np.zeros(ns,bool);nfev=0
-    def compute(which):
-        nonlocal nfev
-        seeds=source.reshape(ns,4,3)[which].reshape(-1,3)
-        result,stats=trace(ctx,seeds,int(keys[0,3]));nfev+=stats['nfev']
-        if result is None:
-            if len(which)>1:
-                mid=len(which)//2;compute(which[:mid]);compute(which[mid:])
-            return
-        e,l=result;end[which]=e.reshape(-1,4,3);ell[which]=l.reshape(-1,4);valid[which]=True
-    compute(np.arange(ns))
+    endpoint,length,seed_valid,stats=trace(ctx,source,int(keys[0,3]))
+    valid=seed_valid.reshape(ns,4).all(axis=1)
+    end=endpoint.reshape(ns,4,3).copy();ell=length.reshape(ns,4).copy()
+    end[~valid]=np.nan;ell[~valid]=np.nan
     J,b,B=base(ctx,source);F=(area*J*B*np.abs(b[:,2])).reshape(ns,4)
     out={'ids':ids,'valid':valid,'source':source.reshape(ns,4,3),'endpoint':end,'ell':ell,'F':F,
          'Z':np.full(ns,np.nan),'g_sec':np.full((ns,4),np.nan),'numerical':np.full((ns,4),np.nan),
@@ -212,13 +191,13 @@ def trace_rows(ctx,ids):
         pp=out['source'][ri];ee=end[ri];out['Z'][ri]=F[ri]@ell[ri]
         exact=fields(ctx,np.vstack((pp,ee)))[0];vals=[]
         for point in np.vstack((pp,ee)):
-            donors,coef,_,meta=ctx['model'].endpoint_pair(point)
+            donors,coef,_,meta=ctx['model'].endpoint_pair(point,include_control=False)
             vals.append(coef@ctx['state'][donors]);out['fit_l1'][ri]=max(out['fit_l1'][ri],meta['chosen']['coefficient_l1'])
             out['fit_defect'][ri]=max(out['fit_defect'][ri],meta['chosen']['residual'])
         vals=np.array(vals);d=keys[ri,3]
         out['g_sec'][ri]=d*F[ri]@(exact[4:]-exact[:4])/out['Z'][ri]
         out['numerical'][ri]=d*F[ri]@(vals[4:]-vals[:4])/out['Z'][ri]
-    out['seconds']=np.array(time.monotonic()-t);out['fit_seconds']=np.array(time.monotonic()-fit_start);out['nfev']=np.array(nfev)
+    out['seconds']=np.array(time.monotonic()-t);out['fit_seconds']=np.array(time.monotonic()-fit_start);out['nfev']=np.array(stats['rhs_batches']);out['seed_stage_evaluations']=np.array(stats['seed_stage_evaluations'])
     return out
 
 
@@ -247,7 +226,8 @@ def return_map(ctx,key,rows,halo=2,frozen_ids=None):
     ids=ids[np.asarray(rows['valid'][ids],bool)]
     if not len(ids):raise ValueError('no valid interior observations')
     src=rows['source'][ids];F=rows['F'][ids]
-    centers=np.array([np.sum(ff[:,None]*regular(p,float(fc[2])),axis=0)/ff.sum() for ff,p in zip(F,src)])
+    chart=regular(src.reshape(-1,3),float(fc[2])).reshape(src.shape)
+    centers=np.sum(F[:,:,None]*chart,axis=1)/F.sum(axis=1)[:,None]
     d=centers-fc;d[:,2]=(d[:,2]+np.pi)%(2*np.pi)-np.pi;distance=np.sum((d/sc)**2,axis=1)
     order=np.lexsort((ids,distance));inter=interval_counts(n,ids)
     if frozen_ids is None:
@@ -257,12 +237,11 @@ def return_map(ctx,key,rows,halo=2,frozen_ids=None):
         chosen=np.array(sorted(set(chosen),key=lambda x:(distance[x],ids[x])))
     else:chosen=np.arange(len(ids))
     selected=ids[chosen];dist=distance[chosen];weights=(1+dist)**-1.5
-    A=[]
-    for rid in selected:
-        src=rows['source'][rid];end=rows['endpoint'][rid];F=rows['F'][rid];Z=rows['Z'][rid]
-        direction=1 if rid%2 else -1
-        A.append(direction*F@(basis(end,fc,sc)[:,1:]-basis(src,fc,sc)[:,1:])/Z)
-    A=np.array(A);p,lw=quadrature(ctx,np.asarray(key)[None],5);p=p[0];lw=lw[0];J,b,_=base(ctx,p)
+    src=rows['source'][selected];end=rows['endpoint'][selected];F=rows['F'][selected];Z=rows['Z'][selected]
+    delta=basis(end.reshape(-1,3),fc,sc).reshape(len(selected),4,20)[:,:,1:]-basis(src.reshape(-1,3),fc,sc).reshape(len(selected),4,20)[:,:,1:]
+    direction=np.where(selected%2,1,-1)
+    A=np.matmul((direction[:,None]*F)[:,None,:],delta)[:,0,:]/Z[:,None]
+    p,lw=quadrature(ctx,np.asarray(key)[None],5);p=p[0];lw=lw[0];J,b,_=base(ctx,p)
     target=(lw*J*b[:,int(key[0])])@gradient_basis(p,b,fc,sc)
     sw=np.sqrt(weights);U,s,Vt=np.linalg.svd(A*sw[:,None],full_matrices=False)
     keep=s>s[0]*1e-11;K=(Vt[keep].T/s[keep])@(U[:,keep].T*sw[None])

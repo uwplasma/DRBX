@@ -1,5 +1,5 @@
 {
-  "schema": "q-fci-return-v1",
+  "schema": "q-fci-return-rk4-v2",
   "resolutions": [
     32,
     48,
@@ -86,20 +86,20 @@
       11
     ],
     "volume_order": 5,
-    "trace_rtol": 2e-10,
-    "trace_atol": 2e-12,
     "trace_chunk_rows": 24,
     "face_chunk": 64,
     "volume_chunk": 32,
     "boundary": "dynamic prescribed integrated outward scalar diffusion flux; frozen wall-envelope catalogue has zero flux",
-    "invalid_legs": "exclude wall events and outside-domain ODE trials, bisect batches to identify footprint; no geometry or fields evaluated outside wall; expand geometry-only interior support; never remove recipient owners",
+    "invalid_legs": "exclude each footprint having any RK4 stage or endpoint outside 0<u<1; independent seed masks, no batch retracing; no recipient cropping",
     "axis": "collapsed origin face absent; regular-chart reconstruction and complete outer ring/eta incidence",
     "action": "positive-coordinate flux divergence: plus contribution to lower owner and minus to upper owner",
     "reference": "independent analytical face integral divided by continuous volume; bounded independent strong-volume checks",
     "acceptance": "global physical-volume weighted L2 order >=1.8 per nonconstant field on both intervals; empirical reference fraction <0.1; structure/evolved separate",
     "preflight_trace_chunk_rows": 4,
     "preflight_face_chunk": 8,
-    "preflight_volume_chunk": 8
+    "preflight_volume_chunk": 8,
+    "trace_integrator": "compiled CPU RK4, regular x/y and RK4 length",
+    "trace_substeps": 64
   },
   "endpoint_source_sha256": "44649f41c45a35009c019cc506208c92ed54c05ac4773879a08895072c4bf1a4"
 }

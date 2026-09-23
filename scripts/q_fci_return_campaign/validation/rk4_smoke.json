@@ -1,0 +1,62 @@
+[
+  {
+    "ell_max": 1.1031209279366294e-10,
+    "endpoint_regular_max": 2.116476530058392e-09,
+    "numerical_max": 1.3404481992700806e-09,
+    "rows": 24,
+    "seconds": 21.43323154200334,
+    "step": 64,
+    "unit": 0,
+    "valid_difference": 0
+  },
+  {
+    "ell_max": 2.934532616905017e-10,
+    "endpoint_regular_max": 2.965358802953233e-08,
+    "numerical_max": 1.5348938439685433e-09,
+    "rows": 24,
+    "seconds": 1.5334697080543265,
+    "step": 64,
+    "unit": 1,
+    "valid_difference": 0
+  },
+  {
+    "ell_max": 1.648812864019078e-09,
+    "endpoint_regular_max": 3.080632082763657e-08,
+    "numerical_max": 2.3744388318600387e-10,
+    "rows": 14,
+    "seconds": 1.180293207988143,
+    "step": 64,
+    "unit": 2,
+    "valid_difference": 0
+  },
+  {
+    "ell_max": 1.1018030932063994e-10,
+    "endpoint_regular_max": 2.106796231828717e-09,
+    "numerical_max": 1.3365627738685243e-09,
+    "rows": 24,
+    "seconds": 25.315744500025176,
+    "step": 128,
+    "unit": 0,
+    "valid_difference": 0
+  },
+  {
+    "ell_max": 3.636219103597682e-11,
+    "endpoint_regular_max": 1.0970675201615876e-08,
+    "numerical_max": 8.38735712826999e-10,
+    "rows": 24,
+    "seconds": 3.605294334003702,
+    "step": 128,
+    "unit": 1,
+    "valid_difference": 0
+  },
+  {
+    "ell_max": 1.6523021839631724e-09,
+    "endpoint_regular_max": 3.0012672458390455e-08,
+    "numerical_max": 2.3614066257948707e-10,
+    "rows": 14,
+    "seconds": 2.5737575000384822,
+    "step": 128,
+    "unit": 2,
+    "valid_difference": 0
+  }
+]

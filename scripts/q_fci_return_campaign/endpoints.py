@@ -93,7 +93,7 @@ class OwnerMoments:
                 "score": float((remainder + .05 * l1) * (1 + .1 * extent)),
                 "feasible": bool(rank == len(exps) and residual <= 1e-11)}
 
-    def endpoint_pair(self, point):
+    def endpoint_pair(self, point, *, include_control=True):
         point, k, plane_delta, xy, scale, order, containing = self.geometry(point)
         supports = [("nearest24", order[:24]), ("directional24", self.directional(order, xy, scale, 24)),
                     ("nearest48", order[:48])]
@@ -105,12 +105,11 @@ class OwnerMoments:
             usable = [x for x in trials if x["feasible"] and x["roundoff_indicator"] <= 1e-8]
         if not usable: raise RuntimeError(f"no numerically usable cubic endpoint fit at {point.tolist()}")
         chosen = min(usable, key=lambda x: (x["score"], x["max_scaled_distance"], x["coefficient_l1"]))
-        control = self.fit(chosen["donors"], xy, scale, 2, "quadratic_on_G3_support")
-        if not control["feasible"]: raise RuntimeError("matched quadratic support failed")
+        control = self.fit(chosen["donors"], xy, scale, 2, "quadratic_on_G3_support") if include_control else None
+        if control is not None and not control["feasible"]: raise RuntimeError("matched quadratic support failed")
         public = lambda x: {key: value for key, value in x.items() if key not in ("donors", "coefficient")}
         meta = {"point": point.tolist(), "plane": k, "plane_delta": plane_delta, "scale": scale.tolist(),
                 "containing_owner": containing, "containing_owner_in_support": bool(containing in chosen["donors"]),
-                "chosen": public(chosen), "quadratic_control": public(control),
+                "chosen": public(chosen), "quadratic_control": public(control) if control is not None else None,
                 "trials": [public(x) for x in trials]}
-        return (chosen["donors"], chosen["coefficient"], control["coefficient"], meta)
-
+        return (chosen["donors"], chosen["coefficient"], control["coefficient"] if control is not None else None, meta)

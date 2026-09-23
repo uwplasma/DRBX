@@ -94,12 +94,18 @@ def verify(args):
 
 
 CTX=None;NUM=None;ROWS=None
-def initialize(n,input_root,output,row_dir=None):
+def initialize(n,input_root,output,row_dir=None,trace_capacity=None):
     global CTX,NUM,ROWS
+    # Pin each Linux child before JAX initializes to avoid one full-node thread pool per worker.
+    identity=multiprocessing.current_process()._identity
+    if identity and hasattr(os,'sched_getaffinity'):
+        cpus=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,{cpus[(identity[0]-1)%len(cpus)]})
+    os.environ.setdefault('JAX_COMPILATION_CACHE_DIR',str(Path(output)/'cache/jax'))
     sys.path.insert(0,str(Path(output)/'software/src'))
     os.environ['DRBX_CACHE_DIR']=str(Path(output)/'cache/jax')
     from scripts.q_fci_return_campaign import numerics
     NUM=numerics;CTX=NUM.context(n,input_root,read(HERE/'configuration.json'))
+    if trace_capacity:CTX['trace_capacity']=trace_capacity
     ROWS=load_catalogue(Path(row_dir)) if row_dir else None
 
 
@@ -127,8 +133,8 @@ def load_catalogue(path):
     return {p.stem:np.load(p,mmap_mode='r',allow_pickle=False) for p in path.glob('*.npy')}
 
 
-def pool_jobs(args,n,jobs,worker,row_dir=None):
-    init=(n,str(args.input_root),str(args.output),str(row_dir) if row_dir else None)
+def pool_jobs(args,n,jobs,worker,row_dir=None,trace_capacity=None):
+    init=(n,str(args.input_root),str(args.output),str(row_dir) if row_dir else None,trace_capacity)
     if args.workers==1:
         initialize(*init)
         for job in jobs:yield worker(job)
@@ -176,7 +182,7 @@ def trace_stage(args,n,root,ids,campaign_id,chunk=24):
         p=trace_path(root,unit)
         if not completed(p,ident,unit):jobs.append((unit,str(p),ident))
     started=time.monotonic();count=len(units)-len(jobs)
-    for result in pool_jobs(args,n,jobs,do_trace):
+    for result in pool_jobs(args,n,jobs,do_trace,trace_capacity=4*chunk):
         count+=1;write(root/'progress.json',{'stage':'trace','completed':count,'total':len(units),'seconds':time.monotonic()-started})
     cat=root/'rows';cat.mkdir(exist_ok=True);size=2*n**3
     shapes={'valid':(size,),'available':(size,),'source':(size,4,3),'endpoint':(size,4,3),'ell':(size,4),'F':(size,4),'Z':(size,),'g_sec':(size,4),'numerical':(size,4)}
@@ -237,7 +243,7 @@ def do_volume(job):
     ids,path,identity=job;t=time.monotonic();ijk=np.array(np.unravel_index(ids,(CTX['N'],)*3)).T
     out={}
     for order in (5,7):
-        p,w=NUM.quadrature(CTX,ijk,order,face=False);J=np.abs(CTX['evaluator'].evaluate(p.reshape(-1,3),reject_nonpositive_J=False).signed_J)
+        p,w=NUM.quadrature(CTX,ijk,order,face=False);J=np.abs(np.linalg.det(CTX['evaluator'].jacobian_matrix(p.reshape(-1,3))))
         out[f'q{order}']=np.sum(w*J.reshape(w.shape),axis=1)
     save(path,ids=ids,seconds=np.array(time.monotonic()-t),peak_rss_gib=np.array(rss()),**out)
     receipt(Path(path),identity,ids);return str(path)
