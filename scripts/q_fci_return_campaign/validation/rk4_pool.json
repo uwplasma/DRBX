@@ -1,0 +1,29 @@
+{
+  "passed": true,
+  "scope": "Two spawned macOS workers, four real N32 observations each; Linux affinity requires remote verification.",
+  "source": {
+    "__init__.py": "b366bfc2e25d8bb5317af2b40e25b8c7f80a51f5d7a528bad4e1cf96a6e3b096",
+    "build_bundle.py": "529f8849c7f6029422d01198d13f5cc8ecc1b71de1131246b4ea9ef9cc1ced73",
+    "campaign.py": "cba3220eeeb11a615161a175a025677f3f5930da28c158c381b7e1301e5d8c96",
+    "configuration.json": "a05d6c72a50dc4c398f8867abf0ccec26b7c25ef71d99839f5ecd4ffa2d8e619",
+    "endpoints.py": "c4f5c102ac4adb0e9c7f74447dcfc005f56ff3ba403954fd4ab555f9a2d5826b",
+    "frozen_mms.py": "623723c57e9f4cd909771096cd9052d4825c150811673776e1f68d36d5403e51",
+    "geometry_source.tar.gz": "fec13fff21367f54da08de8910cfdf58f3698c53dc2bd2184f8a781e439c858a",
+    "geometry_source_manifest.json": "1ed4b42c70a321f0a4d5c5f7f59a57442f38bd4879a30112dea6d0330e084c97",
+    "input_manifest.json": "0c58b3094c97d156ed8cb0cdcdd5ab59578f5df4ca9fdce7f67ed3ef09e36803",
+    "numerics.py": "2c8ec93c44b9da6a1e72ba61586fbc7b456009077ff472f759d5baf7f0ccca64",
+    "rk4.py": "5b770821e9ac9ce6594478762e006497e56a6fc6fb725accf0462a2f165432cc"
+  },
+  "workers": [
+    {
+      "path": "/Users/yxie/Desktop/HSX drbx/work/q_fci_rk4_validation_20260923/pool_0.npz",
+      "peak_rss_gib": 1.1314697265625,
+      "pid": 81161
+    },
+    {
+      "path": "/Users/yxie/Desktop/HSX drbx/work/q_fci_rk4_validation_20260923/pool_1.npz",
+      "peak_rss_gib": 1.1454925537109375,
+      "pid": 81160
+    }
+  ]
+}

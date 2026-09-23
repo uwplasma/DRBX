@@ -12,7 +12,11 @@ can fail these scientific gates; return that result without tuning it.
 
 `configuration.json` freezes the four scalar fields and the numerical policy.
 The observations are reconstructed endpoint secants on m2 transverse footprints,
-with magnetic-flux weights and actual traced endpoints. A cubic potential in
+with magnetic-flux weights and actual traced endpoints. The tracer now uses
+compiled CPU RK4 with 64 fixed substeps, integrating regular x/y positions and
+connection length together at fourth order. Four seeds remain at quarter and
+three-quarter coordinates in each transverse cell; they are subcell midpoints,
+not vertices. A cubic potential in
 regular x,y,unwrapped eta generates 19 nonconstant b.grad(p) basis functions.
 Its observation matrix uses endpoint differences of potential moments. The q5
 face functional is applied through a weighted SVD map. Numerical and exact
@@ -24,7 +28,8 @@ planes, both directions, the nearest 96 rows plus at least three rows per
 surrounding interval. Stable ties use global row IDs. Geometry-only expansion
 uses halos 3,4,6,8 if the target is unresolved; field errors never select support.
 This is a new canonical policy, distinct from historical patch-owned catalogues.
-Historical replay and bounded comparisons are documented in `local_validation.md`.
+Historical replay and bounded comparisons are documented in `local_validation.md`;
+`rk4_validation.md` records the integrator change and its bounded checks.
 
 The canonical topology omits collapsed-axis faces and same-owner internal
 faces. A positive-coordinate flux contributes positively to the lower owner
@@ -34,10 +39,11 @@ have exactly zero gradient at u=1, so their prescribed boundary flux is zero.
 This does not establish that arbitrary scalar normal-Neumann data imply zero
 parallel diffusive flux, or qualify the complete evolved physical-wall model.
 
-A footprint is excluded from the **interior observation catalogue** if a trace
-hits the wall or an ODE stage requests geometry outside u<1. Batches are bisected
-to identify the footprint. Geometry and scalar fields are never evaluated beyond
-the wall; no recipient owner is dropped. This conservative domain admissibility
+A footprint is excluded from the **interior observation catalogue** if any seed
+has an RK4 stage or endpoint outside 0<u<1. Each seed is masked independently;
+valid trajectories are never retraced because another seed exits. Inactive lanes
+use an interior dummy query and cannot contribute observations. Geometry and
+scalar fields are never evaluated beyond the wall; no recipient owner is dropped. This conservative domain admissibility
 policy does not attempt to return a clipped-leg boundary observation.
 
 The independent reference is analytical face q11 divergence divided by summed
@@ -74,7 +80,12 @@ folder. `verify` records their absolute location and verifies bytes and hashes.
 Run from the repository root. Use a single node-local multiprocessing spawn
 pool and one parent writer. Workers preload a resolution context once per
 stage; geometry/maps are shared across all four fields. BLAS/OpenMP threads are
-one. This is not a distributed runner. The remote setup skill chooses allocation,
+one. On Linux, each child binds to one CPU from the scheduler-provided affinity
+mask before JAX initializes, preventing a full-node JAX thread pool per child.
+The setup skill must verify the effective worker count and allowed CPU mask.
+Compiled tracing uses the existing frozen JAX metric/MAKEGRID representations.
+One compilation is needed for each batch shape/substep count; final short
+batches are padded, and the on-disk JAX cache lives in the campaign folder. This is not a distributed runner. The remote setup skill chooses allocation,
 affinity, workers, memory allowances, and walltime; GPUs are unnecessary.
 
 Both `preflight` and `run` use the requested worker pool for tracing plus endpoint
@@ -135,6 +146,10 @@ source/input identity, exact stage coverage, payload hashes, finite outputs,
 constant response, incidence balance, saved action replay and norm consistency.
 Numerically unresolved face targets stop the computation with failure evidence.
 
+**RK4 outputs require a new campaign folder.** Do not resume, relabel, or mix
+DOP853 trace, face, or action checkpoints with this revision. Preserve the old
+folder as historical evidence.
+
 The entire fresh global catalogue is prepared; earlier patch or failed-preflight
 outputs are not reusable campaign checkpoints. Every trace has a stable global
 ID, every face a canonical key, and every field uses the same map. Face chunks
@@ -159,3 +174,22 @@ midpoint and continuous volumes, and both reference levels. Regional error
 shares are diagnostics. No analysis plots or production promotion are requested.
 Report failed/incomplete stages and exact errors rather than silently returning
 partial data as complete.
+
+## RK4 optimizations and limits
+
+Tracing is compiled as a fixed-step loop over batches. The NumPy geometry path
+for flux/reference work now computes only position, Jacobian, field projection,
+field magnitude and determinant, omitting unused metric tensors/inverses and
+inverse diagnostics. Unused trajectory dense output and the extra inverse-B
+integral are gone. Endpoint fitting retains the same cubic support/score policy
+but skips its unused quadratic diagnostic fit during campaign execution.
+Face endpoint-moment matrices are evaluated in batches rather than one row at a
+time. Observations and maps remain shared across fields.
+
+The prescribed quadrature, four seeds, both directions, fields, support count,
+basis, wall loads and scientific acceptance gates are unchanged. Older one-seed
+N32 results are encouraging but do not establish global second-order convergence;
+this revision does not reduce the seed count. Large elapsed-time speedups are
+expected especially for former wall-retry batches, but throughput and compilation
+cost must be measured on the allocated CPU system. Historical DOP853 timing
+projections in `local_validation.md` no longer predict this runner's runtime.
