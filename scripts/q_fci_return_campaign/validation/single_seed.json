@@ -1,0 +1,403 @@
+{
+  "checkpoint_resume_preserved": 68,
+  "four_seed_regression_passed": true,
+  "mixed_seed_resume_rejected": true,
+  "passed": true,
+  "resolutions": {
+    "32": {
+      "probes": {
+        "-1": {
+          "endpoint_step_doubling_max": 3.2926605886274274e-10,
+          "rows": 8,
+          "valid": 6
+        },
+        "1": {
+          "endpoint_step_doubling_max": 1.4844124818225168e-09,
+          "rows": 8,
+          "valid": 8
+        }
+      },
+      "rows": 260,
+      "seconds": 111.04822320793755,
+      "summary": {
+        "N": 32,
+        "actions_sha256": "ce5cb0a3bce09b22dbbb56d027521638de47fc624ba4df406505686bd89d4171",
+        "balance": {
+          "g_sec": 4.235164736271502e-22,
+          "numerical": 2.117582368135751e-22,
+          "q11": 0.0,
+          "q5": 5.293955920339377e-23,
+          "q9": 1.0587911840678754e-22
+        },
+        "constant_max": 1.477897298553066e-14,
+        "endpoint_contribution_rms": [
+          1.3768618602364585e-05,
+          0.00012514398931540854,
+          0.00010659096892827805,
+          1.477897298553066e-14
+        ],
+        "exact_secant_rms": [
+          0.0006277505283093961,
+          0.00045073331718905457,
+          0.0031787477114792505,
+          0.0
+        ],
+        "face_timings": [
+          {
+            "faces": 6,
+            "peak_rss_gib": 0.7781829833984375,
+            "seconds": 0.20959704101551324
+          }
+        ],
+        "faces": 6,
+        "fields": [
+          "radial_eta",
+          "angular_x",
+          "mixed_y_eta",
+          "constant"
+        ],
+        "fit": {
+          "condition_max": 16453.70840714405,
+          "halo_counts": {
+            "2": 6,
+            "3": 0,
+            "4": 0,
+            "6": 0,
+            "8": 0
+          },
+          "max_rows": 96,
+          "rank_min": 19,
+          "target_defect_max": 4.706768206512265e-14
+        },
+        "identity": "4ed64519ae878888a5463b442a04215a8b37abbff3bbce28cf078c6af77e9e25",
+        "operator_rms": [
+          0.0006415191469117607,
+          0.0005758773065044631,
+          0.0032853386804075286,
+          1.477897298553066e-14
+        ],
+        "owners": 1,
+        "reference_budget_rms": [
+          3.8378409093070553e-08,
+          3.2858710830724336e-07,
+          5.0675175812531226e-08,
+          0.0
+        ],
+        "reference_fraction": [
+          5.982426133003542e-05,
+          0.0005705852698064197,
+          1.5424642857900193e-05
+        ],
+        "regional_squared_error_share": {
+          "agglomerated": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "axis": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "inward": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ordinary": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "wall": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "scope": "bounded",
+        "seed_count": 1,
+        "volume_timings": [
+          {
+            "cells": 1,
+            "peak_rss_gib": 0.763519287109375,
+            "seconds": 0.06754804193042219
+          }
+        ]
+      }
+    },
+    "48": {
+      "probes": {
+        "-1": {
+          "endpoint_step_doubling_max": 1.0273626394052826e-10,
+          "rows": 8,
+          "valid": 6
+        },
+        "1": {
+          "endpoint_step_doubling_max": 1.8199275420016647e-10,
+          "rows": 8,
+          "valid": 8
+        }
+      },
+      "rows": 260,
+      "seconds": 52.115024083992466,
+      "summary": {
+        "N": 48,
+        "actions_sha256": "d7fc426c342a73244bcb9e183f9a507bd839e89cd527a38f2bae58023eb42667",
+        "balance": {
+          "g_sec": 1.0587911840678754e-22,
+          "numerical": 5.293955920339377e-23,
+          "q11": 2.117582368135751e-22,
+          "q5": 1.0587911840678754e-22,
+          "q9": 1.0587911840678754e-22
+        },
+        "constant_max": 7.975629283165049e-14,
+        "endpoint_contribution_rms": [
+          7.511976066101184e-06,
+          1.6473509274965437e-05,
+          6.754284481639921e-05,
+          7.975629283165049e-14
+        ],
+        "exact_secant_rms": [
+          0.0009089719302849164,
+          0.0014300776111032948,
+          0.0021281549581791577,
+          0.0
+        ],
+        "face_timings": [
+          {
+            "faces": 6,
+            "peak_rss_gib": 0.6919708251953125,
+            "seconds": 0.23297570797149092
+          }
+        ],
+        "faces": 6,
+        "fields": [
+          "radial_eta",
+          "angular_x",
+          "mixed_y_eta",
+          "constant"
+        ],
+        "fit": {
+          "condition_max": 38806.3572456137,
+          "halo_counts": {
+            "2": 6,
+            "3": 0,
+            "4": 0,
+            "6": 0,
+            "8": 0
+          },
+          "max_rows": 96,
+          "rank_min": 19,
+          "target_defect_max": 1.052938201826666e-13
+        },
+        "identity": "4ed64519ae878888a5463b442a04215a8b37abbff3bbce28cf078c6af77e9e25",
+        "operator_rms": [
+          0.0009164839063510177,
+          0.0014465511203782602,
+          0.002195697802995557,
+          7.975629283165049e-14
+        ],
+        "owners": 1,
+        "reference_budget_rms": [
+          5.459665678927972e-08,
+          1.017654638439669e-06,
+          1.4350341296959657e-07,
+          0.0
+        ],
+        "reference_fraction": [
+          5.957186635895921e-05,
+          0.000703504096124554,
+          6.53566318524421e-05
+        ],
+        "regional_squared_error_share": {
+          "agglomerated": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "axis": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "inward": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ordinary": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "wall": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "scope": "bounded",
+        "seed_count": 1,
+        "volume_timings": [
+          {
+            "cells": 1,
+            "peak_rss_gib": 0.7142181396484375,
+            "seconds": 0.0534165829885751
+          }
+        ]
+      }
+    },
+    "64": {
+      "probes": {
+        "-1": {
+          "endpoint_step_doubling_max": 2.5491053712300982e-11,
+          "rows": 8,
+          "valid": 6
+        },
+        "1": {
+          "endpoint_step_doubling_max": 1.5659640251186602e-10,
+          "rows": 8,
+          "valid": 8
+        }
+      },
+      "rows": 260,
+      "seconds": 58.12942699994892,
+      "summary": {
+        "N": 64,
+        "actions_sha256": "f642d9953881e64e74bfb160db2de91031ea770212ce6b715b843f7b8fade09b",
+        "balance": {
+          "g_sec": 1.0587911840678754e-22,
+          "numerical": 1.0587911840678754e-22,
+          "q11": 1.3234889800848443e-23,
+          "q5": 1.3234889800848443e-23,
+          "q9": 1.3234889800848443e-23
+        },
+        "constant_max": 8.277045495022713e-14,
+        "endpoint_contribution_rms": [
+          7.993034990209924e-06,
+          3.072088141364143e-05,
+          2.062077525780137e-05,
+          8.277045495022713e-14
+        ],
+        "exact_secant_rms": [
+          0.0003314944940808681,
+          0.0007365164848386913,
+          0.001007331841394038,
+          0.0
+        ],
+        "face_timings": [
+          {
+            "faces": 6,
+            "peak_rss_gib": 0.790679931640625,
+            "seconds": 0.2289557500043884
+          }
+        ],
+        "faces": 6,
+        "fields": [
+          "radial_eta",
+          "angular_x",
+          "mixed_y_eta",
+          "constant"
+        ],
+        "fit": {
+          "condition_max": 11910.445167466367,
+          "halo_counts": {
+            "2": 6,
+            "3": 0,
+            "4": 0,
+            "6": 0,
+            "8": 0
+          },
+          "max_rows": 96,
+          "rank_min": 19,
+          "target_defect_max": 2.915731709641221e-14
+        },
+        "identity": "4ed64519ae878888a5463b442a04215a8b37abbff3bbce28cf078c6af77e9e25",
+        "operator_rms": [
+          0.0003235014590906582,
+          0.0007057956034250498,
+          0.0009867110661362366,
+          8.277045495022713e-14
+        ],
+        "owners": 1,
+        "reference_budget_rms": [
+          2.9452958641429383e-08,
+          9.520999451739093e-07,
+          2.061569871342206e-07,
+          0.0
+        ],
+        "reference_fraction": [
+          9.104428376990866e-05,
+          0.0013489740380268822,
+          0.00020893349047101516
+        ],
+        "regional_squared_error_share": {
+          "agglomerated": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "axis": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "inward": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "ordinary": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "wall": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "scope": "bounded",
+        "seed_count": 1,
+        "volume_timings": [
+          {
+            "cells": 1,
+            "peak_rss_gib": 0.7663726806640625,
+            "seconds": 0.09434175002388656
+          }
+        ]
+      }
+    }
+  },
+  "scope": "One complete ordinary owner at each N; axis/wall/seam probes. Not full preflight or global qualification.",
+  "source": {
+    "__init__.py": "b366bfc2e25d8bb5317af2b40e25b8c7f80a51f5d7a528bad4e1cf96a6e3b096",
+    "build_bundle.py": "529f8849c7f6029422d01198d13f5cc8ecc1b71de1131246b4ea9ef9cc1ced73",
+    "campaign.py": "25b02972a5092012ee1e981b9d26391443442e3d7790b53e46891269c2b5bc8c",
+    "configuration.json": "a05d6c72a50dc4c398f8867abf0ccec26b7c25ef71d99839f5ecd4ffa2d8e619",
+    "endpoints.py": "c4f5c102ac4adb0e9c7f74447dcfc005f56ff3ba403954fd4ab555f9a2d5826b",
+    "frozen_mms.py": "623723c57e9f4cd909771096cd9052d4825c150811673776e1f68d36d5403e51",
+    "geometry_source.tar.gz": "fec13fff21367f54da08de8910cfdf58f3698c53dc2bd2184f8a781e439c858a",
+    "geometry_source_manifest.json": "1ed4b42c70a321f0a4d5c5f7f59a57442f38bd4879a30112dea6d0330e084c97",
+    "input_manifest.json": "0c58b3094c97d156ed8cb0cdcdd5ab59578f5df4ca9fdce7f67ed3ef09e36803",
+    "numerics.py": "ecc3847c25dd852aaf6afc8051a17c790ff84cf6abccc8d027b0de2d315b235d",
+    "rk4.py": "5b770821e9ac9ce6594478762e006497e56a6fc6fb725accf0462a2f165432cc"
+  }
+}
