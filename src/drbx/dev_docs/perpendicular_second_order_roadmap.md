@@ -1059,3 +1059,14 @@ revision, configuration, measured results, and unresolved failures.
 | P07 | Perpendicular diffusion/polarization | P04, P03 | pending | — |
 | P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07 | pending | — |
 | P09 | Evolved MMS and promotion | P08 | pending | — |
+
+
+### P07 portable global campaign preparation — 2026-09-23
+
+The [P07 global campaign contract](p07_global_qualification_campaign.md) now
+provides a frozen, node-local parallel CPU 32³/48³/64³ qualification runner.
+Clean-checkout replay matches the prior bounded actions to `1.53e-13`,
+serial/parallel N32 preflight arrays agree exactly, and complete-owner
+q3/q5/q7 preflight passes its bounded reference check at all resolutions.
+This establishes readiness to execute the global campaign; it does not close
+P07. Global, structural, elliptic and evolved qualifications remain separate.

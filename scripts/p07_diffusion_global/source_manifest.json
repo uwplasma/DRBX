@@ -1,0 +1,256 @@
+{
+  "files": [
+    {
+      "bytes": 45575,
+      "path": "hsx_mms_continuum_reference.py",
+      "sha256": "fa5e25912ebf363d8794e06cab67c0e64949fef094b31d8a0ce5505c397db6f2"
+    },
+    {
+      "bytes": 1724,
+      "path": "scripts/p07_diffusion_global/build_manifests.py",
+      "sha256": "984adaa34f3a50d4aa6cc5904213effef4140f3981d4903500a8f9c5f48281ff"
+    },
+    {
+      "bytes": 18082,
+      "path": "scripts/p07_diffusion_global/campaign.py",
+      "sha256": "1b03ae63a47dd257121de794079c214b26e7adfbe553d199ce70b21bbdb83348"
+    },
+    {
+      "bytes": 15431,
+      "path": "scripts/p07_diffusion_global/numerics.py",
+      "sha256": "e25ef46e54893d5c9ff8c77aba44657d500e45b7c6190706f39a99bf18a79a12"
+    },
+    {
+      "bytes": 2613,
+      "path": "scripts/p07_diffusion_global/replay_bounded.py",
+      "sha256": "6d85a36faa1e329e16d66c4b74d5cc28099f6a856828059abce05bc9a1ddb8fb"
+    },
+    {
+      "bytes": 580,
+      "path": "src/drbx/__init__.py",
+      "sha256": "a0fa607198633606e04971455d6c4f9cd93e3344310a634172c1727fc3549e34"
+    },
+    {
+      "bytes": 645,
+      "path": "src/drbx/config/__init__.py",
+      "sha256": "2ec80e2cb970d2053cc685d9ad5de66a17949fe0ef0495cc3a33ea55524b1dd4"
+    },
+    {
+      "bytes": 20167,
+      "path": "src/drbx/config/boutinp.py",
+      "sha256": "921125ff9cb347b17cd93fb148605b783da25f4d4d5240fe857e004170b75192"
+    },
+    {
+      "bytes": 967,
+      "path": "src/drbx/config/model.py",
+      "sha256": "5e0fb23ab923e44c70ff4990f0ba27fc7d088d33f888f0e2906aa1ba51dfd538"
+    },
+    {
+      "bytes": 2074,
+      "path": "src/drbx/config/normalization.py",
+      "sha256": "7578c015f961f8a9e97b52a5a4c211ddf7d2cf491f2d48ba7a2e311b51a1e2c4"
+    },
+    {
+      "bytes": 20648,
+      "path": "src/drbx/geometry/Bfield_evaluator.py",
+      "sha256": "3d4273feaf4439650449906dbf729dffe7b1e7ba86f17fd500b08da1cf0bed30"
+    },
+    {
+      "bytes": 159267,
+      "path": "src/drbx/geometry/MetricEvaluator.py",
+      "sha256": "fa97f44de97971d91ebdde2c83e69310c2d05023796e2aba33c61f441d5f25af"
+    },
+    {
+      "bytes": 34207,
+      "path": "src/drbx/geometry/ScalarPotential_evaluator.py",
+      "sha256": "e438c3c7558995307646da179dc3b8ff75fab3922544244e121a6e0e2200122a"
+    },
+    {
+      "bytes": 16096,
+      "path": "src/drbx/geometry/WallEvaluator.py",
+      "sha256": "b8acfef90c1e8cfe7ed85aad48388ecc27e6206524e7df5840bacb1631fd4950"
+    },
+    {
+      "bytes": 13149,
+      "path": "src/drbx/geometry/__init__.py",
+      "sha256": "43116c16f5af426160c538bc42c8bbcb4cddbc09ed9ad63ef4baa63dd8df9fc7"
+    },
+    {
+      "bytes": 2001,
+      "path": "src/drbx/geometry/embedding.py",
+      "sha256": "d1a153261bee2e5f577322e290f95cc28d658bbf3318f16b51ace339d947867b"
+    },
+    {
+      "bytes": 67523,
+      "path": "src/drbx/geometry/essos_import.py",
+      "sha256": "4773edbe303f2661a1186f3e6715f1532beb57e25be231715925ef006851293f"
+    },
+    {
+      "bytes": 15233,
+      "path": "src/drbx/geometry/fci_boundary_functional_reconstruction.py",
+      "sha256": "a763fcdd901a502766d4e208104da626baa90b6baf17c7a646dba2ab406b94cf"
+    },
+    {
+      "bytes": 69499,
+      "path": "src/drbx/geometry/fci_control_volumes.py",
+      "sha256": "e528944d4c3026a8e5701ea1dbac986d0fa9d92cd424537450743eb463cb5c37"
+    },
+    {
+      "bytes": 358663,
+      "path": "src/drbx/geometry/fci_geometry.py",
+      "sha256": "3b483de18a892022ee329a155b22f62cdcb26d5619adb9efd19e76de0598dda0"
+    },
+    {
+      "bytes": 3193,
+      "path": "src/drbx/geometry/fci_maps.py",
+      "sha256": "8b440f3f32633e4d208f2a158e8f2ccbe82dfbc9730a5e70538bec24067de756"
+    },
+    {
+      "bytes": 31395,
+      "path": "src/drbx/geometry/fci_owner_boundary_overlap.py",
+      "sha256": "7387d1d7c573c8ab76ca1e22bb21407957eeb44a414186a2bcab862ebae73ffa"
+    },
+    {
+      "bytes": 16872,
+      "path": "src/drbx/geometry/fci_perpendicular_bracket.py",
+      "sha256": "f1ef9487ff7a30e51e0ff21ba882d5d8ec33a9df7debab6ecfaf6cae48cd57ff"
+    },
+    {
+      "bytes": 123158,
+      "path": "src/drbx/geometry/fci_rlp_overlap.py",
+      "sha256": "ad331576b2717275dd6d1f7b165e73f22d7ada31f937d829cdf86365e08a831a"
+    },
+    {
+      "bytes": 46766,
+      "path": "src/drbx/geometry/fci_simulation_geometry.py",
+      "sha256": "43b8d4e2e3e13e19a6a7bcb25702747b468b5045a00e433e73ea7d846c1a60ba"
+    },
+    {
+      "bytes": 21719,
+      "path": "src/drbx/geometry/fci_trace_executor.py",
+      "sha256": "dea348996416b0f28bd235e8028c6fe3ad9fc6c4ea6bf83180c82a754bb12b96"
+    },
+    {
+      "bytes": 17149,
+      "path": "src/drbx/geometry/fci_trace_jax.py",
+      "sha256": "3b2a2ee6923df2e731f9516186998e8a9b3615ad75b5e61ac20423c1dd1e7c1e"
+    },
+    {
+      "bytes": 98800,
+      "path": "src/drbx/geometry/hsx_fci_builder.py",
+      "sha256": "7961dc9d402cf03f06f7ed4477c4a4b7610f4a7f758b8bb85db4f109b4f585ff"
+    },
+    {
+      "bytes": 2307,
+      "path": "src/drbx/geometry/hsx_jax_field.py",
+      "sha256": "de5578ca2951d63e3fd2ceb8f09ed22b207e513d0c5a901a0bf67dc63dc9ca3f"
+    },
+    {
+      "bytes": 39654,
+      "path": "src/drbx/geometry/hsx_simulation_geometry.py",
+      "sha256": "1f8c28515ae3b71c8d9686f5b4a2f3d78f47c247bd4f3585a54e27401c9296b4"
+    },
+    {
+      "bytes": 12028,
+      "path": "src/drbx/geometry/island_divertor.py",
+      "sha256": "0b3a6d28ec1dc1df754ebd440a1ee4161c55f7c135e973d81841b764c558f164"
+    },
+    {
+      "bytes": 10679,
+      "path": "src/drbx/geometry/jax_bfield_evaluator.py",
+      "sha256": "8aaf3923100867c3166def1b494abe80b8434f702fc5f749073ed18ba9e75720"
+    },
+    {
+      "bytes": 24461,
+      "path": "src/drbx/geometry/jax_metric_evaluator.py",
+      "sha256": "ab4cd80b9646b1129839cb9ce09bb7662681700c859572b7ca536c7baad147ae"
+    },
+    {
+      "bytes": 2856,
+      "path": "src/drbx/geometry/metric_tensor.py",
+      "sha256": "f28de129fcb2cb7e55aa4daad8d2f2db59c56041a2c9311d19775b0da606c441"
+    },
+    {
+      "bytes": 5595,
+      "path": "src/drbx/geometry/open_slab.py",
+      "sha256": "b521c06ead599cb36245fd58eabb789560f141f3629413de42e97388350dfdc9"
+    },
+    {
+      "bytes": 10481,
+      "path": "src/drbx/geometry/rotating_ellipse.py",
+      "sha256": "840dc9c5d643d56cc7d6815f4da3d6b70a838f929c947327d1c3581d27bc60d4"
+    },
+    {
+      "bytes": 9234,
+      "path": "src/drbx/geometry/shifted_torus.py",
+      "sha256": "315a0e1930c81ab4779fb957aed2cd2a1ecd4c6dd0e698f34cb9e78697679aac"
+    },
+    {
+      "bytes": 33985,
+      "path": "src/drbx/geometry/solve_MMPDE.py",
+      "sha256": "a54ea29da75c87293d40f59fab75d14c648b5ed65973acdbc2c20175290ae25d"
+    },
+    {
+      "bytes": 10683,
+      "path": "src/drbx/geometry/stellarator.py",
+      "sha256": "66d27cd19335a3bda741339cae3501110805d567dc5a03f2cb8a0e37525bfad0"
+    },
+    {
+      "bytes": 18650,
+      "path": "src/drbx/geometry/vmec_extender_import.py",
+      "sha256": "2fb9ffca7dc39c2d4fc9c5334f20baa63736f57367304af029839fc81c983465"
+    },
+    {
+      "bytes": 13295,
+      "path": "src/drbx/geometry/vmex_import.py",
+      "sha256": "ef31eff6389819c82d6e1125cf3aed7c5bcd62a8327c1fe2b0ede51fe8509bf8"
+    },
+    {
+      "bytes": 1652,
+      "path": "src/drbx/runtime/__init__.py",
+      "sha256": "14f656339324bcc470e8ad5309efdf4c96cba32a1e8771484f8ea18bb31c9d33"
+    },
+    {
+      "bytes": 5211,
+      "path": "src/drbx/runtime/artifacts.py",
+      "sha256": "06287e928bedda48fd660d5028583ecb51879ee104cebc15f2af388a7335b011"
+    },
+    {
+      "bytes": 4047,
+      "path": "src/drbx/runtime/memory.py",
+      "sha256": "e4e8cd5e3aeb793a5430353ac3f95ac80449c4c63712b2b932d3cb4b72b482c9"
+    },
+    {
+      "bytes": 15618,
+      "path": "src/drbx/runtime/output.py",
+      "sha256": "8e36dac3a86baacc73d04e3d1414ba0c769e2352e13bed292eacde67d50afcb2"
+    },
+    {
+      "bytes": 199,
+      "path": "src/drbx/runtime/paths.py",
+      "sha256": "91633096488f180258811dde8c3f36f832b50c96951de962b8a87dcbc2da39d3"
+    },
+    {
+      "bytes": 7065,
+      "path": "src/drbx/runtime/performance.py",
+      "sha256": "c1e9265a1fecb7b80fe134e3cb5d9eb713746356097a7ae668a0cb4c19f8ab32"
+    },
+    {
+      "bytes": 6961,
+      "path": "src/drbx/runtime/run_config.py",
+      "sha256": "4eb00e8e21f488cff94a79c977427eba1b3e487d1c48ffa807adf436943c16bc"
+    },
+    {
+      "bytes": 3178,
+      "path": "src/drbx/runtime/scheduler.py",
+      "sha256": "73465707f0a57c20fe6c0f783389fc702f0c5bf3973c6aee42504a67d1bd972c"
+    },
+    {
+      "bytes": 1301,
+      "path": "src/drbx/runtime/state.py",
+      "sha256": "64b8224a924f5f6adb4cdcd7f79d19c57765e386626e610a84fa35945c9ff26c"
+    }
+  ],
+  "schema": "drbx.p07-sources-v1",
+  "scope": "loaded repository Python dependency closure plus campaign entry points"
+}
