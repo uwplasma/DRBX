@@ -1,0 +1,73 @@
+{
+  "passed": true,
+  "results": [
+    {
+      "face_q11_minus_strong": [
+        6.781382797367563e-06,
+        -3.865214634549835e-05,
+        3.763529897291354e-06,
+        0.0
+      ],
+      "numerical_minus_strong": [
+        -0.0006417313592006757,
+        -0.0005276178130981315,
+        0.0032414646080021073,
+        -7.883093091089411e-15
+      ],
+      "peak_rss_gib": 0.7006683349609375,
+      "reference_q9_volume": [
+        -0.024500691153651517,
+        0.036437121566863774,
+        -0.0101501218473138,
+        0.0
+      ],
+      "seconds": 2.6144423340447247,
+      "track": "ordinary",
+      "volume_q9": 2.888172668033203e-05,
+      "worker_pid": 79174
+    },
+    {
+      "face_q11_minus_strong": [
+        -6.858247491771808e-09,
+        1.5990847981113727e-07,
+        3.714338439503358e-10,
+        0.0
+      ],
+      "numerical_minus_strong": [
+        -0.0025907767011044375,
+        -0.006751412392952201,
+        0.0005131889701531547,
+        2.7806989454664863e-13
+      ],
+      "peak_rss_gib": 0.7078857421875,
+      "reference_q9_volume": [
+        5.3977384596059605e-05,
+        0.0004176908685775061,
+        9.352672333447822e-07,
+        0.0
+      ],
+      "seconds": 2.8801705420482904,
+      "track": "wall",
+      "volume_q9": 4.259836290482285e-05,
+      "worker_pid": 79173
+    }
+  ],
+  "scope": "Two existing N32 strong-volume controls only; no N48/N64 preflight restart.",
+  "seconds_including_spawn": 31.013528457959183,
+  "source": {
+    "__init__.py": "b366bfc2e25d8bb5317af2b40e25b8c7f80a51f5d7a528bad4e1cf96a6e3b096",
+    "build_bundle.py": "529f8849c7f6029422d01198d13f5cc8ecc1b71de1131246b4ea9ef9cc1ced73",
+    "campaign.py": "1ec9f776b774c5ef05376e6562ed1ad08d792d8395c0692db6102bf2c5847629",
+    "configuration.json": "7179178ee45f72f0010f186a14d3a3723eac77d8f0c41d79196c4c88fcf46265",
+    "endpoints.py": "137f492ca691149ad91a940ef3e935af3ce992b164589c8fd5f7826cb0e644dd",
+    "frozen_mms.py": "623723c57e9f4cd909771096cd9052d4825c150811673776e1f68d36d5403e51",
+    "geometry_source.tar.gz": "fec13fff21367f54da08de8910cfdf58f3698c53dc2bd2184f8a781e439c858a",
+    "geometry_source_manifest.json": "1ed4b42c70a321f0a4d5c5f7f59a57442f38bd4879a30112dea6d0330e084c97",
+    "input_manifest.json": "0c58b3094c97d156ed8cb0cdcdd5ab59578f5df4ca9fdce7f67ed3ef09e36803",
+    "numerics.py": "e13d22f1b64c0989486924f7b88e55318743b0bf30a563af217850df22da18d8"
+  },
+  "worker_pids": [
+    79173,
+    79174
+  ]
+}

@@ -109,3 +109,20 @@ N32 reload/incidence and cost audit; and the local cancellation receipt. Full
 local checkpoints remain in `work/q_fci_handoff_preflight_v2_20260923/` relative
 to the research workspace. All outputs from the remote execution must remain
 in its own uniquely named campaign folder.
+
+## Parallel execution follow-up
+
+At the user's request, preflight work units were reduced to 4 trace rows and
+8 faces/raw cells per unit, and the two strong-volume controls were moved into
+the multiprocessing pool. Global unit sizes remain unchanged. These are
+scheduling changes; the numerical kernels in `numerics.py`, endpoint fitting,
+fields, trace tolerances, support policy and reference orders are unchanged.
+The N32 numerical evidence above used the earlier coarser preflight batching;
+a fresh full preflight was not repeated locally. Remote preflight remains
+mandatory. A two-process N32 strong-volume smoke test and checkpoint tests
+validate the new parallel dispatch; its receipt is bundled under `validation/`.
+
+All substantial numerical stages now use the chosen CPU worker pool, including
+preflight. Final deterministic aggregation, small metadata operations and stage
+barriers are serial. Independent resolutions are not separate concurrent
+writers: each stage can use the full chosen node-local pool.
