@@ -8,10 +8,19 @@ weighted L2 order >=1.8 on both refinement intervals, with the empirical
 reference difference below 10% of the numerical error. A completed experiment
 can fail these scientific gates; return that result without tuning it.
 
+## Single-center-seed comparison campaign
+
+Use `--seeds 1` on every command for the separate center-seed N32/N48/N64
+campaign. `--seeds 4` remains the default and retains the four-seed method.
+See [single_seed.md](single_seed.md) for the comparison contract and bounded
+validation. Seed count is part of the resolved campaign identity; changing it
+requires a fresh output folder. The existing four-seed campaign remains pinned
+to `fd1daa275ce51c9d6bdd1abac658baa48192da2a`; do not migrate its checkpoints.
+
 ## Frozen method and boundary scope
 
 `configuration.json` freezes the four scalar fields and the numerical policy.
-The observations are reconstructed endpoint secants on m2 transverse footprints,
+The default observations are reconstructed endpoint secants on m2 transverse footprints,
 with magnetic-flux weights and actual traced endpoints. The tracer now uses
 compiled CPU RK4 with 64 fixed substeps, integrating regular x/y positions and
 connection length together at fourth order. Four seeds remain at quarter and
@@ -110,7 +119,7 @@ export DRBX_CACHE_DIR="$CAMPAIGN/cache/jax" JAX_COMPILATION_CACHE_DIR="$CAMPAIGN
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 JAX_ENABLE_X64=true JAX_PLATFORMS=cpu
 RUNNER=scripts/q_fci_return_campaign/campaign.py
-COMMON=(--input-root "$INPUT_ROOT" --output "$CAMPAIGN")
+COMMON=(--input-root "$INPUT_ROOT" --output "$CAMPAIGN" --seeds "$SEEDS")
 CPU=(--workers "$WORKERS" --memory-budget-gib "$MEMORY_GIB"
      --worker-memory-gib "$WORKER_MEMORY_GIB" --memory-reserve-gib "$RESERVE_GIB")
 python "$RUNNER" verify "${COMMON[@]}"
@@ -120,7 +129,8 @@ python "$RUNNER" validate "${COMMON[@]}"
 python "$RUNNER" status "${COMMON[@]}"
 ```
 
-Set all resource variables from the CPU allocation. The memory options cap the
+Set `SEEDS=1` for the single-center-seed comparison or `SEEDS=4` for a fresh
+four-seed run. Set all resource variables from the CPU allocation. The memory options cap the
 effective worker count; they are planning allowances, not an operating-system
 memory limiter. Record requested/effective workers and actual observed memory.
 Capture each command's stdout, stderr, elapsed time and exit code under `logs`.
@@ -186,10 +196,10 @@ but skips its unused quadratic diagnostic fit during campaign execution.
 Face endpoint-moment matrices are evaluated in batches rather than one row at a
 time. Observations and maps remain shared across fields.
 
-The prescribed quadrature, four seeds, both directions, fields, support count,
-basis, wall loads and scientific acceptance gates are unchanged. Older one-seed
+For the default four-seed variant, quadrature, both directions, fields, support
+count, basis, wall loads and scientific acceptance gates are unchanged. Older one-seed
 N32 results are encouraging but do not establish global second-order convergence;
-this revision does not reduce the seed count. Large elapsed-time speedups are
+the separate `--seeds 1` campaign tests that question while retaining the four-seed default. Large elapsed-time speedups are
 expected especially for former wall-retry batches, but throughput and compilation
 cost must be measured on the allocated CPU system. Historical DOP853 timing
 projections in `local_validation.md` no longer predict this runner's runtime.

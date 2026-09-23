@@ -25,3 +25,21 @@ def test_writer_lock_rejects_second_writer(tmp_path):
         with pytest.raises(RuntimeError,match='already has a writer'):
             with c.lock(tmp_path/'lock'):pass
     with c.lock(tmp_path/'lock'):pass
+
+
+def test_seed_variants_change_only_observation_sampling():
+    one, four = c.configuration(1), c.configuration(4)
+    assert one['policy']['seed_count'] == 1
+    assert four['policy']['seed_count'] == 4
+    assert one['policy']['seed_pattern'] == 'cell center'
+    assert c.digest(one) != c.digest(four)
+    for key in ('seed_count', 'seed_pattern', 'observations'):
+        one['policy'].pop(key)
+        four['policy'].pop(key)
+    assert one == four
+    assert c.configuration()['policy']['seed_count'] == 4
+
+
+def test_unsupported_seed_pattern_rejected():
+    with pytest.raises(ValueError, match='1 or 4'):
+        c.configuration(2)

@@ -150,10 +150,12 @@ def row_ids(n,keys):
 
 def footprint(ctx,keys):
     grid=ctx['artifact'].geometry.grid;keys=np.asarray(keys);i,j,k=keys[:,:3].T
-    frac=np.array([.25,.75]);u=grid.x.faces[i,None]+np.diff(grid.x.faces)[i,None]*frac
+    count=ctx['config']['policy'].get('seed_count',4)
+    if count not in (1,4):raise ValueError('seed_count must be 1 or 4')
+    frac=np.array([.5]) if count==1 else np.array([.25,.75]);side=len(frac);u=grid.x.faces[i,None]+np.diff(grid.x.faces)[i,None]*frac
     th=grid.y.faces[j,None]+np.diff(grid.y.faces)[j,None]*frac
-    p=np.stack(np.broadcast_arrays(u[:,:,None],th[:,None,:],grid.z.centers[k,None,None]+np.zeros((len(keys),2,2))),axis=-1).reshape(-1,3)
-    area=np.repeat(np.diff(grid.x.faces)[i]*np.diff(grid.y.faces)[j]/4,4)
+    p=np.stack(np.broadcast_arrays(u[:,:,None],th[:,None,:],grid.z.centers[k,None,None]+np.zeros((len(keys),side,side))),axis=-1).reshape(-1,3)
+    area=np.repeat(np.diff(grid.x.faces)[i]*np.diff(grid.y.faces)[j]/count,count)
     return p,area
 
 
@@ -177,13 +179,13 @@ def trace_rows(ctx,ids):
     """Trace a source-plane/direction batch; exclude any footprint with an invalid seed."""
     t=time.monotonic();ids=np.asarray(ids,dtype=int);keys=row_keys(ctx['N'],ids)
     if len(set(keys[:,2]))!=1 or len(set(keys[:,3]))!=1:raise ValueError('mixed trace batch')
-    source,area=footprint(ctx,keys);ns=len(ids)
+    source,area=footprint(ctx,keys);ns=len(ids);seeds=source.shape[0]//ns
     endpoint,length,seed_valid,stats=trace(ctx,source,int(keys[0,3]))
-    valid=seed_valid.reshape(ns,4).all(axis=1)
-    end=endpoint.reshape(ns,4,3).copy();ell=length.reshape(ns,4).copy()
+    valid=seed_valid.reshape(ns,seeds).all(axis=1)
+    end=endpoint.reshape(ns,seeds,3).copy();ell=length.reshape(ns,seeds).copy()
     end[~valid]=np.nan;ell[~valid]=np.nan
-    J,b,B=base(ctx,source);F=(area*J*B*np.abs(b[:,2])).reshape(ns,4)
-    out={'ids':ids,'valid':valid,'source':source.reshape(ns,4,3),'endpoint':end,'ell':ell,'F':F,
+    J,b,B=base(ctx,source);F=(area*J*B*np.abs(b[:,2])).reshape(ns,seeds)
+    out={'ids':ids,'valid':valid,'source':source.reshape(ns,seeds,3),'endpoint':end,'ell':ell,'F':F,
          'Z':np.full(ns,np.nan),'g_sec':np.full((ns,4),np.nan),'numerical':np.full((ns,4),np.nan),
          'fit_l1':np.zeros(ns),'fit_defect':np.zeros(ns)}
     fit_start=time.monotonic()
@@ -195,8 +197,8 @@ def trace_rows(ctx,ids):
             vals.append(coef@ctx['state'][donors]);out['fit_l1'][ri]=max(out['fit_l1'][ri],meta['chosen']['coefficient_l1'])
             out['fit_defect'][ri]=max(out['fit_defect'][ri],meta['chosen']['residual'])
         vals=np.array(vals);d=keys[ri,3]
-        out['g_sec'][ri]=d*F[ri]@(exact[4:]-exact[:4])/out['Z'][ri]
-        out['numerical'][ri]=d*F[ri]@(vals[4:]-vals[:4])/out['Z'][ri]
+        out['g_sec'][ri]=d*F[ri]@(exact[seeds:]-exact[:seeds])/out['Z'][ri]
+        out['numerical'][ri]=d*F[ri]@(vals[seeds:]-vals[:seeds])/out['Z'][ri]
     out['seconds']=np.array(time.monotonic()-t);out['fit_seconds']=np.array(time.monotonic()-fit_start);out['nfev']=np.array(stats['rhs_batches']);out['seed_stage_evaluations']=np.array(stats['seed_stage_evaluations'])
     return out
 
@@ -238,7 +240,7 @@ def return_map(ctx,key,rows,halo=2,frozen_ids=None):
     else:chosen=np.arange(len(ids))
     selected=ids[chosen];dist=distance[chosen];weights=(1+dist)**-1.5
     src=rows['source'][selected];end=rows['endpoint'][selected];F=rows['F'][selected];Z=rows['Z'][selected]
-    delta=basis(end.reshape(-1,3),fc,sc).reshape(len(selected),4,20)[:,:,1:]-basis(src.reshape(-1,3),fc,sc).reshape(len(selected),4,20)[:,:,1:]
+    delta=basis(end.reshape(-1,3),fc,sc).reshape(len(selected),src.shape[1],20)[:,:,1:]-basis(src.reshape(-1,3),fc,sc).reshape(len(selected),src.shape[1],20)[:,:,1:]
     direction=np.where(selected%2,1,-1)
     A=np.matmul((direction[:,None]*F)[:,None,:],delta)[:,0,:]/Z[:,None]
     p,lw=quadrature(ctx,np.asarray(key)[None],5);p=p[0];lw=lw[0];J,b,_=base(ctx,p)

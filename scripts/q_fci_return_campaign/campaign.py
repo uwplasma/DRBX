@@ -75,6 +75,16 @@ def unpack(output):
     return target
 
 
+def configuration(seeds=4):
+    if seeds not in (1,4):raise ValueError('seeds must be 1 or 4')
+    config=read(HERE/'configuration.json')
+    config['policy']['seed_count']=seeds
+    config['policy']['seed_pattern']='cell center' if seeds==1 else '2x2 subcell midpoints'
+    if seeds==1:
+        config['policy']['observations']=config['policy']['observations'].replace('m2 footprints','m1 center footprints')
+    return config
+
+
 def verify(args):
     expected=read(HERE/'input_manifest.json')
     root=args.input_root
@@ -84,7 +94,7 @@ def verify(args):
             raise RuntimeError(f'wrong or missing immutable input: {p}')
     unpack(args.output)
     identity={'schema':'q-fci-return-campaign-v1','source':source_identity(),'inputs':digest(expected),
-              'configuration':read(HERE/'configuration.json')}
+              'configuration':configuration(getattr(args,'seeds',4))}
     target=args.output/'campaign.json'
     if target.exists() and read(target)!=identity:raise RuntimeError('incompatible campaign; use a new folder')
     write(target,identity);write(args.output/'input_locations.json',{'input_root':str(root)})
@@ -94,7 +104,7 @@ def verify(args):
 
 
 CTX=None;NUM=None;ROWS=None
-def initialize(n,input_root,output,row_dir=None,trace_capacity=None):
+def initialize(n,input_root,output,row_dir=None,trace_capacity=None,seeds=4):
     global CTX,NUM,ROWS
     # Pin each Linux child before JAX initializes to avoid one full-node thread pool per worker.
     identity=multiprocessing.current_process()._identity
@@ -104,7 +114,7 @@ def initialize(n,input_root,output,row_dir=None,trace_capacity=None):
     sys.path.insert(0,str(Path(output)/'software/src'))
     os.environ['DRBX_CACHE_DIR']=str(Path(output)/'cache/jax')
     from scripts.q_fci_return_campaign import numerics
-    NUM=numerics;CTX=NUM.context(n,input_root,read(HERE/'configuration.json'))
+    NUM=numerics;CTX=NUM.context(n,input_root,configuration(seeds))
     if trace_capacity:CTX['trace_capacity']=trace_capacity
     ROWS=load_catalogue(Path(row_dir)) if row_dir else None
 
@@ -134,7 +144,7 @@ def load_catalogue(path):
 
 
 def pool_jobs(args,n,jobs,worker,row_dir=None,trace_capacity=None):
-    init=(n,str(args.input_root),str(args.output),str(row_dir) if row_dir else None,trace_capacity)
+    init=(n,str(args.input_root),str(args.output),str(row_dir) if row_dir else None,trace_capacity,getattr(args,'seeds',4))
     if args.workers==1:
         initialize(*init)
         for job in jobs:yield worker(job)
@@ -182,10 +192,11 @@ def trace_stage(args,n,root,ids,campaign_id,chunk=24):
         p=trace_path(root,unit)
         if not completed(p,ident,unit):jobs.append((unit,str(p),ident))
     started=time.monotonic();count=len(units)-len(jobs)
-    for result in pool_jobs(args,n,jobs,do_trace,trace_capacity=4*chunk):
+    seeds=CTX['config']['policy']['seed_count']
+    for result in pool_jobs(args,n,jobs,do_trace,trace_capacity=seeds*chunk):
         count+=1;write(root/'progress.json',{'stage':'trace','completed':count,'total':len(units),'seconds':time.monotonic()-started})
     cat=root/'rows';cat.mkdir(exist_ok=True);size=2*n**3
-    shapes={'valid':(size,),'available':(size,),'source':(size,4,3),'endpoint':(size,4,3),'ell':(size,4),'F':(size,4),'Z':(size,),'g_sec':(size,4),'numerical':(size,4)}
+    shapes={'valid':(size,),'available':(size,),'source':(size,seeds,3),'endpoint':(size,seeds,3),'ell':(size,seeds),'F':(size,seeds),'Z':(size,),'g_sec':(size,4),'numerical':(size,4)}
     arrays={k:np.lib.format.open_memmap(cat/f'{k}.npy',mode='w+',dtype=bool if k in ('valid','available') else float,shape=v) for k,v in shapes.items()}
     for key,a in arrays.items():a[:]=False if a.dtype==bool else np.nan
     timings=[]
@@ -336,7 +347,7 @@ def assemble(root,ctx,owners,face_ids,raw_ids,campaign_id):
         exterior=np.isin(ctx['lower'][face_ids],owners).astype(int)-np.isin(ctx['upper'][face_ids],owners).astype(int)
         balance[k]=float(np.max(abs(vol@actions[k]-exterior@f)))
     nonwall=[x for x in diags if not x.get('boundary')]
-    summary={'identity':campaign_id,'N':ctx['N'],'scope':'global' if len(owners)==len(ctx['volume']) else 'bounded',
+    summary={'identity':campaign_id,'N':ctx['N'],'seed_count':ctx['config']['policy']['seed_count'],'scope':'global' if len(owners)==len(ctx['volume']) else 'bounded',
              'owners':len(owners),'faces':len(face_ids),'fields':NUM.FIELDS,'operator_rms':rms,
              'exact_secant_rms':weighted(actions['g_sec']-refhigh),'endpoint_contribution_rms':weighted(actions['numerical']-actions['g_sec']),
              'reference_budget_rms':budget,'reference_fraction':budget[:3]/np.maximum(rms[:3],1e-300),
@@ -354,7 +365,7 @@ def assemble(root,ctx,owners,face_ids,raw_ids,campaign_id):
 def resolution(args,n,campaign_id,sample):
     import numpy as np
     root=args.output/('preflight' if sample else 'global')/f'N{n}';root.mkdir(parents=True,exist_ok=True)
-    initialize(n,str(args.input_root),str(args.output));ctx=CTX
+    initialize(n,str(args.input_root),str(args.output),seeds=getattr(args,'seeds',4));ctx=CTX
     if sample:owners,faces,raw,tracks=bounded_selection(ctx)
     else:owners=np.arange(len(ctx['volume']));faces=np.arange(len(ctx['keys']));raw=np.arange(n**3);tracks=[]
     write(root/'selection.json',{'owners':owners,'face_ids':faces,'raw_ids':raw,'tracks':tracks})
@@ -412,7 +423,7 @@ def validate(args,campaign_id,sample=False):
         records.append(s)
     errors=np.array([r['operator_rms'][:3] for r in records]);orders=np.log(errors[:-1]/errors[1:])/np.log(np.array([1.5,4/3]))[:,None]
     passed=not sample and bool(np.all(orders>=1.8) and all(max(r['reference_fraction'])<.1 for r in records))
-    out={'computation_complete':True,'scope':'bounded' if sample else 'global','fields':records[0]['fields'][:3],'errors':errors,'orders':orders,
+    out={'computation_complete':True,'scope':'bounded' if sample else 'global','seed_count':getattr(args,'seeds',4),'fields':records[0]['fields'][:3],'errors':errors,'orders':orders,
          'global_static_accuracy_passed':passed,'structural_evolved_production_certified':False,'resolutions':records}
     write(args.output/('preflight_validation.json' if sample else 'validation.json'),out)
     return out
@@ -422,6 +433,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('command',choices=('verify','preflight','run','validate','status'))
     p.add_argument('--input-root',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--seeds',type=int,choices=(1,4),default=4,help='transverse seeds per cell and direction; use 1 for the separate center-seed campaign')
     p.add_argument('--workers',type=int,default=1);p.add_argument('--memory-budget-gib',type=float,default=0)
     p.add_argument('--worker-memory-gib',type=float,default=2.5);p.add_argument('--memory-reserve-gib',type=float,default=2.)
     args=p.parse_args();args.output=args.output.resolve();args.input_root=args.input_root.resolve()
