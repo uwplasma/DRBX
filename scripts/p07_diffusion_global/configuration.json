@@ -1,0 +1,33 @@
+{
+  "schema": "drbx.p07-diffusion-global-v1",
+  "time": 1e-6,
+  "finite_difference_step": 0.0002,
+  "metric_query_batch_size": 4096,
+  "face_chunk": 128,
+  "cell_chunk": 32,
+  "inputs": {
+    "geometry": "geometry_artifacts/rlp_convergence_32_48_64_20260917",
+    "reference_sidecar": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json",
+    "metric_cache": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+    "makegrid": "mgrid_res2p5cm_180pln.nc"
+  },
+  "candidate": {
+    "action": "positive perpendicular diffusion A=-div[(gcontra-b*b) grad(f)]",
+    "reconstruction": "regular-chart total-degree cubic; selection-v3; frozen normal-equation central map",
+    "observation": "physical-raw-volume weighted midpoint owner observations",
+    "boundary": "one exact wall-center relation on every wall-reaching donor support: phi value; other fields physical-normal derivative",
+    "axis": "collapsed radial face flux zero, no singular geometry queries",
+    "periodic": "stored endpoint faces each contribute once to their endpoint cell",
+    "integration": "q3 face tensor product; geometry evaluated at actual nodes",
+    "reference": "q3 continuous physical-volume average of independent continuum operator; q3/q5/q7 bounded complete-owner qualification",
+    "volume": "candidate normalized by stored owner volume; reference by integrated continuous volume; alternative stored-volume reference retained diagnostically"
+  },
+  "scope": {
+    "resolutions": [32,48,64],
+    "fields": ["phi_mms","Ti_mms","regular_neumann","mixed_eta_neumann"],
+    "regular_field": "0.08*u^2*(1-u^2)^4*cos(2*theta+k*eta+0.23), k=0 and -1 for eta_period=2pi",
+    "acceptance": "global physical-volume weighted L2 order >=1.8 on both finest intervals for each field; regional and maximum errors diagnostic",
+    "structural_elliptic_evolved_tests": "separate milestones",
+    "production_promotion": false
+  }
+}

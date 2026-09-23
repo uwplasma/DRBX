@@ -1,0 +1,50 @@
+{
+  "files": [
+    {
+      "bytes": 9715,
+      "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json",
+      "sha256": "8f933512338e18a40e6410e80d8fe950d42462d78421df8e772a6b4d413f5ab5"
+    },
+    {
+      "bytes": 4209909,
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/base_geometry.npz",
+      "sha256": "43a5490a319e1028fd8a7c01e4d9478d540e5ff01f8427a447d6c2d93dc1e91c"
+    },
+    {
+      "bytes": 12362542,
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/rlp_topology.npz",
+      "sha256": "1ae442292262f711ce194263d9b3b70df7aca9d5404c0de40041cfec2d8f9970"
+    },
+    {
+      "bytes": 14401825,
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/base_geometry.npz",
+      "sha256": "fc8aa6f803ec09dd4e0f7d72726534452bae4b6e41d85e61b8ed76f1f2faf09d"
+    },
+    {
+      "bytes": 43481612,
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/rlp_topology.npz",
+      "sha256": "02c516b32ca451522eddaf5720b7cafa242efce48a562427d0f46c24948c8e52"
+    },
+    {
+      "bytes": 33840687,
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/base_geometry.npz",
+      "sha256": "9cf7c047b38698d0e9fe043674ce29d13305c24579f17a859b604fcce217658d"
+    },
+    {
+      "bytes": 104668941,
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/rlp_topology.npz",
+      "sha256": "468b10b36a1ebeaf912edc65ec64c7db6ef99e92931890707c4ce9f741e239ed"
+    },
+    {
+      "bytes": 154138698,
+      "path": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+      "sha256": "216dbcfb343fa23dd7ac9e60da6592f5757c7f5e45c8d96a5b642c6419dc10a1"
+    },
+    {
+      "bytes": 5831797532,
+      "path": "mgrid_res2p5cm_180pln.nc",
+      "sha256": "45dd643a4ae3930386b8f8bff7a789c796a0d5174b5209e1202b5bfd4ac87e44"
+    }
+  ],
+  "schema": "drbx.p07-inputs-v1"
+}
