@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "prepared_map_and_trace_files_unchanged": 24,
+  "missing_payload_recreated": true,
+  "status": {
+    "command": "smoke",
+    "completed_unix": 1790264316.137971,
+    "effective_workers": 2,
+    "memory_budget_gib": 8.0,
+    "memory_reserve_gib": 2.0,
+    "requested_workers": 2,
+    "seconds": 11.375666833017021,
+    "started_unix": 1790264304.762578,
+    "state": "complete",
+    "worker_memory_gib": 2.5
+  }
+}
