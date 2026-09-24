@@ -1,0 +1,100 @@
+{
+  "semantics": "Complete canonical eta=0 owner plane, exact frozen raw-volume owner moments; compact ID renumbering only. Actual HSX geometry; no synthetic owner data.",
+  "moments": [
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      1
+    ],
+    [
+      1,
+      0
+    ],
+    [
+      0,
+      2
+    ],
+    [
+      1,
+      1
+    ],
+    [
+      2,
+      0
+    ],
+    [
+      0,
+      3
+    ],
+    [
+      1,
+      2
+    ],
+    [
+      2,
+      1
+    ],
+    [
+      3,
+      0
+    ],
+    [
+      0,
+      4
+    ],
+    [
+      1,
+      3
+    ],
+    [
+      2,
+      2
+    ],
+    [
+      3,
+      1
+    ],
+    [
+      4,
+      0
+    ]
+  ],
+  "records": {
+    "32": {
+      "fixture": "N32_eta0.npz",
+      "sha256": "7bdf728a88567fee1bb29029dd951a441893d5dbbd9082777aa483483f622766",
+      "parent": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32",
+      "inputs": {
+        "base_geometry.npz": "43a5490a319e1028fd8a7c01e4d9478d540e5ff01f8427a447d6c2d93dc1e91c",
+        "rlp_topology.npz": "1ae442292262f711ce194263d9b3b70df7aca9d5404c0de40041cfec2d8f9970"
+      },
+      "owner_count": 793,
+      "points": 21
+    },
+    "48": {
+      "fixture": "N48_eta0.npz",
+      "sha256": "ba8af5a5ff7b1f034507b504112b236a72b6f305d019b7c8466c6b21aa1d76fa",
+      "parent": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48",
+      "inputs": {
+        "base_geometry.npz": "fc8aa6f803ec09dd4e0f7d72726534452bae4b6e41d85e61b8ed76f1f2faf09d",
+        "rlp_topology.npz": "02c516b32ca451522eddaf5720b7cafa242efce48a562427d0f46c24948c8e52"
+      },
+      "owner_count": 1792,
+      "points": 21
+    },
+    "64": {
+      "fixture": "N64_eta0.npz",
+      "sha256": "fb1f1f7d791ece7f7ddca9aad5eb4890e235babb4336516ca15f8c9c3398fac2",
+      "parent": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64",
+      "inputs": {
+        "base_geometry.npz": "9cf7c047b38698d0e9fe043674ce29d13305c24579f17a859b604fcce217658d",
+        "rlp_topology.npz": "468b10b36a1ebeaf912edc65ec64c7db6ef99e92931890707c4ce9f741e239ed"
+      },
+      "owner_count": 3161,
+      "points": 21
+    }
+  }
+}

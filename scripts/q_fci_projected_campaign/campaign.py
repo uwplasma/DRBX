@@ -70,6 +70,8 @@ def initialize(n,input_root,output):
     setup_paths(Path(output));sys.path.insert(0,str(Path(output)/'software/src'))
     from scripts.q_fci_projected_campaign import kernel
     K=kernel;CTX=K.q.context(n,input_root,config())
+    from scripts.q_fci_projected_campaign.endpoints import CachedOwnerMoments
+    CTX['model']=CachedOwnerMoments.from_model(CTX['model'])
     from drbx.geometry.hsx_jax_field import JaxHsxMagneticField
     CTX['rk_field']=JaxHsxMagneticField.from_evaluators(CTX['evaluator'],CTX['bfield'])
 

@@ -123,6 +123,10 @@ hashing and bookkeeping are serial. Source/input verification precedes work.
 
 Optimizations that preserve the frozen numerical choices:
 
+- Cache shifted owner moments within each endpoint call across the unchanged
+  candidate supports, gather absolute moments once, and use constant-time plane
+  membership. The original selector, SVD, weights and fallbacks remain unchanged.
+  See [endpoint optimization evidence](ENDPOINT_OPTIMIZATION.md).
 - Build faces directly, eliminating the old whole-grid secant catalogue,
   neighbor catalogue expansion and 19-mode return SVD.
 - Fixed vectorized RK4 batches of 200, with one padded shape and a shared
@@ -193,6 +197,9 @@ checked; missing units continue. Worker and memory settings may change. An
 exclusive coordinator lock rejects duplicate writers. Do not delete receipts,
 edit manifests, reinterpret old checkpoints or bypass a corrupt-payload failure.
 A source/numerical-policy change requires a fresh campaign folder.
+The cached-endpoint implementation is a source change even though bounded
+replays are bitwise identical. Restart all resolutions in a fresh folder; do
+not import, relabel, or resume the earlier ead61c9d campaign checkpoints.
 
 ## Return
 

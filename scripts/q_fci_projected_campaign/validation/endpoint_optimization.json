@@ -1,0 +1,330 @@
+{
+  "scope": "Implementation equivalence and local performance only; no new global scientific claim",
+  "focused_tests": {
+    "passed": 20,
+    "command": "python -m pytest -q tests/test_q_fci_projected_endpoints.py tests/test_q_fci_projected_campaign.py tests/test_q_fci_return_campaign.py"
+  },
+  "integrated_replay": {
+    "resolutions": {
+      "32": {
+        "endpoint_points": 4011,
+        "endpoint_pair_calls_including_bench": 19100,
+        "chosen": {
+          "nearest48": 15231,
+          "directional24": 2422,
+          "nearest24": 1427,
+          "nearest96_fallback": 20
+        },
+        "natural_fallback_calls": 20,
+        "bitwise_sparse_maps": true,
+        "bitwise_metadata_and_control": true,
+        "archived_full_half_maps_bitwise_equal": [
+          "work/q_fci_wall_leg_domain_20260924/N32_hot/map_q5.npz",
+          "work/q_fci_wall_leg_domain_20260924/N32_seam/map_q5.npz"
+        ],
+        "first_replay_seconds": {
+          "base": 7.9999969999771565,
+          "optimized": 5.574069292051718
+        },
+        "paired_benchmark_points": 256,
+        "timings": {
+          "base": [
+            0.5069757091114298,
+            0.5157650839537382,
+            0.5096738749416545,
+            0.5123446669895202,
+            0.5130665840115398,
+            0.5111192499753088
+          ],
+          "optimized": [
+            0.35839079204015434,
+            0.3539559160126373,
+            0.35907650005538017,
+            0.3553001250838861,
+            0.3585457910085097,
+            0.3612949160160497
+          ]
+        },
+        "endpointmap_speedup": 1.427551531284265,
+        "forced_fallback_replays": 8,
+        "offplane_failure_and_cache_cleanup": true
+      },
+      "48": {
+        "endpoint_points": 3101,
+        "endpoint_pair_calls_including_bench": 16186,
+        "chosen": {
+          "nearest48": 12893,
+          "directional24": 1893,
+          "nearest24": 102,
+          "nearest96_fallback": 1290,
+          "directional48_fallback": 8
+        },
+        "natural_fallback_calls": 1298,
+        "bitwise_sparse_maps": true,
+        "bitwise_metadata_and_control": true,
+        "archived_full_half_maps_bitwise_equal": [
+          "work/q_fci_wall_leg_domain_20260924/N48_hot/map_q5.npz",
+          "work/q_fci_wall_leg_domain_20260924/N48_seam/map_q5.npz"
+        ],
+        "first_replay_seconds": {
+          "base": 6.637929584016092,
+          "optimized": 4.644669875036925
+        },
+        "paired_benchmark_points": 256,
+        "timings": {
+          "base": [
+            0.5554916249820963,
+            0.5451687909662724,
+            0.546170457964763,
+            0.5550664170878008,
+            0.586511499946937,
+            0.5583244170993567
+          ],
+          "optimized": [
+            0.3759178329491988,
+            0.3742877079639584,
+            0.38083550008013844,
+            0.38269995793234557,
+            0.40250308404210955,
+            0.37611354095861316
+          ]
+        },
+        "endpointmap_speedup": 1.4671503388733966,
+        "forced_fallback_replays": 8,
+        "offplane_failure_and_cache_cleanup": true
+      },
+      "64": {
+        "endpoint_points": 2063,
+        "endpoint_pair_calls_including_bench": 12391,
+        "chosen": {
+          "nearest48": 11279,
+          "directional24": 1002,
+          "nearest24": 110
+        },
+        "natural_fallback_calls": 0,
+        "bitwise_sparse_maps": true,
+        "bitwise_metadata_and_control": true,
+        "archived_full_half_maps_bitwise_equal": [
+          "work/q_fci_wall_leg_domain_20260924/N64_hot/map_q5.npz",
+          "work/q_fci_wall_leg_domain_20260924/N64_seam/map_q5.npz"
+        ],
+        "first_replay_seconds": {
+          "base": 4.16594175004866,
+          "optimized": 2.9379355419659987
+        },
+        "paired_benchmark_points": 256,
+        "timings": {
+          "base": [
+            0.5212702499702573,
+            0.5115569169865921,
+            0.5167045840062201,
+            0.5294734999770299,
+            0.5076582919573411,
+            0.502377042081207
+          ],
+          "optimized": [
+            0.3508915000129491,
+            0.3678387920372188,
+            0.3682982079917565,
+            0.372948709060438,
+            0.3504527499899268,
+            0.3477207910036668
+          ]
+        },
+        "endpointmap_speedup": 1.430663925489645,
+        "forced_fallback_replays": 8,
+        "offplane_failure_and_cache_cleanup": true
+      }
+    },
+    "cpu_seconds": 57.577004,
+    "peak_rss_gib": 0.426544189453125
+  },
+  "uninstrumented_prototype_endpoint_benchmark": {
+    "resolutions": {
+      "32": {
+        "points": 313,
+        "timings": {
+          "base": [
+            0.557847541058436,
+            0.5536411249777302,
+            0.5557368750451133,
+            0.5534767080098391,
+            0.552681333036162,
+            0.5575154579710215
+          ],
+          "optimized": [
+            0.38906129193492234,
+            0.38954154204111546,
+            0.38877941691316664,
+            0.3903984579956159,
+            0.38941754098050296,
+            0.3894812910584733
+          ]
+        },
+        "speedup": 1.4242902343539912
+      },
+      "48": {
+        "points": 313,
+        "timings": {
+          "base": [
+            0.5444242499070242,
+            0.5466195410117507,
+            0.5443740830523893,
+            0.5521918750600889,
+            0.5568045410327613,
+            0.5505613749846816
+          ],
+          "optimized": [
+            0.38386212498880923,
+            0.3989155839662999,
+            0.3843200420960784,
+            0.3832984580658376,
+            0.3867051670094952,
+            0.389039917034097
+          ]
+        },
+        "speedup": 1.4230156200329884
+      },
+      "64": {
+        "points": 313,
+        "timings": {
+          "base": [
+            0.5520565420156345,
+            0.550252916989848,
+            0.5486849580192938,
+            0.5480570000363514,
+            0.5483392499154434,
+            0.5474810000741854
+          ],
+          "optimized": [
+            0.38578449992928654,
+            0.3846598749514669,
+            0.39234204194508493,
+            0.38632620801217854,
+            0.3870247909799218,
+            0.3858100000070408
+          ]
+        },
+        "speedup": 1.4207651403227952
+      }
+    },
+    "cpu_seconds": 19.898019,
+    "note": "No instrumentation or selector-count collection on either model; serial local warmed endpoint-map benchmark."
+  },
+  "prototype_full_preparation_benchmark": {
+    "N": 32,
+    "face_ids": [
+      0,
+      32,
+      8725,
+      8757,
+      58241,
+      58272,
+      58785,
+      58816
+    ],
+    "face_keys": [
+      [
+        0,
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        1,
+        0
+      ],
+      [
+        0,
+        9,
+        16,
+        21
+      ],
+      [
+        0,
+        9,
+        17,
+        21
+      ],
+      [
+        2,
+        0,
+        4,
+        1
+      ],
+      [
+        2,
+        0,
+        5,
+        0
+      ],
+      [
+        2,
+        0,
+        21,
+        1
+      ],
+      [
+        2,
+        0,
+        22,
+        0
+      ]
+    ],
+    "face_count": 8,
+    "timings": {
+      "base": [
+        3.669833749998361,
+        3.6885807079961523,
+        3.69587608310394,
+        3.703595499973744
+      ],
+      "optimized": [
+        3.2274460840271786,
+        3.2406785839702934,
+        3.2308419999899343,
+        3.25993766693864
+      ]
+    },
+    "speedup": 1.141069814318847,
+    "fraction_time_saved": 0.1236294331412644,
+    "all_prepared_arrays_and_all_field_channels_bitwise_identical": true,
+    "trace_real_legs": 800,
+    "span_level_counts": [
+      200
+    ],
+    "cpu_seconds_timed": 64.205512,
+    "scope": "Local warmed serial full face preparation and four-field/reference evaluation. Fresh traces each call. Excludes initial context/JIT and filesystem checkpoint I/O; not remote scaling or N64 throughput."
+  },
+  "integrated_two_worker_smoke": {
+    "status": {
+      "command": "smoke",
+      "completed_unix": 1790271699.7151518,
+      "effective_workers": 2,
+      "memory_budget_gib": 8.0,
+      "memory_reserve_gib": 2.0,
+      "requested_workers": 2,
+      "seconds": 30.20142291591037,
+      "started_unix": 1790271669.514548,
+      "state": "complete",
+      "worker_memory_gib": 2.5
+    },
+    "arrays_bitwise_equal_to_frozen_smoke": {
+      "face_maps": 114,
+      "face_q7_maps": 114,
+      "face_chunks": 72,
+      "face_q7_chunks": 72,
+      "volume_chunks": 3,
+      "strong_chunks": 3,
+      "actions": 19
+    }
+  },
+  "source_hashes": {
+    "scripts/q_fci_projected_campaign/endpoints.py": "c71113376604c1bf71f2cd114bdf871fc86d679af74a37c77a92eae28f2118dd",
+    "scripts/q_fci_projected_campaign/campaign.py": "02b789baa720b90c7be8aa48d40f13a9a72e693f02e560ae6f4045ee9613ce5b",
+    "scripts/q_fci_return_campaign/endpoints.py": "c4f5c102ac4adb0e9c7f74447dcfc005f56ff3ba403954fd4ab555f9a2d5826b"
+  },
+  "limitations": "All timings local. Full-preparation sample is eight N32 radial/eta faces, excludes initial context/JIT and checkpoint I/O. Fresh remote restart required; no migration."
+}
