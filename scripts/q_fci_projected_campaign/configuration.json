@@ -1,0 +1,99 @@
+{
+  "schema": "q-fci-projected-fourth-global-v1",
+  "resolutions": [
+    32,
+    48,
+    64
+  ],
+  "fields": {
+    "radial_eta": {
+      "amplitude": 0.2,
+      "chi": 0.1,
+      "eta_period": 6.283185307179586,
+      "field_formula": "u^2(1-u^2)^4 sin(m eta)",
+      "field_kind": "radial_eta",
+      "lambda": 0.3,
+      "m": 1,
+      "radial_formula": "u^2(1-u^2)^4",
+      "radial_profile": "smooth_axis"
+    },
+    "angular_x": {
+      "amplitude": 0.2,
+      "chi": 0.1,
+      "eta_period": 6.283185307179586,
+      "field_formula": "x(1-u^2)^4",
+      "field_kind": "angular_x",
+      "lambda": 0.3,
+      "m": 1,
+      "radial_formula": "u(1-u^2)^4",
+      "radial_profile": "smooth_axis"
+    },
+    "mixed_y_eta": {
+      "amplitude": 0.2,
+      "chi": 0.1,
+      "eta_period": 6.283185307179586,
+      "field_formula": "y(1-u^2)^4 sin(m eta)",
+      "field_kind": "mixed_y_eta",
+      "lambda": 0.3,
+      "m": 1,
+      "radial_formula": "u(1-u^2)^4",
+      "radial_profile": "smooth_axis"
+    },
+    "constant": {
+      "amplitude": 0.2,
+      "chi": 0.1,
+      "eta_period": 6.283185307179586,
+      "field_formula": "1",
+      "field_kind": "constant",
+      "lambda": 0.3,
+      "m": 1,
+      "radial_formula": "1",
+      "radial_profile": "smooth_axis"
+    }
+  },
+  "currents": [
+    10722.0,
+    10722.0,
+    10722.0,
+    10722.0,
+    10722.0,
+    10722.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "geometry": "geometry_artifacts/rlp_convergence_32_48_64_20260917",
+  "metric_cache": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+  "makegrid": "mgrid_res2p5cm_180pln.nc",
+  "policy": {
+    "method": "physical-area P3 face projection of (4 D_half - D_full)/3",
+    "full_eta_span": "2*pi/N",
+    "half_eta_span": "pi/N",
+    "face_order": 5,
+    "reference_orders": [
+      9,
+      11
+    ],
+    "volume_orders": [
+      5,
+      7
+    ],
+    "trace_substeps": 64,
+    "trace_batch": 200,
+    "face_chunk": 32,
+    "volume_chunk": 32,
+    "preflight_face_chunk": 2,
+    "preflight_volume_chunk": 8,
+    "endpoint": "unchanged OwnerMoments transverse cubic + four-plane eta cubic; no quadratic diagnostic",
+    "boundary": "prescribed zero wall flux for frozen MMS; no scalar wall datum or analytic interior endpoint introduced",
+    "invalid_legs": "geometry-only dyadic per-node span reduction on domain exit, max 8; reuse prior half legs as full; bad b_eta or unresolved exit is a hard failure",
+    "acceptance": "global physical-volume L2 order >=1.8 on both intervals per field; empirical reference fraction <0.1",
+    "action": "coordinate-positive canonical flux: lower plus, upper minus",
+    "reference": "analytical q11 faces / continuous q7 owner volume; q9/q5 control; midpoint numerical observations/volumes unchanged",
+    "max_wall_span_halvings": 8
+  },
+  "endpoint_source_sha256": "44649f41c45a35009c019cc506208c92ed54c05ac4773879a08895072c4bf1a4"
+}
