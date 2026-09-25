@@ -1,5 +1,5 @@
 {
-  "schema": "drbx.p07-combined-inputs-v1",
+  "schema": "drbx.p05-structured-inputs-v2",
   "files": [
     {
       "bytes": 9715,
@@ -45,54 +45,6 @@
       "bytes": 5831797532,
       "path": "mgrid_res2p5cm_180pln.nc",
       "sha256": "45dd643a4ae3930386b8f8bff7a789c796a0d5174b5209e1202b5bfd4ac87e44"
-    },
-    {
-      "path": "prototype_runs/geometry/hsx_fci_64x64x64/base_geometry.npz",
-      "bytes": 33840687,
-      "sha256": "9cf7c047b38698d0e9fe043674ce29d13305c24579f17a859b604fcce217658d",
-      "component": "base_geometry"
-    },
-    {
-      "path": "prototype_runs/geometry/hsx_fci_64x64x64/cell_positions.npz",
-      "bytes": 2706278,
-      "sha256": "2cf238fcd97d77f93ba8f707fa7b550a29b4e1bceb3661005f2a45ca877116d8",
-      "component": "cell_positions"
-    },
-    {
-      "path": "prototype_runs/geometry/hsx_fci_64x64x64/center_maps.npz",
-      "bytes": 16502814,
-      "sha256": "7b476d3bbb3153a99757411ec9e44cad1b613425abea9782165747b9a648b84c",
-      "component": "center_maps"
-    },
-    {
-      "path": "prototype_runs/geometry/hsx_fci_64x64x64/curvature_edge_one_form.npz",
-      "bytes": 1512762,
-      "sha256": "396504da731b0ff99ba36f3aa6e181de6221157af1e7dff6b83fb23da5a0b7f2",
-      "component": "curvature_edge_one_form"
-    },
-    {
-      "path": "prototype_runs/geometry/hsx_fci_64x64x64/owner_overlap.npz",
-      "bytes": 10205660,
-      "sha256": "7d700d662aab59571993aa88691095c28235b374206506593cc0d59d77f88055",
-      "component": "owner_overlap"
-    },
-    {
-      "path": "prototype_runs/geometry/hsx_fci_64x64x64/producer_validation_report.json",
-      "bytes": 2145,
-      "sha256": "774b88565b68d7c4c2f65827c3fb1b3b2c4a3113771ffb11e9fb10b96292f2d4",
-      "component": "producer_validation_report"
-    },
-    {
-      "path": "prototype_runs/geometry/hsx_fci_64x64x64/rlp_topology.npz",
-      "bytes": 104668941,
-      "sha256": "468b10b36a1ebeaf912edc65ec64c7db6ef99e92931890707c4ce9f741e239ed",
-      "component": "rlp_topology"
-    },
-    {
-      "path": "prototype_runs/geometry/hsx_fci_64x64x64/vertex_traces.npz",
-      "bytes": 7291310,
-      "sha256": "9d4b82818051b7ad5583c5b7f2130a729bbd88f52c2edadf561a93fd1b97e9be",
-      "component": "vertex_traces"
     }
   ]
 }

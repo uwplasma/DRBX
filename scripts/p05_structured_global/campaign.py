@@ -58,7 +58,7 @@ def verify(args):
  dest=args.output/'manifest.json'
  if dest.exists() and json.loads(dest.read_text())['identity']!=record['identity']:raise ValueError('incompatible campaign; use a fresh folder')
  side=json.loads((args.input_root/'DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json').read_text())
- for key,path in [('metric_cache','hsx_metric_d58d392545fd3917efeb83b6.npz'),('makegrid','mgrid_res2p5cm_180pln.nc'),('artifact','prototype_runs/geometry/hsx_fci_64x64x64')]:side[key]['path']=str(args.input_root/path)
+ for key,path in [('metric_cache','hsx_metric_d58d392545fd3917efeb83b6.npz'),('makegrid','mgrid_res2p5cm_180pln.nc')]:side[key]['path']=str(args.input_root/path)
  side['metric_query_batch_size']=4096
  if (args.output/'reference_sidecar.json').exists() and json.loads((args.output/'reference_sidecar.json').read_text())!=side:raise ValueError('sidecar changed')
  save_json(args.output/'reference_sidecar.json',side);record['sidecar_sha256']=sha(args.output/'reference_sidecar.json');save_json(dest,record)
