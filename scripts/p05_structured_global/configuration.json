@@ -1,0 +1,43 @@
+{
+  "schema": "drbx.p05-structured-global-v1",
+  "resolutions": [
+    32,
+    48,
+    64
+  ],
+  "candidate_quadrature": 3,
+  "reference_quadrature": 5,
+  "control_quadratures": [
+    7,
+    9
+  ],
+  "curl_step": 0.0002,
+  "control_curl_step": 0.0001,
+  "face_chunk": 64,
+  "cell_chunk": 32,
+  "observation_chunk": 2048,
+  "reference_face_chunk": 64,
+  "reference_cell_chunk": 16,
+  "svd_relative_cutoff": 0.0001,
+  "target_residual_tolerance": 1e-09,
+  "global_order_minimum": 1.8,
+  "reference_fraction_maximum": 0.1,
+  "upwind": "common-velocity-adjacent-cell-anchored-structured-jump",
+  "primary_forms": [
+    "A",
+    "B",
+    "C",
+    "U"
+  ],
+  "actual_vorticity_primary_forms": [
+    "A",
+    "B",
+    "C"
+  ],
+  "production_promotion": false,
+  "constant_action_tolerance": 1e-08,
+  "unavailable_oracle_slots": [
+    "actual_vorticity_swapped_B",
+    "actual_vorticity_strong_volume"
+  ]
+}
