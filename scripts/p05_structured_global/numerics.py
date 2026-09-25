@@ -1,6 +1,7 @@
 """Shared-structured P05 bracket kernels; all observations/BCs are external RHS data."""
 import numpy as np
 from perpendicular_structured.reconstruction import StructuredReconstruction, load_context
+from perpendicular_structured.reference_geometry import reuse_metrics
 from p07_combined_global.kernels import num
 from p07_combined_global import topology
 
@@ -18,10 +19,18 @@ def h_vector(ref,p):
 def curl_h(ref,p,step=2e-4):
     ds=[]
     for axis in range(3):
+        h=step
+        if axis==0:
+            distance=np.minimum(p[:,0],1-p[:,0])
+            if np.any(distance<=0):raise ValueError('curl reference requires interior radial points')
+            # Only repair stencils that would leave the geometry domain. q3/q5
+            # on the canonical N32/48/64 grids retain the original fixed step.
+            h=np.where(distance<2*step,.2*distance,step)
         values=[]
         for factor in (-2,-1,1,2):
-            q=p.copy();q[:,axis]+=factor*step;values.append(h_vector(ref,q))
-        ds.append((values[0]-8*values[1]+8*values[2]-values[3])/(12*step))
+            q=p.copy();q[:,axis]+=factor*h;values.append(h_vector(ref,q))
+        denominator=12*h if np.ndim(h)==0 else 12*h[:,None]
+        ds.append((values[0]-8*values[1]+8*values[2]-values[3])/denominator)
     return np.stack((ds[1][:,2]-ds[2][:,1],ds[2][:,0]-ds[0][:,2],ds[0][:,1]-ds[1][:,0]),axis=1)
 
 
@@ -90,6 +99,7 @@ def flux_arrays(h,w,v,g,axis):
     return generators,products,U
 
 
+@reuse_metrics
 def face_chunk(t,ref,S,owner_values,ids,*,order=3,candidate=True):
     keys=topology.decode(t.n,ids);p,w=num.quadrature(t.faces,keys,order,face=True)
     F=len(FIELDS);P=len(PAIRS);nf=len(ids)
@@ -108,7 +118,7 @@ def face_chunk(t,ref,S,owner_values,ids,*,order=3,candidate=True):
         row=S.rows(keys[j],p[j]);v,g=row.apply(owner_values,trace)
         gg,pp,U=flux_arrays(hv[ii],w[j],v,g,axis)
         out['generator'][j]=gg;out['product'][j]=pp
-        left,right=S.side_rows(keys[j],p[j]);lv=trace(p[j])[0] if left is None else left.apply(owner_values,trace)[0];rv=trace(p[j])[0] if right is None else right.apply(owner_values,trace)[0]
+        left,right=S.side_rows(keys[j],p[j]);lv=trace(p[j])[0] if left is None else left.apply_value(owner_values,trace);rv=trace(p[j])[0] if right is None else right.apply_value(owner_values,trace)
         # Preserve the common face value: re-center left/right around it; only jump enters.
         jump=rv-lv
         for k,(a,b) in enumerate(PAIRS):out['upwind'][j,k]=-.5*np.dot(w[j],abs(U[:,a])*jump[:,b])
@@ -119,6 +129,7 @@ def face_chunk(t,ref,S,owner_values,ids,*,order=3,candidate=True):
     return out
 
 
+@reuse_metrics
 def cell_chunk(t,ref,S,owner_values,ids,*,order=3,candidate=True,step=2e-4):
     keys=np.array(np.unravel_index(ids,(t.n,)*3)).T;p,w=num.quadrature(t.faces,keys,order,face=False)
     flat=p.reshape(-1,3);F=len(FIELDS);P=len(PAIRS);nq=order**3

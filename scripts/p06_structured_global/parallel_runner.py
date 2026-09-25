@@ -328,6 +328,7 @@ def _validated_checkpoint(
 def _run_unit(unit: Mapping[str, Any]) -> dict[str, Any]:
     state = _STATE
     numeric = state["numeric"]
+    from perpendicular_structured.optimization_resume import execution_provenance
     resolution = state["resolution"]
     output = Path(state["output_root"])
     path = _chunk_path(output, resolution, unit)
@@ -364,6 +365,7 @@ def _run_unit(unit: Mapping[str, Any]) -> dict[str, Any]:
     current_rss_after = numeric._current_rss_gib()
     metadata = {
         "schema": numeric.CHUNK_SCHEMA, "status": "complete", "identity": identity,
+        "execution_upgrade": execution_provenance(output),
         "numerical_identity": state["numerical_identity"], "unit_id": unit["id"],
         "details": details, "seconds": time.perf_counter() - started,
         "maximum_rss_gib": numeric._max_rss_gib(), "worker_pid": os.getpid(),

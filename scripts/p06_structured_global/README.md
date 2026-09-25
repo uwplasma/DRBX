@@ -115,3 +115,23 @@ reference coverage and numerical invariants. The final `summary.json` reports
 `global_order_pass`, `bounded_reference_controls_passed`, and
 `complete_qualification_passed` separately. Machine-generated numerical
 results are for later local scientific review.
+
+## Optimized execution and existing campaigns
+
+Curvature-only geometry preparation computes J/B/K with the original K
+derivative stencil, omitting unused diffusion, parallel-divergence and omega
+work. Identical metric queries are reused within a batch; singleton weights
+use bounded exact-coordinate caches; face states skip gradient contractions.
+Quadrature, fields, support policies and acceptance thresholds are unchanged.
+
+The tested source chain from `551ebbd7919ad3639499f35941118cfe5244bd1f`
+(whose P06 sources are identical at `2ad730c8`) supports an explicit
+`adopt-optimization` command with the original `--input-root` and `--output`.
+Stop the old controller/workers first and update the same checkout location.
+The original manifest and checkpoint identities remain the numerical lineage.
+`optimization_execution.json` separately pins the new execution sources/commit;
+new chunks include that certificate's provenance. The tracked shared release
+policy requires the exact tested baseline/optimized sources and unchanged
+configuration and inputs. Existing hash, coverage and input checks remain in
+force. Run `preflight`, `run`, then `validate` after adoption; valid work is
+reused. Never manually rewrite source identities or checkpoint receipts.

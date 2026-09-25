@@ -20,6 +20,8 @@ os.environ.setdefault("JAX_ENABLE_X64", "true")
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 import parallel_runner as runner
 import observations
+sys.path.insert(0,str(REPO/'scripts'))
+from perpendicular_structured import optimization_resume as upgrade
 
 
 def canonical(value):
@@ -61,7 +63,13 @@ def verify(args):
     args.output.mkdir(parents=True, exist_ok=True)
     destination = args.output / 'campaign_manifest.json'
     if destination.exists() and json.loads(destination.read_text()) != manifest:
-        raise ValueError('campaign identity changed; use a new output directory, never mix chains')
+        previous=json.loads(destination.read_text())
+        if args.command=='adopt-optimization':
+            commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO,text=True).strip()
+            upgrade.adopt(args.output,'p06',previous,sources,commit)
+        else:
+            upgrade.check(args.output,'p06',previous,sources)
+        return previous
     if not destination.exists() and any(args.output.glob('N*.npz')):
         raise ValueError('unidentified/historical outputs in new campaign directory')
     runner._atomic_json(destination, manifest)
@@ -141,7 +149,7 @@ def validate(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('verify-inputs','preflight','run','validate'))
+    parser.add_argument('command', choices=('verify-inputs','adopt-optimization','preflight','run','validate'))
     parser.add_argument('--input-root', type=Path, default=REPO.parent)
     parser.add_argument('--output', type=Path, default=REPO/'work/p06_structured_global_v1')
     parser.add_argument('--resolutions', type=int, nargs='+', choices=(32,48,64), default=[32,48,64])

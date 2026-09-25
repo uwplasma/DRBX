@@ -43,6 +43,17 @@ def test_memory_cap_is_enforced():
  with pytest.raises(ValueError,match='insufficient'):c.workers(args)
 
 
+def test_high_order_control_curl_stays_inside_radial_domain():
+ class Reference:
+  def _metric(self,p):
+   assert np.all((p[:,0]>=0)&(p[:,0]<=1))
+   return dict(B=np.ones(len(p)),bcov=np.column_stack((0*p[:,0],p[:,0]**3,0*p[:,0])))
+ p=np.array([[1e-5,.3,.2],[.5,.3,.2],[1-1e-5,.3,.2]])
+ actual=k.curl_h(Reference(),p)
+ expected=np.zeros_like(actual);expected[:,2]=3*p[:,0]**2
+ np.testing.assert_allclose(actual,expected,atol=2e-10)
+
+
 def test_dirichlet_catalogue_has_nonzero_wall_normal_derivatives(monkeypatch):
  class Ref:
   eta_period=1.

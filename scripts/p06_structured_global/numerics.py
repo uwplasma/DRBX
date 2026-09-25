@@ -249,7 +249,8 @@ def _source_identity(config: Mapping[str, Any]) -> dict[str, Any]:
     paths.update({f"shared:{p.relative_to(SCRIPTS)}": p for p in sorted((SCRIPTS / "perpendicular_structured").rglob("*.py"))})
     if not any(name.startswith("shared:") for name in paths):
         raise ValueError("shared perpendicular_structured service is required")
-    return {name: _identity(path) for name, path in paths.items()}
+    from perpendicular_structured.optimization_resume import legacy_kernel_identity
+    return legacy_kernel_identity(_path(config,'output'),{name: _identity(path) for name, path in paths.items()})
 
 
 def _raw_points(context: Any) -> np.ndarray:
@@ -541,6 +542,13 @@ def _trace(name: str, reference: Any, time_value: float):
     return analytic
 
 
+def _apply_values(rows: Any, owner_values: np.ndarray, trace: Any) -> np.ndarray:
+    value = np.asarray(rows.apply_value(owner_values.T, trace), dtype=np.float64)
+    if value.ndim != 2 or value.shape[1] != 5 or not np.all(np.isfinite(value)):
+        raise ValueError('invalid shared reconstructed values')
+    return value
+
+
 def _apply_rows(rows: Any, owner_values: np.ndarray, trace: Any) -> tuple[np.ndarray, np.ndarray]:
     value, gradient = rows.apply(owner_values.T, trace=trace)
     value = np.asarray(value, dtype=np.float64)
@@ -601,10 +609,10 @@ def _compute_cells(
             values[state, :, row] = v.T
             gradients[state, :, row] = np.moveaxis(g, -1, 0)
     flat = points.reshape(-1, 3)
-    prepared_geometry = reference.prepare(flat)
-    metric = reference._metric(flat)
-    jacobian = np.asarray(metric["J"]).reshape(len(indices), 27)
-    bmag = np.asarray(metric["B"]).reshape(len(indices), 27)
+    from perpendicular_structured.reference_geometry import curvature_geometry
+    prepared_geometry = curvature_geometry(reference, flat)
+    jacobian = np.asarray(prepared_geometry.J).reshape(len(indices), 27)
+    bmag = np.asarray(prepared_geometry.B).reshape(len(indices), 27)
     evolution_weight = weights * jacobian / np.maximum(bmag, 1.0e-30)
     physical_weight = weights * jacobian
     arrays: dict[str, np.ndarray] = {
@@ -673,13 +681,13 @@ def _compute_faces(
         conditioned[row] = bool(operator.boundary_conditioned)
         for state, name in enumerate(FIELD_NAMES):
             trace = _trace(name, reference, time_value)
-            v, _g = _apply_rows(operator, owner[state], trace)
+            v = _apply_values(operator, owner[state], trace)
             central[state,:,row] = v.T
             for target, side in ((left, sides[0]), (right, sides[1])):
                 if side is None:
                     target[state,:,row] = v.T
                 else:
-                    sv, _sg = _apply_rows(side, owner[state], trace)
+                    sv = _apply_values(side, owner[state], trace)
                     target[state,:,row] = sv.T
     wall_rows = np.flatnonzero((keys[:,0]==0)&(keys[:,1]==context.resolution))
     trace_error = 0.0
@@ -972,8 +980,9 @@ def _reference_on_raw_cells(context:Any,reference:Any,raw_indices:np.ndarray,ord
                 axis_weights.append(0.5*(hi-lo)*one)
             mesh=np.meshgrid(*axes,indexing="ij"); wmesh=np.meshgrid(*axis_weights,indexing="ij")
             points[row]=np.stack(mesh,axis=-1).reshape(-1,3); weights[row]=np.prod(np.stack(wmesh,axis=-1),axis=-1).reshape(-1)
-    flat=points.reshape(-1,3); prepared=reference.prepare(flat); metric=reference._metric(flat)
-    physical=weights*np.asarray(metric["J"]).reshape(len(keys),-1)
+    from perpendicular_structured.reference_geometry import curvature_geometry
+    flat=points.reshape(-1,3); prepared=curvature_geometry(reference,flat)
+    physical=weights*np.asarray(prepared.J).reshape(len(keys),-1)
     numerator=np.empty((len(FIELD_NAMES),len(TERMS),len(keys),4))
     for state,field in enumerate(FIELD_NAMES):
         values,gradients=_evaluate_fields(field,reference,flat,time_value)

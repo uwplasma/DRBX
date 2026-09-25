@@ -59,3 +59,20 @@ def test_adapted_jump_is_nontrivial_but_cubic_exact(context):
  np.testing.assert_allclose(left.apply(cubic)[0],right.apply(cubic)[0],atol=1e-12)
  nonpoly=project(t,np.exp(3*t.pts[:,0]))[:,None]
  assert np.max(abs(right.apply(nonpoly)[0]-left.apply(nonpoly)[0]))>1e-7
+
+
+@pytest.mark.parametrize('key',[(0,1,2,3),(0,8,2,3),(0,20,2,3),(0,32,2,3),(1,31,2,3)])
+def test_value_only_is_exact_full_action_and_cache_is_exact(context,key):
+ t=context;S=StructuredReconstruction(t);p,_=num.quadrature(t.faces,np.array([key]),3,face=True)
+ data=np.random.default_rng(129).normal(size=(len(t.vol),3))
+ def trace(q):
+  v=np.repeat(np.sin(q[:,1,None]),3,axis=1)
+  g=np.zeros((len(q),3,3));g[:,1]=np.cos(q[:,1,None])
+  return v,g
+ first=S.rows(key,p[0]);second=S.rows(key,p[0])
+ np.testing.assert_array_equal(first.value,second.value)
+ np.testing.assert_array_equal(first.gradient,second.gradient)
+ for row in (first,*S.side_rows(key,p[0])):
+  if row is not None:
+   np.testing.assert_array_equal(row.apply_value(data,trace),row.apply(data,trace)[0])
+ assert S._basis.cache_info().currsize<=8192
