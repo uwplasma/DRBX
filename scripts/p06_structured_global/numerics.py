@@ -34,11 +34,11 @@ from drbx.native.fci_curvature_production_flux import curvature_principal_matrix
 from drbx.native.fci_operators import _curvature_bc_characteristic_wall_states  # noqa: E402
 
 
-SCHEMA = "drbx.p06-structured-global-case-v1"
+SCHEMA = "drbx.p06-structured-global-case-v3"
 PREPARE_SCHEMA = "drbx.p06-structured-global-prepare-v1"
-CHUNK_SCHEMA = "drbx.p06-structured-global-chunk-v1"
-PREFLIGHT_SCHEMA = "drbx.p06-structured-global-preflight-v1"
-SUMMARY_SCHEMA = "drbx.p06-structured-global-summary-v1"
+CHUNK_SCHEMA = "drbx.p06-structured-global-chunk-v3"
+PREFLIGHT_SCHEMA = "drbx.p06-structured-global-preflight-v3"
+SUMMARY_SCHEMA = "drbx.p06-structured-global-summary-v3"
 FIELD_NAMES = ("corrected_frozen_mms", "regular_chart_heldout", "homogeneous_dirichlet", "variable_dirichlet")
 EQUATIONS = ("density", "Te", "Ti", "vorticity")
 TERMS = ("material", "remainder", "total")
@@ -220,7 +220,7 @@ def _event(stage: str, **details: Any) -> None:
 
 def _config(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text())
-    if payload.get("schema") != "drbx.p06-structured-global-runtime-v1":
+    if payload.get("schema") != "drbx.p06-structured-global-runtime-v3":
         raise ValueError("unsupported P06 structured runtime configuration")
     return payload
 
@@ -589,15 +589,17 @@ def _compute_cells(
     time_value: float,
     curl_step: float,
     input_root: Path,
+    cell_order: int = 1,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     del curl_step
     indices = np.asarray(indices, dtype=np.int64)
     keys = base._raw_keys(context.resolution, indices)
-    points, weights = base._cell_quadrature(context, keys)
+    points, weights = _cell_quadrature(context, keys, cell_order)
+    nq = cell_order ** 3
     service = _structured(context.resolution, input_root)
     owner = np.asarray(prepare["owner_values"])
-    values = np.empty((len(FIELD_NAMES), 5, len(indices), 27), dtype=np.float64)
-    gradients = np.empty((len(FIELD_NAMES), 5, len(indices), 27, 3), dtype=np.float64)
+    values = np.empty((len(FIELD_NAMES), 5, len(indices), nq), dtype=np.float64)
+    gradients = np.empty((len(FIELD_NAMES), 5, len(indices), nq, 3), dtype=np.float64)
     donor_count = np.empty(len(indices), dtype=np.int32)
     conditioned = np.empty(len(indices), dtype=bool)
     for row, key in enumerate(keys):
@@ -611,8 +613,8 @@ def _compute_cells(
     flat = points.reshape(-1, 3)
     from perpendicular_structured.reference_geometry import curvature_geometry
     prepared_geometry = curvature_geometry(reference, flat)
-    jacobian = np.asarray(prepared_geometry.J).reshape(len(indices), 27)
-    bmag = np.asarray(prepared_geometry.B).reshape(len(indices), 27)
+    jacobian = np.asarray(prepared_geometry.J).reshape(len(indices), nq)
+    bmag = np.asarray(prepared_geometry.B).reshape(len(indices), nq)
     evolution_weight = weights * jacobian / np.maximum(bmag, 1.0e-30)
     physical_weight = weights * jacobian
     arrays: dict[str, np.ndarray] = {
@@ -632,12 +634,12 @@ def _compute_cells(
         exact_values, exact_gradients = _evaluate_fields(field_name, reference, flat, time_value)
         exact = _continuum_terms(exact_values, exact_gradients, prepared_geometry)
         for term_index, term in enumerate(TERMS):
-            candidate_term = candidate[term_index].reshape(len(indices),27,4)
-            exact_term = exact[term_index].reshape(len(indices),27,4)
+            candidate_term = candidate[term_index].reshape(len(indices),nq,4)
+            exact_term = exact[term_index].reshape(len(indices),nq,4)
             arrays[f"candidate:{field_name}:{term}"] = np.sum(evolution_weight[...,None]*candidate_term, axis=1)
             arrays[f"reference_physical:{field_name}:{term}"] = np.sum(physical_weight[...,None]*exact_term, axis=1)
             arrays[f"reference_evolution:{field_name}:{term}"] = np.sum(evolution_weight[...,None]*exact_term, axis=1)
-            candidate_directional = candidate[term_index+3].reshape(len(indices),27,3,4)
+            candidate_directional = candidate[term_index+3].reshape(len(indices),nq,3,4)
             arrays[f"candidate_directional:{field_name}:{term}"] = np.sum(evolution_weight[...,None,None]*candidate_directional, axis=1)
         closure = max(closure, float(np.max(np.abs(candidate[0]+candidate[1]-candidate[2]))))
     details = {
@@ -645,6 +647,7 @@ def _compute_cells(
         "boundary_conditioned_count": int(np.count_nonzero(conditioned)),
         "M_plus_R_closure_max": closure,
         "maximum_donor_count": int(np.max(donor_count)),
+        "cell_order": cell_order,
     }
     return arrays, details
 
@@ -777,13 +780,16 @@ def _compute_reference_global(
     indices: np.ndarray,
     *,
     time_value: float,
+    reference_order: int = 1,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     indices = np.asarray(indices, dtype=np.int64)
-    numerator, volume = _reference_on_raw_cells(context, reference, indices, 5, time_value)
-    arrays = {"indices": indices, "numerator_q5": numerator, "volume_q5": volume}
-    if not all(np.all(np.isfinite(value)) for value in arrays.values()) or np.any(volume <= 0):
-        raise ValueError("invalid q5 global continuous reference")
-    return arrays, {"entity_count": len(indices), "physical_reference_rule": "q5", "maximum_rss_gib": _max_rss_gib()}
+    pairs = _reference_on_raw_cells(context, reference, indices, reference_order, time_value)
+    arrays = {"indices": indices, **{f"{name}_q{reference_order}": value for name, value in pairs.items()}}
+    if not all(np.all(np.isfinite(value)) for value in arrays.values()) or any(
+        np.any(pairs[f"volume_{measure}"] <= 0) for measure in ("physical", "evolution")
+    ):
+        raise ValueError("invalid global continuous reference")
+    return arrays, {"entity_count": len(indices), "reference_rule": f"q{reference_order}", "maximum_rss_gib": _max_rss_gib()}
 
 
 def _compute_reference_control(
@@ -792,17 +798,24 @@ def _compute_reference_control(
     indices: np.ndarray,
     *,
     time_value: float,
+    orders: tuple[int, ...] = (1,),
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
-    """Independent q3/q5/q7 exact-field volume controls on complete raw cells."""
+    """Midpoint derivative-step sensitivity only; no integrated references."""
     indices = np.asarray(indices, dtype=np.int64)
     arrays: dict[str, np.ndarray] = {"indices": indices}
-    for order in (3, 5, 7):
-        numerator, volume = _reference_on_raw_cells(context, reference, indices, order, time_value)
-        arrays[f"numerator_q{order}"] = numerator
-        arrays[f"volume_q{order}"] = volume
+    for order in orders:
+        pairs = _reference_on_raw_cells(context, reference, indices, order, time_value)
+        arrays.update({f"{name}_q{order}": value for name, value in pairs.items()})
+    original_step = reference.finite_difference_step
+    try:
+        reference.finite_difference_step = original_step / 2
+        half = _reference_on_raw_cells(context, reference, indices, 1, time_value)
+        arrays.update({f"{name}_q1_halfstep": value for name, value in half.items()})
+    finally:
+        reference.finite_difference_step = original_step
     if not all(np.all(np.isfinite(value)) for value in arrays.values()):
         raise ValueError("nonfinite bounded reference control")
-    return arrays, {"entity_count": len(indices), "orders": [3, 5, 7]}
+    return arrays, {"entity_count": len(indices), "orders": list(orders)}
 
 
 def _face_count(n: int) -> int:
@@ -838,11 +851,12 @@ def _case(args: argparse.Namespace) -> dict[str, Any]:
     raw_owner = prepare["raw_owner"].astype(np.int64)
     owner_count = len(prepare["owner_volume"])
     evolution_volume=np.zeros(owner_count); physical_volume=np.zeros(owner_count)
-    q5_reference_volume=np.zeros(owner_count)
+    reference_order=int(config["reference_order"])
+    reference_volume={measure:np.zeros(owner_count) for measure in ("physical","evolution")}
     candidate={field:{term:np.zeros((owner_count,4)) for term in TERMS} for field in FIELD_NAMES}
     candidate_directional={field:{term:np.zeros((owner_count,3,4)) for term in TERMS} for field in FIELD_NAMES}
     reference_physical={field:{term:np.zeros((owner_count,4)) for term in TERMS} for field in FIELD_NAMES}
-    reference_q5={field:{term:np.zeros((owner_count,4)) for term in TERMS} for field in FIELD_NAMES}
+    reference_global={measure:{field:{term:np.zeros((owner_count,4)) for term in TERMS} for field in FIELD_NAMES} for measure in ("physical","evolution")}
     reference_evolution={field:{term:np.zeros((owner_count,4)) for term in TERMS} for field in FIELD_NAMES}
     face_correction={field:np.zeros((owner_count,4)) for field in FIELD_NAMES}
     face_directional={field:np.zeros((owner_count,3,4)) for field in FIELD_NAMES}
@@ -852,7 +866,7 @@ def _case(args: argparse.Namespace) -> dict[str, Any]:
     face_paths=sorted(chunk_root.glob("face_*.npz"))+sorted(chunk_root.glob(f"N{n}-face-*.npz"))
     reference_paths=sorted(chunk_root.glob("reference_*.npz"))+sorted(chunk_root.glob(f"N{n}-reference-*.npz"))
     if not cell_paths or not face_paths or not reference_paths:
-        raise RuntimeError("global assembly requires validated face, cell and q5 reference chunks")
+        raise RuntimeError("global assembly requires validated face, midpoint cell and midpoint reference chunks")
     for path in cell_paths:
         arrays, metadata=_load_npz(path,CHUNK_SCHEMA); cell_details.append(metadata["details"])
         indices=arrays["indices"].astype(np.int64); owners=raw_owner[indices]
@@ -869,12 +883,14 @@ def _case(args: argparse.Namespace) -> dict[str, Any]:
         arrays, _metadata=_load_npz(path,CHUNK_SCHEMA)
         indices=arrays["indices"].astype(np.int64); owners=raw_owner[indices]
         reference_raw_count += len(indices)
-        np.add.at(q5_reference_volume,owners,arrays["volume_q5"])
+        for measure in reference_volume:
+            np.add.at(reference_volume[measure],owners,arrays[f"volume_{measure}_q{reference_order}"])
         for state,field in enumerate(FIELD_NAMES):
             for term_index,term in enumerate(TERMS):
-                np.add.at(reference_q5[field][term],owners,arrays["numerator_q5"][state,term_index])
+                for measure in reference_volume:
+                    np.add.at(reference_global[measure][field][term],owners,arrays[f"numerator_{measure}_q{reference_order}"][state,term_index])
     if reference_raw_count != n**3:
-        raise RuntimeError("incomplete q5 reference raw-cell coverage")
+        raise RuntimeError("incomplete global reference raw-cell coverage")
     for path in face_paths:
         arrays,metadata=_load_npz(path,CHUNK_SCHEMA); face_details.append(metadata["details"])
         for row in range(len(arrays["indices"])):
@@ -886,18 +902,23 @@ def _case(args: argparse.Namespace) -> dict[str, Any]:
                     value=arrays["correction"][state,row,side]
                     face_correction[field][owner]+=value
                     face_directional[field][owner,axis]+=value
-    if np.any(evolution_volume<=0) or np.any(physical_volume<=0) or np.any(q5_reference_volume<=0):
+    if np.any(evolution_volume<=0) or np.any(physical_volume<=0) or any(np.any(v<=0) for v in reference_volume.values()):
         raise RuntimeError("incomplete complete-owner volume coverage")
     data=integrated._load_resolution(_path(config,"geometry"),_path(config,"baseline"),n)
     if not np.array_equal(data.owner_keys,prepare["owner_keys"]):
         raise ValueError("owner ordering mismatch")
-    arrays_out={"owner_keys":prepare["owner_keys"],"owner_volume":physical_volume,
-                "evolution_volume":evolution_volume,"q5_reference_volume":q5_reference_volume}
+    arrays_out={"owner_keys":prepare["owner_keys"],"owner_volume":np.asarray(data.owner_volume),
+                "candidate_physical_quadrature_volume":physical_volume,
+                "evolution_volume":evolution_volume,
+                **{f"reference_volume_{measure}_q{reference_order}":v for measure,v in reference_volume.items()}}
     statistics:dict[str,Any]={}
     closure=0.0; reference_closure=0.0
     for field in FIELD_NAMES:
         statistics[field]={}
-        target={term:reference_q5[field][term]/q5_reference_volume[:,None] for term in TERMS}
+        arrays_out[f"U_face_numerator_q{config['candidate_face_order']}:{field}"]=face_correction[field]
+        arrays_out[f"U_face_directional_numerator_q{config['candidate_face_order']}:{field}"]=face_directional[field]
+        target={term:reference_global["evolution"][field][term]/reference_volume["evolution"][:,None] for term in TERMS}
+        physical_target={term:reference_global["physical"][field][term]/reference_volume["physical"][:,None] for term in TERMS}
         reference_closure=max(reference_closure,float(np.max(np.abs(target["material"]+target["remainder"]-target["total"]))))
         centered={term:candidate[field][term]/evolution_volume[:,None] for term in TERMS}
         upwind={term:centered[term].copy() for term in TERMS}
@@ -906,7 +927,10 @@ def _case(args: argparse.Namespace) -> dict[str, Any]:
         closure=max(closure,float(np.max(np.abs(upwind["material"]+upwind["remainder"]-upwind["total"]))))
         for term in TERMS:
             arrays_out[f"target:{field}:{term}"]=target[term]
-            arrays_out[f"target_q3_diagnostic:{field}:{term}"]=reference_physical[field][term]/physical_volume[:,None]
+            arrays_out[f"target_physical_q{reference_order}:{field}:{term}"]=physical_target[term]
+            for measure in reference_volume:
+                arrays_out[f"reference_numerator_{measure}_q{reference_order}:{field}:{term}"]=reference_global[measure][field][term]
+            arrays_out[f"target_q{config['candidate_cell_order']}_physical_diagnostic:{field}:{term}"]=reference_physical[field][term]/physical_volume[:,None]
             arrays_out[f"candidate:centered:{field}:{term}"]=centered[term]
             arrays_out[f"candidate:U:{field}:{term}"]=upwind[term]
             arrays_out[f"candidate_directional:centered:{field}:{term}"]=candidate_directional[field][term]/evolution_volume[:,None,None]
@@ -915,6 +939,7 @@ def _case(args: argparse.Namespace) -> dict[str, Any]:
                 u_directional += face_directional[field]/evolution_volume[:,None,None]
             arrays_out[f"candidate_directional:U:{field}:{term}"]=u_directional
             arrays_out[f"reference_evolution:{field}:{term}"]=reference_evolution[field][term]/evolution_volume[:,None]
+            arrays_out[f"reference_evolution_numerator_candidate_rule:{field}:{term}"]=reference_evolution[field][term]
         for action, values in (("centered",centered),("U",upwind)):
             statistics[field][action]={}
             for term in TERMS:
@@ -931,11 +956,14 @@ def _case(args: argparse.Namespace) -> dict[str, Any]:
         "verification":{
             "finite_complete_owner_coverage":all(np.all(np.isfinite(v)) for v in arrays_out.values()),
             "M_plus_R_closure_max":closure,
-            "q5_reference_M_plus_R_closure_max":reference_closure,
-            "q5_to_q3_physical_volume_relative_max":float(np.max(np.abs(q5_reference_volume-physical_volume)/np.maximum(np.abs(q5_reference_volume),1e-300))),
+            "reference_M_plus_R_closure_max":reference_closure,
+            "reference_to_candidate_physical_volume_relative_max":float(np.max(np.abs(reference_volume["physical"]-physical_volume)/np.maximum(np.abs(reference_volume["physical"]),1e-300))),
             "dirichlet_trace_error_max":max((float(d["dirichlet_trace_error_max"]) for d in face_details),default=0.0),
             "physical_wall_model":"frozen curvature characteristic wall state; shared prescribed Dirichlet trace in research reconstruction",
-            "reference_rule":"q5 exact-field continuous physical-volume target; q3 retained as diagnostic",
+            "reference_rule":f"analytic q1 raw-midpoint J/B target; physical J retained as diagnostic",
+            "candidate_cell_order":int(config["candidate_cell_order"]),
+            "candidate_face_order":int(config["candidate_face_order"]),
+            "U_face_contract":"integrated face numerator divided by candidate-cell J/B mass; q3 face quadrature fixed",
         },
         "timing":{"seconds":time.perf_counter()-started,"maximum_rss_gib":_max_rss_gib()},
     }
@@ -964,10 +992,11 @@ def _selected_complete_owners(data: Any) -> tuple[np.ndarray, dict[str,list[int]
     return np.asarray(sorted(selected),dtype=np.int64),strata
 
 
-def _reference_on_raw_cells(context:Any,reference:Any,raw_indices:np.ndarray,order:int,time_value:float) -> tuple[np.ndarray,np.ndarray]:
-    keys=base._raw_keys(context.resolution,raw_indices)
+def _cell_quadrature(context: Any, keys: np.ndarray, order: int) -> tuple[np.ndarray, np.ndarray]:
+    if order not in (1, 3, 5, 7, 9):
+        raise ValueError("cell quadrature order must be 1, 3, 5, 7, or 9")
     if order==3:
-        points,weights=base._cell_quadrature(context,keys)
+        return base._cell_quadrature(context,keys)
     else:
         # Same tensor-product logical cell rule, generalized to q5/q7.
         nodes,one=np.polynomial.legendre.leggauss(order)
@@ -980,16 +1009,27 @@ def _reference_on_raw_cells(context:Any,reference:Any,raw_indices:np.ndarray,ord
                 axis_weights.append(0.5*(hi-lo)*one)
             mesh=np.meshgrid(*axes,indexing="ij"); wmesh=np.meshgrid(*axis_weights,indexing="ij")
             points[row]=np.stack(mesh,axis=-1).reshape(-1,3); weights[row]=np.prod(np.stack(wmesh,axis=-1),axis=-1).reshape(-1)
+    return points, weights
+
+
+def _reference_on_raw_cells(context:Any,reference:Any,raw_indices:np.ndarray,order:int,time_value:float) -> dict[str,np.ndarray]:
+    keys=base._raw_keys(context.resolution,raw_indices)
+    points,weights=_cell_quadrature(context,keys,order)
     from perpendicular_structured.reference_geometry import curvature_geometry
     flat=points.reshape(-1,3); prepared=curvature_geometry(reference,flat)
     physical=weights*np.asarray(prepared.J).reshape(len(keys),-1)
-    numerator=np.empty((len(FIELD_NAMES),len(TERMS),len(keys),4))
+    evolution=physical/np.maximum(np.asarray(prepared.B).reshape(len(keys),-1),1e-30)
+    numerator_physical=np.empty((len(FIELD_NAMES),len(TERMS),len(keys),4))
+    numerator_evolution=np.empty_like(numerator_physical)
     for state,field in enumerate(FIELD_NAMES):
         values,gradients=_evaluate_fields(field,reference,flat,time_value)
         terms=_continuum_terms(values,gradients,prepared)
         for term in range(len(TERMS)):
-            numerator[state,term]=np.sum(physical[...,None]*terms[term].reshape(len(keys),-1,4),axis=1)
-    return numerator,np.sum(physical,axis=1)
+            source=terms[term].reshape(len(keys),-1,4)
+            numerator_physical[state,term]=np.sum(physical[...,None]*source,axis=1)
+            numerator_evolution[state,term]=np.sum(evolution[...,None]*source,axis=1)
+    return {"numerator_physical":numerator_physical,"volume_physical":np.sum(physical,axis=1),
+            "numerator_evolution":numerator_evolution,"volume_evolution":np.sum(evolution,axis=1)}
 
 
 def _preflight(args: argparse.Namespace) -> dict[str, Any]:
@@ -1015,9 +1055,11 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
     lookup = {int(owner): row for row, owner in enumerate(owners)}
     shape = (len(FIELD_NAMES),len(TERMS),len(owners),len(EQUATIONS))
     candidate = np.zeros(shape)
-    q3_exact = np.zeros(shape)
-    controls = {order: np.zeros(shape) for order in (3,5,7)}
-    controls_volume = {order: np.zeros(len(owners)) for order in (3,5,7)}
+    cell_order=int(config["candidate_cell_order"])
+    control_orders=(*tuple(map(int,config["reference_control_orders"])), "1_halfstep")
+    q_cell_exact = np.zeros(shape)
+    controls = {measure:{order:np.zeros(shape) for order in control_orders} for measure in ("physical","evolution")}
+    controls_volume = {measure:{order:np.zeros(len(owners)) for order in control_orders} for measure in controls}
     physical_volume = np.zeros(len(owners)); evolution_volume = np.zeros(len(owners))
     face_correction = np.zeros((len(FIELD_NAMES),len(owners),len(EQUATIONS)))
     seen: dict[str, list[int]] = {kind: [] for kind in ("face","cell","reference_control")}
@@ -1041,7 +1083,7 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
                 for state,name in enumerate(FIELD_NAMES):
                     for term_index,term in enumerate(TERMS):
                         candidate[state,term_index,row] += arrays[f"candidate:{name}:{term}"][position]
-                        q3_exact[state,term_index,row] += arrays[f"reference_physical:{name}:{term}"][position]
+                        q_cell_exact[state,term_index,row] += arrays[f"reference_evolution:{name}:{term}"][position]
         elif kind == "face":
             face_details.append(metadata["details"])
             for position in range(len(ids)):
@@ -1053,41 +1095,42 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         elif kind == "reference_control":
             for position,raw in enumerate(ids):
                 row=lookup[int(raw_owner[raw])]
-                for order in (3,5,7):
-                    controls[order][:,:,row] += arrays[f"numerator_q{order}"][:,:,position]
-                    controls_volume[order][row] += arrays[f"volume_q{order}"][position]
+                for measure in controls:
+                    for order in control_orders:
+                        controls[measure][order][:,:,row] += arrays[f"numerator_{measure}_q{order}"][:,:,position]
+                        controls_volume[measure][order][row] += arrays[f"volume_{measure}_q{order}"][position]
         else:
             raise ValueError(kind)
     if sorted(seen["cell"]) != selected_raw.tolist() or sorted(seen["reference_control"]) != selected_raw.tolist() or sorted(seen["face"]) != sorted(selected_faces):
         raise ValueError("preflight chunk coverage is missing or duplicated")
-    if min(np.min(physical_volume),np.min(evolution_volume),*(np.min(v) for v in controls_volume.values())) <= 0:
+    if min(np.min(physical_volume),np.min(evolution_volume),*(np.min(v) for measure in controls_volume.values() for v in measure.values())) <= 0:
         raise ValueError("nonpositive preflight owner volume")
     centered = candidate / evolution_volume[None,None,:,None]
     upwind = centered.copy()
     upwind[:,0] += face_correction/evolution_volume[None,:,None]
     upwind[:,2] = upwind[:,0]+upwind[:,1]
-    references = {order: controls[order]/controls_volume[order][None,None,:,None] for order in (3,5,7)}
-    q3_cell = q3_exact/physical_volume[None,None,:,None]
-    q3_replay = float(np.max(np.abs(q3_cell-references[3])))
+    references = {measure:{order:controls[measure][order]/controls_volume[measure][order][None,None,:,None]
+                            for order in control_orders} for measure in controls}
+    q_cell = q_cell_exact/evolution_volume[None,None,:,None]
+    rule_replay = float(np.max(np.abs(q_cell-references["evolution"][cell_order])))
     budget={}; sampled_errors={}
     for state,name in enumerate(FIELD_NAMES):
         budget[name]={}; sampled_errors[name]={}
         for term_index,term in enumerate(TERMS):
             budget[name][term]={}; sampled_errors[name][term]={}
             for equation_index,equation in enumerate(EQUATIONS):
-                delta3=references[3][state,term_index,:,equation_index]-references[7][state,term_index,:,equation_index]
-                delta5=references[5][state,term_index,:,equation_index]-references[7][state,term_index,:,equation_index]
-                weight=controls_volume[7]
+                ref1=references["evolution"][1][state,term_index,:,equation_index]
+                half=references["evolution"]["1_halfstep"][state,term_index,:,equation_index]
+                weight=np.asarray(data.owner_volume)[owners]
                 rms=lambda q: float(np.sqrt(np.sum(weight*q*q)/np.sum(weight)))
                 sampled_errors[name][term][equation]={
-                    "centered_q3_rms":rms(centered[state,term_index,:,equation_index]-references[3][state,term_index,:,equation_index]),
-                    "U_q3_rms":rms(upwind[state,term_index,:,equation_index]-references[3][state,term_index,:,equation_index]),
+                    "centered_matching_rule_rms":rms(centered[state,term_index,:,equation_index]-ref1),
+                    "U_matching_rule_rms":rms(upwind[state,term_index,:,equation_index]-ref1),
+                    "centered_minus_q1_sample_rms":rms(centered[state,term_index,:,equation_index]-ref1),
+                    "U_minus_q1_sample_rms":rms(upwind[state,term_index,:,equation_index]-ref1),
                 }
                 budget[name][term][equation]={
-                    "q3_minus_q7_sample_rms":rms(delta3),
-                    "q5_minus_q7_sample_rms":rms(delta5),
-                    "q3_minus_q7_max":float(np.max(np.abs(delta3))),
-                    "q5_minus_q7_max":float(np.max(np.abs(delta5))),
+                    "midpoint_halfstep_sample_rms":rms(half-ref1),
                     "sample_only_not_global_bound":True,
                 }
     trace_error=max((float(d["dirichlet_trace_error_max"]) for d in face_details),default=0.0)
@@ -1098,18 +1141,20 @@ def _preflight(args: argparse.Namespace) -> dict[str, Any]:
         ranges=[d["phi_wall_trace_range"][name] for d in face_details if d["phi_wall_trace_range"][name][0] is not None]
         trace_ranges[name]=[min(x[0] for x in ranges),max(x[1] for x in ranges)] if ranges else [None,None]
     closure=float(np.max(np.abs(centered[:,0]+centered[:,1]-centered[:,2])))
-    finite=all(np.all(np.isfinite(x)) for x in (candidate,q3_exact,face_correction,centered,upwind,*references.values()))
-    implementation_pass=bool(finite and wall_faces>0 and trace_error<1e-9 and q3_replay<1e-8 and closure<1e-10 and normal["homogeneous_dirichlet"]>1e-3 and normal["variable_dirichlet"]>1e-3 and trace_ranges["variable_dirichlet"][1]-trace_ranges["variable_dirichlet"][0]>1e-5)
+    finite=all(np.all(np.isfinite(x)) for x in (candidate,q_cell_exact,face_correction,centered,upwind,*(r for measure in references.values() for r in measure.values())))
+    implementation_pass=bool(finite and wall_faces>0 and trace_error<1e-9 and rule_replay<1e-8 and closure<1e-10 and normal["homogeneous_dirichlet"]>1e-3 and normal["variable_dirichlet"]>1e-3 and trace_ranges["variable_dirichlet"][1]-trace_ranges["variable_dirichlet"][0]>1e-5)
     arrays_out={"owner_ids":owners,"raw_ids":selected_raw,"face_ids":np.asarray(sorted(selected_faces)),
         "physical_volume":physical_volume,"evolution_volume":evolution_volume,
         "candidate_centered":centered,"candidate_U":upwind,"face_correction":face_correction,
-        **{f"reference_q{order}":values for order,values in references.items()},
-        **{f"reference_volume_q{order}":volume for order,volume in controls_volume.items()}}
+        **{f"reference_{measure}_q{order}":values for measure,rules in references.items() for order,values in rules.items()},
+        **{f"reference_volume_{measure}_q{order}":volume for measure,rules in controls_volume.items() for order,volume in rules.items()},
+        **{f"reference_numerator_{measure}_q{order}":value for measure,rules in controls.items() for order,value in rules.items()}}
     payload={"schema":PREFLIGHT_SCHEMA,"status":"complete","resolution":n,
         "passes_implementation_preflight":implementation_pass,
         "complete_owner_indices":owners,"complete_raw_cell_count":len(selected_raw),"face_count":len(selected_faces),
         "strata":strata,"reference_qualification":budget,"sampled_errors":sampled_errors,
-        "checks":{"q3_reference_replay_max":q3_replay,"M_plus_R_closure_max":closure,
+        "checks":{"candidate_rule_reference_replay_max":rule_replay,"M_plus_R_closure_max":closure,
+                  "primary_reference_measure":"midpoint_J_over_B","candidate_cell_order":cell_order,
                   "dirichlet_trace_error_max":trace_error,"wall_face_count":wall_faces,
                   "phi_wall_normal_gradient_max":normal,"phi_wall_trace_range":trace_ranges,
                   "finite":finite},
@@ -1132,8 +1177,14 @@ def _orders(errors:Sequence[float]) -> list[float]:
 
 def _merge(args:argparse.Namespace) -> dict[str,Any]:
     config=_config(args.config); output=_path(config,"output")
+    reference_order=int(config["reference_order"])
     cases=[json.loads((output/f"N{n}.json").read_text()) for n in (32,48,64)]
     preflight=[json.loads((output/f"N{n}.preflight.json").read_text()) for n in (32,48,64)]
+    source=_json(_source_identity(config))
+    for case, control in zip(cases, preflight, strict=True):
+        if (case.get("schema") != SCHEMA or control.get("schema") != PREFLIGHT_SCHEMA
+            or case.get("sources") != source or control.get("sources") != source):
+            raise ValueError("stale case or preflight summary cannot be merged")
     results={}; gates=[]
     for field in FIELD_NAMES:
         results[field]={}
@@ -1144,9 +1195,11 @@ def _merge(args:argparse.Namespace) -> dict[str,Any]:
                 results[field][equation]["actions"][action]={}
                 for term in TERMS:
                     errors=[case["statistics"][field][action][term][equation]["absolute_l2"] for case in cases]
-                    orders=_orders(errors) if min(errors)>0 else [None,None]
-                    entry={"errors":errors,"orders":orders,"acceptance_role":"primary" if action==primary else "diagnostic"}
-                    if action==primary and not (equation=="vorticity" and term=="remainder"):
+                    structural_zero=equation=="vorticity" and term=="remainder"
+                    orders=_orders(errors) if not structural_zero and min(errors)>0 else [None,None]
+                    entry={"errors":errors,"orders":orders,"structural_zero":structural_zero,
+                           "acceptance_role":"primary" if action==primary else "diagnostic"}
+                    if action==primary and not structural_zero:
                         entry["passes_both_intervals"]=bool(all(order is not None and order>=1.8 for order in orders))
                         gates.append(entry["passes_both_intervals"])
                     results[field][equation]["actions"][action][term]=entry
@@ -1157,13 +1210,14 @@ def _merge(args:argparse.Namespace) -> dict[str,Any]:
             reference[field][equation]={}
             primary=PRIMARY_ACTION[equation]
             for term in TERMS:
-                budgets=[float(item["reference_qualification"][field][term][equation]["q5_minus_q7_sample_rms"]) for item in preflight]
-                errors=[float(case["statistics"][field][primary][term][equation]["absolute_l2"]) for case in cases]
+                budgets=[float(item["reference_qualification"][field][term][equation]["midpoint_halfstep_sample_rms"]) for item in preflight]
+                errors=[float(item["sampled_errors"][field][term][equation][f"{primary}_minus_q{reference_order}_sample_rms"]) for item in preflight]
                 structural_zero=equation=="vorticity" and term=="remainder"
                 ratios=[0.0 if structural_zero else budget/max(error,1.0e-300) for budget,error in zip(budgets,errors,strict=True)]
                 passes=structural_zero or all(ratio<0.1 for ratio in ratios)
-                reference[field][equation][term]={"q5_minus_q7_sample_rms":budgets,
-                    "fraction_of_matching_primary_global_error":ratios,
+                reference[field][equation][term]={"midpoint_halfstep_sample_rms":budgets,
+                    f"candidate_minus_q{reference_order}_matching_sample_rms":errors,
+                    "fraction_of_matching_primary_sample_error":ratios,
                     "passes_all_10_percent_screens":passes,"structural_zero":structural_zero,
                     "sample_only_not_global_uncertainty_bound":True}
                 reference_gate.append(passes)
@@ -1171,7 +1225,7 @@ def _merge(args:argparse.Namespace) -> dict[str,Any]:
         "schema":SUMMARY_SCHEMA,"status":"computation completed",
         "invariants_checked":all(case["verification"]["finite_complete_owner_coverage"]
             and case["verification"]["M_plus_R_closure_max"]<1.0e-11
-            and case["verification"]["q5_reference_M_plus_R_closure_max"]<1.0e-11
+            and case["verification"]["reference_M_plus_R_closure_max"]<1.0e-11
             and case["verification"]["dirichlet_trace_error_max"]<1.0e-9 for case in cases),
         "global_order_pass":bool(all(gates)),
         "bounded_reference_controls_passed":bool(all(reference_gate)),
@@ -1179,8 +1233,8 @@ def _merge(args:argparse.Namespace) -> dict[str,Any]:
         "global_accuracy_passed":bool(all(gates) and all(reference_gate)),
         "acceptance":"orders >=1.8 on both intervals for primary M/R/total components; exact-zero vorticity remainder exempt; diagnostic action never hidden in pooled score",
         "results":results,"reference_qualification":reference,"primary_action":PRIMARY_ACTION,
-        "reference_rule":"global continuous exact-field q5 physical-volume; q3 candidate-cell replay retained as diagnostic",
-        "candidate":config["candidate"],"scope":config["scope"],"sources":_source_identity(config),
+        "reference_rule":f"analytic raw-midpoint expression aggregated with midpoint J/B masses; no integrated-reference computation",
+        "candidate":config["candidate"],"scope":config["scope"],"sources":source,
     }
     _write_json(output/"summary.json",payload); _event("merge_complete",global_accuracy_passed=payload["global_accuracy_passed"])
     return payload
@@ -1211,7 +1265,7 @@ def _validate(args:argparse.Namespace) -> dict[str,Any]:
         check=payload.get("verification",{})
         if (payload.get("status")!="complete" or not check.get("finite_complete_owner_coverage")
             or check.get("M_plus_R_closure_max",1)>1e-11
-            or check.get("q5_reference_M_plus_R_closure_max",1)>1e-11
+            or check.get("reference_M_plus_R_closure_max",1)>1e-11
             or check.get("dirichlet_trace_error_max",1)>1e-9):
             raise ValueError("invalid case")
     elif stage=="merge":

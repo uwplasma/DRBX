@@ -1,5 +1,70 @@
 # Roadmap: second-order perpendicular operators on angular RLP grids
 
+## Locked midpoint formulation and MMS contract — 25 September 2026
+
+User-approved for the next P05/P06/P07 global campaigns. This supersedes
+integrated-primary-reference and high-volume-quadrature requirements in older
+campaign descriptions below; historical results and their original reference
+identities remain unchanged. This is a frozen research campaign definition,
+not a production or new convergence pass.
+
+- Keep physical-raw-volume-weighted member-center owner observations and one
+  evolved value per owner. Keep the structured/ringwise/coupled-axis and
+  prescribed-Dirichlet reconstruction policies. No fine-cell evolved states.
+- **Volume terms:** evaluate reconstructed fields, required gradients and the
+  full intended coefficient products once at each raw-cell logical midpoint.
+  Sum member contributions for agglomerated owners; do not replace a whole
+  aggregate by one representative point. Freeze coefficient placement rather
+  than silently replacing averages of products by products of averages.
+- **Faces:** retain the existing shared q3 face flux/characteristic rules,
+  canonical incidence and BC channels. Midpoint volume evaluation does not
+  authorize midpoint replacement of face fluxes or pointwise replacement of
+  conservative diffusion. P07 has no numerical cell-volume source to change.
+- **P05:** q1 cell correction with existing q3 A/B/C/U face construction;
+  analytic strong bracket at each raw midpoint projected with stored physical
+  raw volumes, including actual continuum vorticity differentiated independently
+  of numerical reconstruction. Its derivative-step sensitivity is checked.
+- **P06:** q1 complete material/remainder volume expressions plus existing q3
+  characteristic face correction. Member mass is `(J/B)(x_c)*Delta_xi_c` for
+  both numerical assembly and analytic midpoint reference; divide only after
+  owner summation. Recompute normalization of face numerators with that mass.
+- **P07:** existing q3 integrated reconstructed face-gradient diffusion action
+  divided by stored physical owner volume. Replace only the primary reference
+  with the analytic pointwise diffusion expression projected from all raw
+  midpoints using stored physical raw volumes.
+- Global norms retain frozen physical owner-volume weights for all three
+  campaigns. These reporting weights, stored observations and P06 evolution
+  masses are separately labeled. Numerical references use analytic fields and
+  derivatives, not numerical reconstruction or numerical jump corrections.
+- Primary gate remains full-domain operator L2 order >=1.8 on both N32→N48
+  and N48→N64 intervals per nontrivial field/component, with existing primary
+  form masks. Preserve boundary, axis, transition and aggregate diagnostics.
+  Midpoint-reference derivative/geometry uncertainty is screened independently
+  on bounded complete owners. Midpoint-to-integrated comparisons and additional
+  high-quadrature reference stages are deferred at the user's request to avoid
+  their computational cost; they are not scheduled by these campaigns.
+- No mandatory high-order reference integration over the full domain. The
+  campaigns retain only bounded midpoint-reference half-step checks. Existing
+  integrated audit artifacts remain historical evidence; do not recompute them.
+  A midpoint pass does not certify exact continuous-average or evolved accuracy.
+- Configuration/source identities change. Use a new campaign output folder;
+  old integrated-reference chunks must not be relabeled or admitted through
+  optimization-only continuation. Compatible numerical artifacts may later be
+  imported only through an explicit validated migration. No automatic reuse
+  importer or remote launch is authorized by these implementation edits.
+
+The [bounded P06 midpoint test](../../../../work/p06_midpoint_volume_test_20260925/report.md)
+found all 44 sampled nonzero component errors decreasing against the midpoint
+reference, but only 36/44 descriptive sample slopes meeting 1.8 on both
+intervals. Sampled integrated-reference differences can increase. These are
+historical bounded findings, not a global pass. Their integrated comparisons
+remain archived; the next campaigns do not recompute them.
+
+
+The [midpoint campaign implementation and bounded checks](../../../../work/p_midpoint_campaign_update_20260925/report.md)
+record the P05/P06/P07 edits, 14 passing focused tests, and actual-HSX preflight/
+reference checks. The full midpoint global qualifications remain pending.
+
 Approved research roadmap, 18 September 2026. This document specifies planned
 work and acceptance gates, not a claim that the methods below are already
 implemented or verified. It is the authoritative progress ledger for future

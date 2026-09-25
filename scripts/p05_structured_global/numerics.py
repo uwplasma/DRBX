@@ -41,18 +41,31 @@ def omega(ref,p):
     return ref._perpendicular_operator(q,np.stack(a[1:4],axis=-1),a[5])
 
 
-def fields(ref,p,*,omega_gradient=False):
-    """Frozen analytic catalogue; omega gradient is needed only by BC trace lift."""
+def omega_derivative(ref,p,axes=(0,1,2)):
+    """Continuum-omega derivatives; no numerical reconstruction is used."""
+    result=np.zeros((len(p),3));step=ref.finite_difference_step
+    for axis in axes:
+        h=step
+        if axis==0:
+            distance=np.minimum(p[:,0],1-p[:,0])
+            if np.any(distance<=0):raise ValueError('normal omega derivative requires interior points')
+            h=np.minimum(step,.2*distance)
+        samples=[]
+        for factor in (-2,-1,1,2):
+            shifted=p.copy();shifted[:,axis]+=factor*h;samples.append(omega(ref,shifted))
+        result[:,axis]=(samples[0]-8*samples[1]+8*samples[2]-samples[3])/(12*h)
+    return result
+
+
+def fields(ref,p,*,omega_gradient=False,full_omega_gradient=False):
+    """Analytic fields; full omega derivative is reserved for continuum references."""
     p=np.asarray(p);rr,th,et=p.T;k=2*np.pi/ref.eta_period;a=1-rr**2
     phi=ref._fields_raw(p,TIME)['phi']
     values=[phi[0],omega(ref,p)];grads=[np.stack(phi[1:4],axis=-1),np.zeros((len(p),3))]
-    if omega_gradient:
-        # Only tangential BC derivatives are consumed; normal omega is not differentiated.
-        for ax in (1,2):
-            z=[]
-            for mul in (-2,-1,1,2):
-                q=p.copy();q[:,ax]+=mul*ref.finite_difference_step;z.append(omega(ref,q))
-            grads[1][:,ax]=(z[0]-8*z[1]+8*z[2]-z[3])/(12*ref.finite_difference_step)
+    if full_omega_gradient:
+        grads[1]=omega_derivative(ref,p)
+    elif omega_gradient:
+        grads[1]=omega_derivative(ref,p,axes=(1,2))
     phase=2*th-k*et+.23;env=rr**2*a**4
     values.append(.08*env*np.cos(phase))
     grads.append(np.stack((.16*rr*a**3*(1-5*rr**2)*np.cos(phase),-.16*env*np.sin(phase),.08*k*env*np.sin(phase)),axis=1))
@@ -130,7 +143,7 @@ def face_chunk(t,ref,S,owner_values,ids,*,order=3,candidate=True):
 
 
 @reuse_metrics
-def cell_chunk(t,ref,S,owner_values,ids,*,order=3,candidate=True,step=2e-4):
+def cell_chunk(t,ref,S,owner_values,ids,*,order=1,candidate=True,step=2e-4):
     keys=np.array(np.unravel_index(ids,(t.n,)*3)).T;p,w=num.quadrature(t.faces,keys,order,face=False)
     flat=p.reshape(-1,3);F=len(FIELDS);P=len(PAIRS);nq=order**3
     ch=curl_h(ref,flat,step).reshape(len(ids),nq,3)
@@ -152,3 +165,23 @@ def cell_chunk(t,ref,S,owner_values,ids,*,order=3,candidate=True,step=2e-4):
             out['constant_error'][j]=max(abs(v[:,6]-1).max(),abs(g[:,:,6]).max())
             out['support_residual'][j]=rows.diagnostics['max_residual']
     return out
+
+
+@reuse_metrics
+def reference_cells(t,ref,ids,*,order=1):
+    """Strong analytic bracket; q1 uses the stored physical raw-volume measure.
+
+    Higher rules are bounded continuous-average diagnostics only. Actual omega
+    is differentiated from its continuum expression with a controlled step.
+    """
+    keys=np.array(np.unravel_index(ids,(t.n,)*3)).T
+    p,w=num.quadrature(t.faces,keys,order,face=False);flat=p.reshape(-1,3)
+    _,g=fields(ref,flat,full_omega_gradient=True);metric=ref._metric(flat)
+    h=metric['bcov']/metric['B'][:,None];J=np.abs(metric['J'])
+    point=np.stack([np.einsum('pa,pa->p',-np.cross(h,g[:,:,a]),g[:,:,b])/J for a,b in PAIRS],axis=1)
+    if order==1:
+        mass=t.rv[ids];numerator=mass[:,None]*point
+    else:
+        measure=w*J.reshape(len(ids),order**3);mass=np.sum(measure,axis=1)
+        numerator=np.einsum('iq,iqf->if',measure,point.reshape(len(ids),order**3,len(PAIRS)))
+    return dict(ids=np.asarray(ids),owners=t.ro[ids],numerator=numerator,volume=mass)
