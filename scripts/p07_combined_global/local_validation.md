@@ -1,0 +1,12 @@
+# Local preparation checks (25 September 2026)
+
+This is preparation evidence, not a global N32/N48/N64 numerical qualification.
+
+- The tracked numerical kernels assembled one face of every one of the eight families at each resolution and matched the frozen research rows and BC channels exactly (maximum recorded coefficient difference 0). After vectorizing the ordinary singleton row loop, the N32/N48/N64 ordinary sample rows still matched exactly.
+- Four ringwise and four coupled support faces per resolution reproduced the frozen actual/uniform-moment certificates (maximum residual difference 0). The same support calls produced sparse rows identical to separately assembled rows at all three resolutions. A 512-face N32 support chunk serialized certified rows, and a bounded assembly reuse read them by exact face ID.
+- The N32 local pipeline smoke computed 30 selected/incident face rows spanning all families, including eight BC faces and 19 numerical-support faces. It applied physical owner observations to complete wall and aggregate-join owner closures and calculated independent q3 exact-gradient face actions and continuous-volume references for all four fields. Maximum support residual was 4.88e-14. This does not test global order.
+- Small NPZ/receipt smoke chunks serialized and reloaded support, raw-cell observation, q3 reference, q3/q5/q7 control, q3/q7 exact-gradient face control, and wall assembly channels. The wall smoke had four BC rows, 560 state coefficients, finite four-field fluxes, and exact B=-W.
+- Focused operational tests reject missing, duplicate, and stale support chunks and a malformed BC-value channel. The campaign CLI help and Python compilation passed.
+- An isolated `git archive HEAD` copy of the tracked DRBX source, overlaid only with the new campaign Python files, imported and assembled an N32 coupled-C face and wall face using the immutable local dataset. This catches accidental dependence on loose `work/p07_*` imports or the dirty local package checkout.
+
+The bounded preparation did not execute full N48/N64 support, full face assembly, global reference/evaluation, or a global-order decision. Their completion and scientific flags are produced by the remote campaign. The source checkout contains unrelated dirty files; only the new tracked campaign files, focused test, and deliberately reviewed documentation belong in this preparation commit.
