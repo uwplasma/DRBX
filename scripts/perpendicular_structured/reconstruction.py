@@ -4,6 +4,7 @@ Campaign infrastructure, not a production operator. Owner observations are physi
 volume weighted raw member-center values. All boundary data enter at application.
 """
 from dataclasses import dataclass
+from functools import lru_cache
 import numpy as np
 from p07_combined_global import kernels as r
 
@@ -40,6 +41,22 @@ class PointRows:
             gradient[:, 1:] += dgt[:, 1:]
         return value, gradient
 
+    def apply_value(self, owner_values, trace=None):
+        """The same value action without an unused gradient contraction."""
+        data = np.asarray(owner_values)[self.donor_ids]
+        if data.ndim != 2:
+            raise ValueError('owner_values must have shape (owners, fields)')
+        if self.boundary_conditioned:
+            if trace is None:
+                raise ValueError('a prescribed Dirichlet trace callback is required')
+            gd, _ = trace(self.trace_donor_points)
+            gt, _ = trace(self.trace_target_points)
+            data = data - gd
+        value = self.value @ data
+        if self.boundary_conditioned:
+            value += gt
+        return value
+
 
 class StructuredReconstruction:
     def __init__(self, t):
@@ -49,6 +66,18 @@ class StructuredReconstruction:
         self.profile = np.array([len(np.unique(t.ro.reshape((t.n,)*3)[i,:,0])) for i in range(t.n)])
         self.top = (t.ro,t.rv,t.vol,t.pts,t.order,t.starts,
                     {'grid.y.centers':t.centers[1], 'grid.z.centers':t.centers[2]})
+        # Per-instance bounded caches, with exact float keys (no quantization).
+        self._nearest = lru_cache(maxsize=4096)(self._nearest_uncached)
+        self._basis = lru_cache(maxsize=8192)(self._basis_uncached)
+
+    def _nearest_uncached(self, axis, target):
+        return r.nearest(self.t.centers[axis],target,7 if axis==1 else 4,
+                         2*np.pi if axis==1 else self.t.g.eta_period)
+
+    def _basis_uncached(self, axis, indices, target):
+        nodes=self.t.centers[axis][list(indices)]
+        return (r.theta_rows(nodes,target) if axis==1 else
+                r.eta_rows(nodes,target,self.t.g.eta_period,self.t.g.deta))
 
     def ring(self, i, k):
         tag = int(i),int(k)
@@ -101,8 +130,8 @@ class StructuredReconstruction:
         for q,point in enumerate(p):
             ta=anchor[1] if fixed_anchor else point[1]
             ea=anchor[2] if fixed_anchor else point[2]
-            ti=r.nearest(t.centers[1],ta,7,2*np.pi);tv,td=r.theta_rows(t.centers[1][ti],point[1])
-            ei=r.nearest(t.centers[2],ea,4,t.g.eta_period);ev,ed=r.eta_rows(t.centers[2][ei],point[2],t.g.eta_period,t.g.deta)
+            ti=self._nearest(1,float(ta));tv,td=self._basis(1,tuple(ti),float(point[1]))
+            ei=self._nearest(2,float(ea));ev,ed=self._basis(2,tuple(ei),float(point[2]))
             theta=(ti[None,:]+np.where(layers<0,n//2,0)[:,None])%n
             raw=(rid[:,None,None]*n+theta[:,None,:])*n+ei[None,:,None]
             allids.append(t.ro[raw].ravel())

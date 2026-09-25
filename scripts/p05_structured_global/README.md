@@ -115,3 +115,27 @@ workers, memory, timing, exit status and every attempt in the campaign folder.
 bounded preflight owner after verification; it is for local development or an
 operational footprint check, not a substitute for the full preflight command.
 Do not launch a full local run to prepare the remote handoff.
+
+## Optimized execution and existing campaigns
+
+Identical metric queries are reused within each batch, singleton interpolation
+weights have bounded exact-coordinate caches, side states skip unused gradient
+contractions, and topology arrays are loaded once per worker. No quadrature,
+donor policy, numerical coefficient or acceptance threshold is reduced.
+For q7/q9 control points whose fixed radial curl stencil would leave [0,1],
+only that radial step is reduced to 0.2 times the distance to the boundary.
+Previously those controls raised a geometry-domain error. Canonical N32/48/64
+q3 candidate and q5 global-reference points retain the fixed step.
+
+An existing campaign from `2ad730c82de8a669205d7d635fe450e1255b17cb`
+can explicitly adopt the tested release using `adopt-optimization` with its
+original `--input-root` and `--output`, after stopping the old controller and
+workers. Use the same checkout location. The immutable original manifest and
+checkpoint identities remain the numerical lineage; a separate
+`optimization_execution.json` records the new execution sources/commit.
+The tracked shared `optimization_release.json` admits only the tested source
+pair and unchanged inputs/configuration. Every newly computed chunk records
+the execution certificate. Ordinary resume checks still validate hashes and
+coverage; corrupt chunks are never accepted by the upgrade. Do not edit
+receipts or manifests manually. Run `preflight`, `run`, then `validate` after
+adoption; valid work is reused. Other source chains require a separate audit.

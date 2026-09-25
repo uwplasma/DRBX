@@ -1,0 +1,555 @@
+{
+  "baseline_bytes": {
+    "hsx_mms_continuum_reference.py": 45575,
+    "scripts/p05_structured_global/campaign.py": 21347,
+    "scripts/p05_structured_global/configuration.json": 899,
+    "scripts/p05_structured_global/input_manifest.json": 1931,
+    "scripts/p05_structured_global/numerics.py": 7936,
+    "scripts/p06_structured_global/campaign.py": 7660,
+    "scripts/p06_structured_global/configuration.json": 1867,
+    "scripts/p06_structured_global/input_manifest.json": 11943,
+    "scripts/p06_structured_global/numerics.py": 65842,
+    "scripts/p06_structured_global/observations.py": 8058,
+    "scripts/p06_structured_global/parallel_runner.py": 37065,
+    "scripts/p07_combined_global/kernels.py": 10901,
+    "scripts/p07_combined_global/topology.py": 5938,
+    "scripts/p07_diffusion_global/numerics.py": 15431,
+    "scripts/perpendicular_structured/__init__.py": 82,
+    "scripts/perpendicular_structured/reconstruction.py": 10886,
+    "src/drbx/geometry/Bfield_evaluator.py": 20648,
+    "src/drbx/geometry/MetricEvaluator.py": 159267,
+    "src/drbx/geometry/fci_boundary_functional_reconstruction.py": 15233,
+    "src/drbx/geometry/fci_perpendicular_bracket.py": 16872,
+    "src/drbx/native/fci_curvature_production_flux.py": 17745,
+    "src/drbx/native/fci_operators.py": 552976
+  },
+  "baseline_commit": "2ad730c82de8a669205d7d635fe450e1255b17cb",
+  "campaigns": {
+    "p05": {
+      "baseline_sources": {
+        "hsx_mms_continuum_reference.py": "fa5e25912ebf363d8794e06cab67c0e64949fef094b31d8a0ce5505c397db6f2",
+        "scripts/p05_structured_global/campaign.py": "d47ca2b956d46959b69abb11c35695cd42409e6d43746cc736695fb176f68965",
+        "scripts/p05_structured_global/configuration.json": "aba8506624bd7914654853b4cade444618dbf323520dcdad41379afe4531edff",
+        "scripts/p05_structured_global/input_manifest.json": "d9171b9a312bb2e054197250bbec2d7b08bc7e42ee8f4ac551026e770d6d2bd4",
+        "scripts/p05_structured_global/numerics.py": "96899ff03d5a517d4d8cc50fcb0b53562fccd8b2fd5888aaef50f30930f4d24d",
+        "scripts/p07_combined_global/kernels.py": "224a2ca0a145b27d2b9099b96c6887404d1321880e9ea29b8bf216230ef22d8e",
+        "scripts/p07_combined_global/topology.py": "1cd17a1170905a18be6f550fd129490fa540a0f84ce74098a0b623e147847296",
+        "scripts/p07_diffusion_global/numerics.py": "e25ef46e54893d5c9ff8c77aba44657d500e45b7c6190706f39a99bf18a79a12",
+        "scripts/perpendicular_structured/__init__.py": "4563aa6f7d6ef21b1674a1972d54a969f76d5343d18523479f04b04b38e23b16",
+        "scripts/perpendicular_structured/reconstruction.py": "ffe39fa45f9475288a4ad57c7cf4e08e17c5b8c864d81143125ef5a179d719b5",
+        "src/drbx/geometry/Bfield_evaluator.py": "3d4273feaf4439650449906dbf729dffe7b1e7ba86f17fd500b08da1cf0bed30",
+        "src/drbx/geometry/MetricEvaluator.py": "fa97f44de97971d91ebdde2c83e69310c2d05023796e2aba33c61f441d5f25af",
+        "src/drbx/geometry/fci_boundary_functional_reconstruction.py": "a763fcdd901a502766d4e208104da626baa90b6baf17c7a646dba2ab406b94cf",
+        "src/drbx/geometry/fci_perpendicular_bracket.py": "f1ef9487ff7a30e51e0ff21ba882d5d8ec33a9df7debab6ecfaf6cae48cd57ff"
+      },
+      "configuration": {
+        "actual_vorticity_primary_forms": [
+          "A",
+          "B",
+          "C"
+        ],
+        "candidate_quadrature": 3,
+        "cell_chunk": 32,
+        "constant_action_tolerance": 1e-08,
+        "control_curl_step": 0.0001,
+        "control_quadratures": [
+          7,
+          9
+        ],
+        "curl_step": 0.0002,
+        "face_chunk": 64,
+        "global_order_minimum": 1.8,
+        "observation_chunk": 2048,
+        "primary_forms": [
+          "A",
+          "B",
+          "C",
+          "U"
+        ],
+        "production_promotion": false,
+        "reference_cell_chunk": 16,
+        "reference_face_chunk": 64,
+        "reference_fraction_maximum": 0.1,
+        "reference_quadrature": 5,
+        "resolutions": [
+          32,
+          48,
+          64
+        ],
+        "schema": "drbx.p05-structured-global-v1",
+        "svd_relative_cutoff": 0.0001,
+        "target_residual_tolerance": 1e-09,
+        "unavailable_oracle_slots": [
+          "actual_vorticity_swapped_B",
+          "actual_vorticity_strong_volume"
+        ],
+        "upwind": "common-velocity-adjacent-cell-anchored-structured-jump"
+      },
+      "execution_sources": {
+        "hsx_mms_continuum_reference.py": "fa5e25912ebf363d8794e06cab67c0e64949fef094b31d8a0ce5505c397db6f2",
+        "scripts/p05_structured_global/campaign.py": "27f2cf0b3c5cabbc59b363185134a3f6041b9ca10a597b4cf6f32e168ba4c071",
+        "scripts/p05_structured_global/configuration.json": "aba8506624bd7914654853b4cade444618dbf323520dcdad41379afe4531edff",
+        "scripts/p05_structured_global/input_manifest.json": "d9171b9a312bb2e054197250bbec2d7b08bc7e42ee8f4ac551026e770d6d2bd4",
+        "scripts/p05_structured_global/numerics.py": "3b71a0269b504d816f056391192c42420230ebbc38470b29d7701533d9df88c5",
+        "scripts/p07_combined_global/kernels.py": "224a2ca0a145b27d2b9099b96c6887404d1321880e9ea29b8bf216230ef22d8e",
+        "scripts/p07_combined_global/topology.py": "1cd17a1170905a18be6f550fd129490fa540a0f84ce74098a0b623e147847296",
+        "scripts/p07_diffusion_global/numerics.py": "e25ef46e54893d5c9ff8c77aba44657d500e45b7c6190706f39a99bf18a79a12",
+        "scripts/perpendicular_structured/__init__.py": "4563aa6f7d6ef21b1674a1972d54a969f76d5343d18523479f04b04b38e23b16",
+        "scripts/perpendicular_structured/optimization_resume.py": "f8b596a75f0756aad0aea9e7e3cb332798926234bb20c39fb378b95b7632b869",
+        "scripts/perpendicular_structured/reconstruction.py": "e1c8aa7ec583a87962b61fc594ffc015a67a67a0cc6fc893a68e52681b94a932",
+        "scripts/perpendicular_structured/reference_geometry.py": "20d18ef20da588c592dd75c175ebe037aea05b290d6438fa0de84b01a874e2e3",
+        "src/drbx/geometry/Bfield_evaluator.py": "3d4273feaf4439650449906dbf729dffe7b1e7ba86f17fd500b08da1cf0bed30",
+        "src/drbx/geometry/MetricEvaluator.py": "fa97f44de97971d91ebdde2c83e69310c2d05023796e2aba33c61f441d5f25af",
+        "src/drbx/geometry/fci_boundary_functional_reconstruction.py": "a763fcdd901a502766d4e208104da626baa90b6baf17c7a646dba2ab406b94cf",
+        "src/drbx/geometry/fci_perpendicular_bracket.py": "f1ef9487ff7a30e51e0ff21ba882d5d8ec33a9df7debab6ecfaf6cae48cd57ff"
+      },
+      "inputs": {
+        "files": [
+          {
+            "bytes": 9715,
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json",
+            "sha256": "8f933512338e18a40e6410e80d8fe950d42462d78421df8e772a6b4d413f5ab5"
+          },
+          {
+            "bytes": 4209909,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/base_geometry.npz",
+            "sha256": "43a5490a319e1028fd8a7c01e4d9478d540e5ff01f8427a447d6c2d93dc1e91c"
+          },
+          {
+            "bytes": 12362542,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/rlp_topology.npz",
+            "sha256": "1ae442292262f711ce194263d9b3b70df7aca9d5404c0de40041cfec2d8f9970"
+          },
+          {
+            "bytes": 14401825,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/base_geometry.npz",
+            "sha256": "fc8aa6f803ec09dd4e0f7d72726534452bae4b6e41d85e61b8ed76f1f2faf09d"
+          },
+          {
+            "bytes": 43481612,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/rlp_topology.npz",
+            "sha256": "02c516b32ca451522eddaf5720b7cafa242efce48a562427d0f46c24948c8e52"
+          },
+          {
+            "bytes": 33840687,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/base_geometry.npz",
+            "sha256": "9cf7c047b38698d0e9fe043674ce29d13305c24579f17a859b604fcce217658d"
+          },
+          {
+            "bytes": 104668941,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/rlp_topology.npz",
+            "sha256": "468b10b36a1ebeaf912edc65ec64c7db6ef99e92931890707c4ce9f741e239ed"
+          },
+          {
+            "bytes": 154138698,
+            "path": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+            "sha256": "216dbcfb343fa23dd7ac9e60da6592f5757c7f5e45c8d96a5b642c6419dc10a1"
+          },
+          {
+            "bytes": 5831797532,
+            "path": "mgrid_res2p5cm_180pln.nc",
+            "sha256": "45dd643a4ae3930386b8f8bff7a789c796a0d5174b5209e1202b5bfd4ac87e44"
+          }
+        ],
+        "schema": "drbx.p05-structured-inputs-v2"
+      }
+    },
+    "p06": {
+      "baseline_sources": {
+        "hsx_mms_continuum_reference.py": "fa5e25912ebf363d8794e06cab67c0e64949fef094b31d8a0ce5505c397db6f2",
+        "scripts/p06_structured_global/campaign.py": "d37b76ecc90935040327cf022d347beb9d1a2b167450b152ff25e7bba9322758",
+        "scripts/p06_structured_global/configuration.json": "8448d713f51922a3add0ac36ca547013efdf0fa3148a0207a35a1c171a990625",
+        "scripts/p06_structured_global/input_manifest.json": "b22d0388efc234898a9780c8775650233bc7101ef262a5461e417ea493b534c1",
+        "scripts/p06_structured_global/numerics.py": "9874544f47b5c3b4aabd6eadbc52c5401693206d26e68ee4931530f8a511972f",
+        "scripts/p06_structured_global/observations.py": "8ba79d054ac4f40709f8c6d81dbb80156887e443bf2b5db3638d252f168363ba",
+        "scripts/p06_structured_global/parallel_runner.py": "3758e062187e8b9bd4ae6d6bd7606bfd11729ceec9b94571abe5ecf59ca15fde",
+        "scripts/p07_combined_global/kernels.py": "224a2ca0a145b27d2b9099b96c6887404d1321880e9ea29b8bf216230ef22d8e",
+        "scripts/p07_diffusion_global/numerics.py": "e25ef46e54893d5c9ff8c77aba44657d500e45b7c6190706f39a99bf18a79a12",
+        "scripts/perpendicular_structured/__init__.py": "4563aa6f7d6ef21b1674a1972d54a969f76d5343d18523479f04b04b38e23b16",
+        "scripts/perpendicular_structured/reconstruction.py": "ffe39fa45f9475288a4ad57c7cf4e08e17c5b8c864d81143125ef5a179d719b5",
+        "src/drbx/geometry/fci_boundary_functional_reconstruction.py": "a763fcdd901a502766d4e208104da626baa90b6baf17c7a646dba2ab406b94cf",
+        "src/drbx/geometry/fci_perpendicular_bracket.py": "f1ef9487ff7a30e51e0ff21ba882d5d8ec33a9df7debab6ecfaf6cae48cd57ff",
+        "src/drbx/native/fci_curvature_production_flux.py": "11f2916c405097f85e032fd9cdf9398135de2bb7e18a3eb9a9084c0fa96ea2ea",
+        "src/drbx/native/fci_operators.py": "01d1ae5264ac45325054f5526b8116a1f6eda98c247f782e2133b3d3867bd7d6"
+      },
+      "configuration": {
+        "candidate": {
+          "name": "p06_complete_curvature_common_structured_bc_conditioned",
+          "owner_observation": "raw midpoint values projected with physical raw_volume",
+          "quadrature": "q3 numerical cell and face integration",
+          "reconstruction": "scripts/perpendicular_structured shared owner-value/gradient service",
+          "reference": "independent continuous exact-field q5 physical-volume target; q3 candidate-cell replay and bounded q3/q5/q7 controls retained",
+          "wall_characteristic": "frozen physical wall state and complete material jump correction"
+        },
+        "cell_chunk": 32,
+        "curl_step": 0.0002,
+        "face_chunk": 128,
+        "inputs": {
+          "baseline": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline",
+          "geometry": "geometry_artifacts/rlp_convergence_32_48_64_20260917",
+          "makegrid": "mgrid_res2p5cm_180pln.nc",
+          "metric_cache": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+          "reference_sidecar": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json"
+        },
+        "metric_query_batch_size": 4096,
+        "observation_chunk": 4096,
+        "preflight_hotspot_owners": {
+          "32": [
+            13584
+          ],
+          "48": [
+            61623,
+            62036,
+            73604
+          ],
+          "64": [
+            109892,
+            142516,
+            143323
+          ]
+        },
+        "reference_chunk": 64,
+        "schema": "drbx.p06-structured-global-config-v1",
+        "scope": {
+          "actions": [
+            "centered",
+            "U"
+          ],
+          "equations": [
+            "density",
+            "Te",
+            "Ti",
+            "vorticity"
+          ],
+          "evolved_runs": false,
+          "global_l2_order_minimum": 1.8,
+          "primary_action": {
+            "Te": "U",
+            "Ti": "U",
+            "density": "U",
+            "vorticity": "centered"
+          },
+          "promotion_authorized": false,
+          "reference_fraction_maximum": 0.1,
+          "resolutions": [
+            32,
+            48,
+            64
+          ],
+          "states": [
+            "corrected_frozen_mms",
+            "regular_chart_heldout",
+            "homogeneous_dirichlet",
+            "variable_dirichlet"
+          ],
+          "terms": [
+            "material",
+            "remainder",
+            "total"
+          ]
+        },
+        "source_root": ".",
+        "time": 0.37
+      },
+      "execution_sources": {
+        "hsx_mms_continuum_reference.py": "fa5e25912ebf363d8794e06cab67c0e64949fef094b31d8a0ce5505c397db6f2",
+        "scripts/p06_structured_global/campaign.py": "af0087865efd2916dfff184f09ce73555823cd487d64b35fb86e85d6a10d3c29",
+        "scripts/p06_structured_global/configuration.json": "8448d713f51922a3add0ac36ca547013efdf0fa3148a0207a35a1c171a990625",
+        "scripts/p06_structured_global/input_manifest.json": "b22d0388efc234898a9780c8775650233bc7101ef262a5461e417ea493b534c1",
+        "scripts/p06_structured_global/numerics.py": "7253a45b9a8615ddd8988364ea02176954df905056aee5ba64ab30ef7ca3e265",
+        "scripts/p06_structured_global/observations.py": "8ba79d054ac4f40709f8c6d81dbb80156887e443bf2b5db3638d252f168363ba",
+        "scripts/p06_structured_global/parallel_runner.py": "b8b37888241e4757a303c6cc7fb17f3245c35e52cfb5f853387b2fd0f5fb29bb",
+        "scripts/p07_combined_global/kernels.py": "224a2ca0a145b27d2b9099b96c6887404d1321880e9ea29b8bf216230ef22d8e",
+        "scripts/p07_diffusion_global/numerics.py": "e25ef46e54893d5c9ff8c77aba44657d500e45b7c6190706f39a99bf18a79a12",
+        "scripts/perpendicular_structured/__init__.py": "4563aa6f7d6ef21b1674a1972d54a969f76d5343d18523479f04b04b38e23b16",
+        "scripts/perpendicular_structured/optimization_resume.py": "f8b596a75f0756aad0aea9e7e3cb332798926234bb20c39fb378b95b7632b869",
+        "scripts/perpendicular_structured/reconstruction.py": "e1c8aa7ec583a87962b61fc594ffc015a67a67a0cc6fc893a68e52681b94a932",
+        "scripts/perpendicular_structured/reference_geometry.py": "20d18ef20da588c592dd75c175ebe037aea05b290d6438fa0de84b01a874e2e3",
+        "src/drbx/geometry/fci_boundary_functional_reconstruction.py": "a763fcdd901a502766d4e208104da626baa90b6baf17c7a646dba2ab406b94cf",
+        "src/drbx/geometry/fci_perpendicular_bracket.py": "f1ef9487ff7a30e51e0ff21ba882d5d8ec33a9df7debab6ecfaf6cae48cd57ff",
+        "src/drbx/native/fci_curvature_production_flux.py": "11f2916c405097f85e032fd9cdf9398135de2bb7e18a3eb9a9084c0fa96ea2ea",
+        "src/drbx/native/fci_operators.py": "01d1ae5264ac45325054f5526b8116a1f6eda98c247f782e2133b3d3867bd7d6"
+      },
+      "inputs": {
+        "files": [
+          {
+            "bytes": 234177,
+            "hash_verification": "computed-full",
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline/N32.json",
+            "sha256": "8bcf32f227ca14e1cc16b25a42d804a06636be6fa89e8ae6988beb473074e957"
+          },
+          {
+            "bytes": 1972014,
+            "hash_verification": "computed-full",
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline/N32.reference.npz",
+            "sha256": "52f40c2ed87cae8b01ec13864bbd4aa7dfc7e22e118becf0351a95c71bd6e40e"
+          },
+          {
+            "bytes": 328403,
+            "hash_verification": "computed-full",
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline/N48.json",
+            "sha256": "326462ed23d1f31313ac3fbb4dad94ebcd4d6c557a133bb209a7f8856a88cd85"
+          },
+          {
+            "bytes": 6632880,
+            "hash_verification": "computed-full",
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline/N48.reference.npz",
+            "sha256": "f8633757cde0bb3b481e8215fff865ad6571464e280ac2589a5388bc314d4bd9"
+          },
+          {
+            "bytes": 421548,
+            "hash_verification": "computed-full",
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline/N64.json",
+            "sha256": "3f3a167e31e9ceee727f7d137085fed28f654fd9bbba90f4735bd0018d597b1c"
+          },
+          {
+            "bytes": 15659206,
+            "hash_verification": "computed-full",
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline/N64.reference.npz",
+            "sha256": "a991b50d3f1d77f294a29896f70cb1bf45ed24e5cbc60b253eea0776e1778e39"
+          },
+          {
+            "bytes": 2569,
+            "hash_verification": "computed-full",
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline/preflight.json",
+            "sha256": "c9d2485f76431c432c31528a4a997105f0ee6aa47f512f554ba34c2f2763f6ad"
+          },
+          {
+            "bytes": 1094750,
+            "hash_verification": "computed-full",
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline/summary.json",
+            "sha256": "a8583cd7baeff2bb36382e681417df75965678ef6f31539ceff78d4b6e8da30d"
+          },
+          {
+            "bytes": 1705,
+            "hash_verification": "computed-full",
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_global_baseline/workflow_checkpoint.json",
+            "sha256": "6976aca3c3c0b26f9bb3c20de24e456535c7c0135cb087e1b2d4d8ffac6f0bfa"
+          },
+          {
+            "bytes": 9715,
+            "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json",
+            "sha256": "8f933512338e18a40e6410e80d8fe950d42462d78421df8e772a6b4d413f5ab5"
+          },
+          {
+            "bytes": 4209909,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/base_geometry.npz",
+            "sha256": "43a5490a319e1028fd8a7c01e4d9478d540e5ff01f8427a447d6c2d93dc1e91c"
+          },
+          {
+            "bytes": 320276,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/cell_positions.npz",
+            "sha256": "17865ebdcd387a5c0992c8618e169fbff2de04665ee22b128d711aedb0047b00"
+          },
+          {
+            "bytes": 2120990,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/center_maps.npz",
+            "sha256": "267c0076833fe32f08d1499ed4a6e9c451b809b874f4d72f6eaee91b53a1cc67"
+          },
+          {
+            "bytes": 188824,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/curvature_edge_one_form.npz",
+            "sha256": "cf00028b7c6a3a9ea1c989e8995bbc22ccba0f9d6b15afbdfd9827e31a988763"
+          },
+          {
+            "bytes": 3417,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/manifest.json",
+            "sha256": "2d3a0a87fd4aab63df4ab7b9cbc08d1339ba8554de268456e6a4008c1163bddc"
+          },
+          {
+            "bytes": 1318872,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/owner_overlap.npz",
+            "sha256": "fb4a792ccf4b1872aa8a073b1922dc74ab4b7be4430bae9b3648d01ac84d74e5"
+          },
+          {
+            "bytes": 2145,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/producer_validation_report.json",
+            "sha256": "0e985f03bd2cb702d20ff17e1d6f35efa514fc4efe27e5911e9faad94423b9ff"
+          },
+          {
+            "bytes": 12362542,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/rlp_topology.npz",
+            "sha256": "1ae442292262f711ce194263d9b3b70df7aca9d5404c0de40041cfec2d8f9970"
+          },
+          {
+            "bytes": 950624,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/vertex_traces.npz",
+            "sha256": "9700f91880f00b742a65ece445b610cb31a7cfcd745d4cf6150e39e630190cbe"
+          },
+          {
+            "bytes": 14401825,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/base_geometry.npz",
+            "sha256": "fc8aa6f803ec09dd4e0f7d72726534452bae4b6e41d85e61b8ed76f1f2faf09d"
+          },
+          {
+            "bytes": 1120793,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/cell_positions.npz",
+            "sha256": "b4550796ac12e3bf1651b7ae03122fc0c3eecb1b289b269d56b69afeaeb5b684"
+          },
+          {
+            "bytes": 7504501,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/center_maps.npz",
+            "sha256": "15130047eaf4af3c2662556620afb9cf95db0f82f6210fad8daff6a45aea4861"
+          },
+          {
+            "bytes": 640588,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/curvature_edge_one_form.npz",
+            "sha256": "074c78758ec425cb1ae7d4854b8f88e22a9f91d4e5160cc732a7931b4a1cad64"
+          },
+          {
+            "bytes": 3417,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/manifest.json",
+            "sha256": "4b0e111c7515e27610c04a06c6c8ebe87ccd49b9892fccaedc245ace585d3057"
+          },
+          {
+            "bytes": 4414487,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/owner_overlap.npz",
+            "sha256": "64ec317ad378cd1b5af96c41451dd4a1097d947a50a988b99033dda4a97b21ac"
+          },
+          {
+            "bytes": 2146,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/producer_validation_report.json",
+            "sha256": "60678615415d6877c2212ae46714f4a160beffb6c93e0014801ab3acefed1f79"
+          },
+          {
+            "bytes": 43481612,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/rlp_topology.npz",
+            "sha256": "02c516b32ca451522eddaf5720b7cafa242efce48a562427d0f46c24948c8e52"
+          },
+          {
+            "bytes": 3233804,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/vertex_traces.npz",
+            "sha256": "4017ccea8212d5e0cb05b111df868a40b5fb25589a53e5e83460736f88849009"
+          },
+          {
+            "bytes": 33840687,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/base_geometry.npz",
+            "sha256": "9cf7c047b38698d0e9fe043674ce29d13305c24579f17a859b604fcce217658d"
+          },
+          {
+            "bytes": 2706278,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/cell_positions.npz",
+            "sha256": "2cf238fcd97d77f93ba8f707fa7b550a29b4e1bceb3661005f2a45ca877116d8"
+          },
+          {
+            "bytes": 16502814,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/center_maps.npz",
+            "sha256": "7b476d3bbb3153a99757411ec9e44cad1b613425abea9782165747b9a648b84c"
+          },
+          {
+            "bytes": 1512762,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/curvature_edge_one_form.npz",
+            "sha256": "396504da731b0ff99ba36f3aa6e181de6221157af1e7dff6b83fb23da5a0b7f2"
+          },
+          {
+            "bytes": 3417,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/manifest.json",
+            "sha256": "e911de706b4f9e720781b098a415550934ef8cd022244f7672fc3a0ce179a181"
+          },
+          {
+            "bytes": 10205660,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/owner_overlap.npz",
+            "sha256": "7d700d662aab59571993aa88691095c28235b374206506593cc0d59d77f88055"
+          },
+          {
+            "bytes": 2145,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/producer_validation_report.json",
+            "sha256": "774b88565b68d7c4c2f65827c3fb1b3b2c4a3113771ffb11e9fb10b96292f2d4"
+          },
+          {
+            "bytes": 104668941,
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/rlp_topology.npz",
+            "sha256": "468b10b36a1ebeaf912edc65ec64c7db6ef99e92931890707c4ce9f741e239ed"
+          },
+          {
+            "bytes": 7291310,
+            "hash_verification": "computed-full",
+            "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/vertex_traces.npz",
+            "sha256": "9d4b82818051b7ad5583c5b7f2130a729bbd88f52c2edadf561a93fd1b97e9be"
+          },
+          {
+            "bytes": 154138698,
+            "path": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+            "sha256": "216dbcfb343fa23dd7ac9e60da6592f5757c7f5e45c8d96a5b642c6419dc10a1"
+          },
+          {
+            "bytes": 5831797532,
+            "path": "mgrid_res2p5cm_180pln.nc",
+            "sha256": "45dd643a4ae3930386b8f8bff7a789c796a0d5174b5209e1202b5bfd4ac87e44"
+          },
+          {
+            "bytes": 33840687,
+            "component": "base_geometry",
+            "path": "prototype_runs/geometry/hsx_fci_64x64x64/base_geometry.npz",
+            "sha256": "9cf7c047b38698d0e9fe043674ce29d13305c24579f17a859b604fcce217658d"
+          },
+          {
+            "bytes": 2706278,
+            "component": "cell_positions",
+            "path": "prototype_runs/geometry/hsx_fci_64x64x64/cell_positions.npz",
+            "sha256": "2cf238fcd97d77f93ba8f707fa7b550a29b4e1bceb3661005f2a45ca877116d8"
+          },
+          {
+            "bytes": 16502814,
+            "component": "center_maps",
+            "path": "prototype_runs/geometry/hsx_fci_64x64x64/center_maps.npz",
+            "sha256": "7b476d3bbb3153a99757411ec9e44cad1b613425abea9782165747b9a648b84c"
+          },
+          {
+            "bytes": 1512762,
+            "component": "curvature_edge_one_form",
+            "path": "prototype_runs/geometry/hsx_fci_64x64x64/curvature_edge_one_form.npz",
+            "sha256": "396504da731b0ff99ba36f3aa6e181de6221157af1e7dff6b83fb23da5a0b7f2"
+          },
+          {
+            "bytes": 10205660,
+            "component": "owner_overlap",
+            "path": "prototype_runs/geometry/hsx_fci_64x64x64/owner_overlap.npz",
+            "sha256": "7d700d662aab59571993aa88691095c28235b374206506593cc0d59d77f88055"
+          },
+          {
+            "bytes": 2145,
+            "component": "producer_validation_report",
+            "path": "prototype_runs/geometry/hsx_fci_64x64x64/producer_validation_report.json",
+            "sha256": "774b88565b68d7c4c2f65827c3fb1b3b2c4a3113771ffb11e9fb10b96292f2d4"
+          },
+          {
+            "bytes": 104668941,
+            "component": "rlp_topology",
+            "path": "prototype_runs/geometry/hsx_fci_64x64x64/rlp_topology.npz",
+            "sha256": "468b10b36a1ebeaf912edc65ec64c7db6ef99e92931890707c4ce9f741e239ed"
+          },
+          {
+            "bytes": 7291310,
+            "component": "vertex_traces",
+            "path": "prototype_runs/geometry/hsx_fci_64x64x64/vertex_traces.npz",
+            "sha256": "9d4b82818051b7ad5583c5b7f2130a729bbd88f52c2edadf561a93fd1b97e9be"
+          }
+        ],
+        "notes": "Immutable union of prior P06 geometry/baseline/reference inputs and complete P07 continuum artifact; no archived numerical answers.",
+        "schema": "drbx.p06-structured-input-manifest-v1"
+      }
+    }
+  },
+  "schema": "drbx.structured-optimization-release-v1"
+}

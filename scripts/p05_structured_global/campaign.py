@@ -14,6 +14,7 @@ sys.dont_write_bytecode=True
 HERE=Path(__file__).resolve().parent;REPO=HERE.parents[1]
 sys.path.insert(0,str(REPO/'scripts'))
 from p05_structured_global import numerics as k
+from perpendicular_structured import optimization_resume as upgrade
 from p07_combined_global import topology
 from p07_combined_global.kernels import num,rss
 STATE={}
@@ -48,7 +49,7 @@ def lock(output):
  with (output/'.campaign.lock').open('a') as f:
   fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB);yield
 
-def verify(args):
+def verify(args, *, adopt=False):
  manifest=json.loads((HERE/'input_manifest.json').read_text())
  for item in manifest['files']:
   p=args.input_root/item['path']
@@ -56,7 +57,12 @@ def verify(args):
  content=dict(commit=commit(),sources=sources(),config=config(),inputs=manifest)
  record=dict(identity=digest(content),content=content,input_root=str(args.input_root),python=sys.version,platform=platform.platform())
  dest=args.output/'manifest.json'
- if dest.exists() and json.loads(dest.read_text())['identity']!=record['identity']:raise ValueError('incompatible campaign; use a fresh folder')
+ if dest.exists() and json.loads(dest.read_text())['identity']!=record['identity']:
+  previous=json.loads(dest.read_text())
+  if adopt:upgrade.adopt(args.output,'p05',previous,content['sources'],content['commit'])
+  else:upgrade.check(args.output,'p05',previous,content['sources'],content['commit'])
+  current(args)
+  return previous
  side=json.loads((args.input_root/'DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json').read_text())
  for key,path in [('metric_cache','hsx_metric_d58d392545fd3917efeb83b6.npz'),('makegrid','mgrid_res2p5cm_180pln.nc')]:side[key]['path']=str(args.input_root/path)
  side['metric_query_batch_size']=4096
@@ -79,7 +85,8 @@ def verify(args):
 
 def current(args):
  m=json.loads((args.output/'manifest.json').read_text())
- if m['content']['sources']!=sources() or m['content']['config']!=config() or m['content']['commit']!=commit():raise ValueError('source/config/commit changed')
+ if m['content']['config']!=config():raise ValueError('configuration changed')
+ if m['content']['sources']!=sources() or m['content']['commit']!=commit():upgrade.check(args.output,'p05',m,sources(),commit())
  if sha(args.output/'reference_sidecar.json')!=m['sidecar_sha256']:raise ValueError('sidecar changed')
  if str(args.input_root)!=m['input_root']:raise ValueError('input root changed')
  for name,expected in m['topology_hashes'].items():
@@ -92,6 +99,8 @@ def initialize(input_root,output,n):
  STATE.clear();STATE.update(t=t,ref=ref,S=k.StructuredReconstruction(t),output=output)
  p=output/f'N{n}.observations.npz'
  STATE['values']=np.load(p)['values'] if p.exists() else None
+ with np.load(output/f'N{n}.topology.npz') as z:
+  STATE['face_ids']=z['face_ids'];STATE['endpoints']=z['endpoints']
 
 def chunkpath(output,unit):return output/'chunks'/f"N{unit['n']}_{unit['stage']}_{unit['start']:07d}_{unit['stop']:07d}.npz"
 def valid(output,unit,identity):
@@ -106,15 +115,14 @@ def work(unit,identity):
  if stage=='observations':ids=np.arange(unit['start'],unit['stop']);data=k.observations(t,ref,ids)
  else:
   if stage.startswith('face'):
-   with np.load(out/f'N{n}.topology.npz') as z:ids=z['face_ids'][unit['start']:unit['stop']]
+   ids=STATE['face_ids'][unit['start']:unit['stop']]
    order=3 if stage=='faces' else 5;data=k.face_chunk(t,ref,S,values,ids,order=order,candidate=stage=='faces')
   elif stage.startswith('cell'):
    ids=np.arange(unit['start'],unit['stop']);order=3 if stage=='cells' else 5;data=k.cell_chunk(t,ref,S,values,ids,order=order,candidate=stage=='cells')
   elif stage=='preflight' or stage=='controls':
    with np.load(out/f'N{n}.selection.npz') as z:owner=int(z['owners'][unit['start']])
    raw=np.flatnonzero(t.ro==owner)
-   with np.load(out/f'N{n}.topology.npz') as z:
-    sel=np.any(z['endpoints']==owner,axis=1);ids=z['face_ids'][sel];ep=z['endpoints'][sel]
+   sel=np.any(STATE['endpoints']==owner,axis=1);ids=STATE['face_ids'][sel];ep=STATE['endpoints'][sel]
    if stage=='preflight':
     # Only the local donor closure is observed; never use zeros for participating owners.
     donors=set();keys=topology.decode(n,ids);p,_=num.quadrature(t.faces,keys,3,face=True)
@@ -145,7 +153,7 @@ def work(unit,identity):
  for name,a in data.items():
   if np.issubdtype(np.asarray(a).dtype,np.number) and not np.isfinite(a).all():raise ValueError(('nonfinite',stage,name))
  p=chunkpath(out,unit);save_npz(p,**data)
- receipt=dict(identity=identity,unit=unit,sha256=sha(p),seconds=time.monotonic()-st,peak_rss_gib=rss());save_json(p.with_suffix('.json'),receipt)
+ receipt=dict(identity=identity,unit=unit,sha256=sha(p),seconds=time.monotonic()-st,peak_rss_gib=rss(),execution_upgrade=upgrade.execution_provenance(out));save_json(p.with_suffix('.json'),receipt)
  return receipt
 
 def assemble_subset(t,values,owner,ep,f,c):
@@ -287,11 +295,11 @@ def reduce(args):
  save_json(args.output/'summary.json',dict(identity=identity,status='computation complete',cases=k.CASES,forms=['A','B','C','U'],results=summary,orders=orders,primary_mask=primary,order_pass=orderpass,reference_pass=referencepass,implementation_pass=implementationpass,qualification_pass=orderpass and referencepass and implementationpass,reference_status='bounded q5/q7/q9 and half-step artifacts returned for local assessment',production_qualified=False))
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=('verify-inputs','preflight','run','validate','smoke'))
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=('verify-inputs','adopt-optimization','preflight','run','validate','smoke'))
  p.add_argument('--input-root',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--workers',type=int);p.add_argument('--memory-budget-gib',type=float);p.add_argument('--worker-memory-gib',type=float);p.add_argument('--memory-reserve-gib',type=float,default=1);p.add_argument('--max-tasks-per-worker',type=int,default=64);p.add_argument('--resolution',type=int,default=32);p.add_argument('--sample-index',type=int,default=0)
  a=p.parse_args();a.input_root=a.input_root.resolve();a.output=a.output.resolve()
  with lock(a.output):
-  if a.command=='verify-inputs':verify(a)
+  if a.command in ('verify-inputs','adopt-optimization'):verify(a,adopt=a.command=='adopt-optimization')
   elif a.command=='preflight':execute(a,'preflight')
   elif a.command=='run':
    ident=current(a)
