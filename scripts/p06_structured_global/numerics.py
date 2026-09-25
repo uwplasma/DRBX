@@ -381,6 +381,20 @@ def _continuum_terms(values: np.ndarray, gradients: np.ndarray, prepared: Any) -
     return material, remainder, material + remainder, material_directional, remainder_directional, material_directional + remainder_directional
 
 
+def _curvature_geometry(reference: Any, points: np.ndarray) -> Any:
+    """Evaluate only the exact J, B and K coefficients used by P06.
+
+    ``reference.prepare`` also builds perpendicular flux tensors and div(b)
+    for other RHS terms; those expensive coefficients do not enter curvature.
+    """
+    metric = reference._metric(points)
+    return SimpleNamespace(
+        J=np.asarray(metric["J"]),
+        B=np.asarray(metric["B"]),
+        K=np.asarray(reference._curvature(points)),
+    )
+
+
 def _face_geometry(reference: Any, points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     q = np.asarray(points, dtype=np.float64)
     metric = reference._metric(q)
@@ -601,10 +615,9 @@ def _compute_cells(
             values[state, :, row] = v.T
             gradients[state, :, row] = np.moveaxis(g, -1, 0)
     flat = points.reshape(-1, 3)
-    prepared_geometry = reference.prepare(flat)
-    metric = reference._metric(flat)
-    jacobian = np.asarray(metric["J"]).reshape(len(indices), 27)
-    bmag = np.asarray(metric["B"]).reshape(len(indices), 27)
+    prepared_geometry = _curvature_geometry(reference, flat)
+    jacobian = prepared_geometry.J.reshape(len(indices), 27)
+    bmag = prepared_geometry.B.reshape(len(indices), 27)
     evolution_weight = weights * jacobian / np.maximum(bmag, 1.0e-30)
     physical_weight = weights * jacobian
     arrays: dict[str, np.ndarray] = {
@@ -972,8 +985,8 @@ def _reference_on_raw_cells(context:Any,reference:Any,raw_indices:np.ndarray,ord
                 axis_weights.append(0.5*(hi-lo)*one)
             mesh=np.meshgrid(*axes,indexing="ij"); wmesh=np.meshgrid(*axis_weights,indexing="ij")
             points[row]=np.stack(mesh,axis=-1).reshape(-1,3); weights[row]=np.prod(np.stack(wmesh,axis=-1),axis=-1).reshape(-1)
-    flat=points.reshape(-1,3); prepared=reference.prepare(flat); metric=reference._metric(flat)
-    physical=weights*np.asarray(metric["J"]).reshape(len(keys),-1)
+    flat=points.reshape(-1,3); prepared=_curvature_geometry(reference,flat)
+    physical=weights*prepared.J.reshape(len(keys),-1)
     numerator=np.empty((len(FIELD_NAMES),len(TERMS),len(keys),4))
     for state,field in enumerate(FIELD_NAMES):
         values,gradients=_evaluate_fields(field,reference,flat,time_value)

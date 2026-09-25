@@ -57,6 +57,32 @@ def test_trace_callback_preserves_value_and_all_gradients_across_repeated_points
     assert abs(first[1][0,0,4]) > 1e-3
 
 
+def test_curvature_geometry_avoids_unneeded_full_rhs_preparation(numeric):
+    class Reference:
+        def __init__(self):
+            self.metric_calls = 0
+            self.curvature_calls = 0
+
+        def _metric(self, points):
+            self.metric_calls += 1
+            return {"J": 2 + points[:, 0], "B": 3 + points[:, 1]}
+
+        def _curvature(self, points):
+            self.curvature_calls += 1
+            return np.column_stack((points[:, 0], points[:, 1], points[:, 2]))
+
+        def prepare(self, points):
+            raise AssertionError("full perpendicular RHS geometry is not used by P06")
+
+    points = np.array(((0.2, 0.3, 0.4), (0.6, 0.7, 0.8)))
+    reference = Reference()
+    geometry = numeric._curvature_geometry(reference, points)
+    np.testing.assert_array_equal(geometry.J, 2 + points[:, 0])
+    np.testing.assert_array_equal(geometry.B, 3 + points[:, 1])
+    np.testing.assert_array_equal(geometry.K, points)
+    assert (reference.metric_calls, reference.curvature_calls) == (1, 1)
+
+
 def test_face_incidence_preserves_radial_boundaries_and_periodic_seams(numeric):
     n = 8
     keys = np.array(((0,0,2,3),(0,n,2,3),(1,2,0,3),(1,2,n,3),(2,2,3,0),(2,2,3,n)))
