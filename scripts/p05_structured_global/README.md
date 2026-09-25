@@ -81,7 +81,7 @@ requires their maximum absolute action <=1e-8 in the frozen rho*=1 units.
 ## Commands and resources
 
 Run from the repository root with immutable workspace-layout INPUT_ROOT (the
-17 file identities and paths are in `input_manifest.json`) and a new OUTPUT:
+nine file identities and paths are in `input_manifest.json`) and a new OUTPUT:
 
 ```bash
 python scripts/p05_structured_global/campaign.py verify-inputs --input-root "$INPUT_ROOT" --output "$OUTPUT"
@@ -89,6 +89,12 @@ python scripts/p05_structured_global/campaign.py preflight --input-root "$INPUT_
 python scripts/p05_structured_global/campaign.py run --input-root "$INPUT_ROOT" --output "$OUTPUT" --workers "$WORKERS" --memory-budget-gib "$MEMORY_GIB" --worker-memory-gib "$WORKER_GIB" --memory-reserve-gib "$RESERVE_GIB"
 python scripts/p05_structured_global/campaign.py validate --input-root "$INPUT_ROOT" --output "$OUTPUT"
 ```
+
+The nine required files are the six canonical geometry/topology files, the
+continuous-reference sidecar, metric cache, and MAKEGRID file. Historical
+`prototype_runs/geometry/hsx_fci_64x64x64/*` artifacts named in the sidecar
+are provenance only for this runner; the continuous-reference loader does not
+read them. They are intentionally absent from the runtime input manifest.
 
 Allocation setup chooses the resource variables. Execution is **node-local CPU
 multiprocessing**, not MPI: one writer and one node per campaign. Preflight uses
