@@ -26,9 +26,9 @@ import numpy as np
 
 
 HERE = Path(__file__).resolve().parent
-CONFIG_SCHEMA = "drbx.p06-structured-global-config-v1"
-PLAN_SCHEMA = "drbx.p06-structured-work-plan-v1"
-RECEIPT_SCHEMA = "drbx.p06-structured-parallel-receipt-v1"
+CONFIG_SCHEMA = "drbx.p06-structured-global-config-v3"
+PLAN_SCHEMA = "drbx.p06-structured-work-plan-v3"
+RECEIPT_SCHEMA = "drbx.p06-structured-parallel-receipt-v3"
 THREAD_ENV = {
     "OMP_NUM_THREADS": "1",
     "OPENBLAS_NUM_THREADS": "1",
@@ -91,6 +91,16 @@ def _load_portable(path: Path) -> dict[str, Any]:
     config = _load_json(path)
     if config.get("schema") != CONFIG_SCHEMA:
         raise ValueError("unsupported portable configuration")
+    if config.get("integrated_reference_controls") is not False:
+        raise ValueError("integrated reference controls are disabled")
+    if config.get("primary_reference_measure") != "midpoint_J_over_B":
+        raise ValueError("primary reference must use J/B evolution measure")
+    if config.get("candidate_cell_order") != 1 or config.get("reference_order") != 1:
+        raise ValueError("midpoint campaign requires q1 cell action and reference")
+    if config.get("candidate_face_order") != 3:
+        raise ValueError("this campaign retains q3 integrated U faces")
+    if config.get("reference_control_orders") != [1]:
+        raise ValueError("midpoint campaign requires q1 bounded step controls")
     return config
 
 
@@ -147,7 +157,7 @@ def _materialize(
     sidecar_path = output_root / "portable_reference_sidecar.json"
     _atomic_json(sidecar_path, rewritten_sidecar)
     runtime = {
-        "schema": "drbx.p06-structured-global-runtime-v1",
+        "schema": "drbx.p06-structured-global-runtime-v3",
         "input_root": str(input_root.resolve()),
         "time": portable["time"],
         "curl_step": portable["curl_step"],
@@ -155,6 +165,11 @@ def _materialize(
         "face_chunk": portable["face_chunk"],
         "cell_chunk": portable["cell_chunk"],
         "reference_chunk": portable["reference_chunk"],
+        "candidate_cell_order":portable["candidate_cell_order"],
+        "candidate_face_order":portable["candidate_face_order"],
+        "reference_order":portable["reference_order"],
+        "reference_control_orders":portable["reference_control_orders"],
+        "primary_reference_measure":portable["primary_reference_measure"],
         "paths": {
             "output": str(output_root),
             "geometry": str(inputs["geometry"]),
@@ -185,7 +200,8 @@ def _manifest_identity(
                 key: portable[key]
                 for key in (
                     "time", "curl_step", "face_chunk", "cell_chunk", "reference_chunk",
-                    "candidate", "scope",
+                    "candidate", "scope", "candidate_cell_order", "candidate_face_order",
+                    "reference_order", "reference_control_orders", "primary_reference_measure",
                 )
             },
             "metric_query_batch_size": int(
@@ -348,11 +364,13 @@ def _run_unit(unit: Mapping[str, Any]) -> dict[str, Any]:
         arrays, details = numeric._compute_reference_global(
             state["context"], state["reference"], indices,
             time_value=float(state["runtime"]["time"]),
+            reference_order=int(state["runtime"]["reference_order"]),
         )
     elif unit["kind"] == "reference_control":
         arrays, details = numeric._compute_reference_control(
             state["context"], state["reference"], indices,
             time_value=float(state["runtime"]["time"]),
+            orders=tuple(map(int,state["runtime"]["reference_control_orders"])),
         )
     else:
         arrays, details = numeric._compute_cells(
@@ -360,6 +378,7 @@ def _run_unit(unit: Mapping[str, Any]) -> dict[str, Any]:
             time_value=float(state["runtime"]["time"]),
             curl_step=float(state["runtime"]["curl_step"]),
             input_root=Path(state["runtime"]["input_root"]),
+            cell_order=int(state["runtime"]["candidate_cell_order"]),
         )
     state["task_ordinal"] += 1
     current_rss_after = numeric._current_rss_gib()

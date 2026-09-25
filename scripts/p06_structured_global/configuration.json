@@ -1,5 +1,5 @@
 {
-  "schema": "drbx.p06-structured-global-config-v1",
+  "schema": "drbx.p06-structured-global-config-v3",
   "source_root": ".",
   "time": 0.37,
   "curl_step": 0.0002,
@@ -8,10 +8,27 @@
   "face_chunk": 128,
   "cell_chunk": 32,
   "reference_chunk": 64,
+  "candidate_cell_order": 1,
+  "candidate_face_order": 3,
+  "reference_order": 1,
+  "reference_control_orders": [
+    1
+  ],
+  "primary_reference_measure": "midpoint_J_over_B",
   "preflight_hotspot_owners": {
-    "32": [13584],
-    "48": [61623, 62036, 73604],
-    "64": [109892, 142516, 143323]
+    "32": [
+      13584
+    ],
+    "48": [
+      61623,
+      62036,
+      73604
+    ],
+    "64": [
+      109892,
+      142516,
+      143323
+    ]
   },
   "inputs": {
     "geometry": "geometry_artifacts/rlp_convergence_32_48_64_20260917",
@@ -24,20 +41,47 @@
     "name": "p06_complete_curvature_common_structured_bc_conditioned",
     "reconstruction": "scripts/perpendicular_structured shared owner-value/gradient service",
     "owner_observation": "raw midpoint values projected with physical raw_volume",
-    "quadrature": "q3 numerical cell and face integration",
+    "quadrature": "q1 raw-cell volume expression; unchanged q3 characteristic faces",
     "wall_characteristic": "frozen physical wall state and complete material jump correction",
-    "reference": "independent continuous exact-field q5 physical-volume target; q3 candidate-cell replay and bounded q3/q5/q7 controls retained"
+    "reference": "analytic raw-midpoint complete expression, aggregated with midpoint J/B masses"
   },
   "scope": {
-    "resolutions": [32, 48, 64],
-    "states": ["corrected_frozen_mms", "regular_chart_heldout", "homogeneous_dirichlet", "variable_dirichlet"],
-    "equations": ["density", "Te", "Ti", "vorticity"],
-    "terms": ["material", "remainder", "total"],
-    "actions": ["centered", "U"],
-    "primary_action": {"density": "U", "Te": "U", "Ti": "U", "vorticity": "centered"},
+    "resolutions": [
+      32,
+      48,
+      64
+    ],
+    "states": [
+      "corrected_frozen_mms",
+      "regular_chart_heldout",
+      "homogeneous_dirichlet",
+      "variable_dirichlet"
+    ],
+    "equations": [
+      "density",
+      "Te",
+      "Ti",
+      "vorticity"
+    ],
+    "terms": [
+      "material",
+      "remainder",
+      "total"
+    ],
+    "actions": [
+      "centered",
+      "U"
+    ],
+    "primary_action": {
+      "density": "U",
+      "Te": "U",
+      "Ti": "U",
+      "vorticity": "centered"
+    },
     "global_l2_order_minimum": 1.8,
     "reference_fraction_maximum": 0.1,
     "promotion_authorized": false,
     "evolved_runs": false
-  }
+  },
+  "integrated_reference_controls": false
 }

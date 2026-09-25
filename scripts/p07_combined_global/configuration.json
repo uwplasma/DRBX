@@ -1,20 +1,30 @@
 {
-  "schema": "drbx.p07-combined-global-v1",
-  "resolutions": [32, 48, 64],
-  "fields": ["phi_mms", "Ti_mms", "regular_neumann", "mixed_eta_neumann"],
+  "schema": "drbx.p07-combined-global-v2",
+  "resolutions": [
+    32,
+    48,
+    64
+  ],
+  "fields": [
+    "phi_mms",
+    "Ti_mms",
+    "regular_neumann",
+    "mixed_eta_neumann"
+  ],
   "candidate_face_quadrature": 3,
-  "reference_volume_quadrature": 3,
-  "control_volume_quadratures": [3, 5, 7],
+  "reference_volume_quadrature": 1,
+  "control_volume_quadratures": [
+    1
+  ],
   "support_chunk": 512,
   "assembly_chunk": 512,
   "observation_chunk": 4096,
   "reference_chunk": 32,
   "control_chunk": 32,
-  "face_control_chunk": 128,
   "angular_nearest_owners": 7,
   "eta_nearest_planes": 4,
   "svd_relative_cutoff": 0.0001,
-  "target_residual_tolerance": 1e-9,
+  "target_residual_tolerance": 1e-09,
   "original_cubic_max_expansions": 3,
   "quartic_additional_max_expansions": 2,
   "quartic_planar_total_degree": 4,
@@ -22,5 +32,9 @@
   "bounded_reference_fraction_maximum": 0.1,
   "wall_trace_rule": "frozen-u-minus-g-with-tangential-restoration",
   "global_q5_candidate_promotion": false,
-  "production_promotion": false
+  "production_promotion": false,
+  "reference_convention": "physical_raw_volume_midpoint_projection",
+  "reference_step": 0.0002,
+  "reference_control_step": 0.0001,
+  "integrated_reference_controls": false
 }

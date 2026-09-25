@@ -31,7 +31,7 @@ import topology
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-STAGES = ("support", "observations", "assembly", "reference", "control", "face_control")
+STAGES = ("support", "observations", "assembly", "reference", "control")
 STATE = {}
 
 
@@ -76,7 +76,13 @@ def source_identity():
 
 
 def settings():
-    return json.loads((HERE / "configuration.json").read_text())
+    cfg=json.loads((HERE / "configuration.json").read_text())
+    if (cfg.get("schema") != "drbx.p07-combined-global-v2" or cfg.get("reference_volume_quadrature") != 1
+        or cfg.get("candidate_face_quadrature") != 3 or cfg.get("control_volume_quadratures") != [1]
+        or cfg.get("reference_convention") != "physical_raw_volume_midpoint_projection"
+        or cfg.get("integrated_reference_controls") is not False):
+        raise ValueError("unsupported midpoint diffusion contract")
+    return cfg
 
 
 def required_inputs():
@@ -155,11 +161,8 @@ def topology_stage(input_root, output):
         owners, labels = k.num.select_owners(t.g, t.centers)
         raw_ids = np.flatnonzero(np.isin(t.ro, owners))
         atomic_npz(output / f"N{n}.control_selection.npz", owner_ids=owners, raw_ids=raw_ids)
-        with np.load(output / f"N{n}.topology.npz", allow_pickle=False) as z:
-            face_ids = z["face_ids"][np.isin(z["endpoints"], owners).any(axis=1)]
-        atomic_npz(output / f"N{n}.face_control_selection.npz", face_ids=face_ids)
         atomic_json(output / f"N{n}.control_selection.json", {"owner_ids": owners, "labels": labels,
-                                                               "raw_count": len(raw_ids), "face_count": len(face_ids)})
+                                                               "raw_count": len(raw_ids)})
     atomic_json(previous, {"identity": identity, "resolutions": summary,
                            "topology_sha256": {str(n): sha(output / f"N{n}.topology.npz") for n in settings()["resolutions"]},
                            "collapsed_rows_included_in_face_totals": True})
@@ -179,8 +182,6 @@ def selected_ids(stage, n, output):
         return ids[np.isin(family, (6, 7))] if stage == "support" else ids
     if stage == "control":
         with np.load(output / f"N{n}.control_selection.npz") as z: return z["raw_ids"]
-    if stage == "face_control":
-        with np.load(output / f"N{n}.face_control_selection.npz") as z: return z["face_ids"]
     return np.arange(n**3, dtype=np.int64)
 
 
@@ -188,7 +189,7 @@ def create_plan(output):
     output = Path(output); cfg = settings(); ident = current_identity(output)
     sizes = {"support": cfg["support_chunk"], "assembly": cfg["assembly_chunk"],
              "observations": cfg["observation_chunk"], "reference": cfg["reference_chunk"],
-             "control": cfg["control_chunk"], "face_control": cfg["face_control_chunk"]}
+             "control": cfg["control_chunk"]}
     plan = {"identity": ident, "stages": {}}
     for stage in STAGES:
         per_n = {}
@@ -258,17 +259,14 @@ def valid_unit(output, unit, ident):
                 if label in (1, 2, 4) and not np.allclose(z["BC_value_coefficients"][a:b], -z["coefficients"][a:b], rtol=0, atol=1e-12):
                     raise ValueError(f"invalid BC value channel: {path}")
         if unit["stage"] in ("observations", "reference", "control"):
-            required = {"owner_ids", "numerator"} if unit["stage"] == "observations" else {"owner_ids", "numerator_q3", "volume_q3"}
+            required = {"owner_ids", "numerator"} if unit["stage"] == "observations" else {"owner_ids", "numerator_q1", "volume_q1"}
             if not required.issubset(z.files) or len(z["owner_ids"]) != len(ids): raise ValueError(f"invalid cell chunk: {path}")
-        if unit["stage"] == "face_control":
-            if z["endpoints"].shape != (len(ids), 2) or z["oracle_q3"].shape != (len(ids), 4) or z["oracle_q7"].shape != (len(ids), 4):
-                raise ValueError(f"invalid face-control shape: {path}")
     return True
 
 
 def prerequisite(output, stage):
     needed = {"support": (), "observations": ("support",), "assembly": ("support", "observations"),
-              "reference": ("assembly",), "control": ("reference",), "face_control": ("control",)}[stage]
+              "reference": ("assembly",), "control": ("reference",)}[stage]
     hashes = {}
     for name in needed:
         path = Path(output) / f"{name}_reduction.json"
@@ -365,10 +363,24 @@ def boundary_data(ref, rows):
     return flux
 
 
+def reference_cells(t,ref,ids,order=1):
+    """Pointwise analytic diffusion projected using physical raw volumes."""
+    result=k.num.cell_chunk({"geometry":t.g,"faces":t.faces,"reference":ref},ids,order)
+    if order==1:
+        point=result["numerator"]/result["continuous_volume"][:,None]
+        result["numerator"]=t.rv[ids,None]*point
+        result["continuous_volume"]=t.rv[ids].copy()
+    return result
+
+
+def reference_orders(stage):
+    return (1,) if stage=="reference" else (1,"1_halfstep")
+
+
 def compute_unit(unit):
     s = STATE; t = s["t"]; ref = s["ref"]; stage = unit["stage"]
     ids = unit_ids(unit, s["output"]); begun = time.monotonic()
-    if stage in ("support", "assembly", "face_control"):
+    if stage in ("support", "assembly"):
         all_ids, all_family, all_endpoints = load_topology(t.n, s["output"])
         positions = np.searchsorted(all_ids, ids)
         family = all_family[positions]
@@ -395,28 +407,17 @@ def compute_unit(unit):
         data = {"ids": ids, "owner_ids": t.ro[ids], "numerator": t.rv[ids, None] * values}
         cost = {"faces": len(ids)}
     elif stage in ("reference", "control"):
-        orders = (3,) if stage == "reference" else (3, 5, 7)
+        orders = reference_orders(stage)
         data = {"ids": ids, "owner_ids": t.ro[ids]}
         for order in orders:
-            result = k.num.cell_chunk(s["reference_context"], ids, order)
+            original_step=ref.finite_difference_step
+            try:
+                ref.finite_difference_step=settings()["reference_control_step"] if order=="1_halfstep" else settings()["reference_step"]
+                result=reference_cells(t,ref,ids,1 if order=="1_halfstep" else order)
+            finally:ref.finite_difference_step=original_step
             data[f"numerator_q{order}"] = result["numerator"]
             data[f"volume_q{order}"] = result["continuous_volume"]
         cost = {"cells": len(ids)}
-    elif stage == "face_control":
-        keys = topology.decode(t.n, ids); active = np.flatnonzero(family != 0)
-        data = {"ids": ids, "endpoints": endpoints}
-        for order in (3, 7):
-            points, weights = k.num.quadrature(t.faces, keys, order, face=True)
-            flux = np.zeros((len(ids), 4))
-            for start in range(0, len(active), max(1, 1024 // (order * order))):
-                selected = active[start:start + max(1, 1024 // (order * order))]
-                flat = points[selected].reshape(-1, 3)
-                tensor = ref._perpendicular_flux_tensor(flat).reshape(len(selected), order * order, 3, 3)
-                grad = k.num.fields(ref, flat)[1].reshape(len(selected), order * order, 4, 3)
-                oriented = tensor[np.arange(len(selected))[:, None], np.arange(order * order)[None, :], keys[selected, 0, None], :]
-                flux[selected] = np.einsum("fq,fqa,fqja->fj", weights[selected], oriented, grad)
-            data[f"oracle_q{order}"] = flux
-        cost = {"faces": len(ids)}
     else:
         prepared = prepared_support_rows(ids, family, s)
         rows, cost, points, integ = candidate.assembly_rows(t, ref, ids, family, prepared)
@@ -503,18 +504,16 @@ def run_stage(args, stage, plan):
 def reduce_stage(input_root, output, stage, plan):
     output = Path(output); ident = stage_identity(output, stage); k.configure(input_root)
     summary = {"identity": ident, "stage": stage, "resolutions": {}, "all_complete": True}
-    owner_values = {}; reference = {}; controls = {}; face_controls = {}; unsupported_total = 0
+    owner_values = {}; reference = {}; controls = {}; unsupported_total = 0
     for n in settings()["resolutions"]:
         units = plan["stages"][stage][str(n)]
         expected = selected_ids(stage, n, output); cursor = 0; t = k.load(n)
         if stage == "observations":
             accum = np.zeros((len(t.vol), 4)); covered_volume = np.zeros(len(t.vol))
         if stage in ("reference", "control"):
-            orders = (3,) if stage == "reference" else (3, 5, 7)
+            orders = reference_orders(stage)
             numerator = {q: np.zeros((len(t.vol), 4)) for q in orders}
             physical_volume = {q: np.zeros(len(t.vol)) for q in orders}
-        if stage == "face_control":
-            exact_face = {q: np.zeros((len(t.vol), 4)) for q in (3, 7)}
         bad = []; max_residual = 0.; rank_deficient = 0; nnz = 0; boundary_faces = 0
         with np.load(output / f"N{n}.topology.npz", allow_pickle=False) as top:
             face_ids, face_family, face_endpoints = top["face_ids"], top["family"], top["endpoints"]
@@ -571,15 +570,6 @@ def reduce_stage(input_root, output, stage, plan):
                     if not np.array_equal(z["owner_ids"], t.ro[ids]): raise ValueError("observation owner mismatch")
                     np.add.at(accum, z["owner_ids"], z["numerator"])
                     np.add.at(covered_volume, z["owner_ids"], t.rv[ids])
-                elif stage == "face_control":
-                    positions = np.searchsorted(face_ids, ids)
-                    if not np.array_equal(z["endpoints"], face_endpoints[positions]):
-                        raise ValueError("face-control topology mismatch")
-                    for q in (3, 7):
-                        values = z[f"oracle_q{q}"]
-                        for column, sign in ((0, -1), (1, 1)):
-                            owner = z["endpoints"][:, column]; active = owner >= 0
-                            np.add.at(exact_face[q], owner[active], sign * values[active])
                 else:
                     if not np.array_equal(z["owner_ids"], t.ro[ids]): raise ValueError("reference owner mismatch")
                     for q in orders:
@@ -601,18 +591,12 @@ def reduce_stage(input_root, output, stage, plan):
             owner_values[f"N{n}"] = accum / t.vol[:, None]
             if not np.isfinite(owner_values[f"N{n}"]).all(): raise ValueError("nonfinite owner values")
             info["owners"] = len(t.vol)
-        elif stage == "face_control":
-            with np.load(output / f"N{n}.control_selection.npz", allow_pickle=False) as z:
-                owners = z["owner_ids"]
-            face_controls[f"N{n}.owner_ids"] = owners
-            for q in (3, 7): face_controls[f"N{n}.oracle_q{q}"] = exact_face[q][owners] / t.vol[owners, None]
-            info["sample_owners"] = len(owners)
         else:
-            if np.any(physical_volume[3] <= 0) and stage == "reference":
+            if np.any(physical_volume[1] <= 0) and stage == "reference":
                 raise ValueError("nonpositive continuous volume")
             if stage == "reference":
-                reference[f"N{n}.numerator_q3"] = numerator[3]
-                reference[f"N{n}.volume_q3"] = physical_volume[3]
+                reference[f"N{n}.numerator_q1"] = numerator[1]
+                reference[f"N{n}.volume_q1"] = physical_volume[1]
             else:
                 with np.load(output / f"N{n}.control_selection.npz", allow_pickle=False) as z:
                     owners = z["owner_ids"]
@@ -627,11 +611,9 @@ def reduce_stage(input_root, output, stage, plan):
     if stage == "observations":
         path = output / "owner_values.npz"; atomic_npz(path, **owner_values); summary["owner_values_sha256"] = sha(path)
     if stage == "reference":
-        path = output / "reference_q3.npz"; atomic_npz(path, **reference); summary["reference_sha256"] = sha(path)
+        path = output / "reference_midpoint.npz"; atomic_npz(path, **reference); summary["reference_sha256"] = sha(path)
     if stage == "control":
         path = output / "reference_controls.npz"; atomic_npz(path, **controls); summary["controls_sha256"] = sha(path)
-    if stage == "face_control":
-        path = output / "face_controls.npz"; atomic_npz(path, **face_controls); summary["face_controls_sha256"] = sha(path)
     atomic_json(output / f"{stage}_reduction.json", summary)
     if unsupported_total: raise ValueError(f"{unsupported_total} unsupported support faces; dependent stages stopped")
     return summary
@@ -680,12 +662,10 @@ def summarize(input_root, output, plan):
         if not record["all_complete"] or record["identity"] != stage_identity(output, stage):
             raise ValueError(f"invalid {stage} reduction")
         if stage == "support" and record["unsupported_count"]: raise ValueError("unsupported supports")
-    with np.load(output / "reference_q3.npz", allow_pickle=False) as reference:
+    with np.load(output / "reference_midpoint.npz", allow_pickle=False) as reference:
         reference_data = {name: reference[name].copy() for name in reference.files}
     with np.load(output / "reference_controls.npz", allow_pickle=False) as controls:
         control_data = {name: controls[name].copy() for name in controls.files}
-    with np.load(output / "face_controls.npz", allow_pickle=False) as controls:
-        face_control_data = {name: controls[name].copy() for name in controls.files}
     k.configure(input_root); cases = {}; arrays_hashes = {}; assembly_ident = stage_identity(output, "assembly")
     for n in cfg["resolutions"]:
         t = k.load(n); total = np.zeros((len(t.vol), 4)); exact = np.zeros_like(total)
@@ -703,9 +683,10 @@ def summarize(input_root, output, plan):
                     np.add.at(exact, owner[active], sign * oracle[active])
                 boundary_net += np.sum(np.where(pairs[:, 0, None] < 0, flux, 0)
                                        - np.where(pairs[:, 1, None] < 0, flux, 0), axis=0)
-        numerator = reference_data[f"N{n}.numerator_q3"]
-        continuous_volume = reference_data[f"N{n}.volume_q3"]
+        numerator = reference_data[f"N{n}.numerator_q1"]
+        continuous_volume = reference_data[f"N{n}.volume_q1"]
         if np.any(continuous_volume <= 0): raise ValueError("uncovered reference owners")
+        if not np.allclose(continuous_volume,t.vol,rtol=1e-12,atol=1e-12):raise ValueError("midpoint owner volume mismatch")
         action = total / t.vol[:, None]
         oracle_action = exact / t.vol[:, None]
         target = numerator / continuous_volume[:, None]
@@ -713,34 +694,24 @@ def summarize(input_root, output, plan):
             raise ValueError("nonfinite global action or reference")
         masks = region_masks(t, all_endpoints, all_family)
         selected = control_data[f"N{n}.owner_ids"]
-        if not np.array_equal(selected, face_control_data[f"N{n}.owner_ids"]):
-            raise ValueError("face and volume control owners differ")
-        if not np.allclose(target[selected], control_data[f"N{n}.average_q3"], atol=1e-11, rtol=1e-10):
-            raise ValueError("control q3 reference differs from global q3")
-        if not np.allclose(oracle_action[selected], face_control_data[f"N{n}.oracle_q3"], atol=1e-10, rtol=1e-10):
-            raise ValueError("exact-gradient q3 face control differs from global oracle")
+        if not np.allclose(target[selected],control_data[f"N{n}.average_q1"],atol=1e-11,rtol=1e-10):
+            raise ValueError("control midpoint reference differs from global midpoint")
         stats = {}; control_stats = {}
         for field, name in enumerate(cfg["fields"]):
             stats[name] = field_stats(action[:, field] - target[:, field], t.vol, masks)
             stats[name]["reconstruction_q3_l2"] = field_stats(action[:, field] - oracle_action[:, field], t.vol, masks)["l2"]
-            stats[name]["integration_q3_l2"] = field_stats(oracle_action[:, field] - target[:, field], t.vol, masks)["l2"]
             sample_volume = t.vol[selected]
             sample_spatial = np.sqrt(np.sum(sample_volume * (action[selected, field] - target[selected, field])**2) / np.sum(sample_volume))
-            q7_delta = control_data[f"N{n}.average_q7"][:, field] - control_data[f"N{n}.average_q3"][:, field]
-            q5_delta = control_data[f"N{n}.average_q5"][:, field] - control_data[f"N{n}.average_q3"][:, field]
-            q7_l2 = np.sqrt(np.sum(sample_volume * q7_delta**2) / np.sum(sample_volume))
-            q5_l2 = np.sqrt(np.sum(sample_volume * q5_delta**2) / np.sum(sample_volume))
-            face_delta = face_control_data[f"N{n}.oracle_q7"][:, field] - face_control_data[f"N{n}.oracle_q3"][:, field]
-            face_l2 = np.sqrt(np.sum(sample_volume * face_delta**2) / np.sum(sample_volume))
-            control_stats[name] = {"sample_spatial_l2": float(sample_spatial), "q5_minus_q3_l2": float(q5_l2),
-                                   "q7_minus_q3_l2": float(q7_l2), "exact_face_q7_minus_q3_l2": float(face_l2),
-                                   "volume_bounded_check_pass": bool(q7_l2 <= cfg["bounded_reference_fraction_maximum"] * sample_spatial),
-                                   "face_bounded_check_pass": bool(face_l2 <= cfg["bounded_reference_fraction_maximum"] * sample_spatial)}
+            midpoint=control_data[f"N{n}.average_q1"][:,field]
+            half_delta=control_data[f"N{n}.average_q1_halfstep"][:,field]-midpoint
+            norm=lambda delta:float(np.sqrt(np.sum(sample_volume*delta**2)/np.sum(sample_volume)))
+            control_stats[name]={"sample_spatial_l2":float(sample_spatial),
+                "midpoint_halfstep_l2":norm(half_delta),
+                "midpoint_reference_check_pass":bool(norm(half_delta)<=cfg["bounded_reference_fraction_maximum"]*sample_spatial)}
         case_path = output / f"N{n}.global.npz"
         atomic_npz(case_path, owner_ids=np.arange(len(t.vol)), owner_flat_ids=t.g.owner_flat_ids,
-                   volume=t.vol, continuous_volume_q3=continuous_volume, action=action,
-                   oracle_q3=oracle_action, reference_q3=target,
-                   stored_volume_reference_q3=numerator / t.vol[:, None],
+                   volume=t.vol, midpoint_reference_volume=continuous_volume, action=action,
+                   oracle_q3=oracle_action, reference_midpoint=target,
                    **{f"region_{name}": mask for name, mask in masks.items()})
         arrays_hashes[str(n)] = sha(case_path)
         cases[str(n)] = {"owners": len(t.vol), "stats": stats, "reference_controls": control_stats,
@@ -763,7 +734,9 @@ def summarize(input_root, output, plan):
               "reference_qualified_by_bounded_checks": all(
                   cases[str(n)]["reference_controls"][f][key]
                   for n in cfg["resolutions"] for f in cfg["fields"]
-                  for key in ("volume_bounded_check_pass", "face_bounded_check_pass")),
+                  for key in ("midpoint_reference_check_pass",)),
+              "reference_convention":"physical_raw_volume_midpoint_projection",
+              "integrated_reference_controls":False,
               "production_promoted": False, "elliptic_evolved_energy_qualification": "separate milestones"}
     atomic_json(output / "summary.json", result)
     return result
@@ -826,7 +799,7 @@ def smoke(input_root, output):
             hit = np.flatnonzero(chosen_owners == endpoints[position, endpoint])
             if len(hit): action[hit[0]] += sign * flux[j]; exact_face[hit[0]] += sign * oracle[j]
     selected_raw = np.flatnonzero(np.isin(t.ro, chosen_owners))
-    reference = k.num.cell_chunk({"geometry": t.g, "faces": t.faces, "reference": ref}, selected_raw, 3)
+    reference = reference_cells(t,ref,selected_raw,1)
     ref_num = np.zeros((2, 4)); ref_vol = np.zeros(2)
     for row, oid in enumerate(t.ro[selected_raw]):
         j = int(np.flatnonzero(chosen_owners == oid)[0]); ref_num[j] += reference["numerator"][row]; ref_vol[j] += reference["continuous_volume"][row]
@@ -835,7 +808,7 @@ def smoke(input_root, output):
               "support_faces": len(certificates), "max_support_residual": max((x["max_residual"] for x in certificates), default=0),
               "action": (action / t.vol[chosen_owners, None]).tolist(),
               "oracle_q3": (exact_face / t.vol[chosen_owners, None]).tolist(),
-              "reference_q3": (ref_num / ref_vol[:, None]).tolist(),
+              "reference_midpoint": (ref_num / ref_vol[:, None]).tolist(),
               "BC_faces": int(np.sum(np.isin(fam, (1, 2, 4)))), "assembly_cost": cost}
     if not np.isfinite(np.asarray(result["action"])).all() or np.any(ref_vol <= 0): raise ValueError("smoke pipeline incomplete")
     atomic_json(output / "smoke.json", result)

@@ -1,22 +1,17 @@
 {
-  "schema": "drbx.p05-structured-global-v1",
+  "schema": "drbx.p05-structured-global-v2",
   "resolutions": [
     32,
     48,
     64
   ],
-  "candidate_quadrature": 3,
-  "reference_quadrature": 5,
-  "control_quadratures": [
-    7,
-    9
-  ],
+  "reference_quadrature": 1,
+  "control_quadratures": [],
   "curl_step": 0.0002,
   "control_curl_step": 0.0001,
   "face_chunk": 64,
   "cell_chunk": 32,
   "observation_chunk": 2048,
-  "reference_face_chunk": 64,
   "reference_cell_chunk": 16,
   "svd_relative_cutoff": 0.0001,
   "target_residual_tolerance": 1e-09,
@@ -37,7 +32,10 @@
   "production_promotion": false,
   "constant_action_tolerance": 1e-08,
   "unavailable_oracle_slots": [
-    "actual_vorticity_swapped_B",
-    "actual_vorticity_strong_volume"
-  ]
+    "actual_vorticity_swapped_B_face_oracle"
+  ],
+  "candidate_face_quadrature": 3,
+  "candidate_cell_quadrature": 1,
+  "reference_convention": "physical_raw_volume_midpoint_projection",
+  "integrated_reference_controls": false
 }

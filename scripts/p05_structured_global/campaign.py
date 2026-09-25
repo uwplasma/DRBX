@@ -36,7 +36,14 @@ def save_npz(path,**x):
  path=Path(path);path.parent.mkdir(parents=True,exist_ok=True);tmp=path.with_suffix(path.suffix+f'.{os.getpid()}.tmp')
  with tmp.open('wb') as f:np.savez_compressed(f,**x)
  tmp.replace(path)
-def config():return json.loads((HERE/'configuration.json').read_text())
+def config():
+ cfg=json.loads((HERE/'configuration.json').read_text())
+ if (cfg.get('schema')!='drbx.p05-structured-global-v2' or cfg.get('candidate_cell_quadrature')!=1
+     or cfg.get('candidate_face_quadrature')!=3 or cfg.get('reference_quadrature')!=1
+     or cfg.get('control_quadratures')!=[] or cfg.get('reference_convention')!='physical_raw_volume_midpoint_projection'
+     or cfg.get('integrated_reference_controls') is not False):
+  raise ValueError('unsupported midpoint numerical contract')
+ return cfg
 def sources():
  files=[HERE/n for n in ('campaign.py','numerics.py','configuration.json','input_manifest.json')]
  files+=list((REPO/'scripts/perpendicular_structured').glob('*.py'))
@@ -59,8 +66,8 @@ def verify(args, *, adopt=False):
  dest=args.output/'manifest.json'
  if dest.exists() and json.loads(dest.read_text())['identity']!=record['identity']:
   previous=json.loads(dest.read_text())
-  if adopt:upgrade.adopt(args.output,'p05',previous,content['sources'],content['commit'])
-  else:upgrade.check(args.output,'p05',previous,content['sources'],content['commit'])
+  if previous['content']['config']!=config() or adopt:raise ValueError('midpoint formulation requires a new campaign; no optimization-only adoption')
+  upgrade.check(args.output,'p05',previous,content['sources'],content['commit'])
   current(args)
   return previous
  side=json.loads((args.input_root/'DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json').read_text())
@@ -114,11 +121,14 @@ def work(unit,identity):
  st=time.monotonic();t=STATE['t'];ref=STATE['ref'];S=STATE['S'];values=STATE['values'];out=STATE['output'];stage=unit['stage'];n=t.n
  if stage=='observations':ids=np.arange(unit['start'],unit['stop']);data=k.observations(t,ref,ids)
  else:
-  if stage.startswith('face'):
+  if stage=='faces':
    ids=STATE['face_ids'][unit['start']:unit['stop']]
-   order=3 if stage=='faces' else 5;data=k.face_chunk(t,ref,S,values,ids,order=order,candidate=stage=='faces')
-  elif stage.startswith('cell'):
-   ids=np.arange(unit['start'],unit['stop']);order=3 if stage=='cells' else 5;data=k.cell_chunk(t,ref,S,values,ids,order=order,candidate=stage=='cells')
+   data=k.face_chunk(t,ref,S,values,ids,order=config()['candidate_face_quadrature'])
+  elif stage=='cells':
+   ids=np.arange(unit['start'],unit['stop'])
+   data=k.cell_chunk(t,ref,S,values,ids,order=config()['candidate_cell_quadrature'])
+  elif stage=='cell_reference':
+   ids=np.arange(unit['start'],unit['stop']);data=k.reference_cells(t,ref,ids,order=1)
   elif stage=='preflight' or stage=='controls':
    with np.load(out/f'N{n}.selection.npz') as z:owner=int(z['owners'][unit['start']])
    raw=np.flatnonzero(t.ro==owner)
@@ -131,7 +141,7 @@ def work(unit,identity):
      if not (key[0]==0 and key[1]==0):
       for side in S.side_rows(key,points):
        if side is not None:donors.update(map(int,side.donor_ids))
-    keys=np.array(np.unravel_index(raw,(n,)*3)).T;p,_=num.quadrature(t.faces,keys,3,face=False)
+    keys=np.array(np.unravel_index(raw,(n,)*3)).T;p,_=num.quadrature(t.faces,keys,1,face=False)
     for key,points in zip(keys,p):donors.update(map(int,S.rows(key,points,'cell').donor_ids))
     donors.add(owner);rawdon=np.flatnonzero(np.isin(t.ro,list(donors)));values=np.zeros((len(t.vol),len(k.FIELDS)))
     for start in range(0,len(rawdon),2048):
@@ -143,12 +153,12 @@ def work(unit,identity):
     data={'owner':np.array(owner),'raw':raw,'faces':ids,'endpoints':ep,'constant_error':np.array(error),'support_residual':np.array(residual),'local_action':assemble_subset(t,values,owner,ep,f,c)[0],'upwind_norm':np.array(np.linalg.norm(f['upwind']))}
    else:
     data={'owner':np.array(owner)}
-    for q,step,label in [(5,2e-4,'q5'),(7,2e-4,'q7'),(9,2e-4,'q9'),(7,1e-4,'q7_halfstep')]:
-     ref.finite_difference_step=step
-     f=k.face_chunk(t,ref,S,values,ids,order=q,candidate=False);c=k.cell_chunk(t,ref,S,values,raw,order=q,candidate=False,step=step)
-     _,refvals=assemble_subset(t,values,owner,ep,f,c)
-     data[label]=refvals
-    ref.finite_difference_step=2e-4
+    original_step=ref.finite_difference_step
+    try:
+     for q,step,label in [(1,config()['curl_step'],'midpoint'),(1,config()['control_curl_step'],'midpoint_halfstep')]:
+      ref.finite_difference_step=step;c=k.reference_cells(t,ref,raw,order=q)
+      data[label]=c['numerator'].sum(axis=0)/c['volume'].sum()
+    finally:ref.finite_difference_step=original_step
   else:raise ValueError(stage)
  for name,a in data.items():
   if np.issubdtype(np.asarray(a).dtype,np.number) and not np.isfinite(a).all():raise ValueError(('nonfinite',stage,name))
@@ -171,9 +181,9 @@ def assemble_subset(t,values,owner,ep,f,c):
 def units(args,stage,n):
  cfg=config()
  if stage=='observations':total=n**3;chunk=cfg['observation_chunk']
- elif stage in ('faces','face_reference'):
+ elif stage=='faces':
   with np.load(args.output/f'N{n}.topology.npz') as z:total=len(z['face_ids'])
-  chunk=cfg['face_chunk' if stage=='faces' else 'reference_face_chunk']
+  chunk=cfg['face_chunk']
  elif stage in ('cells','cell_reference'):total=n**3;chunk=cfg['cell_chunk' if stage=='cells' else 'reference_cell_chunk']
  else:
   with np.load(args.output/f'N{n}.selection.npz') as z:total=len(z['owners'])
@@ -226,10 +236,10 @@ def reduce(args):
  for n in config()['resolutions']:
   t=k.load_context(n,args.input_root);O=len(t.vol);P=len(k.PAIRS);F=len(k.FIELDS)
   values=np.load(args.output/f'N{n}.observations.npz')['values']
-  flux=np.zeros((O,P,2));oracle=np.zeros_like(flux);gen=np.zeros((O,F));ogen=np.zeros_like(gen);up=np.zeros((O,P));cor=np.zeros_like(flux);ocor=np.zeros_like(flux);direct=np.zeros((O,P));vol=np.zeros(O)
+  flux=np.zeros((O,P,2));gen=np.zeros((O,F));up=np.zeros((O,P));cor=np.zeros_like(flux);direct=np.zeros((O,P));vol=np.zeros(O)
   with np.load(args.output/f'N{n}.topology.npz') as z:faceids=z['face_ids'];endpoints=z['endpoints']
   maxconstant=0.;maxres=0.
-  for stage in ('faces','cells','face_reference','cell_reference'):
+  for stage in ('faces','cells','cell_reference'):
    for unit in units(args,stage,n):
     if not valid(args.output,unit,identity):raise ValueError(('missing/incompatible unit',unit))
     with np.load(chunkpath(args.output,unit)) as z:
@@ -241,19 +251,18 @@ def reduce(args):
        active=ep[:,side]>=0;oid=ep[active,side]
        if stage=='faces':
         np.add.at(flux,oid,sign*z['product'][active]);np.add.at(gen,oid,sign*z['generator'][active]);np.add.at(up,oid,sign*z['upwind'][active])
-       else:np.add.at(oracle,oid,sign*z['oracle_product'][active]);np.add.at(ogen,oid,sign*z['oracle_generator'][active])
      elif stage=='cells':np.add.at(cor,z['owners'],z['correction'])
      else:
-      np.add.at(ocor,z['owners'],z['oracle_correction']);np.add.at(direct,z['owners'],z['direct']);np.add.at(vol,z['owners'],z['volume'])
+      np.add.at(direct,z['owners'],z['numerator']);np.add.at(vol,z['owners'],z['volume'])
      if stage in ('faces','cells'):maxconstant=max(maxconstant,float(z['constant_error'].max()));maxres=max(maxres,float(z['support_residual'].max()))
   if np.any(vol<=0) or maxconstant>1e-8 or maxres>1e-9:raise ValueError('invalid implementation or coverage')
-  forms=np.zeros((O,P,4));ref=np.zeros((O,P));ibp=np.zeros((O,P))
+  if not np.allclose(vol,t.vol,atol=1e-12,rtol=1e-12):raise ValueError('midpoint reference owner mass mismatch')
+  forms=np.zeros((O,P,4));ref=np.zeros((O,P))
   for j,(a,b) in enumerate(k.PAIRS):
    A=(flux[:,j,0]-values[:,b]*gen[:,a]-cor[:,j,0])/t.vol
    B=-(flux[:,j,1]-values[:,a]*gen[:,b]-cor[:,j,1])/t.vol
    forms[:,j]=np.stack((A,B,.5*(A+B),A+up[:,j]/t.vol),axis=1)
-   ibp[:,j]=(oracle[:,j,0]-values[:,b]*ogen[:,a]-ocor[:,j,0])/vol
-   ref[:,j]=ibp[:,j] if b==1 else direct[:,j]/vol
+   ref[:,j]=direct[:,j]/vol
   err=forms-ref[:,:,None];rms=np.sqrt(np.einsum('o,opf->pf',t.vol,err**2)/t.vol.sum())
   # Independent assembly using face traversal per control owner (no global scatter reuse).
   independent=0.
@@ -273,15 +282,16 @@ def reduce(args):
    if not valid(args.output,unit,identity):raise ValueError('missing reference control')
    with np.load(chunkpath(args.output,unit)) as z:budgets.append({key:z[key] for key in z.files})
   if independent>1e-10:raise ValueError(('independent assembly mismatch',independent))
-  save_npz(args.output/f'N{n}.result.npz',forms=forms,reference=ref,reference_ibp=ibp,owner_volume=t.vol,continuous_volume=vol,error=err,owner_raw_representative=t.order[t.starts[:-1]])
+  save_npz(args.output/f'N{n}.result.npz',forms=forms,reference=ref,owner_volume=t.vol,midpoint_reference_volume=vol,error=err,owner_raw_representative=t.order[t.starts[:-1]])
   save_json(args.output/f'N{n}.reference_controls.json',dict(records=budgets))
   budget_records=[]
-  for z in budgets:
-   select=np.array([0 if b==1 else 1 for a,b in k.PAIRS]);jj=np.arange(P)
-   low=z['q5'][jj,select];middle=z['q7'][jj,select];high=z['q9'][jj,select];half=z['q7_halfstep'][jj,select]
-   budget_records.append(abs(middle-low)+abs(high-middle)+abs(half-middle))
-  bounded_budget=np.sqrt(np.mean(np.asarray(budget_records)**2,axis=0))
-  fractions=bounded_budget[:,None]/np.maximum(rms,1e-300)
+  for owner,z in zip(controls,budgets):
+   if not np.allclose(z['midpoint'],ref[owner],atol=1e-10,rtol=1e-10):raise ValueError('midpoint control/global mismatch')
+   budget_records.append(abs(z['midpoint_halfstep']-z['midpoint']))
+  sample_weights=t.vol[controls]
+  bounded_budget=np.sqrt(np.average(np.asarray(budget_records)**2,axis=0,weights=sample_weights))
+  sample_error=np.sqrt(np.average(err[controls]**2,axis=0,weights=sample_weights))
+  fractions=bounded_budget[:,None]/np.maximum(sample_error,1e-300)
   radial=t.pts[t.order[t.starts[:-1]],0];regions={}
   for name,mask in [('axis',radial<1/n),('first_ring',(radial>=1/n)&(radial<2/n)),('wall',radial>1-1/n),('nearwall',radial>1-3/n),('aggregate',t.starts[1:]-t.starts[:-1]>1),('ordinary',t.starts[1:]-t.starts[:-1]==1)]:
    regions[name]=dict(rms=np.sqrt(np.einsum('o,opf->pf',t.vol[mask],err[mask]**2)/t.vol[mask].sum()),maximum=abs(err[mask]).max(axis=0))
@@ -292,7 +302,7 @@ def reduce(args):
  orderpass=all(np.all(o[primary]>=config()['global_order_minimum']) for o in orders)
  implementationpass=all(summary[str(n)]['constant_action_max']<=config()['constant_action_tolerance'] for n in (32,48,64))
  referencepass=all(np.all(np.asarray(summary[str(n)]['reference_fraction'])[primary]<=config()['reference_fraction_maximum']) for n in (32,48,64))
- save_json(args.output/'summary.json',dict(identity=identity,status='computation complete',cases=k.CASES,forms=['A','B','C','U'],results=summary,orders=orders,primary_mask=primary,order_pass=orderpass,reference_pass=referencepass,implementation_pass=implementationpass,qualification_pass=orderpass and referencepass and implementationpass,reference_status='bounded q5/q7/q9 and half-step artifacts returned for local assessment',production_qualified=False))
+ save_json(args.output/'summary.json',dict(identity=identity,status='computation complete',cases=k.CASES,forms=['A','B','C','U'],results=summary,orders=orders,primary_mask=primary,order_pass=orderpass,reference_pass=referencepass,implementation_pass=implementationpass,qualification_pass=orderpass and referencepass and implementationpass,reference_status='analytic midpoint projection; bounded derivative half-step screen; no integrated-reference computation',production_qualified=False))
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=('verify-inputs','adopt-optimization','preflight','run','validate','smoke'))
@@ -306,7 +316,7 @@ def main():
    for n in config()['resolutions']:
     for u in units(a,'preflight',n):
      if not valid(a.output,u,ident):raise ValueError('complete prescribed preflight required')
-   for stage in ('observations','faces','cells','face_reference','cell_reference','controls'):execute(a,stage)
+   for stage in ('observations','faces','cells','cell_reference','controls'):execute(a,stage)
    reduce(a)
   elif a.command=='validate':reduce(a)
   else:

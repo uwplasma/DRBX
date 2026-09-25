@@ -58,15 +58,16 @@ def verify(args):
     sources = {str(path.relative_to(REPO)): runner._sha256(path) for path in tracked_sources}
     configuration = json.loads((HERE / 'configuration.json').read_text())
     content = {'configuration':configuration, 'inputs':inputs, 'sources':sources}
-    manifest = {'schema':'drbx.p06-structured-campaign-v1', 'content_identity':content,
+    manifest = {'schema':'drbx.p06-structured-campaign-v3', 'content_identity':content,
                 'sha256':canonical(content)}
     args.output.mkdir(parents=True, exist_ok=True)
     destination = args.output / 'campaign_manifest.json'
     if destination.exists() and json.loads(destination.read_text()) != manifest:
         previous=json.loads(destination.read_text())
+        if previous.get('schema') != manifest['schema']:
+            raise ValueError('old integrated-reference campaign cannot resume under the midpoint schema; use a new output directory')
         if args.command=='adopt-optimization':
-            commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO,text=True).strip()
-            upgrade.adopt(args.output,'p06',previous,sources,commit)
+            raise ValueError('adopt-optimization is only for the historical numerical methods; midpoint work needs a new folder')
         else:
             upgrade.check(args.output,'p06',previous,sources)
         return previous
@@ -151,7 +152,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('verify-inputs','adopt-optimization','preflight','run','validate'))
     parser.add_argument('--input-root', type=Path, default=REPO.parent)
-    parser.add_argument('--output', type=Path, default=REPO/'work/p06_structured_global_v1')
+    parser.add_argument('--output', type=Path, default=REPO/'work/p06_midpoint_global_v3')
     parser.add_argument('--resolutions', type=int, nargs='+', choices=(32,48,64), default=[32,48,64])
     parser.add_argument('--workers', type=runner._positive_int)
     parser.add_argument('--max-tasks-per-worker', type=runner._positive_int, default=16)
