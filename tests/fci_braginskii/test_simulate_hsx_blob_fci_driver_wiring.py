@@ -76,29 +76,26 @@ def _main_error(hsx, capsys, *argv: str) -> str:
     return capsys.readouterr().err
 
 
-def test_parser_exposes_coordinate_default_and_production_controls():
+def test_parser_exposes_production_controls_without_removed_selectors():
     hsx = _driver_module()
     parser = hsx._build_parser()
     args = parser.parse_args([])
-    assert args.parallel_operator_scheme == "coordinate"
     assert args.gmres_residual_correction_steps == 1
     assert args.checkpoint_every == 0
-    assert args.flux_framework == "legacy"
-    framework_action = next(
-        action for action in parser._actions if "--flux-framework" in action.option_strings
-    )
-    assert framework_action.choices == ("legacy", "production-split")
     assert not any(
         "--production-characteristic-solver" in action.option_strings
         for action in parser._actions
     )
-
-    scheme_action = next(
-        action
-        for action in parser._actions
-        if "--parallel-operator-scheme" in action.option_strings
+    assert not any(
+        "--flux-framework" in action.option_strings for action in parser._actions
     )
-    assert scheme_action.choices == ("coordinate", "fci")
+    assert not any(
+        "--parallel-operator-scheme" in action.option_strings
+        for action in parser._actions
+    )
+    assert not any(
+        "--time-integrator" in action.option_strings for action in parser._actions
+    )
     assert not any("--fci-trace-substeps" in action.option_strings for action in parser._actions)
     assert not any(
         "--curvature-rlp-face-scheme" in action.option_strings
@@ -208,13 +205,12 @@ def test_noncanonical_cell_checkpoint_uses_aggregation_fallback():
     assert candidate is state
 
 
-def test_fci_requires_toroidal_geometry_artifact(fake_geometry_artifact, capsys):
+def test_non_toroidal_geometry_artifact_is_rejected(fake_geometry_artifact, capsys):
     hsx = _driver_module()
     path, _ = fake_geometry_artifact(hsx, topology="square")
-    message = _main_error(
-        hsx, capsys, "--geometry", str(path), "--parallel-operator-scheme", "fci"
-    )
-    assert "requires toroidal geometry" in message
+    message = _main_error(hsx, capsys, "--geometry", str(path))
+    assert "could not load --geometry artifact" in message
+    assert "unknown topology" in message
 
 
 def test_toroidal_artifact_without_rlp_topology_is_rejected(fake_geometry_artifact, capsys):
@@ -229,7 +225,7 @@ def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
     run = _function(tree, "run_full_eb")
     kernel_names = {
         "reconstruct_initial_phi_kernel",
-        "full_rk4_advance",
+        "full_imex_advance",
         "inspect_state",
     }
     kernels = {
@@ -306,7 +302,7 @@ def test_geometry_only_lowers_the_artifact_and_stops(monkeypatch, fake_geometry_
         hsx, "run_full_eb", lambda *_a, **_k: pytest.fail("--geometry-only must not run")
     )
 
-    hsx.main(["--geometry", str(path), "--parallel-operator-scheme", "fci", "--geometry-only"])
+    hsx.main(["--geometry", str(path), "--geometry-only"])
 
     assert [call[0] for call in lowering_calls] == [artifact.geometry]
 
@@ -329,8 +325,6 @@ def test_fci_main_passes_production_scheme_and_metadata_to_run(
         [
             "--geometry",
             str(path),
-            "--parallel-operator-scheme",
-            "fci",
             "--num-steps",
             "1",
             "--final-time",
@@ -363,33 +357,24 @@ def test_production_split_guard_requires_compatible_runtime():
     parser = hsx._build_parser()
     args = parser.parse_args(
         [
-            "--flux-framework", "production-split",
-            "--parallel-operator-scheme", "fci",
             "--parallel-flux-pairing", "support-core",
             "--poisson-bracket-scheme", "compatible-flux",
         ]
     )
     hsx._validate_flux_framework(args)
 
-    args = parser.parse_args(
-        [
-            "--flux-framework", "production-split",
-            "--parallel-operator-scheme", "fci",
-            "--parallel-flux-pairing", "legacy",
-        ]
-    )
+    args = parser.parse_args(["--parallel-flux-pairing", "legacy"])
     with pytest.raises(ValueError, match="support-core"):
         hsx._validate_flux_framework(args)
 
 
 def test_production_split_metadata_contract_is_recorded():
     source = DRIVER_PATH.read_text()
-    assert '"flux_framework": str(args.flux_framework)' in source
-    assert '"flux_framework_source": "simulate_hsx_blob.py:--flux-framework"' in source
+    assert '"flux_framework": "production-split"' in source
+    assert '"flux_framework_source": "fixed production configuration"' in source
     assert '"curvature_operator": "production-characteristic-owner-face"' in source
     assert '"curvature_operator_source": "fixed production method"' in source
     assert '"parallel_material_scheme": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME")' in source
-    assert '"production_characteristic_solver": (' in source
-    assert '"canonical-face-state"' in source
-    assert '"fixed production method"' in source
+    assert '"production_characteristic_solver": "canonical-face-state"' in source
+    assert '"production_characteristic_solver_source": "fixed production method"' in source
     assert "DRBX_PRODUCTION_CHARACTERISTIC_SOLVER" not in source
