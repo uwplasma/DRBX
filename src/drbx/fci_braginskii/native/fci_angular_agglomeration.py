@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 
 import jax.numpy as jnp
 import numpy as np
-from jax.sharding import PartitionSpec as P
 
 from ..geometry.fci_geometry import (
     LocalControlVolumeCellGeometry3D,
@@ -132,16 +131,6 @@ class ShardedPolarAngularAgglomerationDescriptor:
     @property
     def shard_counts(self) -> tuple[int, int, int]:
         return tuple(int(value) for value in self.domain.shard_spec.shard_counts)
-
-    @property
-    def cell_partition_spec(self):
-        """Partitioning for ``cell_fields`` on the eta-only execution mesh."""
-
-        return P("x", "y", "z", None)
-
-    @property
-    def packed_cell_shape(self) -> tuple[int, int, int, int]:
-        return self.global_shape + (RLP_PACKED_FIELD_COUNT,)
 
     @property
     def compact_face_count(self) -> int:
