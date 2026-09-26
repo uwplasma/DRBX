@@ -181,60 +181,6 @@ def _projectors_from_basis(
     )
 
 
-def _spectral_data(
-    matrix: jnp.ndarray,
-    *,
-    eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
-    max_condition: float = _DEFAULT_MAX_CONDITION,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Return stopped-gradient eigenvalues, projectors, and validity flags."""
-
-    values, vectors, inverse, valid, alpha = _spectral_basis(
-        matrix,
-        eigenvalue_tolerance=eigenvalue_tolerance,
-        max_condition=max_condition,
-    )
-    plus, minus = _projectors_from_basis(
-        values, vectors, inverse, valid, 1.0,
-        eigenvalue_tolerance=eigenvalue_tolerance,
-    )
-    return values, plus, minus, valid, alpha
-
-
-def _characteristic_split_actions(
-    matrix: jnp.ndarray,
-    tangent: jnp.ndarray,
-    normal: Any,
-    *,
-    eigenvalue_tolerance: float,
-    max_condition: float,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Apply the two live characteristic splits without dense projectors."""
-
-    normal = jnp.asarray(normal, dtype=jnp.float64)
-    normal_matrix = normal[..., None, None] * matrix
-    values, vectors, inverse, valid, alpha = _spectral_basis(
-        normal_matrix,
-        eigenvalue_tolerance=eigenvalue_tolerance,
-        max_condition=max_condition,
-    )
-    coefficients = _matvec(inverse, tangent)
-    positive = jnp.where(values > eigenvalue_tolerance, values, 0.0)
-    negative = jnp.where(values < -eigenvalue_tolerance, values, 0.0)
-    plus_characteristic = jnp.real(_matvec(vectors, positive * coefficients))
-    minus_characteristic = jnp.real(_matvec(vectors, negative * coefficients))
-    safe_matrix = jnp.where(jnp.isfinite(normal_matrix), normal_matrix, 0.0)
-    centered = _matvec(safe_matrix, tangent)
-    plus_fallback = 0.5 * (centered + alpha[..., None] * tangent)
-    minus_fallback = 0.5 * (centered - alpha[..., None] * tangent)
-    tangent_normal = jnp.abs(normal) <= eigenvalue_tolerance
-    plus = jnp.where(valid[..., None], plus_characteristic, plus_fallback)
-    minus = jnp.where(valid[..., None], minus_characteristic, minus_fallback)
-    plus = jnp.where(tangent_normal[..., None], 0.0, plus)
-    minus = jnp.where(tangent_normal[..., None], 0.0, minus)
-    return plus, minus, valid
-
-
 def parallel_characteristic_projectors(
     matrix: jnp.ndarray,
     normal: Any = 1.0,

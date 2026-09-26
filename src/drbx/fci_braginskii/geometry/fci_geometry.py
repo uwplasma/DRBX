@@ -13,15 +13,10 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
+from .._host_guards import host_bool, host_float
+
 
 _pytree_base = jax.tree_util.register_pytree_node_class
-
-def _normalize_same_shape_fields(instance, field_names: tuple[str, ...], *, expected_shape: tuple[int, ...], label: str) -> None:
-    for name in field_names:
-        value = jnp.asarray(getattr(instance, name), dtype=jnp.float64)
-        if value.shape != expected_shape:
-            raise ValueError(f"{label}.{name} must have shape {expected_shape}, got {value.shape}")
-        object.__setattr__(instance, name, value)
 
 class _DataclassPyTreeMixin:
     """Generic PyTree support for frozen dataclasses.
@@ -66,9 +61,9 @@ def _validate_coordinate_stencil_dependency_rows(
     valid_side = (~active) | ((side >= 0) & (side <= 1))
     valid_distance = (~active) | (distance > 0.0)
     try:
-        all_valid_axis = bool(jnp.all(valid_axis))
-        all_valid_side = bool(jnp.all(valid_side))
-        all_valid_distance = bool(jnp.all(valid_distance))
+        all_valid_axis = host_bool(jnp.all(valid_axis))
+        all_valid_side = host_bool(jnp.all(valid_side))
+        all_valid_distance = host_bool(jnp.all(valid_distance))
     except jax.errors.TracerBoolConversionError:
         return
     if not all_valid_axis:
@@ -393,24 +388,12 @@ class LocalGrid1D:
         return self.layout.owned_shape[self.axis]
 
     @property
-    def n_halo(self) -> int:
-        return self.layout.halo_width
-
-    @property
     def n_local(self) -> int:
         return int(self.centers_halo.size)
 
     @property
     def shape(self) -> tuple[int]:
         return (self.n_local,)
-
-    @property
-    def halo_start_global(self) -> int:
-        return self.owned_start_global - self.layout.halo_width
-
-    @property
-    def halo_stop_global(self) -> int:
-        return self.owned_stop_global + self.layout.halo_width
 
     @property
     def owned_center_slice(self) -> slice:
@@ -1328,7 +1311,7 @@ def build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry(
         & (owner_k < nz)
     )
     try:
-        all_targets_in_bounds = bool(jnp.all((~active) | target_in_bounds))
+        all_targets_in_bounds = host_bool(jnp.all((~active) | target_in_bounds))
     except jax.errors.TracerBoolConversionError:
         all_targets_in_bounds = True
     if not all_targets_in_bounds:
@@ -1410,14 +1393,6 @@ class LocalFciDirectionMap(_DataclassPyTreeMixin):
     @property
     def owned_shape(self) -> tuple[int, int, int]:
         return self.layout.owned_shape
-
-    @property
-    def has_remote_dependencies(self) -> bool:
-        return self.remote is not None
-
-    @property
-    def has_local_dependencies(self) -> jnp.ndarray:
-        return jnp.any(self.local.active)
 
 
 @_pytree_base
@@ -1626,10 +1601,6 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
     @property
     def cell_volume(self) -> LocalCellVolumeGeometry3D:
         return self.cell_volume_geometry
-
-    @property
-    def regular_face(self) -> LocalRegularFaceGeometry3D:
-        return self.regular_face_geometry
 
 
 @lru_cache(maxsize=1)
@@ -2443,32 +2414,6 @@ class LocalDomain3D(_DataclassPyTreeMixin):
             self.shard_spec.lower_side_kind(axis) == SIDE_AXIS_REGULAR
         )
 
-    def runtime_has_axis_regular_upper(self, axis: int) -> bool | jnp.ndarray:
-        axis = int(axis)
-        return self.runtime_touches_upper(axis) & (
-            self.shard_spec.upper_side_kind(axis) == SIDE_AXIS_REGULAR
-        )
-
-    def runtime_has_side_kind_lower(
-        self,
-        axis: int,
-        side_kind: int,
-    ) -> bool | jnp.ndarray:
-        axis = int(axis)
-        return self.runtime_touches_lower(axis) & (
-            self.shard_spec.lower_side_kind(axis) == int(side_kind)
-        )
-
-    def runtime_has_side_kind_upper(
-        self,
-        axis: int,
-        side_kind: int,
-    ) -> bool | jnp.ndarray:
-        axis = int(axis)
-        return self.runtime_touches_upper(axis) & (
-            self.shard_spec.upper_side_kind(axis) == int(side_kind)
-        )
-
     def tree_flatten(self):
         return (), (
             self.shard_spec,
@@ -2806,54 +2751,6 @@ class LocalMetricGeometry(_DataclassPyTreeMixin):
     @property
     def J_owned(self) -> jnp.ndarray:
         return self.J_halo[self.owned_slices_in_halo]
-
-    @property
-    def g11_owned(self) -> jnp.ndarray:
-        return self.g11_halo[self.owned_slices_in_halo]
-
-    @property
-    def g22_owned(self) -> jnp.ndarray:
-        return self.g22_halo[self.owned_slices_in_halo]
-
-    @property
-    def g33_owned(self) -> jnp.ndarray:
-        return self.g33_halo[self.owned_slices_in_halo]
-
-    @property
-    def g12_owned(self) -> jnp.ndarray:
-        return self.g12_halo[self.owned_slices_in_halo]
-
-    @property
-    def g13_owned(self) -> jnp.ndarray:
-        return self.g13_halo[self.owned_slices_in_halo]
-
-    @property
-    def g23_owned(self) -> jnp.ndarray:
-        return self.g23_halo[self.owned_slices_in_halo]
-
-    @property
-    def g_11_owned(self) -> jnp.ndarray:
-        return self.g_11_halo[self.owned_slices_in_halo]
-
-    @property
-    def g_22_owned(self) -> jnp.ndarray:
-        return self.g_22_halo[self.owned_slices_in_halo]
-
-    @property
-    def g_33_owned(self) -> jnp.ndarray:
-        return self.g_33_halo[self.owned_slices_in_halo]
-
-    @property
-    def g_12_owned(self) -> jnp.ndarray:
-        return self.g_12_halo[self.owned_slices_in_halo]
-
-    @property
-    def g_13_owned(self) -> jnp.ndarray:
-        return self.g_13_halo[self.owned_slices_in_halo]
-
-    @property
-    def g_23_owned(self) -> jnp.ndarray:
-        return self.g_23_halo[self.owned_slices_in_halo]
 
 @_pytree_base
 @dataclass(frozen=True)
@@ -3411,14 +3308,6 @@ class LocalCellVolumeGeometry3D(_DataclassPyTreeMixin):
     def local_halo_shape(self) -> tuple[int, int, int]:
         return self.layout.cell_halo_shape
 
-    @property
-    def volume_owned(self) -> jnp.ndarray:
-        return self.volume
-
-    @property
-    def volume_fraction_owned(self) -> jnp.ndarray:
-        return self.volume_fraction
-
 
 @_pytree_base
 @dataclass(frozen=True)
@@ -3461,7 +3350,7 @@ class LocalCellAgglomeration3D(_DataclassPyTreeMixin):
             )
         )
         try:
-            all_valid = bool(jnp.all(valid))
+            all_valid = host_bool(jnp.all(valid))
         except jax.errors.TracerBoolConversionError:
             all_valid = True
         if not all_valid:
@@ -3475,10 +3364,6 @@ class LocalCellAgglomeration3D(_DataclassPyTreeMixin):
     @property
     def shape(self) -> tuple[int, int, int]:
         return self.layout.owned_shape
-
-    @property
-    def has_sources(self) -> bool:
-        return bool(jnp.any(self.source_active))
 
     @classmethod
     def empty(cls, layout: HaloLayout3D) -> "LocalCellAgglomeration3D":
@@ -3566,10 +3451,6 @@ class LocalAggregateCellGeometry3D(_DataclassPyTreeMixin):
     @property
     def shape(self) -> tuple[int, int, int]:
         return self.layout.owned_shape
-
-    @property
-    def has_agglomeration(self) -> bool:
-        return bool(jnp.any(self.source_active) | jnp.any(self.is_agglomerated_target))
 
     @classmethod
     def empty(
@@ -3763,17 +3644,17 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
             & (owner_k < shape[2])
         )
         try:
-            all_in_bounds = bool(jnp.all(in_bounds))
-            no_owner_source_overlap = bool(
+            all_in_bounds = host_bool(jnp.all(in_bounds))
+            no_owner_source_overlap = host_bool(
                 jnp.all(~(is_merged_source & is_active_owner))
             )
-            target_semantics_valid = bool(
+            target_semantics_valid = host_bool(
                 jnp.all(is_aggregate_target == (received_source_count > 0))
             )
-            positive_owner_volume = bool(
+            positive_owner_volume = host_bool(
                 jnp.all((~is_active_owner) | (aggregate_volume > 0.0))
             )
-            finite_active_moments = bool(
+            finite_active_moments = host_bool(
                 jnp.all(
                     (~is_active_owner)
                     | (
@@ -3786,15 +3667,15 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
                     )
                 )
             )
-            aggregate_id_valid = bool(
+            aggregate_id_valid = host_bool(
                 jnp.all(
                     (~(is_active_owner | (raw_volume > 0.0)))
                     | (aggregate_id >= 0)
                 )
             )
-            remote_semantics_valid = bool(jnp.all(~owner_is_remote | (is_merged_source & ~is_active_owner)))
+            remote_semantics_valid = host_bool(jnp.all(~owner_is_remote | (is_merged_source & ~is_active_owner)))
             halo_shape = self.layout.cell_halo_shape
-            remote_in_bounds = bool(jnp.all(~owner_is_remote | ((remote_owner_halo_i >= 0) & (remote_owner_halo_i < halo_shape[0]) & (remote_owner_halo_j >= 0) & (remote_owner_halo_j < halo_shape[1]) & (remote_owner_halo_k >= 0) & (remote_owner_halo_k < halo_shape[2]))))
+            remote_in_bounds = host_bool(jnp.all(~owner_is_remote | ((remote_owner_halo_i >= 0) & (remote_owner_halo_i < halo_shape[0]) & (remote_owner_halo_j >= 0) & (remote_owner_halo_j < halo_shape[1]) & (remote_owner_halo_k >= 0) & (remote_owner_halo_k < halo_shape[2]))))
         except jax.errors.TracerBoolConversionError:
             all_in_bounds = True
             no_owner_source_overlap = True
@@ -3876,10 +3757,6 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
     @property
     def shape(self) -> tuple[int, int, int]:
         return self.layout.owned_shape
-
-    @property
-    def active_volume(self) -> jnp.ndarray:
-        return jnp.where(self.is_active_owner, self.aggregate_volume, 0.0)
 
     def tree_flatten(self):
         return (
@@ -4086,7 +3963,7 @@ def build_local_control_volume_cell_geometry(
         safe_owner_k,
     ]
     try:
-        has_chain = bool(jnp.any(source_active & target_is_source))
+        has_chain = host_bool(jnp.any(source_active & target_is_source))
     except jax.errors.TracerBoolConversionError:
         has_chain = False
     if has_chain:
@@ -4112,8 +3989,8 @@ def build_local_control_volume_cell_geometry(
         (~positive_raw) | (~target_is_active_owner)
     )
     try:
-        has_orphan_positive = bool(jnp.any(orphan_positive))
-        has_invalid_source = bool(jnp.any(invalid_source))
+        has_orphan_positive = host_bool(jnp.any(orphan_positive))
+        has_invalid_source = host_bool(jnp.any(invalid_source))
     except jax.errors.TracerBoolConversionError:
         has_orphan_positive = False
         has_invalid_source = False
@@ -4221,11 +4098,11 @@ def build_local_control_volume_cell_geometry(
     member_count = is_active_owner.astype(jnp.int32) + received_source_count
     is_aggregate_target = received_source_count > 0
     try:
-        raw_volume_sum = float(jnp.sum(jnp.where(positive_raw, raw_volume, 0.0)))
-        aggregate_volume_sum = float(
+        raw_volume_sum = host_float(jnp.sum(jnp.where(positive_raw, raw_volume, 0.0)))
+        aggregate_volume_sum = host_float(
             jnp.sum(jnp.where(is_active_owner, aggregate_volume, 0.0))
         )
-        volume_conserved = bool(
+        volume_conserved = host_bool(
             jnp.isclose(
                 raw_volume_sum,
                 aggregate_volume_sum,
@@ -4587,16 +4464,6 @@ def _coordinate_face_values_from_stencils(
     )
 
 
-def _build_local_coordinate_face_values(
-    coordinate_stencil: "LocalStencil3D",
-    field_halo: jnp.ndarray,
-    geometry: LocalFciGeometry3D,
-    context: StencilBuilderContext,
-):
-    del field_halo, geometry, context
-    return _coordinate_face_values_from_stencils(coordinate_stencil)
-
-
 def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) -> jnp.ndarray:
     """Map a cell-centered field onto the corresponding face grid along one axis."""
 
@@ -4617,6 +4484,11 @@ def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) 
         lower_ghost = last
         upper_ghost = first
     else:
+        # Second-order ghost-cell extrapolation:
+        #   q_{-1}  = 2 q_0 - q_1
+        #   q_{n}   = 2 q_{n-1} - q_{n-2}
+        # This lets the same face-average reconstruction be used at the
+        # boundary without dropping to first order.
         lower_ghost = 2.0 * first - second
         upper_ghost = 2.0 * last - penultimate
 
@@ -4631,112 +4503,6 @@ def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) 
     return 0.5 * (
         jnp.take(ext, jnp.arange(axis_n + 1), axis=axis)
         + jnp.take(ext, jnp.arange(1, axis_n + 2), axis=axis)
-    )
-
-
-def _global_axis_stencil_from_field(
-    field: jnp.ndarray,
-    geometry: FciGeometry3D,
-    *,
-    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-) -> "ConservativeStencil3D":
-    ConservativeStencil3D, FaceGradientStencil3D, LocalStencil1D, _ = _stencil_types()
-
-    values = jnp.asarray(field, dtype=jnp.float64)
-    if values.shape != geometry.shape:
-        raise ValueError(f"field must have shape {geometry.shape}, got {values.shape}")
-
-    periodic_axes = _normalize_periodic_axes(periodic_axes)
-
-    def _face_spacing(field_spacing: jnp.ndarray, *, face_axis: int) -> jnp.ndarray:
-        return _lift_cell_field_to_faces(field_spacing, axis=face_axis, periodic=periodic_axes[face_axis])
-
-    def _face_gradient_for_axis(face_axis: int) -> jnp.ndarray:
-        face_values = _lift_cell_field_to_faces(values, axis=face_axis, periodic=periodic_axes[face_axis])
-        face_spacings = (
-            _face_spacing(geometry.spacing.dx, face_axis=face_axis),
-            _face_spacing(geometry.spacing.dy, face_axis=face_axis),
-            _face_spacing(geometry.spacing.dz, face_axis=face_axis),
-        )
-        components = tuple(
-            _first_derivative_3d(
-                face_values,
-                face_spacings[component],
-                axis=component,
-                periodic=periodic_axes[component],
-            )
-            for component in range(3)
-        )
-        return jnp.stack(components, axis=-1)
-
-    def _axis_stencil(axis: int, grid_axis, periodic: bool) -> LocalStencil1D:
-        axis_n = values.shape[axis]
-        if axis_n == 1:
-            repeated = jnp.broadcast_to(values, geometry.shape)
-            width = jnp.asarray(grid_axis.faces[-1] - grid_axis.faces[0], dtype=jnp.float64)
-            width = jnp.broadcast_to(width, geometry.shape)
-            return LocalStencil1D(center=values, minus=repeated, plus=repeated, dx_min=width, dx_plus=width)
-
-        if periodic:
-            minus = jnp.concatenate(
-                (
-                    jnp.expand_dims(jnp.take(values, -1, axis=axis), axis=axis),
-                    jnp.take(values, jnp.arange(axis_n - 1), axis=axis),
-                ),
-                axis=axis,
-            )
-            plus = jnp.concatenate(
-                (
-                    jnp.take(values, jnp.arange(1, axis_n), axis=axis),
-                    jnp.expand_dims(jnp.take(values, 0, axis=axis), axis=axis),
-                ),
-                axis=axis,
-            )
-            period = jnp.asarray(grid_axis.faces[-1] - grid_axis.faces[0], dtype=jnp.float64)
-            deltas = jnp.asarray(grid_axis.centers, dtype=jnp.float64)
-            dx_min_1d = jnp.concatenate((jnp.asarray([deltas[0] - (deltas[-1] - period)], dtype=jnp.float64), deltas[1:] - deltas[:-1]))
-            dx_plus_1d = jnp.concatenate((deltas[1:] - deltas[:-1], jnp.expand_dims((deltas[0] + period) - deltas[-1], axis=0)))
-        else:
-            first = jnp.take(values, 0, axis=axis)
-            second = jnp.take(values, 1, axis=axis)
-            last = jnp.take(values, -1, axis=axis)
-            penultimate = jnp.take(values, -2, axis=axis)
-            minus = jnp.concatenate((jnp.expand_dims(2.0 * first - second, axis=axis), jnp.take(values, jnp.arange(axis_n - 1), axis=axis)), axis=axis)
-            plus = jnp.concatenate((jnp.take(values, jnp.arange(1, axis_n), axis=axis), jnp.expand_dims(2.0 * last - penultimate, axis=axis)), axis=axis)
-            deltas = jnp.asarray(grid_axis.centers, dtype=jnp.float64)
-            lower_width = 2.0 * jnp.asarray(grid_axis.lower_center_to_face, dtype=jnp.float64)
-            upper_width = 2.0 * jnp.asarray(grid_axis.upper_center_to_face, dtype=jnp.float64)
-            dx_min_1d = jnp.concatenate((jnp.expand_dims(lower_width, axis=0), deltas[1:] - deltas[:-1]))
-            dx_plus_1d = jnp.concatenate((deltas[1:] - deltas[:-1], jnp.expand_dims(upper_width, axis=0)))
-
-        if axis == 0:
-            dx_min = jnp.broadcast_to(dx_min_1d[:, None, None], geometry.shape)
-            dx_plus = jnp.broadcast_to(dx_plus_1d[:, None, None], geometry.shape)
-        elif axis == 1:
-            dx_min = jnp.broadcast_to(dx_min_1d[None, :, None], geometry.shape)
-            dx_plus = jnp.broadcast_to(dx_plus_1d[None, :, None], geometry.shape)
-        else:
-            dx_min = jnp.broadcast_to(dx_min_1d[None, None, :], geometry.shape)
-            dx_plus = jnp.broadcast_to(dx_plus_1d[None, None, :], geometry.shape)
-
-        return LocalStencil1D(center=values, minus=minus, plus=plus, dx_min=dx_min, dx_plus=dx_plus)
-
-    _, _, _, LocalStencil3D = _stencil_types()
-    coordinate_stencil = LocalStencil3D(
-        x=_axis_stencil(0, geometry.grid.x, periodic_axes[0]),
-        y=_axis_stencil(1, geometry.grid.y, periodic_axes[1]),
-        z=_axis_stencil(2, geometry.grid.z, periodic_axes[2]),
-    )
-    return ConservativeStencil3D(
-        x=coordinate_stencil.x,
-        y=coordinate_stencil.y,
-        z=coordinate_stencil.z,
-        face_values=_coordinate_face_values_from_stencils(coordinate_stencil),
-        face_grad=FaceGradientStencil3D(
-            x=_face_gradient_for_axis(0),
-            y=_face_gradient_for_axis(1),
-            z=_face_gradient_for_axis(2),
-        ),
     )
 
 
@@ -4809,12 +4575,7 @@ def _build_conservative_stencil_from_field(
             dtype=field_halo.dtype,
         )
 
-    face_values = _build_local_coordinate_face_values(
-        coordinate_stencil,
-        field_halo,
-        geometry,
-        context,
-    )
+    face_values = _coordinate_face_values_from_stencils(coordinate_stencil)
     face_grad = _build_local_face_gradient_from_halo(
         field_halo,
         geometry,
@@ -4899,7 +4660,7 @@ def _validate_coordinate_stencil_value_slots(
         return
     if int(values.size) == 0:
         try:
-            has_active = bool(jnp.any(active))
+            has_active = host_bool(jnp.any(active))
         except jax.errors.TracerBoolConversionError:
             return
         if has_active:
@@ -4907,7 +4668,7 @@ def _validate_coordinate_stencil_value_slots(
         return
     valid_slot = (~active) | ((slot >= 0) & (slot < int(values.size)))
     try:
-        all_valid = bool(jnp.all(valid_slot))
+        all_valid = host_bool(jnp.all(valid_slot))
     except jax.errors.TracerBoolConversionError:
         return
     if not all_valid:
@@ -6982,136 +6743,6 @@ def _interpolate_B_contravariant_cell_centered(
         )
     result = jnp.stack(samples, axis=-1)
     return result[0] if squeeze else result
-
-
-def _rk4_step_cell_centered(
-    grid: CellCenteredGrid3D,
-    B_contra_cell: jnp.ndarray,
-    point: jnp.ndarray,
-    step: float,
-    *,
-    periodic_axes: tuple[bool, bool, bool],
-    min_abs_bz: float,
-    boundary_value: float,
-) -> jnp.ndarray:
-    state = jnp.asarray(point, dtype=jnp.float64)
-    if state.shape != (3,):
-        raise ValueError(f"point must have shape (3,), got {state.shape}")
-    h = float(step)
-    
-    def rhs(value: jnp.ndarray) -> jnp.ndarray:
-        b = _interpolate_B_contravariant_cell_centered(
-            grid,
-            B_contra_cell,
-            value,
-            periodic_axes=periodic_axes,
-            boundary_value=boundary_value,
-        )
-        bz = jnp.asarray(b[2], dtype=jnp.float64)
-        safe_bz = jnp.where(jnp.abs(bz) < min_abs_bz, jnp.where(bz < 0.0, -1.0, 1.0) * (min_abs_bz), bz)
-        return jnp.stack((b[0] / safe_bz, b[1] / safe_bz, jnp.array(1.0, dtype=jnp.float64)))
-
-    k1 = rhs(state)
-    k2 = rhs(state + 0.5 * h * k1)
-    k3 = rhs(state + 0.5 * h * k2)
-    k4 = rhs(state + h * k3)
-    return state + (h / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-
-
-def _trace_fieldline_to_plane_cell_centered(
-    grid: CellCenteredGrid3D,
-    B_contra_cell: jnp.ndarray,
-    Bmag_cell: jnp.ndarray,
-    seed_points: jnp.ndarray,
-    *,
-    step: float,
-    substeps: int,
-    periodic_axes: tuple[bool, bool, bool],
-    min_abs_bz: float,
-    boundary_value: float,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    points = jnp.asarray(seed_points, dtype=jnp.float64)
-    if points.ndim != 2 or points.shape[-1] != 3:
-        raise ValueError(f"seed_points must have shape (n, 3), got {points.shape}")
-
-    nseed = int(points.shape[0])
-    step_size = float(step) / float(max(int(substeps), 1))
-    length = jnp.zeros(nseed, dtype=jnp.float64)
-    alive = jnp.ones(nseed, dtype=bool)
-    state = points
-
-    def _speed(sampled_b: jnp.ndarray, sampled_bmag: jnp.ndarray) -> jnp.ndarray:
-        bz = sampled_b[..., 2]
-        safe_bz = jnp.where(
-            jnp.abs(bz) < min_abs_bz,
-            jnp.where(bz < 0.0, -1.0, 1.0) * min_abs_bz,
-            bz,
-        )
-        return jnp.asarray(sampled_bmag, dtype=jnp.float64) / jnp.maximum(jnp.abs(safe_bz), 1.0e-30)
-
-    for _ in range(max(int(substeps), 1)):
-        b0 = jax.vmap(
-            lambda point: _interpolate_B_contravariant_cell_centered(
-                grid,
-                B_contra_cell,
-                point,
-                periodic_axes=periodic_axes,
-                boundary_value=boundary_value,
-            )
-        )(state)
-        bmag0 = _interpolate_scalar_cell_centered(
-            Bmag_cell,
-            state[:, 0],
-            state[:, 1],
-            state[:, 2],
-            grid=grid,
-            periodic_axes=periodic_axes,
-            boundary_value=boundary_value,
-        )
-        next_state = jax.vmap(
-            lambda point: _rk4_step_cell_centered(
-                grid,
-                B_contra_cell,
-                point,
-                step_size,
-                periodic_axes=periodic_axes,
-                min_abs_bz=min_abs_bz,
-                boundary_value=boundary_value,
-            )
-        )(state)
-        bmag1 = _interpolate_scalar_cell_centered(
-            Bmag_cell,
-            next_state[:, 0],
-            next_state[:, 1],
-            next_state[:, 2],
-            grid=grid,
-            periodic_axes=periodic_axes,
-            boundary_value=boundary_value,
-        )
-        b1 = jax.vmap(
-            lambda point: _interpolate_B_contravariant_cell_centered(
-                grid,
-                B_contra_cell,
-                point,
-                periodic_axes=periodic_axes,
-                boundary_value=boundary_value,
-            )
-        )(next_state)
-        finite = jnp.all(jnp.isfinite(next_state), axis=-1)
-        valid = _physical_domain_valid_mask(
-            grid,
-            next_state[:, 0],
-            next_state[:, 1],
-            next_state[:, 2],
-            periodic_axes=periodic_axes,
-        )
-        increment = 0.5 * abs(step_size) * (_speed(b0, bmag0) + _speed(b1, bmag1))
-        increment = jnp.where(alive & finite & valid, increment, 0.0)
-        length = length + increment
-        state = jnp.where((alive & finite & valid)[..., None], next_state, state)
-        alive = alive & finite & valid
-
-    return state, length, ~alive
 
 
 def interpolate_B_contravariant(

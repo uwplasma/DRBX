@@ -6,6 +6,7 @@ from typing import Callable
 import jax
 import jax.numpy as jnp
 
+from .._host_guards import host_bool
 from ..geometry.fci_geometry import (
     _DataclassPyTreeMixin,
     FciGeometry3D,
@@ -23,21 +24,14 @@ from .fci_model import (
     assert_matching_field_names,
 )
 from .fci_helpers import (
-    _as_bool_face_array,
-    _as_coordinate_derivative_weight_array,
-    _as_coordinate_face_tuple,
     _as_face_flux_array,
     _as_float64_array,
-    _as_int_face_array,
-    _as_wall_face_array,
     _local_cell_halo_array,
     _as_local_wall_array,
     _as_local_wall_int_array,
     _as_local_wall_bool_array,
     _as_local_wall_stencil_index_array,
     _as_local_wall_stencil_weight_array,
-    _axis_regular_lower_x_face,
-    _normalize_axis_flags,
 )
 
 
@@ -507,75 +501,6 @@ def _local_side_samples(
     return [values[h : h + nx, h : h + ny, base + step * i] for i in range(sample_count)]
 
 
-def _local_coordinate_side_values_from_array(
-    values: jnp.ndarray,
-    geometry: LocalFciGeometry3D,
-    layout: HaloLayout3D,
-    *,
-    name: str,
-) -> LocalCoordinateSideValues3D:
-    values = _as_float64_array(values, name)
-    if values.shape != layout.cell_halo_shape:
-        raise ValueError(f"{name} must have shape {layout.cell_halo_shape}, got {values.shape}")
-    if geometry.layout != layout:
-        raise ValueError("geometry and layout must share the same HaloLayout3D")
-    nx, ny, nz = layout.owned_shape
-    h = layout.halo_width
-    return LocalCoordinateSideValues3D(
-        x=LocalCoordinateSideValues1D(
-            lower=values[h - 1 : h, h : h + ny, h : h + nz][0],
-            upper=values[h + nx : h + nx + 1, h : h + ny, h : h + nz][0],
-            mask_lower=jnp.ones((ny, nz), dtype=bool),
-            mask_upper=jnp.ones((ny, nz), dtype=bool),
-        ),
-        y=LocalCoordinateSideValues1D(
-            lower=values[h : h + nx, h - 1 : h, h : h + nz][:, 0, :],
-            upper=values[h : h + nx, h + ny : h + ny + 1, h : h + nz][:, 0, :],
-            mask_lower=jnp.ones((nx, nz), dtype=bool),
-            mask_upper=jnp.ones((nx, nz), dtype=bool),
-        ),
-        z=LocalCoordinateSideValues1D(
-            lower=values[h : h + nx, h : h + ny, h - 1 : h][:, :, 0],
-            upper=values[h : h + nx, h : h + ny, h + nz : h + nz + 1][:, :, 0],
-            mask_lower=jnp.ones((nx, ny), dtype=bool),
-            mask_upper=jnp.ones((nx, ny), dtype=bool),
-        ),
-    )
-
-
-def _coordinate_normal_derivative_weights_from_geometry(
-    geometry: FciGeometry3D,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Build host-side wall-normal weights from retained FciGeometry3D."""
-
-    if min(geometry.shape) < 3:
-        raise ValueError(
-            "coordinate normal derivative reconstruction requires at least three cells "
-            f"along every axis, got {geometry.shape}"
-        )
-
-    def side_weights(a, b, c):
-        nodes = jnp.asarray((0.0, a, b, c), dtype=jnp.float64)
-        vandermonde = jnp.stack((nodes**0, nodes, nodes**2, nodes**3), axis=0)
-        d1 = -jnp.linalg.solve(
-            vandermonde, jnp.asarray((0.0, 1.0, 0.0, 0.0), dtype=jnp.float64)
-        )
-        d2 = jnp.linalg.solve(
-            vandermonde, jnp.asarray((0.0, 0.0, 2.0, 0.0), dtype=jnp.float64)
-        )
-        return d1, d2
-
-    def axis_weights(axis_grid):
-        lower = tuple(axis_grid.centers[i] - axis_grid.faces[0] for i in range(3))
-        upper = tuple(axis_grid.faces[-1] - axis_grid.centers[-1 - i] for i in range(3))
-        lower_d1, lower_d2 = side_weights(*lower)
-        upper_d1, upper_d2 = side_weights(*upper)
-        return jnp.stack((lower_d1, upper_d1)), jnp.stack((lower_d2, upper_d2))
-
-    d1, d2 = zip(*(axis_weights(axis) for axis in (geometry.grid.x, geometry.grid.y, geometry.grid.z)))
-    return jnp.stack(d1), jnp.stack(d2)
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
@@ -612,11 +537,6 @@ class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
     def stencil_width(self) -> int:
         return int(self.dnormal_weights.shape[2])
 
-    @classmethod
-    def from_geometry(cls, geometry: FciGeometry3D) -> "LocalCoordinateNormalDerivativeConstructor3D":
-        dnormal_weights, d2normal_weights = _coordinate_normal_derivative_weights_from_geometry(geometry)
-        return cls(dnormal_weights=dnormal_weights, d2normal_weights=d2normal_weights)
-
     def _wall_side_derivatives(
         self,
         field_halo: jnp.ndarray,
@@ -644,26 +564,6 @@ class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
         dnormal_upper = jnp.where(wall_value.mask_upper, dnormal_upper, 0.0)
         d2normal_upper = jnp.where(wall_value.mask_upper, d2normal_upper, 0.0)
         return dnormal_lower, dnormal_upper, d2normal_lower, d2normal_upper
-
-    def dnormal_from_wall_value(
-        self,
-        field_halo: jnp.ndarray,
-        wall_value: LocalCoordinateSideValues3D,
-        geometry: "LocalFciGeometry3D",
-        layout: "HaloLayout3D",
-    ) -> "LocalCoordinateSideValues3D":
-        dnormal, _d2normal = self.normal_derivatives_from_wall_value(field_halo, wall_value, geometry, layout)
-        return dnormal
-
-    def d2normal_from_wall_value(
-        self,
-        field_halo: jnp.ndarray,
-        wall_value: LocalCoordinateSideValues3D,
-        geometry: "LocalFciGeometry3D",
-        layout: "HaloLayout3D",
-    ) -> "LocalCoordinateSideValues3D":
-        _dnormal, d2normal = self.normal_derivatives_from_wall_value(field_halo, wall_value, geometry, layout)
-        return d2normal
 
     def normal_derivatives_from_wall_value(
         self,
@@ -1498,7 +1398,7 @@ def build_local_boundary_face_trace_from_halo(
                 may_need_interpolation = False
             else:
                 try:
-                    may_need_interpolation = bool(jnp.any(neumann_candidate))
+                    may_need_interpolation = host_bool(jnp.any(neumann_candidate))
                 except jax.errors.TracerBoolConversionError:
                     # A dynamically supplied BC mask/kind cannot be inspected
                     # while tracing.  Conservatively require the interpolation
@@ -1854,10 +1754,6 @@ class LocalCutWallBC3D(_DataclassPyTreeMixin):
     @property
     def n_wall_faces(self) -> int:
         return int(self.max_wall_faces)
-
-    @property
-    def n_active(self) -> jnp.ndarray:
-        return jnp.sum(self.active)
 
     @classmethod
     def empty(cls, max_wall_faces: int) -> "LocalCutWallBC3D":
@@ -2262,10 +2158,10 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             logical_axis_valid & logical_face_in_bounds
         )
         try:
-            all_valid_kind = bool(jnp.all(valid_kind))
-            all_valid_owners = bool(jnp.all(valid_owners))
-            all_valid_logical_faces = bool(jnp.all(valid_logical_faces))
-            finite_active_geometry = bool(
+            all_valid_kind = host_bool(jnp.all(valid_kind))
+            all_valid_owners = host_bool(jnp.all(valid_owners))
+            all_valid_logical_faces = host_bool(jnp.all(valid_logical_faces))
+            finite_active_geometry = host_bool(
                 jnp.all(
                     (~(active[:, None, None] & patch_active[:, :, None]))
                     | (
@@ -2276,7 +2172,7 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
                     )
                 )
             )
-            finite_remote_geometry = bool(
+            finite_remote_geometry = host_bool(
                 jnp.all(
                     (~(active & has_remote_owner))
                     | (
@@ -2818,7 +2714,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             )
         )
         try:
-            valid = bool(
+            valid = host_bool(
                 jnp.all(valid_observation)
                 & jnp.all((~active) | ((polynomial_order >= 1) & (polynomial_order <= 3)))
                 & jnp.all((~active) | (polynomial_basis_size >= 1))
@@ -3040,7 +2936,7 @@ class LocalControlVolumeFieldClosure3D(_DataclassPyTreeMixin):
         if face_value_valid.shape != patch_shape or face_gradient_valid.shape != patch_shape:
             raise ValueError(f"face trace validity masks must have shape {patch_shape}")
         try:
-            finite = bool(
+            finite = host_bool(
                 jnp.all(
                     (~(active & valid))
                     | (
@@ -3168,7 +3064,7 @@ class LocalControlVolumeBoundaryBC3D(_DataclassPyTreeMixin):
             | (kind == BC_NOFLUX)
         )
         try:
-            all_supported = bool(jnp.all((~active) | supported))
+            all_supported = host_bool(jnp.all((~active) | supported))
         except jax.errors.TracerBoolConversionError:
             all_supported = True
         if not all_supported:
@@ -3347,8 +3243,8 @@ class LocalMomentReconstruction3D(_DataclassPyTreeMixin):
             | (equation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL)
         )
         try:
-            all_valid_kind = bool(jnp.all(valid_kind))
-            all_valid_order = bool(
+            all_valid_kind = host_bool(jnp.all(valid_kind))
+            all_valid_order = host_bool(
                 jnp.all((~active) | ((polynomial_order >= 1) & (polynomial_order <= 3)))
             )
         except jax.errors.TracerBoolConversionError:
@@ -3719,7 +3615,7 @@ class LocalRegularBoundaryMomentClosure3D(_DataclassPyTreeMixin):
                     f"{face_shape} on axis {axis}, got {axis_valid.shape}"
                 )
             try:
-                finite = bool(
+                finite = host_bool(
                     jnp.all(
                         (~axis_valid)[..., None]
                         | (
@@ -3930,7 +3826,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                 )
             if self.face_functionals.max_rows:
                 try:
-                    aligned = bool(
+                    aligned = host_bool(
                         jnp.all(
                             self.face_functionals.active
                             == self.irregular_faces.active
@@ -3952,7 +3848,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                     )
         else:
             try:
-                has_irregular_faces = bool(jnp.any(self.irregular_faces.active))
+                has_irregular_faces = host_bool(jnp.any(self.irregular_faces.active))
             except jax.errors.TracerBoolConversionError:
                 has_irregular_faces = False
             if has_irregular_faces:
@@ -4033,7 +3929,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                 & jnp.all(jnp.isfinite(centroid_curvature), axis=-1)
             )
             try:
-                all_finite = bool(jnp.all((~active) | finite))
+                all_finite = host_bool(jnp.all((~active) | finite))
             except jax.errors.TracerBoolConversionError:
                 all_finite = True
             if not all_finite:
@@ -4349,7 +4245,7 @@ class LocalRegularFaceContributionRows3D(_DataclassPyTreeMixin):
 
         valid_axis = (~active) | ((face_axis >= 0) & (face_axis <= 2))
         try:
-            all_valid_axis = bool(jnp.all(valid_axis))
+            all_valid_axis = host_bool(jnp.all(valid_axis))
         except jax.errors.TracerBoolConversionError:
             all_valid_axis = True
         if not all_valid_axis:
