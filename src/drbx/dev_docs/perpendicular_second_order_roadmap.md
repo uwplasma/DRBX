@@ -1135,3 +1135,19 @@ serial/parallel N32 preflight arrays agree exactly, and complete-owner
 q3/q5/q7 preflight passes its bounded reference check at all resolutions.
 This establishes readiness to execute the global campaign; it does not close
 P07. Global, structural, elliptic and evolved qualifications remain separate.
+
+
+### P05 direct raw-midpoint candidate — 2026-09-26
+
+The bounded direct-point comparison motivates a new global static accuracy
+qualification of the centered reconstructed bracket, with and without the
+saved owner-normalized `U - A` jump. The frozen N32/N48/N64 campaign evaluates
+all raw midpoints, projects complete actions with stored physical volumes,
+and retains the P05 analytic strong reference. Its [runner and frozen
+contract](../../../scripts/p05_direct_midpoint_global/README.md) include a
+complete-owner boundary preflight, restartable CPU chunks, replay-noise
+scoping for the actual-vorticity reference, and regional rebound diagnostics.
+The [remote handoff](../../../scripts/p05_direct_midpoint_global/handoff.md)
+is prepared for the pinned revision. The full global run has not been
+launched; this is static research qualification only, with no promotion,
+conservation, or evolved-stability claim.
