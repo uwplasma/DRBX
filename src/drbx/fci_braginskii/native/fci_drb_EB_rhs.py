@@ -87,7 +87,6 @@ RHS_TERM_NAMES = (
         "perpendicular_diffusion",
         "parallel_diffusion",
         "characteristic_leg_upwind",
-        "source",
     ),
     (
         "poisson_bracket",
@@ -97,7 +96,6 @@ RHS_TERM_NAMES = (
         "perpendicular_diffusion",
         "parallel_diffusion",
         "characteristic_leg_upwind",
-        "source",
     ),
     (
         "poisson_bracket",
@@ -107,7 +105,6 @@ RHS_TERM_NAMES = (
         "perpendicular_diffusion",
         "parallel_diffusion",
         "characteristic_leg_upwind",
-        "source",
     ),
     (
         "poisson_bracket",
@@ -116,7 +113,6 @@ RHS_TERM_NAMES = (
         "perpendicular_diffusion",
         "parallel_diffusion",
         "characteristic_leg_upwind",
-        "source",
     ),
     (
         "poisson_bracket",
@@ -128,7 +124,6 @@ RHS_TERM_NAMES = (
         "perpendicular_diffusion",
         "parallel_diffusion",
         "characteristic_leg_upwind",
-        "source",
     ),
     (
         "poisson_bracket",
@@ -137,7 +132,6 @@ RHS_TERM_NAMES = (
         "curvature",
         "perpendicular_diffusion",
         "parallel_diffusion",
-        "source",
     ),
 )
 RHS_TERM_SLOT_COUNT = max(len(names) for names in RHS_TERM_NAMES)
@@ -2326,7 +2320,6 @@ class LocalFciDrbEBRhs:
     def evaluate_stage(
         self,
         state_owned: FciDrbEBState,
-        source_owned: FciDrbEBState | None = None,
         *,
         phi_owned: jnp.ndarray | None = None,
         return_rhs_term_fields: bool = False,
@@ -2346,18 +2339,6 @@ class LocalFciDrbEBRhs:
         ``RHS_TERM_NAMES``.
         """
 
-        if source_owned is None:
-            source_owned = FciDrbEBState(
-                density=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-                phi=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-                Te=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-                Ti=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-                Vi=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-                Ve=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-                vorticity=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-            )
-        source_input = _mask_state_inactive_owned(source_owned, self.geometry)
-        source_owned = self._owner_state(source_input)
         face_bc = self._face_bcs(state_owned)
         state_halo_without_phi = self._prepare_state_halo(state_owned, face_bc)
         if phi_owned is None:
@@ -2697,7 +2678,6 @@ class LocalFciDrbEBRhs:
 
         def pack_rhs_terms(
             fine_terms: tuple[jnp.ndarray, ...],
-            source_term: jnp.ndarray,
         ) -> jnp.ndarray:
             owner_terms = [
                 self._owner_field(
@@ -2707,7 +2687,6 @@ class LocalFciDrbEBRhs:
                 )
                 for term in fine_terms
             ]
-            owner_terms.append(self._owner_field(source_term))
             owner_zero = jnp.zeros_like(owner_terms[0])
             owner_terms.extend(
                 owner_zero
@@ -2725,7 +2704,6 @@ class LocalFciDrbEBRhs:
                     density_parallel_diff,
                     material_upwind_correction[..., 0],
                 ),
-                source_owned.density,
             )
             Te_terms = pack_rhs_terms(
                 (
@@ -2737,7 +2715,6 @@ class LocalFciDrbEBRhs:
                     Te_parallel_diff,
                     material_upwind_correction[..., 1],
                 ),
-                source_owned.Te,
             )
             Ti_terms = pack_rhs_terms(
                 (
@@ -2749,7 +2726,6 @@ class LocalFciDrbEBRhs:
                     Ti_parallel_diff,
                     material_upwind_correction[..., 2],
                 ),
-                source_owned.Ti,
             )
             Vi_terms = pack_rhs_terms(
                 (
@@ -2760,7 +2736,6 @@ class LocalFciDrbEBRhs:
                     Vi_parallel_diff,
                     material_upwind_correction[..., 3],
                 ),
-                source_owned.Vi,
             )
             Ve_terms = pack_rhs_terms(
                 (
@@ -2774,7 +2749,6 @@ class LocalFciDrbEBRhs:
                     Ve_parallel_diff,
                     zero_term,
                 ),
-                source_owned.Ve,
             )
             vorticity_terms = pack_rhs_terms(
                 (
@@ -2785,7 +2759,6 @@ class LocalFciDrbEBRhs:
                     vorticity_diff,
                     vorticity_parallel_diff,
                 ),
-                source_owned.vorticity,
             )
             return jnp.stack(
                 (
@@ -2808,17 +2781,8 @@ class LocalFciDrbEBRhs:
             Ve=Ve_rhs,
             vorticity=vorticity_rhs,
         ))
-        # Sources are owner-space data.  Add them after RLP so their
-        # amplitudes are not volume-diluted by fine storage aliases.
         result = self._owner_state(_mask_state_inactive_owned(
-            assembled.replace(
-                density=assembled.density + source_owned.density,
-                Te=assembled.Te + source_owned.Te,
-                Ti=assembled.Ti + source_owned.Ti,
-                Vi=assembled.Vi + source_owned.Vi,
-                Ve=assembled.Ve + source_owned.Ve,
-                vorticity=assembled.vorticity + source_owned.vorticity,
-            ),
+            assembled,
             self.geometry,
         ))
         if return_rhs_term_fields:

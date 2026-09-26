@@ -28,7 +28,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Callable, Sequence
+from typing import Sequence
 import zipfile
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -1079,18 +1079,6 @@ def _state_marker_dependencies(state: FciDrbEBState) -> tuple[jax.Array, ...]:
 IMEX_SSP222_GAMMA = 1.0 - 1.0 / np.sqrt(2.0)
 
 
-def _explicit_source_stage_times(
-    time_integrator: str, start_time: float, timestep: float
-) -> tuple[float, ...]:
-    """Return source times in the same order as the compiled advance stages."""
-
-    t = float(start_time)
-    dt = float(timestep)
-    if time_integrator == "imex-ssp222":
-        return (t, t + dt)
-    raise ValueError(f"unsupported time integrator {time_integrator!r}")
-
-
 def _pack_curvature_face_coefficients(
     coefficients: LocalCurvatureFaceCoefficients3D,
 ) -> np.ndarray:
@@ -1426,7 +1414,6 @@ def run_full_eb(
     control_volume_assembler=None,
     control_volume_field_count: int = RLP_PACKED_FIELD_COUNT,
     owner_host_geometry=None,
-    source_evaluator: Callable[[float], FciDrbEBState] | None = None,
     history_dtype: str = "float32",
 ) -> FciDrbEBState:
     """Advance the global EB state."""
@@ -1475,7 +1462,6 @@ def run_full_eb(
 
     domain = sharded_geometry.domain
     spatial_spec = P("x", "y", "z")
-    source_spec = P(None, "x", "y", "z")
     geometry_spec = P("x", "y", "z", None)
     replicated_spec = P()
     state_spec = initial_state.map_fields(lambda _value: spatial_spec)
@@ -1487,59 +1473,6 @@ def run_full_eb(
             state_sharding,
         )
     )
-    source_stage_count = 2
-    source_sharding = NamedSharding(mesh, source_spec)
-    zero_source_stages = initial_state.map_fields(
-        lambda value: jax.device_put(
-            np.zeros(
-                (source_stage_count,) + np.asarray(value).shape,
-                dtype=np.float64,
-            ),
-            source_sharding,
-        )
-    )
-
-    def source_stages_for_step(
-        step_start_time: float,
-    ) -> FciDrbEBState:
-        """Evaluate and shard all explicit source stages for one timestep."""
-
-        if source_evaluator is None:
-            return zero_source_stages
-        values_by_name = {name: [] for name in initial_state.field_names()}
-        evaluated_sources: dict[float, FciDrbEBState] = {}
-        for stage_time in _explicit_source_stage_times(
-            time_integrator, step_start_time, float(timestep)
-        ):
-            stage_key = float(stage_time)
-            source = evaluated_sources.get(stage_key)
-            if source is None:
-                source = source_evaluator(stage_key)
-                evaluated_sources[stage_key] = source
-            if not isinstance(source, FciDrbEBState):
-                raise TypeError(
-                    "source_evaluator must return FciDrbEBState, got "
-                    f"{type(source).__name__}"
-                )
-            for name in initial_state.field_names():
-                value = np.asarray(getattr(source, name), dtype=np.float64)
-                expected_shape = tuple(int(v) for v in global_geometry.shape)
-                if value.shape != expected_shape:
-                    raise ValueError(
-                        f"source_evaluator field {name!r} has shape "
-                        f"{value.shape}, expected {expected_shape}"
-                    )
-                if not np.all(np.isfinite(value)):
-                    raise ValueError(
-                        f"source_evaluator field {name!r} contains non-finite values"
-                    )
-                values_by_name[name].append(value)
-        return FciDrbEBState(**{
-            name: jax.device_put(
-                np.stack(values, axis=0), source_sharding
-            )
-            for name, values in values_by_name.items()
-        })
 
     def materialized_state(current_state: FciDrbEBState) -> FciDrbEBState:
         materialized = (
@@ -1839,12 +1772,10 @@ def run_full_eb(
         stage_state: FciDrbEBState,
         phi: jax.Array,
         model: LocalFciDrbEBRhs,
-        source_owned: FciDrbEBState | None = None,
     ) -> FciDrbEBState:
         with jax.named_scope("operators"):
             rhs = model.evaluate_stage(
                 stage_state,
-                source_owned=source_owned,
                 phi_owned=phi,
                 short_leg_selection_dt=dt,
             )
@@ -1932,7 +1863,6 @@ def run_full_eb(
         cell_fields_owned: jax.Array,
         map_fields_owned: jax.Array,
         control_volume_fields_owned: jax.Array,
-        source_stages: FciDrbEBState,
         current_time: jax.Array,
     ):
         """Advance with the complete short-wall residual at every IMEX stage."""
@@ -1966,20 +1896,8 @@ def run_full_eb(
         # potential.  Solve the complete selected-wall residual before the
         # first explicit evaluation, not after a finished timestep.
         stage_1, implicit_1, gmres_info_1 = implicit_stage(current)
-        source_1 = source_stages.replace(
-            density=source_stages.density[0], phi=source_stages.phi[0],
-            Te=source_stages.Te[0], Ti=source_stages.Ti[0],
-            Vi=source_stages.Vi[0], Ve=source_stages.Ve[0],
-            vorticity=source_stages.vorticity[0],
-        )
-        source_2 = source_stages.replace(
-            density=source_stages.density[1], phi=source_stages.phi[1],
-            Te=source_stages.Te[1], Ti=source_stages.Ti[1],
-            Vi=source_stages.Vi[1], Ve=source_stages.Ve[1],
-            vorticity=source_stages.vorticity[1],
-        )
         explicit_1 = evaluate_operators(
-            stage_1, stage_1.phi, model, source_1
+            stage_1, stage_1.phi, model
         )
 
         stage_2_base = current.axpy(explicit_1, scale=dt).axpy(
@@ -1992,7 +1910,7 @@ def run_full_eb(
         stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
         stage_2, implicit_2, gmres_info_2 = implicit_stage(stage_2_base)
         explicit_2 = evaluate_operators(
-            stage_2, stage_2.phi, model, source_2
+            stage_2, stage_2.phi, model
         )
 
         weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
@@ -2051,7 +1969,6 @@ def run_full_eb(
             geometry_spec,
             geometry_spec,
             geometry_spec,
-            source_spec,
             replicated_spec,
         ),
         out_specs=advance_out_specs,
@@ -2063,7 +1980,6 @@ def run_full_eb(
             cell_fields,
             map_fields,
             control_volume_fields,
-            zero_source_stages,
             jnp.asarray(start_time, dtype=jnp.float64),
         ).compile()
         print(
@@ -2127,7 +2043,6 @@ def run_full_eb(
 
         def staged_explicit_kernel(
             local_state: FciDrbEBState,
-            local_source: FciDrbEBState,
             cell_fields_owned: jax.Array,
             map_fields_owned: jax.Array,
             control_volume_fields_owned: jax.Array,
@@ -2140,7 +2055,6 @@ def run_full_eb(
             )
             rhs = model.evaluate_stage(
                 local_state,
-                source_owned=local_source,
                 phi_owned=local_state.phi,
                 short_leg_selection_dt=selection_dt,
             )
@@ -2152,7 +2066,6 @@ def run_full_eb(
             staged_explicit_kernel,
             mesh=mesh,
             in_specs=(
-                state_spec,
                 state_spec,
                 geometry_spec,
                 geometry_spec,
@@ -2281,7 +2194,6 @@ def run_full_eb(
             "explicit-rhs",
             staged_explicit_sharded,
             state,
-            state.zeros_like(),
             cell_fields,
             map_fields,
             control_volume_fields,
@@ -2330,7 +2242,6 @@ def run_full_eb(
                 cell_fields_owned,
                 map_fields_owned,
                 control_volume_fields_owned,
-                source_stages,
                 _current_time,
             ) = advance_args
             dt_dynamic = jnp.asarray(float(timestep), dtype=jnp.float64)
@@ -2347,21 +2258,8 @@ def run_full_eb(
             implicit_1 = increment_1.map_fields(
                 lambda value: value / gamma_dt
             )
-            source_1 = source_stages.replace(
-                density=source_stages.density[0], phi=source_stages.phi[0],
-                Te=source_stages.Te[0], Ti=source_stages.Ti[0],
-                Vi=source_stages.Vi[0], Ve=source_stages.Ve[0],
-                vorticity=source_stages.vorticity[0],
-            )
-            source_2 = source_stages.replace(
-                density=source_stages.density[1], phi=source_stages.phi[1],
-                Te=source_stages.Te[1], Ti=source_stages.Ti[1],
-                Vi=source_stages.Vi[1], Ve=source_stages.Ve[1],
-                vorticity=source_stages.vorticity[1],
-            )
             explicit_1 = staged_explicit(
                 stage_1,
-                source_1,
                 cell_fields_owned,
                 map_fields_owned,
                 control_volume_fields_owned,
@@ -2393,7 +2291,6 @@ def run_full_eb(
             )
             explicit_2 = staged_explicit(
                 stage_2,
-                source_2,
                 cell_fields_owned,
                 map_fields_owned,
                 control_volume_fields_owned,
@@ -2902,7 +2799,6 @@ def run_full_eb(
     for step in range(1, int(num_steps) + 1):
         step_start = time.perf_counter()
         step_time = float(start_time) + (step - 1) * float(timestep)
-        source_stages = source_stages_for_step(step_time)
         if phase_timer is not None:
             phase_timer.begin_step()
         (
@@ -2916,7 +2812,6 @@ def run_full_eb(
             cell_fields,
             map_fields,
             control_volume_fields,
-            source_stages,
             jnp.asarray(
                 step_time,
                 dtype=jnp.float64,
