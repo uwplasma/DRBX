@@ -2341,12 +2341,6 @@ class StencilBuilderContext(_DataclassPyTreeMixin):
         return cls(*children)
 
 
-# Backward-compatible aliases. Both historical context names now refer to the
-# same canonical PyTree type.
-LocalStencilBuilderContext = StencilBuilderContext
-ConservativeStencilBuilderContext = StencilBuilderContext
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class Spacing3D(_DataclassPyTreeMixin):
@@ -2975,125 +2969,6 @@ class LocalRegularFaceGeometry3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class RegularFaceGeometry3D(_DataclassPyTreeMixin):
-    """Regular coordinate-face measures for conservative fluxes."""
-
-    x_area: jnp.ndarray
-    y_area: jnp.ndarray
-    z_area: jnp.ndarray
-    x_area_fraction: jnp.ndarray
-    y_area_fraction: jnp.ndarray
-    z_area_fraction: jnp.ndarray
-    x_open_mask: jnp.ndarray
-    y_open_mask: jnp.ndarray
-    z_open_mask: jnp.ndarray
-    x_centroid_offset: jnp.ndarray | None = None
-    y_centroid_offset: jnp.ndarray | None = None
-    z_centroid_offset: jnp.ndarray | None = None
-
-    def __post_init__(self) -> None:
-        x_area = jnp.asarray(self.x_area, dtype=jnp.float64)
-        y_area = jnp.asarray(self.y_area, dtype=jnp.float64)
-        z_area = jnp.asarray(self.z_area, dtype=jnp.float64)
-        if x_area.ndim != 3 or y_area.ndim != 3 or z_area.ndim != 3:
-            raise ValueError(
-                "RegularFaceGeometry3D areas must be 3D arrays with face-grid shapes"
-            )
-
-        x_shape = tuple(int(v) for v in x_area.shape)
-        y_shape = tuple(int(v) for v in y_area.shape)
-        z_shape = tuple(int(v) for v in z_area.shape)
-        cell_shape = (x_shape[0] - 1, y_shape[1] - 1, z_shape[2] - 1)
-        expected_x = (cell_shape[0] + 1, cell_shape[1], cell_shape[2])
-        expected_y = (cell_shape[0], cell_shape[1] + 1, cell_shape[2])
-        expected_z = (cell_shape[0], cell_shape[1], cell_shape[2] + 1)
-        if x_shape != expected_x or y_shape != expected_y or z_shape != expected_z:
-            raise ValueError(
-                "RegularFaceGeometry3D face shapes must match the face-grid layout; "
-                f"expected x={expected_x}, y={expected_y}, z={expected_z}, got "
-                f"x={x_shape}, y={y_shape}, z={z_shape}"
-            )
-
-        object.__setattr__(self, "x_area", x_area)
-        object.__setattr__(self, "y_area", y_area)
-        object.__setattr__(self, "z_area", z_area)
-        object.__setattr__(self, "x_area_fraction", _require_float_shape(self.x_area_fraction, x_shape, "RegularFaceGeometry3D.x_area_fraction"))
-        object.__setattr__(self, "y_area_fraction", _require_float_shape(self.y_area_fraction, y_shape, "RegularFaceGeometry3D.y_area_fraction"))
-        object.__setattr__(self, "z_area_fraction", _require_float_shape(self.z_area_fraction, z_shape, "RegularFaceGeometry3D.z_area_fraction"))
-        for name, shape in (("x_open_mask", x_shape), ("y_open_mask", y_shape), ("z_open_mask", z_shape)):
-            value = jnp.asarray(getattr(self, name), dtype=bool)
-            if value.shape != shape:
-                raise ValueError(f"RegularFaceGeometry3D.{name} must have shape {shape}, got {value.shape}")
-            object.__setattr__(self, name, value)
-        for name, shape in (
-            ("x_centroid_offset", x_shape),
-            ("y_centroid_offset", y_shape),
-            ("z_centroid_offset", z_shape),
-        ):
-            value = getattr(self, name)
-            expected_offset_shape = shape + (3,)
-            if value is None:
-                offset = jnp.zeros(expected_offset_shape, dtype=jnp.float64)
-            else:
-                offset = jnp.asarray(value, dtype=jnp.float64)
-                if offset.shape != expected_offset_shape:
-                    raise ValueError(
-                        f"RegularFaceGeometry3D.{name} must have shape "
-                        f"{expected_offset_shape}, got {offset.shape}"
-                    )
-            object.__setattr__(self, name, offset)
-
-    @classmethod
-    def unit(cls, geometry: "FciGeometry3D") -> "RegularFaceGeometry3D":
-        shape = geometry.shape
-        x_shape = (shape[0] + 1, shape[1], shape[2])
-        y_shape = (shape[0], shape[1] + 1, shape[2])
-        z_shape = (shape[0], shape[1], shape[2] + 1)
-        return cls(
-            x_area=jnp.ones(x_shape, dtype=jnp.float64),
-            y_area=jnp.ones(y_shape, dtype=jnp.float64),
-            z_area=jnp.ones(z_shape, dtype=jnp.float64),
-            x_area_fraction=jnp.ones(x_shape, dtype=jnp.float64),
-            y_area_fraction=jnp.ones(y_shape, dtype=jnp.float64),
-            z_area_fraction=jnp.ones(z_shape, dtype=jnp.float64),
-            x_open_mask=jnp.ones(x_shape, dtype=bool),
-            y_open_mask=jnp.ones(y_shape, dtype=bool),
-            z_open_mask=jnp.ones(z_shape, dtype=bool),
-        )
-
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return (int(self.x_area.shape[0] - 1), int(self.y_area.shape[1] - 1), int(self.z_area.shape[2] - 1))
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class CellVolumeGeometry3D(_DataclassPyTreeMixin):
-    """Effective cell-volume measure for conservative operators."""
-
-    volume: jnp.ndarray
-    volume_fraction: jnp.ndarray
-
-    def __post_init__(self) -> None:
-        volume = jnp.asarray(self.volume, dtype=jnp.float64)
-        if volume.ndim != 3:
-            raise ValueError(f"CellVolumeGeometry3D.volume must be 3D, got {volume.shape}")
-        shape = tuple(int(v) for v in volume.shape)
-        object.__setattr__(self, "volume", volume)
-        object.__setattr__(self, "volume_fraction", _require_float_shape(self.volume_fraction, shape, "CellVolumeGeometry3D.volume_fraction"))
-
-    @classmethod
-    def unit(cls, geometry: "FciGeometry3D") -> "CellVolumeGeometry3D":
-        volume = jnp.asarray(geometry.cell_metric.J, dtype=jnp.float64)
-        return cls(volume=volume, volume_fraction=jnp.ones_like(volume, dtype=jnp.float64))
-
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return tuple(int(v) for v in self.volume.shape)
-
-
-@_pytree_base
-@dataclass(frozen=True)
 class LocalCellVolumeGeometry3D(_DataclassPyTreeMixin):
     """Shard-local cell-volume measure for conservative operators.
 
@@ -3139,74 +3014,6 @@ class LocalCellVolumeGeometry3D(_DataclassPyTreeMixin):
     @property
     def local_owned_shape(self) -> tuple[int, int, int]:
         return self.layout.owned_shape
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class LocalCellAgglomeration3D(_DataclassPyTreeMixin):
-    """Owned-cell agglomeration map for embedded-boundary control volumes.
-
-    ``source_active`` marks owned storage cells whose fluid volume is merged
-    into another active owned cell.  The target indices identify the active
-    owner of that merged control volume.  Empty/all-false maps are a no-op.
-    """
-
-    layout: HaloLayout3D
-    source_active: jnp.ndarray
-    target_i: jnp.ndarray
-    target_j: jnp.ndarray
-    target_k: jnp.ndarray
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.layout, HaloLayout3D):
-            raise TypeError("layout must be a HaloLayout3D instance")
-        shape = self.layout.owned_shape
-        source_active = jnp.asarray(self.source_active, dtype=bool)
-        if source_active.shape != shape:
-            raise ValueError(
-                "LocalCellAgglomeration3D.source_active must match layout.owned_shape; "
-                f"got {source_active.shape}, expected {shape}"
-            )
-        target_i = _require_shape(self.target_i, shape, "LocalCellAgglomeration3D.target_i").astype(jnp.int32)
-        target_j = _require_shape(self.target_j, shape, "LocalCellAgglomeration3D.target_j").astype(jnp.int32)
-        target_k = _require_shape(self.target_k, shape, "LocalCellAgglomeration3D.target_k").astype(jnp.int32)
-        valid = (
-            (~source_active)
-            | (
-                (target_i >= 0)
-                & (target_i < shape[0])
-                & (target_j >= 0)
-                & (target_j < shape[1])
-                & (target_k >= 0)
-                & (target_k < shape[2])
-            )
-        )
-        try:
-            all_valid = host_bool(jnp.all(valid))
-        except jax.errors.TracerBoolConversionError:
-            all_valid = True
-        if not all_valid:
-            raise ValueError("active agglomeration sources must map to owned target cells")
-
-        object.__setattr__(self, "source_active", source_active)
-        object.__setattr__(self, "target_i", jnp.where(source_active, target_i, 0))
-        object.__setattr__(self, "target_j", jnp.where(source_active, target_j, 0))
-        object.__setattr__(self, "target_k", jnp.where(source_active, target_k, 0))
-
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return self.layout.owned_shape
-
-    @classmethod
-    def empty(cls, layout: HaloLayout3D) -> "LocalCellAgglomeration3D":
-        shape = layout.owned_shape
-        return cls(
-            layout=layout,
-            source_active=jnp.zeros(shape, dtype=bool),
-            target_i=jnp.zeros(shape, dtype=jnp.int32),
-            target_j=jnp.zeros(shape, dtype=jnp.int32),
-            target_k=jnp.zeros(shape, dtype=jnp.int32),
-        )
 
 
 @_pytree_base
@@ -4236,39 +4043,6 @@ def _patch_local_coordinate_cut_wall_stencil(
             active=remote.active,
         )
     return stencil
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class ConservativeStencilBuilder(_DataclassPyTreeMixin):
-    """Callable adapter that delegates conservative-stencil construction to an injected function."""
-
-    build_fn: Callable[
-        [
-            jnp.ndarray,
-            "LocalFciGeometry3D",
-            "StencilBuilderContext",
-        ],
-        "ConservativeStencil3D",
-    ]
-
-    def __call__(
-        self,
-        field_halo: jnp.ndarray,
-        geometry: "LocalFciGeometry3D",
-        context: "StencilBuilderContext",
-    ) -> "ConservativeStencil3D":
-        return self.build_fn(field_halo, geometry, context)
-
-    def tree_flatten(self):
-        return (), self.build_fn
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(aux_data)
-
-
-build_conservative_stencil_from_field = ConservativeStencilBuilder(_build_conservative_stencil_from_field)
 
 
 @_pytree_base
