@@ -84,6 +84,11 @@ def test_build_local_model_materializes_layer_paired_h2_weights(monkeypatch):
     monkeypatch.setattr(
         driver, "LocalFciDrbEBRhs", lambda **kwargs: SimpleNamespace(**kwargs)
     )
+    monkeypatch.setattr(
+        driver,
+        "MetricAwarePhysicalGhostCellFiller3D",
+        lambda **kwargs: SimpleNamespace(**kwargs),
+    )
     model = driver.build_local_eb_model(
         geometry,
         domain,
@@ -91,7 +96,6 @@ def test_build_local_model_materializes_layer_paired_h2_weights(monkeypatch):
         gmres_target_tolerance=1.0e-8,
         gmres_acceptance_tolerance=1.0e-8,
         gmres_max_iterations=4,
-        neumann_ghost_scheme="logical",
     )
     filler = model.physical_ghost_filler
     dirichlet = filler.dirichlet[0]

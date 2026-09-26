@@ -71,7 +71,6 @@ from drbx.fci_braginskii.native.fci_halo import (  # noqa: E402
     HaloExchange3D,
     LocalPeriodicTopologyRule3D,
     MetricAwarePhysicalGhostCellFiller3D,
-    PhysicalGhostCellFiller3D,
     TopologyHaloFiller3D,
     make_default_topology_halo_filler_3d,
 )
@@ -182,7 +181,9 @@ def topology_descriptor(topology: str) -> TopologyDescriptor:
             axis_regular_axes=(True, False, False),
             logical_extents=((0.0, 1.0), (0.0, 2.0 * np.pi), (0.0, 2.0 * np.pi)),
         )
-    raise ValueError(f"unknown topology {selected!r}")
+    raise ValueError(
+        f"the HSX backend requires a toroidal geometry artifact, got topology {selected!r}"
+    )
 
 
 _TOROIDAL_TOPOLOGY = topology_descriptor("toroidal")
@@ -298,20 +299,13 @@ def build_face_bc_bundle(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
     parameters: FciDrbEBRhsParameters,
-    *,
-    parallel_velocity_wall_bc: str = "neumann",
 ) -> LocalFciDrbEBPhysicalWallBundle:
-    """Build the physical wall bundle on the wall-fitted chart sides."""
+    """Build the physical wall bundle on the wall-fitted chart sides.
 
-    if parallel_velocity_wall_bc not in (
-        "dirichlet-zero",
-        "neumann",
-        "bohm",
-    ):
-        raise ValueError(
-            "parallel_velocity_wall_bc must be 'dirichlet-zero', "
-            f"'neumann', or 'bohm', got {parallel_velocity_wall_bc!r}"
-        )
+    Parallel velocities always use no-flow Dirichlet wall traces
+    (Vi=Ve=0 primitive face traces); this is the fixed production
+    configuration.
+    """
 
     empty = LocalBoundaryFaceBC3D.empty(geometry.layout)
     mask_x = (
@@ -352,53 +346,13 @@ def build_face_bc_bundle(
         mask_x=mask_x,
         mask_y=mask_y,
     )
-    velocity_bc = dirichlet
-    if parallel_velocity_wall_bc == "neumann":
-        velocity_bc = neumann
-    elif parallel_velocity_wall_bc == "bohm":
-        tau = jnp.asarray(parameters.tau, dtype=jnp.float64)
-
-        def bohm_velocity(axis: int, side: str) -> jax.Array:
-            owner_index = 0 if side == "lower" else -1
-            Te_owner = jnp.take(state.Te, owner_index, axis=axis)
-            Ti_owner = jnp.take(state.Ti, owner_index, axis=axis)
-            sound_speed = jnp.sqrt(
-                jnp.maximum(Te_owner + tau * Ti_owner, 1.0e-12)
-            )
-            face_bfield = geometry.face_bfield.axes[axis]
-            face_index = 0 if side == "lower" else -1
-            B_normal = jnp.take(
-                face_bfield.B_contra_owned[..., axis],
-                face_index,
-                axis=axis,
-            )
-            outward_B_normal = (-1.0 if side == "lower" else 1.0) * B_normal
-            return jnp.where(
-                outward_B_normal > 0.0,
-                sound_speed,
-                jnp.where(outward_B_normal < 0.0, -sound_speed, 0.0),
-            )
-
-        velocity_bc = replace(
-            dirichlet,
-            value_x=(
-                dirichlet.value_x.at[0].set(bohm_velocity(0, "lower"))
-                .at[-1]
-                .set(bohm_velocity(0, "upper"))
-            ),
-            value_y=(
-                dirichlet.value_y.at[:, 0, :].set(bohm_velocity(1, "lower"))
-                .at[:, -1, :]
-                .set(bohm_velocity(1, "upper"))
-            ),
-        )
     return LocalFciDrbEBPhysicalWallBundle(
         density=neumann,
         phi=dirichlet,
         Te=neumann,
         Ti=neumann,
-        Vi=velocity_bc,
-        Ve=velocity_bc,
+        Vi=dirichlet,
+        Ve=dirichlet,
         vorticity=dirichlet,
     )
 
@@ -944,10 +898,7 @@ def build_local_eb_model(
     gmres_acceptance_tolerance: float,
     gmres_max_iterations: int,
     gmres_restart: int = 100,
-    gmres_preconditioner: str = "none",
     gmres_residual_correction_steps: int = 0,
-    neumann_ghost_scheme: str = "physical",
-    parallel_velocity_wall_bc: str = "neumann",
     poisson_bracket_scheme: str = "direct",
     parallel_material_scheme: str | None = None,
     control_volume_geometry=None,
@@ -958,20 +909,6 @@ def build_local_eb_model(
         raise ValueError("gmres_restart must be positive")
     if gmres_residual_correction_steps < 0:
         raise ValueError("gmres_residual_correction_steps must be non-negative")
-    if neumann_ghost_scheme not in ("logical", "physical"):
-        raise ValueError(
-            "neumann_ghost_scheme must be 'logical' or 'physical', got "
-            f"{neumann_ghost_scheme!r}"
-        )
-    if parallel_velocity_wall_bc not in (
-        "dirichlet-zero",
-        "neumann",
-        "bohm",
-    ):
-        raise ValueError(
-            "parallel_velocity_wall_bc must be 'dirichlet-zero', "
-            f"'neumann', or 'bohm', got {parallel_velocity_wall_bc!r}"
-        )
     if poisson_bracket_scheme not in (
         "direct",
         "compatible-flux",
@@ -1051,28 +988,15 @@ def build_local_eb_model(
             *neumann_upper_weights,
         ),
     )
-    physical_ghost_filler = (
-        MetricAwarePhysicalGhostCellFiller3D(
-            **ghost_filler_kwargs,
-            geometry=geometry,
-        )
-        if neumann_ghost_scheme == "physical"
-        else PhysicalGhostCellFiller3D(**ghost_filler_kwargs)
+    physical_ghost_filler = MetricAwarePhysicalGhostCellFiller3D(
+        **ghost_filler_kwargs,
+        geometry=geometry,
     )
     curvature_face_coefficients = (
         curvature_face_coefficients_override
         if curvature_face_coefficients_override is not None
         else build_local_curvature_face_coefficients(geometry, domain)
     )
-    def face_bc_builder(state, local_geometry, local_domain, local_parameters):
-        return build_face_bc_bundle(
-            state,
-            local_geometry,
-            local_domain,
-            local_parameters,
-            parallel_velocity_wall_bc=parallel_velocity_wall_bc,
-        )
-
     rhs_kwargs = dict(
         geometry=geometry,
         domain=domain,
@@ -1096,11 +1020,11 @@ def build_local_eb_model(
             regularization_epsilon=float(
                 parameters.phi_inversion_regularization
             ),
-            preconditioner=str(gmres_preconditioner),
+            preconditioner="line-u",
             residual_correction_steps=int(gmres_residual_correction_steps),
         ),
         parallel_material_scheme=str(parallel_material_scheme),
-        face_bc_builder=face_bc_builder,
+        face_bc_builder=build_face_bc_bundle,
         axis_regular_axes=domain.axis_regular_axes,
         curvature_face_coefficients=curvature_face_coefficients,
         poisson_bracket_scheme=poisson_bracket_scheme,
@@ -1533,7 +1457,6 @@ def run_full_eb(
     gmres_acceptance_tolerance: float,
     gmres_max_iterations: int,
     gmres_restart: int = 100,
-    gmres_preconditioner: str,
     gmres_residual_correction_steps: int = 0,
     time_integrator: str = "imex-ssp222",
     advance_execution: str = "compiled",
@@ -1549,8 +1472,6 @@ def run_full_eb(
     snapshot_dir: Path | None = None,
     run_metadata: dict[str, object] | None = None,
     reconstruct_initial_phi: bool = True,
-    neumann_ghost_scheme: str = "physical",
-    parallel_velocity_wall_bc: str = "neumann",
     parallel_operator_scheme: str = "fci",
     poisson_bracket_scheme: str = "direct",
     parallel_material_scheme: str | None = None,
@@ -1889,12 +1810,9 @@ def run_full_eb(
             gmres_acceptance_tolerance=float(gmres_acceptance_tolerance),
             gmres_max_iterations=int(gmres_max_iterations),
             gmres_restart=int(gmres_restart),
-            gmres_preconditioner=str(gmres_preconditioner),
             gmres_residual_correction_steps=int(
                 gmres_residual_correction_steps
             ),
-            neumann_ghost_scheme=neumann_ghost_scheme,
-            parallel_velocity_wall_bc=parallel_velocity_wall_bc,
             parallel_material_scheme=parallel_material_scheme,
             poisson_bracket_scheme=poisson_bracket_scheme,
             control_volume_geometry=local_control_volume_geometry,
@@ -3915,28 +3833,6 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
     )
     parser.add_argument("--halo-width", type=int, default=2)
     parser.add_argument(
-        "--neumann-ghost-scheme",
-        choices=("logical", "physical"),
-        default="physical",
-        help=(
-            "Neumann ghost closure. 'physical' interprets the data as a "
-            "physical-normal derivative using the inverse metric; 'logical' "
-            "retains the copied-ghost coordinate-normal closure."
-        ),
-    )
-    parser.add_argument(
-        "--parallel-velocity-wall-bc",
-        choices=("dirichlet-zero", "neumann", "bohm"),
-        default="neumann",
-        help=(
-            "Primitive Vi/Ve condition on physical vessel faces. "
-            "'dirichlet-zero' supplies Vi=Ve=0 primitive face traces; "
-            "'neumann' extrapolates both parallel velocities; 'bohm' sets "
-            "outward Vi=Ve=sign(B.n)*sqrt(Te+tau*Ti), a zero-current "
-            "sheath-entry diagnostic without a magnetic-presheath model."
-        ),
-    )
-    parser.add_argument(
         "--poisson-bracket-scheme",
         choices=(
             "direct",
@@ -4117,7 +4013,7 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
     parser.add_argument("--rho-star", type=float, default=1.0)
     parser.add_argument("--mi-over-me", type=float, default=1836.0)
     parser.add_argument("--perp-diffusion", type=float, default=1.0e-5)
-    parser.add_argument("--parallel-diffusion", type=float, default=1.0e-5)
+    parser.add_argument("--parallel-diffusion", type=float, default=0.0)
     parser.add_argument("--electron-collision-frequency", type=float, default=0.0)
     parser.add_argument(
         "--advance-execution",
@@ -4154,21 +4050,6 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         type=int,
         default=100,
         help="GMRES restart length; capped at --gmres-max-iterations.",
-    )
-    parser.add_argument(
-        "--gmres-preconditioner",
-        choices=(
-            "none",
-            "jacobi",
-            "line-u",
-            "line-v",
-            "line-uv",
-        ),
-        default="line-u",
-        help=(
-            "SOLVAX right preconditioner for the phi inversion. Line "
-            "preconditioners use local complete u and/or v grid lines."
-        ),
     )
     parser.add_argument(
         "--gmres-residual-correction-steps",
@@ -4216,8 +4097,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         ).hexdigest()
     except (OSError, KeyError, TypeError, ValueError) as error:
         parser.error(f"could not load --geometry artifact: {error}")
-    if descriptor.name != "toroidal":
-        parser.error("the HSX backend requires a toroidal geometry artifact")
     if simulation_geometry.polar_angular_geometry is None:
         parser.error("toroidal geometry artifacts must include the RLP topology")
     geometry_metadata = simulation_geometry.metadata
@@ -4253,8 +4132,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error(
             "production sharding is eta-only; use --shard-counts 1 1 NETA_SHARDS"
         )
-    if args.gmres_preconditioner not in ("none", "line-u"):
-        parser.error("toroidal RLP supports only --gmres-preconditioner none or line-u")
     if args.poisson_bracket_scheme not in (
         "compatible-flux",
         "compatible-third-order-upwind",
@@ -4553,13 +4430,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         flush=True,
     )
     print(
-        "[simulation] Neumann ghost scheme: "
-        f"{str(args.neumann_ghost_scheme)}",
+        "[simulation] Neumann ghost scheme: physical (fixed production configuration)",
         flush=True,
     )
     print(
-        "[simulation] parallel velocity wall BC: "
-        f"{str(args.parallel_velocity_wall_bc)}",
+        "[simulation] parallel velocity wall BC: dirichlet-zero "
+        "(fixed production configuration)",
         flush=True,
     )
     print(
@@ -4582,7 +4458,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"max_iterations={int(args.gmres_max_iterations)}, "
         f"restart={min(int(args.gmres_restart), int(args.gmres_max_iterations))}, "
         f"residual_corrections={int(args.gmres_residual_correction_steps)}, "
-        f"preconditioner={str(args.gmres_preconditioner)}, "
+        "preconditioner=line-u, "
         + (
             "solver_space=owner-grid-RLP"
             if control_volume_descriptor is not None
@@ -4606,7 +4482,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         gmres_acceptance_tolerance=float(args.gmres_acceptance_tolerance),
         gmres_max_iterations=int(args.gmres_max_iterations),
         gmres_restart=int(args.gmres_restart),
-        gmres_preconditioner=str(args.gmres_preconditioner),
         gmres_residual_correction_steps=int(
             args.gmres_residual_correction_steps
         ),
@@ -4722,16 +4597,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             "gmres_residual_correction_steps": int(
                 args.gmres_residual_correction_steps
             ),
-            "gmres_preconditioner": str(args.gmres_preconditioner),
+            "gmres_preconditioner": "line-u",
             "phi_solver_space": (
                 "owner-grid-RLP"
                 if control_volume_descriptor is not None
                 else "full-grid"
             ),
-            "neumann_ghost_scheme": str(args.neumann_ghost_scheme),
-            "parallel_velocity_wall_bc": str(
-                args.parallel_velocity_wall_bc
-            ),
+            "neumann_ghost_scheme": "physical",
+            "parallel_velocity_wall_bc": "dirichlet-zero",
             "poisson_bracket_scheme": str(args.poisson_bracket_scheme),
             "axis_treatment": "radius-dependent-angular-rlp",
             "angular_owner_profile": "geometry-artifact",
@@ -4750,8 +4623,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
         },
         reconstruct_initial_phi=not restart_used,
-        neumann_ghost_scheme=str(args.neumann_ghost_scheme),
-        parallel_velocity_wall_bc=str(args.parallel_velocity_wall_bc),
         poisson_bracket_scheme=str(args.poisson_bracket_scheme),
         parallel_material_scheme="production-path",
         control_volume_descriptor=control_volume_descriptor,
