@@ -119,6 +119,13 @@ def input_manifest():
     return json.loads((REPO / P05_INPUTS).read_text())
 
 
+def assert_adoptable_output(output):
+    allowed = {".campaign.lock", "chunks", "executions", "logs", "cache", "scratch",
+               "reuse_inputs", "runtime_inputs", "reference_sidecar.json"}
+    if any(output.iterdir()) and any(path.name not in allowed for path in output.iterdir()):
+        raise ValueError("refusing to adopt a nonempty output directory without its identity manifest")
+
+
 def verify_inputs(input_root, output):
     input_root = Path(input_root).resolve(); output = Path(output).resolve()
     cfg = config(); reuse_manifest = json.loads(REUSE_MANIFEST.read_text())
@@ -204,8 +211,7 @@ def verify_inputs(input_root, output):
         if old["identity"] != ident:
             raise ValueError("output folder belongs to a different campaign/input identity; use a new folder")
     else:
-        if any(output.iterdir()) and any(p.name not in {"chunks", "executions", "logs", "cache", "scratch", "reuse_inputs", "runtime_inputs", "reference_sidecar.json"} for p in output.iterdir()):
-            raise ValueError("refusing to adopt a nonempty output directory without its identity manifest")
+        assert_adoptable_output(output)
         save_json(manifest_path, {"identity": ident, "content": content, "preflight_complete": False, "run_complete": False})
     save_json(output / "input_verification.json", {"identity": ident, "verified": True, "files": records,
                                                       "reuse_bundle": reuse_manifest["archive"],

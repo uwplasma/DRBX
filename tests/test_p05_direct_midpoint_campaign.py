@@ -87,6 +87,17 @@ def test_worker_memory_cap_and_chunk_resume_identity(tmp_path):
     assert not campaign.valid_chunk(tmp_path, unit, identity)
 
 
+def test_fresh_output_adoption_allows_runner_lock_but_rejects_unknown_files(tmp_path):
+    (tmp_path / ".campaign.lock").touch()
+    for name in ("chunks", "executions", "logs", "cache", "scratch", "reuse_inputs", "runtime_inputs"):
+        (tmp_path / name).mkdir()
+    (tmp_path / "reference_sidecar.json").write_text("{}")
+    campaign.assert_adoptable_output(tmp_path)
+    (tmp_path / "unexpected.txt").write_text("not campaign state")
+    with pytest.raises(ValueError, match="nonempty output directory"):
+        campaign.assert_adoptable_output(tmp_path)
+
+
 def test_chunked_parent_reduction_matches_serial_owner_projection():
     rng = np.random.default_rng(11)
     raw_action = rng.normal(size=(37, 8))
