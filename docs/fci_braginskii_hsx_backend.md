@@ -86,21 +86,12 @@ Multi-device runs decompose only the toroidal (eta) direction:
 `--shard-counts 1 1 N`, with N dividing the eta resolution. On CPU, emulate N
 devices with `DRBX_HOST_DEVICE_COUNT=N`.
 
-## Neutral-model integration
+## Neutral-model coupling
 
-`run_full_eb(..., source_evaluator=...)` accepts an explicit source term. The
-callable receives a time `t` and returns an `FciDrbEBState` of host arrays
-with the global grid shape for every field (`density`, `phi`, `Te`, `Ti`,
-`Vi`, `Ve`, `vorticity`). It is evaluated at the two explicit IMEX-SSP222
-stage times of each step (`t` and `t + dt`), and the values are added to the
-explicit right-hand side. The hook is available from Python, not from the
-command line.
-
-The hook supplies a prescribed source `S(x, t)`: it cannot depend on the
-evolving plasma state. Reaction sources that depend on density and
-temperatures (ionization, charge exchange, recombination) have to be
-evaluated inside the compiled stage, for example alongside the other terms in
-`LocalFciDrbEBRhs.evaluate_stage`, or through a new state-aware hook.
+The backend has no source-term or neutral-coupling hook. Coupling a
+neutral model, including reaction sources that depend on the plasma
+density and temperatures, is left to the neutral-model implementation;
+the right-hand side is assembled in `LocalFciDrbEBRhs.evaluate_stage`.
 
 ## Known limitations
 

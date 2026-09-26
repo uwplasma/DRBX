@@ -10,7 +10,6 @@ import sys
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from drbx.fci_braginskii.geometry.fci_geometry import (
     HaloLayout3D,
@@ -36,31 +35,6 @@ def test_canonical_driver_is_tracked_at_repository_root():
     assert DRIVER.is_file()
     assert (DRIVER.parent / "pyproject.toml").is_file()
     assert (DRIVER.parent / "src" / "drbx").is_dir()
-
-
-def test_source_stage_times_match_imex_integrator_and_reject_rk4():
-    driver = _driver_module()
-    assert driver._explicit_source_stage_times("imex-ssp222", 0.25, 0.1) == (
-        0.25,
-        0.35,
-    )
-    with pytest.raises(ValueError, match="unsupported time integrator"):
-        driver._explicit_source_stage_times("rk4", 0.25, 0.1)
-
-
-def test_run_full_eb_source_hook_is_optional_and_stage_sharded():
-    source = DRIVER.read_text()
-    run_start = source.index("def run_full_eb(")
-    run_end = source.index("def _parallel_characteristic_wall_metadata", run_start)
-    run_source = source[run_start:run_end]
-    assert "source_evaluator: Callable[[float], FciDrbEBState] | None = None" in run_source
-    assert "source_spec = P(None, \"x\", \"y\", \"z\")" in run_source
-    assert "source_evaluator(float(stage_time))" not in run_source
-    assert "source = source_evaluator(stage_key)" in run_source
-    assert "source_owned=source_owned" in run_source
-    assert "source_1" in run_source and "source_2" in run_source
-    assert "stage_1, stage_1.phi, model, source_1" in run_source
-    assert "stage_2, stage_2.phi, model, source_2" in run_source
 
 
 def test_parser_exposes_no_removed_production_selector_flags():
