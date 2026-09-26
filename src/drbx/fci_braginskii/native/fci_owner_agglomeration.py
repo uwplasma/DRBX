@@ -13,7 +13,6 @@ from dataclasses import dataclass
 
 import jax.numpy as jnp
 import numpy as np
-from jax.sharding import PartitionSpec as P
 
 from ..geometry.fci_geometry import LocalControlVolumeCellGeometry3D, LocalDomain3D, LocalFciGeometry3D
 from .fci_boundaries import (
@@ -52,14 +51,6 @@ class ShardedPlaneLocalOwnerMapDescriptor:
     @property
     def shard_counts(self) -> tuple[int, int, int]:
         return tuple(int(v) for v in self.domain.shard_spec.shard_counts)
-
-    @property
-    def cell_partition_spec(self):
-        return P("x", "y", "z", None)
-
-    @property
-    def packed_cell_shape(self) -> tuple[int, int, int, int]:
-        return self.global_shape + (CORNER_EDGE_PACKED_FIELD_COUNT,)
 
 
 def _validate_host_owner_map(owner_i, owner_j, raw_volume, aggregate_volume, shape):

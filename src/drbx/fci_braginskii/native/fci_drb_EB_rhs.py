@@ -41,7 +41,6 @@ from .fci_halo import (
 )
 from .fci_operators import (
     LocalPerpLaplacianInverseSolver,
-    local_grad_parallel_op_direct,
     local_grad_parallel_op_conservative,
     local_parallel_div_b_op,
     local_parallel_flux_div_op,

@@ -60,8 +60,16 @@ from drbx.fci_braginskii.native.fci_halo import (
     RemoteLocalStencilDependencyExchange,
     TopologyHaloFiller3D,
 )
-from drbx.fci_braginskii.native.fci_2_field_rhs import Fci2FieldState
-from drbx.fci_braginskii.native.fci_model import FciFieldBundle
+from drbx.fci_braginskii.native.fci_model import FciFieldBundle, FciModelState
+
+
+# Minimal multi-field model state for halo-injection tests.
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class _TwoFieldState(FciModelState):
+    density: jax.Array
+    v_parallel: jax.Array
+    density_background: jax.Array
 
 
 @jax.tree_util.register_pytree_node_class
@@ -476,7 +484,7 @@ def test_local_state_and_boundary_preparer_wires_field_bundles() -> None:
         periodic_axes=(False, False, False),
     )
     layout = domain.layout
-    state_owned = Fci2FieldState(
+    state_owned = _TwoFieldState(
         density=jnp.ones(layout.owned_shape),
         v_parallel=2.0 * jnp.ones(layout.owned_shape),
         density_background=3.0 * jnp.ones(layout.owned_shape),
@@ -533,7 +541,7 @@ def test_remote_boundary_dependency_exchange_single_shard_field_values() -> None
         jnp.prod(jnp.asarray(layout.cell_halo_shape)),
         dtype=jnp.float64,
     ).reshape(layout.cell_halo_shape)
-    state_halo = Fci2FieldState(
+    state_halo = _TwoFieldState(
         density=field,
         v_parallel=2.0 * field,
         density_background=3.0 * field,
@@ -565,7 +573,7 @@ def test_remote_boundary_dependency_exchange_rejects_pre_ghost_cut_wall_requests
         periodic_axes=(False, False, False),
     )
     layout = domain.layout
-    state_halo = Fci2FieldState(
+    state_halo = _TwoFieldState(
         density=jnp.zeros(layout.cell_halo_shape),
         v_parallel=jnp.zeros(layout.cell_halo_shape),
         density_background=jnp.zeros(layout.cell_halo_shape),
@@ -591,7 +599,7 @@ def test_local_state_and_boundary_preparer_requires_exchange_for_remote_boundary
         periodic_axes=(False, False, False),
     )
     layout = domain.layout
-    state_owned = Fci2FieldState(
+    state_owned = _TwoFieldState(
         density=jnp.ones(layout.owned_shape),
         v_parallel=jnp.ones(layout.owned_shape),
         density_background=jnp.ones(layout.owned_shape),
@@ -633,7 +641,7 @@ def test_local_state_and_boundary_preparer_finalizes_remote_boundary_values_befo
         periodic_axes=(False, False, False),
     )
     layout = domain.layout
-    state_owned = Fci2FieldState(
+    state_owned = _TwoFieldState(
         density=jnp.array([[[9.0]], [[11.0]]], dtype=jnp.float64),
         v_parallel=jnp.ones(layout.owned_shape),
         density_background=jnp.ones(layout.owned_shape),
