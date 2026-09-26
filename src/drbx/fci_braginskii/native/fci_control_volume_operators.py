@@ -802,48 +802,6 @@ def pack_local_face_functionals(
     )
 
 
-def precompute_local_moment_reconstruction(
-    cells,
-    irregular_faces,
-    *,
-    spacing_owned,
-    requested_order: int = 3,
-    max_radius: int = 2,
-    **kwargs,
-) -> LocalMomentReconstruction3D:
-    """Build canonical local moment reconstruction metadata.
-
-    The temporary delegate preserves tested numerical behavior while callers
-    migrate.  Radius three is intentionally rejected: it exceeds the standard
-    halo contract and introduces decomposition-dependent support.
-    """
-
-    requested_order = int(requested_order)
-    if requested_order not in (1, 2, 3):
-        raise ValueError("requested_order must be one, two, or three")
-    if int(max_radius) != 2:
-        raise ValueError("max_radius must match the two-cell halo contract")
-    from .fci_operators import (
-        _precompute_local_cubic_reconstruction,
-        _precompute_local_degree_two_reconstruction,
-    )
-
-    if requested_order < 3:
-        return _precompute_local_degree_two_reconstruction(
-            cells,
-            irregular_faces,
-            spacing_owned=spacing_owned,
-            **kwargs,
-        )
-
-    return _precompute_local_cubic_reconstruction(
-        cells,
-        irregular_faces,
-        spacing_owned=spacing_owned,
-        **kwargs,
-    )
-
-
 def precompute_local_face_functional(
     observation_matrix: np.ndarray,
     *,
@@ -1199,5 +1157,4 @@ __all__ = [
     "evaluate_local_parallel_gradient_face_flux",
     "pack_local_face_functionals",
     "precompute_local_face_functional",
-    "precompute_local_moment_reconstruction",
 ]

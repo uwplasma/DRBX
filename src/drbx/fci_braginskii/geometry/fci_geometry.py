@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from .._host_guards import host_bool, host_float
+from .._host_guards import host_bool
 
 
 _pytree_base = jax.tree_util.register_pytree_node_class
@@ -100,17 +100,6 @@ def _coordinate_stencil_dependency_keys(
     return keys
 
 
-def _normalize_periodic_axes(
-    periodic_axes: tuple[bool | None, bool | None, bool | None] | None,
-    *,
-    default: tuple[bool, bool, bool] = (False, True, True),
-) -> tuple[bool, bool, bool]:
-    if periodic_axes is None:
-        periodic_axes = default
-    if len(periodic_axes) != 3:
-        raise ValueError(f"periodic_axes must have length 3, got {periodic_axes}")
-    return tuple(False if axis is None else bool(axis) for axis in periodic_axes)
-
 def _metric_from_components(
     g11: jnp.ndarray,
     g22: jnp.ndarray,
@@ -127,26 +116,6 @@ def _metric_from_components(
         ],
         axis=-2,
     )
-
-def _bmag_from_contravariant_components(
-    B_contra: jnp.ndarray,
-    g_cov: jnp.ndarray,
-) -> jnp.ndarray:
-    bmag_sq = jnp.einsum("...i,...ij,...j->...", B_contra, g_cov, B_contra)
-    return jnp.sqrt(jnp.maximum(bmag_sq, 0.0))
-
-def logical_grid_from_axis_vectors(
-    x_axis: jnp.ndarray,
-    y_axis: jnp.ndarray,
-    z_axis: jnp.ndarray,
-) -> jnp.ndarray:
-    x = jnp.asarray(x_axis, dtype=jnp.float64)
-    y = jnp.asarray(y_axis, dtype=jnp.float64)
-    z = jnp.asarray(z_axis, dtype=jnp.float64)
-    xx = jnp.broadcast_to(x[:, None, None], (x.size, y.size, z.size))
-    yy = jnp.broadcast_to(y[None, :, None], (x.size, y.size, z.size))
-    zz = jnp.broadcast_to(z[None, None, :], (x.size, y.size, z.size))
-    return jnp.stack((xx, yy, zz), axis=-1)
 
 
 @_pytree_base
@@ -168,23 +137,6 @@ class Grid1D(_DataclassPyTreeMixin):
         object.__setattr__(self, "centers", centers)
         object.__setattr__(self, "faces", faces)
 
-    @classmethod
-    def from_centers(cls, centers: jnp.ndarray) -> "Grid1D":
-        centers = jnp.asarray(centers, dtype=jnp.float64)
-        if centers.ndim != 1:
-            raise ValueError(f"centers must be one-dimensional, got {centers.shape}")
-        if centers.size == 0:
-            raise ValueError("centers must contain at least one point")
-        if centers.size == 1:
-            spacing = jnp.asarray(1.0, dtype=jnp.float64)
-            faces = jnp.array([centers[0] - 0.5 * spacing, centers[0] + 0.5 * spacing], dtype=jnp.float64)
-        else:
-            faces = jnp.empty(centers.size + 1, dtype=jnp.float64)
-            faces = faces.at[1:-1].set(0.5 * (centers[:-1] + centers[1:]))
-            faces = faces.at[0].set(centers[0] - 0.5 * (centers[1] - centers[0]))
-            faces = faces.at[-1].set(centers[-1] + 0.5 * (centers[-1] - centers[-2]))
-        return cls(centers=centers, faces=faces)
-
     @property
     def n(self) -> int:
         return int(self.centers.size)
@@ -192,10 +144,6 @@ class Grid1D(_DataclassPyTreeMixin):
     @property
     def widths(self) -> jnp.ndarray:
         return self.faces[1:] - self.faces[:-1]
-
-    @property
-    def center_deltas(self) -> jnp.ndarray:
-        return self.centers[1:] - self.centers[:-1]
 
     @property
     def lower_center_to_face(self):
@@ -418,10 +366,6 @@ class LocalGrid1D:
         return self.faces_halo[1:] - self.faces_halo[:-1]
 
     @property
-    def center_deltas(self) -> jnp.ndarray:
-        return self.centers_halo[1:] - self.centers_halo[:-1]
-
-    @property
     def lower_center_to_face(self):
         return self.centers_halo[0] - self.faces_halo[0]
 
@@ -483,14 +427,6 @@ class CellCenteredGrid3D(_DataclassPyTreeMixin):
     def z_faces(self) -> jnp.ndarray:
         return self.z.faces
 
-    @property
-    def logical_axis_vectors(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.x.centers, self.y.centers, self.z.centers
-
-    @property
-    def logical_face_vectors(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.x.faces, self.y.faces, self.z.faces
-
 
 @_pytree_base
 @dataclass(frozen=True)
@@ -537,10 +473,6 @@ class LocalCellCenteredGrid3D(_DataclassPyTreeMixin):
         return self.layout.owned_slices_cell
 
     @property
-    def local_halo_shape(self) -> tuple[int, int, int]:
-        return self.shape
-
-    @property
     def x_centers(self) -> jnp.ndarray:
         return self.x.centers
 
@@ -564,25 +496,6 @@ class LocalCellCenteredGrid3D(_DataclassPyTreeMixin):
     def z_faces(self) -> jnp.ndarray:
         return self.z.faces
 
-    @property
-    def logical_axis_vectors(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.x.centers, self.y.centers, self.z.centers
-
-    @property
-    def logical_face_vectors(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.x.faces, self.y.faces, self.z.faces
-
-    @property
-    def x_centers_owned(self) -> jnp.ndarray:
-        return self.x.centers_owned
-
-    @property
-    def y_centers_owned(self) -> jnp.ndarray:
-        return self.y.centers_owned
-
-    @property
-    def z_centers_owned(self) -> jnp.ndarray:
-        return self.z.centers_owned
 
 @_pytree_base
 @dataclass(frozen=True)
@@ -1445,10 +1358,6 @@ class LocalFciMaps3D(_DataclassPyTreeMixin):
         return self.layout.owned_shape
 
     @property
-    def local_halo_shape(self) -> tuple[int, int, int]:
-        return self.layout.cell_halo_shape
-
-    @property
     def local_halo_only(self) -> bool:
         return self.mode == "local_halo_only"
 
@@ -1537,10 +1446,6 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
         return self.layout.owned_shape
 
     @property
-    def local_halo_shape(self) -> tuple[int, int, int]:
-        return self.layout.cell_halo_shape
-
-    @property
     def active_cell_mask_owned(self) -> jnp.ndarray:
         """Owned-cell mask for cells that participate in solves and norms.
 
@@ -1577,26 +1482,6 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
     @property
     def z_faces(self) -> jnp.ndarray:
         return self.grid.z_faces
-
-    @property
-    def logical_axis_vectors(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.grid.logical_axis_vectors
-
-    @property
-    def logical_face_vectors(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.grid.logical_face_vectors
-
-    @property
-    def x_centers_owned(self) -> jnp.ndarray:
-        return self.grid.x_centers_owned
-
-    @property
-    def y_centers_owned(self) -> jnp.ndarray:
-        return self.grid.y_centers_owned
-
-    @property
-    def z_centers_owned(self) -> jnp.ndarray:
-        return self.grid.z_centers_owned
 
     @property
     def cell_volume(self) -> LocalCellVolumeGeometry3D:
@@ -2369,9 +2254,6 @@ class LocalDomain3D(_DataclassPyTreeMixin):
     def has_topology_lower(self, axis: int) -> bool:
         return self.shard_spec.has_topology_lower(axis)
 
-    def has_topology_upper(self, axis: int) -> bool:
-        return self.shard_spec.has_topology_upper(axis)
-
     def runtime_shard_id(self, axis: int) -> int | jnp.ndarray:
         """Return the current SPMD shard index for a logical axis.
 
@@ -2575,10 +2457,6 @@ class LocalSpacing3D(_DataclassPyTreeMixin):
         return self.layout.owned_shape
 
     @property
-    def local_halo_shape(self) -> tuple[int, int, int]:
-        return self.shape
-
-    @property
     def local_owned_shape(self) -> tuple[int, int, int]:
         return self.owned_shape
 
@@ -2650,10 +2528,6 @@ class LocalMetricGeometry(_DataclassPyTreeMixin):
 
     @property
     def halo_shape(self) -> tuple[int, int, int]:
-        return self.shape
-
-    @property
-    def local_halo_shape(self) -> tuple[int, int, int]:
         return self.shape
 
     @property
@@ -2916,10 +2790,6 @@ class LocalBFieldGeometry(_DataclassPyTreeMixin):
         return self.shape
 
     @property
-    def local_halo_shape(self) -> tuple[int, int, int]:
-        return self.shape
-
-    @property
     def local_owned_shape(self) -> tuple[int, int, int]:
         return self.layout.location_owned_shape(self.location)
 
@@ -3076,20 +2946,12 @@ class LocalRegularFaceGeometry3D(_DataclassPyTreeMixin):
         return self.x_area, self.y_area, self.z_area
 
     @property
-    def centroid_offsets(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.x_centroid_offset, self.y_centroid_offset, self.z_centroid_offset
-
-    @property
     def shape(self) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
         return self.x_area.shape, self.y_area.shape, self.z_area.shape
 
     @property
     def local_owned_shape(self) -> tuple[int, int, int]:
         return self.layout.owned_shape
-
-    @property
-    def local_halo_shape(self) -> tuple[int, int, int]:
-        return self.layout.cell_halo_shape
 
     def tree_flatten(self):
         return (
@@ -3225,10 +3087,6 @@ class RegularFaceGeometry3D(_DataclassPyTreeMixin):
     def shape(self) -> tuple[int, int, int]:
         return (int(self.x_area.shape[0] - 1), int(self.y_area.shape[1] - 1), int(self.z_area.shape[2] - 1))
 
-    @property
-    def centroid_offsets(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.x_centroid_offset, self.y_centroid_offset, self.z_centroid_offset
-
 
 @_pytree_base
 @dataclass(frozen=True)
@@ -3303,10 +3161,6 @@ class LocalCellVolumeGeometry3D(_DataclassPyTreeMixin):
     @property
     def local_owned_shape(self) -> tuple[int, int, int]:
         return self.layout.owned_shape
-
-    @property
-    def local_halo_shape(self) -> tuple[int, int, int]:
-        return self.layout.cell_halo_shape
 
 
 @_pytree_base
@@ -3871,438 +3725,6 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
         )
 
 
-def build_local_control_volume_cell_geometry(
-    layout: HaloLayout3D,
-    *,
-    raw_volume: jnp.ndarray,
-    raw_centroid: jnp.ndarray,
-    raw_second_moment: jnp.ndarray,
-    raw_third_moment: jnp.ndarray | None = None,
-    source_active: jnp.ndarray | None = None,
-    target_i: jnp.ndarray | None = None,
-    target_j: jnp.ndarray | None = None,
-    target_k: jnp.ndarray | None = None,
-    retained_active: jnp.ndarray | None = None,
-) -> LocalControlVolumeCellGeometry3D:
-    """Build direct local aggregate ownership and combine fluid moments.
-
-    The input target map is consulted only for ``source_active`` cells.  Every
-    other positive-volume cell owns itself.  The function deliberately does not
-    follow target chains; callers must choose non-source local targets.
-    """
-
-    if not isinstance(layout, HaloLayout3D):
-        raise TypeError("layout must be a HaloLayout3D")
-    shape = layout.owned_shape
-    raw_volume = _require_float_shape(
-        raw_volume,
-        shape,
-        "build_local_control_volume_cell_geometry.raw_volume",
-    )
-    raw_centroid = _require_float_shape(
-        raw_centroid,
-        shape + (3,),
-        "build_local_control_volume_cell_geometry.raw_centroid",
-    )
-    raw_second_moment = _require_float_shape(
-        raw_second_moment,
-        shape + (3, 3),
-        "build_local_control_volume_cell_geometry.raw_second_moment",
-    )
-    if raw_third_moment is None:
-        raw_third_moment = jnp.zeros(shape + (3, 3, 3), dtype=jnp.float64)
-    raw_third_moment = _require_float_shape(
-        raw_third_moment,
-        shape + (3, 3, 3),
-        "build_local_control_volume_cell_geometry.raw_third_moment",
-    )
-    i, j, k = jnp.meshgrid(
-        jnp.arange(shape[0], dtype=jnp.int32),
-        jnp.arange(shape[1], dtype=jnp.int32),
-        jnp.arange(shape[2], dtype=jnp.int32),
-        indexing="ij",
-    )
-    if source_active is None:
-        source_active = jnp.zeros(shape, dtype=bool)
-    else:
-        source_active = _require_shape(
-            source_active,
-            shape,
-            "build_local_control_volume_cell_geometry.source_active",
-        ).astype(bool)
-    supplied_targets = (target_i, target_j, target_k)
-    if any(value is None for value in supplied_targets):
-        if not all(value is None for value in supplied_targets):
-            raise ValueError("target_i, target_j, and target_k must be supplied together")
-        target_i, target_j, target_k = i, j, k
-    else:
-        target_i = _require_shape(
-            target_i,
-            shape,
-            "build_local_control_volume_cell_geometry.target_i",
-        ).astype(jnp.int32)
-        target_j = _require_shape(
-            target_j,
-            shape,
-            "build_local_control_volume_cell_geometry.target_j",
-        ).astype(jnp.int32)
-        target_k = _require_shape(
-            target_k,
-            shape,
-            "build_local_control_volume_cell_geometry.target_k",
-        ).astype(jnp.int32)
-    owner_i = jnp.where(source_active, target_i, i)
-    owner_j = jnp.where(source_active, target_j, j)
-    owner_k = jnp.where(source_active, target_k, k)
-    safe_owner_i = jnp.clip(owner_i, 0, shape[0] - 1)
-    safe_owner_j = jnp.clip(owner_j, 0, shape[1] - 1)
-    safe_owner_k = jnp.clip(owner_k, 0, shape[2] - 1)
-    target_is_source = source_active[
-        safe_owner_i,
-        safe_owner_j,
-        safe_owner_k,
-    ]
-    try:
-        has_chain = host_bool(jnp.any(source_active & target_is_source))
-    except jax.errors.TracerBoolConversionError:
-        has_chain = False
-    if has_chain:
-        raise ValueError("control-volume source targets must not be merge sources")
-
-    positive_raw = raw_volume > 0.0
-    if retained_active is None:
-        retained_active = positive_raw
-    else:
-        retained_active = _require_shape(
-            retained_active,
-            shape,
-            "build_local_control_volume_cell_geometry.retained_active",
-        ).astype(bool)
-    is_active_owner = positive_raw & retained_active & (~source_active)
-    target_is_active_owner = is_active_owner[
-        safe_owner_i,
-        safe_owner_j,
-        safe_owner_k,
-    ]
-    orphan_positive = positive_raw & (~source_active) & (~is_active_owner)
-    invalid_source = source_active & (
-        (~positive_raw) | (~target_is_active_owner)
-    )
-    try:
-        has_orphan_positive = host_bool(jnp.any(orphan_positive))
-        has_invalid_source = host_bool(jnp.any(invalid_source))
-    except jax.errors.TracerBoolConversionError:
-        has_orphan_positive = False
-        has_invalid_source = False
-    if has_orphan_positive:
-        raise ValueError(
-            "every positive-volume cell must be an active owner or merge source"
-        )
-    if has_invalid_source:
-        raise ValueError(
-            "every merge source must have positive volume and target a "
-            "positive active owner"
-        )
-
-    moved_volume = jnp.where(source_active, raw_volume, 0.0)
-    kept_volume = jnp.where(is_active_owner, raw_volume, 0.0)
-    received_volume = jnp.zeros(shape, dtype=jnp.float64).at[
-        safe_owner_i,
-        safe_owner_j,
-        safe_owner_k,
-    ].add(moved_volume)
-    aggregate_volume = kept_volume + received_volume
-
-    raw_first = raw_volume[..., None] * raw_centroid
-    raw_second_origin = raw_volume[..., None, None] * (
-        raw_second_moment
-        + raw_centroid[..., :, None] * raw_centroid[..., None, :]
-    )
-    raw_third_origin = raw_volume[..., None, None, None] * (
-        raw_third_moment
-        + raw_centroid[..., :, None, None] * raw_second_moment[..., None, :, :]
-        + raw_centroid[..., None, :, None] * raw_second_moment[..., :, None, :]
-        + raw_centroid[..., None, None, :] * raw_second_moment[..., :, :, None]
-        + raw_centroid[..., :, None, None]
-        * raw_centroid[..., None, :, None]
-        * raw_centroid[..., None, None, :]
-    )
-    kept_first = jnp.where(is_active_owner[..., None], raw_first, 0.0)
-    kept_second = jnp.where(
-        is_active_owner[..., None, None],
-        raw_second_origin,
-        0.0,
-    )
-    kept_third = jnp.where(
-        is_active_owner[..., None, None, None], raw_third_origin, 0.0
-    )
-    received_first = jnp.zeros(shape + (3,), dtype=jnp.float64).at[
-        safe_owner_i,
-        safe_owner_j,
-        safe_owner_k,
-        :,
-    ].add(jnp.where(source_active[..., None], raw_first, 0.0))
-    received_second = jnp.zeros(shape + (3, 3), dtype=jnp.float64).at[
-        safe_owner_i,
-        safe_owner_j,
-        safe_owner_k,
-        :,
-        :,
-    ].add(jnp.where(source_active[..., None, None], raw_second_origin, 0.0))
-    received_third = jnp.zeros(shape + (3, 3, 3), dtype=jnp.float64).at[
-        safe_owner_i, safe_owner_j, safe_owner_k, :, :, :
-    ].add(jnp.where(source_active[..., None, None, None], raw_third_origin, 0.0))
-    aggregate_first = kept_first + received_first
-    aggregate_second_origin = kept_second + received_second
-    aggregate_third_origin = kept_third + received_third
-    safe_volume = jnp.maximum(aggregate_volume, 1.0e-30)
-    centroid = aggregate_first / safe_volume[..., None]
-    second_moment = aggregate_second_origin / safe_volume[..., None, None]
-    second_moment = second_moment - (
-        centroid[..., :, None] * centroid[..., None, :]
-    )
-    centroid = jnp.where(
-        aggregate_volume[..., None] > 0.0,
-        centroid,
-        raw_centroid,
-    )
-    second_moment = jnp.where(
-        aggregate_volume[..., None, None] > 0.0,
-        second_moment,
-        raw_second_moment,
-    )
-    second_origin = aggregate_second_origin / safe_volume[..., None, None]
-    third_origin = aggregate_third_origin / safe_volume[..., None, None, None]
-    centroid_outer_second = (
-        centroid[..., :, None, None] * second_origin[..., None, :, :]
-        + centroid[..., None, :, None] * second_origin[..., :, None, :]
-        + centroid[..., None, None, :] * second_origin[..., :, :, None]
-    )
-    centroid_cubed = (
-        centroid[..., :, None, None]
-        * centroid[..., None, :, None]
-        * centroid[..., None, None, :]
-    )
-    third_moment = third_origin - centroid_outer_second + 2.0 * centroid_cubed
-    third_moment = jnp.where(
-        aggregate_volume[..., None, None, None] > 0.0,
-        third_moment,
-        raw_third_moment,
-    )
-
-    received_source_count = jnp.zeros(shape, dtype=jnp.int32).at[
-        safe_owner_i,
-        safe_owner_j,
-        safe_owner_k,
-    ].add(source_active.astype(jnp.int32))
-    member_count = is_active_owner.astype(jnp.int32) + received_source_count
-    is_aggregate_target = received_source_count > 0
-    try:
-        raw_volume_sum = host_float(jnp.sum(jnp.where(positive_raw, raw_volume, 0.0)))
-        aggregate_volume_sum = host_float(
-            jnp.sum(jnp.where(is_active_owner, aggregate_volume, 0.0))
-        )
-        volume_conserved = host_bool(
-            jnp.isclose(
-                raw_volume_sum,
-                aggregate_volume_sum,
-                rtol=5.0e-13,
-                atol=5.0e-14,
-            )
-        )
-    except (jax.errors.ConcretizationTypeError, TypeError):
-        volume_conserved = True
-    if not volume_conserved:
-        raise ValueError(
-            "control-volume ownership must conserve local fluid volume: "
-            f"raw={raw_volume_sum:.16e}, aggregate={aggregate_volume_sum:.16e}"
-        )
-
-    return LocalControlVolumeCellGeometry3D(
-        layout=layout,
-        owner_i=owner_i,
-        owner_j=owner_j,
-        owner_k=owner_k,
-        is_merged_source=source_active,
-        is_active_owner=is_active_owner,
-        is_aggregate_target=is_aggregate_target,
-        received_source_count=received_source_count,
-        member_count=member_count,
-        raw_volume=raw_volume,
-        aggregate_volume=aggregate_volume,
-        raw_centroid=raw_centroid,
-        centroid=centroid,
-        raw_second_moment=raw_second_moment,
-        second_moment=second_moment,
-        raw_third_moment=raw_third_moment,
-        third_moment=third_moment,
-        aggregate_id=jnp.ravel_multi_index((owner_i, owner_j, owner_k), shape).astype(jnp.int64),
-    )
-
-
-def agglomerate_local_cell_volume_geometry(
-    cell_volume: LocalCellVolumeGeometry3D,
-    agglomeration: LocalCellAgglomeration3D | None,
-) -> LocalCellVolumeGeometry3D:
-    """Scatter inactive-source fluid volume into active target cells.
-
-    The returned ``volume_fraction`` is an effective finite-volume measure:
-    target cells can legitimately exceed ``1`` when they own an agglomerated
-    control volume.  It is no longer just the raw geometric fraction of the
-    coordinate cell in that case.
-    """
-
-    if agglomeration is None:
-        return cell_volume
-    if not isinstance(cell_volume, LocalCellVolumeGeometry3D):
-        raise TypeError("cell_volume must be a LocalCellVolumeGeometry3D")
-    if not isinstance(agglomeration, LocalCellAgglomeration3D):
-        raise TypeError("agglomeration must be a LocalCellAgglomeration3D or None")
-    if cell_volume.layout != agglomeration.layout:
-        raise ValueError("cell_volume and agglomeration must share the same HaloLayout3D")
-
-    source_active = jnp.asarray(agglomeration.source_active, dtype=bool)
-    effective_volume = (
-        jnp.asarray(cell_volume.volume, dtype=jnp.float64)
-        * jnp.asarray(cell_volume.volume_fraction, dtype=jnp.float64)
-    )
-    moved_volume = jnp.where(source_active, effective_volume, 0.0)
-    remaining_volume = jnp.where(source_active, 0.0, effective_volume)
-    target_volume = jnp.zeros_like(effective_volume).at[
-        agglomeration.target_i,
-        agglomeration.target_j,
-        agglomeration.target_k,
-    ].add(moved_volume)
-    agglomerated_volume = remaining_volume + target_volume
-    base_volume = jnp.maximum(jnp.asarray(cell_volume.volume, dtype=jnp.float64), 1.0e-30)
-    return LocalCellVolumeGeometry3D(
-        layout=cell_volume.layout,
-        volume=cell_volume.volume,
-        volume_fraction=agglomerated_volume / base_volume,
-    )
-
-
-def _local_owned_cell_logical_centroids(geometry: LocalFciGeometry3D) -> jnp.ndarray:
-    x = jnp.asarray(geometry.grid.x.centers_owned, dtype=jnp.float64)
-    y = jnp.asarray(geometry.grid.y.centers_owned, dtype=jnp.float64)
-    z = jnp.asarray(geometry.grid.z.centers_owned, dtype=jnp.float64)
-    xx, yy, zz = jnp.meshgrid(x, y, z, indexing="ij")
-    return jnp.stack((xx, yy, zz), axis=-1)
-
-
-def build_local_aggregate_cell_geometry(
-    geometry: LocalFciGeometry3D,
-    agglomeration: LocalCellAgglomeration3D | None,
-    *,
-    raw_volume: jnp.ndarray | None = None,
-    fluid_centroid_owned: jnp.ndarray | None = None,
-) -> LocalAggregateCellGeometry3D:
-    """Build aggregate-control-volume metadata for owned-cell reconstruction."""
-
-    if not isinstance(geometry, LocalFciGeometry3D):
-        raise TypeError("geometry must be a LocalFciGeometry3D instance")
-    shape = geometry.owned_shape
-    if raw_volume is None:
-        raw_volume = (
-            jnp.asarray(geometry.cell_volume_geometry.volume, dtype=jnp.float64)
-            * jnp.asarray(geometry.cell_volume_geometry.volume_fraction, dtype=jnp.float64)
-        )
-    else:
-        raw_volume = _require_float_shape(
-            raw_volume,
-            shape,
-            "build_local_aggregate_cell_geometry.raw_volume",
-        )
-    if fluid_centroid_owned is None:
-        fluid_centroid_owned = _local_owned_cell_logical_centroids(geometry)
-    else:
-        fluid_centroid_owned = _require_float_shape(
-            fluid_centroid_owned,
-            shape + (3,),
-            "build_local_aggregate_cell_geometry.fluid_centroid_owned",
-        )
-    if agglomeration is None:
-        return LocalAggregateCellGeometry3D.empty(
-            geometry.layout,
-            centroid=fluid_centroid_owned,
-            raw_volume=raw_volume,
-        )
-    if not isinstance(agglomeration, LocalCellAgglomeration3D):
-        raise TypeError("agglomeration must be a LocalCellAgglomeration3D or None")
-    if agglomeration.layout != geometry.layout:
-        raise ValueError("agglomeration must share geometry.layout")
-
-    source_active = jnp.asarray(agglomeration.source_active, dtype=bool)
-    moved_volume = jnp.where(source_active, raw_volume, 0.0)
-    kept_volume = jnp.where(source_active, 0.0, raw_volume)
-    moved_moment = moved_volume[..., None] * fluid_centroid_owned
-    kept_moment = kept_volume[..., None] * fluid_centroid_owned
-
-    target_volume = jnp.zeros_like(raw_volume).at[
-        agglomeration.target_i,
-        agglomeration.target_j,
-        agglomeration.target_k,
-    ].add(moved_volume)
-    target_moment = jnp.zeros_like(kept_moment).at[
-        agglomeration.target_i,
-        agglomeration.target_j,
-        agglomeration.target_k,
-        :,
-    ].add(moved_moment)
-    moved_source_count = jnp.zeros(shape, dtype=jnp.int32).at[
-        agglomeration.target_i,
-        agglomeration.target_j,
-        agglomeration.target_k,
-    ].add(source_active.astype(jnp.int32))
-    source_count = moved_source_count + (~source_active).astype(jnp.int32)
-    aggregate_volume = kept_volume + target_volume
-    aggregate_moment = kept_moment + target_moment
-    centroid = aggregate_moment / jnp.maximum(aggregate_volume[..., None], 1.0e-30)
-    centroid = jnp.where(aggregate_volume[..., None] > 0.0, centroid, fluid_centroid_owned)
-    return LocalAggregateCellGeometry3D(
-        layout=geometry.layout,
-        source_active=source_active,
-        target_i=agglomeration.target_i,
-        target_j=agglomeration.target_j,
-        target_k=agglomeration.target_k,
-        is_agglomerated_target=moved_source_count > 0,
-        raw_volume=raw_volume,
-        aggregate_volume=aggregate_volume,
-        centroid=centroid,
-        source_count=source_count,
-    )
-
-
-def agglomerate_owned_cell_average(
-    values_owned: jnp.ndarray,
-    aggregate_geometry: LocalAggregateCellGeometry3D,
-) -> jnp.ndarray:
-    """Average owned cell values over aggregate-control-volume metadata."""
-
-    if not isinstance(aggregate_geometry, LocalAggregateCellGeometry3D):
-        raise TypeError("aggregate_geometry must be a LocalAggregateCellGeometry3D")
-    values = _require_float_shape(
-        values_owned,
-        aggregate_geometry.shape,
-        "agglomerate_owned_cell_average.values_owned",
-    )
-    source_active = jnp.asarray(aggregate_geometry.source_active, dtype=bool)
-    raw_volume = jnp.asarray(aggregate_geometry.raw_volume, dtype=jnp.float64)
-    weighted = raw_volume * values
-    moved_weighted = jnp.where(source_active, weighted, 0.0)
-    kept_weighted = jnp.where(source_active, 0.0, weighted)
-    target_weighted = jnp.zeros_like(weighted).at[
-        aggregate_geometry.target_i,
-        aggregate_geometry.target_j,
-        aggregate_geometry.target_k,
-    ].add(moved_weighted)
-    averaged = (kept_weighted + target_weighted) / jnp.maximum(
-        aggregate_geometry.aggregate_volume,
-        1.0e-30,
-    )
-    return jnp.where(aggregate_geometry.aggregate_volume > 0.0, averaged, 0.0)
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class FciGeometry3D(_DataclassPyTreeMixin):
@@ -4349,14 +3771,6 @@ class FciGeometry3D(_DataclassPyTreeMixin):
     @property
     def shape(self) -> tuple[int, int, int]:
         return self.grid.shape
-
-    @property
-    def logical_axis_vectors(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.grid.logical_axis_vectors
-
-    @property
-    def logical_face_vectors(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.grid.logical_face_vectors
 
 
 @lru_cache(maxsize=1)
@@ -5649,436 +5063,6 @@ def _first_derivative_3d(
     forward = (-3.0 * values[first] + 4.0 * values[second] - values[third]) / jnp.maximum(2.0 * h[first], 1.0e-30)
     backward = (3.0 * values[last] - 4.0 * values[penultimate] + values[antepenultimate]) / jnp.maximum(2.0 * h[last], 1.0e-30)
     return centered.at[first].set(forward).at[last].set(backward)
-
-
-def build_curvature_coefficients(
-    geometry: "FciGeometry3D",
-    *,
-    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
-    b_floor: float = 1.0e-30,
-    jacobian_floor: float = 1.0e-30,
-) -> jnp.ndarray:
-    """Build geometry-dependent curvature coefficients for a given geometry."""
-
-    periodic_axes = tuple(bool(value) for value in periodic_axes)
-    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
-    if any(periodic and axis_regular for periodic, axis_regular in zip(periodic_axes, axis_regular_axes)):
-        raise ValueError(
-            "periodic_axes and axis_regular_axes cannot both be True on the same axis; "
-            f"got periodic_axes={periodic_axes}, axis_regular_axes={axis_regular_axes}"
-        )
-    if axis_regular_axes[1] or axis_regular_axes[2]:
-        raise NotImplementedError(
-            "axis_regular_axes currently only supports the lower x axis for curvature coefficients; "
-            f"got axis_regular_axes={axis_regular_axes}"
-        )
-    if axis_regular_axes[0] and geometry.shape[1] % 2:
-        raise ValueError("axis-regular lower-x curvature coefficients require an even poloidal grid")
-
-    def _covariant_field(metric: MetricGeometry, bfield: BFieldGeometry) -> jnp.ndarray:
-        b = jnp.asarray(bfield.B_contra, dtype=jnp.float64)
-        bmag = jnp.maximum(jnp.asarray(bfield.Bmag, dtype=jnp.float64), float(b_floor))
-        b_unit = b / bmag[..., None]
-        return jnp.einsum("...ij,...j->...i", metric.g_cov, b_unit) / bmag[..., None]
-
-    def _boundary_corrected_derivative(
-        values: jnp.ndarray,
-        spacing: jnp.ndarray,
-        *,
-        axis: int,
-        component: int,
-        periodic: bool,
-        lower_face_value: jnp.ndarray,
-        upper_face_value: jnp.ndarray,
-        lower_center_to_face: float,
-        upper_center_to_face: float,
-        lower_center_to_center: float,
-        upper_center_to_center: float,
-        axis_regular_lower_parity: float | None = None,
-    ) -> jnp.ndarray:
-        deriv = _first_derivative_3d(values, spacing, axis=axis, periodic=periodic)
-        if periodic:
-            return deriv
-
-        if values.shape[axis] < 3:
-            raise ValueError("curvature coefficient construction requires at least 3 cells along each axis")
-
-        lower_center = values[_axis_index_nd(axis, 0, values.ndim)]
-        if axis == 0 and axis_regular_axes[0]:
-            half_turn = values.shape[1] // 2
-            component_parity = float(axis_regular_lower_parity) if axis_regular_lower_parity is not None else (-1.0 if int(component) == 0 else 1.0)
-            lower_ghost = component_parity * jnp.roll(lower_center, shift=-half_turn, axis=0)
-        else:
-            lower_ghost = 2.0 * lower_face_value - lower_center
-        upper_ghost = 2.0 * upper_face_value - values[_axis_index_nd(axis, -1, values.ndim)]
-
-        lower_dx_min = jnp.asarray(2.0 * lower_center_to_face, dtype=jnp.float64)
-        upper_dx_plus = jnp.asarray(2.0 * upper_center_to_face, dtype=jnp.float64)
-        lower_dx_plus = jnp.asarray(lower_center_to_center, dtype=jnp.float64)
-        upper_dx_min = jnp.asarray(upper_center_to_center, dtype=jnp.float64)
-
-        def _fd(minus: jnp.ndarray, center: jnp.ndarray, plus: jnp.ndarray, dx_min: jnp.ndarray, dx_plus: jnp.ndarray) -> jnp.ndarray:
-            denom = jnp.maximum(dx_min * dx_plus * (dx_min + dx_plus), 1.0e-30)
-            c_minus = -dx_plus * dx_plus / denom
-            c_center = (dx_plus * dx_plus - dx_min * dx_min) / denom
-            c_plus = dx_min * dx_min / denom
-            return c_minus * minus + c_center * center + c_plus * plus
-
-        lower_deriv = _fd(
-            lower_ghost,
-            lower_center,
-            values[_axis_index_nd(axis, 1, values.ndim)],
-            lower_dx_min,
-            lower_dx_plus,
-        )
-        upper_deriv = _fd(
-            values[_axis_index_nd(axis, -2, values.ndim)],
-            values[_axis_index_nd(axis, -1, values.ndim)],
-            upper_ghost,
-            upper_dx_min,
-            upper_dx_plus,
-        )
-        return deriv.at[_axis_index_nd(axis, 0, values.ndim)].set(lower_deriv).at[_axis_index_nd(axis, -1, values.ndim)].set(upper_deriv)
-
-    metric = geometry.cell_metric
-    cell_bfield = geometry.cell_bfield
-    bmag = jnp.maximum(jnp.asarray(cell_bfield.Bmag, dtype=jnp.float64), float(b_floor))
-    covariant_field = _covariant_field(metric, cell_bfield)
-
-    face_covariant_x = _covariant_field(geometry.face_metric.x, geometry.face_bfield.x)
-    face_covariant_y = _covariant_field(geometry.face_metric.y, geometry.face_bfield.y)
-    face_covariant_z = _covariant_field(geometry.face_metric.z, geometry.face_bfield.z)
-    if axis_regular_axes[0]:
-        # The collapsed lower-x face is topological rather than physical. It is
-        # not used by the axis-regular lower derivative, but overwriting it keeps
-        # singular face geometry from lingering in the traced computation graph.
-        face_covariant_x = face_covariant_x.at[0].set(jnp.zeros_like(face_covariant_x[0]))
-
-    x_lower_center_to_face = jnp.asarray(geometry.grid.x.lower_center_to_face, dtype=jnp.float64)
-    x_upper_center_to_face = jnp.asarray(geometry.grid.x.upper_center_to_face, dtype=jnp.float64)
-    x_lower_center_to_center = jnp.asarray(geometry.grid.x.center_deltas[0], dtype=jnp.float64)
-    x_upper_center_to_center = jnp.asarray(geometry.grid.x.center_deltas[-1], dtype=jnp.float64)
-    y_lower_center_to_face = jnp.asarray(geometry.grid.y.lower_center_to_face, dtype=jnp.float64)
-    y_upper_center_to_face = jnp.asarray(geometry.grid.y.upper_center_to_face, dtype=jnp.float64)
-    y_lower_center_to_center = jnp.asarray(geometry.grid.y.center_deltas[0], dtype=jnp.float64)
-    y_upper_center_to_center = jnp.asarray(geometry.grid.y.center_deltas[-1], dtype=jnp.float64)
-    z_lower_center_to_face = jnp.asarray(geometry.grid.z.lower_center_to_face, dtype=jnp.float64)
-    z_upper_center_to_face = jnp.asarray(geometry.grid.z.upper_center_to_face, dtype=jnp.float64)
-    z_lower_center_to_center = jnp.asarray(geometry.grid.z.center_deltas[0], dtype=jnp.float64)
-    z_upper_center_to_center = jnp.asarray(geometry.grid.z.center_deltas[-1], dtype=jnp.float64)
-
-    dcov_dx = jnp.stack(
-        [
-            _boundary_corrected_derivative(
-                covariant_field[..., 0],
-                geometry.spacing.dx,
-                axis=0,
-                component=0,
-                periodic=periodic_axes[0],
-                lower_face_value=face_covariant_x[0, ..., 0],
-                upper_face_value=face_covariant_x[-1, ..., 0],
-                lower_center_to_face=x_lower_center_to_face,
-                upper_center_to_face=x_upper_center_to_face,
-                lower_center_to_center=x_lower_center_to_center,
-                upper_center_to_center=x_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 1],
-                geometry.spacing.dx,
-                axis=0,
-                component=1,
-                periodic=periodic_axes[0],
-                lower_face_value=face_covariant_x[0, ..., 1],
-                upper_face_value=face_covariant_x[-1, ..., 1],
-                lower_center_to_face=x_lower_center_to_face,
-                upper_center_to_face=x_upper_center_to_face,
-                lower_center_to_center=x_lower_center_to_center,
-                upper_center_to_center=x_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 2],
-                geometry.spacing.dx,
-                axis=0,
-                component=2,
-                periodic=periodic_axes[0],
-                lower_face_value=face_covariant_x[0, ..., 2],
-                upper_face_value=face_covariant_x[-1, ..., 2],
-                lower_center_to_face=x_lower_center_to_face,
-                upper_center_to_face=x_upper_center_to_face,
-                lower_center_to_center=x_lower_center_to_center,
-                upper_center_to_center=x_upper_center_to_center,
-            ),
-        ],
-        axis=-1,
-    )
-    dcov_dy = jnp.stack(
-        [
-            _boundary_corrected_derivative(
-                covariant_field[..., 0],
-                geometry.spacing.dy,
-                axis=1,
-                component=0,
-                periodic=periodic_axes[1],
-                lower_face_value=face_covariant_y[:, 0, ..., 0],
-                upper_face_value=face_covariant_y[:, -1, ..., 0],
-                lower_center_to_face=y_lower_center_to_face,
-                upper_center_to_face=y_upper_center_to_face,
-                lower_center_to_center=y_lower_center_to_center,
-                upper_center_to_center=y_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 1],
-                geometry.spacing.dy,
-                axis=1,
-                component=1,
-                periodic=periodic_axes[1],
-                lower_face_value=face_covariant_y[:, 0, ..., 1],
-                upper_face_value=face_covariant_y[:, -1, ..., 1],
-                lower_center_to_face=y_lower_center_to_face,
-                upper_center_to_face=y_upper_center_to_face,
-                lower_center_to_center=y_lower_center_to_center,
-                upper_center_to_center=y_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 2],
-                geometry.spacing.dy,
-                axis=1,
-                component=2,
-                periodic=periodic_axes[1],
-                lower_face_value=face_covariant_y[:, 0, ..., 2],
-                upper_face_value=face_covariant_y[:, -1, ..., 2],
-                lower_center_to_face=y_lower_center_to_face,
-                upper_center_to_face=y_upper_center_to_face,
-                lower_center_to_center=y_lower_center_to_center,
-                upper_center_to_center=y_upper_center_to_center,
-            ),
-        ],
-        axis=-1,
-    )
-    dcov_dz = jnp.stack(
-        [
-            _boundary_corrected_derivative(
-                covariant_field[..., 0],
-                geometry.spacing.dz,
-                axis=2,
-                component=0,
-                periodic=periodic_axes[2],
-                lower_face_value=face_covariant_z[:, :, 0, 0],
-                upper_face_value=face_covariant_z[:, :, -1, 0],
-                lower_center_to_face=z_lower_center_to_face,
-                upper_center_to_face=z_upper_center_to_face,
-                lower_center_to_center=z_lower_center_to_center,
-                upper_center_to_center=z_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 1],
-                geometry.spacing.dz,
-                axis=2,
-                component=1,
-                periodic=periodic_axes[2],
-                lower_face_value=face_covariant_z[:, :, 0, 1],
-                upper_face_value=face_covariant_z[:, :, -1, 1],
-                lower_center_to_face=z_lower_center_to_face,
-                upper_center_to_face=z_upper_center_to_face,
-                lower_center_to_center=z_lower_center_to_center,
-                upper_center_to_center=z_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 2],
-                geometry.spacing.dz,
-                axis=2,
-                component=2,
-                periodic=periodic_axes[2],
-                lower_face_value=face_covariant_z[:, :, 0, 2],
-                upper_face_value=face_covariant_z[:, :, -1, 2],
-                lower_center_to_face=z_lower_center_to_face,
-                upper_center_to_face=z_upper_center_to_face,
-                lower_center_to_center=z_lower_center_to_center,
-                upper_center_to_center=z_upper_center_to_center,
-            ),
-        ],
-        axis=-1,
-    )
-
-    curl = jnp.stack(
-        (
-            dcov_dy[..., 2] - dcov_dz[..., 1],
-            dcov_dz[..., 0] - dcov_dx[..., 2],
-            dcov_dx[..., 1] - dcov_dy[..., 0],
-        ),
-        axis=-1,
-    )
-    coefficient = bmag / (2.0 * jnp.maximum(jnp.asarray(metric.J, dtype=jnp.float64), float(jacobian_floor)))
-    curvature_coefficients = coefficient[..., None] * curl
-
-    if axis_regular_axes[0]:
-        rho = jnp.asarray(geometry.grid.x.centers, dtype=jnp.float64)
-        theta = jnp.asarray(geometry.grid.y.centers, dtype=jnp.float64)
-        rho_values = rho[:, None, None]
-        rho_safe = jnp.maximum(rho_values, 1.0e-30)
-        theta_values = theta[None, :, None]
-        cos_theta = jnp.cos(theta_values)
-        sin_theta = jnp.sin(theta_values)
-
-        A_rho = covariant_field[..., 0]
-        A_theta = covariant_field[..., 1]
-        A_zeta = covariant_field[..., 2]
-
-        A_X = A_rho * cos_theta - A_theta * sin_theta / rho_safe
-        A_Y = A_rho * sin_theta + A_theta * cos_theta / rho_safe
-        A_Z = A_zeta
-
-        x_upper_face_rho = jnp.asarray(geometry.grid.x.faces[-1], dtype=jnp.float64)
-        x_upper_face_rho_safe = jnp.maximum(x_upper_face_rho, 1.0e-30)
-        x_upper_A_X = face_covariant_x[-1, ..., 0] * cos_theta[0] - face_covariant_x[-1, ..., 1] * sin_theta[0] / x_upper_face_rho_safe
-        x_upper_A_Y = face_covariant_x[-1, ..., 0] * sin_theta[0] + face_covariant_x[-1, ..., 1] * cos_theta[0] / x_upper_face_rho_safe
-        x_upper_A_Z = face_covariant_x[-1, ..., 2]
-
-        def _axis_regular_cartesian_x_derivative(values: jnp.ndarray, upper_face_value: jnp.ndarray) -> jnp.ndarray:
-            return _boundary_corrected_derivative(
-                values,
-                geometry.spacing.dx,
-                axis=0,
-                component=0,
-                periodic=False,
-                lower_face_value=jnp.zeros_like(upper_face_value),
-                upper_face_value=upper_face_value,
-                lower_center_to_face=x_lower_center_to_face,
-                upper_center_to_face=x_upper_center_to_face,
-                lower_center_to_center=x_lower_center_to_center,
-                upper_center_to_center=x_upper_center_to_center,
-                axis_regular_lower_parity=1.0,
-            )
-
-        dA_X_drho = _axis_regular_cartesian_x_derivative(A_X, x_upper_A_X)
-        dA_Y_drho = _axis_regular_cartesian_x_derivative(A_Y, x_upper_A_Y)
-        dA_Z_drho = _axis_regular_cartesian_x_derivative(A_Z, x_upper_A_Z)
-
-        rho_xz_safe = jnp.maximum(rho[:, None], 1.0e-30)
-        y_lower_theta = jnp.asarray(geometry.grid.y.faces[0], dtype=jnp.float64)
-        y_upper_theta = jnp.asarray(geometry.grid.y.faces[-1], dtype=jnp.float64)
-        y_lower_cos_theta = jnp.cos(y_lower_theta)
-        y_lower_sin_theta = jnp.sin(y_lower_theta)
-        y_upper_cos_theta = jnp.cos(y_upper_theta)
-        y_upper_sin_theta = jnp.sin(y_upper_theta)
-        y_lower_A_X = face_covariant_y[:, 0, :, 0] * y_lower_cos_theta - face_covariant_y[:, 0, :, 1] * y_lower_sin_theta / rho_xz_safe
-        y_upper_A_X = face_covariant_y[:, -1, :, 0] * y_upper_cos_theta - face_covariant_y[:, -1, :, 1] * y_upper_sin_theta / rho_xz_safe
-        y_lower_A_Y = face_covariant_y[:, 0, :, 0] * y_lower_sin_theta + face_covariant_y[:, 0, :, 1] * y_lower_cos_theta / rho_xz_safe
-        y_upper_A_Y = face_covariant_y[:, -1, :, 0] * y_upper_sin_theta + face_covariant_y[:, -1, :, 1] * y_upper_cos_theta / rho_xz_safe
-        y_lower_A_Z = face_covariant_y[:, 0, :, 2]
-        y_upper_A_Z = face_covariant_y[:, -1, :, 2]
-
-        dA_X_dtheta = _boundary_corrected_derivative(
-            A_X,
-            geometry.spacing.dy,
-            axis=1,
-            component=0,
-            periodic=periodic_axes[1],
-            lower_face_value=y_lower_A_X,
-            upper_face_value=y_upper_A_X,
-            lower_center_to_face=y_lower_center_to_face,
-            upper_center_to_face=y_upper_center_to_face,
-            lower_center_to_center=y_lower_center_to_center,
-            upper_center_to_center=y_upper_center_to_center,
-        )
-        dA_Y_dtheta = _boundary_corrected_derivative(
-            A_Y,
-            geometry.spacing.dy,
-            axis=1,
-            component=1,
-            periodic=periodic_axes[1],
-            lower_face_value=y_lower_A_Y,
-            upper_face_value=y_upper_A_Y,
-            lower_center_to_face=y_lower_center_to_face,
-            upper_center_to_face=y_upper_center_to_face,
-            lower_center_to_center=y_lower_center_to_center,
-            upper_center_to_center=y_upper_center_to_center,
-        )
-        dA_Z_dtheta = _boundary_corrected_derivative(
-            A_Z,
-            geometry.spacing.dy,
-            axis=1,
-            component=2,
-            periodic=periodic_axes[1],
-            lower_face_value=y_lower_A_Z,
-            upper_face_value=y_upper_A_Z,
-            lower_center_to_face=y_lower_center_to_face,
-            upper_center_to_face=y_upper_center_to_face,
-            lower_center_to_center=y_lower_center_to_center,
-            upper_center_to_center=y_upper_center_to_center,
-        )
-
-        rho_xy_safe = jnp.maximum(rho[:, None], 1.0e-30)
-        theta_xy = theta[None, :]
-        cos_theta_xy = jnp.cos(theta_xy)
-        sin_theta_xy = jnp.sin(theta_xy)
-        z_lower_A_X = face_covariant_z[:, :, 0, 0] * cos_theta_xy - face_covariant_z[:, :, 0, 1] * sin_theta_xy / rho_xy_safe
-        z_upper_A_X = face_covariant_z[:, :, -1, 0] * cos_theta_xy - face_covariant_z[:, :, -1, 1] * sin_theta_xy / rho_xy_safe
-        z_lower_A_Y = face_covariant_z[:, :, 0, 0] * sin_theta_xy + face_covariant_z[:, :, 0, 1] * cos_theta_xy / rho_xy_safe
-        z_upper_A_Y = face_covariant_z[:, :, -1, 0] * sin_theta_xy + face_covariant_z[:, :, -1, 1] * cos_theta_xy / rho_xy_safe
-        z_lower_A_Z = face_covariant_z[:, :, 0, 2]
-        z_upper_A_Z = face_covariant_z[:, :, -1, 2]
-
-        dA_X_dzeta = _boundary_corrected_derivative(
-            A_X,
-            geometry.spacing.dz,
-            axis=2,
-            component=0,
-            periodic=periodic_axes[2],
-            lower_face_value=z_lower_A_X,
-            upper_face_value=z_upper_A_X,
-            lower_center_to_face=z_lower_center_to_face,
-            upper_center_to_face=z_upper_center_to_face,
-            lower_center_to_center=z_lower_center_to_center,
-            upper_center_to_center=z_upper_center_to_center,
-        )
-        dA_Y_dzeta = _boundary_corrected_derivative(
-            A_Y,
-            geometry.spacing.dz,
-            axis=2,
-            component=1,
-            periodic=periodic_axes[2],
-            lower_face_value=z_lower_A_Y,
-            upper_face_value=z_upper_A_Y,
-            lower_center_to_face=z_lower_center_to_face,
-            upper_center_to_face=z_upper_center_to_face,
-            lower_center_to_center=z_lower_center_to_center,
-            upper_center_to_center=z_upper_center_to_center,
-        )
-        inv_rho = 1.0 / rho_safe
-        dA_X_dY = sin_theta * dA_X_drho + cos_theta * inv_rho * dA_X_dtheta
-        dA_Y_dX = cos_theta * dA_Y_drho - sin_theta * inv_rho * dA_Y_dtheta
-        dA_Z_dX = cos_theta * dA_Z_drho - sin_theta * inv_rho * dA_Z_dtheta
-        dA_Z_dY = sin_theta * dA_Z_drho + cos_theta * inv_rho * dA_Z_dtheta
-
-        cartesian_curl = jnp.stack(
-            (
-                dA_Z_dY - dA_Y_dzeta,
-                dA_X_dzeta - dA_Z_dX,
-                dA_Y_dX - dA_X_dY,
-            ),
-            axis=-1,
-        )
-        cartesian_coefficient = (
-            bmag
-            * rho_safe
-            / (2.0 * jnp.maximum(jnp.asarray(metric.J, dtype=jnp.float64), float(jacobian_floor)))
-        )
-        C_X = cartesian_coefficient * cartesian_curl[..., 0]
-        C_Y = cartesian_coefficient * cartesian_curl[..., 1]
-        C_Z = cartesian_coefficient * cartesian_curl[..., 2]
-        axis_regular_lower_coefficients = jnp.stack(
-            (
-                C_X * cos_theta + C_Y * sin_theta,
-                (-C_X * sin_theta + C_Y * cos_theta) / rho_safe,
-                C_Z,
-            ),
-            axis=-1,
-        )
-        curvature_coefficients = curvature_coefficients.at[0].set(axis_regular_lower_coefficients[0])
-
-    return curvature_coefficients
 
 
 def build_local_curvature_coefficients(
@@ -8219,76 +7203,3 @@ def _logical_coordinate_to_index(
     upper_coord = axis[upper]
     weight = (values - lower_coord) / (upper_coord - lower_coord)
     return jnp.asarray(lower, dtype=jnp.float64) + jnp.clip(weight, 0.0, 1.0)
-
-
-def logical_b_contravariant_from_geometry(geometry: FciGeometry3D) -> jnp.ndarray:
-    """Return the stored cell-centered contravariant magnetic field."""
-
-    return geometry.cell_bfield.B_contra
-
-
-def logical_b_contravariant_from_traced_maps(
-    forward_x: jnp.ndarray,
-    forward_y: jnp.ndarray,
-    backward_x: jnp.ndarray,
-    backward_y: jnp.ndarray,
-    forward_length: jnp.ndarray,
-    backward_length: jnp.ndarray,
-    *,
-    dz: jnp.ndarray,
-) -> jnp.ndarray:
-    """Reconstruct a contravariant field direction from traced field-line maps."""
-
-    forward_x = jnp.asarray(forward_x, dtype=jnp.float64)
-    forward_y = jnp.asarray(forward_y, dtype=jnp.float64)
-    backward_x = jnp.asarray(backward_x, dtype=jnp.float64)
-    backward_y = jnp.asarray(backward_y, dtype=jnp.float64)
-    forward_length = jnp.asarray(forward_length, dtype=jnp.float64)
-    backward_length = jnp.asarray(backward_length, dtype=jnp.float64)
-    dz = jnp.asarray(dz, dtype=jnp.float64)
-
-    shape = forward_x.shape
-    if not (
-        forward_y.shape == shape
-        and backward_x.shape == shape
-        and backward_y.shape == shape
-        and forward_length.shape == shape
-        and backward_length.shape == shape
-        and dz.shape == shape
-    ):
-        raise ValueError("All traced-map arrays must have the same shape")
-    if len(shape) != 3:
-        raise ValueError(f"traced maps must have shape (nx, ny, nz), got {shape}")
-
-    def _centered_delta(upper: jnp.ndarray, lower: jnp.ndarray, extent: int) -> jnp.ndarray:
-        delta = upper - lower
-        half_extent = 0.5 * float(extent)
-        delta = jnp.where(delta > half_extent, delta - float(extent), delta)
-        delta = jnp.where(delta < -half_extent, delta + float(extent), delta)
-        return delta
-
-    # Centered logical-space displacement between the forward and backward
-    # plane intersections. The overall scale is arbitrary because only the
-    # direction is used downstream.
-    dx = 0.5 * _centered_delta(forward_x, backward_x, shape[0])
-    dy = 0.5 * _centered_delta(forward_y, backward_y, shape[1])
-    dz_safe = jnp.where(jnp.abs(dz) < 1.0e-30, 1.0, dz)
-
-    return jnp.stack(
-        (
-            dx / dz_safe,
-            dy / dz_safe,
-            jnp.ones_like(dx),
-        ),
-        axis=-1,
-    )
-
-
-
-
-def metric_inverse_residual(geometry: FciGeometry3D) -> jnp.ndarray:
-    """Return `max(abs(g^ik g_kj - delta^i_j))` over the grid."""
-
-    product = jnp.einsum("...ik,...kj->...ij", geometry.cell_metric.g_contra, geometry.cell_metric.g_cov)
-    identity = jnp.eye(3, dtype=product.dtype)
-    return jnp.max(jnp.abs(product - identity))

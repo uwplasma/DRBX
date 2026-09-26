@@ -10,88 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import numpy as np
 
-def _quadratic_chart_exponents() -> tuple[tuple[int, int, int], ...]:
-    """Deterministic total-degree-two monomials in ``(x, y, eta)``."""
-
-    return tuple(
-        (a, b, c)
-        for total_degree in range(3)
-        for a in range(total_degree + 1)
-        for b in range(total_degree - a + 1)
-        for c in (total_degree - a - b,)
-    )
-
-
-_POLAR_QUADRATIC_EXPONENTS = _quadratic_chart_exponents()
-
-def control_volume_average_basis_numpy(
-    centroid: np.ndarray,
-    second_moment: np.ndarray,
-    third_moment: np.ndarray,
-    *,
-    origin: np.ndarray,
-    scale: np.ndarray | float,
-    exponents: tuple[tuple[int, int, int], ...] = _POLAR_QUADRATIC_EXPONENTS,
-) -> np.ndarray:
-    """Evaluate exact monomial cell averages from central moments.
-
-    This is the geometry-layer NumPy counterpart of the native finite-volume
-    average basis.  Keeping the implementation here avoids a geometry-to-native
-    dependency while letting host stencil selection condition the exact matrix
-    that native lowering later solves.
-    """
-
-    centroid = np.asarray(centroid, dtype=np.float64)
-    second = np.asarray(second_moment, dtype=np.float64)
-    third = np.asarray(third_moment, dtype=np.float64)
-    origin = np.asarray(origin, dtype=np.float64)
-    scale = np.asarray(scale, dtype=np.float64)
-    selected = tuple(tuple(int(value) for value in exponent) for exponent in exponents)
-    if centroid.shape[-1:] != (3,) or second.shape[-2:] != (3, 3) or third.shape[-3:] != (3, 3, 3):
-        raise ValueError("centroid and central moments must have 3D trailing shapes")
-    if centroid.shape[:-1] != second.shape[:-2] or centroid.shape[:-1] != third.shape[:-3]:
-        raise ValueError("control-volume moment batch shapes must match")
-    if origin.shape != (3,):
-        raise ValueError("origin must have shape (3,)")
-    if scale.ndim == 0:
-        scale = np.full(3, float(scale), dtype=np.float64)
-    if scale.shape != (3,) or np.any(~np.isfinite(scale)) or np.any(scale <= 0.0):
-        raise ValueError("scale must be one positive scalar or three positive values")
-    if not selected or len(set(selected)) != len(selected):
-        raise ValueError("exponents must be a nonempty unique sequence")
-    if any(len(power) != 3 or any(value < 0 for value in power) or sum(power) > 3 for power in selected):
-        raise ValueError("central moments support three nonnegative powers through degree three")
-
-    displacement = centroid - origin
-    raw_second = second + displacement[..., :, None] * displacement[..., None, :]
-    raw_third = (
-        third
-        + displacement[..., :, None, None] * second[..., None, :, :]
-        + displacement[..., None, :, None] * second[..., :, None, :]
-        + displacement[..., None, None, :] * second[..., :, :, None]
-        + displacement[..., :, None, None]
-        * displacement[..., None, :, None]
-        * displacement[..., None, None, :]
-    )
-    result = np.empty(centroid.shape[:-1] + (len(selected),), dtype=np.float64)
-    for column, power in enumerate(selected):
-        degree = sum(power)
-        if degree == 0:
-            value = np.ones(centroid.shape[:-1], dtype=np.float64)
-        elif degree == 1:
-            axis = int(np.flatnonzero(power)[0])
-            value = displacement[..., axis]
-        elif degree == 2:
-            axes = np.repeat(np.arange(3), np.asarray(power, dtype=np.int32))
-            value = raw_second[..., axes[0], axes[1]]
-        else:
-            axes = np.repeat(np.arange(3), np.asarray(power, dtype=np.int32))
-            value = raw_third[..., axes[0], axes[1], axes[2]]
-        result[..., column] = value / np.prod(
-            scale ** np.asarray(power, dtype=np.float64)
-        )
-    return result
-
 
 @dataclass(frozen=True)
 class PolarAngularAgglomerationGeometry3D:
@@ -184,28 +102,6 @@ def polar_regular_chart(
     elif eta_unwrap_origin is not None:
         raise ValueError("eta_period is required when eta_unwrap_origin is set")
     return np.stack((u * np.cos(theta), u * np.sin(theta), eta), axis=-1)
-
-
-def polar_regular_chart_jacobian(logical_points: np.ndarray) -> np.ndarray:
-    """Return ``dchi/dxi`` for ``chi=(u*cos(theta),u*sin(theta),eta)``.
-
-    The returned array has shape ``(..., 3, 3)``.  Its rows are chart
-    components and its columns are logical ``(u, theta, eta)`` components.
-    This Jacobian is analytic and remains finite at ``u=0``.
-    """
-
-    points = np.asarray(logical_points, dtype=np.float64)
-    if points.ndim == 0 or points.shape[-1] != 3:
-        raise ValueError("logical_points must have shape (..., 3)")
-    u = points[..., 0]
-    theta = points[..., 1]
-    result = np.zeros(points.shape[:-1] + (3, 3), dtype=np.float64)
-    result[..., 0, 0] = np.cos(theta)
-    result[..., 0, 1] = -u * np.sin(theta)
-    result[..., 1, 0] = np.sin(theta)
-    result[..., 1, 1] = u * np.cos(theta)
-    result[..., 2, 2] = 1.0
-    return result
 
 
 def _validate_logical_faces(faces: np.ndarray, name: str) -> np.ndarray:
@@ -1431,9 +1327,7 @@ __all__ = [
     "combine_volume_moments",
     "combine_volume_moments_by_aggregate",
     "compile_local_control_volume_geometry",
-    "control_volume_average_basis_numpy",
     "integrate_polar_regular_chart_cell_moments",
     "nearest_periodic_image_delta",
     "polar_regular_chart",
-    "polar_regular_chart_jacobian",
 ]

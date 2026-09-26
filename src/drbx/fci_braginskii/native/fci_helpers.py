@@ -33,17 +33,6 @@ def _validate_axis(axis: int) -> int:
     return axis
 
 
-def _local_cell_halo_array(value: jnp.ndarray, layout: HaloLayout3D, name: str) -> jnp.ndarray:
-    """Validate a local cell-centered halo array."""
-
-    array = jnp.asarray(value, dtype=jnp.float64)
-    if array.shape != layout.cell_halo_shape:
-        raise ValueError(
-            f"{name} must have shape {layout.cell_halo_shape}, got {array.shape}"
-        )
-    return array
-
-
 def local_side_plane_shape(layout: HaloLayout3D, axis: int) -> tuple[int, int]:
     """Return the owned-cell side-plane shape for a local boundary payload."""
 

@@ -155,25 +155,8 @@ def rk4_step(
     )
 
 
-def sum_stage_outputs(stage_outputs: tuple[AuxT, AuxT, AuxT, AuxT]) -> AuxT:
-    """Reduce four RK4 stage payloads by addition.
-
-    This is handy when each stage returns a timing vector or another additive
-    PyTree. Models with non-additive diagnostics can ignore this helper and
-    reduce their stage payloads manually.
-    """
-
-    result = stage_outputs[0]
-    for stage_output in stage_outputs[1:]:
-        result = jax.tree_util.tree_map(
-            lambda lhs, rhs: lhs + rhs, result, stage_output
-        )
-    return result
-
-
 __all__ = [
     "Rk4StepResult",
     "Rk4Stepper",
     "rk4_step",
-    "sum_stage_outputs",
 ]

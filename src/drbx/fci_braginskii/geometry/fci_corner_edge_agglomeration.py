@@ -67,17 +67,6 @@ def _physical_face_measures(geometry: Any) -> tuple[np.ndarray, np.ndarray, np.n
     )
 
 
-def _parallel_rate(geometry: Any) -> np.ndarray:
-    b = _as_numpy(geometry.cell_bfield.B_contra)
-    bmag = _as_numpy(geometry.cell_bfield.Bmag)
-    if np.any(~np.isfinite(bmag)) or np.any(bmag <= 0.0):
-        raise ValueError("cell Bmag must be finite and positive")
-    spacings = tuple(_as_numpy(value) for value in (geometry.spacing.dx, geometry.spacing.dy, geometry.spacing.dz))
-    if any(np.any(value <= 0.0) or np.any(~np.isfinite(value)) for value in spacings):
-        raise ValueError("logical spacings must be finite and positive")
-    return sum(np.abs(b[..., axis] / bmag) / spacings[axis] for axis in range(3))
-
-
 def _is_corner_attached_edge_cell(
     i: int,
     j: int,

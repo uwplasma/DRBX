@@ -26,7 +26,6 @@ from .fci_model import (
 from .fci_helpers import (
     _as_face_flux_array,
     _as_float64_array,
-    _local_cell_halo_array,
     _as_local_wall_array,
     _as_local_wall_int_array,
     _as_local_wall_bool_array,
@@ -474,33 +473,6 @@ class LocalCoordinateSideValues3D(_DataclassPyTreeMixin):
         return cls(*children)
 
 
-def _local_side_samples(
-    field_halo: jnp.ndarray,
-    layout: HaloLayout3D,
-    axis: int,
-    side: int,
-    sample_count: int,
-) -> list[jnp.ndarray]:
-    values = _local_cell_halo_array(field_halo, layout, "field_halo")
-    axis = int(axis)
-    side = int(side)
-    if sample_count < 1:
-        raise ValueError(f"sample_count must be positive, got {sample_count}")
-    h = layout.halo_width
-    nx, ny, nz = layout.owned_shape
-    if axis == 0:
-        base = h if side == 0 else h + nx - 1
-        step = 1 if side == 0 else -1
-        return [values[base + step * i, h : h + ny, h : h + nz] for i in range(sample_count)]
-    if axis == 1:
-        base = h if side == 0 else h + ny - 1
-        step = 1 if side == 0 else -1
-        return [values[h : h + nx, base + step * i, h : h + nz] for i in range(sample_count)]
-    base = h if side == 0 else h + nz - 1
-    step = 1 if side == 0 else -1
-    return [values[h : h + nx, h : h + ny, base + step * i] for i in range(sample_count)]
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
@@ -536,102 +508,6 @@ class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
     @property
     def stencil_width(self) -> int:
         return int(self.dnormal_weights.shape[2])
-
-    def _wall_side_derivatives(
-        self,
-        field_halo: jnp.ndarray,
-        wall_value: LocalCoordinateSideValues1D,
-        geometry: LocalFciGeometry3D,
-        layout: HaloLayout3D,
-        *,
-        axis: int,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        sample_count = self.stencil_width - 1
-        lower_samples = _local_side_samples(field_halo, layout, axis, 0, sample_count)
-        upper_samples = _local_side_samples(field_halo, layout, axis, 1, sample_count)
-        dnormal_lower = self.dnormal_weights[axis, 0, 0] * wall_value.lower
-        d2normal_lower = self.d2normal_weights[axis, 0, 0] * wall_value.lower
-        dnormal_upper = self.dnormal_weights[axis, 1, 0] * wall_value.upper
-        d2normal_upper = self.d2normal_weights[axis, 1, 0] * wall_value.upper
-        for idx, sample in enumerate(lower_samples, start=1):
-            dnormal_lower = dnormal_lower + self.dnormal_weights[axis, 0, idx] * sample
-            d2normal_lower = d2normal_lower + self.d2normal_weights[axis, 0, idx] * sample
-        for idx, sample in enumerate(upper_samples, start=1):
-            dnormal_upper = dnormal_upper + self.dnormal_weights[axis, 1, idx] * sample
-            d2normal_upper = d2normal_upper + self.d2normal_weights[axis, 1, idx] * sample
-        dnormal_lower = jnp.where(wall_value.mask_lower, dnormal_lower, 0.0)
-        d2normal_lower = jnp.where(wall_value.mask_lower, d2normal_lower, 0.0)
-        dnormal_upper = jnp.where(wall_value.mask_upper, dnormal_upper, 0.0)
-        d2normal_upper = jnp.where(wall_value.mask_upper, d2normal_upper, 0.0)
-        return dnormal_lower, dnormal_upper, d2normal_lower, d2normal_upper
-
-    def normal_derivatives_from_wall_value(
-        self,
-        field_halo: jnp.ndarray,
-        wall_value: LocalCoordinateSideValues3D,
-        geometry: "LocalFciGeometry3D",
-        layout: "HaloLayout3D",
-    ) -> tuple["LocalCoordinateSideValues3D", "LocalCoordinateSideValues3D"]:
-        values = _local_cell_halo_array(field_halo, layout, "field_halo")
-        if geometry.layout != layout:
-            raise ValueError("geometry and layout must share the same HaloLayout3D")
-        if layout.halo_width < 1:
-            raise ValueError("local normal-derivative reconstruction requires halo_width >= 1")
-        if not isinstance(wall_value, LocalCoordinateSideValues3D):
-            raise TypeError("wall_value must be a LocalCoordinateSideValues3D instance")
-
-        x_dnormal_lower, x_dnormal_upper, x_d2_lower, x_d2_upper = self._wall_side_derivatives(
-            values, wall_value.x, geometry, layout, axis=0
-        )
-        y_dnormal_lower, y_dnormal_upper, y_d2_lower, y_d2_upper = self._wall_side_derivatives(
-            values, wall_value.y, geometry, layout, axis=1
-        )
-        z_dnormal_lower, z_dnormal_upper, z_d2_lower, z_d2_upper = self._wall_side_derivatives(
-            values, wall_value.z, geometry, layout, axis=2
-        )
-
-        return (
-            LocalCoordinateSideValues3D(
-                x=LocalCoordinateSideValues1D(
-                    lower=x_dnormal_lower,
-                    upper=x_dnormal_upper,
-                    mask_lower=wall_value.x.mask_lower,
-                    mask_upper=wall_value.x.mask_upper,
-                ),
-                y=LocalCoordinateSideValues1D(
-                    lower=y_dnormal_lower,
-                    upper=y_dnormal_upper,
-                    mask_lower=wall_value.y.mask_lower,
-                    mask_upper=wall_value.y.mask_upper,
-                ),
-                z=LocalCoordinateSideValues1D(
-                    lower=z_dnormal_lower,
-                    upper=z_dnormal_upper,
-                    mask_lower=wall_value.z.mask_lower,
-                    mask_upper=wall_value.z.mask_upper,
-                ),
-            ),
-            LocalCoordinateSideValues3D(
-                x=LocalCoordinateSideValues1D(
-                    lower=x_d2_lower,
-                    upper=x_d2_upper,
-                    mask_lower=wall_value.x.mask_lower,
-                    mask_upper=wall_value.x.mask_upper,
-                ),
-                y=LocalCoordinateSideValues1D(
-                    lower=y_d2_lower,
-                    upper=y_d2_upper,
-                    mask_lower=wall_value.y.mask_lower,
-                    mask_upper=wall_value.y.mask_upper,
-                ),
-                z=LocalCoordinateSideValues1D(
-                    lower=z_d2_lower,
-                    upper=z_d2_upper,
-                    mask_lower=wall_value.z.mask_lower,
-                    mask_upper=wall_value.z.mask_upper,
-                ),
-            ),
-        )
 
     def tree_flatten(self):
         return ((self.dnormal_weights, self.d2normal_weights), None)
@@ -3539,13 +3415,6 @@ class LocalControlVolumePolynomial3D(_DataclassPyTreeMixin):
     def shape(self) -> tuple[int, int, int]:
         return tuple(int(value) for value in self.gradient.shape[:-1])
 
-    def as_cell_gradient(self) -> LocalCellGradient3D:
-        return LocalCellGradient3D(
-            gradient=self.gradient,
-            valid=self.valid,
-            reconstruction_mask=self.polynomial_order > 0,
-        )
-
 
 @_pytree_base
 @dataclass(frozen=True)
@@ -4297,10 +4166,6 @@ class LocalRegularFaceContributionRows3D(_DataclassPyTreeMixin):
             plus_owner_k=jnp.zeros((max_rows,), dtype=jnp.int32),
             use_reconstructed_flux=jnp.zeros((max_rows,), dtype=bool),
         )
-
-    @property
-    def n_rows(self) -> int:
-        return int(self.max_rows)
 
     def tree_flatten(self):
         return (
