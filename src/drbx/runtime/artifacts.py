@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -14,6 +16,10 @@ from .paths import repo_root
 ARTIFACT_RELEASE_TAG = "validation-artifacts-2026-04-28"
 ARTIFACT_BASE_URL = f"https://github.com/uwplasma/drbx/releases/download/{ARTIFACT_RELEASE_TAG}"
 DOCS_MEDIA_ASSET = "drbx_docs_media.zip"
+
+HSX_GEOMETRY_RELEASE_TAG = "fci-braginskii-geometry-v1"
+HSX_GEOMETRY_ASSET = "hsx_fci_32x32x32.zip"
+HSX_GEOMETRY_DIR = Path("artifacts/geometry/hsx_fci_32x32x32")
 
 DOCS_MEDIA_SENTINELS = (
     Path(
@@ -83,8 +89,81 @@ def ensure_docs_media(
     return resolved_root / "docs" / "data"
 
 
-def _download_release_asset(url: str, destination: Path, *, asset_name: str) -> None:
-    if _download_with_gh(asset_name, destination):
+def verify_geometry_checksums(path: str | Path) -> None:
+    """Check every file listed in ``<path>/manifest.json``'s checksums table."""
+
+    root = Path(path)
+    manifest_path = root / "manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"geometry manifest not found: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    checksums = manifest.get("checksums", {})
+    mismatched: list[str] = []
+    for entry in checksums.values():
+        file_path = root / entry["file"]
+        if not file_path.is_file():
+            raise FileNotFoundError(f"geometry artifact file not found: {file_path}")
+        digest = hashlib.sha256(file_path.read_bytes()).hexdigest()
+        if digest != entry["sha256"]:
+            mismatched.append(entry["file"])
+    if mismatched:
+        raise ValueError(
+            "geometry artifact checksum mismatch for: " + ", ".join(sorted(mismatched))
+        )
+
+
+def ensure_hsx_geometry(
+    *,
+    root: str | Path | None = None,
+    base_url: str | None = None,
+    force: bool = False,
+) -> Path:
+    """Restore the canonical 32-cubed HSX geometry bundle and verify its checksums."""
+
+    resolved_root = Path(root) if root is not None else repo_root()
+    target_dir = resolved_root / HSX_GEOMETRY_DIR
+    if not force and target_dir.exists():
+        try:
+            verify_geometry_checksums(target_dir)
+        except (FileNotFoundError, ValueError):
+            pass
+        else:
+            return target_dir
+    if os.environ.get("DRBX_OFFLINE_ARTIFACTS", "").lower() in {"1", "true", "yes"}:
+        raise FileNotFoundError(
+            "HSX geometry bundle is not present and DRBX_OFFLINE_ARTIFACTS is enabled."
+        )
+
+    cache_dir = _artifact_cache_dir(resolved_root)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = cache_dir / HSX_GEOMETRY_ASSET
+    if force or not archive_path.exists():
+        resolved_base_url = (
+            base_url
+            or f"https://github.com/uwplasma/drbx/releases/download/{HSX_GEOMETRY_RELEASE_TAG}"
+        ).rstrip("/")
+        _download_release_asset(
+            f"{resolved_base_url}/{HSX_GEOMETRY_ASSET}",
+            archive_path,
+            asset_name=HSX_GEOMETRY_ASSET,
+            tag=HSX_GEOMETRY_RELEASE_TAG,
+        )
+    extract_dir = resolved_root / "artifacts" / "geometry"
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive_path) as archive:
+        archive.extractall(extract_dir)
+    verify_geometry_checksums(target_dir)
+    return target_dir
+
+
+def _download_release_asset(
+    url: str,
+    destination: Path,
+    *,
+    asset_name: str,
+    tag: str = ARTIFACT_RELEASE_TAG,
+) -> None:
+    if _download_with_gh(asset_name, destination, tag=tag):
         return
     _download_with_urllib(url, destination)
 
@@ -99,7 +178,9 @@ def _artifact_cache_dir(root: Path) -> Path:
     return root / ".drbx_artifact_cache"
 
 
-def _download_with_gh(asset_name: str, destination: Path) -> bool:
+def _download_with_gh(
+    asset_name: str, destination: Path, *, tag: str = ARTIFACT_RELEASE_TAG
+) -> bool:
     gh = shutil.which("gh")
     if gh is None:
         return False
@@ -108,7 +189,7 @@ def _download_with_gh(asset_name: str, destination: Path) -> bool:
             gh,
             "release",
             "download",
-            ARTIFACT_RELEASE_TAG,
+            tag,
             "--repo",
             "uwplasma/drbx",
             "--pattern",

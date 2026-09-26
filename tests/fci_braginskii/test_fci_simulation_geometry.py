@@ -48,9 +48,14 @@ def test_missing_component_fails_directly(tmp_path):
 
 def test_canonical_artifact_preserves_consumed_arrays():
     path = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
-    if path is None:
-        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to replay a real HSX artifact")
-    path = Path(path)
+    if path is not None:
+        path = Path(path)
+    else:
+        fallback = Path(__file__).resolve().parents[2] / "artifacts/geometry/hsx_fci_32x32x32"
+        if fallback.exists():
+            path = fallback
+        else:
+            pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to replay a real HSX artifact")
     artifact = load_fci_simulation_geometry(path)
     manifest = json.loads((path / "manifest.json").read_text())
     assert artifact.geometry.shape == tuple(manifest["shape"])
