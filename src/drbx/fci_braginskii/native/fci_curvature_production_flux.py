@@ -9,9 +9,7 @@ small, pure-JAX pieces used by the owner-face production curvature operator:
 * first- and third-order face reconstruction with explicit fallback metadata.
 
 The state order throughout is ``(n, T_e, T_i, omega)``.  The strict symbol
-holds the non-local polarization potential fixed.  An optional finite
-``k_perp_squared`` can restore the non-local omega column for diagnostics, but
-it is not used by the production local characteristic flux.
+holds the non-local polarization potential fixed.
 """
 
 from __future__ import annotations
@@ -67,18 +65,13 @@ def curvature_principal_matrix(
     Ti: Array | float,
     bmag: Array | float,
     tau: Array | float,
-    *,
-    k_perp_squared: Array | float | None = None,
 ) -> Array:
     """Return the corrected DAE-reduced curvature principal matrix.
 
     The rows and columns are ordered ``(n, Te, Ti, omega)``.  This is the
     strict local matrix used for characteristic curvature fluxes; in
     particular, the ``Ti`` column includes the polarization response
-    ``(2 n tau, 4 tau Te/3, -2 tau Ti, 2 tau B^2)``.  If
-    ``k_perp_squared`` is supplied, the optional non-local omega column is
-    included as a diagnostic using the local Fourier relation
-    ``delta phi = -tau delta Ti - delta omega/k_perp_squared``.
+    ``(2 n tau, 4 tau Te/3, -2 tau Ti, 2 tau B^2)``.
     """
 
     n, te, ti, b, tau_value = tuple(
@@ -105,13 +98,6 @@ def curvature_principal_matrix(
     matrix = matrix.at[..., 3, 0].set(2.0 * b * b * (te + tau_value * ti) / n_safe)
     matrix = matrix.at[..., 3, 1].set(2.0 * b * b)
     matrix = matrix.at[..., 3, 2].set(2.0 * tau_value * b * b)
-    if k_perp_squared is not None:
-        k2 = jnp.asarray(k_perp_squared, dtype=jnp.float64)
-        k2 = jnp.broadcast_to(k2, shape)
-        k2_safe = jnp.maximum(k2, 1.0e-30)
-        matrix = matrix.at[..., 0, 3].set(2.0 * n / k2_safe)
-        matrix = matrix.at[..., 1, 3].set(4.0 * te / (3.0 * k2_safe))
-        matrix = matrix.at[..., 2, 3].set(4.0 * ti / (3.0 * k2_safe))
     return matrix
 
 
@@ -356,11 +342,6 @@ def reconstruct_third_order_face_states(
     return left, right, metadata
 
 
-# Descriptive aliases used by integration code and diagnostics.
-build_curvature_principal_matrix = curvature_principal_matrix
-face_linearized_curvature_fluctuations = curvature_face_linearized_fluctuations
-
-
 __all__ = [
     "ReconstructionMetadata",
     "curvature_principal_matrix",
@@ -371,6 +352,4 @@ __all__ = [
     "curvature_face_linearized_fluctuations",
     "reconstruct_first_order_face_states",
     "reconstruct_third_order_face_states",
-    "build_curvature_principal_matrix",
-    "face_linearized_curvature_fluctuations",
 ]

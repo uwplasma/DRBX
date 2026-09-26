@@ -258,109 +258,11 @@ class LocalMomentFittedFaceFunctional3D:
             raise ValueError("normalized face-functional weight norms must be finite and nonnegative")
 
 
-@dataclass(frozen=True)
-class LocalMomentFittedFaceFunctionals3D:
-    """Packed direct functionals for a set of unique compact faces.
-
-    This host-side representation is intentionally independent of the legacy
-    transition-row layout.  A later JAX compiler lowers its observation
-    references into owned/halo/BC gathers; keeping the rows packed here makes
-    global face ordering and mirrored-shard validation testable now.
-    """
-
-    face_id: np.ndarray
-    face_sign: np.ndarray
-    equation_kind: np.ndarray
-    sample_reference: np.ndarray
-    observation_active: np.ndarray
-    value_weights: np.ndarray
-    gradient_weights: np.ndarray
-    projected_flux_weights: np.ndarray
-    parallel_flux_weights: np.ndarray
-    parallel_gradient_flux_weights: np.ndarray
-    rank: np.ndarray
-    condition_number: np.ndarray
-    reproduction_residual: np.ndarray
-    normalized_weight_norm: np.ndarray
-    normalized_projected_weight_norm: np.ndarray
-    normalized_parallel_weight_norm: np.ndarray
-    normalized_parallel_gradient_weight_norm: np.ndarray
-    polynomial_exponents: tuple[tuple[int, int, int], ...] | None = None
-
-    def __post_init__(self) -> None:
-        face_id = np.asarray(self.face_id, dtype=np.int64).reshape((-1,))
-        count = face_id.size
-        face_sign = np.asarray(self.face_sign, dtype=np.int8).reshape((-1,))
-        kind = np.asarray(self.equation_kind, dtype=np.int32)
-        reference = np.asarray(self.sample_reference, dtype=np.int64)
-        active = np.asarray(self.observation_active, dtype=bool)
-        value = np.asarray(self.value_weights, dtype=np.float64)
-        gradient = np.asarray(self.gradient_weights, dtype=np.float64)
-        projected = np.asarray(self.projected_flux_weights, dtype=np.float64)
-        parallel = np.asarray(self.parallel_flux_weights, dtype=np.float64)
-        parallel_gradient = np.asarray(
-            self.parallel_gradient_flux_weights, dtype=np.float64
-        )
-        rank = np.asarray(self.rank, dtype=np.int32).reshape((-1,))
-        condition = np.asarray(self.condition_number, dtype=np.float64).reshape((-1,))
-        residual = np.asarray(self.reproduction_residual, dtype=np.float64).reshape((-1,))
-        norm = np.asarray(self.normalized_weight_norm, dtype=np.float64).reshape((-1,))
-        projected_norm = np.asarray(self.normalized_projected_weight_norm, dtype=np.float64).reshape((-1,))
-        parallel_norm = np.asarray(self.normalized_parallel_weight_norm, dtype=np.float64).reshape((-1,))
-        parallel_gradient_norm = np.asarray(
-            self.normalized_parallel_gradient_weight_norm, dtype=np.float64
-        ).reshape((-1,))
-        if not (
-            kind.ndim == reference.ndim == active.ndim == value.ndim == 2
-            and kind.shape == reference.shape == active.shape == value.shape
-            and gradient.shape == (count, 3, kind.shape[1])
-            and projected.shape == parallel.shape == parallel_gradient.shape == kind.shape
-            and face_sign.shape == rank.shape == condition.shape == residual.shape == norm.shape == projected_norm.shape == parallel_norm.shape == parallel_gradient_norm.shape == (count,)
-        ):
-            raise ValueError("packed face-functional arrays must have compatible shapes")
-        if np.unique(face_id).size != count:
-            raise ValueError("packed face functional IDs must be unique per shard")
-        if np.any((face_sign != -1) & (face_sign != 1)):
-            raise ValueError("packed face signs must be either -1 or +1")
-        if np.any(active & (reference < 0)):
-            raise ValueError("active functional observations need nonnegative references")
-        exponents = (
-            tuple(tuple(int(value) for value in power) for power in self.polynomial_exponents)
-            if self.polynomial_exponents is not None
-            else None
-        )
-        if exponents is not None:
-            monomial_exponents(exponents=exponents)
-        object.__setattr__(self, "face_id", face_id)
-        object.__setattr__(self, "face_sign", face_sign)
-        object.__setattr__(self, "equation_kind", kind)
-        object.__setattr__(self, "sample_reference", reference)
-        object.__setattr__(self, "observation_active", active)
-        object.__setattr__(self, "value_weights", value)
-        object.__setattr__(self, "gradient_weights", gradient)
-        object.__setattr__(self, "projected_flux_weights", projected)
-        object.__setattr__(self, "parallel_flux_weights", parallel)
-        object.__setattr__(self, "parallel_gradient_flux_weights", parallel_gradient)
-        object.__setattr__(self, "polynomial_exponents", exponents)
-        object.__setattr__(self, "rank", rank)
-        object.__setattr__(self, "condition_number", condition)
-        object.__setattr__(self, "reproduction_residual", residual)
-        object.__setattr__(self, "normalized_weight_norm", norm)
-        object.__setattr__(self, "normalized_projected_weight_norm", projected_norm)
-        object.__setattr__(self, "normalized_parallel_weight_norm", parallel_norm)
-        object.__setattr__(
-            self,
-            "normalized_parallel_gradient_weight_norm",
-            parallel_gradient_norm,
-        )
-
-
 __all__ = [
     "CUBIC_MONOMIAL_EXPONENTS",
     "monomial_exponents",
     "monomial_basis",
     "control_volume_average_basis",
     "LocalMomentFittedFaceFunctional3D",
-    "LocalMomentFittedFaceFunctionals3D",
     "LocalMomentReconstruction3D",
 ]

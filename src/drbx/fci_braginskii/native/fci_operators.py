@@ -517,7 +517,6 @@ def local_grad_parallel_op_fci_compatible_from_q(
     *,
     context: StencilBuilderContext,
     field_owned: jnp.ndarray | None = None,
-    field_halo_full: jnp.ndarray | None = None,
     inverse_b_halo_full: jnp.ndarray | None = None,
     div_b: jnp.ndarray | None = None,
     fci_stencil_builder: LocalFciStencilBuilder = build_local_fci_stencil_from_field,
@@ -530,9 +529,8 @@ def local_grad_parallel_op_fci_compatible_from_q(
 ) -> jnp.ndarray:
     """Compatible mapped gradient from a prepared ``q=f/B`` halo.
 
-    ``field_owned`` is the prepared physical field on owned cells.  A prepared
-    ``field_halo_full`` may be supplied instead; only its owned slice is read.
-    If both are omitted, the field is reconstructed only on owned cells as
+    ``field_owned`` is the prepared physical field on owned cells.  If it is
+    omitted, the field is reconstructed only on owned cells as
     ``B_owned*q_owned``; no physical ``B`` ghost value is read.  ``div_b`` should be the cached
     result of :func:`local_parallel_div_b_fci_from_q_op` using the matching
     prepared ``q=1/B`` endpoint closure.
@@ -567,14 +565,6 @@ def local_grad_parallel_op_fci_compatible_from_q(
         raise ValueError(
             f"div_b must have shape {geometry.owned_shape}, got {div_b.shape}"
         )
-    if field_owned is None and field_halo_full is not None:
-        field_halo_full = jnp.asarray(field_halo_full, dtype=jnp.float64)
-        if field_halo_full.shape != geometry.halo_shape:
-            raise ValueError(
-                "field_halo_full must match geometry.halo_shape; "
-                f"got {field_halo_full.shape}, expected {geometry.halo_shape}"
-            )
-        field_owned = field_halo_full[geometry.layout.owned_slices_cell]
     if field_owned is None:
         Bmag_owned = jnp.maximum(
             jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
@@ -4498,7 +4488,6 @@ def _principal_perp_laplacian_bands(
     *,
     regularization_epsilon: float = 0.0,
     regular_face_geometry: LocalRegularFaceGeometry3D | None = None,
-    effective_volume: jnp.ndarray | None = None,
 ) -> tuple[
     jnp.ndarray,
     tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
@@ -4512,9 +4501,7 @@ def _principal_perp_laplacian_bands(
     remains unchanged.
     """
 
-    use_explicit_geometry = (
-        regular_face_geometry is not None or effective_volume is not None
-    )
+    use_explicit_geometry = regular_face_geometry is not None
     locations = ("x_face", "y_face", "z_face")
     grids = (geometry.grid.x, geometry.grid.y, geometry.grid.z)
     spacings = (
@@ -4549,18 +4536,13 @@ def _principal_perp_laplacian_bands(
     )
     bc_kinds = (face_bc.kind_x, face_bc.kind_y, face_bc.kind_z)
     bc_masks = (face_bc.mask_x, face_bc.mask_y, face_bc.mask_z)
-    if effective_volume is None:
-        effective_volume = (
-            jnp.asarray(geometry.cell_volume_geometry.volume, dtype=jnp.float64)
-            * jnp.asarray(
-                geometry.cell_volume_geometry.volume_fraction,
-                dtype=jnp.float64,
-            )
+    effective_volume = (
+        jnp.asarray(geometry.cell_volume_geometry.volume, dtype=jnp.float64)
+        * jnp.asarray(
+            geometry.cell_volume_geometry.volume_fraction,
+            dtype=jnp.float64,
         )
-    else:
-        effective_volume = jnp.asarray(effective_volume, dtype=jnp.float64)
-        if effective_volume.shape != geometry.owned_shape:
-            raise ValueError("effective_volume must match geometry.owned_shape")
+    )
 
     diagonal = jnp.zeros(geometry.owned_shape, dtype=jnp.float64)
     lower_bands: list[jnp.ndarray] = []
@@ -5027,10 +5009,6 @@ def _build_angular_agglomeration_line_u_preconditioner(
     face_bc: LocalBoundaryFaceBC3D,
     config: SolvaxGmresConfig,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
-    principal_coefficients: tuple[
-        jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray,
-        jnp.ndarray, jnp.ndarray, jnp.ndarray,
-    ] | None = None,
 ) -> Callable[[jnp.ndarray], jnp.ndarray]:
     """Build the exact per-eta nested radial-tree line-u solve."""
     shard_counts = tuple(int(v) for v in domain.shard_spec.shard_counts)
@@ -5039,11 +5017,10 @@ def _build_angular_agglomeration_line_u_preconditioner(
             "angular-agglomeration line-u supports eta-only sharding; "
             f"got shard_counts={shard_counts}"
         )
-    if principal_coefficients is None:
-        principal_coefficients = _assemble_angular_agglomeration_tree_principal_coefficients(
-            geometry, domain, face_projectors, face_bc, config,
-            control_volume_geometry,
-        )
+    principal_coefficients = _assemble_angular_agglomeration_tree_principal_coefficients(
+        geometry, domain, face_projectors, face_bc, config,
+        control_volume_geometry,
+    )
     aggregate_volume, diagonal, child_edge, parent_i, parent_j, parent_k, active = principal_coefficients
     _validate_concrete_angular_agglomeration_tree_assembly(
         control_volume_geometry, diagonal, child_edge,

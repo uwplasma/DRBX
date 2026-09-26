@@ -434,87 +434,6 @@ class LocalCoordinateSideValues1D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class LocalCoordinateSideValues3D(_DataclassPyTreeMixin):
-    """Lower/upper coordinate-side payloads for the three axes."""
-
-    x: LocalCoordinateSideValues1D
-    y: LocalCoordinateSideValues1D
-    z: LocalCoordinateSideValues1D
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.x, LocalCoordinateSideValues1D):
-            raise TypeError("LocalCoordinateSideValues3D.x must be a LocalCoordinateSideValues1D")
-        if not isinstance(self.y, LocalCoordinateSideValues1D):
-            raise TypeError("LocalCoordinateSideValues3D.y must be a LocalCoordinateSideValues1D")
-        if not isinstance(self.z, LocalCoordinateSideValues1D):
-            raise TypeError("LocalCoordinateSideValues3D.z must be a LocalCoordinateSideValues1D")
-
-    def replace(self, **updates: object) -> "LocalCoordinateSideValues3D":
-        allowed = {"x", "y", "z"}
-        unknown = set(updates) - allowed
-        if unknown:
-            names = ", ".join(sorted(unknown))
-            raise ValueError(f"Unknown LocalCoordinateSideValues3D field(s): {names}")
-        return LocalCoordinateSideValues3D(
-            x=updates.get("x", self.x),
-            y=updates.get("y", self.y),
-            z=updates.get("z", self.z),
-        )
-
-    def tree_flatten(self):
-        return ((self.x, self.y, self.z), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
-    """Construct coordinate-side normal derivatives using local halo data."""
-
-    dnormal_weights: jnp.ndarray
-    d2normal_weights: jnp.ndarray
-
-    def __post_init__(self) -> None:
-        dnormal_weights = jnp.asarray(self.dnormal_weights, dtype=jnp.float64)
-        d2normal_weights = jnp.asarray(self.d2normal_weights, dtype=jnp.float64)
-        if dnormal_weights.ndim != 3 or d2normal_weights.ndim != 3:
-            raise ValueError(
-                "LocalCoordinateNormalDerivativeConstructor3D weights must have shape (3, 2, stencil_width)"
-            )
-        if dnormal_weights.shape != d2normal_weights.shape:
-            raise ValueError(
-                "LocalCoordinateNormalDerivativeConstructor3D weight tensors must have the same shape; "
-                f"got {dnormal_weights.shape} and {d2normal_weights.shape}"
-            )
-        if dnormal_weights.shape[0] != 3 or dnormal_weights.shape[1] != 2:
-            raise ValueError(
-                "LocalCoordinateNormalDerivativeConstructor3D weights must have leading shape (3, 2, stencil_width); "
-                f"got {dnormal_weights.shape}"
-            )
-        if dnormal_weights.shape[2] < 2:
-            raise ValueError(
-                "LocalCoordinateNormalDerivativeConstructor3D requires at least two stencil points"
-            )
-        object.__setattr__(self, "dnormal_weights", dnormal_weights)
-        object.__setattr__(self, "d2normal_weights", d2normal_weights)
-
-    @property
-    def stencil_width(self) -> int:
-        return int(self.dnormal_weights.shape[2])
-
-    def tree_flatten(self):
-        return ((self.dnormal_weights, self.d2normal_weights), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
 class LocalStencil1D:
     """Field-dependent 1D stencil values for one coordinate direction."""
 
@@ -3182,11 +3101,8 @@ class LocalMomentReconstruction3D(_DataclassPyTreeMixin):
         *,
         max_rows: int = 0,
         max_equations: int = 1,
-        coefficient_count: int = 9,
     ) -> "LocalMomentReconstruction3D":
-        coefficient_count = int(coefficient_count)
-        if coefficient_count not in (9, 19):
-            raise ValueError("coefficient_count must be 9 or 19")
+        coefficient_count = 9
         return cls(
             layout=layout,
             target_i=jnp.zeros((max_rows,), dtype=jnp.int32),
@@ -4439,9 +4355,7 @@ __all__ = [
     "LocalBoundaryPreparation3D",
     "LocalBoundaryRemoteDependencyTable",
     "LocalCoordinateFaceValueReconstructor3D",
-    "LocalCoordinateNormalDerivativeConstructor3D",
     "LocalCoordinateSideValues1D",
-    "LocalCoordinateSideValues3D",
     "LocalControlVolumeFluxStencil3D",
     "LocalRegularBoundaryMomentClosure3D",
     "LocalCutWallBC3D",

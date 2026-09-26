@@ -72,17 +72,12 @@ class PolarAngularAgglomerationGeometry3D:
 
 def polar_regular_chart(
     logical_points: np.ndarray,
-    *,
-    eta_unwrap_origin: float | None = None,
-    eta_period: float | None = None,
 ) -> np.ndarray:
     """Map logical ``(u, theta, eta)`` points to ``(x, y, eta_tilde)``.
 
     The radial/poloidal coordinates are regularized analytically through
-    ``x = u*cos(theta)`` and ``y = u*sin(theta)``.  If ``eta_period`` is
-    supplied, eta is represented in the branch centered at
-    ``eta_unwrap_origin``.  The latter is useful for a stencil crossing a
-    periodic eta seam; omitting it preserves the input eta values exactly.
+    ``x = u*cos(theta)`` and ``y = u*sin(theta)``.  eta is passed through
+    unchanged.
     """
 
     points = np.asarray(logical_points, dtype=np.float64)
@@ -91,16 +86,6 @@ def polar_regular_chart(
     if not np.all(np.isfinite(points)):
         raise ValueError("logical_points must be finite")
     u, theta, eta = np.moveaxis(points, -1, 0)
-    if eta_period is not None:
-        period = float(eta_period)
-        if not np.isfinite(period) or period <= 0.0:
-            raise ValueError("eta_period must be finite and positive")
-        origin = 0.0 if eta_unwrap_origin is None else float(eta_unwrap_origin)
-        if not np.isfinite(origin):
-            raise ValueError("eta_unwrap_origin must be finite")
-        eta = origin + (eta - origin + 0.5 * period) % period - 0.5 * period
-    elif eta_unwrap_origin is not None:
-        raise ValueError("eta_period is required when eta_unwrap_origin is set")
     return np.stack((u * np.cos(theta), u * np.sin(theta), eta), axis=-1)
 
 

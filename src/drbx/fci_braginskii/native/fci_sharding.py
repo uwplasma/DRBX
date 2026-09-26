@@ -913,8 +913,6 @@ def assemble_local_fci_geometry(
 
 def assemble_single_device_local_fci_geometry(
     sharded_geometry: ShardedFciGeometry3D,
-    cell_fields_owned: jnp.ndarray | None = None,
-    map_fields_owned: jnp.ndarray | None = None,
 ) -> LocalFciGeometry3D:
     """Assemble a one-device local geometry outside ``shard_map``.
 
@@ -936,10 +934,10 @@ def assemble_single_device_local_fci_geometry(
             "assemble_single_device_local_fci_geometry requires shard_counts "
             f"exactly (1, 1, 1), got {sharded_geometry.shard_counts}"
         )
-    if cell_fields_owned is None:
-        cell_fields_owned = sharded_geometry.cell_fields
-    if map_fields_owned is None and sharded_geometry.maps_valid:
-        map_fields_owned = sharded_geometry.map_fields
+    cell_fields_owned = sharded_geometry.cell_fields
+    map_fields_owned = (
+        sharded_geometry.map_fields if sharded_geometry.maps_valid else None
+    )
     host_domain = replace(sharded_geometry.domain, mesh_axis_names=(None, None, None))
     host_geometry = replace(sharded_geometry, domain=host_domain)
     return assemble_local_fci_geometry(
