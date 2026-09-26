@@ -4702,9 +4702,8 @@ def replace_local_control_volume_projected_flux_with_owner_polynomials(
 
     Interior faces use one conservative flux obtained by averaging the two
     adjacent owner reconstructions.  A remote plus owner is evaluated from the
-    polynomial payload already exchanged by
-    :func:`build_local_control_volume_polynomial_from_field`; no second face
-    row or residual scatter is introduced.
+    polynomial payload already exchanged between owners; no second face row
+    or residual scatter is introduced.
 
     The replacement is the default compact-face closure.  It excludes the
     first two owner layers next to each global radial boundary, where the

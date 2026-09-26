@@ -150,38 +150,6 @@ RHS_TERM_NAMES = (
 RHS_TERM_SLOT_COUNT = max(len(names) for names in RHS_TERM_NAMES)
 
 
-ELECTRON_FORCE_TERM_NAMES = (
-    "parallel_self_advection",
-    "collision",
-    "electrostatic",
-    "electron_pressure",
-    "thermal_force",
-    "characteristic_leg_upwind",
-    "vorticity_current_flux_divergence",
-)
-ELECTRON_FORCE_LEG_TERM_NAMES = (
-    "parallel_self_advection",
-    "electrostatic",
-    "electron_pressure",
-    "thermal_force",
-    "characteristic_leg_upwind",
-)
-ELECTRON_FORCE_GRADIENT_NAMES = ("Ve", "phi", "Pe", "Te")
-ELECTRON_FORCE_ENDPOINT_FIELD_NAMES = (
-    "density", "Te", "Ti", "Vi", "Ve", "phi", "Pe"
-)
-ELECTRON_FORCE_STENCIL_DIRECTION_NAMES = ("backward", "center", "forward")
-ELECTRON_FORCE_ENDPOINT_DIRECTION_NAMES = ("backward", "forward")
-
-CURVATURE_COMPONENT_DIAGNOSTIC_NAMES = ("u", "theta", "eta")
-
-
-def curvature_component_diagnostic_names() -> tuple[str, ...]:
-    """Return the production directional curvature lane names."""
-
-    return CURVATURE_COMPONENT_DIAGNOSTIC_NAMES
-
-
 def parallel_characteristic_matrix(
     density: jnp.ndarray,
     Te: jnp.ndarray,
@@ -1214,76 +1182,6 @@ class LocalFciDrbEBRhs:
         if return_directional_components:
             return tuple(jnp.moveaxis(directional, -1, 0))
         return tuple(jnp.moveaxis(jnp.sum(directional, axis=0), -1, 0))
-
-    def ion_temperature_curvature_chain_rule_diagnostics(
-        self,
-        state_owned: FciDrbEBState,
-    ) -> jnp.ndarray:
-        """Return max-abs product, flux, and chain-rule-defect Ti terms.
-
-        The two terms are the complete nonlinear Ti self-curvature
-        contributions appearing in the RHS:
-
-        ``-(10*tau*Ti/(3B))*C(Ti)`` and ``-(5*tau/(3B))*C(Ti**2)``.
-
-        This method intentionally uses the state field's already closed halo
-        before squaring it.  The derived squared Dirichlet face values are
-        constructed independently so the conservative boundary closure is
-        consistent with the squared scalar field.
-        """
-
-        face_bc = self._face_bcs(state_owned)
-        state_halo = FciDrbEBState(
-            density=self._prepare_scalar_halo(state_owned.density, face_bc.density),
-            phi=self._prepare_scalar_halo(state_owned.phi, face_bc.phi),
-            Te=self._prepare_scalar_halo(state_owned.Te, face_bc.Te),
-            Ti=self._prepare_scalar_halo(state_owned.Ti, face_bc.Ti),
-            Vi=self._prepare_scalar_halo(state_owned.Vi, face_bc.Vi),
-            Ve=self._prepare_scalar_halo(state_owned.Ve, face_bc.Ve),
-            vorticity=self._prepare_scalar_halo(
-                state_owned.vorticity, face_bc.vorticity
-            ),
-        )
-        operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
-            state_halo, self.geometry, self.domain, face_bc, tau=self.parameters.tau
-        )
-        ti_halo = state_halo.Ti
-        context = self._stencil_builder_context()
-        ti_stencil = build_local_conservative_stencil_from_field(
-            ti_halo,
-            self.geometry,
-            context,
-        )
-        ti_squared_stencil = build_local_conservative_stencil_from_field(
-            ti_halo * ti_halo,
-            self.geometry,
-            context,
-        )
-        ti_curvature = self._conservative_curvature(
-            ti_stencil,
-            boundary_trace=operator_boundary.Ti,
-        )
-        ti_squared_curvature = self._conservative_curvature(
-            ti_squared_stencil,
-            boundary_trace=operator_boundary.Ti_squared,
-        )
-        owned = self.domain.layout.owned_slices_cell
-        ti = jnp.asarray(ti_halo[owned], dtype=jnp.float64)
-        bmag = jnp.maximum(
-            jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
-            1.0e-30,
-        )
-        tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
-        product_term = -(10.0 * tau * ti / (3.0 * bmag)) * ti_curvature
-        flux_term = -(5.0 * tau / (3.0 * bmag)) * ti_squared_curvature
-        defect = product_term - flux_term
-        return jnp.stack(
-            (
-                jnp.max(jnp.abs(product_term)),
-                jnp.max(jnp.abs(flux_term)),
-                jnp.max(jnp.abs(defect)),
-            )
-        )
 
     def _field_perp_diffusion(
         self,
@@ -2709,172 +2607,6 @@ class LocalFciDrbEBRhs:
             axis=0,
         )
 
-    def electron_parallel_force_diagnostics(
-        self,
-        state_owned: FciDrbEBState,
-        *,
-        phi_owned: jnp.ndarray | None = None,
-    ) -> tuple[
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-    ]:
-        """Return exact wall-face diagnostics for the electron parallel force.
-
-        The outputs are, respectively, total force terms, directional force
-        terms, compatible-gradient components, mapped endpoint field values,
-        physical-wall masks, and mapped leg lengths.  Directional arrays use
-        backward/center/forward stencil order.  This is a replay-only
-        diagnostic and leaves the production RHS unchanged.
-        """
-
-        if self.parallel_operator_scheme != "fci":
-            raise ValueError("electron force wall diagnostics require FCI")
-        face_bc = self._face_bcs(state_owned)
-        state_halo_without_phi = self._prepare_state_halo(state_owned, face_bc)
-        if phi_owned is None:
-            phi_owned = self._reconstruct_phi_from_prepared(
-                state_owned, state_halo_without_phi, face_bc
-            )
-        else:
-            phi_owned = _mask_inactive_owned(
-                jnp.asarray(phi_owned, dtype=jnp.float64), self.geometry
-            )
-        phi_halo = self._prepare_phi_halo(phi_owned, face_bc.phi)
-        state_halo = state_halo_without_phi.replace(phi=phi_halo)
-        operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
-            state_halo,
-            self.geometry,
-            self.domain,
-            face_bc,
-            tau=self.parameters.tau,
-        )
-        context = self._stencil_builder_context()
-        parallel_boundary = self._parallel_operator_boundary(
-            state_halo=state_halo,
-            operator_boundary=operator_boundary,
-        )
-        parallel_terms = self._fci_parallel_terms(
-            state_halo=state_halo,
-            face_bc=face_bc,
-            operator_boundary=operator_boundary,
-            parallel_boundary=parallel_boundary,
-            context=context,
-            return_electron_force_diagnostics=True,
-        )
-
-        owned = self.domain.layout.owned_slices_cell
-        density = jnp.asarray(state_halo.density[owned], dtype=jnp.float64)
-        Vi = jnp.asarray(state_halo.Vi[owned], dtype=jnp.float64)
-        Ve = jnp.asarray(state_halo.Ve[owned], dtype=jnp.float64)
-        density_safe = jnp.maximum(density, 1.0e-30)
-        mi_over_me = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
-        collision_frequency = jnp.asarray(
-            self.parameters.Ve_nu, dtype=jnp.float64
-        )
-        gradient_components = parallel_terms[
-            "electron_force_gradient_components"
-        ]
-        characteristic_components = jnp.moveaxis(
-            parallel_terms["material_upwind_correction_components"][..., :, 4],
-            -1,
-            0,
-        )
-        directional_force_terms = jnp.stack(
-            (
-                -Ve[None, ...] * gradient_components[0],
-                mi_over_me * gradient_components[1],
-                -mi_over_me * gradient_components[2] / density_safe[None, ...],
-                -0.71 * mi_over_me * gradient_components[3],
-                characteristic_components,
-            ),
-            axis=0,
-        )
-        force_terms = jnp.stack(
-            (
-                -Ve * parallel_terms["grad_Ve"],
-                mi_over_me * collision_frequency * density * (Vi - Ve),
-                mi_over_me * parallel_terms["grad_phi"],
-                -mi_over_me * parallel_terms["grad_Pe"] / density_safe,
-                -0.71 * mi_over_me * parallel_terms["grad_Te"],
-                (
-                    parallel_terms["parallel_material_residual"][..., 4]
-                    if self.parallel_material_scheme == "production-path"
-                    else parallel_terms["material_upwind_correction"][..., 4]
-                ),
-                parallel_terms["vorticity_current_flux_div"],
-            ),
-            axis=0,
-        )
-        # Match ``evaluate_stage.pack_rhs_terms`` exactly: nonlinear force
-        # products are assembled on the fine representation and only then
-        # restricted to canonical RLP owners.
-        restrict_force = lambda value: self._owner_field(
-            _mask_inactive_owned(self._restrict_fine_field(value), self.geometry)
-        )
-        force_terms = jax.vmap(restrict_force)(force_terms)
-        directional_force_terms = jax.vmap(jax.vmap(restrict_force))(
-            directional_force_terms
-        )
-        # Replay the compatible gradients in the same owner representation
-        # as the RHS.  Selecting owner entries from the fine transpose output
-        # is not equivalent to the physical-volume RLP restriction and can
-        # manufacture a pairing remainder in post-processing even when the
-        # live fine operator is exactly adjoint.
-        gradient_components = jax.vmap(jax.vmap(restrict_force))(
-            gradient_components
-        )
-        characteristic_principal_terms = jax.vmap(restrict_force)(
-            jnp.stack(
-                (
-                    parallel_terms["material_centered_principal"][..., 4],
-                    parallel_terms["material_upwind_principal"][..., 4],
-                ),
-                axis=0,
-            )
-        )
-        characteristic_primitive_endpoint_values = jnp.moveaxis(
-            parallel_terms["material_characteristic_endpoint_values"],
-            (-1, -2),
-            (0, 1),
-        )
-        wall_masks = jnp.stack(
-            (
-                self.geometry.maps.backward.endpoint_kind
-                == FCI_DEP_PHYSICAL_BOUNDARY,
-                self.geometry.maps.forward.endpoint_kind
-                == FCI_DEP_PHYSICAL_BOUNDARY,
-            ),
-            axis=0,
-        )
-        leg_lengths = jnp.stack(
-            (
-                parallel_terms["material_characteristic_leg_lengths"][..., 0],
-                parallel_terms["material_characteristic_leg_lengths"][..., 1],
-            ),
-            axis=0,
-        )
-        endpoint_kinds = jnp.stack(
-            (
-                self.geometry.maps.backward.endpoint_kind,
-                self.geometry.maps.forward.endpoint_kind,
-            ),
-            axis=0,
-        )
-        return (
-            force_terms,
-            directional_force_terms,
-            gradient_components,
-            parallel_terms["electron_force_endpoint_values"],
-            wall_masks,
-            leg_lengths,
-            characteristic_principal_terms,
-            characteristic_primitive_endpoint_values,
-            endpoint_kinds,
-        )
-
     def apply_short_leg_implicit_material_step(
         self,
         state_owned: FciDrbEBState,
@@ -3134,8 +2866,8 @@ class LocalFciDrbEBRhs:
         ``return_parallel_material_component_fields=True`` adds the exact
         five-field production-material split in backward, center/geometric,
         and forward order. It is available only with
-        ``return_rhs_term_fields=True`` and is intended for selected-cell
-        staged audits.
+        ``return_rhs_term_fields=True`` and is intended for selected-cell,
+        postmortem inspection.
         """
 
         legacy_diagnostic_count = sum(

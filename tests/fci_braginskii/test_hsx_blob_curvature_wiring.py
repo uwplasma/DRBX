@@ -21,17 +21,7 @@ def _function(tree: ast.Module, name: str) -> ast.FunctionDef:
     )
 
 
-def test_tracked_advance_uses_output_specs_and_scalar_diagnostic_halo():
-    rhs_tree = _tree(RHS_PATH)
-    diagnostic = _function(
-        rhs_tree,
-        "ion_temperature_curvature_chain_rule_diagnostics",
-    )
-    diagnostic_source = ast.get_source_segment(RHS_PATH.read_text(), diagnostic)
-    assert diagnostic_source is not None
-    assert "self._prepare_scalar_halo" in diagnostic_source
-    assert "prepare_local_fci_drb_eb_state" not in diagnostic_source
-
+def test_advance_wires_out_specs_to_shard_map():
     driver_tree = _tree(DRIVER_PATH)
     run_full_eb = _function(driver_tree, "run_full_eb")
     out_spec_assignment = next(
@@ -43,11 +33,7 @@ def test_tracked_advance_uses_output_specs_and_scalar_diagnostic_halo():
             for target in node.targets
         )
     )
-    assert isinstance(out_spec_assignment.value, ast.IfExp)
-    assert isinstance(out_spec_assignment.value.test, ast.Name)
-    assert out_spec_assignment.value.test.id == (
-        "track_curvature_chain_rule_defect"
-    )
+    assert out_spec_assignment is not None
     shard_map_calls = [
         node
         for node in ast.walk(run_full_eb)
