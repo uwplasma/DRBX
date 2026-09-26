@@ -19,11 +19,27 @@ worker-memory estimate, reserve, and walltime from the actual GPU node. Do not
 hard-code resource counts. Use one node and one writer; this runner is a
 node-local spawn-based process pool, not MPI or a distributed pool.
 
+## Restart after the boundary-preflight fix
+
+This revision fixes a validation-only error: the six-layer preflight sampling
+band was incorrectly treated as six layers of BC-conditioned midpoint rows.
+The frozen reconstruction uses prescribed trace data only in the last two
+radial layers. Each raw row is now checked against that policy; numerical
+reconstruction, reference, saved jump, and accuracy criteria are unchanged.
+
+If the previous run stopped with `expected BC-conditioned rows were not used`,
+preserve its logs and use the new unique output folder below. The source
+identity changed, so do not resume or relabel the old preflight checkpoints.
+Reuse the same verified immutable inputs and committed reuse bundle, rerun
+input verification and the complete preflight, and launch the global stage
+only after preflight succeeds. No checkpoint migration is needed because the
+failed preflight did not authorize a global run.
+
 ## Pinned source
 
 - Repository: `git@github.com:uwplasma/DRBX.git`
 - Branch to fetch: `2D_fci`
-- Exact code revision: `0289697312e8cae9754035250946f1bae1dba825`
+- Exact code revision: `565e1d1aa2ff4d57414886051afb23067ae8ffb2`
 - Campaign README: `scripts/p05_direct_midpoint_global/README.md`
 - Runner: `scripts/p05_direct_midpoint_global/campaign.py`
 - Configuration: `scripts/p05_direct_midpoint_global/configuration.json`
@@ -33,12 +49,12 @@ Use a new source directory and verify the detached checkout exactly:
 
 ```bash
 set -euo pipefail
-export SOURCE_ROOT="$(mktemp -d -p /pscratch/sd/y/yiqunx DRBX-p05-direct-midpoint-02896973_XXXXXXXX)"
+export SOURCE_ROOT="$(mktemp -d -p /pscratch/sd/y/yiqunx DRBX-p05-direct-midpoint-565e1d1a_XXXXXXXX)"
 git clone --no-checkout git@github.com:uwplasma/DRBX.git "$SOURCE_ROOT"
 cd "$SOURCE_ROOT"
 git fetch origin 2D_fci
-git checkout --detach 0289697312e8cae9754035250946f1bae1dba825
-test "$(git rev-parse HEAD)" = 0289697312e8cae9754035250946f1bae1dba825
+git checkout --detach 565e1d1aa2ff4d57414886051afb23067ae8ffb2
+test "$(git rev-parse HEAD)" = 565e1d1aa2ff4d57414886051afb23067ae8ffb2
 ```
 
 Set the immutable P05 input root and create one unique output folder before
@@ -48,7 +64,7 @@ run, validation, and any checkpoint resume:
 ```bash
 set -euo pipefail
 export INPUT_ROOT=/pscratch/sd/y/yiqunx/hsx-midpoint-inputs-2458dbf6-8z2jrqq8
-export OUTPUT="$(mktemp -d -p /pscratch/sd/y/yiqunx p05_direct_midpoint_global_02896973_XXXXXXXX)"
+export OUTPUT="$(mktemp -d -p /pscratch/sd/y/yiqunx p05_direct_midpoint_global_565e1d1a_XXXXXXXX)"
 : "${OUTPUT:?mktemp failed to create campaign folder}"
 mkdir -p "$OUTPUT/logs"
 ```
