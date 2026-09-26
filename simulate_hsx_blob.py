@@ -3243,14 +3243,17 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
     parser.add_argument(
         "--final-time",
         type=float,
-        default=1.0e-8,
+        default=0.15,
         help="Final normalized simulation time.",
     )
     parser.add_argument(
         "--num-steps",
         type=int,
-        default=1,
-        help="Number of equal RK4 steps used to reach --final-time.",
+        default=200,
+        help=(
+            "Number of equal IMEX-SSP222 steps used to reach --final-time. "
+            "The default gives dt = 7.5e-4 (0.15/200)."
+        ),
     )
     parser.add_argument("--save-every", type=int, default=1)
     parser.add_argument(

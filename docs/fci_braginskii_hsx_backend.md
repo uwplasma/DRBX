@@ -59,11 +59,16 @@ From the repository root:
 
 ```bash
 python simulate_hsx_blob.py --geometry artifacts/geometry/hsx_fci_32x32x32 \
-  --final-time 0.0075 --num-steps 32 \
-  --save-every 8 --checkpoint-every 8 --diagnostic-every 8 \
+  --save-every 10 --checkpoint-every 50 --diagnostic-every 10 \
   --filament-cache-dir /path/to/run/initialization_cache \
   --output /path/to/run/history.npz
 ```
+
+The defaults run to t = 0.15 in 200 steps (dt = 7.5e-4). Short probes on the
+32-cubed bundle are stable up to dt of about 8.5e-4 and start to grow near
+1.2e-3; that limit does not change with the electron mass ratio or the E x B
+scaling, so larger steps need a different treatment of the explicit bulk
+terms.
 
 The driver imports `drbx` from this repository's `src`; `DRBX_SOURCE_ROOT`
 overrides that. Set `DRBX_CACHE_DIR` to a writable, run-local JAX compilation
