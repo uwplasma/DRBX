@@ -83,10 +83,9 @@ def parallel_production_principal_matrix(
     return matrix
 
 
-# Short names make this module convenient to use from flux assemblers while
+# Short name makes this module convenient to use from flux assemblers while
 # retaining the explicit production name for audit and call-site clarity.
 parallel_characteristic_matrix = parallel_production_principal_matrix
-parallel_principal_matrix = parallel_production_principal_matrix
 
 
 def parallel_matrix_from_state(
@@ -297,9 +296,6 @@ def parallel_wall_exterior_state(
     eye = jnp.broadcast_to(jnp.eye(STATE_SIZE, dtype=jnp.float64), matrix.shape)
     incoming = jnp.where(valid[..., None, None], minus, 0.5 * eye)
     return owner + _matvec(incoming, candidate - owner)
-
-
-parallel_characteristic_wall_state = parallel_wall_exterior_state
 
 
 def third_order_face_reconstruction(
@@ -1181,20 +1177,19 @@ def parallel_short_wall_backward_euler(
     forward_wall_state: jnp.ndarray | None = None,
     equilibrium: jnp.ndarray | None = None,
     coupled_residual: jnp.ndarray | None = None,
-    coupled_jacobian: jnp.ndarray | None = None,
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Apply one local backward-Euler increment to selected wall rows.
 
-    ``coupled_residual`` and ``coupled_jacobian`` let the caller hand off
-    terms that belong to the same selected-row principal balance but are
-    assembled outside the characteristic material operator.  They are
-    masked by ``selected_wall`` here, so an unselected row still returns an
-    exactly zero increment.  The complete update is
+    ``coupled_residual`` lets the caller hand off a residual term that
+    belongs to the same selected-row principal balance but is assembled
+    outside the characteristic material operator.  It is masked by
+    ``selected_wall`` here, so an unselected row still returns an exactly
+    zero increment.  The complete update is
 
-    ``delta = (I - solve_dt*(J_material + J_coupled))^-1``
+    ``delta = (I - solve_dt*J_material)^-1``
     ``        * solve_dt*(r_material + r_coupled)``.
 
     If a frozen local solve is non-finite, its raw non-finite increment is
@@ -1226,24 +1221,12 @@ def parallel_short_wall_backward_euler(
                 "coupled_residual must have shape "
                 f"{selected_residual.shape}, got {coupled_residual.shape}"
             )
-    if coupled_jacobian is None:
-        coupled_jacobian = jnp.zeros_like(selected_jacobian)
-    else:
-        coupled_jacobian = jnp.asarray(coupled_jacobian, dtype=jnp.float64)
-        if coupled_jacobian.shape != selected_jacobian.shape:
-            raise ValueError(
-                "coupled_jacobian must have shape "
-                f"{selected_jacobian.shape}, got {coupled_jacobian.shape}"
-            )
     selected_wall = info["selected_wall"]
     selected_coupled_residual = jnp.where(
         selected_wall[..., None], coupled_residual, 0.0
     )
-    selected_coupled_jacobian = jnp.where(
-        selected_wall[..., None, None], coupled_jacobian, 0.0
-    )
     selected_residual = material_residual + selected_coupled_residual
-    selected_jacobian = material_jacobian + selected_coupled_jacobian
+    selected_jacobian = material_jacobian
     solve_dt = jnp.asarray(solve_dt, dtype=jnp.float64)
     solve_dt = jnp.broadcast_to(solve_dt, selected_residual.shape[:-1])
     eye = jnp.broadcast_to(
@@ -1260,7 +1243,6 @@ def parallel_short_wall_backward_euler(
     info["selected_material_residual"] = material_residual
     info["selected_material_jacobian"] = material_jacobian
     info["selected_coupled_residual"] = selected_coupled_residual
-    info["selected_coupled_jacobian"] = selected_coupled_jacobian
     info["selected_complete_residual"] = selected_residual
     info["selected_complete_jacobian"] = selected_jacobian
     info["implicit_solve_fallback"] = ~solve_finite
@@ -1319,13 +1301,11 @@ __all__ = [
     "STATE_SIZE",
     "parallel_production_principal_matrix",
     "parallel_characteristic_matrix",
-    "parallel_principal_matrix",
     "parallel_matrix_from_state",
     "parallel_characteristic_projectors",
     "parallel_characteristic_split",
     "parallel_characteristic_absolute_action",
     "parallel_wall_exterior_state",
-    "parallel_characteristic_wall_state",
     "parallel_canonical_leg_face_state",
     "third_order_face_reconstruction",
     "parallel_target_row_material_residual",

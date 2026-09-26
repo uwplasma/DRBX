@@ -2329,17 +2329,9 @@ class LocalFciDrbEBRhs:
         source_owned: FciDrbEBState | None = None,
         *,
         phi_owned: jnp.ndarray | None = None,
-        return_term_diagnostics: bool = False,
-        return_term_fields: bool = False,
         return_rhs_term_fields: bool = False,
-        return_curvature_component_fields: bool = False,
-        return_parallel_material_component_fields: bool = False,
         short_leg_selection_dt: Any = 0.0,
-    ) -> (
-        FciDrbEBState
-        | tuple[FciDrbEBState, jnp.ndarray]
-        | tuple[FciDrbEBState, jnp.ndarray, jnp.ndarray]
-    ):
+    ) -> FciDrbEBState | tuple[FciDrbEBState, jnp.ndarray]:
         """Evaluate one EB RHS stage.
 
         When ``phi_owned`` is supplied it must be the potential reconstructed
@@ -2348,61 +2340,11 @@ class LocalFciDrbEBRhs:
         The default preserves the standalone behavior and reconstructs
         ``phi`` internally.
 
-        ``return_term_fields=True`` returns the full stacked eight-term
-        electron-velocity RHS array instead of its maxima.  It is intended
-        for postmortem localization and cannot be combined with
-        ``return_term_diagnostics``.
-
-        With ``return_term_diagnostics=True``, also return the local maximum
-        absolute value of the electron-velocity RHS terms in this fixed order:
-        Poisson bracket, parallel self-advection, collisional force,
-        electrostatic force, electron-pressure force, thermal force,
-        perpendicular diffusion, and parallel viscosity.  This diagnostic
-        mode is intended for postmortem analysis and does not alter the normal
-        compiled time-integration path.
-
         ``return_rhs_term_fields=True`` returns a padded array with shape
-        ``(6, RHS_TERM_SLOT_COUNT, *owned_shape)``.  The field and term order
-        is defined by ``RHS_TERM_FIELD_NAMES`` and ``RHS_TERM_NAMES``.  This
-        all-equation diagnostic is mutually exclusive with the two legacy
-        electron-velocity diagnostic modes.
-
-        ``return_curvature_component_fields=True`` returns the exact
-        equation-level conservative-curvature split with shape
-        ``(4, 3, *owned_shape)``.  Equations are density, Te, Ti, and
-        vorticity; directions are logical ``u``, ``theta``, and ``eta``.
-        It may be combined with ``return_rhs_term_fields`` (yielding a
-        three-item return) for a single frozen-state replay.
-
-        ``return_parallel_material_component_fields=True`` adds the exact
-        five-field production-material split in backward, center/geometric,
-        and forward order. It is available only with
-        ``return_rhs_term_fields=True`` and is intended for selected-cell,
-        postmortem inspection.
+        ``(6, RHS_TERM_SLOT_COUNT, *owned_shape)`` alongside the state.  The
+        field and term order is defined by ``RHS_TERM_FIELD_NAMES`` and
+        ``RHS_TERM_NAMES``.
         """
-
-        legacy_diagnostic_count = sum(
-            bool(value) for value in (return_term_diagnostics, return_term_fields)
-        )
-        if legacy_diagnostic_count > 1 or (
-            legacy_diagnostic_count
-            and (
-                return_rhs_term_fields
-                or return_curvature_component_fields
-                or return_parallel_material_component_fields
-            )
-        ):
-            raise ValueError(
-                "RHS term diagnostic return modes are mutually exclusive"
-            )
-        if (
-            return_parallel_material_component_fields
-            and not return_rhs_term_fields
-        ):
-            raise ValueError(
-                "parallel-material component fields require "
-                "return_rhs_term_fields=True"
-            )
 
         if source_owned is None:
             source_owned = FciDrbEBState(
@@ -2449,9 +2391,6 @@ class LocalFciDrbEBRhs:
             parallel_boundary=parallel_boundary,
             context=context,
             short_leg_selection_dt=short_leg_selection_dt,
-            return_electron_force_diagnostics=(
-                return_parallel_material_component_fields
-            ),
         )
         Vi_perp_halo = state_halo.Vi
         Ve_perp_halo = state_halo.Ve
@@ -2686,28 +2625,13 @@ class LocalFciDrbEBRhs:
             Te_conservative_stencil=Te_conservative_stencil,
             Ti_conservative_stencil=Ti_conservative_stencil,
             vorticity_conservative_stencil=vorticity_conservative_stencil,
-            return_directional_components=return_curvature_component_fields,
         )
-        if return_curvature_component_fields:
-            curvature_component_fields = jnp.stack(curvature_outputs, axis=0)
-            (
-                curvature_density_contribution,
-                curvature_Te_contribution,
-                curvature_Ti_contribution,
-                curvature_vorticity_contribution,
-            ) = tuple(jnp.sum(value, axis=0) for value in curvature_outputs)
-            if self._uses_projected_fine_grid:
-                curvature_component_fields = jax.vmap(
-                    jax.vmap(self._restrict_fine_field)
-                )(curvature_component_fields)
-        else:
-            (
-                curvature_density_contribution,
-                curvature_Te_contribution,
-                curvature_Ti_contribution,
-                curvature_vorticity_contribution,
-            ) = curvature_outputs
-            curvature_component_fields = None
+        (
+            curvature_density_contribution,
+            curvature_Te_contribution,
+            curvature_Ti_contribution,
+            curvature_vorticity_contribution,
+        ) = curvature_outputs
 
         density_rhs = (
             -(poisson_density / rho_star)
@@ -2899,53 +2823,5 @@ class LocalFciDrbEBRhs:
         ))
         if return_rhs_term_fields:
             rhs_terms = all_rhs_term_fields()
-            diagnostic_outputs = [result, rhs_terms]
-            if return_curvature_component_fields:
-                diagnostic_outputs.append(curvature_component_fields)
-            if return_parallel_material_component_fields:
-                material_components = jnp.moveaxis(
-                    fci_parallel_terms[
-                        "parallel_material_explicit_components"
-                    ],
-                    (-2, -1),
-                    (0, 1),
-                )
-                restrict_component = lambda value: self._owner_field(
-                    _mask_inactive_owned(
-                        self._restrict_fine_field(value), self.geometry
-                    )
-                )
-                material_components = jax.vmap(jax.vmap(restrict_component))(
-                    material_components
-                )
-                diagnostic_outputs.append(material_components)
-            return tuple(diagnostic_outputs)
-        if return_curvature_component_fields:
-            return result, curvature_component_fields
-        if return_term_diagnostics or return_term_fields:
-            Ve_terms = jnp.stack(
-                (
-                    Ve_poisson_term,
-                    production_material_residual[..., 4],
-                    Ve_collision_term,
-                    Ve_electrostatic_term,
-                    jnp.zeros_like(Ve),
-                    jnp.zeros_like(Ve),
-                    Ve_diff_term,
-                    Ve_parallel_diff,
-                    jnp.zeros_like(Ve),
-                ),
-                axis=0,
-            )
-            if self._uses_projected_fine_grid:
-                Ve_terms = jnp.stack(
-                    tuple(self._restrict_fine_field(term) for term in Ve_terms),
-                    axis=0,
-                )
-            if return_term_fields:
-                return result, Ve_terms
-            return result, jnp.max(
-                jnp.abs(Ve_terms),
-                axis=tuple(range(1, Ve_terms.ndim)),
-            )
+            return result, rhs_terms
         return result

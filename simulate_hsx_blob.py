@@ -1391,39 +1391,6 @@ def _format_snapshot_time(value: float) -> str:
     return f"{value:.12e}".replace("+", "p").replace("-", "m").replace(".", "d")
 
 
-@dataclass(frozen=True)
-class FrozenEbDiagnosticRequest:
-    """Request one production-split frozen-state diagnostic evaluation.
-
-    The source is already expressed in owner space.  The two time scales are
-    kept explicit because the local backward-Euler solve uses ``solve_dt``
-    while the production short-leg selector is defined with ``selection_dt``.
-    """
-
-    source_state: FciDrbEBState
-    implicit_solve_dt: float
-    implicit_selection_dt: float
-    execution: str = "compiled"
-
-
-@dataclass(frozen=True)
-class FrozenEbDiagnosticResult:
-    """Globally assembled arrays from a sharded frozen EB evaluation."""
-
-    exact_explicit: FciDrbEBState
-    exact_rhs_term_fields: jax.Array
-    sourced_explicit: FciDrbEBState
-    sourced_rhs_term_fields: jax.Array
-    reconstructed_phi: jax.Array
-    phi_solver_diagnostics: jax.Array
-    reconstructed_explicit: FciDrbEBState
-    reconstructed_rhs_term_fields: jax.Array
-    exact_implicit_complete_residual_owner: jax.Array
-    exact_selected_wall: jax.Array
-    reconstructed_implicit_complete_residual_owner: jax.Array
-    reconstructed_selected_wall: jax.Array
-
-
 def run_full_eb(
     initial_state: FciDrbEBState,
     *,
@@ -1461,9 +1428,8 @@ def run_full_eb(
     owner_host_geometry=None,
     source_evaluator: Callable[[float], FciDrbEBState] | None = None,
     history_dtype: str = "float32",
-    frozen_diagnostic: FrozenEbDiagnosticRequest | None = None,
-) -> FciDrbEBState | FrozenEbDiagnosticResult:
-    """Advance the global EB state or evaluate its sharded frozen diagnostic."""
+) -> FciDrbEBState:
+    """Advance the global EB state."""
 
     shard_counts = tuple(int(value) for value in sharded_geometry.shard_counts)
     if shard_counts[0] != 1 or shard_counts[1] != 1:
@@ -1489,21 +1455,6 @@ def run_full_eb(
         )
     if history_dtype not in ("float32", "float64"):
         raise ValueError("history_dtype must be 'float32' or 'float64'")
-    if frozen_diagnostic is not None:
-        if not isinstance(frozen_diagnostic, FrozenEbDiagnosticRequest):
-            raise TypeError(
-                "frozen_diagnostic must be FrozenEbDiagnosticRequest or None"
-            )
-        if frozen_diagnostic.execution not in ("compiled", "eager"):
-            raise ValueError(
-                "frozen diagnostic execution must be 'compiled' or 'eager'"
-            )
-        if float(frozen_diagnostic.implicit_solve_dt) <= 0.0:
-            raise ValueError("frozen diagnostic implicit_solve_dt must be positive")
-        if float(frozen_diagnostic.implicit_selection_dt) <= 0.0:
-            raise ValueError(
-                "frozen diagnostic implicit_selection_dt must be positive"
-            )
     history_numpy_dtype = (
         np.float32 if history_dtype == "float32" else np.float64
     )
@@ -1791,19 +1742,12 @@ def run_full_eb(
         )
 
     phi_start = time.perf_counter()
-    if frozen_diagnostic is None:
-        print(
-            "[simulation] compiling and "
-            + ("reconstructing" if reconstruct_initial_phi else "reusing")
-            + " initial sharded phi",
-            flush=True,
-        )
-    else:
-        print(
-            "[frozen-diagnostic] preparing sharded explicit, implicit, and "
-            "phi-reconstruction operators",
-            flush=True,
-        )
+    print(
+        "[simulation] compiling and "
+        + ("reconstructing" if reconstruct_initial_phi else "reusing")
+        + " initial sharded phi",
+        flush=True,
+    )
 
     def reconstruct_initial_phi_kernel(
         local_state: FciDrbEBState,
@@ -1831,206 +1775,6 @@ def run_full_eb(
         check_vma=False,
     )
     reconstruct_phi = jax.jit(reconstruct_phi_sharded)
-    if frozen_diagnostic is not None:
-        expected_shape = tuple(int(value) for value in sharded_geometry.global_shape)
-        source_state = frozen_diagnostic.source_state
-        if not isinstance(source_state, FciDrbEBState):
-            raise TypeError(
-                "frozen diagnostic source_state must be FciDrbEBState"
-            )
-        for name, value in source_state.field_items():
-            host_value = np.asarray(value, dtype=np.float64)
-            if host_value.shape != expected_shape:
-                raise ValueError(
-                    f"frozen diagnostic source field {name!r} has shape "
-                    f"{host_value.shape}, expected {expected_shape}"
-                )
-            if not np.all(np.isfinite(host_value)):
-                raise ValueError(
-                    f"frozen diagnostic source field {name!r} contains "
-                    "non-finite values"
-                )
-        sharded_source = source_state.map_fields(
-            lambda value: jax.device_put(
-                np.asarray(value, dtype=np.float64), state_sharding
-            )
-        )
-        zero_source = state.zeros_like()
-        solve_dt = jnp.asarray(
-            float(frozen_diagnostic.implicit_solve_dt), dtype=jnp.float64
-        )
-        selection_dt = jnp.asarray(
-            float(frozen_diagnostic.implicit_selection_dt), dtype=jnp.float64
-        )
-
-        def frozen_stage_kernel(
-            local_state: FciDrbEBState,
-            local_source: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-        ):
-            model = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            )
-            return model.evaluate_stage(
-                local_state,
-                source_owned=local_source,
-                phi_owned=local_state.phi,
-                short_leg_selection_dt=selection_dt,
-                return_rhs_term_fields=True,
-            )
-
-        frozen_stage_sharded = jax.shard_map(
-            frozen_stage_kernel,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-            ),
-            out_specs=(state_spec, P(None, None, "x", "y", "z")),
-            check_vma=False,
-        )
-
-        def frozen_implicit_kernel(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-        ):
-            model = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            )
-            _updated, _increment, info = (
-                model.apply_short_leg_implicit_material_step(
-                    local_state,
-                    solve_dt=solve_dt,
-                    selection_dt=selection_dt,
-                    phi_owned=local_state.phi,
-                    return_increment=True,
-                )
-            )
-            return (
-                info["selected_complete_residual_owner"],
-                info["selected_wall"],
-            )
-
-        frozen_implicit_sharded = jax.shard_map(
-            frozen_implicit_kernel,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-            ),
-            out_specs=(P("x", "y", "z", None), spatial_spec),
-            check_vma=False,
-        )
-
-        def frozen_reconstruct_phi_kernel(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-        ):
-            phi, info = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            ).reconstruct_phi(local_state, return_diagnostics=True)
-            return phi, _format_phi_solver_diagnostics(info)
-
-        frozen_reconstruct_phi_sharded = jax.shard_map(
-            frozen_reconstruct_phi_kernel,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-            ),
-            out_specs=(spatial_spec, replicated_spec),
-            check_vma=False,
-        )
-        if frozen_diagnostic.execution == "compiled":
-            frozen_stage = jax.jit(frozen_stage_sharded)
-            frozen_implicit = jax.jit(frozen_implicit_sharded)
-            frozen_reconstruct_phi = jax.jit(frozen_reconstruct_phi_sharded)
-        else:
-            frozen_stage = frozen_stage_sharded
-            frozen_implicit = frozen_implicit_sharded
-            frozen_reconstruct_phi = frozen_reconstruct_phi_sharded
-
-        def execute(callable_, *values):
-            with jax.disable_jit(frozen_diagnostic.execution == "eager"):
-                result = callable_(*values)
-            jax.block_until_ready(result)
-            return result
-
-        common_geometry = (cell_fields, map_fields, control_volume_fields)
-        exact_explicit, exact_terms = execute(
-            frozen_stage,
-            state,
-            zero_source,
-            *common_geometry,
-        )
-        sourced_explicit, sourced_terms = execute(
-            frozen_stage,
-            state,
-            sharded_source,
-            *common_geometry,
-        )
-        exact_implicit, exact_selected_wall = execute(
-            frozen_implicit,
-            state,
-            *common_geometry,
-        )
-        reconstructed_phi, phi_diagnostics = execute(
-            frozen_reconstruct_phi,
-            state,
-            *common_geometry,
-        )
-        reconstructed_state = state.replace(phi=reconstructed_phi)
-        reconstructed_explicit, reconstructed_terms = execute(
-            frozen_stage,
-            reconstructed_state,
-            zero_source,
-            *common_geometry,
-        )
-        reconstructed_implicit, reconstructed_selected_wall = execute(
-            frozen_implicit,
-            reconstructed_state,
-            *common_geometry,
-        )
-        print(
-            "[frozen-diagnostic] sharded evaluation completed in "
-            f"{time.perf_counter() - phi_start:.3f} s",
-            flush=True,
-        )
-        return FrozenEbDiagnosticResult(
-            exact_explicit=exact_explicit,
-            exact_rhs_term_fields=exact_terms,
-            sourced_explicit=sourced_explicit,
-            sourced_rhs_term_fields=sourced_terms,
-            reconstructed_phi=reconstructed_phi,
-            phi_solver_diagnostics=phi_diagnostics,
-            reconstructed_explicit=reconstructed_explicit,
-            reconstructed_rhs_term_fields=reconstructed_terms,
-            exact_implicit_complete_residual_owner=exact_implicit,
-            exact_selected_wall=exact_selected_wall,
-            reconstructed_implicit_complete_residual_owner=(
-                reconstructed_implicit
-            ),
-            reconstructed_selected_wall=reconstructed_selected_wall,
-        )
     if reconstruct_initial_phi:
         initial_phi, initial_phi_iterations = reconstruct_phi(
             state,
