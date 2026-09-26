@@ -209,34 +209,6 @@ def parallel_characteristic_projectors(
     return plus, minus, valid
 
 
-def parallel_characteristic_decomposition(
-    matrix: jnp.ndarray,
-    normal: Any = 1.0,
-    *,
-    eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
-    max_condition: float = _DEFAULT_MAX_CONDITION,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Return stopped-gradient ``(eigenvalues, right, left, admissible)``.
-
-    The right/left factors are diagnostic outputs; production flux assembly
-    should use :func:`parallel_characteristic_split` so invalid points receive
-    the dissipative Rusanov split.
-    """
-
-    matrix = jnp.asarray(matrix, dtype=jnp.float64)
-    normal = jnp.asarray(normal, dtype=jnp.float64)
-    normal_matrix = normal[..., None, None] * matrix
-    values, right, left, valid, _alpha = _spectral_basis(
-        normal_matrix,
-        eigenvalue_tolerance=eigenvalue_tolerance,
-        max_condition=max_condition,
-    )
-    eye = jnp.broadcast_to(jnp.eye(STATE_SIZE, dtype=jnp.float64), matrix.shape)
-    safe_right = jnp.where(valid[..., None, None], right, eye)
-    safe_left = jnp.where(valid[..., None, None], left, eye)
-    return jax.lax.stop_gradient(values), jax.lax.stop_gradient(jnp.real(safe_right)), jax.lax.stop_gradient(jnp.real(safe_left)), valid
-
-
 def parallel_characteristic_split(
     matrix: jnp.ndarray,
     normal: Any = 1.0,
@@ -306,28 +278,6 @@ def parallel_characteristic_absolute_action(
     result = _matvec(normal_matrix, _matvec(plus - minus, jump))
     fallback = alpha[..., None] * jump
     return jnp.where(valid[..., None], result, fallback)
-
-
-def parallel_characteristic_absolute_matrix(
-    matrix: jnp.ndarray,
-    normal: Any = 1.0,
-    *,
-    eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
-    max_condition: float = _DEFAULT_MAX_CONDITION,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Return ``(|normal*A|, admissible)`` with a finite Rusanov fallback."""
-
-    matrix = jnp.asarray(matrix, dtype=jnp.float64)
-    plus, minus, valid = parallel_characteristic_projectors(
-        matrix, normal, eigenvalue_tolerance=eigenvalue_tolerance,
-        max_condition=max_condition,
-    )
-    normal_matrix = jnp.asarray(normal, dtype=jnp.float64)[..., None, None] * matrix
-    safe_normal_matrix = jnp.where(jnp.isfinite(normal_matrix), normal_matrix, 0.0)
-    absolute = jnp.einsum("...ij,...jk->...ik", normal_matrix, plus - minus)
-    alpha = jnp.linalg.norm(safe_normal_matrix, axis=(-2, -1))
-    absolute = jnp.where(valid[..., None, None], absolute, alpha[..., None, None] * jnp.eye(STATE_SIZE))
-    return absolute, valid
 
 
 def parallel_wall_exterior_state(
@@ -1544,11 +1494,9 @@ __all__ = [
     "parallel_characteristic_matrix",
     "parallel_principal_matrix",
     "parallel_matrix_from_state",
-    "parallel_characteristic_decomposition",
     "parallel_characteristic_projectors",
     "parallel_characteristic_split",
     "parallel_characteristic_absolute_action",
-    "parallel_characteristic_absolute_matrix",
     "parallel_wall_exterior_state",
     "parallel_characteristic_wall_state",
     "parallel_canonical_leg_face_state",
