@@ -14,7 +14,9 @@ def test_topology_descriptor_supports_only_toroidal():
     toroidal = hsx.topology_descriptor("toroidal")
     assert toroidal.axis_regular_axes == (True, False, False)
     assert toroidal.periodic_axes == (False, True, True)
-    with pytest.raises(ValueError, match="unknown topology"):
+    with pytest.raises(
+        ValueError, match="the HSX backend requires a toroidal geometry artifact"
+    ):
         hsx.topology_descriptor("square")
 
 
@@ -25,7 +27,7 @@ def test_parser_defaults_use_production_operator_pair():
     assert not hasattr(args, "resolution")
     assert not hasattr(args, "curvature_scheme")
     assert args.poisson_bracket_scheme == "compatible-flux"
-    assert args.gmres_preconditioner == "line-u"
+    assert not hasattr(args, "gmres_preconditioner")
 
 
 def test_removed_axis_experiment_options_are_rejected():
@@ -92,8 +94,12 @@ def test_parser_exposes_eta_sharding_without_a_topology_specific_option():
 def test_toroidal_production_requirements_are_explicit_in_main_source():
     source = open(hsx.__file__, encoding="utf-8").read()
     main = source[source.index("def main("):]
-    assert 'descriptor.name != "toroidal"' in main
-    assert "the HSX backend requires a toroidal geometry artifact" in main
+    # The redundant post-hoc topology check is gone; topology_descriptor()
+    # itself is the single place that rejects a non-toroidal artifact, and
+    # main() surfaces that failure through its --geometry load try/except.
+    assert 'descriptor.name != "toroidal"' not in main
+    assert "could not load --geometry artifact" in main
+    assert "the HSX backend requires a toroidal geometry artifact" in source
     assert "simulation_geometry.polar_angular_geometry" in main
     assert "build_metric_aware_polar_angular_agglomeration_geometry" not in main
     assert "build_sharded_polar_angular_agglomeration_payload" in main

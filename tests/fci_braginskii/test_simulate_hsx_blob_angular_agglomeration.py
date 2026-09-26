@@ -36,10 +36,7 @@ def test_removed_axis_experiment_cli_options_are_absent():
     assert "pole_collapsed_radial_rings" not in destinations
     assert "phi_solver_space" not in destinations
     assert "axis_core_state_space" not in destinations
-    assert "axis-core-line-u" not in next(
-        action.choices for action in parser._actions
-        if action.dest == "gmres_preconditioner"
-    )
+    assert "gmres_preconditioner" not in destinations
 
 
 def test_radius_dependent_profile_accepts_composite_ntheta():

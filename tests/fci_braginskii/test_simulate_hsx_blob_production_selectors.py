@@ -197,8 +197,6 @@ def test_physical_boundary_state_wall_law_is_exported_for_no_flow_model(
         "characteristic-sat",
         "--parallel-characteristic-wall-law",
         "physical-boundary-state",
-        "--parallel-velocity-wall-bc",
-        "dirichlet-zero",
     )
     driver._validate_flux_framework(args)
     driver._configure_runtime_selectors(args)
