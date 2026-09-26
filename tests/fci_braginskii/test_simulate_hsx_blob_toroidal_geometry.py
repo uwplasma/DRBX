@@ -26,7 +26,7 @@ def test_parser_defaults_use_production_operator_pair():
     assert not hasattr(args, "topology")
     assert not hasattr(args, "resolution")
     assert not hasattr(args, "curvature_scheme")
-    assert args.poisson_bracket_scheme == "compatible-flux"
+    assert not hasattr(args, "poisson_bracket_scheme")
     assert not hasattr(args, "gmres_preconditioner")
 
 

@@ -353,29 +353,17 @@ def test_fci_main_passes_production_scheme_and_metadata_to_run(
     )
 
 
-def test_production_split_guard_requires_compatible_runtime():
-    hsx = _driver_module()
-    parser = hsx._build_parser()
-    args = parser.parse_args(
-        [
-            "--parallel-flux-pairing", "support-core",
-            "--poisson-bracket-scheme", "compatible-flux",
-        ]
-    )
-    hsx._validate_flux_framework(args)
-
-    args = parser.parse_args(["--parallel-flux-pairing", "legacy"])
-    with pytest.raises(ValueError, match="support-core"):
-        hsx._validate_flux_framework(args)
-
-
 def test_production_split_metadata_contract_is_recorded():
     source = DRIVER_PATH.read_text()
     assert '"flux_framework": "production-split"' in source
     assert '"flux_framework_source": "fixed production configuration"' in source
     assert '"curvature_operator": "production-characteristic-owner-face"' in source
     assert '"curvature_operator_source": "fixed production method"' in source
-    assert '"parallel_material_scheme": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME")' in source
+    assert '"parallel_material_scheme": "production-path"' in source
+    assert (
+        '"parallel_material_scheme_source": "fixed production configuration"'
+        in source
+    )
     assert '"production_characteristic_solver": "canonical-face-state"' in source
     assert '"production_characteristic_solver_source": "fixed production method"' in source
     assert "DRBX_PRODUCTION_CHARACTERISTIC_SOLVER" not in source
