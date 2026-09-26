@@ -8,13 +8,12 @@ The construction path is:
       -> LocalFciGeometry3D + LocalDomain3D
       -> LocalFciDrbEBRhs.
 
-Geometry is generated separately; this driver only loads it.  Toroidal runs
-use the artifact's radius-dependent angular agglomeration with the projected
-fine-grid ``R A_f P`` formulation.  Square runs can optionally use a
-metric-driven corner/edge owner agglomeration through the same projection.
-Parallel derivatives are selectable between coordinate conservative stencils
-and the artifact's axis-regular FCI maps.  Physical-wall FCI endpoints sample
-operator-specific ghost/leg fills.
+Geometry is generated separately; this driver only loads it.  The driver
+requires a toroidal geometry artifact and uses its radius-dependent angular
+agglomeration with the projected fine-grid ``R A_f P`` formulation.
+Parallel derivatives always use the artifact's axis-regular FCI maps, and
+time advancement always uses IMEX-SSP222.  Physical-wall FCI endpoints
+sample operator-specific ghost/leg fills.
 """
 
 from __future__ import annotations
@@ -67,9 +66,6 @@ from drbx.fci_braginskii.geometry.fci_geometry import (  # noqa: E402
 from drbx.fci_braginskii.geometry.fci_simulation_geometry import (  # noqa: E402
     load_fci_simulation_geometry,
 )
-from drbx.fci_braginskii.geometry.fci_corner_edge_agglomeration import (  # noqa: E402
-    build_corner_edge_agglomeration,
-)
 from drbx.fci_braginskii.native.fci_halo import (  # noqa: E402
     GhostFillWeights1D,
     HaloExchange3D,
@@ -93,11 +89,6 @@ from drbx.fci_braginskii.native.fci_angular_agglomeration import (  # noqa: E402
     build_sharded_polar_angular_agglomeration_payload,
     empty_angular_agglomeration_boundary_bc,
 )
-from drbx.fci_braginskii.native.fci_owner_agglomeration import (  # noqa: E402
-    CORNER_EDGE_PACKED_FIELD_COUNT,
-    assemble_local_plane_local_owner_map_geometry,
-    build_sharded_plane_local_owner_map_payload,
-)
 from drbx.fci_braginskii.native.fci_boundaries import (  # noqa: E402
     BC_DIRICHLET,
     BC_NEUMANN,
@@ -110,7 +101,6 @@ from drbx.fci_braginskii.native.fci_drb_EB_rhs import (  # noqa: E402
     LocalFciDrbEBRhs,
     RHS_TERM_FIELD_NAMES,
     RHS_TERM_NAMES,
-    parallel_characteristic_matrix,
     prepare_local_fci_drb_eb_state,
 )
 from drbx.fci_braginskii.native.fci_operators import (  # noqa: E402
@@ -184,14 +174,6 @@ class TopologyDescriptor:
 
 def topology_descriptor(topology: str) -> TopologyDescriptor:
     selected = str(topology).lower()
-    if selected == "square":
-        return TopologyDescriptor(
-            name="square",
-            coordinate_names=("u", "v", "eta"),
-            periodic_axes=(False, False, True),
-            axis_regular_axes=(False, False, False),
-            logical_extents=((0.0, 1.0), (0.0, 1.0), (0.0, 2.0 * np.pi)),
-        )
     if selected == "toroidal":
         return TopologyDescriptor(
             name="toroidal",
@@ -200,13 +182,13 @@ def topology_descriptor(topology: str) -> TopologyDescriptor:
             axis_regular_axes=(True, False, False),
             logical_extents=((0.0, 1.0), (0.0, 2.0 * np.pi), (0.0, 2.0 * np.pi)),
         )
-    raise ValueError("topology must be 'square' or 'toroidal'")
+    raise ValueError(f"unknown topology {selected!r}")
 
 
-_SQUARE_TOPOLOGY = topology_descriptor("square")
-# Backward-compatible symbols used by the existing square runtime path.
-PERIODIC_AXES = _SQUARE_TOPOLOGY.periodic_axes
-AXIS_REGULAR_AXES = _SQUARE_TOPOLOGY.axis_regular_axes
+_TOROIDAL_TOPOLOGY = topology_descriptor("toroidal")
+# Backward-compatible symbols used by the production toroidal runtime path.
+PERIODIC_AXES = _TOROIDAL_TOPOLOGY.periodic_axes
+AXIS_REGULAR_AXES = _TOROIDAL_TOPOLOGY.axis_regular_axes
 
 
 def _topology_metadata(descriptor: TopologyDescriptor) -> dict[str, object]:
@@ -966,7 +948,6 @@ def build_local_eb_model(
     gmres_residual_correction_steps: int = 0,
     neumann_ghost_scheme: str = "physical",
     parallel_velocity_wall_bc: str = "neumann",
-    parallel_operator_scheme: str = "coordinate",
     poisson_bracket_scheme: str = "direct",
     parallel_material_scheme: str | None = None,
     control_volume_geometry=None,
@@ -977,11 +958,6 @@ def build_local_eb_model(
         raise ValueError("gmres_restart must be positive")
     if gmres_residual_correction_steps < 0:
         raise ValueError("gmres_residual_correction_steps must be non-negative")
-    if parallel_operator_scheme not in ("coordinate", "fci"):
-        raise ValueError(
-            "parallel_operator_scheme must be 'coordinate' or 'fci', got "
-            f"{parallel_operator_scheme!r}"
-        )
     if neumann_ghost_scheme not in ("logical", "physical"):
         raise ValueError(
             "neumann_ghost_scheme must be 'logical' or 'physical', got "
@@ -1123,7 +1099,6 @@ def build_local_eb_model(
             preconditioner=str(gmres_preconditioner),
             residual_correction_steps=int(gmres_residual_correction_steps),
         ),
-        parallel_operator_scheme=str(parallel_operator_scheme),
         parallel_material_scheme=str(parallel_material_scheme),
         face_bc_builder=face_bc_builder,
         axis_regular_axes=domain.axis_regular_axes,
@@ -1141,7 +1116,7 @@ def build_local_eb_model(
 class _JittedPhaseTimer:
     """Collect ordered host timestamps emitted by one compiled advance."""
 
-    def __init__(self, *, expected_markers: int = 8, label: str = "RK4") -> None:
+    def __init__(self, *, expected_markers: int = 8, label: str = "imex-ssp222") -> None:
         self._expected_markers = int(expected_markers)
         self._label = str(label)
         self._lock = threading.Lock()
@@ -1207,37 +1182,9 @@ def _explicit_source_stage_times(
 
     t = float(start_time)
     dt = float(timestep)
-    if time_integrator == "rk4":
-        return (t, t + 0.5 * dt, t + 0.5 * dt, t + dt)
     if time_integrator == "imex-ssp222":
         return (t, t + dt)
     raise ValueError(f"unsupported time integrator {time_integrator!r}")
-
-
-def _resolve_execution_mode(
-    requested: str,
-    *,
-    work_items: int,
-    auto_short_mode: str = "eager",
-) -> str:
-    """Resolve the requested eager, staged, or monolithic JIT mode."""
-
-    if requested not in ("auto", "compiled", "staged-compiled", "eager"):
-        raise ValueError(
-            "execution mode must be 'auto', 'compiled', 'staged-compiled', "
-            "or 'eager', got "
-            f"{requested!r}"
-        )
-    if work_items < 1:
-        raise ValueError("execution mode resolution requires positive work_items")
-    if auto_short_mode not in ("compiled", "staged-compiled", "eager"):
-        raise ValueError(
-            "auto_short_mode must be 'compiled', 'staged-compiled', or "
-            f"'eager', got {auto_short_mode!r}"
-        )
-    if requested == "auto":
-        return auto_short_mode if work_items < 100 else "compiled"
-    return requested
 
 
 def _pack_curvature_face_coefficients(
@@ -1359,21 +1306,15 @@ def _format_phi_solver_diagnostics(
 def _print_rk_stage_diagnostics(
     field_names: Sequence[str],
     rk_stage_diagnostics: np.ndarray,
-    *,
-    integrator: str = "rk4",
 ) -> None:
     """Print complete stage-state and rate diagnostics for a failure path."""
 
     labels = (
-        ("current/k1", "stage2/k2", "stage3/k3", "stage4/k4", "next/weighted")
-        if integrator == "rk4"
-        else (
-            "current/implicit1",
-            "imex-stage1/explicit1",
-            "stage2-base/implicit2",
-            "imex-stage2/explicit2",
-            "next/weighted",
-        )
+        "current/implicit1",
+        "imex-stage1/explicit1",
+        "stage2-base/implicit2",
+        "imex-stage2/explicit2",
+        "next/weighted",
     )
     for rk_name, rk_values in zip(
         labels,
@@ -1594,7 +1535,7 @@ def run_full_eb(
     gmres_restart: int = 100,
     gmres_preconditioner: str,
     gmres_residual_correction_steps: int = 0,
-    time_integrator: str,
+    time_integrator: str = "imex-ssp222",
     advance_execution: str = "compiled",
     num_steps: int,
     timestep: float,
@@ -1610,7 +1551,7 @@ def run_full_eb(
     reconstruct_initial_phi: bool = True,
     neumann_ghost_scheme: str = "physical",
     parallel_velocity_wall_bc: str = "neumann",
-    parallel_operator_scheme: str = "coordinate",
+    parallel_operator_scheme: str = "fci",
     poisson_bracket_scheme: str = "direct",
     parallel_material_scheme: str | None = None,
     control_volume_descriptor=None,
@@ -1641,16 +1582,11 @@ def run_full_eb(
         )
     if int(control_volume_field_count) < 1:
         raise ValueError("control_volume_field_count must be positive")
-    if time_integrator not in ("rk4", "imex-ssp222"):
-        raise ValueError("time_integrator must be 'rk4' or 'imex-ssp222'")
+    if time_integrator != "imex-ssp222":
+        raise ValueError("time_integrator must be 'imex-ssp222'")
     if advance_execution not in ("compiled", "staged-compiled", "eager"):
         raise ValueError(
             "advance_execution must be 'compiled', 'staged-compiled', or 'eager'"
-        )
-    if advance_execution == "staged-compiled" and time_integrator != "imex-ssp222":
-        raise ValueError(
-            "advance_execution='staged-compiled' currently requires "
-            "time_integrator='imex-ssp222'"
         )
     if history_dtype not in ("float32", "float64"):
         raise ValueError("history_dtype must be 'float32' or 'float64'")
@@ -1675,13 +1611,7 @@ def run_full_eb(
     short_leg_treatment = os.environ.get(
         "DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"
     )
-    if short_leg_treatment == "local-backward-euler" and time_integrator != "imex-ssp222":
-        raise ValueError(
-            "local-backward-euler short legs require the stage-wise "
-            "time_integrator='imex-ssp222'; post-step RK4 splitting is not "
-            "a consistent handoff"
-        )
-    if time_integrator == "imex-ssp222" and short_leg_treatment != "local-backward-euler":
+    if short_leg_treatment != "local-backward-euler":
         raise ValueError(
             "time_integrator='imex-ssp222' currently requires "
             "parallel_short_leg_treatment='local-backward-euler'"
@@ -1690,20 +1620,16 @@ def run_full_eb(
         raise ValueError("gmres_restart must be positive")
     if int(checkpoint_every) < 0:
         raise ValueError("checkpoint_every must be nonnegative")
-    if parallel_operator_scheme not in ("coordinate", "fci"):
+    if parallel_operator_scheme != "fci":
+        raise ValueError("parallel_operator_scheme must be 'fci'")
+    if not sharded_geometry.domain.axis_regular_axes[0]:
         raise ValueError(
-            "parallel_operator_scheme must be 'coordinate' or 'fci', got "
-            f"{parallel_operator_scheme!r}"
+            "the FCI parallel operator requires toroidal topology"
         )
-    if parallel_operator_scheme == "fci":
-        if not sharded_geometry.domain.axis_regular_axes[0]:
-            raise ValueError(
-                "parallel_operator_scheme='fci' requires toroidal topology"
-            )
-        if not sharded_geometry.maps_valid or sharded_geometry.map_fields is None:
-            raise ValueError(
-                "parallel_operator_scheme='fci' requires valid sharded FCI maps"
-            )
+    if not sharded_geometry.maps_valid or sharded_geometry.map_fields is None:
+        raise ValueError(
+            "the FCI parallel operator requires valid sharded FCI maps"
+        )
 
     domain = sharded_geometry.domain
     spatial_spec = P("x", "y", "z")
@@ -1719,7 +1645,7 @@ def run_full_eb(
             state_sharding,
         )
     )
-    source_stage_count = 4 if time_integrator == "rk4" else 2
+    source_stage_count = 2
     source_sharding = NamedSharding(mesh, source_spec)
     zero_source_stages = initial_state.map_fields(
         lambda value: jax.device_put(
@@ -1938,7 +1864,7 @@ def run_full_eb(
         local_geometry = assemble_local_fci_geometry(
             sharded_geometry,
             geometry_fields_owned,
-            map_fields_owned if parallel_operator_scheme == "fci" else None,
+            map_fields_owned,
         )
         local_curvature_face_coefficients = (
             unpack_local_curvature_face_coefficients(
@@ -1969,7 +1895,6 @@ def run_full_eb(
             ),
             neumann_ghost_scheme=neumann_ghost_scheme,
             parallel_velocity_wall_bc=parallel_velocity_wall_bc,
-            parallel_operator_scheme=parallel_operator_scheme,
             parallel_material_scheme=parallel_material_scheme,
             poisson_bracket_scheme=poisson_bracket_scheme,
             control_volume_geometry=local_control_volume_geometry,
@@ -2244,7 +2169,7 @@ def run_full_eb(
 
     phase_timer = (
         _JittedPhaseTimer(
-            expected_markers=8 if time_integrator == "rk4" else 6,
+            expected_markers=6,
             label=time_integrator,
         )
         if phase_timing
@@ -2379,64 +2304,6 @@ def run_full_eb(
             stage_diagnostics,
         )
 
-    def full_rk4_advance(
-        current: FciDrbEBState,
-        cell_fields_owned: jax.Array,
-        map_fields_owned: jax.Array,
-        control_volume_fields_owned: jax.Array,
-        source_stages: FciDrbEBState,
-        current_time: jax.Array,
-    ) -> tuple[FciDrbEBState, jax.Array, jax.Array] | tuple[
-        FciDrbEBState, jax.Array, jax.Array, jax.Array
-    ]:
-        del current_time
-        model = build_local_model(
-            cell_fields_owned,
-            map_fields_owned,
-            control_volume_fields_owned,
-        )
-
-        # `current.phi` was reconstructed at the end of the previous advance,
-        # so stage one does not need another identical elliptic solve.
-        def stage_source(index: int) -> FciDrbEBState:
-            return source_stages.replace(
-                density=source_stages.density[index],
-                phi=source_stages.phi[index],
-                Te=source_stages.Te[index],
-                Ti=source_stages.Ti[index],
-                Vi=source_stages.Vi[index],
-                Ve=source_stages.Ve[index],
-                vorticity=source_stages.vorticity[index],
-            )
-
-        k1 = evaluate_operators(current, current.phi, model, stage_source(0))
-        stage_2 = current.axpy(k1, scale=0.5 * dt)
-
-        phi_2, gmres_info_2 = reconstruct_stage_phi(stage_2, model)
-        k2 = evaluate_operators(stage_2, phi_2, model, stage_source(1))
-        stage_3 = current.axpy(k2, scale=0.5 * dt)
-
-        phi_3, gmres_info_3 = reconstruct_stage_phi(stage_3, model)
-        k3 = evaluate_operators(stage_3, phi_3, model, stage_source(2))
-        stage_4 = current.axpy(k3, scale=dt)
-
-        phi_4, gmres_info_4 = reconstruct_stage_phi(stage_4, model)
-        k4 = evaluate_operators(stage_4, phi_4, model, stage_source(3))
-        weighted_rhs = k1.axpy(k2, scale=2.0).axpy(
-            k3,
-            scale=2.0,
-        ).axpy(k4, scale=1.0)
-        next_state = current.axpy(weighted_rhs, scale=dt / 6.0)
-        next_phi, gmres_info_next = reconstruct_stage_phi(next_state, model)
-        next_state = next_state.replace(phi=next_phi)
-        return finalize_advance(
-            next_state,
-            model,
-            (current, stage_2, stage_3, stage_4, next_state),
-            (k1, k2, k3, k4, weighted_rhs),
-            (gmres_info_2, gmres_info_3, gmres_info_4, gmres_info_next),
-        )
-
     def full_imex_advance(
         current: FciDrbEBState,
         cell_fields_owned: jax.Array,
@@ -2519,13 +2386,9 @@ def run_full_eb(
             (gmres_info_1, gmres_info_2_base, gmres_info_2, gmres_info_next),
         )
 
-    full_advance = (
-        full_rk4_advance if time_integrator == "rk4" else full_imex_advance
-    )
+    full_advance = full_imex_advance
     stage_description = (
-        "4 operator stages, 4 SOLVAX FGMRES solves"
-        if time_integrator == "rk4"
-        else "2 explicit operator stages, 2 complete short-wall solves, "
+        "2 explicit operator stages, 2 complete short-wall solves, "
         "4 SOLVAX FGMRES solves"
     )
     advance_action = (
@@ -3517,7 +3380,6 @@ def run_full_eb(
             _print_rk_stage_diagnostics(
                 field_names,
                 rk_stage_diagnostics_host,
-                integrator=time_integrator,
             )
             save_snapshot(
                 current_time,
@@ -3535,11 +3397,7 @@ def run_full_eb(
                     f"relres={values[1]:.3e},accepted={bool(values[3] > 0.5)}"
                 )
                 for name, values in zip(
-                    (
-                        ("rk2", "rk3", "rk4", "next")
-                        if time_integrator == "rk4"
-                        else ("imex1", "stage2-base", "imex2", "next")
-                    ),
+                    ("imex1", "stage2-base", "imex2", "next"),
                     gmres_stage_diagnostics_host,
                     strict=True,
                 )
@@ -3552,7 +3410,6 @@ def run_full_eb(
             _print_rk_stage_diagnostics(
                 field_names,
                 rk_stage_diagnostics_host,
-                integrator=time_integrator,
             )
             save_snapshot(
                 current_time,
@@ -3575,7 +3432,6 @@ def run_full_eb(
             _print_rk_stage_diagnostics(
                 field_names,
                 rk_stage_diagnostics_host,
-                integrator=time_integrator,
             )
             save_snapshot(
                 current_time,
@@ -3593,7 +3449,6 @@ def run_full_eb(
             _print_rk_stage_diagnostics(
                 field_names,
                 rk_stage_diagnostics_host,
-                integrator=time_integrator,
             )
             save_snapshot(
                 current_time,
@@ -3800,38 +3655,30 @@ def run_full_eb(
 
 
 def _validate_flux_framework(args: argparse.Namespace) -> None:
-    """Validate native production/diagnostic selectors before compilation."""
+    """Validate native production/diagnostic selectors before compilation.
 
-    framework = str(args.flux_framework)
+    The driver always runs the production-split flux framework with the FCI
+    parallel operator and the IMEX-SSP222 time integrator, so only the
+    checks that still guard a retained, user-selectable option remain.
+    """
+
     if args.parallel_short_leg_selection == "all-physical-walls":
         if args.parallel_short_leg_treatment != "local-backward-euler":
             raise ValueError(
                 "all-physical-walls short-leg selection requires "
                 "--parallel-short-leg-treatment local-backward-euler"
             )
-        if framework != "production-split" or args.parallel_operator_scheme != "fci":
-            raise ValueError("all-physical-walls requires production FCI configuration")
         if args.parallel_flux_pairing != "support-core":
             raise ValueError("all-physical-walls requires support-core pairing")
         if args.parallel_boundary_pairing != "characteristic-sat":
             raise ValueError("all-physical-walls requires characteristic-sat pairing")
     if args.parallel_characteristic_wall_law == "energy-absorbing":
-        if framework != "production-split":
-            raise ValueError(
-                "energy-absorbing parallel characteristic wall law requires "
-                "the production-path parallel material scheme"
-            )
         if args.parallel_boundary_pairing != "characteristic-sat":
             raise ValueError(
                 "energy-absorbing parallel characteristic wall law requires "
                 "characteristic-sat boundary pairing"
             )
     if args.parallel_characteristic_wall_law == "physical-boundary-state":
-        if framework != "production-split":
-            raise ValueError(
-                "physical-boundary-state parallel characteristic wall law "
-                "requires the production-path parallel material scheme"
-            )
         if args.parallel_boundary_pairing != "characteristic-sat":
             raise ValueError(
                 "physical-boundary-state parallel characteristic wall law "
@@ -3841,44 +3688,11 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
         args.parallel_short_leg_cfl_limit <= 0.0
     ):
         raise ValueError("--parallel-short-leg-cfl-limit must be finite and positive")
-    if (
-        args.parallel_short_leg_treatment == "local-backward-euler"
-        and framework != "production-split"
-    ):
+    if args.parallel_short_leg_treatment != "local-backward-euler":
         raise ValueError(
-            "--parallel-short-leg-treatment local-backward-euler requires "
-            "--flux-framework production-split"
-        )
-    if (
-        args.parallel_short_leg_treatment == "local-backward-euler"
-        and args.time_integrator != "imex-ssp222"
-    ):
-        raise ValueError(
-            "--parallel-short-leg-treatment local-backward-euler requires "
-            "--time-integrator imex-ssp222 so the complete selected residual "
-            "is solved at every stage"
-        )
-    if (
-        args.time_integrator == "imex-ssp222"
-        and args.parallel_short_leg_treatment != "local-backward-euler"
-    ):
-        raise ValueError(
-            "--time-integrator imex-ssp222 currently requires "
+            "the HSX backend's IMEX-SSP222 integrator currently requires "
             "--parallel-short-leg-treatment local-backward-euler"
         )
-    if args.parallel_flux_pairing == "support-core":
-        if args.parallel_operator_scheme != "fci":
-            raise ValueError("support-core requires --parallel-operator-scheme fci")
-    if framework == "legacy":
-        return
-    if framework != "production-split":
-        raise ValueError(f"unsupported flux framework {framework!r}")
-    if args.time_integrator not in ("rk4", "imex-ssp222"):
-        raise ValueError(
-            "production-split requires --time-integrator rk4 or imex-ssp222"
-        )
-    if args.parallel_operator_scheme != "fci":
-        raise ValueError("production-split requires --parallel-operator-scheme fci")
     if args.parallel_flux_pairing != "support-core":
         raise ValueError("production-split requires support-core current pairing")
     if args.parallel_boundary_pairing == "legacy":
@@ -3897,7 +3711,7 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
 def _configure_runtime_selectors(args: argparse.Namespace) -> None:
     """Export native CLI selectors consumed by LocalFciDrbEBRhs factories."""
 
-    os.environ["DRBX_FLUX_FRAMEWORK"] = str(args.flux_framework)
+    os.environ["DRBX_FLUX_FRAMEWORK"] = "production-split"
     os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] = str(args.parallel_characteristic_wall_law)
     os.environ["DRBX_PARALLEL_FLUX_PAIRING"] = str(args.parallel_flux_pairing)
     os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] = (
@@ -3925,23 +3739,14 @@ def _configure_runtime_selectors(args: argparse.Namespace) -> None:
         "DRBX_CURVATURE_COMPONENT_DIAGNOSTIC_SCHEME",
     ):
         os.environ.pop(name, None)
-    if args.flux_framework == "production-split":
-        os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] = "production-path"
-        os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] = (
-            _parallel_characteristic_wall_metadata(
-                str(args.parallel_characteristic_wall_law)
-            )["parallel_material_wall_flux_closure"]
-        )
-        os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY", None)
-        os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE", None)
-    else:
-        for name in (
-            "DRBX_PARALLEL_MATERIAL_SCHEME",
-            "DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE",
-        ):
-            os.environ.pop(name, None)
-        os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY", None)
-        os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE", None)
+    os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] = "production-path"
+    os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] = (
+        _parallel_characteristic_wall_metadata(
+            str(args.parallel_characteristic_wall_law)
+        )["parallel_material_wall_flux_closure"]
+    )
+    os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY", None)
+    os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE", None)
     for name in (
         "DRBX_RHS_TERM_HISTORY",
         "DRBX_RHS_TERM_FRAMES",
@@ -4028,56 +3833,9 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--square-agglomeration",
-        choices=("none", "corner-edge"),
-        default="none",
-        help=(
-            "Optional square-topology projected-owner agglomeration. "
-            "'corner-edge' detects explicit-parallel CFL seeds from the "
-            "metric and forms eta-plane-local aggregates."
-        ),
-    )
-    parser.add_argument(
-        "--agglomeration-volume-ratio",
-        type=float,
-        default=1.2,
-        help=(
-            "Corner-edge aggregate volumes must lie between median/ratio "
-            "and ratio*median."
-        ),
-    )
-    parser.add_argument(
-        "--agglomeration-rate-threshold",
-        type=float,
-        default=None,
-        help=(
-            "Optional explicit cell-centred parallel coordinate-rate threshold. "
-            "By default it is derived from the RK4 stability radius, the "
-            "equilibrium characteristic speed, and the requested timestep."
-        ),
-    )
-    parser.add_argument(
-        "--agglomeration-rk4-safety",
-        type=float,
-        default=0.85,
-        help=(
-            "Positive fraction of the RK4 imaginary-axis stability radius "
-            "used by the automatic centered parallel-flux corner-edge seed threshold."
-        ),
-    )
-    parser.add_argument(
-        "--parallel-operator-scheme",
-        choices=("coordinate", "fci"),
-        default="coordinate",
-        help=(
-            "Parallel derivative/operator implementation. 'fci' uses the "
-            "artifact's traced field-line maps and requires toroidal geometry."
-        ),
-    )
-    parser.add_argument(
         "--parallel-flux-pairing",
         choices=("legacy", "support-core"),
-        default="legacy",
+        default="support-core",
         help=(
             "Pairing used by mapped parallel gradient/divergence operators. "
             "The production path requires support-core."
@@ -4115,7 +3873,7 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
     parser.add_argument(
         "--parallel-short-leg-treatment",
         choices=("explicit", "local-backward-euler"),
-        default="explicit",
+        default="local-backward-euler",
         help=(
             "Treatment of selected short FCI wall legs. local-backward-euler "
             "hands the complete characteristic material plus "
@@ -4362,38 +4120,15 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
     parser.add_argument("--parallel-diffusion", type=float, default=1.0e-5)
     parser.add_argument("--electron-collision-frequency", type=float, default=0.0)
     parser.add_argument(
-        "--time-integrator",
-        choices=("rk4", "imex-ssp222"),
-        default="rk4",
-        help=(
-            "Time integrator. Classical RK4 is used for fully explicit "
-            "configurations. 'imex-ssp222' is the stage-wise two-stage IMEX "
-            "method required by local backward-Euler short wall legs."
-        ),
-    )
-    parser.add_argument(
         "--advance-execution",
-        choices=("auto", "compiled", "staged-compiled", "eager"),
-        default="auto",
+        choices=("compiled", "staged-compiled", "eager"),
+        default="staged-compiled",
         help=(
-            "Execution mode for time advancement. 'auto' uses staged "
-            "compilation for fewer than 100 IMEX diagnostic steps, eager "
-            "execution for short RK4 diagnostics, and fused compilation for "
-            "longer production runs. 'compiled' builds one fused "
-            "advance executable. 'staged-compiled' (IMEX-SSP222 only) "
-            "compiles reusable implicit, explicit, phi, and diagnostic "
-            "shard-map kernels separately. 'eager' disables the outer "
-            "jax.jit, although the JAX backend may still compile kernels."
-        ),
-    )
-    parser.add_argument(
-        "--flux-framework",
-        choices=("legacy", "production-split"),
-        default="legacy",
-        help=(
-            "High-level flux wiring. 'legacy' preserves the established "
-            "path; 'production-split' selects the production curvature and "
-            "parallel material paths with compatibility guards."
+            "Execution mode for time advancement. 'compiled' builds one "
+            "fused advance executable. 'staged-compiled' compiles reusable "
+            "implicit, explicit, phi, and diagnostic shard-map kernels "
+            "separately. 'eager' disables the outer jax.jit, although the "
+            "JAX backend may still compile kernels."
         ),
     )
     parser.add_argument(
@@ -4481,7 +4216,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         ).hexdigest()
     except (OSError, KeyError, TypeError, ValueError) as error:
         parser.error(f"could not load --geometry artifact: {error}")
-    if descriptor.name == "toroidal" and simulation_geometry.polar_angular_geometry is None:
+    if descriptor.name != "toroidal":
+        parser.error("the HSX backend requires a toroidal geometry artifact")
+    if simulation_geometry.polar_angular_geometry is None:
         parser.error("toroidal geometry artifacts must include the RLP topology")
     geometry_metadata = simulation_geometry.metadata
     resolution = tuple(int(value) for value in simulation_geometry.geometry.shape)
@@ -4497,8 +4234,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error(str(error))
     _configure_runtime_selectors(args)
     print(
-        "[simulation] flux_framework="
-        f"{args.flux_framework}; "
+        "[simulation] flux_framework=production-split; "
         "parallel_velocities=cell-centered; "
         f"parallel_flux_pairing={args.parallel_flux_pairing}; "
         f"parallel_characteristic_wall_law={args.parallel_characteristic_wall_law}; "
@@ -4508,21 +4244,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"parallel_short_leg_selection={args.parallel_short_leg_selection}",
         flush=True,
     )
-    if descriptor.name == "toroidal" and resolution[1] % 2:
+    if resolution[1] % 2:
         parser.error("toroidal global NTHETA must be even")
-    if args.square_agglomeration != "none" and descriptor.name != "square":
-        parser.error("--square-agglomeration applies only to square geometry")
-    if args.agglomeration_volume_ratio <= 1.0:
-        parser.error("--agglomeration-volume-ratio must be greater than one")
-    if (
-        args.agglomeration_rate_threshold is not None
-        and args.agglomeration_rate_threshold <= 0.0
-    ):
-        parser.error("--agglomeration-rate-threshold must be positive")
-    if not 0.0 < args.agglomeration_rk4_safety <= 1.0:
-        parser.error("--agglomeration-rk4-safety must lie in (0, 1]")
-    if args.parallel_operator_scheme == "fci" and descriptor.name != "toroidal":
-        parser.error("--parallel-operator-scheme=fci requires toroidal geometry")
     shard_counts = tuple(int(value) for value in args.shard_counts)
     if any(value < 1 for value in shard_counts):
         parser.error("--shard-counts entries must be positive")
@@ -4530,29 +4253,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error(
             "production sharding is eta-only; use --shard-counts 1 1 NETA_SHARDS"
         )
-    if descriptor.name == "toroidal":
-        if args.gmres_preconditioner not in ("none", "line-u"):
-            parser.error("toroidal RLP supports only --gmres-preconditioner none or line-u")
-        if args.poisson_bracket_scheme not in (
-            "compatible-flux",
-            "compatible-third-order-upwind",
-            "material-scalar-third-order-upwind",
-        ):
-            parser.error("toroidal RLP requires a compatible Poisson-bracket scheme")
-    if args.square_agglomeration == "corner-edge":
-        if args.time_integrator != "rk4":
-            parser.error("square corner-edge agglomeration currently requires --time-integrator=rk4")
-        if args.gmres_preconditioner != "line-u":
-            parser.error("square corner-edge agglomeration currently requires --gmres-preconditioner=line-u")
-        if args.poisson_bracket_scheme not in (
-            "compatible-flux",
-            "compatible-third-order-upwind",
-            "material-scalar-third-order-upwind",
-        ):
-            parser.error(
-                "square corner-edge agglomeration requires a compatible "
-                "Poisson-bracket scheme"
-            )
+    if args.gmres_preconditioner not in ("none", "line-u"):
+        parser.error("toroidal RLP supports only --gmres-preconditioner none or line-u")
+    if args.poisson_bracket_scheme not in (
+        "compatible-flux",
+        "compatible-third-order-upwind",
+        "material-scalar-third-order-upwind",
+    ):
+        parser.error("toroidal RLP requires a compatible Poisson-bracket scheme")
     for axis, (cell_count, shard_count) in enumerate(
         zip(resolution, shard_counts)
     ):
@@ -4605,30 +4313,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--fieldline-substeps-per-plane must be positive")
     if args.diagnostic_every < 0:
         parser.error("--diagnostic-every must be nonnegative")
-    requested_advance_execution = str(args.advance_execution)
-    args.advance_execution = _resolve_execution_mode(
-        requested_advance_execution,
-        work_items=int(args.num_steps),
-        auto_short_mode=(
-            "staged-compiled"
-            if args.time_integrator == "imex-ssp222"
-            else "eager"
-        ),
-    )
-    if (
-        args.advance_execution == "staged-compiled"
-        and args.time_integrator != "imex-ssp222"
-    ):
-        parser.error(
-            "--advance-execution staged-compiled requires "
-            "--time-integrator imex-ssp222"
-        )
-    if requested_advance_execution == "auto":
-        print(
-            "[simulation] auto-selected advance execution: "
-            f"{args.advance_execution} for {int(args.num_steps)} step(s)",
-            flush=True,
-        )
     if not 0.0 <= args.toroidal_perturbation_amplitude < 1.0:
         parser.error(
             "--toroidal-perturbation-amplitude must lie in [0, 1)"
@@ -4663,52 +4347,44 @@ def main(argv: Sequence[str] | None = None) -> None:
         periodic_axes=descriptor.periodic_axes,
         axis_regular_axes=descriptor.axis_regular_axes,
     )
-    owner_host_geometry = None
-    control_volume_descriptor = None
-    control_volume_fields = None
-    control_volume_boundary_bc = None
-    control_volume_assembler = None
     control_volume_field_count = RLP_PACKED_FIELD_COUNT
-    angular_profile_safety_ratio = None
-    if descriptor.name == "toroidal":
-        owner_host_geometry = simulation_geometry.polar_angular_geometry
-        angular_profile_safety_ratio = float(
-            geometry_metadata["angular_profile_safety_ratio"]
+    owner_host_geometry = simulation_geometry.polar_angular_geometry
+    angular_profile_safety_ratio = float(
+        geometry_metadata["angular_profile_safety_ratio"]
+    )
+    print(
+        f"[angular-rlp-host] profile={owner_host_geometry.angular_group_size.tolist()} "
+        f"minimum_width_ratio={angular_profile_safety_ratio:.6g}",
+        flush=True,
+    )
+    (
+        control_volume_descriptor,
+        control_volume_fields,
+    ) = build_sharded_polar_angular_agglomeration_payload(
+        owner_host_geometry,
+        sharded_geometry.domain,
+        compile_compact_transition_faces=False,
+    )
+    compact_transition_face_count = int(
+        getattr(control_volume_descriptor, "compact_face_count", 0)
+    )
+    control_volume_boundary_bc = empty_angular_agglomeration_boundary_bc(
+        max_rows=compact_transition_face_count
+    )
+    control_volume_assembler = assemble_local_polar_angular_agglomeration_geometry
+    print(
+        "[geometry] production eta-shardable angular RLP payload ready: "
+        f"owners={int(np.count_nonzero(owner_host_geometry.topology.is_active_owner))}, "
+        f"aliases={int(np.count_nonzero(owner_host_geometry.topology.is_merge_source))}, "
+        f"runtime_channels={RLP_PACKED_FIELD_COUNT}, "
+        f"compact_transition_faces={compact_transition_face_count}",
+        flush=True,
+    )
+    if not sharded_geometry.maps_valid or sharded_geometry.map_fields is None:
+        parser.error(
+            "FCI parallel operators require finite generated maps; "
+            "map generation or sharded lowering was invalid"
         )
-        print(
-            f"[angular-rlp-host] profile={owner_host_geometry.angular_group_size.tolist()} "
-            f"minimum_width_ratio={angular_profile_safety_ratio:.6g}",
-            flush=True,
-        )
-        (
-            control_volume_descriptor,
-            control_volume_fields,
-        ) = build_sharded_polar_angular_agglomeration_payload(
-            owner_host_geometry,
-            sharded_geometry.domain,
-            compile_compact_transition_faces=False,
-        )
-        compact_transition_face_count = int(
-            getattr(control_volume_descriptor, "compact_face_count", 0)
-        )
-        control_volume_boundary_bc = empty_angular_agglomeration_boundary_bc(
-            max_rows=compact_transition_face_count
-        )
-        control_volume_assembler = assemble_local_polar_angular_agglomeration_geometry
-        print(
-            "[geometry] production eta-shardable angular RLP payload ready: "
-            f"owners={int(np.count_nonzero(owner_host_geometry.topology.is_active_owner))}, "
-            f"aliases={int(np.count_nonzero(owner_host_geometry.topology.is_merge_source))}, "
-            f"runtime_channels={RLP_PACKED_FIELD_COUNT}, "
-            f"compact_transition_faces={compact_transition_face_count}",
-            flush=True,
-        )
-    if args.parallel_operator_scheme == "fci":
-        if not sharded_geometry.maps_valid or sharded_geometry.map_fields is None:
-            parser.error(
-                "FCI parallel operators require finite generated maps; "
-                "map generation or sharded lowering was invalid"
-            )
     domain = sharded_geometry.domain
     print(
         f"sharded geometry inputs ready in "
@@ -4778,91 +4454,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         vorticity_D_perp=diffusion,
         vorticity_D_parallel=parallel_diffusion,
     )
-    corner_edge_rate_threshold = None
-    corner_edge_characteristic_speed = None
-    if args.square_agglomeration == "corner-edge":
-        equilibrium_matrix = np.asarray(
-            parallel_characteristic_matrix(
-                jnp.asarray(1.0),
-                jnp.asarray(1.0),
-                jnp.asarray(1.0),
-                jnp.asarray(0.0),
-                jnp.asarray(0.0),
-                float(args.tau),
-                float(args.mi_over_me),
-            ),
-            dtype=np.float64,
-        )
-        corner_edge_characteristic_speed = float(
-            np.max(np.abs(np.linalg.eigvals(equilibrium_matrix)))
-        )
-        corner_edge_rate_threshold = (
-            float(args.agglomeration_rate_threshold)
-            if args.agglomeration_rate_threshold is not None
-            else (
-                float(args.agglomeration_rk4_safety)
-                * (2.0 * np.sqrt(2.0))
-                / (corner_edge_characteristic_speed * timestep)
-            )
-        )
-        owner_host_geometry = build_corner_edge_agglomeration(
-            global_geometry,
-            rate_threshold=corner_edge_rate_threshold,
-            volume_ratio=float(args.agglomeration_volume_ratio),
-        )
-        owner_index = np.asarray(
-            owner_host_geometry.topology.owner_index,
-            dtype=np.int32,
-        )
-        (
-            control_volume_descriptor,
-            control_volume_fields,
-        ) = build_sharded_plane_local_owner_map_payload(
-            owner_index[..., 0],
-            owner_index[..., 1],
-            owner_host_geometry.raw_volume,
-            owner_host_geometry.aggregate_chart_volume,
-            sharded_geometry.domain,
-        )
-        control_volume_boundary_bc = empty_angular_agglomeration_boundary_bc()
-        control_volume_assembler = assemble_local_plane_local_owner_map_geometry
-        control_volume_field_count = CORNER_EDGE_PACKED_FIELD_COUNT
-        topology = owner_host_geometry.topology
-        aggregate_targets = np.asarray(topology.is_active_owner) & (
-            np.asarray(topology.aggregate_volume)
-            > np.asarray(owner_host_geometry.raw_volume) * (1.0 + 1.0e-14)
-        )
-        member_count = np.bincount(
-            np.asarray(topology.aggregate_id, dtype=np.int64).ravel(),
-            minlength=int(np.prod(resolution)),
-        ).reshape(resolution)
-        active_group_sizes = member_count[aggregate_targets]
-        aggregate_volume_ratios = (
-            np.asarray(topology.aggregate_volume)[aggregate_targets]
-            / float(np.median(owner_host_geometry.raw_volume))
-        )
-        active_projected_rates = np.asarray(
-            owner_host_geometry.projected_parallel_rate
-        )[np.asarray(topology.is_active_owner)]
-        print(
-            "[corner-edge-rlp-host] "
-            f"characteristic_speed={corner_edge_characteristic_speed:.6g}, "
-            f"rate_threshold={corner_edge_rate_threshold:.6g}, "
-            f"seeds={int(np.count_nonzero(owner_host_geometry.seed_mask))}, "
-            f"aggregates={int(np.count_nonzero(aggregate_targets))}, "
-            f"aliases={int(np.count_nonzero(topology.is_merge_source))}, "
-            f"members={int(np.sum(active_group_sizes))}, "
-            f"group_size=[{int(np.min(active_group_sizes))},"
-            f"{int(np.max(active_group_sizes))}], "
-            f"volume_band=[{owner_host_geometry.target_volume_lower:.6e},"
-            f"{owner_host_geometry.target_volume_upper:.6e}], "
-            f"achieved_volume_ratio=[{float(np.min(aggregate_volume_ratios)):.6g},"
-            f"{float(np.max(aggregate_volume_ratios)):.6g}], "
-            f"projected_rate_max={float(np.max(active_projected_rates)):.6g}, "
-            f"preferred_upper_exceptions="
-            f"{int(np.count_nonzero(aggregate_volume_ratios > float(args.agglomeration_volume_ratio)))}",
-            flush=True,
-        )
     if not restart_used:
         initial_state = build_initial_state(
             global_geometry,
@@ -4942,14 +4533,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             flush=True,
         )
     print(
-        "[simulation] flux framework: "
-        f"{str(args.flux_framework)}"
-        + (
-            "; curvature split=production-path; parallel material=production-path"
-            "; characteristic solver=canonical-face-state"
-            if args.flux_framework == "production-split"
-            else ""
-        ),
+        "[simulation] flux framework: production-split"
+        "; curvature split=production-path; parallel material=production-path"
+        "; characteristic solver=canonical-face-state",
         flush=True,
     )
     print(
@@ -4958,8 +4544,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         flush=True,
     )
     print(
-        "[simulation] parallel operator scheme: "
-        f"{str(args.parallel_operator_scheme)}",
+        "[simulation] parallel operator scheme: fci",
         flush=True,
     )
     print(
@@ -5006,7 +4591,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         flush=True,
     )
     print(
-        f"[simulation] time integrator: {str(args.time_integrator)}",
+        "[simulation] time integrator: imex-ssp222",
         flush=True,
     )
     run_full_eb(
@@ -5025,8 +4610,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         gmres_residual_correction_steps=int(
             args.gmres_residual_correction_steps
         ),
-        parallel_operator_scheme=str(args.parallel_operator_scheme),
-        time_integrator=str(args.time_integrator),
+        parallel_operator_scheme="fci",
+        time_integrator="imex-ssp222",
         advance_execution=str(args.advance_execution),
         num_steps=int(args.num_steps),
         timestep=timestep,
@@ -5055,7 +4640,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "halo_width": int(args.halo_width),
             **{key: geometry_metadata.get(key) for key in GEOMETRY_PRODUCER_METADATA_KEYS},
             "fci_trace_substeps": geometry_metadata.get("trace_substeps"),
-            "parallel_operator_scheme": str(args.parallel_operator_scheme),
+            "parallel_operator_scheme": "fci",
             "parallel_flux_pairing": os.environ.get("DRBX_PARALLEL_FLUX_PAIRING", "legacy"),
             "parallel_characteristic_wall_law": str(args.parallel_characteristic_wall_law),
             "parallel_characteristic_wall_law_env": os.environ.get("DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"),
@@ -5100,9 +4685,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "electron_collision_frequency": float(
                 args.electron_collision_frequency
             ),
-            "time_integrator": str(args.time_integrator),
+            "time_integrator": "imex-ssp222",
             "advance_execution": str(args.advance_execution),
-            "advance_execution_requested": requested_advance_execution,
             "advance_execution_kernel_layout": (
                 (
                     "implicit-short-leg-plus-phi",
@@ -5113,19 +4697,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if args.advance_execution == "staged-compiled"
                 else ("monolithic-advance",)
             ),
-            "flux_framework": str(args.flux_framework),
-            "flux_framework_env": os.environ.get("DRBX_FLUX_FRAMEWORK", "legacy"),
-            "flux_framework_source": "simulate_hsx_blob.py:--flux-framework",
-            "production_characteristic_solver": (
-                "canonical-face-state"
-                if args.flux_framework == "production-split"
-                else None
-            ),
-            "production_characteristic_solver_source": (
-                "fixed production method"
-                if args.flux_framework == "production-split"
-                else None
-            ),
+            "flux_framework": "production-split",
+            "flux_framework_env": os.environ.get("DRBX_FLUX_FRAMEWORK", "production-split"),
+            "flux_framework_source": "fixed production configuration",
+            "production_characteristic_solver": "canonical-face-state",
+            "production_characteristic_solver_source": "fixed production method",
             "curvature_operator": "production-characteristic-owner-face",
             "curvature_operator_source": "fixed production method",
             "parallel_material_scheme": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME"),
@@ -5157,76 +4733,27 @@ def main(argv: Sequence[str] | None = None) -> None:
                 args.parallel_velocity_wall_bc
             ),
             "poisson_bracket_scheme": str(args.poisson_bracket_scheme),
-            "axis_treatment": (
-                "radius-dependent-angular-rlp"
-                if descriptor.name == "toroidal"
-                else (
-                    "square-corner-edge-rlp"
-                    if args.square_agglomeration == "corner-edge"
-                    else "none"
-                )
-            ),
-            "angular_owner_profile": (
-                "geometry-artifact" if descriptor.name == "toroidal" else "none"
-            ),
-            "angular_group_sizes": (
-                None
-                if descriptor.name != "toroidal"
-                else [
-                    int(v)
-                    for v in np.asarray(
-                        owner_host_geometry.angular_group_size
-                    ).tolist()
-                ]
-            ),
+            "axis_treatment": "radius-dependent-angular-rlp",
+            "angular_owner_profile": "geometry-artifact",
+            "angular_group_sizes": [
+                int(v)
+                for v in np.asarray(
+                    owner_host_geometry.angular_group_size
+                ).tolist()
+            ],
             "angular_profile_safety_ratio": angular_profile_safety_ratio,
-            "angular_owner_count": (
-                None
-                if descriptor.name != "toroidal"
-                else int(
-                    np.count_nonzero(owner_host_geometry.topology.is_active_owner)
-                )
+            "angular_owner_count": int(
+                np.count_nonzero(owner_host_geometry.topology.is_active_owner)
             ),
-            "angular_alias_count": (
-                None
-                if descriptor.name != "toroidal"
-                else int(
-                    np.count_nonzero(owner_host_geometry.topology.is_merge_source)
-                )
-            ),
-            "square_agglomeration": str(args.square_agglomeration),
-            "corner_edge_volume_ratio": float(args.agglomeration_volume_ratio),
-            "corner_edge_rate_threshold": corner_edge_rate_threshold,
-            "corner_edge_characteristic_speed": corner_edge_characteristic_speed,
-            "corner_edge_seed_count": (
-                None
-                if args.square_agglomeration != "corner-edge"
-                else int(np.count_nonzero(owner_host_geometry.seed_mask))
-            ),
-            "corner_edge_owner_count": (
-                None
-                if args.square_agglomeration != "corner-edge"
-                else int(
-                    np.count_nonzero(owner_host_geometry.topology.is_active_owner)
-                )
-            ),
-            "corner_edge_alias_count": (
-                None
-                if args.square_agglomeration != "corner-edge"
-                else int(
-                    np.count_nonzero(owner_host_geometry.topology.is_merge_source)
-                )
+            "angular_alias_count": int(
+                np.count_nonzero(owner_host_geometry.topology.is_merge_source)
             ),
         },
         reconstruct_initial_phi=not restart_used,
         neumann_ghost_scheme=str(args.neumann_ghost_scheme),
         parallel_velocity_wall_bc=str(args.parallel_velocity_wall_bc),
         poisson_bracket_scheme=str(args.poisson_bracket_scheme),
-        parallel_material_scheme=(
-            "production-path"
-            if str(args.flux_framework) == "production-split"
-            else "legacy"
-        ),
+        parallel_material_scheme="production-path",
         control_volume_descriptor=control_volume_descriptor,
         control_volume_fields_host=control_volume_fields,
         control_volume_boundary_bc=control_volume_boundary_bc,

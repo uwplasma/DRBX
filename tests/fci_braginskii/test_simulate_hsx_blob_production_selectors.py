@@ -50,17 +50,10 @@ def _driver_module():
 
 
 def _production_args(driver, *extra: str):
-    return driver._build_parser().parse_args(
-        (
-            "--flux-framework",
-            "production-split",
-            "--parallel-operator-scheme",
-            "fci",
-            "--parallel-flux-pairing",
-            "support-core",
-            *extra,
-        )
-    )
+    # The driver's defaults already select the sole production-split /
+    # FCI / IMEX-SSP222 configuration, so extra only needs to override the
+    # option(s) a given test cares about.
+    return driver._build_parser().parse_args(extra)
 
 
 def test_canonical_driver_is_tracked_at_repository_root():
@@ -69,18 +62,14 @@ def test_canonical_driver_is_tracked_at_repository_root():
     assert (DRIVER.parent / "src" / "drbx").is_dir()
 
 
-def test_source_stage_times_match_integrator_and_cache_rk4_midpoint():
+def test_source_stage_times_match_imex_integrator_and_reject_rk4():
     driver = _driver_module()
-    assert driver._explicit_source_stage_times("rk4", 0.25, 0.1) == (
-        0.25,
-        0.3,
-        0.3,
-        0.35,
-    )
     assert driver._explicit_source_stage_times("imex-ssp222", 0.25, 0.1) == (
         0.25,
         0.35,
     )
+    with pytest.raises(ValueError, match="unsupported time integrator"):
+        driver._explicit_source_stage_times("rk4", 0.25, 0.1)
 
 
 def test_run_full_eb_source_hook_is_optional_and_stage_sharded():
@@ -257,39 +246,14 @@ def test_wall_law_metadata_is_conditional_and_provenance_is_explicit():
         "physical-face-trace-live-characteristic-split"
     )
 
-@pytest.mark.parametrize(
-    ("extra", "message"),
-    (
-        (
-            ("--flux-framework", "legacy"),
-            "production-path",
-        ),
-        (
-            (),
-            "characteristic-sat",
-        ),
-    ),
-)
-def test_energy_absorbing_wall_law_rejects_incompatible_selectors(
-    extra, message
-):
+def test_energy_absorbing_wall_law_rejects_incompatible_boundary_pairing():
     driver = _driver_module()
     args = _production_args(
         driver,
         "--parallel-characteristic-wall-law",
         "energy-absorbing",
-        *extra,
     )
-    with pytest.raises(ValueError, match=message):
-        driver._validate_flux_framework(args)
-
-
-def test_support_core_validation_uses_native_arguments():
-    driver = _driver_module()
-    args = driver._build_parser().parse_args(
-        ("--parallel-flux-pairing", "support-core")
-    )
-    with pytest.raises(ValueError, match="parallel-operator-scheme fci"):
+    with pytest.raises(ValueError, match="characteristic-sat"):
         driver._validate_flux_framework(args)
 
 
@@ -301,8 +265,6 @@ def test_native_configuration_exports_only_live_short_leg_selectors():
         "characteristic-sat",
         "--parallel-short-leg-treatment",
         "local-backward-euler",
-        "--time-integrator",
-        "imex-ssp222",
         "--parallel-short-leg-cfl-limit",
         "2.25",
     )
@@ -337,7 +299,6 @@ def test_all_physical_walls_requires_production_be_configuration(override):
         "--parallel-short-leg-treatment", "local-backward-euler",
         "--parallel-characteristic-wall-law", "energy-absorbing",
         "--parallel-boundary-pairing", "characteristic-sat",
-        "--time-integrator", "imex-ssp222",
         *override,
     )
     with pytest.raises(ValueError):
@@ -355,7 +316,6 @@ def test_all_physical_walls_exports_selection_without_inf_sentinel(wall_law):
         "--parallel-short-leg-treatment", "local-backward-euler",
         "--parallel-characteristic-wall-law", wall_law,
         "--parallel-boundary-pairing", "characteristic-sat",
-        "--time-integrator", "imex-ssp222",
     )
     driver._validate_flux_framework(args)
     driver._configure_runtime_selectors(args)
@@ -378,59 +338,26 @@ def test_short_leg_split_is_native_to_compiled_imex_source():
     assert "IMEX_SSP222_GAMMA" in source
 
 
-def test_short_leg_handoff_rejects_poststep_rk4_and_requires_imex():
+def test_short_leg_treatment_requires_local_backward_euler():
     driver = _driver_module()
-    rk4 = _production_args(
+    explicit_treatment = _production_args(
         driver,
         "--parallel-boundary-pairing", "characteristic-sat",
-        "--parallel-short-leg-treatment", "local-backward-euler",
-    )
-    with pytest.raises(ValueError, match="imex-ssp222"):
-        driver._validate_flux_framework(rk4)
-
-    imex_without_split = _production_args(
-        driver,
-        "--parallel-boundary-pairing", "characteristic-sat",
-        "--time-integrator", "imex-ssp222",
+        "--parallel-short-leg-treatment", "explicit",
     )
     with pytest.raises(ValueError, match="local-backward-euler"):
-        driver._validate_flux_framework(imex_without_split)
+        driver._validate_flux_framework(explicit_treatment)
 
 
-def test_execution_mode_auto_supports_staged_short_imex_and_compiled_batches():
-    driver = _driver_module()
-    assert driver._resolve_execution_mode("auto", work_items=1) == "eager"
-    assert driver._resolve_execution_mode("auto", work_items=20) == "eager"
-    assert driver._resolve_execution_mode("auto", work_items=99) == "eager"
-    assert driver._resolve_execution_mode(
-        "auto", work_items=20, auto_short_mode="staged-compiled"
-    ) == "staged-compiled"
-    assert driver._resolve_execution_mode("auto", work_items=100) == "compiled"
-    assert driver._resolve_execution_mode("auto", work_items=600) == "compiled"
-    assert driver._resolve_execution_mode("eager", work_items=20) == "eager"
-    assert driver._resolve_execution_mode("compiled", work_items=1) == "compiled"
-    assert driver._resolve_execution_mode(
-        "staged-compiled", work_items=1
-    ) == "staged-compiled"
-    with pytest.raises(ValueError, match="positive work_items"):
-        driver._resolve_execution_mode("auto", work_items=0)
-    with pytest.raises(ValueError, match="auto_short_mode"):
-        driver._resolve_execution_mode(
-            "auto", work_items=20, auto_short_mode="unknown"
-        )
-
-
-def test_time_advance_exposes_true_eager_mode_and_auto_default():
+def test_time_advance_exposes_true_eager_mode_and_staged_compiled_default():
     driver = _driver_module()
     parser = driver._build_parser()
     args = parser.parse_args(())
-    assert args.advance_execution == "auto"
+    assert args.advance_execution == "staged-compiled"
     action = next(
         action for action in parser._actions if action.dest == "advance_execution"
     )
-    assert tuple(action.choices) == (
-        "auto", "compiled", "staged-compiled", "eager"
-    )
+    assert tuple(action.choices) == ("compiled", "staged-compiled", "eager")
     source = DRIVER.read_text(encoding="utf-8")
     assert "with jax.disable_jit(advance_execution == \"eager\")" in source
     assert "compiled_advance = sharded_advance" in source

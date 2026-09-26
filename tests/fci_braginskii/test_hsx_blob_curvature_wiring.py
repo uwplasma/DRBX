@@ -81,7 +81,7 @@ def test_hsx_gmres_cli_separates_target_and_acceptance_with_legacy_alias():
     )
 
 
-def test_hsx_rk4_returns_replicated_solvax_diagnostics():
+def test_hsx_imex_returns_replicated_solvax_diagnostics():
     source = DRIVER_PATH.read_text()
     run_source = ast.get_source_segment(
         source,
@@ -93,8 +93,6 @@ def test_hsx_rk4_returns_replicated_solvax_diagnostics():
     assert "info.final_residual_rel_l2" in source
     assert "info.failed" in source
     assert "gmres_info_2" in run_source
-    assert "gmres_info_3" in run_source
-    assert "gmres_info_4" in run_source
     assert "gmres_info_next" in run_source
     assert "gmres_stage_diagnostics" in run_source
     assert "gmres_iterations =" in run_source

@@ -41,10 +41,6 @@ from .fci_halo import (
 )
 from .fci_operators import (
     LocalPerpLaplacianInverseSolver,
-    local_grad_parallel_op_conservative,
-    local_parallel_div_b_op,
-    local_parallel_flux_div_op,
-    local_parallel_laplacian_conservative_op,
     local_parallel_q_flux_div_fci_op,
     local_parallel_div_b_fci_from_q_op,
     local_grad_parallel_op_fci_compatible_from_q,
@@ -571,10 +567,6 @@ class LocalFciDrbEBRhs:
     # wall/RLP fallbacks without a tunable penalty. ``direct`` preserves the
     # reconstructed cell-gradient path.
     poisson_bracket_scheme: str = "direct"
-    # Select the parallel operator family.  This is intentionally a static
-    # Python option so JIT compilation cannot silently mix coordinate and FCI
-    # discretizations within one compiled RHS.
-    parallel_operator_scheme: str = "coordinate"
     # Experimental cell-centred FCI flux divergence pairing.  ``legacy``
     # preserves the established pointwise mapped divergence exactly.  The
     # support-core variant is deliberately opt-in while its support contract
@@ -696,23 +688,10 @@ class LocalFciDrbEBRhs:
                     "projected-owner RLP supports eta-only decomposition; radial and "
                     "poloidal shard counts must both be one"
                 )
-        if self.parallel_operator_scheme not in ("coordinate", "fci"):
-            raise ValueError(
-                "parallel_operator_scheme must be 'coordinate' or 'fci', got "
-                f"{self.parallel_operator_scheme!r}"
-            )
         if self.parallel_material_scheme not in ("legacy", "production-path"):
             raise ValueError(
                 "parallel_material_scheme must be 'legacy' or 'production-path', got "
                 f"{self.parallel_material_scheme!r}"
-            )
-        if (
-            self.parallel_material_scheme == "production-path"
-            and self.parallel_operator_scheme != "fci"
-        ):
-            raise ValueError(
-                "parallel_material_scheme='production-path' requires "
-                "parallel_operator_scheme='fci'"
             )
         if (
             self.parallel_material_scheme == "production-path"
@@ -767,22 +746,11 @@ class LocalFciDrbEBRhs:
             )
         if (
             self.parallel_boundary_pairing == "characteristic-sat"
-            and (
-                self.parallel_material_scheme != "production-path"
-                or self.parallel_operator_scheme != "fci"
-            )
+            and self.parallel_material_scheme != "production-path"
         ):
             raise ValueError(
                 "parallel_boundary_pairing='characteristic-sat' requires "
                 "the production FCI path"
-            )
-        if (
-            self.parallel_flux_pairing == "support-core"
-            and self.parallel_operator_scheme != "fci"
-        ):
-            raise ValueError(
-                "parallel_flux_pairing='support-core' requires "
-                "parallel_operator_scheme='fci'"
             )
         if self.parallel_short_leg_treatment not in (
             "explicit", "local-backward-euler"
@@ -816,31 +784,25 @@ class LocalFciDrbEBRhs:
                     "local-backward-euler short-leg treatment requires "
                     "parallel_material_scheme='production-path'"
                 )
-            if self.parallel_operator_scheme != "fci":
+        maps = self.geometry.maps
+        # This constructor may run under shard_map/jit.  Map activity is
+        # an array payload in that context, so Python bool(jnp.any(...))
+        # would trigger concretization.  Keep only structural checks here;
+        # the host-side sharding driver validates maps_valid before it
+        # enters shard_map.
+        if maps.mode not in ("local_halo_only", "remote_dependencies"):
+            raise ValueError(
+                "the FCI parallel operator requires a valid FCI map mode"
+            )
+        for direction_name, direction in (
+            ("forward", maps.forward),
+            ("backward", maps.backward),
+        ):
+            if direction.local.max_entries < 1:
                 raise ValueError(
-                    "local-backward-euler short-leg treatment requires "
-                    "parallel_operator_scheme='fci'"
+                    "the FCI parallel operator requires a nonempty "
+                    f"{direction_name} local map table"
                 )
-        if self.parallel_operator_scheme == "fci":
-            maps = self.geometry.maps
-            # This constructor may run under shard_map/jit.  Map activity is
-            # an array payload in that context, so Python bool(jnp.any(...))
-            # would trigger concretization.  Keep only structural checks here;
-            # the host-side sharding driver validates maps_valid before it
-            # enters shard_map.
-            if maps.mode not in ("local_halo_only", "remote_dependencies"):
-                raise ValueError(
-                    "parallel_operator_scheme='fci' requires a valid FCI map mode"
-                )
-            for direction_name, direction in (
-                ("forward", maps.forward),
-                ("backward", maps.backward),
-            ):
-                if direction.local.max_entries < 1:
-                    raise ValueError(
-                        f"parallel_operator_scheme='fci' requires a nonempty "
-                        f"{direction_name} local map table"
-                    )
         if self.curvature_face_coefficients is None:
             raise ValueError(
                 "curvature_face_coefficients are required for the production "
@@ -1202,30 +1164,6 @@ class LocalFciDrbEBRhs:
             self.geometry,
             self.domain,
             face_projectors=self.face_projectors,
-            face_bc=face_bc,
-            regular_face_geometry=self.geometry.regular_face_geometry,
-            axis_regular_axes=self.axis_regular_axes,
-            neumann_normal_scheme=self.neumann_normal_scheme,
-        )
-
-    def _field_parallel_diffusion(
-        self,
-        field_halo: jnp.ndarray,
-        face_bc: LocalBoundaryFaceBC3D,
-        coefficient: float,
-    ) -> jnp.ndarray:
-        if float(coefficient) == 0.0:
-            return jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
-        context = self._stencil_builder_context()
-        conservative = build_local_conservative_stencil_from_field(
-            field_halo,
-            self.geometry,
-            context,
-        )
-        return jnp.asarray(coefficient, dtype=jnp.float64) * local_parallel_laplacian_conservative_op(
-            conservative,
-            self.geometry,
-            self.domain,
             face_bc=face_bc,
             regular_face_geometry=self.geometry.regular_face_geometry,
             axis_regular_axes=self.axis_regular_axes,
@@ -2329,122 +2267,6 @@ class LocalFciDrbEBRhs:
         # experiments and are intentionally no longer routed here.
         return operator_boundary
 
-    def _coordinate_stage_parallel_terms(
-        self,
-        *,
-        state_halo: FciDrbEBState,
-        context: StencilBuilderContext,
-        operator_boundary: LocalFciDrbEBOperatorBoundaryBundle,
-        parallel_boundary: LocalFciDrbEBOperatorBoundaryBundle,
-        parallel_div_b: jnp.ndarray,
-        density_flux_stencil: ConservativeStencil3D,
-        current_stencil: ConservativeStencil3D,
-        Ve_stencil: ConservativeStencil3D,
-        Vi_stencil: ConservativeStencil3D,
-        Te_stencil: ConservativeStencil3D,
-        Ti_stencil: ConservativeStencil3D,
-        phi_stencil: ConservativeStencil3D,
-        Pe_stencil: ConservativeStencil3D,
-        pressure_stencil: ConservativeStencil3D,
-        vorticity_stencil: ConservativeStencil3D,
-    ) -> dict[str, jnp.ndarray]:
-        """Evaluate the pre-existing coordinate parallel stage operators."""
-
-        operator_kwargs = dict(
-            regular_face_geometry=self.geometry.regular_face_geometry,
-            axis_regular_axes=self.axis_regular_axes,
-        )
-        density_flux_div = local_parallel_flux_div_op(
-            density_flux_stencil, self.geometry, self.domain,
-            boundary_trace=parallel_boundary.density_flux,
-            **operator_kwargs
-        )
-        current_flux_div = local_parallel_flux_div_op(
-            current_stencil, self.geometry, self.domain,
-            boundary_trace=parallel_boundary.current,
-            **operator_kwargs
-        )
-        vorticity_current_flux_div = local_parallel_flux_div_op(
-            current_stencil, self.geometry, self.domain,
-            boundary_trace=operator_boundary.current,
-            **operator_kwargs
-        )
-        Vi_stencil = build_local_conservative_stencil_from_field(
-            state_halo.Vi, self.geometry, context
-        )
-        parallel_Vi_flux_div = local_parallel_flux_div_op(
-            Vi_stencil, self.geometry, self.domain,
-            boundary_trace=parallel_boundary.Vi,
-            **operator_kwargs
-        )
-        Ve_flux_div = local_parallel_flux_div_op(
-            Ve_stencil, self.geometry, self.domain,
-            boundary_trace=parallel_boundary.Ve,
-            **operator_kwargs
-        )
-        grad_Te = local_grad_parallel_op_conservative(
-            Te_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.Te,
-            **operator_kwargs
-        )
-        grad_Ti = local_grad_parallel_op_conservative(
-            Ti_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.Ti,
-            **operator_kwargs
-        )
-        grad_Ve = local_grad_parallel_op_conservative(
-            Ve_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.Ve,
-            **operator_kwargs
-        )
-        grad_Vi = local_grad_parallel_op_conservative(
-            Vi_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.Vi,
-            **operator_kwargs
-        )
-        grad_phi = local_grad_parallel_op_conservative(
-            phi_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=operator_boundary.phi,
-            **operator_kwargs
-        )
-        grad_Pe = local_grad_parallel_op_conservative(
-            Pe_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.Pe,
-            **operator_kwargs
-        )
-        grad_pressure = local_grad_parallel_op_conservative(
-            pressure_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.pressure,
-            **operator_kwargs
-        )
-        grad_current = local_grad_parallel_op_conservative(
-            current_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=parallel_boundary.current,
-            **operator_kwargs
-        )
-        grad_vorticity = local_grad_parallel_op_conservative(
-            vorticity_stencil, self.geometry, self.domain, div_b=parallel_div_b,
-            boundary_trace=operator_boundary.vorticity,
-            **operator_kwargs
-        )
-        return {
-            "parallel_div_b": parallel_div_b,
-            "density_flux_div": density_flux_div,
-            "current_flux_div": current_flux_div,
-            "vorticity_current_flux_div": vorticity_current_flux_div,
-            "parallel_Vi_flux_div": parallel_Vi_flux_div,
-            "Ve_flux_div": Ve_flux_div,
-            "grad_Te": grad_Te,
-            "grad_Ti": grad_Ti,
-            "grad_Ve": grad_Ve,
-            "grad_Vi": grad_Vi,
-            "grad_phi": grad_phi,
-            "grad_Pe": grad_Pe,
-            "grad_pressure": grad_pressure,
-            "grad_current": grad_current,
-            "grad_vorticity": grad_vorticity,
-        }
-
     def _reconstruct_phi_from_prepared(
         self,
         state_owned: FciDrbEBState,
@@ -2648,7 +2470,7 @@ class LocalFciDrbEBRhs:
                 "apply_short_leg_implicit_material_step requires "
                 "parallel_short_leg_treatment='local-backward-euler'"
             )
-        if self.parallel_material_scheme != "production-path" or self.parallel_operator_scheme != "fci":
+        if self.parallel_material_scheme != "production-path":
             raise ValueError(
                 "short-leg implicit material step requires the production FCI path"
             )
@@ -2931,20 +2753,16 @@ class LocalFciDrbEBRhs:
             state_halo=state_halo,
             operator_boundary=operator_boundary,
         )
-        fci_parallel_terms = (
-            self._fci_parallel_terms(
-                state_halo=state_halo,
-                face_bc=face_bc,
-                operator_boundary=operator_boundary,
-                parallel_boundary=parallel_boundary,
-                context=context,
-                short_leg_selection_dt=short_leg_selection_dt,
-                return_electron_force_diagnostics=(
-                    return_parallel_material_component_fields
-                ),
-            )
-            if self.parallel_operator_scheme == "fci"
-            else None
+        fci_parallel_terms = self._fci_parallel_terms(
+            state_halo=state_halo,
+            face_bc=face_bc,
+            operator_boundary=operator_boundary,
+            parallel_boundary=parallel_boundary,
+            context=context,
+            short_leg_selection_dt=short_leg_selection_dt,
+            return_electron_force_diagnostics=(
+                return_parallel_material_component_fields
+            ),
         )
         Vi_perp_halo = state_halo.Vi
         Ve_perp_halo = state_halo.Ve
@@ -3030,21 +2848,7 @@ class LocalFciDrbEBRhs:
             self.geometry,
             context,
         )
-        if self.parallel_operator_scheme == "coordinate":
-            unit_conservative_stencil = build_local_conservative_stencil_from_field(
-                jnp.ones_like(state_halo.density, dtype=jnp.float64),
-                self.geometry,
-                context,
-            )
-            parallel_div_b = local_parallel_div_b_op(
-                unit_conservative_stencil,
-                self.geometry,
-                self.domain,
-                regular_face_geometry=self.geometry.regular_face_geometry,
-                axis_regular_axes=self.axis_regular_axes,
-            )
-        else:
-            parallel_div_b = fci_parallel_terms["parallel_div_b"]
+        parallel_div_b = fci_parallel_terms["parallel_div_b"]
 
         owned = self.domain.layout.owned_slices_cell
         density = jnp.asarray(state_halo.density[owned], dtype=jnp.float64)
@@ -3093,44 +2897,12 @@ class LocalFciDrbEBRhs:
             face_bc.vorticity,
             self.parameters.vorticity_D_perp,
         )
-        if self.parallel_operator_scheme == "coordinate":
-            density_parallel_diff = self._field_parallel_diffusion(
-                state_halo.density,
-                face_bc.density,
-                self.parameters.density_D_parallel,
-            )
-            Te_parallel_diff = self._field_parallel_diffusion(
-                state_halo.Te,
-                face_bc.Te,
-                self.parameters.electron_temperature_chi_parallel,
-            )
-            Ti_parallel_diff = self._field_parallel_diffusion(
-                state_halo.Ti,
-                face_bc.Ti,
-                self.parameters.ion_temperature_chi_parallel,
-            )
-            Vi_parallel_diff = self._field_parallel_diffusion(
-                state_halo.Vi,
-                face_bc.Vi,
-                self.parameters.Vi_parallel_viscosity,
-            )
-            Ve_parallel_diff = self._field_parallel_diffusion(
-                state_halo.Ve,
-                face_bc.Ve,
-                self.parameters.Ve_parallel_viscosity,
-            )
-            vorticity_parallel_diff = self._field_parallel_diffusion(
-                state_halo.vorticity,
-                face_bc.vorticity,
-                self.parameters.vorticity_D_parallel,
-            )
-        else:
-            density_parallel_diff = fci_parallel_terms["density_parallel_diff"]
-            Te_parallel_diff = fci_parallel_terms["Te_parallel_diff"]
-            Ti_parallel_diff = fci_parallel_terms["Ti_parallel_diff"]
-            Vi_parallel_diff = fci_parallel_terms["Vi_parallel_diff"]
-            Ve_parallel_diff = fci_parallel_terms["Ve_parallel_diff"]
-            vorticity_parallel_diff = fci_parallel_terms["vorticity_parallel_diff"]
+        density_parallel_diff = fci_parallel_terms["density_parallel_diff"]
+        Te_parallel_diff = fci_parallel_terms["Te_parallel_diff"]
+        Ti_parallel_diff = fci_parallel_terms["Ti_parallel_diff"]
+        Vi_parallel_diff = fci_parallel_terms["Vi_parallel_diff"]
+        Ve_parallel_diff = fci_parallel_terms["Ve_parallel_diff"]
+        vorticity_parallel_diff = fci_parallel_terms["vorticity_parallel_diff"]
         poisson_density = self._poisson_bracket_over_B(
             phi_gradient,
             density_gradient,
@@ -3190,26 +2962,7 @@ class LocalFciDrbEBRhs:
             equation_family="vorticity",
         )
 
-        if self.parallel_operator_scheme == "coordinate":
-            stage_parallel_terms = self._coordinate_stage_parallel_terms(
-                state_halo=state_halo,
-                context=context,
-                operator_boundary=operator_boundary,
-                parallel_boundary=parallel_boundary,
-                parallel_div_b=parallel_div_b,
-                density_flux_stencil=density_flux_conservative_stencil,
-                current_stencil=current_conservative_stencil,
-                Ve_stencil=Ve_conservative_stencil,
-                Vi_stencil=Vi_conservative_stencil,
-                Te_stencil=Te_conservative_stencil,
-                Ti_stencil=Ti_conservative_stencil,
-                phi_stencil=phi_conservative_stencil,
-                Pe_stencil=Pe_conservative_stencil,
-                pressure_stencil=pressure_conservative_stencil,
-                vorticity_stencil=vorticity_conservative_stencil,
-            )
-        else:
-            stage_parallel_terms = fci_parallel_terms
+        stage_parallel_terms = fci_parallel_terms
         parallel_density_flux_divergence = stage_parallel_terms["density_flux_div"]
         parallel_current_flux_divergence = stage_parallel_terms["current_flux_div"]
         vorticity_current_flux_divergence = stage_parallel_terms[
