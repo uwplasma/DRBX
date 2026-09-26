@@ -12,7 +12,7 @@ from typing import Any
 import jax
 import numpy as np
 
-__all__ = ["host_bool", "host_float", "host_asarray"]
+__all__ = ["host_bool", "host_asarray"]
 
 
 class _ConstantMessage:
@@ -29,22 +29,11 @@ class _TracedArrayError(_ConstantMessage, jax.errors.TracerArrayConversionError)
     pass
 
 
-class _TracedConcretizationError(_ConstantMessage, jax.errors.ConcretizationTypeError):
-    pass
-
-
 def host_bool(value: Any) -> bool:
     """``bool(value)``; raises a cheap ``TracerBoolConversionError`` for tracers."""
     if isinstance(value, jax.core.Tracer):
         raise _TracedBoolError()
     return bool(value)
-
-
-def host_float(value: Any) -> float:
-    """``float(value)``; raises a cheap ``ConcretizationTypeError`` for tracers."""
-    if isinstance(value, jax.core.Tracer):
-        raise _TracedConcretizationError()
-    return float(value)
 
 
 def host_asarray(value: Any, *args: Any, **kwargs: Any) -> np.ndarray:
