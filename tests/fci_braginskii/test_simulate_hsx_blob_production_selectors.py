@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 import ast
-import os
 from pathlib import Path
 import sys
 
@@ -22,22 +21,6 @@ from drbx.fci_braginskii.geometry.fci_geometry import (
 DRIVER = Path(__file__).resolve().parents[2] / "simulate_hsx_blob.py"
 
 
-@pytest.fixture(autouse=True)
-def _restore_drbx_environment():
-    """Keep runtime-selector exports local to each driver contract test."""
-
-    original = {
-        key: value for key, value in os.environ.items() if key.startswith("DRBX_")
-    }
-    try:
-        yield
-    finally:
-        for key in tuple(os.environ):
-            if key.startswith("DRBX_"):
-                os.environ.pop(key, None)
-        os.environ.update(original)
-
-
 def _driver_module():
     spec = importlib.util.spec_from_file_location(
         "simulate_hsx_blob_production_selectors", DRIVER
@@ -47,13 +30,6 @@ def _driver_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def _production_args(driver, *extra: str):
-    # The driver's defaults already select the sole production-split /
-    # FCI / IMEX-SSP222 configuration, so extra only needs to override the
-    # option(s) a given test cares about.
-    return driver._build_parser().parse_args(extra)
 
 
 def test_canonical_driver_is_tracked_at_repository_root():
@@ -75,7 +51,7 @@ def test_source_stage_times_match_imex_integrator_and_reject_rk4():
 def test_run_full_eb_source_hook_is_optional_and_stage_sharded():
     source = DRIVER.read_text()
     run_start = source.index("def run_full_eb(")
-    run_end = source.index("def _validate_flux_framework", run_start)
+    run_end = source.index("def _parallel_characteristic_wall_metadata", run_start)
     run_source = source[run_start:run_end]
     assert "source_evaluator: Callable[[float], FciDrbEBState] | None = None" in run_source
     assert "source_spec = P(None, \"x\", \"y\", \"z\")" in run_source
@@ -87,264 +63,49 @@ def test_run_full_eb_source_hook_is_optional_and_stage_sharded():
     assert "stage_2, stage_2.phi, model, source_2" in run_source
 
 
-def test_parser_production_selector_contract():
+def test_parser_exposes_no_removed_production_selector_flags():
     driver = _driver_module()
     parser = driver._build_parser()
     args = parser.parse_args(())
-    driver._validate_flux_framework(args)
-    boundary_action = next(
-        action
-        for action in driver._build_parser()._actions
-        if action.dest == "parallel_boundary_pairing"
-    )
-    assert tuple(boundary_action.choices) == (
-        "legacy",
-        "current-phi",
-        "characteristic-sat",
-    )
-    wall_law_action = next(
-        action
-        for action in driver._build_parser()._actions
-        if action.dest == "parallel_characteristic_wall_law"
-    )
-    assert tuple(wall_law_action.choices) == (
-        "primitive-least-residual",
-        "energy-absorbing",
-        "physical-boundary-state",
-    )
-    assert wall_law_action.default == "primitive-least-residual"
-    selection_action = next(
-        action for action in driver._build_parser()._actions
-        if action.dest == "parallel_short_leg_selection"
-    )
-    assert tuple(selection_action.choices) == ("cfl", "all-physical-walls")
-    assert selection_action.default == "cfl"
-    assert all(
-        action.dest != "curvature_wall_flux_closure"
-        for action in driver._build_parser()._actions
-    )
-    poisson_action = next(
-        action
-        for action in driver._build_parser()._actions
-        if action.dest == "poisson_bracket_scheme"
-    )
-    assert "compatible-third-order-upwind" in tuple(poisson_action.choices)
+    for removed in (
+        "parallel_flux_pairing",
+        "parallel_boundary_pairing",
+        "parallel_characteristic_wall_law",
+        "parallel_short_leg_treatment",
+        "parallel_short_leg_selection",
+        "parallel_short_leg_cfl_limit",
+        "poisson_bracket_scheme",
+    ):
+        assert not hasattr(args, removed)
+        assert all(
+            action.dest != removed for action in parser._actions
+        )
 
 
-def test_production_accepts_characteristic_poisson_bracket():
+def test_wall_law_metadata_is_the_fixed_physical_boundary_state_contract():
     driver = _driver_module()
-    args = _production_args(
-        driver,
-        "--poisson-bracket-scheme",
-        "compatible-third-order-upwind",
-    )
-    driver._validate_flux_framework(args)
-
-
-def test_fresh_production_trajectory_accepts_characteristic_sat():
-    driver = _driver_module()
-    args = _production_args(
-        driver,
-        "--parallel-boundary-pairing",
-        "characteristic-sat",
-    )
-    driver._validate_flux_framework(args)
-    driver._configure_runtime_selectors(args)
-    assert driver.os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] == "characteristic-sat"
-
-
-def test_fresh_production_trajectory_rejects_legacy_boundary_pairing():
-    driver = _driver_module()
-    args = _production_args(
-        driver,
-        "--parallel-boundary-pairing",
-        "legacy",
-    )
-    with pytest.raises(ValueError, match="current-phi or characteristic-sat"):
-        driver._validate_flux_framework(args)
-
-
-def test_energy_absorbing_wall_law_is_exported_for_compatible_production_path(
-    monkeypatch,
-):
-    driver = _driver_module()
-    monkeypatch.delenv("DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW", raising=False)
-    args = _production_args(
-        driver,
-        "--parallel-boundary-pairing",
-        "characteristic-sat",
-        "--parallel-characteristic-wall-law",
-        "energy-absorbing",
-    )
-    driver._validate_flux_framework(args)
-    driver._configure_runtime_selectors(args)
-    assert driver.os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] == (
-        "energy-absorbing"
-    )
-    assert driver.os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] == (
-        "maximally-dissipative-energy-absorbing-normalized-equilibrium"
-    )
-
-
-def test_physical_boundary_state_wall_law_is_exported_for_no_flow_model(
-    monkeypatch,
-):
-    driver = _driver_module()
-    monkeypatch.delenv("DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW", raising=False)
-    args = _production_args(
-        driver,
-        "--parallel-boundary-pairing",
-        "characteristic-sat",
-        "--parallel-characteristic-wall-law",
-        "physical-boundary-state",
-    )
-    driver._validate_flux_framework(args)
-    driver._configure_runtime_selectors(args)
-    assert driver.os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] == (
-        "physical-boundary-state"
-    )
-    assert driver.os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] == (
-        "live-characteristic-physical-boundary-state"
-    )
-
-
-def test_wall_law_metadata_is_conditional_and_provenance_is_explicit():
-    driver = _driver_module()
-    primitive = driver._parallel_characteristic_wall_metadata(
-        "primitive-least-residual"
-    )
-    assert primitive["parallel_material_wall_flux_closure"] == (
-        "characteristic-projected-operator-trace-canonical-face-state"
-    )
-    assert primitive["parallel_characteristic_wall_equilibrium_reference"] is None
-    assert primitive["parallel_characteristic_wall_energy_normalizer"] is None
-
-    absorbing = driver._parallel_characteristic_wall_metadata("energy-absorbing")
-    assert absorbing["parallel_material_wall_flux_closure"] == (
-        "maximally-dissipative-energy-absorbing-normalized-equilibrium"
-    )
-    assert absorbing["parallel_characteristic_wall_equilibrium_reference"] == [
-        1.0, 1.0, 1.0, 0.0, 0.0
-    ]
-    assert absorbing["parallel_characteristic_wall_provenance"] == (
-        "experimental-normalized-equilibrium-absorber"
-    )
-    assert absorbing["parallel_characteristic_wall_energy_normalizer"] == (
-        "unit-modal-mathematical"
-    )
-
-    physical = driver._parallel_characteristic_wall_metadata(
-        "physical-boundary-state"
-    )
+    physical = driver._parallel_characteristic_wall_metadata()
     assert physical["parallel_material_wall_flux_closure"] == (
         "live-characteristic-physical-boundary-state"
+    )
+    assert physical["parallel_material_wall_flux_closure_source"] == (
+        "fixed production configuration"
     )
     assert physical["parallel_characteristic_wall_equilibrium_reference"] is None
     assert physical["parallel_characteristic_wall_provenance"] == (
         "physical-face-trace-live-characteristic-split"
     )
-
-def test_energy_absorbing_wall_law_rejects_incompatible_boundary_pairing():
-    driver = _driver_module()
-    args = _production_args(
-        driver,
-        "--parallel-characteristic-wall-law",
-        "energy-absorbing",
-    )
-    with pytest.raises(ValueError, match="characteristic-sat"):
-        driver._validate_flux_framework(args)
-
-
-def test_native_configuration_exports_only_live_short_leg_selectors():
-    driver = _driver_module()
-    args = _production_args(
-        driver,
-        "--parallel-boundary-pairing",
-        "characteristic-sat",
-        "--parallel-short-leg-treatment",
-        "local-backward-euler",
-        "--parallel-short-leg-cfl-limit",
-        "2.25",
-    )
-    driver._validate_flux_framework(args)
-    driver._configure_runtime_selectors(args)
-    assert driver.os.environ["DRBX_PARALLEL_SHORT_LEG_TREATMENT"] == (
-        "local-backward-euler"
-    )
-    assert driver.os.environ["DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT"] == "2.25"
-    assert driver.os.environ["DRBX_PARALLEL_SHORT_LEG_SELECTION"] == "cfl"
-    assert "DRBX_CURVATURE_SPLIT_SCHEME" not in driver.os.environ
-    assert driver.os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] == "production-path"
-    for name in (
-        "DRBX_CURVATURE_RADIAL_ABLATION",
-        "DRBX_CURVATURE_COMPONENT_DIAGNOSTIC_SCHEME",
-    ):
-        assert name not in driver.os.environ
-
-
-@pytest.mark.parametrize(
-    "override",
-    (
-        ("--parallel-short-leg-treatment", "explicit"),
-        ("--parallel-boundary-pairing", "current-phi"),
-    ),
-)
-def test_all_physical_walls_requires_production_be_configuration(override):
-    driver = _driver_module()
-    args = _production_args(
-        driver,
-        "--parallel-short-leg-selection", "all-physical-walls",
-        "--parallel-short-leg-treatment", "local-backward-euler",
-        "--parallel-characteristic-wall-law", "energy-absorbing",
-        "--parallel-boundary-pairing", "characteristic-sat",
-        *override,
-    )
-    with pytest.raises(ValueError):
-        driver._validate_flux_framework(args)
-
-
-@pytest.mark.parametrize(
-    "wall_law", ("primitive-least-residual", "energy-absorbing")
-)
-def test_all_physical_walls_exports_selection_without_inf_sentinel(wall_law):
-    driver = _driver_module()
-    args = _production_args(
-        driver,
-        "--parallel-short-leg-selection", "all-physical-walls",
-        "--parallel-short-leg-treatment", "local-backward-euler",
-        "--parallel-characteristic-wall-law", wall_law,
-        "--parallel-boundary-pairing", "characteristic-sat",
-    )
-    driver._validate_flux_framework(args)
-    driver._configure_runtime_selectors(args)
-    assert driver.os.environ["DRBX_PARALLEL_SHORT_LEG_SELECTION"] == (
-        "all-physical-walls"
-    )
-    assert driver.os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] == wall_law
-    source = DRIVER.read_text(encoding="utf-8")
-    assert "parallel_short_leg_selection" in source
-    assert "selection_dt=jnp.inf" not in source
+    assert physical["parallel_characteristic_wall_energy_normalizer"] is None
 
 
 def test_short_leg_split_is_native_to_compiled_imex_source():
     source = DRIVER.read_text(encoding="utf-8")
-    assert "short_leg_selection_dt=(" in source
+    assert "short_leg_selection_dt=dt" in source
     assert "model.apply_short_leg_implicit_material_step(" in source
     assert "solve_dt=gamma_dt" in source
     assert "selection_dt=dt" in source
     assert "full_imex_advance" in source
     assert "IMEX_SSP222_GAMMA" in source
-
-
-def test_short_leg_treatment_requires_local_backward_euler():
-    driver = _driver_module()
-    explicit_treatment = _production_args(
-        driver,
-        "--parallel-boundary-pairing", "characteristic-sat",
-        "--parallel-short-leg-treatment", "explicit",
-    )
-    with pytest.raises(ValueError, match="local-backward-euler"):
-        driver._validate_flux_framework(explicit_treatment)
 
 
 def test_time_advance_exposes_true_eager_mode_and_staged_compiled_default():
@@ -441,29 +202,26 @@ def test_run_full_eb_reconstructs_phi_after_short_leg_implicit_step():
     assert max(implicit) < max(reconstruct)
 
 
-def test_run_metadata_attributes_selectors_to_canonical_driver():
+def test_run_metadata_attributes_selectors_to_fixed_production_configuration():
     source = DRIVER.read_text(encoding="utf-8")
-    for option in (
-        "parallel-boundary-pairing",
-        "parallel-short-leg-treatment",
-        "parallel-short-leg-cfl-limit",
-        "parallel-short-leg-selection",
+    for key in (
+        "parallel_flux_pairing",
+        "parallel_characteristic_wall_law",
+        "parallel_boundary_pairing",
+        "parallel_short_leg_treatment",
+        "parallel_short_leg_selection",
+        "parallel_material_scheme",
+        "poisson_bracket_scheme",
     ):
-        assert f'simulate_hsx_blob.py:--{option}' in source
-    assert '"parallel_characteristic_wall_law": str(args.parallel_characteristic_wall_law)' in source
-    assert '"parallel_short_leg_selection": str(args.parallel_short_leg_selection)' in source
-    assert (
-        '"parallel_characteristic_wall_law_source": '
-        '"simulate_hsx_blob.py:--parallel-characteristic-wall-law"'
-    ) in source
+        assert f'"{key}_source": "fixed production configuration"' in source
+    assert '"parallel_characteristic_wall_law": "physical-boundary-state"' in source
+    assert '"parallel_short_leg_selection": "all-physical-walls"' in source
 
 
 def test_startup_announces_parallel_characteristic_wall_law():
     source = DRIVER.read_text(encoding="utf-8")
     assert "[simulation] parallel characteristic wall law:" in source
-    assert "source=simulate_hsx_blob.py:--parallel-characteristic-wall-law" in source
-    assert "mathematical" in source
-    assert "unit modal" in source
+    assert "physical-boundary-state (fixed production configuration)" in source
 
 
 def test_canonical_driver_uses_cell_centered_velocity_basis():

@@ -19,11 +19,6 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 
-from .characteristic_wall_residual import (
-    apply_maximally_dissipative_characteristic_wall,
-    solve_incoming_characteristic_state,
-)
-
 
 STATE_SIZE = 5
 _LOG_FLOOR = 1.0e-30
@@ -563,7 +558,6 @@ def _material_directional_data(
     backward_wall_state: jnp.ndarray | None = None,
     forward_wall_state: jnp.ndarray | None = None,
     equilibrium: jnp.ndarray | None = None,
-    parallel_characteristic_wall_law: str = "primitive-least-residual",
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
@@ -579,18 +573,11 @@ def _material_directional_data(
     ``J_backward = -A_plus / dx_minus`` and
     ``J_forward = +A_minus / dx_plus``.
 
-    The geometric ``div_b`` source is intentionally absent here.
+    The geometric ``div_b`` source is intentionally absent here.  The
+    physical-wall closure is the production ``physical-boundary-state`` law:
+    a complete physical wall state is validated and consumed directly by the
+    live characteristic split, without a modal incoming-rank projection.
     """
-
-    if parallel_characteristic_wall_law not in (
-        "primitive-least-residual", "energy-absorbing", "physical-boundary-state"
-    ):
-        raise ValueError(
-            "parallel_characteristic_wall_law must be "
-            "'primitive-least-residual', 'energy-absorbing', or "
-            "'physical-boundary-state', got "
-            f"{parallel_characteristic_wall_law!r}"
-        )
 
     (
         center, minus, plus, dx_minus, dx_plus, backward_wall, forward_wall,
@@ -661,74 +648,23 @@ def _material_directional_data(
         <= jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64),
         axis=-1,
     )
-    if parallel_characteristic_wall_law == "primitive-least-residual":
-        wall_minus, backward_wall_solve = solve_incoming_characteristic_state(
-            center,
-            backward_candidate,
-            backward_wall_plus,
-            incoming_basis=backward_vectors,
-            incoming_active=(
-                backward_values
-                > jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)
-            ),
-            thermodynamic_components=3,
-            positivity_floor=positivity_floor,
-            spectral_valid=backward_valid,
-        )
-        wall_plus, forward_wall_solve = solve_incoming_characteristic_state(
-            center,
-            forward_candidate,
-            forward_wall_minus,
-            incoming_basis=forward_vectors,
-            incoming_active=(
-                forward_values
-                < -jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)
-            ),
-            thermodynamic_components=3,
-            positivity_floor=positivity_floor,
-            spectral_valid=forward_valid,
-        )
-    elif parallel_characteristic_wall_law == "energy-absorbing":
-        # The direct map closes incoming modes against the explicit equilibrium
-        # reference.  Outward speeds are -backward_values and +forward_values;
-        # scalar ghost candidates are intentionally not read in this branch.
-        wall_minus, backward_wall_solve = apply_maximally_dissipative_characteristic_wall(
-            center,
-            equilibrium,
-            -backward_values,
-            backward_vectors,
-            backward_inverse,
-            thermodynamic_components=3,
-            positivity_floor=positivity_floor,
-            spectral_valid=backward_valid,
-            eigenvalue_tolerance=eigenvalue_tolerance,
-        )
-        wall_plus, forward_wall_solve = apply_maximally_dissipative_characteristic_wall(
-            center,
-            equilibrium,
-            forward_values,
-            forward_vectors,
-            forward_inverse,
-            thermodynamic_components=3,
-            positivity_floor=positivity_floor,
-            spectral_valid=forward_valid,
-            eigenvalue_tolerance=eigenvalue_tolerance,
-        )
-    else:
-        wall_minus, backward_wall_solve = _accept_physical_boundary_state(
-            backward_candidate,
-            backward_incoming_count,
-            spectral_valid=backward_valid,
-            thermodynamic_components=3,
-            positivity_floor=positivity_floor,
-        )
-        wall_plus, forward_wall_solve = _accept_physical_boundary_state(
-            forward_candidate,
-            forward_incoming_count,
-            spectral_valid=forward_valid,
-            thermodynamic_components=3,
-            positivity_floor=positivity_floor,
-        )
+    # Production wall law: a complete physical wall state is validated and
+    # consumed directly by the live characteristic split, with no modal
+    # incoming-rank projection.
+    wall_minus, backward_wall_solve = _accept_physical_boundary_state(
+        backward_candidate,
+        backward_incoming_count,
+        spectral_valid=backward_valid,
+        thermodynamic_components=3,
+        positivity_floor=positivity_floor,
+    )
+    wall_plus, forward_wall_solve = _accept_physical_boundary_state(
+        forward_candidate,
+        forward_incoming_count,
+        spectral_valid=forward_valid,
+        thermodynamic_components=3,
+        positivity_floor=positivity_floor,
+    )
     minus_used = jnp.where(backward_wall[..., None], wall_minus, minus)
     plus_used = jnp.where(forward_wall[..., None], wall_plus, plus)
 
@@ -765,39 +701,17 @@ def _material_directional_data(
     backward_jacobian = -backward_plus_matrix / dxm_safe[..., None, None]
     forward_jacobian = forward_minus_matrix / dxp_safe[..., None, None]
 
-    # ``wall_minus``/``wall_plus`` are frozen, first-order characteristic
-    # traces, not nonlinear primitive states.  A composite quantity exported
-    # from this characteristic solve must therefore use the Jacobian of that
-    # quantity at the same canonical wall state.  Evaluating
-    # ``n * (Vi - Ve)`` on the projected components would add the uncontrolled
-    # quadratic product ``delta_n * (delta_Vi - delta_Ve)``.  This term can be
-    # enormous when a wall mismatch has large modal components even though
-    # the first-order characteristic current remains moderate.
-    center_current = center[..., 0] * (center[..., 3] - center[..., 4])
-
-    def linearized_current(endpoint: jnp.ndarray) -> jnp.ndarray:
-        delta = endpoint - center
-        return (
-            center_current
-            + (center[..., 3] - center[..., 4]) * delta[..., 0]
-            + center[..., 0] * (delta[..., 3] - delta[..., 4])
-        )
-
+    # A complete physical wall state is not a first-order modal projection.
+    # Export its actual current to the characteristic-SAT pair so both
+    # consumers see the same wall model.
     backward_wall_nonlinear_current = wall_minus[..., 0] * (
         wall_minus[..., 3] - wall_minus[..., 4]
     )
     forward_wall_nonlinear_current = wall_plus[..., 0] * (
         wall_plus[..., 3] - wall_plus[..., 4]
     )
-    if parallel_characteristic_wall_law == "physical-boundary-state":
-        # A complete physical state is not a first-order modal projection.
-        # Export its actual current to the characteristic-SAT pair so both
-        # consumers see the same wall model.
-        backward_wall_characteristic_current = backward_wall_nonlinear_current
-        forward_wall_characteristic_current = forward_wall_nonlinear_current
-    else:
-        backward_wall_characteristic_current = linearized_current(wall_minus)
-        forward_wall_characteristic_current = linearized_current(wall_plus)
+    backward_wall_characteristic_current = backward_wall_nonlinear_current
+    forward_wall_characteristic_current = forward_wall_nonlinear_current
     backward_ordinary_current = minus[..., 0] * (minus[..., 3] - minus[..., 4])
     forward_ordinary_current = plus[..., 0] * (plus[..., 3] - plus[..., 4])
     backward_endpoint_current = jnp.where(
@@ -826,51 +740,17 @@ def _material_directional_data(
     forward_positivity_limited = forward_wall_solve.get(
         "positivity_limited", jnp.zeros_like(forward_solve_valid)
     )
-    # Candidate validity is deliberately irrelevant to an active energy-law
-    # wall because that law does not consume the mapped primitive trace.
-    # Preserve raw candidate diagnostics, however, so callers can distinguish
-    # an ignored trace from a finite trace rather than losing evidence that
-    # supplied data were non-finite.
+    # The production physical-boundary-state wall law always consumes the
+    # mapped primitive candidate trace directly, so no candidate is ever
+    # ignored here (that status applied only to the removed energy-law wall).
     backward_candidate_finite = ~backward_candidate_fallback
     forward_candidate_finite = ~forward_candidate_fallback
-    backward_candidate_ignored = (
-        (parallel_characteristic_wall_law == "energy-absorbing")
-        & backward_wall
-    )
-    forward_candidate_ignored = (
-        (parallel_characteristic_wall_law == "energy-absorbing")
-        & forward_wall
-    )
-    reported_backward_candidate_fallback = jnp.where(
-        backward_candidate_ignored,
-        jnp.zeros_like(backward_candidate_fallback),
-        backward_candidate_fallback,
-    )
-    reported_forward_candidate_fallback = jnp.where(
-        forward_candidate_ignored,
-        jnp.zeros_like(forward_candidate_fallback),
-        forward_candidate_fallback,
-    )
-    if parallel_characteristic_wall_law == "energy-absorbing":
-        reported_backward_candidate = jnp.where(
-            backward_candidate_ignored[..., None], equilibrium, backward_candidate
-        )
-        reported_forward_candidate = jnp.where(
-            forward_candidate_ignored[..., None], equilibrium, forward_candidate
-        )
-    else:
-        reported_backward_candidate = backward_candidate
-        reported_forward_candidate = forward_candidate
-    # A mapped endpoint is not read on an energy-law wall leg
-    # because those direct/nonlinear laws construct their own wall state.
-    # Suppress only that direction's clipping flag; ordinary NaN endpoints
-    # remain invalid diagnostics.
-    backward_clipped = jnp.where(
-        backward_candidate_ignored, jnp.zeros_like(backward_clipped), backward_clipped
-    )
-    forward_clipped = jnp.where(
-        forward_candidate_ignored, jnp.zeros_like(forward_clipped), forward_clipped
-    )
+    backward_candidate_ignored = jnp.zeros_like(backward_wall)
+    forward_candidate_ignored = jnp.zeros_like(forward_wall)
+    reported_backward_candidate_fallback = backward_candidate_fallback
+    reported_forward_candidate_fallback = forward_candidate_fallback
+    reported_backward_candidate = backward_candidate
+    reported_forward_candidate = forward_candidate
     info = {
         "backward_wall": backward_wall,
         "forward_wall": forward_wall,
@@ -984,18 +864,8 @@ def _material_directional_data(
         "forward_endpoint_state": plus_used,
         "backward_incoming_projector": backward_wall_plus,
         "forward_incoming_projector": forward_wall_minus,
-        "backward_incoming_action": (
-            wall_minus - center
-            if parallel_characteristic_wall_law
-            in ("energy-absorbing", "physical-boundary-state")
-            else _matvec(backward_wall_plus, backward_candidate - center)
-        ),
-        "forward_incoming_action": (
-            wall_plus - center
-            if parallel_characteristic_wall_law
-            in ("energy-absorbing", "physical-boundary-state")
-            else _matvec(forward_wall_minus, forward_candidate - center)
-        ),
+        "backward_incoming_action": wall_minus - center,
+        "forward_incoming_action": wall_plus - center,
         "backward_incoming_matrix": backward_plus_matrix,
         "forward_incoming_matrix": forward_minus_matrix,
         "backward_candidate_current": reported_backward_candidate[..., 0]
@@ -1045,11 +915,8 @@ def parallel_target_row_material_residual(
     backward_wall_state: jnp.ndarray | None = None,
     forward_wall_state: jnp.ndarray | None = None,
     equilibrium: jnp.ndarray | None = None,
-    parallel_characteristic_wall_law: str = "primitive-least-residual",
     div_b: Any = 0.0,
     selection_dt: Any = 0.0,
-    cfl_limit: float = 2.785,
-    parallel_short_leg_selection: str = "cfl",
     omit_backward_wall: Any = False,
     omit_forward_wall: Any = False,
     positivity_floor: float = 1.0e-12,
@@ -1067,14 +934,12 @@ def parallel_target_row_material_residual(
     residual solve over the complete incoming characteristic subspace;
     ordinary rows simply use their supplied mapped endpoints.  This makes wall
     and bulk legs one operator with different endpoint data, rather than two
-    numerical fluxes.  ``div_b`` supplies the exact geometric source omitted from the
-    frozen principal matrix.  With ``parallel_short_leg_selection='cfl'`` the
-    selected physical-wall directions are those whose characteristic CFL
-    exceeds ``cfl_limit``; ``'all-physical-walls'`` selects every physical
-    wall direction and never ordinary mapped legs.  Selected directions are
-    omitted from this explicit material contribution; the caller can add them
-    with :func:`parallel_short_wall_backward_euler`.  Each leg uses one
-    canonical face state and one live characteristic eigendecomposition.
+    numerical fluxes.  ``div_b`` supplies the exact geometric source omitted
+    from the frozen principal matrix.  Every physical-wall direction is
+    selected (and never an ordinary mapped leg); selected directions are
+    omitted from this explicit material contribution, and the caller adds
+    them back with :func:`parallel_short_wall_backward_euler`.  Each leg uses
+    one canonical face state and one live characteristic eigendecomposition.
     """
     div_b = jnp.asarray(div_b, dtype=jnp.float64)
     (
@@ -1085,7 +950,6 @@ def parallel_target_row_material_residual(
         backward_wall=backward_wall, forward_wall=forward_wall,
         backward_wall_state=backward_wall_state,
         forward_wall_state=forward_wall_state, equilibrium=equilibrium,
-        parallel_characteristic_wall_law=parallel_characteristic_wall_law,
         positivity_floor=positivity_floor,
         eigenvalue_tolerance=eigenvalue_tolerance,
         max_condition=max_condition,
@@ -1099,22 +963,12 @@ def parallel_target_row_material_residual(
     selection_dt, dx_minus, dx_plus = jnp.broadcast_arrays(
         selection_dt, dx_minus, dx_plus
     )
-    if parallel_short_leg_selection not in ("cfl", "all-physical-walls"):
-        raise ValueError(
-            "parallel_short_leg_selection must be 'cfl' or "
-            "'all-physical-walls', got "
-            f"{parallel_short_leg_selection!r}"
-        )
     dxm_safe = jnp.maximum(jnp.abs(dx_minus), _LOG_FLOOR)
     dxp_safe = jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)
     backward_cfl = jnp.abs(selection_dt) * directional["backward_alpha"] / dxm_safe
     forward_cfl = jnp.abs(selection_dt) * directional["forward_alpha"] / dxp_safe
-    if parallel_short_leg_selection == "all-physical-walls":
-        selected_backward = backward_wall
-        selected_forward = forward_wall
-    else:
-        selected_backward = backward_wall & (backward_cfl > cfl_limit)
-        selected_forward = forward_wall & (forward_cfl > cfl_limit)
+    selected_backward = backward_wall
+    selected_forward = forward_wall
     omit_backward = selected_backward | (
         backward_wall & jnp.asarray(omit_backward_wall, dtype=bool)
     )
@@ -1233,29 +1087,23 @@ def parallel_short_wall_material_data(
     mu: Any,
     *,
     selection_dt: Any = 0.0,
-    cfl_limit: float = 2.785,
-    parallel_short_leg_selection: str = "cfl",
     backward_wall: Any = False,
     forward_wall: Any = False,
     backward_wall_state: jnp.ndarray | None = None,
     forward_wall_state: jnp.ndarray | None = None,
     equilibrium: jnp.ndarray | None = None,
-    parallel_characteristic_wall_law: str = "primitive-least-residual",
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Return the selected short-wall material residual and frozen Jacobian.
 
-    In ``'cfl'`` mode a direction is selected only when it is a physical wall
-    leg and ``abs(selection_dt) * alpha / abs(dx) > cfl_limit``, where ``alpha``
-    is the largest characteristic speed of that canonical face state.
-    ``'all-physical-walls'`` selects every physical wall leg.  The returned
-    ``residual`` is the sum of the selected backward and forward directional
-    residuals, and ``jacobian`` is the corresponding frozen derivative with
-    respect to the owner state.  No ``div_b`` source is included.  Neighbor
-    and wall states, face coefficients, and the live eigensystem are all held
-    fixed in this local linearization.
+    Every physical wall leg is selected.  The returned ``residual`` is the
+    sum of the selected backward and forward directional residuals, and
+    ``jacobian`` is the corresponding frozen derivative with respect to the
+    owner state.  No ``div_b`` source is included.  Neighbor and wall states,
+    face coefficients, and the live eigensystem are all held fixed in this
+    local linearization.
 
     The directional signs are those of the explicit material update:
 
@@ -1272,7 +1120,6 @@ def parallel_short_wall_material_data(
         backward_wall=backward_wall, forward_wall=forward_wall,
         backward_wall_state=backward_wall_state,
         forward_wall_state=forward_wall_state, equilibrium=equilibrium,
-        parallel_characteristic_wall_law=parallel_characteristic_wall_law,
         positivity_floor=positivity_floor,
         eigenvalue_tolerance=eigenvalue_tolerance,
         max_condition=max_condition,
@@ -1286,18 +1133,8 @@ def parallel_short_wall_material_data(
     dxp_safe = jnp.maximum(jnp.abs(dx_plus), _LOG_FLOOR)
     backward_cfl = jnp.abs(dt) * info["backward_alpha"] / dxm_safe
     forward_cfl = jnp.abs(dt) * info["forward_alpha"] / dxp_safe
-    if parallel_short_leg_selection not in ("cfl", "all-physical-walls"):
-        raise ValueError(
-            "parallel_short_leg_selection must be 'cfl' or "
-            "'all-physical-walls', got "
-            f"{parallel_short_leg_selection!r}"
-        )
-    if parallel_short_leg_selection == "all-physical-walls":
-        selected_backward = info["backward_wall"]
-        selected_forward = info["forward_wall"]
-    else:
-        selected_backward = info["backward_wall"] & (backward_cfl > cfl_limit)
-        selected_forward = info["forward_wall"] & (forward_cfl > cfl_limit)
+    selected_backward = info["backward_wall"]
+    selected_forward = info["forward_wall"]
     backward_residual = -backward_action / dxm_safe[..., None]
     forward_residual = -forward_action / dxp_safe[..., None]
     selected_residual = (
@@ -1338,14 +1175,11 @@ def parallel_short_wall_backward_euler(
     *,
     selection_dt: Any,
     solve_dt: Any | None = None,
-    cfl_limit: float = 2.785,
-    parallel_short_leg_selection: str = "cfl",
     backward_wall: Any = False,
     forward_wall: Any = False,
     backward_wall_state: jnp.ndarray | None = None,
     forward_wall_state: jnp.ndarray | None = None,
     equilibrium: jnp.ndarray | None = None,
-    parallel_characteristic_wall_law: str = "primitive-least-residual",
     coupled_residual: jnp.ndarray | None = None,
     coupled_jacobian: jnp.ndarray | None = None,
     positivity_floor: float = 1.0e-12,
@@ -1373,12 +1207,10 @@ def parallel_short_wall_backward_euler(
         solve_dt = selection_dt
     selected_residual, selected_jacobian, info = parallel_short_wall_material_data(
         center, minus, plus, dx_minus, dx_plus, tau, mu,
-        selection_dt=selection_dt, cfl_limit=cfl_limit,
-        parallel_short_leg_selection=parallel_short_leg_selection,
+        selection_dt=selection_dt,
         backward_wall=backward_wall, forward_wall=forward_wall,
         backward_wall_state=backward_wall_state,
         forward_wall_state=forward_wall_state, equilibrium=equilibrium,
-        parallel_characteristic_wall_law=parallel_characteristic_wall_law,
         positivity_floor=positivity_floor,
         eigenvalue_tolerance=eigenvalue_tolerance,
         max_condition=max_condition,
@@ -1446,14 +1278,11 @@ def parallel_characteristic_wall_data(
     mu: Any,
     *,
     selection_dt: Any = 0.0,
-    cfl_limit: float = 2.785,
-    parallel_short_leg_selection: str = "cfl",
     backward_wall: Any = False,
     forward_wall: Any = False,
     backward_wall_state: jnp.ndarray | None = None,
     forward_wall_state: jnp.ndarray | None = None,
     equilibrium: jnp.ndarray | None = None,
-    parallel_characteristic_wall_law: str = "primitive-least-residual",
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
@@ -1472,12 +1301,10 @@ def parallel_characteristic_wall_data(
 
     selected_residual, selected_jacobian, info = parallel_short_wall_material_data(
         center, minus, plus, dx_minus, dx_plus, tau, mu,
-        selection_dt=selection_dt, cfl_limit=cfl_limit,
-        parallel_short_leg_selection=parallel_short_leg_selection,
+        selection_dt=selection_dt,
         backward_wall=backward_wall, forward_wall=forward_wall,
         backward_wall_state=backward_wall_state,
         forward_wall_state=forward_wall_state, equilibrium=equilibrium,
-        parallel_characteristic_wall_law=parallel_characteristic_wall_law,
         positivity_floor=positivity_floor,
         eigenvalue_tolerance=eigenvalue_tolerance,
         max_condition=max_condition,
