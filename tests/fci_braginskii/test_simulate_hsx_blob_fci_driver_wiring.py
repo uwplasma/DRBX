@@ -83,7 +83,6 @@ def test_parser_exposes_coordinate_default_and_production_controls():
     assert args.parallel_operator_scheme == "coordinate"
     assert args.gmres_residual_correction_steps == 1
     assert args.checkpoint_every == 0
-    assert not args.rhs_replay_electron_force_wall_audit
     assert args.flux_framework == "legacy"
     framework_action = next(
         action for action in parser._actions if "--flux-framework" in action.option_strings
@@ -101,12 +100,6 @@ def test_parser_exposes_coordinate_default_and_production_controls():
     )
     assert scheme_action.choices == ("coordinate", "fci")
     assert not any("--fci-trace-substeps" in action.option_strings for action in parser._actions)
-    electron_force_action = next(
-        action
-        for action in parser._actions
-        if "--rhs-replay-electron-force-wall-audit" in action.option_strings
-    )
-    assert electron_force_action.default is False
     assert not any(
         "--curvature-rlp-face-scheme" in action.option_strings
         for action in parser._actions

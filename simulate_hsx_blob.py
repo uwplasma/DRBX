@@ -110,31 +110,8 @@ from drbx.fci_braginskii.native.fci_drb_EB_rhs import (  # noqa: E402
     LocalFciDrbEBRhs,
     RHS_TERM_FIELD_NAMES,
     RHS_TERM_NAMES,
-    curvature_component_diagnostic_names,
     parallel_characteristic_matrix,
     prepare_local_fci_drb_eb_state,
-)
-
-ELECTRON_FORCE_TERM_NAMES = (
-    "parallel_self_advection", "collision", "electrostatic",
-    "electron_pressure", "thermal_force", "characteristic_leg_upwind",
-    "vorticity_current_flux_divergence",
-)
-ELECTRON_FORCE_LEG_TERM_NAMES = (
-    "parallel_self_advection", "electrostatic", "electron_pressure",
-    "thermal_force", "characteristic_leg_upwind",
-)
-ELECTRON_FORCE_GRADIENT_NAMES = ("Ve", "phi", "Pe", "Te")
-ELECTRON_FORCE_ENDPOINT_FIELD_NAMES = (
-    "density", "Te", "Ti", "Vi", "Ve", "phi", "Pe",
-)
-ELECTRON_FORCE_STENCIL_DIRECTION_NAMES = ("backward", "center", "forward")
-ELECTRON_FORCE_ENDPOINT_DIRECTION_NAMES = ("backward", "forward")
-ELECTRON_FORCE_CHARACTERISTIC_PRINCIPAL_NAMES = (
-    "centered_principal", "upwind_principal",
-)
-ELECTRON_FORCE_CHARACTERISTIC_PRIMITIVE_FIELD_NAMES = (
-    "density", "Te", "Ti", "Vi", "Ve",
 )
 from drbx.fci_braginskii.native.fci_operators import (  # noqa: E402
     build_local_perp_laplacian_face_projectors,
@@ -1629,13 +1606,6 @@ def run_full_eb(
     checkpoint_every: int = 0,
     snapshot_times: tuple[float, ...] = (),
     snapshot_dir: Path | None = None,
-    snapshot_term_fields: bool = False,
-    track_rhs_terms: bool = False,
-    rhs_replay_history: Path | None = None,
-    rhs_replay_frames: tuple[int, ...] = (),
-    rhs_replay_output: Path | None = None,
-    rhs_replay_electron_force_wall_audit: bool = False,
-    rhs_replay_execution: str = "compiled",
     run_metadata: dict[str, object] | None = None,
     reconstruct_initial_phi: bool = True,
     neumann_ghost_scheme: str = "physical",
@@ -1643,7 +1613,6 @@ def run_full_eb(
     parallel_operator_scheme: str = "coordinate",
     poisson_bracket_scheme: str = "direct",
     parallel_material_scheme: str | None = None,
-    track_curvature_chain_rule_defect: bool = False,
     control_volume_descriptor=None,
     control_volume_fields_host=None,
     control_volume_boundary_bc=None,
@@ -1653,9 +1622,6 @@ def run_full_eb(
     source_evaluator: Callable[[float], FciDrbEBState] | None = None,
     history_dtype: str = "float32",
     frozen_diagnostic: FrozenEbDiagnosticRequest | None = None,
-    staged_audit_cells: tuple[tuple[int, int, int], ...] = (),
-    staged_audit_output: Path | None = None,
-    staged_audit_explicit_ablation: str = "none",
 ) -> FciDrbEBState | FrozenEbDiagnosticResult:
     """Advance the global EB state or evaluate its sharded frozen diagnostic."""
 
@@ -1686,34 +1652,6 @@ def run_full_eb(
             "advance_execution='staged-compiled' currently requires "
             "time_integrator='imex-ssp222'"
         )
-    if staged_audit_cells and advance_execution != "staged-compiled":
-        raise ValueError(
-            "staged_audit_cells require advance_execution='staged-compiled'"
-        )
-    if staged_audit_cells and staged_audit_output is None:
-        raise ValueError("staged_audit_cells require staged_audit_output")
-    if staged_audit_output is not None and not staged_audit_cells:
-        raise ValueError("staged_audit_output requires staged_audit_cells")
-    if staged_audit_explicit_ablation not in (
-        "none",
-        "phi-current-pair",
-        "curvature",
-        "parallel-material",
-        "curvature-parallel-material",
-    ):
-        raise ValueError(
-            "staged_audit_explicit_ablation must be 'none', "
-            "'phi-current-pair', 'curvature', 'parallel-material', or "
-            "'curvature-parallel-material'"
-        )
-    if staged_audit_explicit_ablation != "none" and not staged_audit_cells:
-        raise ValueError(
-            "staged_audit_explicit_ablation requires staged_audit_cells"
-        )
-    if staged_audit_cells and shard_counts != (1, 1, 1):
-        raise ValueError(
-            "selected-cell staged audits currently require shard_counts=(1, 1, 1)"
-        )
     if history_dtype not in ("float32", "float64"):
         raise ValueError("history_dtype must be 'float32' or 'float64'")
     if frozen_diagnostic is not None:
@@ -1730,10 +1668,6 @@ def run_full_eb(
         if float(frozen_diagnostic.implicit_selection_dt) <= 0.0:
             raise ValueError(
                 "frozen diagnostic implicit_selection_dt must be positive"
-            )
-        if rhs_replay_history is not None:
-            raise ValueError(
-                "frozen_diagnostic and rhs_replay_history are mutually exclusive"
             )
     history_numpy_dtype = (
         np.float32 if history_dtype == "float32" else np.float64
@@ -1756,13 +1690,6 @@ def run_full_eb(
         raise ValueError("gmres_restart must be positive")
     if int(checkpoint_every) < 0:
         raise ValueError("checkpoint_every must be nonnegative")
-    if rhs_replay_execution not in ("compiled", "eager"):
-        raise ValueError("rhs_replay_execution must be 'compiled' or 'eager'")
-    setup_execution = (
-        rhs_replay_execution
-        if rhs_replay_history is not None
-        else advance_execution
-    )
     if parallel_operator_scheme not in ("coordinate", "fci"):
         raise ValueError(
             "parallel_operator_scheme must be 'coordinate' or 'fci', got "
@@ -1779,23 +1706,6 @@ def run_full_eb(
             )
 
     domain = sharded_geometry.domain
-    if staged_audit_cells:
-        global_shape = tuple(int(value) for value in sharded_geometry.global_shape)
-        normalized_audit_cells = tuple(
-            tuple(int(index) for index in cell) for cell in staged_audit_cells
-        )
-        if len(set(normalized_audit_cells)) != len(normalized_audit_cells):
-            raise ValueError("staged_audit_cells must not contain duplicates")
-        for cell in normalized_audit_cells:
-            if len(cell) != 3 or any(
-                index < 0 or index >= extent
-                for index, extent in zip(cell, global_shape, strict=True)
-            ):
-                raise ValueError(
-                    f"staged audit cell {cell!r} lies outside global shape "
-                    f"{global_shape}"
-                )
-        staged_audit_cells = normalized_audit_cells
     spatial_spec = P("x", "y", "z")
     source_spec = P(None, "x", "y", "z")
     geometry_spec = P("x", "y", "z", None)
@@ -2310,387 +2220,6 @@ def run_full_eb(
             ),
             reconstructed_selected_wall=reconstructed_selected_wall,
         )
-    if rhs_replay_history is not None:
-        if rhs_replay_output is None or not rhs_replay_frames:
-            raise ValueError(
-                "RHS replay requires a nonempty frame list and output path"
-            )
-        if parallel_operator_scheme != "fci":
-            raise ValueError("RHS replay currently requires the FCI production path")
-
-        def replay_rhs_terms(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-        ) -> tuple[jax.Array, ...]:
-            model = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            )
-            phi, info = model.reconstruct_phi(local_state, return_diagnostics=True)
-            reconstructed = local_state.replace(phi=phi)
-            rhs, term_fields, curvature_component_fields = model.evaluate_stage(
-                reconstructed,
-                phi_owned=phi,
-                short_leg_selection_dt=(
-                    jnp.asarray(float(timestep), dtype=jnp.float64)
-                    if os.environ.get(
-                        "DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"
-                    )
-                    == "local-backward-euler"
-                    else None
-                ),
-                return_rhs_term_fields=True,
-                return_curvature_component_fields=True,
-            )
-            polarization_terms = model.polarization_balance_terms(
-                reconstructed,
-                phi_owned=phi,
-            )
-            # Different curvature wall closures can leave the visible state
-            # almost unchanged while injecting a hard, grid-scale component
-            # into the next polarization solve.  Apply the exact production
-            # Ti Laplacian to the stage RHS so replay files expose the source
-            # tendency tau*Lperp(Ti_t)-omega_t directly.
-            rhs_polarization_terms = model.polarization_balance_terms(
-                rhs.replace(phi=jnp.zeros_like(rhs.phi)),
-                phi_owned=jnp.zeros_like(rhs.phi),
-            )
-            polarization_source_tendency = (
-                rhs_polarization_terms[1] + rhs_polarization_terms[2]
-            )
-            state_fields = jnp.stack(
-                tuple(value for _name, value in reconstructed.field_items()),
-                axis=0,
-            )
-            rhs_fields = jnp.stack(
-                tuple(getattr(rhs, name) for name in RHS_TERM_FIELD_NAMES),
-                axis=0,
-            )
-            if model.control_volume_geometry is not None:
-                cells = model.control_volume_geometry.cells
-                prolong = lambda value: expand_local_control_volume_owner_field(
-                    value, cells
-                )
-                state_fields = jax.vmap(prolong)(state_fields)
-                rhs_fields = jax.vmap(prolong)(rhs_fields)
-                term_fields = jax.vmap(jax.vmap(prolong))(term_fields)
-                curvature_component_fields = jax.vmap(jax.vmap(prolong))(
-                    curvature_component_fields
-                )
-                polarization_terms = jax.vmap(prolong)(polarization_terms)
-                polarization_source_tendency = prolong(
-                    polarization_source_tendency
-                )
-            base_outputs = (
-                state_fields,
-                rhs_fields,
-                term_fields,
-                curvature_component_fields,
-                polarization_terms,
-                polarization_source_tendency,
-                _format_phi_solver_diagnostics(info),
-            )
-            if not rhs_replay_electron_force_wall_audit:
-                return base_outputs
-            electron_force_outputs = model.electron_parallel_force_diagnostics(
-                reconstructed,
-                phi_owned=phi,
-            )
-            if model.control_volume_geometry is not None:
-                cells = model.control_volume_geometry.cells
-                prolong = lambda value: expand_local_control_volume_owner_field(
-                    value, cells
-                )
-                electron_force_outputs = (
-                    jax.vmap(prolong)(electron_force_outputs[0]),
-                    jax.vmap(jax.vmap(prolong))(electron_force_outputs[1]),
-                    jax.vmap(jax.vmap(prolong))(electron_force_outputs[2]),
-                    *electron_force_outputs[3:6],
-                    jax.vmap(prolong)(electron_force_outputs[6]),
-                    *electron_force_outputs[7:],
-                )
-            return base_outputs + electron_force_outputs
-
-        replay_out_specs = (
-            P(None, "x", "y", "z"),
-            P(None, "x", "y", "z"),
-            P(None, None, "x", "y", "z"),
-            P(None, None, "x", "y", "z"),
-            P(None, "x", "y", "z"),
-            P("x", "y", "z"),
-            replicated_spec,
-        )
-        if rhs_replay_electron_force_wall_audit:
-            replay_out_specs = replay_out_specs + (
-                P(None, "x", "y", "z"),
-                P(None, None, "x", "y", "z"),
-                P(None, None, "x", "y", "z"),
-                P(None, None, "x", "y", "z"),
-                P(None, "x", "y", "z"),
-                P(None, "x", "y", "z"),
-                P(None, "x", "y", "z"),
-                P(None, None, "x", "y", "z"),
-                P(None, "x", "y", "z"),
-            )
-
-        replay_sharded = jax.shard_map(
-            replay_rhs_terms,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-            ),
-            out_specs=replay_out_specs,
-            check_vma=False,
-        )
-        replay = (
-            jax.jit(replay_sharded)
-            if rhs_replay_execution == "compiled"
-            else replay_sharded
-        )
-        replay_states = []
-        replay_times = []
-        replay_rhs = []
-        replay_terms = []
-        replay_curvature_components = []
-        replay_polarization = []
-        replay_polarization_source_tendency = []
-        replay_phi_diagnostics = []
-        replay_electron_force_terms = []
-        replay_electron_force_leg_terms = []
-        replay_electron_force_gradients = []
-        replay_electron_force_endpoint_values = []
-        replay_electron_force_wall_masks = []
-        replay_electron_force_leg_lengths = []
-        replay_electron_force_characteristic_principals = []
-        replay_electron_force_characteristic_primitive_traces = []
-        replay_electron_force_endpoint_kinds = []
-        replay_action = (
-            f"compiling on frame {rhs_replay_frames[0]}"
-            if rhs_replay_execution == "compiled"
-            else "running eagerly with outer jax.jit disabled"
-        )
-        print(
-            f"[rhs-replay] {replay_action} and evaluating "
-            f"{len(rhs_replay_frames)} frozen states",
-            flush=True,
-        )
-        replay_start = time.perf_counter()
-        for frame in rhs_replay_frames:
-            host_state, frame_time = _load_restart_state(
-                rhs_replay_history,
-                resolution=tuple(int(value) for value in sharded_geometry.global_shape),
-                frame=int(frame),
-            )
-            if owner_host_geometry is not None:
-                host_state = _aggregate_initial_owner_state(
-                    host_state, owner_host_geometry
-                )
-            sharded_state = host_state.map_fields(
-                lambda value: jax.device_put(
-                    jnp.asarray(value, dtype=jnp.float64), state_sharding
-                )
-            )
-            with jax.disable_jit(rhs_replay_execution == "eager"):
-                outputs = replay(
-                    sharded_state,
-                    cell_fields,
-                    map_fields,
-                    control_volume_fields,
-                )
-            jax.block_until_ready(outputs)
-            (
-                state_values,
-                rhs_values,
-                terms,
-                curvature_components,
-                polarization,
-                polarization_source_tendency,
-                phi_diagnostics,
-            ) = tuple(
-                np.asarray(value, dtype=np.float64) for value in outputs[:7]
-            )
-            if rhs_replay_electron_force_wall_audit:
-                (
-                    electron_force_terms,
-                    electron_force_leg_terms,
-                    electron_force_gradients,
-                    electron_force_endpoint_values,
-                    electron_force_wall_masks,
-                    electron_force_leg_lengths,
-                    electron_force_characteristic_principals,
-                    electron_force_characteristic_primitive_traces,
-                    electron_force_endpoint_kinds,
-                ) = tuple(
-                    np.asarray(value, dtype=np.float64) for value in outputs[7:]
-                )
-                replay_electron_force_terms.append(electron_force_terms)
-                replay_electron_force_leg_terms.append(electron_force_leg_terms)
-                replay_electron_force_gradients.append(electron_force_gradients)
-                replay_electron_force_endpoint_values.append(
-                    electron_force_endpoint_values
-                )
-                replay_electron_force_wall_masks.append(electron_force_wall_masks)
-                replay_electron_force_leg_lengths.append(electron_force_leg_lengths)
-                replay_electron_force_characteristic_principals.append(
-                    electron_force_characteristic_principals
-                )
-                replay_electron_force_characteristic_primitive_traces.append(
-                    electron_force_characteristic_primitive_traces
-                )
-                replay_electron_force_endpoint_kinds.append(
-                    electron_force_endpoint_kinds
-                )
-            replay_states.append(state_values)
-            replay_times.append(frame_time)
-            replay_rhs.append(rhs_values)
-            replay_terms.append(terms)
-            replay_curvature_components.append(curvature_components)
-            replay_polarization.append(polarization)
-            replay_polarization_source_tendency.append(
-                polarization_source_tendency
-            )
-            replay_phi_diagnostics.append(phi_diagnostics)
-            print(
-                f"[rhs-replay] frame={frame} time={frame_time:.8e} "
-                f"phi_iterations={int(phi_diagnostics[0])} "
-                f"phi_rel_residual={phi_diagnostics[1]:.3e}",
-                flush=True,
-            )
-
-        mass_weights = (
-            np.asarray(owner_host_geometry.raw_volume, dtype=np.float64)
-            if owner_host_geometry is not None
-            else np.asarray(global_geometry.cell_metric.J, dtype=np.float64)
-        )
-        metadata = dict(run_metadata or {})
-        metadata.update(
-            {
-                "diagnostic": "frozen-state-spatial-rhs-replay",
-                "rhs_replay_history": str(rhs_replay_history),
-                "rhs_replay_frames": [int(value) for value in rhs_replay_frames],
-                "rhs_replay_execution": str(rhs_replay_execution),
-                "rhs_term_field_names": list(RHS_TERM_FIELD_NAMES),
-                "rhs_term_names": {
-                    field: list(names)
-                    for field, names in zip(
-                        RHS_TERM_FIELD_NAMES, RHS_TERM_NAMES, strict=True
-                    )
-                },
-                "polarization_term_names": [
-                    "minus_Lperp_phi",
-                    "tau_Lperp_Ti",
-                    "minus_vorticity",
-                ],
-                "curvature_component_equation_names": [
-                    "density", "Te", "Ti", "vorticity"
-                ],
-                "curvature_component_direction_names": list(curvature_component_diagnostic_names()),
-                "electron_force_wall_audit": bool(
-                    rhs_replay_electron_force_wall_audit
-                ),
-            }
-        )
-        rhs_replay_output.parent.mkdir(parents=True, exist_ok=True)
-        replay_payload = {
-            "frames": np.asarray(rhs_replay_frames, dtype=np.int64),
-            "times": np.asarray(replay_times, dtype=np.float64),
-            "state_fields": np.stack(replay_states),
-            "rhs_fields": np.stack(replay_rhs),
-            "rhs_term_fields": np.stack(replay_terms),
-            "curvature_component_fields": np.stack(replay_curvature_components),
-            "polarization_terms": np.stack(replay_polarization),
-            "polarization_source_tendency": np.stack(
-                replay_polarization_source_tendency
-            ),
-            "phi_solver_diagnostics": np.stack(replay_phi_diagnostics),
-            "mass_weights": mass_weights,
-            "field_names_json": np.asarray(
-                json.dumps(tuple(FciDrbEBState.__dataclass_fields__.keys()))
-            ),
-            "rhs_term_field_names_json": np.asarray(json.dumps(RHS_TERM_FIELD_NAMES)),
-            "rhs_term_names_json": np.asarray(json.dumps(RHS_TERM_NAMES)),
-            "curvature_component_equation_names_json": np.asarray(
-                json.dumps(("density", "Te", "Ti", "vorticity"))
-            ),
-            "curvature_component_direction_names_json": np.asarray(
-                json.dumps(curvature_component_diagnostic_names())
-            ),
-            "polarization_term_names_json": np.asarray(
-                json.dumps(("minus_Lperp_phi", "tau_Lperp_Ti", "minus_vorticity"))
-            ),
-            "run_metadata_json": np.asarray(json.dumps(metadata, sort_keys=True)),
-        }
-        if rhs_replay_electron_force_wall_audit:
-            replay_payload.update(
-                {
-                    "electron_force_terms": np.stack(
-                        replay_electron_force_terms
-                    ),
-                    "electron_force_leg_terms": np.stack(
-                        replay_electron_force_leg_terms
-                    ),
-                    "electron_force_gradients": np.stack(
-                        replay_electron_force_gradients
-                    ),
-                    "electron_force_endpoint_values": np.stack(
-                        replay_electron_force_endpoint_values
-                    ),
-                    "electron_force_wall_masks": np.stack(
-                        replay_electron_force_wall_masks
-                    ),
-                    "electron_force_leg_lengths": np.stack(
-                        replay_electron_force_leg_lengths
-                    ),
-                    "electron_force_characteristic_principals": np.stack(
-                        replay_electron_force_characteristic_principals
-                    ),
-                    "electron_force_characteristic_primitive_traces": np.stack(
-                        replay_electron_force_characteristic_primitive_traces
-                    ),
-                    "electron_force_endpoint_kinds": np.stack(
-                        replay_electron_force_endpoint_kinds
-                    ),
-                    "electron_force_term_names_json": np.asarray(
-                        json.dumps(ELECTRON_FORCE_TERM_NAMES)
-                    ),
-                    "electron_force_leg_term_names_json": np.asarray(
-                        json.dumps(ELECTRON_FORCE_LEG_TERM_NAMES)
-                    ),
-                    "electron_force_gradient_names_json": np.asarray(
-                        json.dumps(ELECTRON_FORCE_GRADIENT_NAMES)
-                    ),
-                    "electron_force_endpoint_field_names_json": np.asarray(
-                        json.dumps(ELECTRON_FORCE_ENDPOINT_FIELD_NAMES)
-                    ),
-                    "electron_force_stencil_direction_names_json": np.asarray(
-                        json.dumps(ELECTRON_FORCE_STENCIL_DIRECTION_NAMES)
-                    ),
-                    "electron_force_endpoint_direction_names_json": np.asarray(
-                        json.dumps(ELECTRON_FORCE_ENDPOINT_DIRECTION_NAMES)
-                    ),
-                    "electron_force_characteristic_principal_names_json": np.asarray(
-                        json.dumps(ELECTRON_FORCE_CHARACTERISTIC_PRINCIPAL_NAMES)
-                    ),
-                    "electron_force_characteristic_primitive_field_names_json": np.asarray(
-                        json.dumps(
-                            ELECTRON_FORCE_CHARACTERISTIC_PRIMITIVE_FIELD_NAMES
-                        )
-                    ),
-                }
-            )
-        np.savez_compressed(rhs_replay_output, **replay_payload)
-        print(
-            f"[rhs-replay] wrote {rhs_replay_output} in "
-            f"{time.perf_counter() - replay_start:.3f} s",
-            flush=True,
-        )
-        return state
     if reconstruct_initial_phi:
         initial_phi, initial_phi_iterations = reconstruct_phi(
             state,
@@ -2842,22 +2371,6 @@ def run_full_eb(
             field_maxs = jax.lax.pmax(field_maxs, mesh_axis_name)
             field_abs_maxs = jax.lax.pmax(field_abs_maxs, mesh_axis_name)
         diagnostics = jnp.stack((field_mins, field_maxs, field_abs_maxs), axis=1)
-        if track_curvature_chain_rule_defect:
-            curvature_diagnostics = (
-                model.ion_temperature_curvature_chain_rule_diagnostics(next_state)
-            )
-            for mesh_axis_name in ("x", "y", "z"):
-                curvature_diagnostics = jax.lax.pmax(
-                    curvature_diagnostics, mesh_axis_name
-                )
-            return (
-                next_state,
-                diagnostics,
-                curvature_diagnostics,
-                gmres_iterations,
-                gmres_stage_diagnostics,
-                stage_diagnostics,
-            )
         return (
             next_state,
             diagnostics,
@@ -3037,24 +2550,12 @@ def run_full_eb(
             flush=True,
     )
     compile_start = time.perf_counter()
-    staged_audit_records: list[dict[str, object]] = []
     advance_out_specs = (
-        (
-            state_spec,
-            replicated_spec,
-            replicated_spec,
-            replicated_spec,
-            replicated_spec,
-            replicated_spec,
-        )
-        if track_curvature_chain_rule_defect
-        else (
-            state_spec,
-            replicated_spec,
-            replicated_spec,
-            replicated_spec,
-            replicated_spec,
-        )
+        state_spec,
+        replicated_spec,
+        replicated_spec,
+        replicated_spec,
+        replicated_spec,
     )
     sharded_advance = jax.shard_map(
         full_advance,
@@ -3151,101 +2652,12 @@ def run_full_eb(
                 map_fields_owned,
                 control_volume_fields_owned,
             )
-            if staged_audit_explicit_ablation == "none":
-                rhs = model.evaluate_stage(
-                    local_state,
-                    source_owned=local_source,
-                    phi_owned=local_state.phi,
-                    short_leg_selection_dt=selection_dt,
-                )
-            else:
-                rhs, term_fields = model.evaluate_stage(
-                    local_state,
-                    source_owned=local_source,
-                    phi_owned=local_state.phi,
-                    return_rhs_term_fields=True,
-                    short_leg_selection_dt=selection_dt,
-                )
-                if staged_audit_explicit_ablation == "phi-current-pair":
-                    rhs = rhs.replace(
-                        Ve=(
-                            rhs.Ve
-                            - term_fields[
-                                RHS_TERM_FIELD_NAMES.index("Ve"),
-                                RHS_TERM_NAMES[
-                                    RHS_TERM_FIELD_NAMES.index("Ve")
-                                ].index("electrostatic"),
-                            ]
-                        ),
-                        vorticity=(
-                            rhs.vorticity
-                            - term_fields[
-                                RHS_TERM_FIELD_NAMES.index("vorticity"),
-                                RHS_TERM_NAMES[
-                                    RHS_TERM_FIELD_NAMES.index("vorticity")
-                                ].index("parallel_current"),
-                            ]
-                        ),
-                    )
-                else:
-                    def audit_term(field_name: str, term_name: str):
-                        field_index = RHS_TERM_FIELD_NAMES.index(field_name)
-                        return term_fields[
-                            field_index,
-                            RHS_TERM_NAMES[field_index].index(term_name),
-                        ]
-
-                    remove_curvature = staged_audit_explicit_ablation in (
-                        "curvature", "curvature-parallel-material"
-                    )
-                    remove_parallel_material = (
-                        staged_audit_explicit_ablation in (
-                            "parallel-material",
-                            "curvature-parallel-material",
-                        )
-                    )
-                    density_rhs = rhs.density
-                    Te_rhs = rhs.Te
-                    Ti_rhs = rhs.Ti
-                    Vi_rhs = rhs.Vi
-                    Ve_rhs = rhs.Ve
-                    vorticity_rhs = rhs.vorticity
-                    if remove_curvature:
-                        density_rhs = density_rhs - audit_term(
-                            "density", "curvature"
-                        )
-                        Te_rhs = Te_rhs - audit_term("Te", "curvature")
-                        Ti_rhs = Ti_rhs - audit_term("Ti", "curvature")
-                        vorticity_rhs = vorticity_rhs - audit_term(
-                            "vorticity", "curvature"
-                        )
-                    if remove_parallel_material:
-                        for field_name, term_name in (
-                            ("density", "parallel_density_flux_divergence"),
-                            ("Te", "parallel_advection"),
-                            ("Ti", "parallel_advection"),
-                            ("Vi", "parallel_self_advection"),
-                            ("Ve", "parallel_self_advection"),
-                        ):
-                            term = audit_term(field_name, term_name)
-                            if field_name == "density":
-                                density_rhs = density_rhs - term
-                            elif field_name == "Te":
-                                Te_rhs = Te_rhs - term
-                            elif field_name == "Ti":
-                                Ti_rhs = Ti_rhs - term
-                            elif field_name == "Vi":
-                                Vi_rhs = Vi_rhs - term
-                            else:
-                                Ve_rhs = Ve_rhs - term
-                    rhs = rhs.replace(
-                        density=density_rhs,
-                        Te=Te_rhs,
-                        Ti=Ti_rhs,
-                        Vi=Vi_rhs,
-                        Ve=Ve_rhs,
-                        vorticity=vorticity_rhs,
-                    )
+            rhs = model.evaluate_stage(
+                local_state,
+                source_owned=local_source,
+                phi_owned=local_state.phi,
+                short_leg_selection_dt=selection_dt,
+            )
             rhs = model.project_galerkin_state(rhs)
             mark_operator(rhs)
             return rhs
@@ -3419,116 +2831,6 @@ def run_full_eb(
             map_fields,
             control_volume_fields,
         )
-        staged_audit_select_state = None
-        staged_audit_explicit_terms = None
-        if staged_audit_cells:
-            audit_indices = np.asarray(staged_audit_cells, dtype=np.int32)
-            audit_u = jnp.asarray(audit_indices[:, 0], dtype=jnp.int32)
-            audit_theta = jnp.asarray(audit_indices[:, 1], dtype=jnp.int32)
-            audit_eta = jnp.asarray(audit_indices[:, 2], dtype=jnp.int32)
-
-            def select_audit_state(global_state: FciDrbEBState) -> jax.Array:
-                packed = jnp.stack(
-                    tuple(value for _, value in global_state.field_items()),
-                    axis=0,
-                )
-                return jnp.transpose(
-                    packed[:, audit_u, audit_theta, audit_eta], (1, 0)
-                )
-
-            staged_audit_select_state = compile_staged_kernel(
-                "audit-state-gather",
-                select_audit_state,
-                state,
-            )
-
-            def staged_explicit_term_audit_kernel(
-                local_state: FciDrbEBState,
-                local_source: FciDrbEBState,
-                cell_fields_owned: jax.Array,
-                map_fields_owned: jax.Array,
-                control_volume_fields_owned: jax.Array,
-                selection_dt: jax.Array,
-            ):
-                model = build_local_model(
-                    cell_fields_owned,
-                    map_fields_owned,
-                    control_volume_fields_owned,
-                )
-                (
-                    rhs,
-                    term_fields,
-                    curvature_component_fields,
-                    parallel_material_component_fields,
-                ) = model.evaluate_stage(
-                    local_state,
-                    source_owned=local_source,
-                    phi_owned=local_state.phi,
-                    return_rhs_term_fields=True,
-                    return_curvature_component_fields=True,
-                    return_parallel_material_component_fields=True,
-                    short_leg_selection_dt=selection_dt,
-                )
-                rhs = model.project_galerkin_state(rhs)
-                packed_rhs = jnp.stack(
-                    tuple(getattr(rhs, name) for name in RHS_TERM_FIELD_NAMES),
-                    axis=0,
-                )
-                selected_rhs = jnp.transpose(
-                    packed_rhs[:, audit_u, audit_theta, audit_eta], (1, 0)
-                )
-                selected_terms = jnp.transpose(
-                    term_fields[:, :, audit_u, audit_theta, audit_eta],
-                    (2, 0, 1),
-                )
-                selected_curvature_components = jnp.transpose(
-                    curvature_component_fields[
-                        :, :, audit_u, audit_theta, audit_eta
-                    ],
-                    (2, 0, 1),
-                )
-                selected_parallel_material_components = jnp.transpose(
-                    parallel_material_component_fields[
-                        :, :, audit_u, audit_theta, audit_eta
-                    ],
-                    (2, 1, 0),
-                )
-                return (
-                    selected_rhs,
-                    selected_terms,
-                    selected_curvature_components,
-                    selected_parallel_material_components,
-                )
-
-            staged_explicit_term_audit_sharded = jax.shard_map(
-                staged_explicit_term_audit_kernel,
-                mesh=mesh,
-                in_specs=(
-                    state_spec,
-                    state_spec,
-                    geometry_spec,
-                    geometry_spec,
-                    geometry_spec,
-                    scalar_spec,
-                ),
-                out_specs=(
-                    replicated_spec,
-                    replicated_spec,
-                    replicated_spec,
-                    replicated_spec,
-                ),
-                check_vma=False,
-            )
-            staged_audit_explicit_terms = compile_staged_kernel(
-                "audit-explicit-term-lanes",
-                staged_explicit_term_audit_sharded,
-                state,
-                state.zeros_like(),
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                jnp.asarray(float(timestep), dtype=jnp.float64),
-            )
         print(
             "[simulation] compiled staged IMEX kernels (implicit+phi, "
             "explicit, phi, diagnostics) in "
@@ -3545,7 +2847,6 @@ def run_full_eb(
                 source_stages,
                 _current_time,
             ) = advance_args
-            audit_active = staged_audit_select_state is not None
             dt_dynamic = jnp.asarray(float(timestep), dtype=jnp.float64)
             gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * dt_dynamic
 
@@ -3580,22 +2881,6 @@ def run_full_eb(
                 control_volume_fields_owned,
                 dt_dynamic,
             )
-            explicit_probe_1 = term_fields_1 = curvature_components_1 = None
-            parallel_material_components_1 = None
-            if audit_active:
-                (
-                    explicit_probe_1,
-                    term_fields_1,
-                    curvature_components_1,
-                    parallel_material_components_1,
-                ) = staged_audit_explicit_terms(
-                        stage_1,
-                        source_1,
-                        cell_fields_owned,
-                        map_fields_owned,
-                        control_volume_fields_owned,
-                        dt_dynamic,
-                    )
             stage_2_base_before_phi = current.axpy(
                 explicit_1, scale=dt_dynamic
             ).axpy(
@@ -3628,22 +2913,6 @@ def run_full_eb(
                 control_volume_fields_owned,
                 dt_dynamic,
             )
-            explicit_probe_2 = term_fields_2 = curvature_components_2 = None
-            parallel_material_components_2 = None
-            if audit_active:
-                (
-                    explicit_probe_2,
-                    term_fields_2,
-                    curvature_components_2,
-                    parallel_material_components_2,
-                ) = staged_audit_explicit_terms(
-                        stage_2,
-                        source_2,
-                        cell_fields_owned,
-                        map_fields_owned,
-                        control_volume_fields_owned,
-                        dt_dynamic,
-                    )
             weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
                 implicit_1, scale=1.0
             ).axpy(implicit_2, scale=1.0).map_fields(
@@ -3657,111 +2926,6 @@ def run_full_eb(
                 control_volume_fields_owned,
             )
             next_state = next_state.replace(phi=next_phi)
-            if audit_active:
-                audit_stage_names = (
-                    "current",
-                    "implicit_rate_1",
-                    "stage_1",
-                    "explicit_rate_1",
-                    "stage_2_base_before_phi",
-                    "stage_2_base",
-                    "implicit_rate_2",
-                    "stage_2",
-                    "explicit_rate_2",
-                    "weighted_rate",
-                    "final",
-                )
-                audit_stage_states = (
-                    current,
-                    implicit_1,
-                    stage_1,
-                    explicit_1,
-                    stage_2_base_before_phi,
-                    stage_2_base,
-                    implicit_2,
-                    stage_2,
-                    explicit_2,
-                    weighted_rate,
-                    next_state,
-                )
-                selected_stages = tuple(
-                    staged_audit_select_state(stage)
-                    for stage in audit_stage_states
-                )
-                jax.block_until_ready(
-                    (
-                        selected_stages,
-                        explicit_probe_1,
-                        term_fields_1,
-                        explicit_probe_2,
-                        term_fields_2,
-                        curvature_components_1,
-                        curvature_components_2,
-                        parallel_material_components_1,
-                        parallel_material_components_2,
-                    )
-                )
-                staged_audit_records.append(
-                    {
-                        "start_time": float(np.asarray(_current_time)),
-                        "stage_names": audit_stage_names,
-                        "stage_values": np.stack(
-                            tuple(np.asarray(value, dtype=np.float64)
-                                  for value in selected_stages),
-                            axis=0,
-                        ),
-                        "explicit_probe_rhs": np.stack(
-                            (
-                                np.asarray(explicit_probe_1, dtype=np.float64),
-                                np.asarray(explicit_probe_2, dtype=np.float64),
-                            ),
-                            axis=0,
-                        ),
-                        "explicit_term_values": np.stack(
-                            (
-                                np.asarray(term_fields_1, dtype=np.float64),
-                                np.asarray(term_fields_2, dtype=np.float64),
-                            ),
-                            axis=0,
-                        ),
-                        "curvature_component_values": np.stack(
-                            (
-                                np.asarray(
-                                    curvature_components_1, dtype=np.float64
-                                ),
-                                np.asarray(
-                                    curvature_components_2, dtype=np.float64
-                                ),
-                            ),
-                            axis=0,
-                        ),
-                        "parallel_material_component_values": np.stack(
-                            (
-                                np.asarray(
-                                    parallel_material_components_1,
-                                    dtype=np.float64,
-                                ),
-                                np.asarray(
-                                    parallel_material_components_2,
-                                    dtype=np.float64,
-                                ),
-                            ),
-                            axis=0,
-                        ),
-                        "gmres_stage_diagnostics": np.stack(
-                            tuple(
-                                np.asarray(value, dtype=np.float64)
-                                for value in (
-                                    gmres_info_1,
-                                    gmres_info_2_base,
-                                    gmres_info_2,
-                                    gmres_info_next,
-                                )
-                            ),
-                            axis=0,
-                        ),
-                    }
-                )
             return staged_finalize(
                 current,
                 stage_1,
@@ -3784,124 +2948,6 @@ def run_full_eb(
 
         compiled_advance = staged_execute_advance
 
-    rhs_term_inspection = None
-    if track_rhs_terms:
-        radial_centers_owned = jnp.asarray(
-            global_geometry.grid.x.centers, dtype=jnp.float64
-        ).reshape((-1, 1, 1))
-
-        def inspect_rhs_terms(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-        ) -> jax.Array:
-            model = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            )
-            _, term_fields = model.evaluate_stage(
-                local_state,
-                phi_owned=local_state.phi,
-                return_rhs_term_fields=True,
-            )
-            if model.control_volume_geometry is not None:
-                cells = model.control_volume_geometry.cells
-                term_fields = jax.vmap(
-                    jax.vmap(
-                        lambda value: expand_local_control_volume_owner_field(
-                            value, cells
-                        )
-                    )
-                )(term_fields)
-            jacobian = jnp.asarray(
-                model.geometry.cell_metric.J_owned, dtype=jnp.float64
-            )
-            spatial_axes = tuple(range(term_fields.ndim - 3, term_fields.ndim))
-            global_weight = jax.lax.psum(
-                jnp.sum(jacobian), ("x", "y", "z")
-            )
-            weighted_mean = jax.lax.psum(
-                jnp.sum(term_fields * jacobian, axis=spatial_axes),
-                ("x", "y", "z"),
-            ) / global_weight
-            weighted_rms = jnp.sqrt(
-                jax.lax.psum(
-                    jnp.sum(term_fields * term_fields * jacobian, axis=spatial_axes),
-                    ("x", "y", "z"),
-                )
-                / global_weight
-            )
-            maximum_absolute = jax.lax.pmax(
-                jnp.max(jnp.abs(term_fields), axis=spatial_axes),
-                ("x", "y", "z"),
-            )
-            weighted_radial_moment = jax.lax.psum(
-                jnp.sum(
-                    term_fields * jacobian * radial_centers_owned,
-                    axis=spatial_axes,
-                ),
-                ("x", "y", "z"),
-            ) / global_weight
-            return jnp.stack(
-                (
-                    weighted_mean,
-                    weighted_rms,
-                    maximum_absolute,
-                    weighted_radial_moment,
-                ),
-                axis=0,
-            )
-
-        rhs_compile_start = time.perf_counter()
-        rhs_term_inspection_sharded = jax.shard_map(
-            inspect_rhs_terms,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-            ),
-            out_specs=replicated_spec,
-            check_vma=False,
-        )
-        if advance_execution in ("compiled", "staged-compiled"):
-            rhs_term_inspection = jax.jit(
-                rhs_term_inspection_sharded
-            ).lower(
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-            ).compile()
-            print(
-                "[simulation] compiled all-equation RHS term inspection in "
-                f"{time.perf_counter() - rhs_compile_start:.3f} s",
-                flush=True,
-            )
-        else:
-            rhs_term_inspection = rhs_term_inspection_sharded
-            print(
-                "[simulation] all-equation RHS term inspection will execute "
-                "eagerly",
-                flush=True,
-            )
-
-    def inspect_rhs_terms_host(current_state: FciDrbEBState) -> np.ndarray:
-        if rhs_term_inspection is None:
-            raise RuntimeError("RHS term inspection was not compiled")
-        with jax.disable_jit(advance_execution == "eager"):
-            result = rhs_term_inspection(
-                current_state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-            )
-        jax.block_until_ready(result)
-        return np.asarray(result, dtype=np.float64)
-
     # Periodic checkpoints can be state-only.  Do not force compilation of
     # the comparatively expensive spatial inspection path unless diagnostics
     # or explicitly scheduled diagnostic snapshots already require it.
@@ -3909,7 +2955,6 @@ def run_full_eb(
     inspection_enabled = bool(diagnostic_every > 0 or snapshot_times)
     inspection = None
     if inspection_enabled:
-        term_spec = P(None, "x", "y", "z")
         wall_spec = P(None, None, "x", "y", "z")
         owned_shape = tuple(int(value) for value in domain.layout.owned_shape)
         global_shape = tuple(int(value) for value in sharded_geometry.global_shape)
@@ -4041,25 +3086,9 @@ def run_full_eb(
             inspection_diagnostics = jnp.concatenate(
                 (jnp.asarray((global_max, global_index), dtype=jnp.float64), high_pass.reshape(-1))
             )
-            if snapshot_term_fields:
-                _, term_fields = model.evaluate_stage(
-                    local_state,
-                    phi_owned=local_state.phi,
-                    return_term_fields=True,
-                )
-                return (
-                    inspection_diagnostics,
-                    term_fields,
-                    wall_ghost_fields,
-                    polarization_residual,
-                )
             return inspection_diagnostics, wall_ghost_fields, polarization_residual
 
-        inspection_out_specs = (
-            (replicated_spec, term_spec, wall_spec, spatial_spec)
-            if snapshot_term_fields
-            else (replicated_spec, wall_spec, spatial_spec)
-        )
+        inspection_out_specs = (replicated_spec, wall_spec, spatial_spec)
         inspection_sharded = jax.shard_map(
             inspect_state,
             mesh=mesh,
@@ -4085,7 +3114,7 @@ def run_full_eb(
             inspection_action = "eager"
         print(
             f"[simulation] {inspection_action} snapshot/grid-scale "
-            f"inspection path (terms={'on' if snapshot_term_fields else 'off'})",
+            "inspection path",
             flush=True,
         )
 
@@ -4202,10 +3231,7 @@ def run_full_eb(
             "fci_trace_substeps": int(
                 (run_metadata or {}).get("fci_trace_substeps", 4)
             ),
-            "snapshot_term_fields": bool(snapshot_term_fields),
             "checkpoint_every": int(checkpoint_every),
-            "track_rhs_terms": bool(track_rhs_terms),
-            "rhs_replay_execution": str(rhs_replay_execution),
             "field_names": list(initial_state.field_names()),
             "ve_term_names": [
                 "poisson_bracket",
@@ -4290,20 +3316,11 @@ def run_full_eb(
             }
         )
         if inspected is not None:
-            if snapshot_term_fields:
-                (
-                    diagnostic_values,
-                    term_fields,
-                    wall_ghost_fields,
-                    polarization_residual,
-                ) = inspected
-                payload["Ve_rhs_terms"] = np.asarray(term_fields, dtype=np.float64)
-            else:
-                (
-                    diagnostic_values,
-                    wall_ghost_fields,
-                    polarization_residual,
-                ) = inspected
+            (
+                diagnostic_values,
+                wall_ghost_fields,
+                polarization_residual,
+            ) = inspected
             payload["wall_ghost_states"] = wall_ghost_fields.astype(np.float64)
             payload["polarization_residual"] = _materialize_owner_array(
                 np.asarray(polarization_residual, dtype=np.float64)[None, ...],
@@ -4382,9 +3399,6 @@ def run_full_eb(
         for name, value in initial_output_state.field_items()
     }
     saved_times = [float(start_time)]
-    rhs_term_statistics_history = (
-        [inspect_rhs_terms_host(state)] if track_rhs_terms else []
-    )
     next_snapshot = 0
     while next_snapshot < len(snapshot_schedule) and snapshot_schedule[next_snapshot] <= start_time + 1.0e-14:
         save_snapshot(snapshot_schedule[next_snapshot], float(start_time), 0)
@@ -4405,62 +3419,32 @@ def run_full_eb(
         source_stages = source_stages_for_step(step_time)
         if phase_timer is not None:
             phase_timer.begin_step()
-        if track_curvature_chain_rule_defect:
-            (
-                state,
-                diagnostics,
-                curvature_diagnostics,
-                gmres_iterations,
-                gmres_stage_diagnostics,
-                rk_stage_diagnostics,
-            ) = execute_advance(
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                source_stages,
-                jnp.asarray(
-                    step_time,
-                    dtype=jnp.float64,
-                ),
-            )
-            jax.block_until_ready(
-                (
-                    state,
-                    diagnostics,
-                    curvature_diagnostics,
-                    gmres_iterations,
-                    gmres_stage_diagnostics,
-                    rk_stage_diagnostics,
-                )
-            )
-        else:
+        (
+            state,
+            diagnostics,
+            gmres_iterations,
+            gmres_stage_diagnostics,
+            rk_stage_diagnostics,
+        ) = execute_advance(
+            state,
+            cell_fields,
+            map_fields,
+            control_volume_fields,
+            source_stages,
+            jnp.asarray(
+                step_time,
+                dtype=jnp.float64,
+            ),
+        )
+        jax.block_until_ready(
             (
                 state,
                 diagnostics,
                 gmres_iterations,
                 gmres_stage_diagnostics,
                 rk_stage_diagnostics,
-            ) = execute_advance(
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                source_stages,
-                jnp.asarray(
-                    step_time,
-                    dtype=jnp.float64,
-                ),
             )
-            jax.block_until_ready(
-                (
-                    state,
-                    diagnostics,
-                    gmres_iterations,
-                    gmres_stage_diagnostics,
-                    rk_stage_diagnostics,
-                )
-            )
+        )
         if owner_host_geometry is not None:
             _assert_owner_sparse(state, owner_host_geometry)
         step_seconds = time.perf_counter() - step_start
@@ -4621,8 +3605,6 @@ def run_full_eb(
                 f"nonpositive density/temperature after step {step}: "
                 f"n_min={density_min:.6e}, T_min={temperature_min:.6e}"
             )
-        if track_rhs_terms:
-            rhs_term_statistics_history.append(inspect_rhs_terms_host(state))
         inspection_host = None
         snapshot_due = (
             next_snapshot < len(snapshot_schedule)
@@ -4642,15 +3624,6 @@ def run_full_eb(
                 f"[diagnostics] step={step}: {state_diagnostics}",
                 flush=True,
             )
-            if track_curvature_chain_rule_defect:
-                chain_rule_host = np.asarray(curvature_diagnostics)
-                print(
-                    "[diagnostics] ion-temperature curvature self-form: "
-                    f"product={chain_rule_host[0]:.6e}, "
-                    f"flux={chain_rule_host[1]:.6e}, "
-                    f"defect={chain_rule_host[2]:.6e}",
-                    flush=True,
-                )
             if inspection_host is not None:
                 diagnostic_values = inspection_host[0]
                 high_pass = diagnostic_values[2:].reshape(7, 2)
@@ -4799,332 +3772,7 @@ def run_full_eb(
             for name, values in history.items()
         },
         run_metadata_json=np.asarray(json.dumps(metadata, sort_keys=True)),
-        **(
-            {
-                "rhs_term_times": np.asarray(
-                    [
-                        float(start_time) + index * float(timestep)
-                        for index in range(int(num_steps) + 1)
-                    ],
-                    dtype=np.float64,
-                ),
-                "rhs_term_statistics": np.stack(
-                    rhs_term_statistics_history, axis=0
-                ),
-                "rhs_term_field_names_json": np.asarray(
-                    json.dumps(RHS_TERM_FIELD_NAMES)
-                ),
-                "rhs_term_names_json": np.asarray(
-                    json.dumps(
-                        {
-                            field: list(names)
-                            for field, names in zip(
-                                RHS_TERM_FIELD_NAMES, RHS_TERM_NAMES, strict=True
-                            )
-                        },
-                        sort_keys=True,
-                    )
-                ),
-                "rhs_term_statistic_names_json": np.asarray(
-                    json.dumps(
-                        (
-                            "volume_weighted_mean",
-                            "volume_weighted_rms",
-                            "maximum_absolute",
-                            "volume_weighted_radial_moment",
-                        )
-                    )
-                ),
-            }
-            if track_rhs_terms
-            else {}
-        ),
     )
-    if staged_audit_records:
-        if staged_audit_output is None:  # Defensive; validated above.
-            raise RuntimeError("missing staged_audit_output")
-        staged_audit_output = Path(staged_audit_output)
-        staged_audit_output.parent.mkdir(parents=True, exist_ok=True)
-        stage_names = tuple(staged_audit_records[0]["stage_names"])
-        stage_values = np.stack(
-            tuple(record["stage_values"] for record in staged_audit_records),
-            axis=0,
-        )
-        explicit_probe_rhs = np.stack(
-            tuple(
-                record["explicit_probe_rhs"]
-                for record in staged_audit_records
-            ),
-            axis=0,
-        )
-        explicit_term_values = np.stack(
-            tuple(
-                record["explicit_term_values"]
-                for record in staged_audit_records
-            ),
-            axis=0,
-        )
-        curvature_component_values = np.stack(
-            tuple(
-                record["curvature_component_values"]
-                for record in staged_audit_records
-            ),
-            axis=0,
-        )
-        parallel_material_component_values = np.stack(
-            tuple(
-                record["parallel_material_component_values"]
-                for record in staged_audit_records
-            ),
-            axis=0,
-        )
-        gmres_stage_diagnostics = np.stack(
-            tuple(
-                record["gmres_stage_diagnostics"]
-                for record in staged_audit_records
-            ),
-            axis=0,
-        )
-        state_field_names = tuple(initial_state.field_names())
-        evolved_state_indices = np.asarray(
-            tuple(state_field_names.index(name) for name in RHS_TERM_FIELD_NAMES),
-            dtype=np.int32,
-        )
-        stage_index = {name: index for index, name in enumerate(stage_names)}
-        evolved = stage_values[..., evolved_state_indices]
-        audit_dt = float(timestep)
-        gamma_dt = IMEX_SSP222_GAMMA * audit_dt
-        implicit_1_closure = (
-            evolved[:, stage_index["stage_1"]]
-            - evolved[:, stage_index["current"]]
-            - gamma_dt * evolved[:, stage_index["implicit_rate_1"]]
-        )
-        explicit_probe_closure = np.stack(
-            (
-                evolved[:, stage_index["explicit_rate_1"]]
-                - explicit_probe_rhs[:, 0],
-                evolved[:, stage_index["explicit_rate_2"]]
-                - explicit_probe_rhs[:, 1],
-            ),
-            axis=1,
-        )
-        explicit_ablation_values = np.zeros_like(explicit_probe_rhs)
-        if staged_audit_explicit_ablation == "phi-current-pair":
-            for field_name, term_name in (
-                ("Ve", "electrostatic"),
-                ("vorticity", "parallel_current"),
-            ):
-                field_index = RHS_TERM_FIELD_NAMES.index(field_name)
-                term_index = RHS_TERM_NAMES[field_index].index(term_name)
-                explicit_ablation_values[..., field_index] = (
-                    explicit_term_values[..., field_index, term_index]
-                )
-        elif staged_audit_explicit_ablation in (
-            "curvature", "curvature-parallel-material"
-        ):
-            for field_name in ("density", "Te", "Ti", "vorticity"):
-                field_index = RHS_TERM_FIELD_NAMES.index(field_name)
-                term_index = RHS_TERM_NAMES[field_index].index("curvature")
-                explicit_ablation_values[..., field_index] = (
-                    explicit_term_values[..., field_index, term_index]
-                )
-        if staged_audit_explicit_ablation in (
-            "parallel-material", "curvature-parallel-material"
-        ):
-            for field_name, term_name in (
-                ("density", "parallel_density_flux_divergence"),
-                ("Te", "parallel_advection"),
-                ("Ti", "parallel_advection"),
-                ("Vi", "parallel_self_advection"),
-                ("Ve", "parallel_self_advection"),
-            ):
-                field_index = RHS_TERM_FIELD_NAMES.index(field_name)
-                term_index = RHS_TERM_NAMES[field_index].index(term_name)
-                explicit_ablation_values[..., field_index] += (
-                    explicit_term_values[..., field_index, term_index]
-                )
-        explicit_ablation_closure = np.stack(
-            (
-                evolved[:, stage_index["explicit_rate_1"]]
-                - (explicit_probe_rhs[:, 0] - explicit_ablation_values[:, 0]),
-                evolved[:, stage_index["explicit_rate_2"]]
-                - (explicit_probe_rhs[:, 1] - explicit_ablation_values[:, 1]),
-            ),
-            axis=1,
-        )
-        explicit_term_closure = (
-            np.sum(explicit_term_values, axis=-1) - explicit_probe_rhs
-        )
-        curvature_fields = ("density", "Te", "Ti", "vorticity")
-        curvature_term_values = np.stack(
-            tuple(
-                explicit_term_values[
-                    ...,
-                    RHS_TERM_FIELD_NAMES.index(field_name),
-                    RHS_TERM_NAMES[
-                        RHS_TERM_FIELD_NAMES.index(field_name)
-                    ].index("curvature"),
-                ]
-                for field_name in curvature_fields
-            ),
-            axis=-1,
-        )
-        curvature_component_closure = (
-            np.sum(curvature_component_values, axis=-1)
-            - curvature_term_values
-        )
-        parallel_material_fields = ("density", "Te", "Ti", "Vi", "Ve")
-        parallel_material_term_names = (
-            "parallel_density_flux_divergence",
-            "parallel_advection",
-            "parallel_advection",
-            "parallel_self_advection",
-            "parallel_self_advection",
-        )
-        parallel_material_term_values = np.stack(
-            tuple(
-                explicit_term_values[
-                    ...,
-                    RHS_TERM_FIELD_NAMES.index(field_name),
-                    RHS_TERM_NAMES[
-                        RHS_TERM_FIELD_NAMES.index(field_name)
-                    ].index(term_name),
-                ]
-                for field_name, term_name in zip(
-                    parallel_material_fields,
-                    parallel_material_term_names,
-                    strict=True,
-                )
-            ),
-            axis=-1,
-        )
-        parallel_material_component_closure = (
-            np.sum(parallel_material_component_values, axis=-1)
-            - parallel_material_term_values
-        )
-        stage_2_base_closure = (
-            evolved[:, stage_index["stage_2_base_before_phi"]]
-            - evolved[:, stage_index["current"]]
-            - audit_dt * evolved[:, stage_index["explicit_rate_1"]]
-            - (1.0 - 2.0 * IMEX_SSP222_GAMMA)
-            * audit_dt
-            * evolved[:, stage_index["implicit_rate_1"]]
-        )
-        implicit_2_closure = (
-            evolved[:, stage_index["stage_2"]]
-            - evolved[:, stage_index["stage_2_base"]]
-            - gamma_dt * evolved[:, stage_index["implicit_rate_2"]]
-        )
-        weighted_rate_closure = (
-            evolved[:, stage_index["weighted_rate"]]
-            - 0.5
-            * (
-                evolved[:, stage_index["explicit_rate_1"]]
-                + evolved[:, stage_index["explicit_rate_2"]]
-                + evolved[:, stage_index["implicit_rate_1"]]
-                + evolved[:, stage_index["implicit_rate_2"]]
-            )
-        )
-        final_closure = (
-            evolved[:, stage_index["final"]]
-            - evolved[:, stage_index["current"]]
-            - audit_dt * evolved[:, stage_index["weighted_rate"]]
-        )
-        np.savez_compressed(
-            staged_audit_output,
-            cell_indices=np.asarray(staged_audit_cells, dtype=np.int32),
-            cell_u=np.asarray(
-                [global_geometry.grid.x.centers[cell[0]] for cell in staged_audit_cells],
-                dtype=np.float64,
-            ),
-            cell_theta=np.asarray(
-                [global_geometry.grid.y.centers[cell[1]] for cell in staged_audit_cells],
-                dtype=np.float64,
-            ),
-            cell_eta=np.asarray(
-                [global_geometry.grid.z.centers[cell[2]] for cell in staged_audit_cells],
-                dtype=np.float64,
-            ),
-            start_times=np.asarray(
-                tuple(record["start_time"] for record in staged_audit_records),
-                dtype=np.float64,
-            ),
-            timestep=np.asarray(audit_dt, dtype=np.float64),
-            imex_ssp222_gamma=np.asarray(
-                IMEX_SSP222_GAMMA, dtype=np.float64
-            ),
-            state_field_names_json=np.asarray(json.dumps(state_field_names)),
-            rhs_field_names_json=np.asarray(json.dumps(RHS_TERM_FIELD_NAMES)),
-            rhs_term_names_json=np.asarray(
-                json.dumps(
-                    {
-                        name: list(terms)
-                        for name, terms in zip(
-                            RHS_TERM_FIELD_NAMES, RHS_TERM_NAMES, strict=True
-                        )
-                    },
-                    sort_keys=True,
-                )
-            ),
-            stage_names_json=np.asarray(json.dumps(stage_names)),
-            stage_values=stage_values,
-            explicit_probe_rhs=explicit_probe_rhs,
-            explicit_term_values=explicit_term_values,
-            curvature_field_names_json=np.asarray(
-                json.dumps(curvature_fields)
-            ),
-            curvature_direction_names_json=np.asarray(
-                json.dumps(curvature_component_diagnostic_names())
-            ),
-            curvature_component_values=curvature_component_values,
-            curvature_component_closure=curvature_component_closure,
-            parallel_material_field_names_json=np.asarray(
-                json.dumps(parallel_material_fields)
-            ),
-            parallel_material_direction_names_json=np.asarray(
-                json.dumps(("backward", "center_geometric", "forward"))
-            ),
-            parallel_material_component_values=(
-                parallel_material_component_values
-            ),
-            parallel_material_component_closure=(
-                parallel_material_component_closure
-            ),
-            explicit_ablation=np.asarray(staged_audit_explicit_ablation),
-            explicit_ablation_values=explicit_ablation_values,
-            gmres_stage_diagnostics=gmres_stage_diagnostics,
-            implicit_1_closure=implicit_1_closure,
-            explicit_probe_closure=explicit_probe_closure,
-            explicit_ablation_closure=explicit_ablation_closure,
-            explicit_term_closure=explicit_term_closure,
-            stage_2_base_closure=stage_2_base_closure,
-            implicit_2_closure=implicit_2_closure,
-            weighted_rate_closure=weighted_rate_closure,
-            final_closure=final_closure,
-            run_metadata_json=np.asarray(json.dumps(metadata, sort_keys=True)),
-        )
-        closure_arrays = (
-            implicit_1_closure,
-            (
-                explicit_probe_closure
-                if staged_audit_explicit_ablation == "none"
-                else explicit_ablation_closure
-            ),
-            explicit_ablation_closure,
-            explicit_term_closure,
-            curvature_component_closure,
-            parallel_material_component_closure,
-            stage_2_base_closure,
-            implicit_2_closure,
-            weighted_rate_closure,
-            final_closure,
-        )
-        print(
-            f"[staged-audit] wrote {staged_audit_output}; "
-            f"max algebra/term closure="
-            f"{max(float(np.max(np.abs(value))) for value in closure_arrays):.3e}",
-            flush=True,
-        )
     print(
         f"sharded EB advance completed in "
         f"{time.perf_counter() - simulation_start:.3f} s; "
@@ -5233,10 +3881,7 @@ def _validate_flux_framework(args: argparse.Namespace) -> None:
         raise ValueError("production-split requires --parallel-operator-scheme fci")
     if args.parallel_flux_pairing != "support-core":
         raise ValueError("production-split requires support-core current pairing")
-    if (
-        args.parallel_boundary_pairing == "legacy"
-        and args.rhs_replay_history is None
-    ):
+    if args.parallel_boundary_pairing == "legacy":
         raise ValueError(
             "production-split trajectories require current-phi or characteristic-sat "
             "boundary pairing"
@@ -5614,11 +4259,6 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         help="Directory for scheduled snapshot NPZ files; defaults to the output directory.",
     )
     parser.add_argument(
-        "--snapshot-term-fields",
-        action="store_true",
-        help="Include the eight spatial Ve RHS term fields in each snapshot.",
-    )
-    parser.add_argument(
         "--restart-from",
         type=Path,
         default=None,
@@ -5638,106 +4278,6 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         help=(
             "Print compiled min/max/max-absolute diagnostics for every state "
             "field every N steps; 0 disables periodic detailed output."
-        ),
-    )
-    parser.add_argument(
-        "--staged-audit-cell",
-        action="append",
-        nargs=3,
-        type=int,
-        default=[],
-        metavar=("IU", "ITHETA", "IETA"),
-        help=(
-            "Record the complete IMEX stage sequence and all explicit RHS "
-            "term lanes at one selected global cell. Repeat for multiple "
-            "cells. This diagnostic requires staged-compiled execution, "
-            "one shard, and --staged-audit-output."
-        ),
-    )
-    parser.add_argument(
-        "--staged-audit-output",
-        type=Path,
-        default=None,
-        help="NPZ output for --staged-audit-cell stage and term data.",
-    )
-    parser.add_argument(
-        "--staged-audit-explicit-ablation",
-        choices=(
-            "none",
-            "phi-current-pair",
-            "curvature",
-            "parallel-material",
-            "curvature-parallel-material",
-        ),
-        default="none",
-        help=(
-            "Diagnostic-only paired explicit-term ablation for a selected-cell "
-            "staged audit. 'phi-current-pair' removes electron electrostatic "
-            "force together with vorticity current divergence; 'curvature' "
-            "removes the curvature lanes from density, Te, Ti, and vorticity; "
-            "'parallel-material' removes the complete five-field production "
-            "parallel-material residual; the combined choice removes both."
-        ),
-    )
-    parser.add_argument(
-        "--track-curvature-chain-rule-defect",
-        action="store_true",
-        help=(
-            "Track global max-absolute ion-temperature product-form, "
-            "flux-form, and product-rule-defect terms in the compiled "
-            "RK4 advance. Values print with --diagnostic-every."
-        ),
-    )
-    parser.add_argument(
-        "--track-rhs-terms",
-        action="store_true",
-        help=(
-            "Evaluate the complete six-equation RHS decomposition at the "
-            "initial state and every accepted timestep, storing global "
-            "mean/RMS/max/radial-moment statistics in the output NPZ."
-        ),
-    )
-    parser.add_argument(
-        "--rhs-replay-history",
-        type=Path,
-        default=None,
-        help=(
-            "Evaluate and export the complete spatial RHS decomposition at "
-            "selected frames of an existing history, without advancing time."
-        ),
-    )
-    parser.add_argument(
-        "--rhs-replay-frames",
-        default="",
-        metavar="I,J,...",
-        help="Comma-separated history frame indices for --rhs-replay-history.",
-    )
-    parser.add_argument(
-        "--rhs-replay-output",
-        type=Path,
-        default=None,
-        help="NPZ output for the frozen-state spatial RHS replay.",
-    )
-    parser.add_argument(
-        "--rhs-replay-execution",
-        choices=("auto", "compiled", "eager"),
-        default="auto",
-        help=(
-            "Execution mode for frozen RHS replays. 'auto' uses eager "
-            "execution for fewer than 100 frames and compilation for larger "
-            "production batches. "
-            "'eager' disables the outer jax.jit and avoids building the "
-            "large fused replay executable, although the JAX backend may "
-            "still compile small primitive kernels."
-        ),
-    )
-    parser.add_argument(
-        "--rhs-replay-electron-force-wall-audit",
-        action="store_true",
-        help=(
-            "Include exact wall-face electron parallel-force traces, "
-            "directional stencil contributions, masks, and leg lengths in "
-            "an RHS replay archive."
         ),
     )
     parser.add_argument(
@@ -6065,43 +4605,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error("--fieldline-substeps-per-plane must be positive")
     if args.diagnostic_every < 0:
         parser.error("--diagnostic-every must be nonnegative")
-    try:
-        rhs_replay_frames = tuple(
-            int(value)
-            for value in str(args.rhs_replay_frames).split(",")
-            if value.strip()
-        )
-    except ValueError as error:
-        parser.error("--rhs-replay-frames must be comma-separated integers")
-    if args.rhs_replay_history is not None:
-        if not args.rhs_replay_history.is_file():
-            parser.error("--rhs-replay-history must name an existing NPZ")
-        if not rhs_replay_frames or any(value < 0 for value in rhs_replay_frames):
-            parser.error(
-                "--rhs-replay-history requires nonnegative --rhs-replay-frames"
-            )
-        if args.rhs_replay_output is None:
-            parser.error("--rhs-replay-history requires --rhs-replay-output")
-        if args.parallel_operator_scheme != "fci":
-            parser.error("--rhs-replay-history requires --parallel-operator-scheme=fci")
-    elif rhs_replay_frames or args.rhs_replay_output is not None:
-        parser.error(
-            "--rhs-replay-frames/--rhs-replay-output require --rhs-replay-history"
-        )
-    if (
-        args.rhs_replay_history is None
-        and args.rhs_replay_execution == "eager"
-    ):
-        parser.error("--rhs-replay-execution eager requires --rhs-replay-history")
-    if (
-        args.rhs_replay_electron_force_wall_audit
-        and args.rhs_replay_history is None
-    ):
-        parser.error(
-            "--rhs-replay-electron-force-wall-audit requires --rhs-replay-history"
-        )
     requested_advance_execution = str(args.advance_execution)
-    requested_rhs_replay_execution = str(args.rhs_replay_execution)
     args.advance_execution = _resolve_execution_mode(
         requested_advance_execution,
         work_items=int(args.num_steps),
@@ -6111,19 +4615,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             else "eager"
         ),
     )
-    args.rhs_replay_execution = (
-        _resolve_execution_mode(
-            requested_rhs_replay_execution,
-            work_items=len(rhs_replay_frames),
-        )
-        if args.rhs_replay_history is not None
-        else "compiled"
-    )
-    setup_execution = (
-        args.rhs_replay_execution
-        if args.rhs_replay_history is not None
-        else args.advance_execution
-    )
     if (
         args.advance_execution == "staged-compiled"
         and args.time_integrator != "imex-ssp222"
@@ -6132,54 +4623,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             "--advance-execution staged-compiled requires "
             "--time-integrator imex-ssp222"
         )
-    staged_audit_cells = tuple(
-        tuple(int(index) for index in cell)
-        for cell in args.staged_audit_cell
-    )
-    if staged_audit_cells:
-        if args.staged_audit_output is None:
-            parser.error(
-                "--staged-audit-cell requires --staged-audit-output"
-            )
-        if args.advance_execution != "staged-compiled":
-            parser.error(
-                "--staged-audit-cell requires --advance-execution "
-                "staged-compiled"
-            )
-        if tuple(int(value) for value in shard_counts) != (1, 1, 1):
-            parser.error("--staged-audit-cell currently requires one shard")
-        if len(set(staged_audit_cells)) != len(staged_audit_cells):
-            parser.error("--staged-audit-cell entries must be unique")
-        for cell in staged_audit_cells:
-            if any(
-                index < 0 or index >= extent
-                for index, extent in zip(cell, resolution, strict=True)
-            ):
-                parser.error(
-                    f"--staged-audit-cell {cell!r} lies outside resolution "
-                    f"{tuple(resolution)}"
-                )
-    elif args.staged_audit_output is not None:
-        parser.error(
-            "--staged-audit-output requires at least one --staged-audit-cell"
-        )
-    if args.staged_audit_explicit_ablation != "none" and not staged_audit_cells:
-        parser.error(
-            "--staged-audit-explicit-ablation requires --staged-audit-cell"
-        )
     if requested_advance_execution == "auto":
         print(
             "[simulation] auto-selected advance execution: "
             f"{args.advance_execution} for {int(args.num_steps)} step(s)",
-            flush=True,
-        )
-    if (
-        args.rhs_replay_history is not None
-        and requested_rhs_replay_execution == "auto"
-    ):
-        print(
-            "[rhs-replay] auto-selected execution: "
-            f"{args.rhs_replay_execution} for {len(rhs_replay_frames)} frame(s)",
             flush=True,
         )
     if not 0.0 <= args.toroidal_perturbation_amplitude < 1.0:
@@ -6591,15 +5038,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         checkpoint_every=int(args.checkpoint_every),
         snapshot_times=tuple(float(value) for value in args.snapshot_times),
         snapshot_dir=args.snapshot_dir,
-        snapshot_term_fields=bool(args.snapshot_term_fields),
-        track_rhs_terms=bool(args.track_rhs_terms),
-        rhs_replay_history=args.rhs_replay_history,
-        rhs_replay_frames=rhs_replay_frames,
-        rhs_replay_output=args.rhs_replay_output,
-        rhs_replay_electron_force_wall_audit=bool(
-            args.rhs_replay_electron_force_wall_audit
-        ),
-        rhs_replay_execution=str(args.rhs_replay_execution),
         run_metadata={
             "command": " ".join(sys.argv),
             "drbx_source_root": str(DRBX_SRC),
@@ -6665,18 +5103,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             "time_integrator": str(args.time_integrator),
             "advance_execution": str(args.advance_execution),
             "advance_execution_requested": requested_advance_execution,
-            "staged_audit_cells": [
-                [int(index) for index in cell]
-                for cell in staged_audit_cells
-            ],
-            "staged_audit_output": (
-                None
-                if args.staged_audit_output is None
-                else str(args.staged_audit_output)
-            ),
-            "staged_audit_explicit_ablation": str(
-                args.staged_audit_explicit_ablation
-            ),
             "advance_execution_kernel_layout": (
                 (
                     "implicit-short-leg-plus-phi",
@@ -6687,8 +5113,6 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if args.advance_execution == "staged-compiled"
                 else ("monolithic-advance",)
             ),
-            "rhs_replay_execution": str(args.rhs_replay_execution),
-            "rhs_replay_execution_requested": requested_rhs_replay_execution,
             "flux_framework": str(args.flux_framework),
             "flux_framework_env": os.environ.get("DRBX_FLUX_FRAMEWORK", "legacy"),
             "flux_framework_source": "simulate_hsx_blob.py:--flux-framework",
@@ -6803,20 +5227,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             if str(args.flux_framework) == "production-split"
             else "legacy"
         ),
-        track_curvature_chain_rule_defect=bool(
-            args.track_curvature_chain_rule_defect
-        ),
         control_volume_descriptor=control_volume_descriptor,
         control_volume_fields_host=control_volume_fields,
         control_volume_boundary_bc=control_volume_boundary_bc,
         control_volume_assembler=control_volume_assembler,
         control_volume_field_count=control_volume_field_count,
         owner_host_geometry=owner_host_geometry,
-        staged_audit_cells=staged_audit_cells,
-        staged_audit_output=args.staged_audit_output,
-        staged_audit_explicit_ablation=str(
-            args.staged_audit_explicit_ablation
-        ),
     )
 
 
