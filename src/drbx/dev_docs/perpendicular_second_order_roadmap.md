@@ -1,5 +1,112 @@
 # Roadmap: second-order perpendicular operators on angular RLP grids
 
+## P05 direct midpoint static qualification accepted — 26 September 2026
+
+**User decision: P05 is qualified for global static midpoint MMS accuracy**
+on the canonical N32/N48/N64 geometries, for the direct reconstructed bracket
+and the direct bracket plus the saved owner-normalized `U - A` jump. This
+supersedes the P05-unqualified status of the earlier face-flux/cell-correction
+assembly below; it does not relabel that older failed campaign as passed.
+
+The [completed campaign and independent recovery audit](../../../../work/p05_direct_midpoint_global_565e1d1a_HsoyFbJ3/local_analysis/report.md)
+at producer revision `565e1d1aa2ff4d57414886051afb23067ae8ffb2` verifies all
+1,584 numerical and 144 preflight chunks. Both candidates pass the frozen
+global RMS order threshold of 1.8 on both intervals for all seven nonconstant
+cases, including zero/varying Dirichlet and varying-generator cases. Centered
+actual-vorticity orders are `4.030/1.847`; with the saved jump they are
+`4.047/1.930`. The six other centered cases have fine orders `2.810–2.989`.
+All nonconstant regional RMS errors decrease. The separate
+[acceptance record](../../../../work/p05_direct_midpoint_global_565e1d1a_HsoyFbJ3/local_analysis/acceptance_decision.md)
+preserves the original inputs, reference, thresholds, flags and recovery provenance.
+
+Freeze the direct strong bracket from reconstructed gradients at each raw
+midpoint, then project complete actions with stored physical raw volumes to
+owners. Retain the structured/ringwise/coupled-axis and prescribed-Dirichlet
+rows. The optional tested jump is the saved `U - A` correction; this acceptance
+does not qualify a new runtime jump implementation or promote the previous
+face-flux/cell-correction base. Production integration/replay of this direct
+candidate, conservation/energy properties, evolved accuracy and stability
+remain separate follow-through. Historical package extraction results below
+apply to their own operator identities.
+
+**Qualification limit:** actual-vorticity maximum errors rebound outside the
+axis: centered `0.273419 → 0.066805 → 0.152426`. Uniform pointwise convergence
+and third order for every field are not claimed. The
+[reconstruction-row audit](../../../../work/p05_reconstruction_row_audit_20260926/report.md)
+finds no row/assembly defect. The
+[signed geometry-term audit](../../../../work/p05_omega_geometry_terms_audit_20260926/report.md)
+isolates the dominant error to magnetic-projector derivatives in the
+manufactured continuum vorticity. The
+[fixed-map interpolation comparison](../../../../work/p05_field_interpolation_audit_20260926/report.md)
+and [raw MAKEGRID checks](../../../../work/p05_makegrid_native_audit_20260926/report.md)
+show strong derivative sensitivity, predominantly in the source toroidal
+direction. This is evidence of a difficult interpolation-dependent test field,
+not proof that the frozen reference is algebraically wrong or that the whole
+hotspot error is nonphysical. It is a nonblocking limitation of the accepted
+P05 static milestone; do not redesign P05 or rerun its global campaign solely
+to obtain a more favorable actual-vorticity slope.
+
+### Magnetic-field derivative/reference resolution follow-up
+
+**Planned geometry follow-up:** assess the magnetic-field representation and
+the derivatives actually consumed by the selected operators/references. The
+manufactured-vorticity hotspot does not demonstrate an inherent simulation
+error. Independent finer-source validation is valuable, but is not a blanket
+prerequisite for simulation work or a retroactive P05 static-pass gate.
+Simulation readiness follows integration, stability and resolution-sensitivity
+evidence in P08/P09. This note does not launch new campaigns.
+
+Start with the existing two hotspots, nearby control and a small representative
+point set, keeping the coordinate map, equilibrium and current configuration
+fixed. Prefer exact source-coil field evaluation or a verified finer-toroidal
+MAKEGRID. Compare B, first/required second derivatives, magnetic-projector
+coefficients and the resulting operator/reference actions; keep source-grid
+resolution, interpolation choice and simulation-grid resolution separate.
+Use divergence and stored-vector-potential consistency as supporting checks,
+not independent truth. Do not select an interpolant because it minimizes MMS
+error: quintic interpolation worsened the present coarse-spacing hotspots.
+Assess geometry/reference sensitivity relative to the intended simulation's
+spatial errors and required accuracy; do not infer its impact solely from this
+nested manufactured-field test.
+
+Only the original MAKEGRID was found in the bounded local inventory; independent
+finer-source validation therefore awaits a matching upstream input. Same-file
+interpolant comparisons remain diagnostics and cannot replace that validation.
+The fitted coordinate map has not been independently certified by these tests.
+If no improved input becomes available, retain the uncertainty explicitly;
+simulation refinement alone is not independent geometry certification, but the
+missing input does not block P08/P09 integration and evolution work.
+
+## Next P milestone: shared extraction and replay before P08
+
+P05 direct midpoint, P06 midpoint curvature and P07 midpoint-target diffusion
+have completed their accepted static qualifications. The
+[shared infrastructure design and extraction sequence](../../../../work/p_shared_infrastructure_design_20260926/design.md)
+has completed [Phase A bounded point-row extraction and replay](../../../../work/p_shared_point_rows_extraction_20260926/report.md)
+and [Phase B integrated-face/live-correction replay](../../../../work/p_shared_face_extraction_20260926/report.md)
+at N32/N48/N64. These are not selectable production paths.
+
+Share owner observations, basis/fit primitives, boundary loading, prepared-row
+application, topology and eta distribution where their contracts agree. Preserve
+P07 integrated-functional support separately from P05/P06 point rows, and keep
+physical-volume and P06 evolution-measure reductions explicit. Recompute and
+replay P05's saved `U-A` correction from live states before claiming runtime
+coverage of the accepted direct-plus-jump candidate.
+
+The bounded real-HSX extraction and JAX replay covers point and integrated
+rows, ordinary/aggregate/core/transition/wall/seam faces, P05's live scalar
+jump, and P06's separate characteristic side corrections and q1 midpoint
+material/remainder closure. P07 integrated rows retain their own support
+search and tensor convention; the P05/P06 correction kernels retain their
+different signs and owner measures. The bounded receipts separate preparation,
+lowering/cache, compilation and repeated application without a whole-grid
+speed claim. Next qualify physical-normal Neumann data through the shared
+boundary construction and the separate P05N, P06N and P07N operator gates below
+before combined P08 certification. Full
+model/default integration remains at P09. Equivalent replay does not require a
+new global static campaign. The older extraction applies only to its own
+operator identity; Q need not finish before this work proceeds.
+
 ## Locked midpoint formulation and MMS contract — 25 September 2026
 
 User-approved for the next P05/P06/P07 global campaigns. This supersedes
@@ -20,10 +127,12 @@ not a production or new convergence pass.
   canonical incidence and BC channels. Midpoint volume evaluation does not
   authorize midpoint replacement of face fluxes or pointwise replacement of
   conservative diffusion. P07 has no numerical cell-volume source to change.
-- **P05:** q1 cell correction with existing q3 A/B/C/U face construction;
+- **Historical P05 face/cell campaign:** q1 cell correction with existing q3 A/B/C/U face construction;
   analytic strong bracket at each raw midpoint projected with stored physical
   raw volumes, including actual continuum vorticity differentiated independently
   of numerical reconstruction. Its derivative-step sensitivity is checked.
+  This base assembly failed its midpoint qualification and is superseded by
+  the accepted direct midpoint P05 definition above.
 - **P06:** q1 complete material/remainder volume expressions plus existing q3
   characteristic face correction. Member mass is `(J/B)(x_c)*Delta_xi_c` for
   both numerical assembly and analytic midpoint reference; divide only after
@@ -63,7 +172,127 @@ remain archived; the next campaigns do not recompute them.
 
 The [midpoint campaign implementation and bounded checks](../../../../work/p_midpoint_campaign_update_20260925/report.md)
 record the P05/P06/P07 edits, 14 passing focused tests, and actual-HSX preflight/
-reference checks. The full midpoint global qualifications remain pending.
+reference checks. P06 passes the midpoint global qualification below.
+The returned P05/P07 midpoint campaigns have now been analyzed. P07 is accepted
+by user decision as an observed second-order static midpoint pass. The initial
+P05 face/cell candidate failed; the subsequent direct midpoint candidate is
+qualified as recorded above. Original gate outcomes and diagnostics are retained.
+
+### P05 volume-normalization audit — 26 September 2026
+
+The [bounded volume-measure audit](../../../../work/p05_volume_measure_audit_20260926/report.md)
+confirms that canonical raw volumes use q2 Jacobian integration (eight points
+per raw cell), rather than midpoint volume. With the campaign's fixed N64
+continuous metric, sampled N64 volumes replay within `2.64e-13` relative.
+N32/N48 use different producer metric checkpoints; bounded cross-metric q2
+differences are `1.64e-3`/`3.46e-4`, not an own-producer replay failure.
+Stored-integrated versus stored-midpoint volume relative RMS has global orders
+`1.945/1.975`; six fixed-center geometry probes approach order two.
+
+A diagnostic rescaling of saved centered exact-input numerators by midpoint
+owner volume does **not** restore convergence: six smooth-case fine orders
+become `0.657–1.077`, compared with `1.125–1.373` originally. The normalization
+change itself has fine orders `1.936–1.973`. References, anchors, reconstruction
+moments and reporting weights were held fixed; this is not a fully rebuilt
+alternative operator. No new global computation, integrated MMS reference,
+traces or reconstruction were run. Keep canonical normalization and the locked
+point reference. At this audit stage the face/cell P05 candidate remained
+unqualified; the direct candidate's later acceptance is recorded above.
+The then-next investigation isolated the remaining exact-input
+face/cell error at fixed geometry centers and decreasing cell widths, with
+properly centered coordinate decomposition, before considering a new campaign.
+P06 and P07 acceptance remain unchanged.
+
+### P07 midpoint observed second-order pass accepted — 25 September 2026
+
+**User decision:** record job `58882298` as a **passed observed approximately
+second-order global static midpoint MMS milestone**. The user accepts the
+small N32→N48 shortfall (orders `1.750–1.816`) in light of N48→N64 orders
+`2.059–2.107`, passing operational and bounded reference checks, decreasing
+regional RMS/max errors, and the independently verified error decomposition.
+The [acceptance record](../../../../work/p07_validated_58882298/local_analysis/acceptance_decision.md)
+is separate from the original audit and raw results. Preserve
+`global_order_pass=false` and `reference_qualified_by_bounded_checks=true`
+in the returned artifacts. This is an explicit research acceptance, not a
+retroactive statement that every frozen 1.8 interval gate passed.
+
+Retain the q3 conservative diffusion assembly and locked midpoint target.
+Reconstruction-to-exact-face error remains above third order; the dominant
+exact-face-minus-midpoint contribution gives roughly second-order fine-grid
+behavior. The acceptance does not require another P07 consistency campaign
+before proceeding. The separate contributions from averaging, geometry,
+quadrature and normalization remain an optional research question, not proven
+individually by this result. P05, Q, evolved stability/accuracy, energy and
+production integration remain separate milestones; none is promoted here.
+
+### P05/P07 midpoint returns: consistency work remains — 25 September 2026
+
+The [P05 job 58880191 audit](../../../../work/p05_failed_58880191/local_analysis/report.md)
+verifies all 55,962 scientific chunks from commit `2458dbf6`. All computational
+stages completed, but reduction stopped on a bounded/global actual-vorticity
+reference mismatch. The largest sampled discrepancy is `1.53e-8`, negligible
+against spatial error; a local three-owner probe reproduces batch-sensitive
+nested-derivative differences. Preserve the original failed status and repair
+the replay comparison with an explicit noise bound or aligned evaluations;
+the saved numerical work need not be rerun. Independent diagnostic reduction
+also finds a genuine accuracy non-pass: only actual-vorticity A/B/C pass both
+intervals (3/27 primary entries). Other cases have fine orders `1.118–1.397`.
+Reference step sensitivity is at most `0.08182%` of matching sample error,
+and constants/support checks pass. Thus repairing the reducer alone will not
+qualify P05. For six smooth nonconstant cases, saved exact-input assembly
+already reproduces the poor midpoint orders, while the centered reconstruction
+contribution has fine orders `3.04–3.85`. The actual-vorticity swapped oracle
+remains unavailable; do not use its B/C exact-input diagnostics.
+
+The [P07 job 58882298 audit](../../../../work/p07_validated_58882298/local_analysis/report.md)
+verifies 15,665 scientific chunks and exactly reassembles numerical and
+exact-gradient face actions and midpoint references. Operational validation
+and bounded reference checks pass, but the frozen global order gate does not:
+phi `1.778/2.096`, Ti `1.766/2.107`, regular `1.750/2.080`, and mixed eta
+`1.816/2.059`. All regional RMS/max errors decrease; wall fine slopes are only
+`0.566–0.927`. The reconstruction-versus-exact-q3-face contribution retains
+orders above three on both intervals, while exact-face-minus-midpoint error
+dominates the new target comparison. This is approximately second-order
+fine-grid behavior. The user-accepted pass above supersedes its status as a
+roadmap blocker; the original strict-gate non-pass and lack of a midpoint
+third-order claim remain unchanged.
+
+For the then-unqualified face/cell P05 path, the next investigation addressed the exact-input assembled
+operator's consistency with the locked midpoint target, including
+geometry/coefficient variation, face/cell rules
+and normalization, using bounded saved-data diagnostics before donor redesign
+or another global campaign. The related Q finding motivates but does not
+prove the same mechanism for P. Preserve historical integrated-reference
+passes and all returned flags; no automatic target change, gate relaxation,
+production promotion, checkpoint migration or remote launch is authorized.
+
+### P06 midpoint static qualification passed — 25 September 2026
+
+The [returned job 58880303 and independent local audit](../../../../work/p06_completed_58880303/local_analysis/report.md)
+verify the source content of commit `2458dbf6`, all 28,869 scientific NPZ
+payload hashes, complete global coverage, and saved-action/reference reassembly
+within `1.78e-15`. All 44 required nonzero primary M/R/total entries pass the
+frozen 1.8 global order gate on both intervals: N32→N48 orders `3.010–3.747`,
+N48→N64 orders `2.659–2.929`. This includes corrected MMS, held-out smooth,
+homogeneous phi Dirichlet, and variable phi Dirichlet states, with nonzero
+normal derivatives in both Dirichlet controls. Primary U density/Te/Ti and
+centered vorticity remain unchanged; exact-zero vorticity remainder is exempt.
+
+Regional RMS and maxima decrease on both intervals for every primary component,
+including walls, axis, first ring, agglomeration and interfaces. Fine-interval
+wall orders are `2.297–2.822`; first-ring orders are only `1.049–1.890`, retained
+as a local diagnostic without rebound or a global failure. The largest bounded
+midpoint-reference half-step sensitivity is `0.003651%` of the corresponding
+sampled numerical error, below the 10% screen. This is a bounded reference
+check, not a global uncertainty bound. All implementation invariants pass.
+
+Retain q1 complete volume expressions, q3 characteristic faces, midpoint J/B
+owner reduction, and independent analytic midpoint references. This qualifies
+the static midpoint P06 research construction; it does not certify continuous
+integrated-reference accuracy, asymptotic third order, evolved stability,
+production integration, or the Q path. Historical integrated campaigns and
+their flags remain unchanged. The P05 non-pass and user-accepted P07 midpoint
+pass above remain separate from this P06 pass.
 
 Approved research roadmap, 18 September 2026. This document specifies planned
 work and acceptance gates, not a claim that the methods below are already
@@ -72,7 +301,162 @@ tasks. Keep numerical evidence and experiment logs in linked research artifacts.
 
 ## 1. Objective and acceptance contract
 
-### Current result: centered static bracket globally qualified
+### P07 observed third-order static convergence accepted — 25 September 2026
+
+**User decision:** accept **observed approximately third-order global static
+MMS convergence** for the combined structured, BC-conditioned reconstruction
+and proceed with the roadmap. Reference refinement is a nonblocking caveat for
+this research acceptance, not a prerequisite for further development. This
+decision supersedes older active boundary-redesign assignments below; it does
+not close all P07 integration/evolution milestones or promote production use.
+
+The [returned global campaign and independent audit](../../../../work/p07_combined_global_analysis_20260925/report.md)
+at commit `5e2531fb5ae0ce263c0de78e483ed618881c771b` gives N32→N48 / N48→N64
+global volume-weighted RMS orders:
+
+| Field | Observed orders |
+|---|---:|
+| phi | 3.257 / 3.546 |
+| Ti | 3.251 / 3.591 |
+| regular | 3.099 / 3.338 |
+| mixed eta | 3.098 / 3.327 |
+
+Wall-layer RMS, global maxima, aggregate-interface and coupled/ringwise-join
+norms decrease at both refinements. The previously accepted small axis-core
+regular/mixed rebound remains diagnostic; first-ring norms decrease globally.
+All 15,672 returned chunks were verified and saved flux reassembly reproduced
+the global arrays exactly.
+
+The [bounded reference audit](../../../../work/p07_bounded_reference_audit_20260925/report.md)
+finds that q3 volume-reference underintegration inflated the highlighted N64
+interior hotspots; refined surface estimates reduce those apparent errors by
+about 11–33x without changing the numerical operator. Retain the limits: the
+reported global orders use the original q3 reference, no corrected global
+orders were computed, and the finest bounded strong-volume/surface comparison
+still differs by up to 14.4% of local numerical error. The original campaign's
+`global_order_pass=true` and `reference_qualified_by_bounded_checks=false`
+remain unchanged. This is observed-order acceptance, not proof of asymptotic
+third order or completed reference qualification. Numerical q3 face integration
+and stored-volume normalization remain separate accuracy contributions.
+
+The [acceptance record](../../../../work/p07_combined_global_analysis_20260925/acceptance_decision.md)
+preserves this distinction. No reference rerun, new elliptic solve, energy
+optimization or production change is launched by this decision. Historical
+D_trace energy findings are evidence about that older operator, not a new
+energy assessment of the combined structured candidate.
+
+### Structured reconstruction and resolved-scale response — 24 September 2026
+
+**Literature record requested by the user.** The current layered reconstruction
+is an adaptation of established interpolation, functional recovery and boundary
+reconstruction ideas, not a reproduction of one published turbulence scheme.
+Its four-layer radial cubic, seven-point theta trigonometric interpolation,
+four-plane eta cubic and prescribed-trace lifting need their own actual-HSX
+qualification. Moment-functional recovery specifies how stored observations
+approximate a target derivative or face integral; it does not specify a unique
+filter or imply a turbulence closure. Single-member observations are raw-center
+values; aggregated observations retain their weighted raw-midpoint contract,
+not newly assumed exact continuous cell averages.
+
+| Reference | Relevant result and limit of applicability |
+|---|---|
+| Mirzaei, Schaback & Dehghan (2012), *On generalized moving least squares and diffuse derivatives*, IMA J. Numer. Anal. 32, 983–1000. [Author manuscript](https://num.math.uni-goettingen.de/~schaback/research/papers/OGMLSaDD.pdf), [DOI](https://doi.org/10.1093/imanum/drr030). | Recovers target linear functionals from observations with reproduction constraints. Supports the functional framework; our structured interpolation is not this paper's particular least-squares algorithm. |
+| McCorquodale, Dorr, Hittinger & Colella (2015), *High-order finite-volume methods for hyperbolic conservation laws on mapped multiblock grids*. [Author repository](https://escholarship.org/uc/item/7gs9t74k), [DOI](https://doi.org/10.1016/j.jcp.2015.01.006). | Fourth-order mapped-grid finite-volume construction and interface interpolation. Architectural precedent, not certification of our owner observations, anisotropic diffusion or wall closure. |
+| Du & Li (2018), *A two-stage fourth order time-accurate discretization for Lax–Wendroff type flow solvers II. High order numerical boundary conditions*. [Preprint](https://arxiv.org/abs/1801.00990), [DOI](https://doi.org/10.1016/j.jcp.2018.05.002). | Boundary/interior interpolation must be consistent with the discretized equations. Their hyperbolic boundary algorithm differs from our Dirichlet trace lift; it is not our implementation. |
+| Lele (1992), *Compact finite difference schemes with spectral-like resolution*. [NASA record](https://ntrs.nasa.gov/citations/19930029704), [DOI](https://doi.org/10.1016/0021-9991(92)90324-R). | Wavelength-dependent derivative resolution complements formal order. These finite-difference schemes are benchmarks for analysis, not a proposed implicit compact solve. |
+| Motheau & Wakefield (2021), *On the numerical accuracy in finite-volume methods to accurately capture turbulence in compressible flows*. [Preprint](https://arxiv.org/abs/2106.06585), [DOI](https://doi.org/10.1002/fld.5021). | Face reconstruction strongly affects turbulent spectra despite similar measured overall convergence; higher averaging quadrature alone did not improve spectral accuracy in their cases. Does not establish optimal quadrature or degree for HSX. |
+| Denaro (2011), *What does Finite Volume-based implicit filtering really resolve in Large-Eddy Simulations?* [DOI](https://doi.org/10.1016/j.jcp.2011.02.011). | Interpolation, differentiation and integration determine effective filtering of resolved scales. Its continuous-cell-average filtering interpretation cannot be transferred unchanged to our raw-midpoint observations. |
+| Ghosal (1996), *An Analysis of Numerical Errors in Large-Eddy Simulations of Turbulence*. [DOI](https://doi.org/10.1006/jcph.1996.0088). | Broad spectra and nonlinear interactions require error analysis beyond single smooth scales; relates numerical errors to nonlinear/subgrid terms. Fluid LES evidence, not a plasma closure prescription. |
+| Kravchenko & Moin (1997), *On the Effect of Numerical Errors in Large Eddy Simulations of Turbulent Flows*. [DOI](https://doi.org/10.1006/jcph.1996.5597). | Aliasing, truncation and nonlinear operator form affect turbulent calculations even for finite-difference/spectral methods. Reconstruction consistency alone cannot settle evolved behavior. |
+| Almgren, Aspden, Bell & Minion (2013), *On the Use of Higher-Order Projection Methods for Incompressible Turbulent Flow*. [DOI](https://doi.org/10.1137/110829386). | Fourth-order finite-volume evolution reduces the resolution needed for the tested turbulent cascade relative to second-order comparators. Positive suitability evidence, not authorization for a projection/elliptic method here. |
+
+**Plasma-code comparison.** Giacomin et al., *The GBS code for the
+self-consistent simulation of plasma turbulence and kinetic neutral dynamics in
+the tokamak boundary* (2022), [preprint](https://arxiv.org/abs/2112.03573),
+[DOI](https://doi.org/10.1016/j.jcp.2022.111294), describes fourth-order finite
+differences/Arakawa brackets, adds perpendicular numerical diffusion for
+stability (Sec. 2.1), and checks grid convergence of averaged profiles (Sec. 6).
+Body et al., *Treatment of Advanced Divertor Configurations in the
+Flux-Coordinate Independent turbulence code GRILLIX* (2020),
+[preprint](https://arxiv.org/abs/1908.05398),
+[DOI](https://doi.org/10.1002/ctpp.201900139), Sec. 2, explicitly identifies
+interpolation-related numerical dissipation and the danger that fast parallel
+dynamics can contaminate perpendicular dynamics; careful support-operator
+construction is their mitigation. These published versions are not evidence
+that finite differences or FCI avoid resolution/dissipation errors. Neither
+paper certifies our HSX method or imposes its stabilization on this roadmap.
+
+**Recommended sequencing, not a new run authorization:** finish and review the
+[current all-orientation P test](../../../../work/p07_all_orientation_reconstruction_20260924/assignment.md)
+before a full bounded HSX response comparison. Use its frozen complete maps
+rather than certify the superseded radial-only mixture. Analytic uniform-stencil
+symbols can inform test design now but cannot establish HSX effective resolution.
+Preserve all passed P05/P06 and frozen Q baselines; an optional replacement
+requires its own operator-specific evidence, not a retroactive change of status.
+
+The next response study should freeze wavelength/direction/phase choices before
+errors, compare old/radial-only/all-orientation actions on common actual-HSX
+patches, and report amplitude, phase and absolute complete-operator errors for
+waves or localized packets spanning nominally 12, 8, 6 and 4 local cells. Record
+physical wavelength via the geometry, not only coordinate-grid counts; include
+oblique directions, wall/transition locations and aggregate support when a legal
+construction exists. Measure actual observation response separately from
+reconstruction and assembled-operator response. Near exact-null targets report
+absolute defects rather than misleading relative ratios. Account for all
+recipients and qualify reference quadrature at each tested wavelength. Do not
+call static attenuation a per-step damping rate: that requires the complete
+evolution operator and timestep. Later nonlinear transport/spectral checks must
+separate truncation, aliasing, intentional diffusion and time integration.
+No universal cells-per-wavelength threshold, turbulence pass, new filter,
+energy optimization, elliptic solve or extra global campaign follows from these
+references. This documentation update launches no computation.
+
+### Current P07 direction: boundary-conditioned accuracy reconstruction
+
+**User decision, 24 September 2026:** boundary-cell error growth under refinement
+must be investigated even when the global volume-weighted static order passes.
+Preserve the D_trace global phi pass (`3.25999/1.91368`), while treating local
+absolute accuracy and refinement behavior as explicit design objectives.
+Moving selected cells are not fixed-location convergence tests; report their
+motion, individual errors and patch/layer norms rather than hiding them in a
+global average or claiming that all boundary cells diverge.
+Do not accept a proposed wall closure on global order alone: systematic growth
+of complete boundary error under controlled refinement remains an unresolved
+accuracy defect, even when its global volume-weighted contribution is small.
+
+The [literature reset](../../../../work/rlp_literature_reset_20260924/research_memo.md)
+and [wall-only experiment](../../../../work/p07_wall_face_only_20260923/report.md)
+motivate a change of research direction. The latter reduces quartic norms by
+58–72% without changed neighbors or measured sensitivity growth, but actual
+errors remain mixed. Separate Taylor-block minimization is not an adequate
+accuracy criterion. Pause fifth-stage recovery and further conic repair scans.
+
+The authorized [next P assignment](../../../../work/p07_boundary_conditioned_reconstruction_20260924/assignment.md)
+compares one **compact reconstruction that uses prescribed Dirichlet trace
+information directly** against original D_trace and the saved wall-only map.
+Use hard boundary constraints or an explicit trace lifting, actual owner means,
+and the complete metric/tensor face functional to reconstruct the unresolved
+normal derivative. A possible representation is `u=g_ext+d*v`, with a declared
+boundary-defining function and trace-data interface; this is a research option,
+not a qualified implementation. A basis rotation or Gaussian reweighting of the
+same broad footprint alone does not constitute the proposed change.
+
+Retain arbitrary-cubic compatibility with its corresponding nonzero boundary
+data, physical incidence and unchanged non-wall faces. Do not impose the MMS
+fields' accidental zero normal flux as a generic Dirichlet condition. Additional
+known trace samples must be declared as BC data, never analytic interior or
+normal-derivative information. Freeze support/fit rules before candidate errors.
+Evaluate normal/tangential probes, nonconstant trace and nonzero-flux controls,
+held-out smooth fields, complete owner errors and a cheap controlled refinement
+problem. Assess true footprint reduction and target observability, not only rank.
+
+Preparation is local and reusable for fixed geometry/coefficients. No extra
+global elliptic solve per timestep, global campaign, energy repair or production
+promotion is authorized by this direction. The earlier energy defect remains a
+separate eventual qualification issue. This current decision supersedes older
+P07 next-step recommendations below; their historical evidence is preserved.
+
+### Current result: centered and material-upwind static brackets globally qualified
 
 The clean selection-v3 remote campaign at revision `c54b0552` is complete and
 locally verified. The [returned-campaign analysis](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md)
@@ -110,22 +494,122 @@ their narrower scopes. The local recheck verified all 106 source files,
 errors and orders. The smallest centered order is 2.4414; even shifting errors
 adversely by the empirical reference budgets leaves a minimum of 2.4086.
 
-P05 remains partial: material upwinding is unqualified on this functional.
-Following the completed bounded decomposition and nodewise cubic-jump study,
-the user authorized the [remote N32/N48/N64 material accuracy campaign](../../../scripts/p05_material_campaign/README.md).
-Freeze the recentered jump, bias 0.75, selection-v3 supports, q3 nodes and
-existing physical-wall trace contribution. Reuse the hash-pinned completed
-centered action; verify the donor graph and central face flux on every face
-while computing only the new conservative jump correction. The smooth regular
-and eta-varying scalars are required material fields; upwind vorticity remains
-diagnostic and does not replace its accepted centered operator. Reference
-uncertainties are requalified relative to the new global errors. Positivity,
-dissipation and held-out checks remain separate scientific follow-through,
-not additional prerequisites to this authorized static accuracy measurement.
-No promotion is authorized. Curvature, diffusion/polarization and evolved MMS
-retain their own later gates.
+**P05 material static accuracy also passes.** The frozen nodewise cubic-jump
+campaign at revision `257bd55f` is complete and independently verified in the
+[returned material-campaign analysis](../../../../work/p05_material_257bd55f_qQnlSX_analysis/report.md).
+The required regular-scalar orders are `3.4639/2.7951`; eta-varying scalar orders
+are `3.6320/3.2729`. Their reference budgets are only `1.05–1.90%` of spatial
+error. Diagnostic upwind vorticity also gives `2.4499/2.3266`; retain the
+qualified centered operator for vorticity. All 4,839 new face chunks, frozen
+donor identities and central fluxes were verified; independent correction
+assembly agrees to `1.11e-16`.
 
-### Preserved execution contract for the completed remote campaign
+Freeze the recentered nodewise jump, bias `0.75`, selection-v3 supports, q3
+nodes, unchanged common value/generator and matched volume contribution, and
+existing physical-wall trace treatment. At N64 the material errors are only
+`2.38%/0.71%` above centered material A for the two scalars; the correction is
+nonzero and its own global RMS decays with orders above two on both intervals.
+This demonstrates preserved accuracy, not a requirement that upwinding improve
+smooth-field errors. Fine-interval maximum errors flatten and some RLP regions
+carry growing error fractions; these are diagnostics, not new acceptance gates.
+
+**Status boundary:** P03/P04 numerical dependencies and both P05 static bracket
+accuracy milestones are passed. Shared implementation, structural properties,
+curvature, diffusion/polarization, coupled/evolved MMS and production promotion
+remain separate work. Do not relabel material static accuracy as pending while
+those follow-through items are open. No repeated bracket global campaign,
+higher degree, bias scan or new donor search is justified by these results.
+
+### Integration sequencing: consolidate first, integrate at the end
+
+**User decision, 22 September 2026:** full shared-model integration belongs at
+the end of this roadmap, in P09. A qualified individual operator is not an
+instruction to wire it into every driver or replace production defaults.
+First establish the bracket, curvature, and diffusion/polarization designs in
+P05–P07; then consolidate the components they demonstrably share before P08's
+coupled verification. Reuse the existing extracted bracket machinery while
+learning the other operators' requirements instead of implementing separate
+copies of donor selection, moments, geometry evaluation, incidence, boundary
+classification, preparation, or runtime application for each operator.
+
+Early package extraction, saved-action replay, and small opt-in adapters in
+existing diagnostic harnesses remain allowed when needed for the authorized
+experiment. These are provisional implementation and verification steps, not
+full integration or a reason to freeze the final shared API prematurely.
+P08 and P09 may assemble the candidate operators in the verification harness
+to perform their required tests; deployment into the shared model/default
+workflow follows the final gates. Blob-driver synchronization stays deferred.
+
+Before P08, inventory common versus operator-specific requirements and extract
+one reusable preparation/application layer wherever the numerical contracts
+agree. Retain distinct physical fluxes, measures, volume/anchor corrections,
+boundary data, and stabilization where they differ. Check for reuse with the
+[parallel roadmap](parallel_second_order_roadmap.md), but do not force P and Q
+to use the same reconstruction or delay either for speculative unification.
+Replay each affected action against its saved qualified evidence after
+consolidation. An implementation-equivalent refactor does not reopen numerical
+design or require another global campaign; a changed numerical action needs
+its own scoped qualification.
+
+### Recommended next work: reuse the frozen bracket infrastructure
+
+The completed extraction-and-replay implementation contract and corrected
+matching-error denominator audit are recorded in
+[P05 bracket extraction and replay](p05_bracket_extraction_replay.md). A
+self-contained N32 complete-owner fixture now covers resident eager/JIT/JVP and
+changed-field reuse without the campaign artifacts. This closes P05's saved-
+action replay follow-through without reopening either static accuracy milestone;
+structural/evolved qualification and production integration remain open.
+
+These are bounded follow-up scopes for future assignment, not an instruction
+to launch another campaign or promote production behavior now.
+
+1. **P05 implementation follow-through: extract and replay.** Extract the
+   minimum reusable host-side geometry/reconstruction payload from the frozen
+   successful campaign: owner observation moments and measures; selection-v3
+   supports and expansion policy; shared face incidence, orientation and q3
+   nodes; central value/derivative and biased side-fit functionals; and the
+   matching volume/anchor and physical-boundary data. Evaluate needed geometry
+   continuously at its actual quadrature locations. Preserve the current
+   midpoint/raw-volume observation convention and evolved/restart layouts.
+   Keep geometry/setup work separate from fixed-shape JAX operator application;
+   no per-step donor search or SVD. Factor repeated geometry work across fields
+   rather than importing campaign/MMS fields into the reusable operator.
+2. **Replay the actual extracted actions against saved evidence.** Start with
+   a complete N32 HSX action and bounded N48/N64 owner sets covering axis,
+   agglomerated bulk, size changes, ordinary interior, walls and periodic seams.
+   Replay centered A/B/C and the recentered material correction, including the
+   complete volume and boundary terms. Reuse archived reference and baseline
+   data. Use justified floating-point tolerances below recorded spatial error;
+   bitwise equality is not required. Cached full-array replay is welcome when
+   cheap; do not regenerate expensive global geometry/references for this
+   engineering check. Record smooth-path JIT/JVP and applicable sharding checks
+   during integration. A mismatch requires localization, not retuning the fit.
+3. **Bounded material scientific follow-through.** Keep the fit/support/bias
+   fixed. Predeclare one held-out smooth positive thermodynamic field on real
+   HSX, exercise the actual action and inspect dissipative work and positivity
+   of a justified one-step update separately from forced MMS. Account for
+   boundary work and the actual material/volume identity; do not infer energy
+   stability from the word "upwind" or conservation alone. Record limiter/floor
+   activation without introducing a new limiter as part of extraction. These
+   checks inform subsequent structural/evolved certification; they neither
+   reopen the static pass nor block starting P06/P07 audits. Any numerical
+   repair receives its own bounded design and authorization.
+4. **P07 combined structured static accuracy accepted, 25 September 2026.**
+   The user accepts observed approximately third-order global MMS convergence
+   with the bounded reference caveat retained as nonblocking. Preserve the
+   combined candidate and the older D_trace baseline separately. Advance the
+   remaining integration/evolution roadmap when tasked; do not restart the
+   superseded boundary-redesign assignment or infer production readiness.
+   Elliptic and energy work remain deferred.
+
+Reuse the extracted bracket implementation and the P06 boundary-functional
+machinery for P07 where their numerical contracts agree. Do not insert full bracket-driver/model
+integration as the next milestone. Consolidate common machinery before the
+combined P08 RHS; complete full integration only at the end of P09 after
+evolved certification. Blob-driver synchronization stays deferred.
+
+### Preserved execution contract for the completed remote campaigns
 
 The earlier local P global campaign is paused and preserved as historical
 evidence. The matched-q3 centered-bracket N32/N48/N64 qualification was run
@@ -133,6 +617,9 @@ as a **new remote campaign**, using
 [`scripts/hsx_remote_qualification`](../../../scripts/hsx_remote_qualification/README.md).
 The remote handoff contains repository commands only, in
 [REMOTE_COMMANDS.md](../../../scripts/hsx_remote_qualification/REMOTE_COMMANDS.md).
+The material extension used the separate
+[P05 runner](../../../scripts/p05_material_campaign/README.md) and reused the
+hash-pinned completed centered campaign. Both computations are complete.
 The remote setup skill chooses concurrency to fit the active allocation and
 worker memory; the campaign requires an explicit worker count. **No remote
 scaling study is required**. The
@@ -666,6 +1153,12 @@ alone does not require a repair if the global gates already pass.
 
 **Dependencies:** P04.
 
+**Current milestone passed:** the direct midpoint implementation is qualified
+for static global MMS accuracy by the 26 September acceptance at the top of
+this roadmap. Its geometry-derivative caveat and production/evolution scope
+are explicit there. The following shared-face milestones are historical
+qualifications of different operator identities, retained for comparison.
+
 **First milestone passed:** the frozen general-cubic, shared-face, matched-q3
 centered bracket C qualifies on the original omega, regular, and eta-varying
 fields at 32/48/64. The [verified remote results](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md)
@@ -674,8 +1167,17 @@ bounded independent qualification. All C orders exceed 1.8 on both intervals;
 A/B constituents pass separately. C is this milestone's certified operator.
 No additional field, resolution, or actual-action gate is imposed retroactively.
 A predeclared held-out-field check remains a generality diagnostic during
-implementation follow-through, without tuning the frozen design. The next
-numerical qualification within P05 is material scalar upwinding.
+implementation follow-through, without tuning the frozen design.
+
+**Second milestone passed: material static accuracy.** The
+[verified P05 global campaign](../../../../work/p05_material_257bd55f_qQnlSX_analysis/report.md)
+qualifies the recentered nodewise cubic-jump action on both required scalars:
+regular `3.4639/2.7951`, eta `3.6320/3.2729`, with reference budgets below 1.90%.
+The same cubic supports/common generator are retained; only the shared jump
+correction is added to material A. Diagnostic upwind vorticity also passes,
+but does not replace the centered vorticity path. Shared implementation replay
+and structural/evolved qualification remain follow-through; P05 is not yet a
+production or complete time-evolution certification.
 
 **Scientific checks, not blockers for the current study:** constant annihilation,
 argument antisymmetry, shared-face bookkeeping, and checks of actual boundary
@@ -690,12 +1192,11 @@ or bookkeeping errors when they prevent a meaningful convergence measurement.
 Structural certification and production suitability remain separate later
 decisions, without adding them as prerequisites to this static study.
 
-Material upwinding remains a separate bracket qualification within P05 and
-does not prevent an independent centered-bracket milestone. Curvature,
-polarization, full-system balance checks, evolved MMS, and production promotion
-remain subsequent work; they are not additional prerequisites for this static
-centered-bracket result. Completing this first milestone does not complete
-all of P05 or certify the shared perpendicular infrastructure.
+Centered and material-upwind static accuracy are separately passed P05
+milestones. Curvature, polarization, full-system balance checks, evolved MMS,
+and production promotion remain subsequent work; they are not additional
+prerequisites for these static bracket results. Completing both milestones does not by itself
+complete P05 integration/structural work or certify the full perpendicular system.
 
 **Bounded material-upwind decomposition complete (21 September 2026):** the
 [N48/N64 evidence](../../../../work/p05_material_upwind_decomposition_20260921/report.md)
@@ -725,11 +1226,13 @@ because it replaces an already qualified common value. All cubic reproduction,
 selection-v3 support, action/sign, incidence, seam, collapsed-axis, and frozen
 physical-wall checks pass; positive shifts do not activate the existing trace
 floor. These bounded nonidentical samples are not global-order, dissipation,
-positivity, or stability evidence. Retain the recentered nodewise jump as the
-next candidate. The next bounded check should keep its support and bias fixed,
-add one predeclared positive held-out thermodynamic field, and audit discrete
-dissipative work and one-step positivity before any separately authorized
-global material-accuracy campaign; do not start a donor/bias scan.
+positivity, or stability evidence. The subsequent authorized global campaign
+now qualifies the recentered jump on both required material fields; its complete
+domain errors mildly increase relative to centered A while preserving the
+required order. The earlier bounded error reductions are not a global accuracy
+improvement claim. Keep the support and bias fixed for held-out-field and
+structural follow-through, without making those checks retroactive prerequisites
+to the completed static campaign. Do not start a donor/bias scan.
 
 - Integrate consistent generator derivatives and transported traces into the MMS
   material and centered-vorticity paths.
@@ -750,7 +1253,100 @@ fixed-time solution checks are retained in P09.
 
 ### P06 — Repair and certify complete curvature
 
-**Dependencies:** P04.
+**Dependencies:** P04 (numerical dependency satisfied).
+
+**Current milestone:** P1's [bounded formulation/reconstruction audit](p06_curvature_bounded_plan.md)
+and remote global campaign are complete. The
+[returned-campaign local analysis](../../../../work/p06-curvature-cpu_4bb8336e_8ijYwA5H/local_analysis/report.md)
+independently confirms all 22 nonzero primary M/R/total components above order
+1.8 on both intervals. The subsequent
+[bounded reference-only audit](../../../../work/p06_reference_qualification_20260922/report.md)
+reproduces the exact seven-owner q3/q5/q7 preflight, saves all owner/cell
+contributions, and localizes the unsettled N64 screen to one ordinary raw cell.
+**P06 is closed for roadmap progression by explicit user decision**, accepting
+the observed global-order pass and retaining the reference uncertainty as a
+nonblocking scientific note. This does not claim that global reference
+qualification was completed, alter the archived campaign's false combined
+flag, or certify evolved/production behavior. Further reference computation is
+not a prerequisite for P07 or subsequent roadmap work.
+
+**New shared-structured P06 campaign (25 September 2026):** The separate
+[returned global analysis](../../../../work/p06_structured_global_analysis_20260925/report.md)
+found 40/44 nonzero primary component order checks passing against its frozen
+q5 J target; four variable-Dirichlet fine-interval checks failed. The
+[owner-measure audit](../../../../work/p06_measure_reference_audit_20260925/report.md)
+confirmed that this research candidate uses J/B owner mass while that global
+target used J. Its correct exact complete-source target is the J/B mean;
+physical owner-volume error weights and midpoint observations remain fixed.
+The same audit found material q3 cell underintegration at selected hotspots;
+q7 improves one settled N48 hotspot but does not resolve all N64 reference
+controls. The new v2 campaign implementation separates candidate cell and
+reference rules and retains J as a diagnostic. This new shared-structured
+global qualification remains **unpassed** pending an independently resolved
+reference and a new global evaluation. The earlier user-accepted P06 milestone
+above remains historical and is not retroactively changed.
+
+**Boundary policy selected and global campaign prepared (22 September 2026):**
+the [bounded A/B/C evidence](../../../../work/p06_boundary_functional_20260922/report.md)
+and [point/mean/three comparison](../../../../work/p06_boundary_policy_20260922/report.md)
+correct the earlier wall mechanism and close the bounded policy choice.  The
+physical-wall characteristic correction is exactly zero under the frozen
+contract; the wall-owner defect is in the smooth reconstructed volume gradient,
+not a wall-face trace fluctuation.  The new versioned package interface
+separates metric-derived wall value/normal/tangential functionals from dynamic
+boundary data and exports fixed rank-revealing owner/boundary maps.
+Actual-HSX eager/JIT/JVP and dynamic-data tests pass.
+
+Freeze the single wall-center point relation for wall cells and every
+geometry-selected wall-reaching central/biased face fit.  It is the smallest
+field-independent constraint and avoids the broad coarse-grid regressions of
+the three-moment cell policy; the single-mean and three-moment alternatives
+remain diagnostics, not pooled-error gates.  Selection-v3 supports, degree,
+weights, bias, q3 rule, midpoint/raw-volume observations, wall model, and
+characteristic assembly are unchanged.  The unconstrained reconstruction
+through the new face assembly replays the saved face correction to
+`1.06e-16`; the portable frozen point candidate replays all bounded
+N32/N48/N64 centered and U actions to `2.50e-11`.
+
+The computation-only [portable global runner](../../../scripts/p06_curvature_global/README.md)
+now covers complete-owner N32/N48/N64 M/R/total actions for both states,
+centered and U candidates with shared preparation, directional/region
+diagnostics, independent continuous references and bounded q3/q5/q7 reference
+qualification.  Actual-HSX complete-owner preflights pass at all three
+resolutions; serial/parallel chunks are bitwise equal, checkpoint resume and
+identity rejection are verified. The published campaign at revision
+`6f95ecea6e493107aaa0ecf0735448eab83ec7b1`, identity `4bb8336e…`, has now
+completed on remote CPUs and was independently reduced locally. All required
+components pass observed orders; the minimum is `1.94027` (held-out Te material,
+32→48). Primary total orders are approximately `2.97–3.43` for corrected frozen
+MMS and `1.94–2.52` for the held-out state. Independent use of q3-integrated
+volume weights also retains every pass. M+R and directional assembly close to
+`2.67e-15`; reported boundary constraints close to `2.65e-13`.
+
+The combined campaign flag remains false solely because 20 of 22 nonzero
+maximum-based reference screens exceed 10%. The reference audit shows that a
+matching q7-volume-weighted sample RMS is much less conservative: at N64 q5/q7
+is below 10% for 21 of 22 components, with a maximum of 10.3954%. The residual
+is overwhelmingly raw cell 169732 of ordinary owner 109892; it contributes
+more than 99% of the sampled q5/q7 squared difference for the highlighted
+frozen-Ti and held-out density/vorticity totals. Composite q5 refinement
+through 8 subdivisions per axis remains oscillatory there, while five N64
+axis/interface/boundary/seam controls settle from s4 to s8 below 6.05e-7.
+Quadrature-dependent denominators are negligible. This implicates the local
+phase/intersection with the piecewise-cubic MAKEGRID and shifted derivative
+evaluations, not the axis, wall law, or curvature reconstruction.
+
+**Retained nonblocking reference note.** q5/q7 and composite integration have
+not settled on raw cell 169732. The favorable 21/22 sampled comparison concerns
+q5/q7; the campaign used q3 references, whose matching N64 sampled screen is
+below 10% for 14/22 components (maximum 16.21%). Neither sampled comparison is
+a global norm estimate. Thus the reported orders remain measured against the
+archived q3 references. If this diagnostic is revisited, stabilize that cell
+and assess the actual q3 reference bias across all three resolutions, reusing
+saved candidate actions. Do not launch another reference campaign or retune
+the operator merely to close this note. Evolved physics, shared-component
+extraction/consolidation and production integration remain separate. The wall
+law and unconstrained omega policy are unchanged.
 
 - Reuse the direct radial quadrature infrastructure.
 - Repair remaining face directions, axis/endpoints, and boundaries according to
@@ -772,7 +1368,337 @@ fixed-time solution checks are retained in P09.
 
 ### P07 — Repair and certify perpendicular diffusion/polarization
 
+**Current static accuracy status (25 September 2026):** the combined structured,
+BC-conditioned candidate has user-accepted observed approximately third-order
+global MMS convergence, with reference sensitivity retained as nonblocking.
+See the current acceptance record at the start of this roadmap. The older
+boundary-conditioned reconstruction assignment and subsequent bounded tests
+have culminated in the returned global campaign. Preserve both its evidence
+and the historical D_trace baseline. All next-step statements in the historical
+entries below are superseded where they conflict with this decision. P07
+integration/evolution and production certification are separate outstanding
+milestones; no new run is implied.
+
+**Historical decision after local energy-repair feasibility (23 September 2026):**
+The [P worker](thread://01a0d0df-8d51-7e93-8549-f6d8b36dd427?hostId=local) completed the
+[bounded assignment](p07_local_energy_repair_assignment.md); the
+[report and standalone validation](../../../../work/p07_local_energy_repair_20260923/report.md)
+use all 264 frozen faces and preserve the accepted static accuracy pass.
+The full 16-owner D_trace symmetric forms have minima
+`-1258.68/-3946.61/-7430.33`, but the wall-zero subspaces have positive minima
+`1864.03/3175.09/4953.22`: this test does **not** rule out every wall-only repair.
+Physical normal-gradient wall flux and cancellation with adjacent radial flux
+dominate the saved negative witnesses. Removing the direct tangential wall
+flux as a diagnostic leaves negative minima essentially unchanged; six q3
+trace directions remain unconstrained, so indirect effects on normal fits
+are not excluded. Existing hard-constraint residual penalties have zero action,
+and individually positive owner-only wall damping fails quadratic consistency.
+One compatible q3 trace-residual/transpose family was derived but rejected
+before coefficient selection or application: representing its donor outputs
+by physical shared fluxes needs at least **2,123 additional faces**, even
+crediting the saved N32 477-face audit, above the 1,000-face cap. No total
+energy bound or repaired scheme is claimed. The next design requirement is
+a compatible boundary-work and local normal-gradient/flux/divergence identity
+with finite output support, actual owner means, cubic consistency and shared
+physical fluxes; no unique repair or necessity to alter adjacent faces has
+been proved. No new faces, elliptic solve, global campaign, evolution, tracing,
+production change or automatic follow-on run was launched. P07 remains open
+at its energy gate; elliptic qualification stays deferred. These are
+noncontractivity and scoped feasibility results, not global unstable
+eigenvalues, eventual blow-up or an explanation of smooth-MMS order loss.
+
+**Historical decision after structural/application audit (23 September 2026):**
+The coordinator completed the user-authorized
+[bounded fixed-operator audit](../../../../work/p07_structural_application_audit_20260923/report.md)
+without elliptic solves or a new global campaign. Both original center-Dirichlet
+and frozen trace-moment treatments admit two-owner near-wall perturbations with
+negative `u^T M A u` for `A=-div(P grad)` at N32/N48/N64. Independent constrained
+gradient integration confirms the result; at N32 every one of the 477 globally
+affected faces is included and the complete response conserves signed external
+flux to roundoff. The trace witness on the same geometric track gives
+`-1258.68/-3946.61/-5886.67` with unit physical-volume norm. This establishes
+failure of physical-volume energy dissipation, not an unstable global eigenvalue
+or eventual blow-up, and does not identify the cause of smooth-MMS order loss.
+Compatible constant boundary loading passes. Cached CPU application of this
+bounded face batch takes about 0.10 ms with fixed maps and no per-application
+solve; global/JAX runtime cost is not measured. Preserve the static accuracy
+pass, but defer the proposed explicit evolution qualification. Next investigate
+the local radial flux/energy structure and a fixed local repair that retains
+consistency and conservation; no repair or assignment is launched by this
+review. Elliptic qualification remains deferred at the user's preference.
+
+**Historical decision after scaling review (23 September 2026):** The bounded
+[quartic-response and stencil-scaling test](p07_dirichlet_error_scaling_assignment.md)
+is complete and [independently reviewed](../../../../work/p07_dirichlet_error_scaling_20260923/parent_review.md).
+Normalized footprints remain broad but nearly fixed; complete-row norms grow
+moderately, and large fourth-order/higher-order contributions change their
+cancellation. No concrete reconstruction defect or uniquely justified repair
+was identified. The user prefers to avoid elliptic solves: defer that
+qualification and recommend a bounded structural/application-cost audit using
+fixed operator applications, then a small fixed-step explicit diffusion test
+with prescribed potential if supported. Neither adds an elliptic correction
+or changes existing runtime polarization handling. These are recommendations,
+not newly launched assignments. Preserve the static pass; structural, evolved
+and polarization/inversion qualification remain open. Historical recommendations
+below to proceed immediately to elliptic testing are superseded by this deferral.
+
+**Current decision after the bounded mechanism test (23 September 2026):**
+The matched [Dirichlet-to-flux assignment](p07_dirichlet_flux_mechanism_assignment.md)
+is complete. The [parent review](../../../../work/p07_dirichlet_flux_mechanism_20260923/parent_review.md)
+independently verifies archived donors/fluxes, complete signed actions and all
+reported group budgets. Preserve the accepted global static-order pass and
+frozen center-value-plus-two-trace-moments candidate. P07 remains open pending
+structural qualification and an independent manufactured elliptic solve; these
+are the recommended next work, not work launched by this review. The mechanism
+test identifies interior reconstruction-remainder response and changing radial
+cancellation, but does not prove uniform stability or a universal leading
+quartic error law. All tested Dirichlet value traces are zero, so general
+nonzero boundary loading remains unqualified. No new static policy scan,
+production change or change to either Q campaign follows from this result.
+
+
+**Cached global Dirichlet comparison completed (23 September 2026):** The
+[frozen-graph result](../../../../work/p07_cached_global_dirichlet_20260923/report.md)
+updates all 24,032/64,752/118,149 wall-reaching phi faces at N32/N48/N64,
+independently reassembles the complete face ledger, and reuses unchanged faces
+and references. The fixed centre-value-plus-two-trace-moments candidate passes
+the static global order gate; details and remaining limits are recorded below.
+
+
+
+**Remote global result and current assignment (23 September 2026):** The
+[returned campaign analysis](../../../../work/p07-diffusion-cpu_72acda02_yYbcA48I/local_analysis/report.md)
+verifies all 22,379 chunks and independently reassembles the full actions.
+Ti, regular-Neumann and mixed-eta fields pass both global intervals. Phi has
+orders 3.28168/1.74047, narrowly below the 1.8 fine-interval target. Its N64
+outermost layer contributes 58.45% of squared error, with loss of wall/adjacent
+radial-face cancellation relative to N48. Exact-gradient oracle discrepancies
+are small. This baseline static qualification remained open pending the bounded
+and cached-global follow-ups below. Archived condition numbers describe the
+Neumann map and cannot diagnose phi conditioning. Local orders remain
+diagnostic.
+
+
+**Bounded wall/interior follow-up (23 September 2026):**
+[parent analysis](../../../../work/p07_diffusion_polarization_wall_followup_20260923/parent_review.md)
+replays the saved signed face actions. Physical-normal Neumann constraints
+repair the physical-wall face but leave the neighboring interior radial-face
+error dominant; the phi value-constrained variant does not improve its wall
+error. The experiment applies three surface moments only to the physical face,
+not the P06-selected single wall-center relation throughout wall-reaching
+stencils. Non-wall actions remain unchanged. The parent corrected the stale
+constant diagnostic separately: homogeneous-Neumann unit-constant action is
+`1.89e-10`, rather than the incompatible Dirichlet check stored in the worker's
+JSON. Next: apply the established point relation to all appropriate wall-reaching
+fits and audit the identified interior radial-face functionals. No degree or
+support-count change is justified yet; global order and elliptic checks remain
+open.
+
+**P06 point-policy replay (23 September 2026):** The fresh [bounded
+comparison](../../../../work/p07_diffusion_polarization_point_policy_20260923/report.md)
+applies the selected single wall-centre relation at the actual physical-wall
+location to all six geometry-selected wall-reaching cubic fits (including the
+previously untouched adjacent radial fit), while retaining inherited and
+three-moment physical-face controls. The rank-one geometry preparation and
+complete signed-incidence face replay validate. The all-wall-reaching policy
+substantially reduces the N32 sample RMS for the two Neumann stress fields
+(`regular: 3.16807 -> 1.11511`, `mixed: 3.13721 -> 1.15836`), but is not a
+uniform improvement (`phi: 0.31856 -> 0.43296`; Ti's physical-only point
+diagnostic is better than its all-wall-reaching value). This localizes a real
+policy sensitivity and retains the existing bulk radial-face errors; it is not
+a global-order or production qualification. Next audit the value/target-gradient
+functional on the six selected fits and close the agglomerated/ordinary radial
+face reproduction record without changing degree or support-count policy.
+
+**Global-preflight input receipt (23 September 2026):** The frozen bounded
+32/48/64 P07 preflight contract, tracks and streaming implementation plan are
+recorded in [the preparation receipt](../../../../work/p07_global_preflight_20260923/README.md).
+The initial missing-input report was corrected: all three geometry directories
+are valid symlinks to the existing `prototype_runs/geometry/hsx_fci_*` artifacts.
+The parent verified all 24 manifest-listed component hashes and located the
+continuous-reference sidecar; see the preparation folder's
+`parent_input_verification.json`. Inputs are available; the bounded harness
+still requires implementation and execution. First reproduce the saved N32
+overlap, then complete the bounded N48/N64 comparison before deciding on the
+separate global campaign.
+
+The remaining adapter and bounded replay work is assigned to the replacement
+P worker through the [implementation handoff](p07_refinement_worker_handoff.md).
+Existing track selections and topology preparation are reusable; they are not
+completed numerical refinement results.
+
+**Bounded refinement completed (23 September 2026):** The replacement P worker
+implemented the resolution-aware [research adapter and report](../../../../work/p07_global_refinement_20260923/report.md).
+It freshly reconstructs only the frozen complete wall/agglomerated/ordinary
+closures, applies the single wall-centre relation to every donor-selected
+wall-reaching fit, and assembles canonical signed incidence from topology. The
+N32 all-wall-reaching overlap reproduces archived completed actions to
+`1.07e-14` and face fluxes to `4.34e-19`; N48/N64 complete closures are finite,
+have six wall-reaching fits and retain q3 face/oracle/q7 continuum evidence.
+The fresh unit-Dirichlet/homogeneous-normal point-policy constant receipts are
+`4.77e-11`, `2.06e-10`, and `9.70e-11` at N32/N48/N64.  Regular and mixed
+Neumann three-owner RMS values decrease over both intervals, while phi and Ti
+rebound on the selected N64 wall track.  These small mapped-owner slopes are
+diagnostic, not a global acceptance gate or a reason to choose policies by
+field.  The report retains physical-wall/adjacent/other signed components,
+stored-versus-continuous volumes, measured cost/RSS, and a conservative global
+cost extrapolation.  The next global campaign remains a separate decision: it
+must batch and qualify reference evaluation and evaluate all complete owners
+before claiming the roadmap's physical-volume L2 order criterion. The
+[parent review](../../../../work/p07_global_refinement_20260923/parent_review.md)
+independently verifies raw-membership incidence and both Dirichlet and Neumann
+constant receipts; it supports advancing to global-runner preparation, with
+representative reference-cost measurement before launch.  No cubic degree,
+support-count, field-policy, production, structural, or elliptic milestone has
+changed.
+
+**Phi Dirichlet-wall audit completed (23 September 2026):** The corrected
+[complete-owner audit](../../../../work/p07_phi_dirichlet_wall_audit_20260923/corrected_v2/report.md)
+retains the historical partial result and implements the assigned wall-centre
+value plus two centered tangential trace moments on every wall-reaching fit in
+eight wall/hotspot closures and their inward controls. Archived point actions
+replay within `3.94e-11`; all four fields are retained and Neumann controls are
+unchanged. Independent raw-midpoint cubic reproduction is within `3.60e-14`
+in gradient and `1.11e-15` in integrated flux. Actual target sensitivities and
+cubic reproduction support further study of truncation/cancellation rather
+than rank loss on these samples. The candidate worsens selected N32/N48 errors
+but improves N64 (`1.17475 -> 1.09784`). The
+[parent review](../../../../work/p07_phi_dirichlet_wall_audit_20260923/corrected_v2/parent_review.md)
+independently confirms complete closure and action assembly, and notes that
+coarse-sample regression is not a rejection gate. It recommends one cached
+global flux-difference comparison on all wall-reaching fits, reusing unchanged
+faces and continuum references. The purported quartic test is not a pure
+regular-chart quartic; inward-owner component labels also require correction.
+These do not invalidate completed MMS actions. Neither promotion nor global
+qualification is claimed; structural, elliptic, evolved and production
+milestones remain open.
+
+**Cached global trace candidate passes static accuracy (23 September 2026):**
+The completed [comparison and analysis](../../../../work/p07_cached_global_dirichlet_20260923/report.md)
+uses the archived donor graph and changes only phi fluxes on every archived
+wall-reaching fit. Complete candidate phi L2 errors are
+`0.590880/0.157559/0.0908551`, with orders `3.25999/1.91368`; the fine order
+therefore clears the 1.8 gate that the point baseline narrowly missed. Ti and
+both Neumann controls are unchanged and retain passing orders. Independent
+full-ledger assembly agrees with baseline-plus-delta assembly within
+`2.38e-13`, and baseline replay agrees within the same bound. The candidate's
+absolute phi error is nevertheless 7.25%, 8.20%, and 2.94% larger at the three
+resolutions. At N64 it slightly improves outermost-layer RMS
+`0.371343→0.370347` while worsening the inward-adjacent and ordinary-owner
+budgets; this is an order pass, not uniform local improvement. Saved full
+radial profiles, exact-gradient controls, genuine regular-chart quartic
+responses, coverage and execution receipts accompany the report. Freeze this
+candidate identity for the smallest next step: P07 structural and elliptic
+checks. Do not launch another boundary-policy scan or static global campaign,
+and do not infer production/evolved qualification.
+
+**Bounded Dirichlet-to-flux mechanism test completed (23 September 2026):**
+The [matched six-field treatment matrix and Taylor budget](../../../../work/p07_dirichlet_flux_mechanism_20260923/report.md)
+reuses the exact sixteen owners and 88-face closures at each resolution with
+archived donors and once-prepared maps. D-point, D-trace and a separate exact-
+normal N-point diagnostic replay their saved anchors within `4.01e-12` in
+completed action; independent saved-array assembly is exact. Phi is not unique:
+Ti reproduces its N48-to-N64 bounded rebound under both Dirichlet treatments,
+while the regular and mixed-eta functions retain substantial Dirichlet wall
+errors without rebounding. All four original functions share a fourth-order-
+flat wall envelope, so their exact value and first gradient vanish there. An
+independent symbolic regular-chart Taylor decomposition shows that the hotspot
+wall-face phi error is entirely the interior owner-observation remainder
+response; adjacent-face error is also owner-remainder dominated, with cubic
+reproduction at `2.09e-17` or below. Signed wall/adjacent/further-face
+cancellation changes strongly with resolution and treatment. The exact-normal
+diagnostic reduces phi error but redistributes it to the adjacent face and is a
+different boundary problem, not a replacement policy. Genuine nonzero-normal
+quartics support boundary-map sensitivity without exposing a rank or arithmetic
+defect. Preserve the static pass and proceed to the frozen candidate's
+structural/elliptic checks; no repair, policy scan or new static campaign is
+supported.
+
+**Bounded Dirichlet error-scaling test completed (23 September 2026):** The
+[common-owner quartic-response analysis](../../../../work/p07_dirichlet_error_scaling_20260923/report.md)
+uses all 15 degree-four monomials in the fixed chart
+`z=(x,y,eta/eta_period)`, compatible degree≤3 controls, and direct independent
+applications of phi's p3, q4 and exact fifth-and-higher remainder. Normalized
+supports are broad but nearly fixed across N32/N48/N64: raw-member RMS spans
+about 5–7 cells in x/y, maxima reach about 13 cells, and eta maxima remain 2.5
+cells. Complete `h²`-scaled owner-row medians grow 14–16% and maxima 24–28%; the
+fixed-angle geometry quartic-response norm grows about 25%, while hotspot
+responses are larger and include track relocation. This is moderate,
+heterogeneous finite-resolution change, not a demonstrated blow-up or uniform
+bound. The full phi decomposition rejects a single leading-quartic account:
+q4 and r5 RMS are each several times the completed error and their signed cross
+shares switch between cancellation and reinforcement. On the geometry-only
+D-trace subset, actual/q4/r5 RMS divided by `h²` changes
+`970/2471/3363 -> 239/2938/2976 -> 681/3195/2526`. Exact symmetric splits show
+both analytic profile and retained response changes contribute; the response
+term still contains metric/location effects. Replays, all 15 direct-versus-
+contracted responses and independent row/term assembly pass. No concrete
+reconstruction defect or repair is identified. Preserve the static pass and
+proceed to structural then independent elliptic qualification with the broad-
+support/pre-asymptotic cancellation limitation documented; do not add a global
+Ti run, policy scan or degree/support change.
+
+**Earlier parent verification and decision:** the [independent follow-up](../../../../work/p07_diffusion_polarization_point_policy_20260923/parent_review.md)
+closes the targeted reproduction audit on twelve implicated faces. Donors and
+stored bases match; direct raw-midpoint polynomial observations agree to
+`2.33e-13`; unconstrained face-flux reproduction is within `5.60e-13` relative,
+and point-constrained reproduction within `7.21e-15`. Independent fixture-based
+incidence replay agrees within `3.02e-14`. The N32 phi regression is not a
+local improvement gate or proof of failed global order. Next: freeze the
+all-wall-reaching point policy for a bounded 32/48/64 complete-owner refinement
+comparison as a cost/mechanism preflight for global qualification. Retain
+face-resolved signed errors and independent oracle controls; no speculative
+degree or donor-count change is justified by this audit.
+
 **Dependencies:** P04 and P03's return-map audit.
+
+**Next bounded assignment: physical-action audit and shared-face comparison.**
+The [P07 worker assignment](p07_diffusion_polarization_bounded_assignment.md)
+provides the execution design, direct code entry points, and artifact locations.
+Start on the existing N32 HSX artifact with complete owners selected by geometry
+across axis, agglomerated bulk, size transitions, ordinary interior, physical
+wall and periodic seams. This diagnoses mechanisms; it does not certify order.
+
+1. Freeze the actual MMS selectors and trace the conservative perpendicular
+   action through field reconstruction, fine face fluxes, owner restriction,
+   `LocalPerpLaplacianInverseSolver` application/inversion and evolved diffusion. Record
+   the physical tensor, signs, coefficients, normalization and effective
+   boundary data. Separate physical action, affine boundary load, solver
+   regularization and preconditioner. The existing `apply_positive_operator`
+   is the shared phi/Ti application point; verify its use rather than inventing
+   another polarization equation.
+2. On those complete owners compare the baseline with fluxes assembled from
+   the qualified cubic owner-to-face derivatives and continuous geometry at
+   the matched face quadrature nodes. Use the audited physical perpendicular
+   tensor, including its metric cross terms. Assemble each oriented flux once
+   and distribute it with opposite incidence signs, then divide by physical
+   owner volume. Do not substitute the bracket or curvature flux formula.
+3. Use analytic gradients at the same faces as an oracle to separate geometry,
+   integration/assembly and boundary errors from numerical reconstruction.
+   Compare against an independent continuum owner functional, not the discrete
+   action applied to the manufactured field. Reuse qualified reference methods
+   and bounded integration checks; do not impose universal high-order rules.
+4. Reuse the boundary-functional machinery with the correct operator-specific
+   constraints. Physical normal derivatives and perpendicular conormal fluxes
+   are not interchangeable. Keep the frozen wall model, collapsed-axis and
+   periodic conventions; separate homogeneous action from nonzero loads.
+   Record conservation/boundary balance, the applicable constant/nullspace
+   behavior, weighted pairing and dissipative work. Do not assume that cubic
+   accuracy or conservative incidence guarantees symmetry/energy stability.
+5. If the bounded comparison supports the candidate, proceed to existing
+   N32/N48/N64 global operator qualification with one frozen policy, then an
+   independent manufactured elliptic solve using that same physical action.
+   Include smooth regular-chart angular and mixed-eta fields and the actual
+   variable coefficient/metric factors required by the selected model. Keep
+   solver error below 10% of spatial error; handle a Neumann gauge only where
+   the selected boundary problem requires it. A discrete self-generated RHS
+   may check the solver but cannot establish continuum solution accuracy.
+
+The initial assignment ends at the bounded audit/comparison and a justified
+next-step decision; a full global launch is separately scoped. Reuse saved
+geometry and fixed coefficient maps, measure setup versus application costs,
+and checkpoint expensive preparation. No production selector, wall-law change,
+new transport physics, or evolved/global campaign is implied by this plan.
 
 - First retain the current conservative composition and replace the identified
   inconsistent derivative/flux stages.
@@ -799,12 +1725,149 @@ reference or weaken the success criterion.
 
 ## 4. MMS certification, integration, and progress tracking
 
+### P07N — Explicit Neumann boundary implementation and qualification
+
+**Status:** bounded structured physical-normal trace candidate and axis-regular
+field/reference preflight complete; P07N static global campaign preparation is
+local and pending a published, verified source revision and immutable-input
+transfer. The global campaign has not run or qualified P07N. Shared extraction
+and replay are complete for the bounded scope. This does not reopen the
+accepted Dirichlet static passes.
+
+The [bounded pilot](../../../../work/p_neumann_structured_trace_20260926/report.md)
+passes its algebra and 23 focused tests. Its operator errors are N-O comparisons
+against exact-gradient q3 face assembly, not midpoint N-R certification. The
+[parent review](../../../../work/p_neumann_structured_trace_20260926/parent_review/review.md)
+identifies the largest original homogeneous-data discrepancy on unchanged
+interior rows. The [error audit](../../../../work/p_neumann_error_audit_20260926/report.md)
+separates matched Dirichlet, exact q3 face and midpoint terms. The
+[axis-regular preflight](../../../../work/p_neumann_axis_regular_preflight_20260926/report.md)
+qualifies globally valid periodic fields and their numerical reference controls
+on complete wall, interior, seam and correction-transition owners at N32/N48/N64.
+The bounded Neumann increment relative to matched Dirichlet is small. Shared
+face-versus-midpoint consistency error and the held-out B2 off-node
+physical-normal residual remain explicit global diagnostics, not
+reference-uncertainty findings. The [local campaign preparation](../../../../work/p07n_global_prep_20260926/report.md)
+freezes the static global contract and computation-only handoff draft without
+launching it or promoting a package default.
+
+The accepted shared construction uses prescribed Dirichlet traces. Fields named
+`regular_neumann` and `mixed_eta_neumann` were evaluated with their analytic wall
+values; they establish accuracy on Neumann-compatible fields, not qualification
+of a boundary closure supplied only with physical-normal derivative data.
+
+The supported input for these new gates is prescribed `g_N = n · grad_x f`,
+including zero and spatially varying nonzero data. Logical radial derivatives
+and prescribed tensor fluxes are not alternative APIs in this work package.
+On the nonorthogonal grid use `a = E^{-1} n`, so the constraint is
+`a · grad_q f = g_N`; zero normal derivative does not generally imply zero
+anisotropic diffusive flux.
+
+1. **Freeze the boundary functional.** Distinguish logical radial derivative,
+   physical outward-normal derivative, and outward diffusive flux through the
+   anisotropic tensor. These are not interchangeable on HSX geometry. State the
+   precise supported condition, metric factors, sign and units for each operator;
+   qualify each advertised variant explicitly. Keep physical characteristic wall
+   states separate from this reconstruction boundary constraint.
+2. **Implement through the shared preparation/application layer.** Construct
+   geometry-dependent boundary rows using prescribed physical-normal data and
+   interior owner observations. Recover unknown wall values and required
+   tangential behavior from those inputs; do not supply exact manufactured wall
+   values or tangential derivatives of that unknown trace. The MMS oracle may use
+   analytic fields independently to score the result. Preserve owner unknowns,
+   interior policy, axis treatment and operator-specific measures. No additional
+   global elliptic reconstruction solve is part of this step.
+3. **Run bounded real-HSX tests first.** Cover homogeneous zero data and nonzero,
+   spatially varying prescribed data, using multiple manufactured fields with
+   unknown, nontrivial wall traces. Include wall-adjacent rows, periodic seams and
+   the boundary-to-interior transition at N32/N48/N64. Check boundary-functional
+   satisfaction, recovered wall values/gradients, complete selected-owner actions,
+   constants where applicable, JIT/JVP and unchanged Dirichlet replay. Retain
+   different reconstruction targets for P07 integrated rows and P05/P06 point rows.
+4. **Qualify complete operators with the new boundary path.** After bounded
+   checks pass, prepare a frozen N32/N48/N64 global static midpoint campaign for
+   P07 diffusion/polarization actions. P05N and P06N below separately qualify
+   their full actions, including applicable jump/characteristic terms.
+   Use the existing operator-order criterion and term/regional diagnostics;
+   no mandatory high-order volume-reference integration. Report exactly which
+   fields, boundary functionals and operators are covered. Campaign execution is
+   a later scoped task, not launched by this roadmap edit.
+
+**Gate:** true physical-normal-derivative-only boundary input, demonstrated boundary
+consistency and global static operator convergence for the supported Neumann
+variants, with unchanged Dirichlet behavior. Include both boundary families in
+P08/P09 for physically consistent field/closure combinations. Pure-Neumann
+polarization inversion additionally needs compatibility and gauge/nullspace
+handling in the later solution tests; a static operator pass does not certify
+that solve, and this step does not require a new inversion method.
+
+### P05N — Physical-normal Neumann bracket qualification
+
+**Status:** planned, after shared extraction/replay and bounded admission of the
+shared Neumann reconstruction. A P07 global pass is not a substitute for this
+operator-specific gate. Preserve the accepted P05 Dirichlet qualification.
+
+- Qualify the complete accepted direct midpoint bracket, first centered and then
+  with its live scalar face-jump correction. The three-wall-owner jump pilot in
+  the P07N bundle is useful evidence but does not qualify the full bracket.
+- Prescribe physical-normal derivatives for the declared generator and
+  transported-field combinations. Recover unknown wall values and all required
+  gradients from owner observations and those data; keep common gradients,
+  fixed-anchor side reconstructions and physical exterior-state policy explicit.
+  Exact traces are scoring or matched-Dirichlet controls only.
+- Run bounded N32/N48/N64 wall, seam and boundary-to-interior checks with zero
+  and varying nonzero data, nonconstant wall traces, and held-out fields. Cover
+  complete owner actions and separate centered/jump errors, constants where
+  applicable, and JIT/JVP in owner and boundary data. Verify periodicity and axis
+  regularity of fields before expanding to the entire grid.
+- After bounded gates pass, run a frozen global midpoint MMS campaign including
+  ordinary and aggregate/core owners and regional norms. Retain the existing
+  order criteria and P05 magnetic-reference caveats; use independent reference
+  sensitivity checks where needed, without mandatory volume integration.
+
+**Gate:** full centered and centered-plus-live-jump actions qualified with the
+new input contract and unchanged Dirichlet replay. No production/default or
+full evolution promotion follows automatically from this static pass.
+
+### P06N — Physical-normal Neumann curvature qualification
+
+**Status:** planned, after shared extraction/replay and bounded admission of the
+shared Neumann reconstruction. Preserve the accepted P06 Dirichlet qualification.
+
+- Qualify the full accepted midpoint curvature construction: q1 midpoint
+  material/remainder terms with their J/B measure, q3 characteristic corrections,
+  and the total coupled action. A scalar trace or gradient test alone is not
+  sufficient.
+- State which fields receive physical-normal data and recover their wall traces
+  consistently. Separately freeze a compatible physical characteristic exterior
+  state and wall law. A scalar Neumann datum does not determine that state;
+  do not fill the gap with the exact unknown manufactured wall state or impose
+  incompatible independent constraints. Respect the existing wall-rung contract.
+- Run bounded N32/N48/N64 zero and varying nonzero data with nonconstant traces,
+  eta dependence, wall/seam/transition owners, and held-out fields. Report each
+  material/remainder/characteristic contribution and the total, together with
+  boundary residuals and JIT/JVP on smooth admitted states.
+- Once both reconstruction and physical wall-state contracts pass, run the
+  global midpoint MMS campaign with existing order and regional criteria,
+  complete owner reductions and unchanged Dirichlet replay. Report the exact
+  field/closure combinations covered; do not generalize to all wall rungs.
+
+**Gate:** complete curvature actions qualified for the declared Neumann and
+physical-wall combination. Missing characteristic wall-state compatibility
+blocks P06N, not a separate P07-only static campaign. No new global elliptic
+reconstruction solve or mandatory integrated MMS reference is introduced.
+
 ### P08 — Certify the combined frozen HSX perpendicular RHS
 
-**Dependencies:** P05–P07.
+**Dependencies:** P05–P07, shared extraction/replay, and P05N/P06N/P07N.
 
+- Consolidate and replay the qualified operators' shared components as
+  described in the integration-sequencing contract above. Assemble them through
+  a common opt-in verification path; this is not production/default promotion.
 - Use the current MMS configuration with parallel terms disabled or reported
   separately.
+- Include the qualified Dirichlet and explicit Neumann boundary variants for
+  their supported field/physical-closure combinations; keep results separate.
 - First prescribe exact manufactured phi; then repeat with reconstructed phi to
   expose polarization error.
 - Report each perpendicular term and their sum.
@@ -822,7 +1885,7 @@ and matched sharding/source/phi diagnostics. Keep term-resolved and regional
 error budgets so a summed residual cannot hide a failing operator. No separate
 regional second-order gate is imposed. P09 independently checks solutions.
 
-### P09 — Certify evolved MMS and promote the method
+### P09 — Certify evolved MMS and complete final integration
 
 **Dependencies:** P08.
 
@@ -837,7 +1900,10 @@ regional second-order gate is imposed. P09 independently checks solutions.
   record compilation/runtime/memory costs.
 - Update architecture documentation to describe the accepted implementation
   and its verified limits.
-- Promote the passing configuration in the MMS workflow. Blob-driver
+- After the gates pass, complete integration of the consolidated operators
+  into the shared model/MMS workflow, reusing the verified preparation and
+  runtime path rather than implementing each operator's infrastructure again.
+  Record final selector/default decisions explicitly. Blob-driver
   synchronization remains deferred.
 
 **Gate:** independent fixed-final-time MMS solutions meet the global
@@ -848,7 +1914,8 @@ operator gates also pass; local and regional error orders remain diagnostic.
 
 **Final deliverable:** a certification bundle containing commands, immutable
 configuration manifests, machine-readable errors/orders, plots, regional
-diagnostics, and passing regression evidence.
+diagnostics, and passing regression evidence, together with the consolidated
+shared implementation and final model/MMS integration record.
 
 ### Tracking and future-task rules
 
@@ -874,11 +1941,12 @@ diagnostics, and passing regression evidence.
 
 P00–P01 evidence was produced by [Set up perpendicular convergence roadmap P00–P01](thread://01a0b506-1907-73d3-997d-a66637cd7e8c?hostId=local), using GPT-5.6 Sol.
 
-**Current campaign status:** the clean remote centered-bracket campaign is
-complete and locally reverified. No further worker run was launched by this
-review. P03/P04 are passed in the scopes stated above; P05 centered static is
-passed and material upwinding remains pending. Earlier worker assignments and
-the bounded/global diagnostics below are historical provenance, not current
+**Current campaign status:** both clean remote centered and material-upwind
+static campaigns are complete and independently verified. P03/P04 are passed
+in the scopes stated above; both P05 static accuracy milestones are passed.
+Shared implementation, structural and evolved certification remain open.
+No new worker run is launched by this roadmap update. Earlier worker assignments
+and the bounded/global diagnostics below are historical provenance, not current
 instructions to repeat those experiments.
 
 **Historical HSX qualification assignment:** P01–P03 had completed their
@@ -1115,14 +2183,17 @@ revision, configuration, measured results, and unresolved failures.
 | ID | Work package | Dependencies | Status | Task / evidence / remaining failures |
 |---|---|---|---|---|
 | P00 | Baseline and reproducibility ledger | None | passed | Revision `6c2b005d`; immutable dirty-source and 32/48/64 geometry hashes, exact selectors/boundaries/precision/sharding, and a single-process N=32 bracket/curvature/diffusion/polarization baseline are in the [P00–P01 evidence bundle](../../../work/perpendicular_second_order_p00_p01/report.md) and [machine-readable manifest](../../../work/perpendicular_second_order_p00_p01/p00_p01_manifest_and_results.json). This is preservation evidence, not a convergence claim. |
-| P01 | Independent references, averages, sources, norms | P00 | qualified for the centered static field catalogue | The [remote campaign analysis](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md) verifies a global complete-IBP vorticity reference and the existing direct-q3 smooth references, with candidate-relative bounded HSX qualification budgets below 2.82%. Direct/IBP independence and quadrature/step qualification remain bounded checks, not a claimed global exact-error bound. The failed focused interpolant and historical midpoint results remain separate. Frozen owner volume remains primary. Other physical operators need their own references. |
+| P01 | Independent references, averages, sources, norms | P00 | qualified for centered and material static catalogues | The [remote campaign analysis](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md) verifies a global complete-IBP vorticity reference and the existing direct-q3 smooth references, with candidate-relative bounded HSX qualification budgets below 2.82%. Direct/IBP independence and quadrature/step qualification remain bounded checks, not a claimed global exact-error bound. The failed focused interpolant and historical midpoint results remain separate. Frozen owner volume remains primary. The [material audit](../../../../work/p05_material_257bd55f_qQnlSX_analysis/report.md) requalifies its required-field budgets at 1.05–1.90% of the new errors. Other physical operators need their own references. |
 | P02 | Reconstruction and derivative audit | P01 | complete; mechanism localized | [Task](thread://01a0b527-4aaf-7950-a06d-97a46ab517c4?hostId=local), GPT-5.6 Sol. N32 matched-functional evidence and the [N48/N64 bridge](../../../../work/perpendicular_p03_fine_interval_design_20260919/report.md) qualify the existing G/O degree-two mechanisms without changing degree or donor policy. G improves every bounded operator/field sample at both fine resolutions; O improves the failing smooth upwind controls but regresses scalar-upwind omega. This is bounded mechanism closure, not global convergence certification. |
 | P03 | Geometry, interfaces, return maps, closures | P01 | passed — HSX mechanism audit | The [bounded localization](../../../../work/perpendicular_p03_failure_localization_20260920/report.md), [factorization](../../../../work/perpendicular_generator_factorization_20260920/report.md), and [face-factor audit](../../../../work/perpendicular_face_factor_audit_20260920/report.md) identify the derivative/value/integration mechanisms on actual HSX geometry. The baseline failures remain historical evidence, not a failed task gate. The [clean remote pass](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md) validates the resulting centered-bracket repair. P04 readiness is satisfied; other operator and runtime/sharding checks follow their own work packages. |
 | P04 | Consistent owner-to-face functionals | P02, P03 | passed — numerical design/research qualification | The [clean remote evidence](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md) verifies polynomial reproduction and qualifies general cubic selection-v3 reconstruction with shared face values/gradients and matched q3 face/volume integration globally on all three fields. Freeze adaptive support, continuous geometry queries, and the boundary/owner conventions. Reusable payload/JAX extraction with saved-output replay is engineering follow-through during P05–P07 adoption, not a remaining numerical-design blocker. Other operators retain separate qualifications. |
-| P05 | Brackets | P04 | centered static passed; bounded nodewise material-jump candidate selected; material certification pending | [Remote results and local audit](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md): centered C orders omega `2.4414/2.4690`, regular `3.5135/2.6455`, eta `3.6330/3.3759`; A/B also pass independently and reference budgets pass. The [legacy material-upwind decomposition](../../../../work/p05_material_upwind_decomposition_20260921/report.md) localizes its regression primarily to mean-trace replacement. The subsequent [nodewise cubic-jump comparison](../../../../work/p05_nodewise_cubic_jump_20260921/report.md) preserves the common value, uses the same owner moments/support with fixed opposite smooth biases, and produces a materially nonzero correction: eta accuracy improves at both bounded resolutions, regular-scalar accuracy mildly regresses, and diagnostic vorticity improves. Algebra, support, incidence, boundary, reproduction, and floor-inactivity checks pass. Retain this recentered jump for a fixed-design held-out positive-field plus dissipative-work/one-step positivity audit; these nonidentical bounded samples are not global convergence or production evidence. The user has now authorized the [frozen remote material accuracy campaign](../../../scripts/p05_material_campaign/README.md); no production promotion is authorized. |
-| P06 | Complete curvature | P04 | pending | — |
-| P07 | Perpendicular diffusion/polarization | P04, P03 | pending | — |
-| P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07 | pending | — |
+| P05 | Brackets | P04 | qualified — direct midpoint global static MMS; production integration/evolution pending | User acceptance 26 September: [completed direct campaign](../../../../work/p05_direct_midpoint_global_565e1d1a_HsoyFbJ3/local_analysis/report.md), producer `565e1d1a`, passes both centered and centered-plus-saved-jump candidates for all seven nonconstant cases on both intervals. Actual-vorticity orders: centered `4.030/1.847`, with jump `4.047/1.930`; six other centered fine orders `2.810–2.989`. Preserve the [acceptance scope](../../../../work/p05_direct_midpoint_global_565e1d1a_HsoyFbJ3/local_analysis/acceptance_decision.md): localized omega maximum rebound and interpolation-sensitive geometry derivatives remain documented, without blocking this static pass. The [bounded Phase B replay](../../../../work/p_shared_face_extraction_20260926/report.md) recomputes the accepted jump from live state and matches saved `U-A`; coupled production integration, structural and evolved checks remain. Magnetic-field derivative/reference resolution remains a nonblocking accuracy follow-up. |
+| P06 | Complete curvature | P04 | closed — user-accepted observed-order pass; reference caveat retained | Remote campaign `4bb8336e…` at `6f95ecea` completed; [local analysis](../../../../work/p06-curvature-cpu_4bb8336e_8ijYwA5H/local_analysis/report.md) replays all 22 required nonzero M/R/total components above 1.8 on both intervals (minimum 1.94027). User accepts milestone closure with the [bounded reference audit](../../../../work/p06_reference_qualification_20260922/report.md) retained as a nonblocking note: q5/q7 remains unsettled on raw cell 169732; q3 global-reference uncertainty is not fully quantified. Archived flags and results remain unchanged. Proceed to P07; no automatic reference rerun or production promotion. |
+| P07 | Perpendicular diffusion/polarization | P04, P03 | Combined structured static accuracy accepted — observed approximately third order; reference caveat nonblocking; integration/evolution pending | User decision 25 September: accept the [combined global campaign](../../../../work/p07_combined_global_analysis_20260925/report.md), orders phi `3.257/3.546`, Ti `3.251/3.591`, regular `3.099/3.338`, mixed `3.098/3.327`. The [bounded reference audit](../../../../work/p07_bounded_reference_audit_20260925/report.md) supports the accuracy assessment but does not recompute global orders. Preserve the archived failed reference flag and the [acceptance distinction](../../../../work/p07_combined_global_analysis_20260925/acceptance_decision.md). Preserve older D_trace results separately; its energy defect is not a measured defect of the new candidate. Elliptic/energy work remains deferred, and no production promotion or automatic run is authorized. |
+| P05N | Physical-normal Neumann brackets | Shared extraction/replay and bounded Neumann reconstruction admission | planned | Qualify full centered and live-jump midpoint actions; the bounded scalar-jump pilot alone is insufficient. Preserve Dirichlet qualification. |
+| P06N | Physical-normal Neumann curvature | Shared extraction/replay and bounded Neumann reconstruction admission | planned | Qualify complete material/remainder/characteristic actions with a separately specified compatible physical wall state. |
+| P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | local global-campaign preparation; execution pending pinned revision and input transfer | Axis-regular N32/N48/N64 bounded preflight and matched N/D/O/R audit complete. Frozen static global plan, portable inputs and recovery are locally prepared; no global pass or production promotion. Exact wall values remain diagnostic-only. |
+| P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | pending | Include separately qualified Dirichlet and Neumann variants. |
 | P09 | Evolved MMS and promotion | P08 | pending | — |
 
 
@@ -1133,21 +2204,18 @@ provides a frozen, node-local parallel CPU 32³/48³/64³ qualification runner.
 Clean-checkout replay matches the prior bounded actions to `1.53e-13`,
 serial/parallel N32 preflight arrays agree exactly, and complete-owner
 q3/q5/q7 preflight passes its bounded reference check at all resolutions.
-This establishes readiness to execute the global campaign; it does not close
-P07. Global, structural, elliptic and evolved qualifications remain separate.
-
+This established readiness for the now-completed cached comparison. The
+[measured result](../../../../work/p07_cached_global_dirichlet_20260923/report.md)
+passes the static global accuracy gate. Structural, elliptic and evolved
+qualifications remain separate.
 
 ### P05 direct raw-midpoint candidate — 2026-09-26
 
-The bounded direct-point comparison motivates a new global static accuracy
-qualification of the centered reconstructed bracket, with and without the
-saved owner-normalized `U - A` jump. The frozen N32/N48/N64 campaign evaluates
-all raw midpoints, projects complete actions with stored physical volumes,
-and retains the P05 analytic strong reference. Its [runner and frozen
-contract](../../../scripts/p05_direct_midpoint_global/README.md) include a
-complete-owner boundary preflight, restartable CPU chunks, replay-noise
-scoping for the actual-vorticity reference, and regional rebound diagnostics.
-The [remote handoff](../../../scripts/p05_direct_midpoint_global/handoff.md)
-is prepared for the pinned revision. The full global run has not been
-launched; this is static research qualification only, with no promotion,
-conservation, or evolved-stability claim.
+**Completed and user-accepted:** the N32/N48/N64 global campaign at `565e1d1a`
+passes both candidates' frozen static RMS gates. Local postprocessing repaired
+only a nested summary-key lookup; all regenerated owner arrays exactly match
+the remote partial products. See the acceptance and linked evidence at the
+top of this roadmap. The [runner and frozen contract](../../../scripts/p05_direct_midpoint_global/README.md)
+remain the reproducible campaign definition; its handoff is historical and
+does not request a repeat run. Geometry-derivative uncertainty, current-candidate
+runtime integration, conservation and evolved stability remain separate.
