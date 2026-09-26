@@ -1,0 +1,296 @@
+{
+  "archive": {
+    "bytes": 71058837,
+    "file": "reuse_inputs_v1.zip",
+    "sha256": "17cdce667cfdeb9deebe2c4b7fe6a10958f193ff8992d952b11db89050cd8ea9"
+  },
+  "cases": [
+    "mms_omega",
+    "mms_regular",
+    "mms_eta",
+    "mms_zero_dirichlet",
+    "mms_varying_dirichlet",
+    "constant_control",
+    "varying_generator_zero",
+    "varying_generator_varying"
+  ],
+  "fields": [
+    "phi_mms",
+    "actual_vorticity",
+    "smooth_regular",
+    "smooth_eta",
+    "zero_dirichlet",
+    "varying_dirichlet",
+    "constant",
+    "varying_generator"
+  ],
+  "jump_policy": "old_forms[:,:,3] - old_forms[:,:,0] is the saved owner-normalized U-A contribution",
+  "old_exact_input_O_policy": "available only where exact_input_valid_slots[:,2] is true; actual-vorticity B/C remain unavailable",
+  "pairs": [
+    [
+      0,
+      1
+    ],
+    [
+      0,
+      2
+    ],
+    [
+      0,
+      3
+    ],
+    [
+      0,
+      4
+    ],
+    [
+      0,
+      5
+    ],
+    [
+      0,
+      6
+    ],
+    [
+      7,
+      4
+    ],
+    [
+      7,
+      5
+    ]
+  ],
+  "producer": {
+    "campaign_identity": "af4bad1b032b27ae920a7cc80e76f9aa168bd466c826824ba8d768b90aedd611",
+    "campaign_manifest_sha256": "7f11e0d4f09daee8c36f2ffc1c02203a84ce69e90179d822b6f687813b0840c5",
+    "commit": "2458dbf6a62b1ac790701fe0001f85e060bc8778",
+    "local_analysis_manifest_sha256": "65670793e0459503ea31df5c72bbefd208b073d59a523b48571ca4cac1997854",
+    "producer_sources": {
+      "hsx_mms_continuum_reference.py": {
+        "path": "hsx_mms_continuum_reference.py",
+        "sha256": "fa5e25912ebf363d8794e06cab67c0e64949fef094b31d8a0ce5505c397db6f2"
+      },
+      "scripts/p05_structured_global/campaign.py": {
+        "path": "scripts/p05_structured_global/campaign.py",
+        "sha256": "da3b20a2895ca471e3354d4ba4e85911ff84976857e610b117eb14fcdfc2044e"
+      },
+      "scripts/p05_structured_global/configuration.json": {
+        "path": "scripts/p05_structured_global/configuration.json",
+        "sha256": "ce27e1e85dcc965b870a3e22f1f65984fcde472dabf12a5a709a7685a8f83cf3"
+      },
+      "scripts/p05_structured_global/input_manifest.json": {
+        "path": "scripts/p05_structured_global/input_manifest.json",
+        "sha256": "d9171b9a312bb2e054197250bbec2d7b08bc7e42ee8f4ac551026e770d6d2bd4"
+      },
+      "scripts/p05_structured_global/numerics.py": {
+        "path": "scripts/p05_structured_global/numerics.py",
+        "sha256": "8680187bf08f1aff50860510aed70f986e8f33fbbf8c665ff34ffc50697f760e"
+      },
+      "scripts/p07_combined_global/kernels.py": {
+        "path": "scripts/p07_combined_global/kernels.py",
+        "sha256": "224a2ca0a145b27d2b9099b96c6887404d1321880e9ea29b8bf216230ef22d8e"
+      },
+      "scripts/p07_combined_global/topology.py": {
+        "path": "scripts/p07_combined_global/topology.py",
+        "sha256": "1cd17a1170905a18be6f550fd129490fa540a0f84ce74098a0b623e147847296"
+      },
+      "scripts/p07_diffusion_global/numerics.py": {
+        "path": "scripts/p07_diffusion_global/numerics.py",
+        "sha256": "e25ef46e54893d5c9ff8c77aba44657d500e45b7c6190706f39a99bf18a79a12"
+      },
+      "scripts/perpendicular_structured/__init__.py": {
+        "path": "scripts/perpendicular_structured/__init__.py",
+        "sha256": "4563aa6f7d6ef21b1674a1972d54a969f76d5343d18523479f04b04b38e23b16"
+      },
+      "scripts/perpendicular_structured/optimization_resume.py": {
+        "path": "scripts/perpendicular_structured/optimization_resume.py",
+        "sha256": "f8b596a75f0756aad0aea9e7e3cb332798926234bb20c39fb378b95b7632b869"
+      },
+      "scripts/perpendicular_structured/reconstruction.py": {
+        "path": "scripts/perpendicular_structured/reconstruction.py",
+        "sha256": "e1c8aa7ec583a87962b61fc594ffc015a67a67a0cc6fc893a68e52681b94a932"
+      },
+      "scripts/perpendicular_structured/reference_geometry.py": {
+        "path": "scripts/perpendicular_structured/reference_geometry.py",
+        "sha256": "20d18ef20da588c592dd75c175ebe037aea05b290d6438fa0de84b01a874e2e3"
+      },
+      "src/drbx/geometry/Bfield_evaluator.py": {
+        "path": "src/drbx/geometry/Bfield_evaluator.py",
+        "sha256": "3d4273feaf4439650449906dbf729dffe7b1e7ba86f17fd500b08da1cf0bed30"
+      },
+      "src/drbx/geometry/MetricEvaluator.py": {
+        "path": "src/drbx/geometry/MetricEvaluator.py",
+        "sha256": "fa97f44de97971d91ebdde2c83e69310c2d05023796e2aba33c61f441d5f25af"
+      },
+      "src/drbx/geometry/fci_boundary_functional_reconstruction.py": {
+        "path": "src/drbx/geometry/fci_boundary_functional_reconstruction.py",
+        "sha256": "a763fcdd901a502766d4e208104da626baa90b6baf17c7a646dba2ab406b94cf"
+      },
+      "src/drbx/geometry/fci_perpendicular_bracket.py": {
+        "path": "src/drbx/geometry/fci_perpendicular_bracket.py",
+        "sha256": "f1ef9487ff7a30e51e0ff21ba882d5d8ec33a9df7debab6ecfaf6cae48cd57ff"
+      }
+    },
+    "saved_analysis_files": {
+      "N32.diagnostic_reduction.npz": {
+        "bytes": 7047325,
+        "sha256": "719991965dd192d098df0ff9a0a69e28cbc87e0b41ae670d3ceb1a349c8cb62d"
+      },
+      "N32.exact_input_diagnostic.npz": {
+        "bytes": 3564539,
+        "sha256": "b3076ef7e227bc9eeae6f008f24daa12fd9d1022811c8bf5453c211914f96fe9"
+      },
+      "N48.diagnostic_reduction.npz": {
+        "bytes": 23770295,
+        "sha256": "c267b63f01af1b39277ae2100311c40c06cb1dee223763da11ba711c7164c8d8"
+      },
+      "N48.exact_input_diagnostic.npz": {
+        "bytes": 12079440,
+        "sha256": "6818436bf580883d2e64c3c34dd70c9d7d2239a7841146c850ef876b9c6ac0c1"
+      },
+      "N64.diagnostic_reduction.npz": {
+        "bytes": 55446658,
+        "sha256": "bd1b04e34475efb2f2ca466479fa81aebcfc88bafcd20c2cf665e4efde17d9ee"
+      },
+      "N64.exact_input_diagnostic.npz": {
+        "bytes": 28281326,
+        "sha256": "a89f987f35ca560edf1f5ad2f70e8a30474eb1a0a4f51dc81b53c91627801100"
+      }
+    }
+  },
+  "resolution_artifacts": {
+    "N32.reuse.npz": {
+      "arrays": [
+        "observations",
+        "reference",
+        "volume",
+        "old_C",
+        "old_U_minus_A",
+        "old_exact_input_O",
+        "old_exact_input_O_pair_slots",
+        "exact_input_valid_slots",
+        "control_owner_ids",
+        "control_nominal",
+        "control_halfstep"
+      ],
+      "bytes": 5877002,
+      "observation_source": {
+        "bytes": 736958,
+        "path": "work/p05_failed_58880191/p05/N32.observations.npz",
+        "sha256": "69753e32ad2ed9acafdb2aebead2c63a2db41e48f5d7e3f3cc0907ec92f543af"
+      },
+      "owners": 25376,
+      "resolution": 32,
+      "sha256": "8131f6dce441301cf6b5c6a219275aabfd1e50feeaf719bc24a4654c77e0aac8"
+    },
+    "N48.reuse.npz": {
+      "arrays": [
+        "observations",
+        "reference",
+        "volume",
+        "old_C",
+        "old_U_minus_A",
+        "old_exact_input_O",
+        "old_exact_input_O_pair_slots",
+        "exact_input_valid_slots",
+        "control_owner_ids",
+        "control_nominal",
+        "control_halfstep"
+      ],
+      "bytes": 19829156,
+      "observation_source": {
+        "bytes": 2465935,
+        "path": "work/p05_failed_58880191/p05/N48.observations.npz",
+        "sha256": "8766fe6b74a2437cf825df6a2e82d4f9ca38bbc794f1e36f4429fc40c57f67c4"
+      },
+      "owners": 86016,
+      "resolution": 48,
+      "sha256": "0aa68cb47ae84403c671789ae07b3c6ea8f9f2b7ca2961b1ee484006a3e51ea5"
+    },
+    "N64.reuse.npz": {
+      "arrays": [
+        "observations",
+        "reference",
+        "volume",
+        "old_C",
+        "old_U_minus_A",
+        "old_exact_input_O",
+        "old_exact_input_O_pair_slots",
+        "exact_input_valid_slots",
+        "control_owner_ids",
+        "control_nominal",
+        "control_halfstep"
+      ],
+      "bytes": 46453624,
+      "observation_source": {
+        "bytes": 5801981,
+        "path": "work/p05_failed_58880191/p05/N64.observations.npz",
+        "sha256": "b91ffbde786011472fd693eee35a2baa0e51e8eac405ff095bd43a5d27f3e11f"
+      },
+      "owners": 202304,
+      "resolution": 64,
+      "sha256": "2905100f6e3e2644f99b5cb242663ad35a15d0cf5f5a1d5f26d7bcd433745152"
+    }
+  },
+  "runtime_geometry_inputs": [
+    {
+      "bytes": 9715,
+      "hash_source": "computed",
+      "path": "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json",
+      "sha256": "8f933512338e18a40e6410e80d8fe950d42462d78421df8e772a6b4d413f5ab5"
+    },
+    {
+      "bytes": 4209909,
+      "hash_source": "computed",
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/base_geometry.npz",
+      "sha256": "43a5490a319e1028fd8a7c01e4d9478d540e5ff01f8427a447d6c2d93dc1e91c"
+    },
+    {
+      "bytes": 12362542,
+      "hash_source": "computed",
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/rlp_topology.npz",
+      "sha256": "1ae442292262f711ce194263d9b3b70df7aca9d5404c0de40041cfec2d8f9970"
+    },
+    {
+      "bytes": 14401825,
+      "hash_source": "computed",
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/base_geometry.npz",
+      "sha256": "fc8aa6f803ec09dd4e0f7d72726534452bae4b6e41d85e61b8ed76f1f2faf09d"
+    },
+    {
+      "bytes": 43481612,
+      "hash_source": "computed",
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/rlp_topology.npz",
+      "sha256": "02c516b32ca451522eddaf5720b7cafa242efce48a562427d0f46c24948c8e52"
+    },
+    {
+      "bytes": 33840687,
+      "hash_source": "computed",
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/base_geometry.npz",
+      "sha256": "9cf7c047b38698d0e9fe043674ce29d13305c24579f17a859b604fcce217658d"
+    },
+    {
+      "bytes": 104668941,
+      "hash_source": "computed",
+      "path": "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/rlp_topology.npz",
+      "sha256": "468b10b36a1ebeaf912edc65ec64c7db6ef99e92931890707c4ce9f741e239ed"
+    },
+    {
+      "bytes": 154138698,
+      "hash_source": "pinned campaign input manifest",
+      "path": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+      "sha256": "216dbcfb343fa23dd7ac9e60da6592f5757c7f5e45c8d96a5b642c6419dc10a1"
+    },
+    {
+      "bytes": 5831797532,
+      "hash_source": "pinned campaign input manifest",
+      "path": "mgrid_res2p5cm_180pln.nc",
+      "sha256": "45dd643a4ae3930386b8f8bff7a789c796a0d5174b5209e1202b5bfd4ac87e44"
+    }
+  ],
+  "schema": "drbx.p05-direct-midpoint-reuse-bundle-v1",
+  "source_data": {
+    "P05 campaign_artifact": "work/p05_failed_58880191/p05",
+    "P05 local_reduction_artifact": "work/p05_failed_58880191/local_analysis"
+  }
+}

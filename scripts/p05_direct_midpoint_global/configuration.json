@@ -1,0 +1,51 @@
+{
+  "schema": "drbx.p05-direct-midpoint-global-v1",
+  "resolutions": [32, 48, 64],
+  "cases": [
+    "mms_omega",
+    "mms_regular",
+    "mms_eta",
+    "mms_zero_dirichlet",
+    "mms_varying_dirichlet",
+    "constant_control",
+    "varying_generator_zero",
+    "varying_generator_varying"
+  ],
+  "pairs": [[0, 1], [0, 2], [0, 3], [0, 4], [0, 5], [0, 6], [7, 4], [7, 5]],
+  "fields": [
+    "phi_mms",
+    "actual_vorticity",
+    "smooth_regular",
+    "smooth_eta",
+    "zero_dirichlet",
+    "varying_dirichlet",
+    "constant",
+    "varying_generator"
+  ],
+  "centered_expression": "(-cross(b_cov/B, reconstructed_grad(a))) dot reconstructed_grad(f) / abs(J)",
+  "owner_measure": "stored physical raw-volume weights; complete owner members",
+  "reference": "existing analytic strong raw-midpoint bracket with the same stored-volume projection",
+  "candidates": ["direct_centered", "direct_centered_plus_saved_U_minus_A"],
+  "global_minimum_order": 1.8,
+  "constant_action_tolerance": 1e-8,
+  "constant_gradient_tolerance": 1e-8,
+  "support_residual_tolerance": 1e-9,
+  "argument_antisymmetry_tolerance": 1e-12,
+  "regional_rebound_is_diagnostic": true,
+  "preflight_wall_radial_indices_from_end": [6, 5, 4, 3, 2, 1],
+  "preflight_angular_fractions_eighths": [[0, 0], [1, 5], [2, 2], [3, 7], [4, 4], [5, 1], [6, 6], [7, 3]],
+  "actual_omega_batched_replay_abs_tolerance": 1.6e-8,
+  "smooth_reference_replay_abs_tolerance": 1e-10,
+  "old_omega_batch_noise_provenance": {
+    "producer_commit": "2458dbf6a62b1ac790701fe0001f85e060bc8778",
+    "saved_N32_N48_N64_owner_control_max_abs": [4.570553713278969e-9, 4.43045600206915e-9, 1.5253688090410833e-8],
+    "saved_three_owner_singleton_batch_max_abs": 1.3466032733333577e-9,
+    "saved_singleton_repeat_max_abs": 0.0,
+    "tolerance_scope": "actual-vorticity analytic reference only; not applied to reconstructed actions or any smooth pair"
+  },
+  "raw_chunk_size": 256,
+  "preflight_owner_count_limit_per_resolution": 64,
+  "blas_threads": 1,
+  "node_local_process_pool": true,
+  "production_promotion": false
+}
