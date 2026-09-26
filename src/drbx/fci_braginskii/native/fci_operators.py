@@ -14,6 +14,7 @@ from solvax.precond import (
 
 _pytree_base = jax.tree_util.register_pytree_node_class
 
+from .._host_guards import host_bool, host_asarray
 from ..geometry.fci_geometry import (
     HaloLayout3D,
     LocalBFieldGeometry,
@@ -38,7 +39,9 @@ from ..geometry.fci_geometry import (
 )
 from ..geometry.fci_geometry import (
     StencilBuilderContext,
+    _axis_index_nd,
     _first_derivative_3d,
+    _lift_cell_field_to_faces,
 )
 from .fci_halo import (
     HaloExchange3D,
@@ -5321,51 +5324,51 @@ def _precompute_local_degree_two_reconstruction(
         raise ValueError("max_equations must be at least max_samples")
 
     try:
-        active_owner = np.asarray(cells.is_active_owner, dtype=bool)
-        aggregate_target = np.asarray(cells.is_aggregate_target, dtype=bool)
-        centroid = np.asarray(cells.centroid, dtype=np.float64)
-        second_moment = np.asarray(cells.second_moment, dtype=np.float64)
-        face_active = np.asarray(irregular_faces.active, dtype=bool)
-        face_kind = np.asarray(irregular_faces.kind, dtype=np.int32)
+        active_owner = host_asarray(cells.is_active_owner, dtype=bool)
+        aggregate_target = host_asarray(cells.is_aggregate_target, dtype=bool)
+        centroid = host_asarray(cells.centroid, dtype=np.float64)
+        second_moment = host_asarray(cells.second_moment, dtype=np.float64)
+        face_active = host_asarray(irregular_faces.active, dtype=bool)
+        face_kind = host_asarray(irregular_faces.kind, dtype=np.int32)
         minus_owner = np.stack(
             (
-                np.asarray(irregular_faces.minus_owner_i, dtype=np.int64),
-                np.asarray(irregular_faces.minus_owner_j, dtype=np.int64),
-                np.asarray(irregular_faces.minus_owner_k, dtype=np.int64),
+                host_asarray(irregular_faces.minus_owner_i, dtype=np.int64),
+                host_asarray(irregular_faces.minus_owner_j, dtype=np.int64),
+                host_asarray(irregular_faces.minus_owner_k, dtype=np.int64),
             ),
             axis=-1,
         )
         plus_owner = np.stack(
             (
-                np.asarray(irregular_faces.plus_owner_i, dtype=np.int64),
-                np.asarray(irregular_faces.plus_owner_j, dtype=np.int64),
-                np.asarray(irregular_faces.plus_owner_k, dtype=np.int64),
+                host_asarray(irregular_faces.plus_owner_i, dtype=np.int64),
+                host_asarray(irregular_faces.plus_owner_j, dtype=np.int64),
+                host_asarray(irregular_faces.plus_owner_k, dtype=np.int64),
             ),
             axis=-1,
         )
-        has_plus = np.asarray(irregular_faces.has_plus_owner, dtype=bool)
-        has_remote = np.asarray(irregular_faces.has_remote_owner, dtype=bool)
-        remote_centroid = np.asarray(
+        has_plus = host_asarray(irregular_faces.has_plus_owner, dtype=bool)
+        has_remote = host_asarray(irregular_faces.has_remote_owner, dtype=bool)
+        remote_centroid = host_asarray(
             irregular_faces.remote_centroid,
             dtype=np.float64,
         )
-        remote_second_moment = np.asarray(
+        remote_second_moment = host_asarray(
             irregular_faces.remote_second_moment,
             dtype=np.float64,
         )
-        quadrature_points = np.asarray(
+        quadrature_points = host_asarray(
             irregular_faces.quadrature_points,
             dtype=np.float64,
         )
-        area_weight = np.asarray(
+        area_weight = host_asarray(
             irregular_faces.area_covector_weight,
             dtype=np.float64,
         )
-        quadrature_active = np.asarray(
+        quadrature_active = host_asarray(
             irregular_faces.quadrature_active,
             dtype=bool,
         )
-        face_J = np.asarray(irregular_faces.J, dtype=np.float64)
+        face_J = host_asarray(irregular_faces.J, dtype=np.float64)
     except (TypeError, jax.errors.TracerArrayConversionError) as exc:
         raise ValueError(
             "quadratic reconstruction metadata must be precomputed from concrete host arrays"
@@ -6892,102 +6895,6 @@ def build_local_control_volume_field_closure(
     )
 
 
-def linear_combination_local_control_volume_closures(
-    left: LocalControlVolumeFieldClosure3D,
-    right: LocalControlVolumeFieldClosure3D,
-    a: float | jnp.ndarray = 1.0,
-    b: float | jnp.ndarray = 1.0,
-) -> LocalControlVolumeFieldClosure3D:
-    """Return the exact binary linear combination ``a*left + b*right``.
-
-    This combines both integrated functionals and the stored quadrature
-    traces.  A row is valid only when both operands and every corresponding
-    active trace are valid; invalid active data is intentionally retained as
-    NaN by ``LocalControlVolumeFieldClosure3D``.
-    """
-    if not isinstance(left, LocalControlVolumeFieldClosure3D) or not isinstance(right, LocalControlVolumeFieldClosure3D):
-        raise TypeError("left and right must be LocalControlVolumeFieldClosure3D")
-    if left.max_rows != right.max_rows:
-        raise ValueError("closure row counts must match")
-    aa = jnp.asarray(a, dtype=jnp.float64)
-    bb = jnp.asarray(b, dtype=jnp.float64)
-    active = jnp.asarray(left.active, dtype=bool) & jnp.asarray(right.active, dtype=bool)
-    face_value_valid = jnp.asarray(left.face_value_valid, dtype=bool) & jnp.asarray(right.face_value_valid, dtype=bool)
-    face_gradient_valid = jnp.asarray(left.face_gradient_valid, dtype=bool) & jnp.asarray(right.face_gradient_valid, dtype=bool)
-    valid = active & jnp.asarray(left.valid, dtype=bool) & jnp.asarray(right.valid, dtype=bool)
-    return LocalControlVolumeFieldClosure3D(
-        projected_flux=aa * left.projected_flux + bb * right.projected_flux,
-        parallel_flux=aa * left.parallel_flux + bb * right.parallel_flux,
-        parallel_gradient_flux=aa * left.parallel_gradient_flux + bb * right.parallel_gradient_flux,
-        face_value=aa * left.face_value + bb * right.face_value,
-        face_gradient=aa * left.face_gradient + bb * right.face_gradient,
-        valid=valid,
-        face_value_valid=face_value_valid,
-        face_gradient_valid=face_gradient_valid,
-        active=active,
-        max_rows=left.max_rows,
-    )
-
-
-def product_local_control_volume_closures(
-    left: LocalControlVolumeFieldClosure3D,
-    right: LocalControlVolumeFieldClosure3D,
-    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
-) -> LocalControlVolumeFieldClosure3D:
-    """Multiply two primitive closures at face quadrature points.
-
-    The three integrated fluxes are recomputed from the compact-face metric
-    payload, rather than multiplying already-integrated primitive fluxes.  In
-    particular, this preserves the covariance of a product on an angularly
-    agglomerated face.
-    """
-    if not isinstance(left, LocalControlVolumeFieldClosure3D) or not isinstance(right, LocalControlVolumeFieldClosure3D):
-        raise TypeError("left and right must be LocalControlVolumeFieldClosure3D")
-    if not isinstance(control_volume_geometry, LocalEmbeddedControlVolumeGeometry3D):
-        raise TypeError("control_volume_geometry must be LocalEmbeddedControlVolumeGeometry3D")
-    faces = control_volume_geometry.irregular_faces
-    if left.max_rows != faces.max_rows or right.max_rows != faces.max_rows:
-        raise ValueError("closure rows must align with irregular face rows")
-    qactive = jnp.asarray(faces.quadrature_active, dtype=bool)
-    value_valid = jnp.asarray(left.face_value_valid, dtype=bool) & jnp.asarray(right.face_value_valid, dtype=bool)
-    gradient_valid = jnp.asarray(left.face_gradient_valid, dtype=bool) & jnp.asarray(right.face_gradient_valid, dtype=bool)
-    product_value = left.face_value * right.face_value
-    product_gradient = left.face_value[..., None] * right.face_gradient + right.face_value[..., None] * left.face_gradient
-    product_value_valid = value_valid & qactive
-    product_gradient_valid = gradient_valid & value_valid & qactive
-    area = jnp.asarray(faces.area_covector_weight, dtype=jnp.float64)
-    J = jnp.asarray(faces.J, dtype=jnp.float64)
-    Bcontra = jnp.asarray(faces.B_contra, dtype=jnp.float64)
-    Bmag = jnp.asarray(faces.Bmag, dtype=jnp.float64)
-    projector = jnp.asarray(faces.projector, dtype=jnp.float64)
-    bunit = Bcontra / Bmag[..., None]
-    parallel_weight = J * jnp.einsum("...a,...a->...", area, bunit)
-    projected_weight = J[..., None] * jnp.einsum("...a,...ab->...b", area, projector)
-    parallel_gradient_weight = parallel_weight[..., None] * bunit
-    product_value_for_flux = jnp.where(product_value_valid, product_value, jnp.nan)
-    product_gradient_for_flux = jnp.where(product_gradient_valid[..., None], product_gradient, jnp.nan)
-    parallel_flux = jnp.sum(jnp.where(qactive, parallel_weight * product_value_for_flux, 0.0), axis=(1, 2))
-    projected_integrand = jnp.einsum("...a,...a->...", projected_weight, product_gradient_for_flux)
-    parallel_gradient_integrand = jnp.einsum("...a,...a->...", parallel_gradient_weight, product_gradient_for_flux)
-    projected_flux = jnp.sum(jnp.where(qactive, projected_integrand, 0.0), axis=(1, 2))
-    parallel_gradient_flux = jnp.sum(jnp.where(qactive, parallel_gradient_integrand, 0.0), axis=(1, 2))
-    active = jnp.asarray(left.active, dtype=bool) & jnp.asarray(right.active, dtype=bool) & jnp.asarray(faces.active, dtype=bool)
-    valid = active & jnp.asarray(left.valid, dtype=bool) & jnp.asarray(right.valid, dtype=bool)
-    valid = valid & jnp.all(~qactive | (product_value_valid & product_gradient_valid), axis=(1, 2))
-    return LocalControlVolumeFieldClosure3D(
-        projected_flux=projected_flux,
-        parallel_flux=parallel_flux,
-        parallel_gradient_flux=parallel_gradient_flux,
-        face_value=product_value,
-        face_gradient=product_gradient,
-        valid=valid,
-        face_value_valid=product_value_valid,
-        face_gradient_valid=product_gradient_valid,
-        active=active,
-        max_rows=faces.max_rows,
-    )
-
-
 def build_local_control_volume_polynomial_from_field(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
@@ -7530,7 +7437,7 @@ def expand_local_control_volume_owner_field(
     expanded = values[cells.owner_i, cells.owner_j, cells.owner_k]
     if owner_values_halo is None:
         try:
-            if bool(jnp.any(cells.owner_is_remote)):
+            if host_bool(jnp.any(cells.owner_is_remote)):
                 raise ValueError("owner_values_halo is required when control-volume owners are remote")
         except jax.errors.TracerBoolConversionError:
             pass
@@ -7973,11 +7880,11 @@ def _require_local_control_volume_field_closure(
             "field_closure.max_patches must align with irregular face-row geometry"
         )
     try:
-        active_aligned = bool(
+        active_aligned = host_bool(
             jnp.all(field_closure.active == (rows.active & faces.active))
         )
-        valid_aligned = bool(jnp.all(field_closure.valid == field_closure.active))
-        trace_aligned = bool(
+        valid_aligned = host_bool(jnp.all(field_closure.valid == field_closure.active))
+        trace_aligned = host_bool(
             jnp.all(
                 (~jnp.asarray(faces.quadrature_active, dtype=bool))
                 | jnp.asarray(field_closure.face_value_valid, dtype=bool)
@@ -8728,58 +8635,10 @@ def local_parallel_laplacian_conservative_op(
     return local_divergence_conservative_op(cv_flux, geometry, jacobian_floor=jacobian_floor)
 
 
-def _axis_index_nd(axis: int, index: int, ndim: int) -> tuple[object, ...]:
-    slices: list[object] = [slice(None)] * ndim
-    slices[axis] = index
-    return tuple(slices)
-
-
 def _axis_slice_nd(axis: int, start: int | None, stop: int | None, ndim: int) -> tuple[object, ...]:
     slices: list[object] = [slice(None)] * ndim
     slices[axis] = slice(start, stop)
     return tuple(slices)
-
-
-def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) -> jnp.ndarray:
-    """Map a cell-centered field onto the corresponding face grid along one axis."""
-
-    values_3d = jnp.asarray(field, dtype=jnp.float64)
-    axis_n = values_3d.shape[axis]
-    face_shape = list(values_3d.shape)
-    face_shape[axis] += 1
-
-    if axis_n == 1:
-        return jnp.broadcast_to(values_3d, tuple(face_shape))
-
-    first = jnp.take(values_3d, 0, axis=axis)
-    second = jnp.take(values_3d, 1, axis=axis)
-    last = jnp.take(values_3d, -1, axis=axis)
-    penultimate = jnp.take(values_3d, -2, axis=axis)
-
-    if periodic:
-        lower_ghost = last
-        upper_ghost = first
-    else:
-        # Second-order ghost-cell extrapolation:
-        #   q_{-1}  = 2 q_0 - q_1
-        #   q_{n}   = 2 q_{n-1} - q_{n-2}
-        # This lets the same face-average reconstruction be used at the
-        # boundary without dropping to first order.
-        lower_ghost = 2.0 * first - second
-        upper_ghost = 2.0 * last - penultimate
-
-    ext = jnp.concatenate(
-        (
-            jnp.expand_dims(lower_ghost, axis=axis),
-            values_3d,
-            jnp.expand_dims(upper_ghost, axis=axis),
-        ),
-        axis=axis,
-    )
-    return 0.5 * (
-        jnp.take(ext, jnp.arange(axis_n + 1), axis=axis)
-        + jnp.take(ext, jnp.arange(1, axis_n + 2), axis=axis)
-    )
 
 
 def _homogeneous_local_face_bc(
@@ -9052,13 +8911,13 @@ def _validate_concrete_angular_agglomeration_tree_assembly(
     if any(isinstance(value, jax.core.Tracer) for value in (*payload, *cv_payload)):
         return
     try:
-        diag = np.asarray(diagonal, dtype=np.float64)
-        edge = np.asarray(child_edge, dtype=np.float64)
-        pi = np.asarray(parent_i, dtype=np.int32)
-        pj = np.asarray(parent_j, dtype=np.int32)
-        pk = np.asarray(parent_k, dtype=np.int32)
-        owner_active = np.asarray(active, dtype=bool)
-        aggregate_volume = np.asarray(
+        diag = host_asarray(diagonal, dtype=np.float64)
+        edge = host_asarray(child_edge, dtype=np.float64)
+        pi = host_asarray(parent_i, dtype=np.int32)
+        pj = host_asarray(parent_j, dtype=np.int32)
+        pk = host_asarray(parent_k, dtype=np.int32)
+        owner_active = host_asarray(active, dtype=bool)
+        aggregate_volume = host_asarray(
             control_volume_geometry.cells.aggregate_volume, dtype=np.float64
         )
     except (jax.errors.TracerArrayConversionError, jax.errors.ConcretizationTypeError):
@@ -9280,9 +9139,9 @@ def _assemble_angular_agglomeration_tree_principal_coefficients(
             )
             fine_T = jnp.asarray(Tx[i], dtype=jnp.float64)
             try:
-                if bool(jnp.any(~jnp.isfinite(fine_T) | (fine_T < 0.0))):
+                if host_bool(jnp.any(~jnp.isfinite(fine_T) | (fine_T < 0.0))):
                     raise ValueError("fine radial conductances must be finite and nonnegative")
-                if bool(jnp.any((fine_T > 0.0) & distinct & ~expected)):
+                if host_bool(jnp.any((fine_T > 0.0) & distinct & ~expected)):
                     raise ValueError("fine radial face does not connect a child to its declared parent")
             except jax.errors.TracerBoolConversionError:
                 pass
@@ -9698,9 +9557,6 @@ class LocalPerpLaplacianInverseSolver:
         object.__setattr__(self, "b_floor", float(self.b_floor))
         object.__setattr__(self, "jacobian_floor", float(self.jacobian_floor))
 
-    def _default_face_bc(self) -> LocalBoundaryFaceBC3D:
-        return self.face_bc or LocalBoundaryFaceBC3D.empty(self.domain.layout)
-
     def _default_control_volume_boundary_bc(
         self,
     ) -> LocalControlVolumeBoundaryBC3D | None:
@@ -9989,7 +9845,7 @@ class LocalPerpLaplacianInverseSolver:
         else:
             lift = None
 
-        face_bc = self._default_face_bc()
+        face_bc = self.face_bc or LocalBoundaryFaceBC3D.empty(self.domain.layout)
         control_volume_boundary_bc = self._default_control_volume_boundary_bc()
         project_mean_zero = bool(self.config.project_mean_zero)
         active_mask = _solver_active_mask(

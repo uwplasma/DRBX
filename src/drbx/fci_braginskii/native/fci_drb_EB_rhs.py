@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from functools import cached_property
 import math
 import os
 from typing import Callable
@@ -184,200 +183,6 @@ def curvature_component_diagnostic_names() -> tuple[str, ...]:
     return CURVATURE_COMPONENT_DIAGNOSTIC_NAMES
 
 
-def _mask_local_eb_state_inactive(
-    state: FciDrbEBState,
-    geometry: LocalFciGeometry3D,
-) -> FciDrbEBState:
-    """Zero inactive owned cells for a local EB state/update payload."""
-
-    return _mask_state_inactive_owned(state, geometry)
-
-
-def background_curvature_characteristic_decomposition(
-    bmag: jnp.ndarray,
-    tau: float | jnp.ndarray,
-) -> tuple[
-    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
-    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
-]:
-    """Return the four background curvature speeds and spectral projectors.
-
-    The background is n=Te=Ti=1, omega=0.  The polynomial projectors avoid a
-    facewise eigendecomposition and are therefore safe inside jit/shard_map.
-    ``bmag`` is retained in the matrix because the vorticity row depends on
-    the local wall-face magnetic field.  The characteristic order is
-    ``(electron-fast, electron-slow, ion, stationary)`` with speeds
-    ``(mu_plus, mu_minus, -10*tau/3, 0)``.  Positive ``tau`` keeps the four
-    roots distinct.
-
-    Unlike :func:`_characteristic_projectors_background`, this decomposition
-    keeps the two positive electron modes separate.  Their signs are the same
-    for wall inflow selection, but their magnitudes differ and must remain
-    separate when constructing ``|M|`` for a characteristic interface flux.
-    """
-    bmag = jnp.asarray(bmag, dtype=jnp.float64)
-    tau = jnp.asarray(tau, dtype=jnp.float64)
-    shape = bmag.shape
-    M = jnp.zeros(shape + (4, 4), dtype=jnp.float64)
-    M = M.at[..., 0, 0].set(2.0)
-    M = M.at[..., 0, 1].set(2.0)
-    M = M.at[..., 1, 0].set(4.0 / 3.0)
-    M = M.at[..., 1, 1].set(14.0 / 3.0)
-    M = M.at[..., 2, 0].set(4.0 / 3.0)
-    M = M.at[..., 2, 1].set(4.0 / 3.0)
-    M = M.at[..., 2, 2].set(-10.0 * tau / 3.0)
-    M = M.at[..., 3, 0].set(2.0 * bmag * bmag * (1.0 + tau))
-    M = M.at[..., 3, 1].set(2.0 * bmag * bmag)
-    M = M.at[..., 3, 2].set(2.0 * tau * bmag * bmag)
-    eye = jnp.broadcast_to(jnp.eye(4, dtype=jnp.float64), shape + (4, 4))
-    mu_plus = (10.0 + 2.0 * jnp.sqrt(10.0)) / 3.0
-    mu_minus = (10.0 - 2.0 * jnp.sqrt(10.0)) / 3.0
-    mu_i = jnp.broadcast_to(-10.0 * tau / 3.0, shape)
-
-    def product(factors):
-        result = eye
-        for factor in factors:
-            result = jnp.einsum("...ij,...jk->...ik", result, factor)
-        return result
-
-    mu_plus_field = jnp.broadcast_to(mu_plus, shape)
-    mu_minus_field = jnp.broadcast_to(mu_minus, shape)
-    mu_zero = jnp.zeros(shape, dtype=jnp.float64)
-    mu_plus_matrix = mu_plus_field[..., None, None]
-    mu_minus_matrix = mu_minus_field[..., None, None]
-
-    P_plus = product((M - mu_minus_matrix * eye, M - mu_i[..., None, None] * eye, M))
-    P_plus = P_plus / (
-        (mu_plus_field - mu_minus_field)
-        * (mu_plus_field - mu_i)
-        * mu_plus_field
-    )[..., None, None]
-    P_slow = product((M - mu_plus_matrix * eye, M - mu_i[..., None, None] * eye, M))
-    P_slow = P_slow / (
-        (mu_minus_field - mu_plus_field)
-        * (mu_minus_field - mu_i)
-        * mu_minus_field
-    )[..., None, None]
-    P_ion = product((M - mu_plus_matrix * eye, M - mu_minus_matrix * eye, M))
-    P_ion = P_ion / (
-        mu_i * (mu_i - mu_plus_field) * (mu_i - mu_minus_field)
-    )[..., None, None]
-    P_zero = product(
-        (M - mu_plus_matrix * eye, M - mu_minus_matrix * eye, M - mu_i[..., None, None] * eye)
-    )
-    P_zero = P_zero / (
-        (-mu_plus_field) * (-mu_minus_field) * (-mu_i)
-    )[..., None, None]
-    return (
-        (mu_plus_field, mu_minus_field, mu_i, mu_zero),
-        (P_plus, P_slow, P_ion, P_zero),
-    )
-
-
-def background_curvature_characteristic_absolute_matrix(
-    bmag: jnp.ndarray,
-    tau: float | jnp.ndarray,
-) -> jnp.ndarray:
-    """Return ``|M|=sum_j |mu_j| P_j`` for the background curvature system.
-
-    For the positive ``tau`` regime used by the characteristic closure, the
-    two electron roots are positive, the ion root is negative, and the fourth
-    root is zero.  Interpolating ``abs`` on those four roots reduces the
-    absolute matrix to a cubic polynomial in ``M``.  Expanding that polynomial
-    once gives the entries below, avoiding a batched eigensystem/projector
-    construction and its twelve small matrix products per face.
-    """
-
-    bmag = jnp.asarray(bmag, dtype=jnp.float64)
-    tau = jnp.asarray(tau, dtype=jnp.float64)
-    shape = jnp.broadcast_shapes(bmag.shape, tau.shape)
-    bmag = jnp.broadcast_to(bmag, shape)
-    tau = jnp.broadcast_to(tau, shape)
-    denominator = 5.0 * tau * tau + 10.0 * tau + 3.0
-    bmag2 = bmag * bmag
-    result = jnp.zeros(shape + (4, 4), dtype=jnp.float64)
-    result = result.at[..., 0, 0].set(2.0)
-    result = result.at[..., 0, 1].set(2.0)
-    result = result.at[..., 1, 0].set(4.0 / 3.0)
-    result = result.at[..., 1, 1].set(14.0 / 3.0)
-    result = result.at[..., 2, 0].set(
-        -4.0 * (5.0 * tau * tau - 3.0) / (3.0 * denominator)
-    )
-    result = result.at[..., 2, 1].set(
-        -4.0 * (5.0 * tau * tau - 10.0 * tau - 3.0)
-        / (3.0 * denominator)
-    )
-    result = result.at[..., 2, 2].set(10.0 * tau / 3.0)
-    result = result.at[..., 3, 0].set(
-        2.0
-        * bmag2
-        * (tau + 1.0)
-        * (5.0 * tau * tau + 14.0 * tau + 3.0)
-        / denominator
-    )
-    result = result.at[..., 3, 1].set(
-        2.0 * bmag2 * (9.0 * tau * tau + 10.0 * tau + 3.0)
-        / denominator
-    )
-    result = result.at[..., 3, 2].set(-2.0 * bmag2 * tau)
-    return result
-
-
-def background_curvature_characteristic_metric(
-    bmag: jnp.ndarray,
-    tau: float | jnp.ndarray,
-) -> jnp.ndarray:
-    """Return ``H=sum_j P_j^T P_j``, a local symmetrizer of background ``M``."""
-
-    _speeds, projectors = background_curvature_characteristic_decomposition(
-        bmag, tau
-    )
-    result = jnp.zeros_like(projectors[0])
-    for projector in projectors:
-        result = result + jnp.einsum(
-            "...ki,...kj->...ij", projector, projector
-        )
-    return result
-
-
-def background_curvature_characteristic_penalty(
-    bmag: jnp.ndarray,
-    tau: float | jnp.ndarray,
-) -> jnp.ndarray:
-    """Return the symmetric PSD face block ``H |M|``."""
-
-    metric = background_curvature_characteristic_metric(bmag, tau)
-    absolute = background_curvature_characteristic_absolute_matrix(bmag, tau)
-    product = jnp.einsum("...ij,...jk->...ik", metric, absolute)
-    return 0.5 * (product + jnp.swapaxes(product, -1, -2))
-
-
-def _characteristic_projectors_background(
-    bmag: jnp.ndarray,
-    tau: float | jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Return grouped (positive electron, negative ion, zero) projectors."""
-
-    _speeds, (p_fast, p_slow, p_ion, p_zero) = (
-        background_curvature_characteristic_decomposition(bmag, tau)
-    )
-    return p_fast + p_slow, p_ion, p_zero
-
-
-def _axis_plane_slice(axis: int, side: int) -> tuple[slice, slice, slice]:
-    """Slice the lower (side=0) or upper (side=1) plane of a face array."""
-    if axis not in (0, 1, 2) or side not in (0, 1):
-        raise ValueError(f"invalid axis/side ({axis}, {side})")
-    index = 0 if side == 0 else -1
-    result = [slice(None), slice(None), slice(None)]
-    result[axis] = slice(index, index + 1) if side == 0 else slice(-1, None)
-    return tuple(result)
-
-
-def _apply_projector(projector: jnp.ndarray, values: jnp.ndarray) -> jnp.ndarray:
-    return jnp.einsum("...ij,...j->...i", projector, values)
-
-
 def parallel_characteristic_matrix(
     density: jnp.ndarray,
     Te: jnp.ndarray,
@@ -425,76 +230,6 @@ def parallel_characteristic_matrix(
     matrix = matrix.at[..., 4, 1].set(1.71 * mu)
     matrix = matrix.at[..., 4, 4].set(Ve)
     return matrix
-
-
-def parallel_characteristic_split_matrices(
-    matrix: jnp.ndarray,
-    *,
-    eigenvalue_tolerance: float = 1.0e-10,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Split the five-field principal matrix into right/left-going parts.
-
-    Returns ``(A_plus, A_minus, P_plus, P_minus)``.  The nonsymmetric
-    eigensystem is frozen, as it is for the characteristic wall closure, while
-    multiplication by the live principal matrix remains differentiable.  The
-    zero-speed subspace belongs to neither directional operator.
-    """
-
-    matrix = jnp.asarray(matrix, dtype=jnp.float64)
-    frozen_matrix = jax.lax.stop_gradient(matrix)
-    eigenvalues, eigenvectors = jnp.linalg.eig(frozen_matrix)
-    eigenvalues = jnp.real(eigenvalues)
-    inverse = jnp.linalg.inv(eigenvectors)
-
-    def projector(select: jnp.ndarray) -> jnp.ndarray:
-        value = jnp.einsum(
-            "...ik,...k,...kj->...ij",
-            eigenvectors,
-            select.astype(jnp.float64),
-            inverse,
-        )
-        return jax.lax.stop_gradient(jnp.real(value))
-
-    tolerance = jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)
-    p_plus = projector(eigenvalues > tolerance)
-    p_minus = projector(eigenvalues < -tolerance)
-    a_plus = jnp.einsum("...ij,...jk->...ik", matrix, p_plus)
-    a_minus = jnp.einsum("...ij,...jk->...ik", matrix, p_minus)
-    return a_plus, a_minus, p_plus, p_minus
-
-
-def parallel_derived_state_traces(
-    state: jnp.ndarray,
-    tau: float | jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Derive the composite parallel traces from one projected state."""
-
-    density, Te, Ti, Vi, Ve = [state[..., index] for index in range(5)]
-    tau = jnp.asarray(tau, dtype=jnp.float64)
-    return (
-        density * Ve,
-        density * (Vi - Ve),
-        density * Te,
-        density * (Te + tau * Ti),
-    )
-
-
-def _wall_candidate_values(
-    stencil: ConservativeStencil3D,
-    face_bc: LocalBoundaryFaceBC3D,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Return central/Neumann-reconstructed candidate values on each face family."""
-    values = []
-    for name, value in zip(
-        ("x", "y", "z"),
-        (stencil.face_values.x, stencil.face_values.y, stencil.face_values.z),
-    ):
-        kind = getattr(face_bc, f"kind_{name}")
-        prescribed = getattr(face_bc, f"value_{name}")
-        mask = getattr(face_bc, f"mask_{name}")
-        value = jnp.where(mask & (kind == BC_DIRICHLET), prescribed, value)
-        values.append(value)
-    return tuple(values)
 
 
 def _dirichlet_face_bc_from_values(
@@ -1298,9 +1033,6 @@ class LocalFciDrbEBRhs:
             vorticity=self._owner_field(state.vorticity),
         )
 
-    def _owner_result(self, result: jnp.ndarray) -> jnp.ndarray:
-        return self._owner_field(result)
-
     @property
     def _uses_projected_fine_grid(self) -> bool:
         return self.control_volume_geometry is not None
@@ -1310,8 +1042,6 @@ class LocalFciDrbEBRhs:
 
         if not self._uses_projected_fine_grid:
             return value
-        if self.control_volume_geometry is None:
-            raise RuntimeError("projected-fine-grid mode is missing control-volume geometry")
         return aggregate_local_control_volume_average(
             value,
             self.control_volume_geometry.cells,
@@ -2884,8 +2614,8 @@ class LocalFciDrbEBRhs:
             )
         if return_diagnostics:
             phi_owned, info = phi_result
-            return self._owner_result(_mask_inactive_owned(phi_owned, self.geometry)), info
-        return self._owner_result(_mask_inactive_owned(phi_result, self.geometry))
+            return self._owner_field(_mask_inactive_owned(phi_owned, self.geometry)), info
+        return self._owner_field(_mask_inactive_owned(phi_result, self.geometry))
 
     def reconstruct_phi(
         self,
@@ -3442,7 +3172,7 @@ class LocalFciDrbEBRhs:
                 Ve=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
                 vorticity=jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
             )
-        source_input = _mask_local_eb_state_inactive(source_owned, self.geometry)
+        source_input = _mask_state_inactive_owned(source_owned, self.geometry)
         source_owned = self._owner_state(source_input)
         face_bc = self._face_bcs(state_owned)
         state_halo_without_phi = self._prepare_state_halo(state_owned, face_bc)
@@ -4105,7 +3835,7 @@ class LocalFciDrbEBRhs:
         ))
         # Sources are owner-space data.  Add them after RLP so their
         # amplitudes are not volume-diluted by fine storage aliases.
-        result = self._owner_state(_mask_local_eb_state_inactive(
+        result = self._owner_state(_mask_state_inactive_owned(
             assembled.replace(
                 density=assembled.density + source_owned.density,
                 Te=assembled.Te + source_owned.Te,

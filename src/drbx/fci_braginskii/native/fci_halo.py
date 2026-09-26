@@ -14,6 +14,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
+from .._host_guards import host_bool
 from ..geometry.fci_geometry import (
     FCI_DEP_CUT_WALL,
     FCI_DEP_FIELD_INTERIOR,
@@ -182,7 +183,7 @@ def accumulate_halo_contributions_to_owned(
     )
     face_only = halo_count <= 1
     try:
-        invalid_payload = bool(
+        invalid_payload = host_bool(
             jnp.any(jnp.where(face_only[(...,) + (None,) * (field_halo.ndim - 3)], 0.0, field_halo) != 0)
         )
     except jax.errors.TracerBoolConversionError:
@@ -2447,14 +2448,6 @@ class LocalHaloClosure3D(_DataclassPyTreeMixin):
                 "corner_filler must be a PhysicalGhostCornerFiller3D"
             )
 
-    def face_closure(
-        self,
-        field_halo: jnp.ndarray,
-        domain: LocalDomain3D,
-        face_bc: LocalBoundaryFaceBC3D | None,
-    ) -> jnp.ndarray:
-        return self.physical_ghost_filler(field_halo, domain, face_bc)
-
     def topology_closure(
         self,
         field_halo: jnp.ndarray,
@@ -2467,14 +2460,6 @@ class LocalHaloClosure3D(_DataclassPyTreeMixin):
             result = self.topology_filler(result, domain)
         return result
 
-    def corner_closure(
-        self,
-        field_halo: jnp.ndarray,
-        domain: LocalDomain3D,
-        face_bc: LocalBoundaryFaceBC3D | None,
-    ) -> jnp.ndarray:
-        return self.corner_filler(field_halo, domain, face_bc)
-
     def __call__(
         self,
         field_halo: jnp.ndarray,
@@ -2484,9 +2469,9 @@ class LocalHaloClosure3D(_DataclassPyTreeMixin):
         result = field_halo
         if self.physical_ghost_filler.requires_topology_prefill:
             result = self.topology_closure(result, domain)
-        result = self.face_closure(result, domain, face_bc)
+        result = self.physical_ghost_filler(result, domain, face_bc)
         result = self.topology_closure(result, domain)
-        return self.corner_closure(result, domain, face_bc)
+        return self.corner_filler(result, domain, face_bc)
 
     def tree_flatten(self):
         return (
