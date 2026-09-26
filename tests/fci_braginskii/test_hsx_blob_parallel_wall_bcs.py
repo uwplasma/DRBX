@@ -70,23 +70,6 @@ def _inputs():
     return state, geometry, domain, parameters, upper_sign
 
 
-def test_velocity_neumann_mode_extrapolates_vi_and_ve():
-    driver = _load_driver()
-    state, geometry, domain, parameters, _ = _inputs()
-    bundle = driver.build_face_bc_bundle(
-        state,
-        geometry,
-        domain,
-        parameters,
-        parallel_velocity_wall_bc="neumann",
-    )
-    assert isinstance(bundle, LocalFciDrbEBPhysicalWallBundle)
-    assert np.all(np.asarray(bundle.Vi.kind_x[-1]) == BC_NEUMANN)
-    assert np.all(np.asarray(bundle.Ve.kind_x[-1]) == BC_NEUMANN)
-    assert np.all(np.asarray(bundle.phi.kind_x[-1]) == BC_DIRICHLET)
-    assert np.all(np.asarray(bundle.vorticity.kind_x[-1]) == BC_DIRICHLET)
-
-
 def test_no_flow_model_supplies_zero_velocity_physical_trace():
     driver = _load_driver()
     state, geometry, domain, parameters, _ = _inputs()
@@ -95,7 +78,6 @@ def test_no_flow_model_supplies_zero_velocity_physical_trace():
         geometry,
         domain,
         parameters,
-        parallel_velocity_wall_bc="dirichlet-zero",
     )
     assert isinstance(bundle, LocalFciDrbEBPhysicalWallBundle)
     assert np.all(np.asarray(bundle.Vi.kind_x[-1]) == BC_DIRICHLET)
@@ -105,33 +87,5 @@ def test_no_flow_model_supplies_zero_velocity_physical_trace():
     assert np.all(np.asarray(bundle.density.kind_x[-1]) == BC_NEUMANN)
     assert np.all(np.asarray(bundle.Te.kind_x[-1]) == BC_NEUMANN)
     assert np.all(np.asarray(bundle.Ti.kind_x[-1]) == BC_NEUMANN)
-
-
-def test_bohm_mode_sets_outward_zero_current_velocity():
-    driver = _load_driver()
-    state, geometry, domain, parameters, upper_sign = _inputs()
-    bundle = driver.build_face_bc_bundle(
-        state,
-        geometry,
-        domain,
-        parameters,
-        parallel_velocity_wall_bc="bohm",
-    )
-    expected = np.asarray(upper_sign) * np.sqrt(4.0 + 2.0)
-    np.testing.assert_allclose(bundle.Vi.value_x[-1], expected)
-    np.testing.assert_allclose(bundle.Ve.value_x[-1], expected)
-    assert np.all(np.asarray(bundle.Vi.kind_x[-1]) == BC_DIRICHLET)
-    np.testing.assert_allclose(
-        bundle.Vi.value_x[-1] - bundle.Ve.value_x[-1],
-        0.0,
-    )
-
-
-def test_default_parallel_velocity_bc_is_neumann():
-    driver = _load_driver()
-    state, geometry, domain, parameters, _ = _inputs()
-    bundle = driver.build_face_bc_bundle(
-        state, geometry, domain, parameters
-    )
-    assert np.all(np.asarray(bundle.Vi.kind_x[-1]) == BC_NEUMANN)
-    assert np.all(np.asarray(bundle.Ve.kind_x[-1]) == BC_NEUMANN)
+    assert np.all(np.asarray(bundle.phi.kind_x[-1]) == BC_DIRICHLET)
+    assert np.all(np.asarray(bundle.vorticity.kind_x[-1]) == BC_DIRICHLET)

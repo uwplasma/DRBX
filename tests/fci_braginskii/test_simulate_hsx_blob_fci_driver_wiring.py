@@ -210,7 +210,8 @@ def test_non_toroidal_geometry_artifact_is_rejected(fake_geometry_artifact, caps
     path, _ = fake_geometry_artifact(hsx, topology="square")
     message = _main_error(hsx, capsys, "--geometry", str(path))
     assert "could not load --geometry artifact" in message
-    assert "unknown topology" in message
+    assert "the HSX backend requires a toroidal geometry artifact" in message
+    assert "got topology 'square'" in message
 
 
 def test_toroidal_artifact_without_rlp_topology_is_rejected(fake_geometry_artifact, capsys):
