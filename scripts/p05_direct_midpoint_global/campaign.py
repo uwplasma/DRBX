@@ -279,6 +279,18 @@ def boundary_trace(k, ref, points):
     return k.boundary_trace(ref, points)
 
 
+def validate_midpoint_boundary_row(n, key, row, owner):
+    # Cell rows use the transverse/point policy of the frozen reconstruction:
+    # only the last two radial layers require the prescribed Dirichlet trace.
+    # The six-layer preflight cohort also samples ordinary interior rows.
+    expected = int(key[0]) >= n - 2
+    if bool(row.boundary_conditioned) != expected:
+        raise ValueError(
+            f"midpoint BC-conditioning mismatch owner={owner} raw_key={tuple(key)}: "
+            f"expected={expected} actual={bool(row.boundary_conditioned)}"
+        )
+
+
 def compute_owner(k, t, S, ref, reuse, owner, labels):
     raw_ids = np.flatnonzero(t.ro == int(owner))
     if not len(raw_ids): raise ValueError(f"owner {owner} has no raw members")
@@ -288,6 +300,7 @@ def compute_owner(k, t, S, ref, reuse, owner, labels):
     boundary_count=0; max_residual=0.0
     for j, (point, key) in enumerate(zip(points, keys)):
         row = S.rows(tuple(map(int,key)), point[None,:], location="cell")
+        validate_midpoint_boundary_row(t.n, key, row, owner)
         value, gradient = row.apply(reuse["observations"], lambda q: boundary_trace(k, ref, q))
         gradients[j] = gradient[0]
         boundary_count += int(row.boundary_conditioned)
@@ -386,10 +399,7 @@ def worker_task(payload):
         if result["constant_action_max_abs"]>1e-8 or result["constant_gradient_max_abs"]>1e-8:
             raise ValueError(f"preflight constant identity failed owner={entry['owner']}")
         if not result["finite"]: raise FloatingPointError("nonfinite preflight owner result")
-        # A physical-wall row and the adjacent reconstruction region must use prescribed trace data.
-        radial=np.array(np.unravel_index(result["raw_ids"],(t.n,)*3)).T[:,0]
-        if np.any(radial>=t.n-6) and result["boundary_conditioned_rows"]==0:
-            raise ValueError(f"expected BC-conditioned rows were not used owner={entry['owner']}")
+        # Each raw row's conditioning was checked in compute_owner, before application.
         arrays={"owner":np.array(result["owner"]),"raw_ids":result["raw_ids"],"labels":np.asarray(result["labels"]),
                 "cpu_backend":np.asarray(state["cpu_backend"]),
                 "projected":result["projected"],"raw_actions":result["raw_actions"],

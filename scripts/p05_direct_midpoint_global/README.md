@@ -37,6 +37,10 @@ of the last six radial layers. For every selected owner it processes the
 complete raw membership, including analytic reference replay, constant and
 antisymmetry checks, and boundary-conditioned reconstruction checks. The
 preflight covers every resolution before the global stage can start.
+The six-layer sampling band includes interior midpoint stencils: only the
+last two radial layers use explicit Dirichlet-conditioned midpoint rows.
+Preflight checks that policy for every raw member, including rejecting a
+missing boundary trace row; it does not require conditioning on all six layers.
 
 ## Inputs and reuse
 

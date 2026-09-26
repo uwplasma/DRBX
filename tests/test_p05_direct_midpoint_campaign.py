@@ -1,10 +1,25 @@
 import argparse
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from scripts.p05_direct_midpoint_global import campaign, direct_operator
+
+
+@pytest.mark.parametrize("n", [32, 48, 64])
+def test_midpoint_bc_check_distinguishes_outer_sampling_band_from_trace_rows(n):
+    for i in range(n - 6, n):
+        expected = i >= n - 2
+        key = (i, 12, 28)
+        campaign.validate_midpoint_boundary_row(
+            n, key, SimpleNamespace(boundary_conditioned=expected), owner=19644
+        )
+        with pytest.raises(ValueError, match="midpoint BC-conditioning mismatch"):
+            campaign.validate_midpoint_boundary_row(
+                n, key, SimpleNamespace(boundary_conditioned=not expected), owner=19644
+            )
 
 
 def test_coordinate_bracket_is_antisymmetric_and_uses_abs_jacobian():
