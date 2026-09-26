@@ -13,9 +13,6 @@ extends them from operator-level tests to a full two-field RHS + RK4 step:
 - :func:`assemble_local_fci_geometry` runs inside ``shard_map`` and assembles
   a :class:`LocalFciGeometry3D` from one shard's owned geometry block using
   halo exchange, periodic topology filling, and the runtime shard index.
-- :func:`make_sharded_2field_step` returns a jitted RK4 step for the reduced
-  two-field model where every stage prepares state halos (exchange plus
-  periodic topology fill) before evaluating the RHS on local geometry.
 
 The reduced two-field local stencil path closes physical sides with one-sided
 derivative stencils and consumes no face-BC payload.
@@ -26,7 +23,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from dataclasses import replace
-from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -58,14 +54,6 @@ from ..geometry.fci_geometry import (
     SIDE_PHYSICAL,
     SIDE_SIMPLE_PERIODIC,
     ShardSpec3D,
-    StencilBuilderContext,
-    build_local_curvature_coefficients,
-    build_local_direct_stencil_one_sided_physical_from_halo,
-)
-from .fci_2_field_rhs import (
-    Fci2FieldRhsParameters,
-    Fci2FieldState,
-    compute_local_2field_rhs,
 )
 from .fci_halo import (
     HaloExchange3D,
@@ -73,8 +61,7 @@ from .fci_halo import (
     PolarAxisRegularVectorRule3D,
     TopologyHaloFiller3D,
 )
-from .fci_model import inject_owned_field_to_halo, inject_owned_vector_field_to_halo
-from .fci_time_integrator import Rk4Stepper
+from .fci_model import inject_owned_vector_field_to_halo
 
 
 _MESH_AXIS_NAMES = ("x", "y", "z")
@@ -965,40 +952,6 @@ def assemble_single_device_local_fci_geometry(
     )
 
 
-def _make_prepared_local_stencil_builder(
-    domain: LocalDomain3D,
-    context: StencilBuilderContext,
-) -> Callable[..., object]:
-    """Wrap halo preparation plus the one-sided physical local stencil build.
-
-    The returned builder receives shard-owned fields, injects them into halo arrays,
-    exchanges shard-interface halos, topology-fills undecomposed periodic
-    sides, and closes physical side planes with one-sided derivative
-    stencils. Like the global direct path, it consumes no face-BC payload.
-    """
-
-    halo_exchange = HaloExchange3D()
-    topology_filler = TopologyHaloFiller3D(rules=(LocalPeriodicTopologyRule3D(),))
-
-    def _build(
-        field_owned: jnp.ndarray,
-        geometry: LocalFciGeometry3D,
-    ):
-        field_halo = inject_owned_field_to_halo(
-            jnp.asarray(field_owned, dtype=jnp.float64),
-            domain.layout,
-        )
-        field_halo = halo_exchange(field_halo, domain)
-        field_halo = topology_filler(field_halo, domain)
-        return build_local_direct_stencil_one_sided_physical_from_halo(
-            field_halo,
-            geometry,
-            context,
-        )
-
-    return _build
-
-
 @dataclass(frozen=True)
 class Sharded2FieldStepInfo:
     """Static sharding facts about a sharded two-field RK4 step."""
@@ -1010,145 +963,6 @@ class Sharded2FieldStepInfo:
     geometry: ShardedFciGeometry3D
 
 
-def make_sharded_2field_step(
-    geometry: FciGeometry3D,
-    shard_counts: tuple[int, int, int],
-    parameters: Fci2FieldRhsParameters,
-    boundary_conditions: dict[str, object] | None = None,
-    *,
-    dt: float,
-    halo_width: int = 1,
-) -> tuple[object, Sharded2FieldStepInfo]:
-    """Build a jitted sharded RK4 step for the reduced two-field model.
-
-    Returns ``(step_fn, info)`` where ``step_fn(state)`` advances a global
-    :class:`Fci2FieldState` by one RK4 step under ``shard_map`` with in/out
-    partition spec ``P("x", "y", "z")`` on every state field. Each of the
-    four stage RHS evaluations prepares fresh state halos (exchange plus
-    periodic topology fill) before building stencils.
-
-    The local direct stencil path uses its regular one-sided physical closure.
-    Field-specific boundary payloads are not supported by this reduced model.
-    """
-
-    shard_counts = tuple(int(value) for value in shard_counts)
-    boundary_conditions = dict(boundary_conditions or {})
-    if boundary_conditions:
-        raise ValueError(
-            "the local two-field path uses one-sided physical stencils and "
-            "does not accept field-specific boundary_conditions"
-        )
-
-    mesh = make_shard_mesh(shard_counts)
-    sharded_geometry = build_local_fci_geometries(geometry, shard_counts, halo_width=halo_width)
-    domain = sharded_geometry.domain
-    partition_spec = P(*_MESH_AXIS_NAMES)
-    state_sharding = NamedSharding(mesh, partition_spec)
-
-    cell_fields_sharded = jax.device_put(sharded_geometry.cell_fields, state_sharding)
-    map_fields = sharded_geometry.map_fields
-    if map_fields is None:
-        map_fields = jnp.zeros(
-            sharded_geometry.global_shape + (len(_MAP_FIELD_NAMES),),
-            dtype=jnp.float64,
-        )
-    map_fields_sharded = jax.device_put(map_fields, state_sharding)
-
-    def _assemble_with_maps(cell_fields_owned, map_fields_owned):
-        return assemble_local_fci_geometry(
-            sharded_geometry,
-            cell_fields_owned,
-            map_fields_owned if sharded_geometry.maps_valid else None,
-        )
-
-    curvature_sharded = jax.jit(
-        jax.shard_map(
-            lambda cell_fields_owned, map_fields_owned: build_local_curvature_coefficients(
-                _assemble_with_maps(cell_fields_owned, map_fields_owned),
-                domain,
-                periodic_axes=domain.periodic_axes,
-                axis_regular_axes=(False, False, False),
-            ),
-            mesh=mesh,
-            in_specs=(partition_spec, partition_spec),
-            out_specs=partition_spec,
-            check_vma=False,
-        )
-    )(cell_fields_sharded, map_fields_sharded)
-    timestep = jnp.asarray(dt, dtype=jnp.float64)
-
-    def _kernel(
-        density,
-        v_parallel,
-        density_background,
-        curvature_owned,
-        cell_fields_owned,
-        map_fields_owned,
-    ):
-        local_geometry = _assemble_with_maps(cell_fields_owned, map_fields_owned)
-        context = StencilBuilderContext(layout=domain.layout, domain=domain)
-        stencil_builder = _make_prepared_local_stencil_builder(domain, context)
-        state = Fci2FieldState(
-            density=density,
-            v_parallel=v_parallel,
-            density_background=density_background,
-        )
-
-        def _rhs_fn(stage_state, stage_time, carry):
-            del stage_time
-            result = compute_local_2field_rhs(
-                stage_state,
-                geometry=local_geometry,
-                stencil_builder=stencil_builder,
-                parameters=parameters,
-                curvature_coefficients=curvature_owned,
-            )
-            return result.rhs, carry, None
-
-        step = Rk4Stepper(_rhs_fn)(
-            state,
-            time=0.0,
-            timestep=timestep,
-            carry=None,
-        )
-        next_state = step.state
-        return next_state.density, next_state.v_parallel, next_state.density_background
-
-    sharded_kernel = jax.jit(
-        jax.shard_map(
-            _kernel,
-            mesh=mesh,
-            in_specs=(partition_spec,) * 6,
-            out_specs=(partition_spec,) * 3,
-            check_vma=False,
-        )
-    )
-
-    def step_fn(state: Fci2FieldState) -> Fci2FieldState:
-        density, v_parallel, density_background = sharded_kernel(
-            jax.device_put(jnp.asarray(state.density, dtype=jnp.float64), state_sharding),
-            jax.device_put(jnp.asarray(state.v_parallel, dtype=jnp.float64), state_sharding),
-            jax.device_put(jnp.asarray(state.density_background, dtype=jnp.float64), state_sharding),
-            curvature_sharded,
-            cell_fields_sharded,
-            map_fields_sharded,
-        )
-        return Fci2FieldState(
-            density=density,
-            v_parallel=v_parallel,
-            density_background=density_background,
-        )
-
-    info = Sharded2FieldStepInfo(
-        mesh=mesh,
-        partition_spec=partition_spec,
-        state_sharding=state_sharding,
-        domain=domain,
-        geometry=sharded_geometry,
-    )
-    return step_fn, info
-
-
 __all__ = [
     "Sharded2FieldStepInfo",
     "ShardedFciGeometry3D",
@@ -1156,5 +970,4 @@ __all__ = [
     "assemble_single_device_local_fci_geometry",
     "build_local_fci_geometries",
     "make_shard_mesh",
-    "make_sharded_2field_step",
 ]

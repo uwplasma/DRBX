@@ -187,10 +187,6 @@ class LocalBoundaryRemoteDependencyTable(_DataclassPyTreeMixin):
     def max_receive_values(self) -> int:
         return int(self.request_active.size)
 
-    @property
-    def has_requests(self) -> bool:
-        return self.max_receive_values > 0
-
     @classmethod
     def empty(cls) -> "LocalBoundaryRemoteDependencyTable":
         return cls(

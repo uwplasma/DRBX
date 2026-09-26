@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Callable, TypeVar
+from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -18,8 +18,6 @@ from ..geometry.fci_geometry import (
 
 
 _pytree_base = jax.tree_util.register_pytree_node_class
-
-PyTree = TypeVar("PyTree")
 
 
 @_pytree_base
