@@ -13,9 +13,6 @@ extends them from operator-level tests to a full two-field RHS + RK4 step:
 - :func:`assemble_local_fci_geometry` runs inside ``shard_map`` and assembles
   a :class:`LocalFciGeometry3D` from one shard's owned geometry block using
   halo exchange, periodic topology filling, and the runtime shard index.
-
-The reduced two-field local stencil path closes physical sides with one-sided
-derivative stencils and consumes no face-BC payload.
 """
 
 from __future__ import annotations
@@ -27,7 +24,7 @@ from dataclasses import replace
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
+from jax.sharding import Mesh
 
 from ..geometry.fci_geometry import (
     FciGeometry3D,
@@ -952,19 +949,7 @@ def assemble_single_device_local_fci_geometry(
     )
 
 
-@dataclass(frozen=True)
-class Sharded2FieldStepInfo:
-    """Static sharding facts about a sharded two-field RK4 step."""
-
-    mesh: Mesh
-    partition_spec: P
-    state_sharding: NamedSharding
-    domain: LocalDomain3D
-    geometry: ShardedFciGeometry3D
-
-
 __all__ = [
-    "Sharded2FieldStepInfo",
     "ShardedFciGeometry3D",
     "assemble_local_fci_geometry",
     "assemble_single_device_local_fci_geometry",

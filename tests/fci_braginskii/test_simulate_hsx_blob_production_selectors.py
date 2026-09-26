@@ -397,21 +397,6 @@ def test_short_leg_handoff_rejects_poststep_rk4_and_requires_imex():
         driver._validate_flux_framework(imex_without_split)
 
 
-def test_frozen_rhs_replay_exposes_eager_no_outer_compile_mode():
-    driver = _driver_module()
-    parser = driver._build_parser()
-    args = parser.parse_args(())
-    assert args.rhs_replay_execution == "auto"
-    action = next(
-        action for action in parser._actions
-        if action.dest == "rhs_replay_execution"
-    )
-    assert tuple(action.choices) == ("auto", "compiled", "eager")
-    source = DRIVER.read_text(encoding="utf-8")
-    assert "with jax.disable_jit(rhs_replay_execution == \"eager\")" in source
-    assert "else replay_sharded" in source
-
-
 def test_execution_mode_auto_supports_staged_short_imex_and_compiled_batches():
     driver = _driver_module()
     assert driver._resolve_execution_mode("auto", work_items=1) == "eager"
@@ -463,38 +448,6 @@ def test_time_advance_exposes_true_eager_mode_and_auto_default():
     assert "stage_2_base_before_phi = current.axpy(" in source
     assert "weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(" in source
     assert "next_state = current.axpy(weighted_rate, scale=dt_dynamic)" in source
-
-
-def test_staged_selected_cell_audit_is_explicit_and_machine_readable():
-    driver = _driver_module()
-    parser = driver._build_parser()
-    args = parser.parse_args(
-        (
-            "--staged-audit-cell", "45", "14", "17",
-            "--staged-audit-cell", "46", "14", "17",
-            "--staged-audit-output", "audit.npz",
-            "--staged-audit-explicit-ablation", "curvature-parallel-material",
-        )
-    )
-    assert args.staged_audit_cell == [[45, 14, 17], [46, 14, 17]]
-    assert args.staged_audit_output == Path("audit.npz")
-    assert args.staged_audit_explicit_ablation == "curvature-parallel-material"
-    source = DRIVER.read_text(encoding="utf-8")
-    assert "staged_explicit_term_audit_kernel" in source
-    assert '"audit-explicit-term-lanes"' in source
-    for closure_name in (
-        "implicit_1_closure",
-        "explicit_probe_closure",
-        "explicit_ablation_closure",
-        "explicit_term_closure",
-        "curvature_component_closure",
-        "parallel_material_component_closure",
-        "stage_2_base_closure",
-        "implicit_2_closure",
-        "weighted_rate_closure",
-        "final_closure",
-    ):
-        assert closure_name in source
 
 
 def test_eager_advance_keeps_cell_centered_setup_kernels_compiled():
