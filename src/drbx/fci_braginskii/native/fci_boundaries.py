@@ -3824,10 +3824,6 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
         return self.cells.shape
 
     @property
-    def has_centroid_operator_geometry(self) -> bool:
-        return self.centroid_J is not None
-
-    @property
     def has_angular_agglomeration(self) -> bool:
         return self.agglomeration_kind == "angular"
 
