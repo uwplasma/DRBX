@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 import math
-import os
 from typing import Callable
 
 import jax
@@ -17,7 +16,6 @@ from ..geometry.fci_geometry import (
     SIDE_PHYSICAL,
     StencilBuilderContext,
     build_local_conservative_stencil_from_field,
-    build_local_cell_gradient_from_field,
     build_local_fci_stencil_from_field,
 )
 from .fci_model import FciModelState
@@ -52,7 +50,6 @@ from .fci_operators import (
     local_curvature_conservative_components_op,
     local_curvature_production_path_op,
     local_poisson_bracket_compatible_flux_op,
-    local_poisson_bracket_op_from_gradients,
     expand_local_control_volume_owner_field,
     aggregate_local_control_volume_average,
     _mask_inactive_owned,
@@ -237,29 +234,6 @@ class FciDrbEBRhsParameters:
     Vi_parallel_viscosity: float = 0.0
     vorticity_D_perp: float = 0.0
     vorticity_D_parallel: float = 0.0
-    # Characteristic physical-wall law for the production parallel material
-    # block.  The default retains the established primitive least-residual
-    # projection exactly; energy-absorbing closes incoming modes against the
-    # explicit equilibrium/reference state.  Both are legacy compatibility
-    # paths. physical-boundary-state passes the complete physical trace to the
-    # live boundary flux without assuming an incoming rank.
-    parallel_characteristic_wall_law: str = field(
-        default_factory=lambda: os.environ.get(
-            "DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW",
-            "primitive-least-residual",
-        )
-    )
-
-    def __post_init__(self):
-        if self.parallel_characteristic_wall_law not in (
-            "primitive-least-residual", "energy-absorbing", "physical-boundary-state"
-        ):
-            raise ValueError(
-                "parallel_characteristic_wall_law must be "
-                "'primitive-least-residual', 'energy-absorbing', or "
-                "'physical-boundary-state', got "
-                f"{self.parallel_characteristic_wall_law!r}"
-            )
 
     def tree_flatten(self):
         return (
@@ -288,7 +262,7 @@ class FciDrbEBRhsParameters:
                 self.vorticity_D_perp,
                 self.vorticity_D_parallel,
             ),
-            self.parallel_characteristic_wall_law,
+            None,
         )
 
     @classmethod
@@ -342,7 +316,6 @@ class FciDrbEBRhsParameters:
             Vi_parallel_viscosity=Vi_parallel_viscosity,
             vorticity_D_perp=vorticity_D_perp,
             vorticity_D_parallel=vorticity_D_parallel,
-            parallel_characteristic_wall_law=_aux_data,
         )
 
 
@@ -550,68 +523,6 @@ class LocalFciDrbEBRhs:
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None
     control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None = None
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False)
-    # Complete five-field parallel material flux.  ``legacy`` preserves the
-    # existing mapped operators; ``production-path`` uses one canonical-face
-    # characteristic fluctuation on every ordinary and wall-ending FCI row.
-    parallel_material_scheme: str = field(
-        default_factory=lambda: os.environ.get(
-            "DRBX_PARALLEL_MATERIAL_SCHEME", "legacy"
-        )
-    )
-    # Selectable discretization for E x B advection.  The compatible paths
-    # return the already-B-divided bracket and use shared conservative face
-    # data. ``compatible-third-order-upwind`` keeps the same compatible skew
-    # core for every equation and replaces its physical A_phi(q) channel by
-    # the complete characteristic action A_phi^upwind(q).  It retains
-    # D(Uq)-qD(U), the production third-order bulk stencil, and first-order
-    # wall/RLP fallbacks without a tunable penalty. ``direct`` preserves the
-    # reconstructed cell-gradient path.
-    poisson_bracket_scheme: str = "direct"
-    # Experimental cell-centred FCI flux divergence pairing.  ``legacy``
-    # preserves the established pointwise mapped divergence exactly.  The
-    # support-core variant is deliberately opt-in while its support contract
-    # is exercised on real mapped fixtures.
-    parallel_flux_pairing: str = field(
-        default_factory=lambda: os.environ.get(
-            "DRBX_PARALLEL_FLUX_PAIRING", "legacy"
-        )
-    )
-    # Boundary composition for the support-core phi/current pair.  ``legacy``
-    # retains the former independent wall-row closures for replay ablation;
-    # ``current-phi`` closes the composite current with zero Neumann data and
-    # derives grad(phi) from its physical-volume weighted transpose.
-    # ``characteristic-sat`` uses production first-order characteristic
-    # endpoint currents; its candidates must remain central here so they are
-    # not projected twice.
-    parallel_boundary_pairing: str = field(
-        default_factory=lambda: os.environ.get(
-            "DRBX_PARALLEL_BOUNDARY_PAIRING", "current-phi"
-        )
-    )
-    # Experimental treatment for the stiff material block on very short FCI
-    # wall legs.  The default is deliberately bit-for-bit explicit.  The
-    # local backward-Euler option is consumed by the time integrator through
-    # ``apply_short_leg_implicit_material_step``; ``evaluate_stage`` only
-    # removes the selected wall-leg contribution when a nonzero selection
-    # interval is supplied by that integrator.
-    parallel_short_leg_treatment: str = field(
-        default_factory=lambda: os.environ.get(
-            "DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"
-        )
-    )
-    parallel_short_leg_cfl_limit: float = field(
-        default_factory=lambda: float(
-            os.environ.get("DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT", "2.5")
-        )
-    )
-    # ``cfl`` preserves the thresholded short-leg choice;
-    # ``all-physical-walls`` selects every physical wall leg for the local BE
-    # path under either supported characteristic wall law.
-    parallel_short_leg_selection: str = field(
-        default_factory=lambda: os.environ.get(
-            "DRBX_PARALLEL_SHORT_LEG_SELECTION", "cfl"
-        )
-    )
 
     @property
     def neumann_normal_scheme(self) -> str:
@@ -627,18 +538,6 @@ class LocalFciDrbEBRhs:
         )
 
     def __post_init__(self) -> None:
-        if self.poisson_bracket_scheme not in (
-            "direct",
-            "compatible-flux",
-            "compatible-third-order-upwind",
-            "material-scalar-third-order-upwind",
-        ):
-            raise ValueError(
-                "poisson_bracket_scheme must be 'direct', 'compatible-flux', "
-                "'compatible-third-order-upwind', or "
-                "'material-scalar-third-order-upwind', got "
-                f"{self.poisson_bracket_scheme!r}"
-            )
         has_cv = self.control_volume_geometry is not None
         if has_cv != (self.control_volume_boundary_bc is not None):
             raise ValueError(
@@ -671,15 +570,6 @@ class LocalFciDrbEBRhs:
                 )
             ):
                 raise ValueError("angular RLP requires lower-radial axis regularity")
-            if self.poisson_bracket_scheme not in (
-                "compatible-flux",
-                "compatible-third-order-upwind",
-                "material-scalar-third-order-upwind",
-            ):
-                raise ValueError(
-                    "projected-owner RLP requires "
-                    "a compatible Poisson-bracket scheme"
-                )
             shard_counts = tuple(
                 int(count) for count in self.domain.shard_spec.shard_counts
             )
@@ -687,102 +577,6 @@ class LocalFciDrbEBRhs:
                 raise ValueError(
                     "projected-owner RLP supports eta-only decomposition; radial and "
                     "poloidal shard counts must both be one"
-                )
-        if self.parallel_material_scheme not in ("legacy", "production-path"):
-            raise ValueError(
-                "parallel_material_scheme must be 'legacy' or 'production-path', got "
-                f"{self.parallel_material_scheme!r}"
-            )
-        if (
-            self.parallel_material_scheme == "production-path"
-            and self.parallel_flux_pairing != "support-core"
-        ):
-            raise ValueError(
-                "parallel_material_scheme='production-path' requires "
-                "parallel_flux_pairing='support-core'"
-            )
-        if self.parallel_flux_pairing not in ("legacy", "support-core"):
-            raise ValueError(
-                "parallel_flux_pairing must be 'legacy' or 'support-core', got "
-                f"{self.parallel_flux_pairing!r}"
-            )
-        if self.parallel_boundary_pairing not in (
-            "legacy", "current-phi", "characteristic-sat"
-        ):
-            raise ValueError(
-                "parallel_boundary_pairing must be 'legacy', 'current-phi', or "
-                "'characteristic-sat', got "
-                f"{self.parallel_boundary_pairing!r}"
-            )
-        wall_law = self.parameters.parallel_characteristic_wall_law
-        if wall_law not in (
-            "primitive-least-residual", "energy-absorbing", "physical-boundary-state"
-        ):
-            raise ValueError(
-                "parallel_characteristic_wall_law must be "
-                "'primitive-least-residual', 'energy-absorbing', or "
-                "'physical-boundary-state', got "
-                f"{wall_law!r}"
-            )
-        if wall_law == "energy-absorbing" and self.parallel_material_scheme != "production-path":
-            raise ValueError(
-                "parallel_characteristic_wall_law='energy-absorbing' requires "
-                "parallel_material_scheme='production-path'"
-            )
-        if wall_law == "energy-absorbing" and self.parallel_boundary_pairing != "characteristic-sat":
-            raise ValueError(
-                "parallel_characteristic_wall_law='energy-absorbing' requires "
-                "parallel_boundary_pairing='characteristic-sat'"
-            )
-        if wall_law == "physical-boundary-state" and self.parallel_material_scheme != "production-path":
-            raise ValueError(
-                "parallel_characteristic_wall_law='physical-boundary-state' requires "
-                "parallel_material_scheme='production-path'"
-            )
-        if wall_law == "physical-boundary-state" and self.parallel_boundary_pairing != "characteristic-sat":
-            raise ValueError(
-                "parallel_characteristic_wall_law='physical-boundary-state' requires "
-                "parallel_boundary_pairing='characteristic-sat'"
-            )
-        if (
-            self.parallel_boundary_pairing == "characteristic-sat"
-            and self.parallel_material_scheme != "production-path"
-        ):
-            raise ValueError(
-                "parallel_boundary_pairing='characteristic-sat' requires "
-                "the production FCI path"
-            )
-        if self.parallel_short_leg_treatment not in (
-            "explicit", "local-backward-euler"
-        ):
-            raise ValueError(
-                "parallel_short_leg_treatment must be 'explicit' or "
-                "'local-backward-euler', got "
-                f"{self.parallel_short_leg_treatment!r}"
-            )
-        if not math.isfinite(float(self.parallel_short_leg_cfl_limit)) or float(
-            self.parallel_short_leg_cfl_limit
-        ) <= 0.0:
-            raise ValueError(
-                "parallel_short_leg_cfl_limit must be a positive finite number"
-            )
-        if self.parallel_short_leg_selection not in ("cfl", "all-physical-walls"):
-            raise ValueError(
-                "parallel_short_leg_selection must be 'cfl' or "
-                "'all-physical-walls', got "
-                f"{self.parallel_short_leg_selection!r}"
-            )
-        if self.parallel_short_leg_selection == "all-physical-walls":
-            if self.parallel_short_leg_treatment != "local-backward-euler":
-                raise ValueError(
-                    "parallel_short_leg_selection='all-physical-walls' requires "
-                    "parallel_short_leg_treatment='local-backward-euler'"
-                )
-        if self.parallel_short_leg_treatment == "local-backward-euler":
-            if self.parallel_material_scheme != "production-path":
-                raise ValueError(
-                    "local-backward-euler short-leg treatment requires "
-                    "parallel_material_scheme='production-path'"
                 )
         maps = self.geometry.maps
         # This constructor may run under shard_map/jit.  Map activity is
@@ -822,8 +616,6 @@ class LocalFciDrbEBRhs:
 
     def _poisson_bracket_over_B(
         self,
-        f_gradient,
-        g_gradient,
         f_conservative_stencil: ConservativeStencil3D,
         g_conservative_stencil: ConservativeStencil3D,
         *,
@@ -833,51 +625,30 @@ class LocalFciDrbEBRhs:
         g_positivity_floor: float | None = None,
         equation_family: str = "material",
     ) -> jnp.ndarray:
-        """Evaluate the selected Poisson bracket with the RHS ``1/B`` included.
+        """Evaluate the production Poisson bracket with the RHS ``1/B`` included.
 
-        The compatible-flux discretization uses the operator-level physical-wall
-        traces.  The direct discretization continues to use gradients built from
-        the already closed field halos.
+        The material-scalar-third-order-upwind scheme uses the compatible-flux
+        discretization over the operator-level physical-wall traces, with a
+        centered characteristic scheme for the vorticity equation and a
+        scalar-third-order-upwind characteristic scheme everywhere else.
         """
 
-        if self.poisson_bracket_scheme in (
-            "compatible-flux",
-            "compatible-third-order-upwind",
-            "material-scalar-third-order-upwind",
-        ):
-            return local_poisson_bracket_compatible_flux_op(
-                f_conservative_stencil,
-                g_conservative_stencil,
-                self.geometry,
-                domain=self.domain,
-                axis_regular_axes=self.axis_regular_axes,
-                f_boundary_trace=f_boundary_trace,
-                g_boundary_trace=g_boundary_trace,
-                characteristic_scheme=(
-                    (
-                        "centered"
-                        if equation_family == "vorticity"
-                        else "scalar-third-order-upwind"
-                    )
-                    if self.poisson_bracket_scheme
-                    == "material-scalar-third-order-upwind"
-                    else "third-order-upwind"
-                    if self.poisson_bracket_scheme
-                    == "compatible-third-order-upwind"
-                    else "centered"
-                ),
-                g_field_halo=g_field_halo,
-                g_positivity_floor=g_positivity_floor,
-            )
-        bmag = jnp.maximum(
-            jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
-            1.0e-30,
-        )
-        return local_poisson_bracket_op_from_gradients(
-            f_gradient,
-            g_gradient,
+        return local_poisson_bracket_compatible_flux_op(
+            f_conservative_stencil,
+            g_conservative_stencil,
             self.geometry,
-        ) / bmag
+            domain=self.domain,
+            axis_regular_axes=self.axis_regular_axes,
+            f_boundary_trace=f_boundary_trace,
+            g_boundary_trace=g_boundary_trace,
+            characteristic_scheme=(
+                "centered"
+                if equation_family == "vorticity"
+                else "scalar-third-order-upwind"
+            ),
+            g_field_halo=g_field_halo,
+            g_positivity_floor=g_positivity_floor,
+        )
 
     def _face_bcs(self, state_owned: FciDrbEBState) -> LocalFciDrbEBFaceBCBundle:
         return self.face_bc_builder(
@@ -1688,112 +1459,78 @@ class LocalFciDrbEBRhs:
             self._fci_prepare_inverse_b(face_bc, context)
         )
 
-        support_gradient = None
-        support_divergence = None
-        support_core_target = None
-        current_phi_target = None
         characteristic_sat_homogeneous_current_divergence = None
         characteristic_sat_affine_current_divergence = None
         characteristic_sat_current_divergence = None
         support_gradient_values: dict[str, jnp.ndarray] = {}
         support_flux_values: dict[str, jnp.ndarray] = {}
-        if self.parallel_flux_pairing == "support-core":
-            support_gradient, support_divergence, support_core_target = (
-                self._fci_support_core_pair(
-                    face_bc=face_bc,
-                    context=context,
-                )
+        support_gradient, support_divergence, support_core_target = (
+            self._fci_support_core_pair(
+                face_bc=face_bc,
+                context=context,
             )
-            # Support-core production always uses the homogeneous current/phi
-            # weighted-adjoint pair.  Characteristic-SAT changes only the
-            # endpoint current lift below; it does not replace this pair.
-            use_current_phi_boundary_pair = True
-            if use_current_phi_boundary_pair:
-                # For characteristic-SAT, D0 is the derivative with the
-                # projected wall endpoint held fixed at zero; ordinary mapped
-                # endpoints retain their existing FCI values.
-                current_phi_gradient, current_phi_divergence, current_phi_target = (
-                    self._fci_current_phi_boundary_pair(
-                        face_bc=face_bc,
-                        context=context,
-                        wall_endpoint_current_values=(
-                            jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-                            jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-                        ) if self.parallel_boundary_pairing == "characteristic-sat" else None,
-                    )
-                )
-            support_gradient_names = (
-                "density", "Te", "Ti", "Vi", "Ve", "Pe",
-                "pressure", "current", "vorticity",
+        )
+        # Support-core production always uses the homogeneous current/phi
+        # weighted-adjoint pair.  Characteristic-SAT changes only the
+        # endpoint current lift below; it does not replace this pair.
+        # For characteristic-SAT, D0 is the derivative with the
+        # projected wall endpoint held fixed at zero; ordinary mapped
+        # endpoints retain their existing FCI values.
+        current_phi_gradient, current_phi_divergence, current_phi_target = (
+            self._fci_current_phi_boundary_pair(
+                face_bc=face_bc,
+                context=context,
+                wall_endpoint_current_values=(
+                    jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                    jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                ),
             )
-            if not use_current_phi_boundary_pair:
-                support_gradient_names = support_gradient_names + ("phi",)
-            # In production material mode the final RHS directly consumes
-            # only Ti/phi/vorticity from this legacy gradient family.  Keep
-            # the remaining values exact, but put them in a separate batch so
-            # XLA can eliminate that whole transpose application when no
-            # diagnostic/output path observes it.
-            if self.parallel_material_scheme == "production-path":
-                primary_gradient_names = (
-                    ("Ti", "vorticity")
-                    if use_current_phi_boundary_pair
-                    else ("Ti", "phi", "vorticity")
-                )
-                secondary_gradient_names = tuple(
-                    name for name in support_gradient_names
-                    if name not in primary_gradient_names
-                )
-                for names in (primary_gradient_names, secondary_gradient_names):
-                    batch = support_gradient(jnp.stack(
-                        tuple(fields[name][owned] for name in names), axis=0
-                    ))
-                    support_gradient_values.update(dict(zip(names, batch)))
-            else:
-                support_gradient_batch = support_gradient(jnp.stack(
-                    tuple(fields[name][owned] for name in support_gradient_names),
-                    axis=0,
-                ))
-                support_gradient_values = dict(zip(
-                    support_gradient_names, support_gradient_batch
-                ))
-            if use_current_phi_boundary_pair:
-                support_gradient_values["phi"] = current_phi_gradient(
-                    fields["phi"][owned]
-                )
-            support_flux_names = (
-                "density_flux", "current", "Vi", "Ve",
-            )
-            support_flux_fields = {
-                "density_flux": fields["density_flux"][owned],
-                "current": fields["current"][owned],
-                "Vi": fields["Vi"][owned],
-                "Ve": fields["Ve"][owned],
-            }
-            if not use_current_phi_boundary_pair:
-                support_flux_names = support_flux_names + ("vorticity_current",)
-                support_flux_fields["vorticity_current"] = fields["current"][owned]
-            if self.parallel_material_scheme == "production-path":
-                support_flux_batch = support_divergence(jnp.stack(
-                    tuple(
-                        support_flux_fields[name]
-                        for name in support_flux_names
-                    ),
-                    axis=0,
-                ))
-                support_flux_values = dict(zip(
-                    support_flux_names,
-                    support_flux_batch,
-                ))
-            else:
-                support_flux_batch = support_divergence(jnp.stack(
-                    tuple(support_flux_fields[name] for name in support_flux_names),
-                    axis=0,
-                ))
-                support_flux_values = dict(zip(support_flux_names, support_flux_batch))
-            if use_current_phi_boundary_pair:
-                support_flux_values["vorticity_current"] = current_phi_divergence(
-                    fields["current"][owned]
-                )
+        )
+        support_gradient_names = (
+            "density", "Te", "Ti", "Vi", "Ve", "Pe",
+            "pressure", "current", "vorticity",
+        )
+        # In production material mode the final RHS directly consumes
+        # only Ti/phi/vorticity from this legacy gradient family.  Keep
+        # the remaining values exact, but put them in a separate batch so
+        # XLA can eliminate that whole transpose application when no
+        # diagnostic/output path observes it.
+        primary_gradient_names = ("Ti", "vorticity")
+        secondary_gradient_names = tuple(
+            name for name in support_gradient_names
+            if name not in primary_gradient_names
+        )
+        for names in (primary_gradient_names, secondary_gradient_names):
+            batch = support_gradient(jnp.stack(
+                tuple(fields[name][owned] for name in names), axis=0
+            ))
+            support_gradient_values.update(dict(zip(names, batch)))
+        support_gradient_values["phi"] = current_phi_gradient(
+            fields["phi"][owned]
+        )
+        support_flux_names = (
+            "density_flux", "current", "Vi", "Ve",
+        )
+        support_flux_fields = {
+            "density_flux": fields["density_flux"][owned],
+            "current": fields["current"][owned],
+            "Vi": fields["Vi"][owned],
+            "Ve": fields["Ve"][owned],
+        }
+        support_flux_batch = support_divergence(jnp.stack(
+            tuple(
+                support_flux_fields[name]
+                for name in support_flux_names
+            ),
+            axis=0,
+        ))
+        support_flux_values = dict(zip(
+            support_flux_names,
+            support_flux_batch,
+        ))
+        support_flux_values["vorticity_current"] = current_phi_divergence(
+            fields["current"][owned]
+        )
 
         diagnostic_names = ("density", "Te", "Ti", "Vi", "Ve", "phi", "Pe")
         diagnostic_gradient_components: dict[str, jnp.ndarray] = {}
@@ -1814,26 +1551,23 @@ class LocalFciDrbEBRhs:
                         backward_remote_inverse_b_values=inverse_b_backward,
                     )
                 )
-                if support_gradient is not None:
-                    # The support pair is not a three-point local stencil:
-                    # its transpose can scatter from any admitted core row.
-                    # Keep the diagnostic lane schema while placing the full
-                    # paired gradient in the center lane, so its lane sum is
-                    # exactly the production support-gradient value.
-                    gradient_target = (
-                        current_phi_target
-                        if name == "phi" and current_phi_target is not None
-                        else support_core_target
-                    )
-                    paired = support_gradient_values[name] + jnp.where(
-                        gradient_target,
-                        0.0,
-                        jnp.sum(components, axis=0),
-                    )
-                    components = jnp.stack(
-                        (jnp.zeros_like(paired), paired, jnp.zeros_like(paired)),
-                        axis=0,
-                    )
+                # The support pair is not a three-point local stencil: its
+                # transpose can scatter from any admitted core row.  Keep the
+                # diagnostic lane schema while placing the full paired
+                # gradient in the center lane, so its lane sum is exactly the
+                # production support-gradient value.
+                gradient_target = (
+                    current_phi_target if name == "phi" else support_core_target
+                )
+                paired = support_gradient_values[name] + jnp.where(
+                    gradient_target,
+                    0.0,
+                    jnp.sum(components, axis=0),
+                )
+                components = jnp.stack(
+                    (jnp.zeros_like(paired), paired, jnp.zeros_like(paired)),
+                    axis=0,
+                )
                 diagnostic_gradient_components[name] = components
                 diagnostic_endpoint_values[name] = endpoints
 
@@ -1858,8 +1592,6 @@ class LocalFciDrbEBRhs:
 
         def flux_div(name: str) -> jnp.ndarray:
             legacy_value = q_div(name)
-            if support_divergence is None or support_core_target is None:
-                return legacy_value
             # The support pair owns every admissible dual row.  Its transpose
             # is intentionally left unmasked on primal targets: a core flux
             # may contribute to an excluded/wall-adjacent target.  The legacy
@@ -1867,7 +1599,7 @@ class LocalFciDrbEBRhs:
             # closure, avoiding a double contribution on the support core.
             flux_target = (
                 current_phi_target
-                if name == "vorticity_current" and current_phi_target is not None
+                if name == "vorticity_current"
                 else support_core_target
             )
             return support_flux_values[name] + jnp.where(
@@ -1885,12 +1617,8 @@ class LocalFciDrbEBRhs:
                 forward_remote_q_values=forward,
                 backward_remote_q_values=backward,
             )
-            if support_gradient is None or support_core_target is None:
-                return legacy_value
             gradient_target = (
-                current_phi_target
-                if name == "phi" and current_phi_target is not None
-                else support_core_target
+                current_phi_target if name == "phi" else support_core_target
             )
             return support_gradient_values[name] + jnp.where(
                 gradient_target, 0.0, legacy_value
@@ -1947,196 +1675,172 @@ class LocalFciDrbEBRhs:
             "fallback": jnp.zeros(self.geometry.owned_shape, dtype=bool),
             "admissible": jnp.ones(self.geometry.owned_shape, dtype=bool),
         }
-        if self.parallel_material_scheme == "production-path":
-            primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
-            primitive_stencils = []
-            for name in primitive_names:
-                field_halo, forward_remote, backward_remote = self._fci_prepare_q(
-                    fields[name][owned], traces[name], context
+        primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
+        primitive_stencils = []
+        for name in primitive_names:
+            field_halo, forward_remote, backward_remote = self._fci_prepare_q(
+                fields[name][owned], traces[name], context
+            )
+            primitive_stencils.append(
+                build_local_fci_stencil_from_field(
+                    field_halo,
+                    self.geometry,
+                    context,
+                    forward_remote_values=forward_remote,
+                    backward_remote_values=backward_remote,
                 )
-                primitive_stencils.append(
-                    build_local_fci_stencil_from_field(
-                        field_halo,
-                        self.geometry,
-                        context,
-                        forward_remote_values=forward_remote,
-                        backward_remote_values=backward_remote,
-                    )
-                )
-            center = jnp.stack(
-                tuple(stencil.center for stencil in primitive_stencils), axis=-1
             )
-            minus = jnp.stack(
-                tuple(stencil.minus for stencil in primitive_stencils), axis=-1
+        center = jnp.stack(
+            tuple(stencil.center for stencil in primitive_stencils), axis=-1
+        )
+        minus = jnp.stack(
+            tuple(stencil.minus for stencil in primitive_stencils), axis=-1
+        )
+        plus = jnp.stack(
+            tuple(stencil.plus for stencil in primitive_stencils), axis=-1
+        )
+        backward_wall = (
+            self.geometry.maps.backward.endpoint_kind
+            == FCI_DEP_PHYSICAL_BOUNDARY
+        )
+        forward_wall = (
+            self.geometry.maps.forward.endpoint_kind
+            == FCI_DEP_PHYSICAL_BOUNDARY
+        )
+        # Keep one canonical live eigensystem/endpoint projection for the
+        # material residual and the characteristic current closure.  The
+        # projected primitive vector is a first-order modal trace, so the
+        # current exported to the vorticity/phi pair is the corresponding
+        # first-order characteristic current, not a nonlinear product of
+        # projected primitive components.
+        wall_data = parallel_characteristic_wall_data(
+            center,
+            minus,
+            plus,
+            primitive_stencils[0].dx_min,
+            primitive_stencils[0].dx_plus,
+            self.parameters.tau,
+            self.parameters.mi_over_me,
+            selection_dt=short_leg_selection_dt,
+            backward_wall=backward_wall,
+            forward_wall=forward_wall,
+            backward_wall_state=minus,
+            forward_wall_state=plus,
+        )
+        # The homogeneous pair is the weighted-adjoint operator used
+        # for grad(phi).  The characteristic wall trace is evaluated
+        # separately and its difference is an affine lift applied
+        # only to the vorticity current divergence.
+        _, characteristic_current_divergence, _ = (
+            self._fci_current_phi_boundary_pair(
+                face_bc=face_bc,
+                context=context,
+                wall_endpoint_current_values=(
+                    wall_data["backward_wall_characteristic_current"],
+                    wall_data["forward_wall_characteristic_current"],
+                ),
+                build_adjoint=False,
             )
-            plus = jnp.stack(
-                tuple(stencil.plus for stencil in primitive_stencils), axis=-1
+        )
+        actual_current = fields["current"][owned]
+        characteristic_sat_current_divergence = characteristic_current_divergence(
+            actual_current
+        )
+        characteristic_sat_homogeneous_current_divergence = (
+            current_phi_divergence(actual_current)
+        )
+        characteristic_sat_affine_current_divergence = (
+            characteristic_sat_current_divergence
+            - characteristic_sat_homogeneous_current_divergence
+        )
+        # The affine characteristic wall-current lift is part of the
+        # selected characteristic SAT closure. The former suppressed
+        # variant was diagnostic-only.
+        support_flux_values["vorticity_current"] = (
+            characteristic_sat_current_divergence
+        )
+        parallel_material_residual, parallel_material_diagnostics = (
+            parallel_target_row_material_residual(
+                center,
+                minus,
+                plus,
+                primitive_stencils[0].dx_min,
+                primitive_stencils[0].dx_plus,
+                self.parameters.tau,
+                self.parameters.mi_over_me,
+                backward_wall=backward_wall,
+                forward_wall=forward_wall,
+                backward_wall_state=minus,
+                forward_wall_state=plus,
+                div_b=div_b,
+                selection_dt=short_leg_selection_dt,
             )
-            backward_wall = (
-                self.geometry.maps.backward.endpoint_kind
-                == FCI_DEP_PHYSICAL_BOUNDARY
+        )
+        if return_electron_force_diagnostics:
+            # Exact additive split of the *live explicit* production
+            # residual. Selected physical-wall legs are advanced by the
+            # local implicit solve and therefore contribute zero here;
+            # the middle lane retains the geometric div(b) source and
+            # any algebraic remainder. This uses the already-live
+            # directional actions rather than restoring the retired
+            # full-grid provenance diagnostics.
+            explicit_backward_residual = jnp.where(
+                wall_data["selected_backward_wall"][..., None],
+                0.0,
+                wall_data["backward_residual"],
             )
-            forward_wall = (
-                self.geometry.maps.forward.endpoint_kind
-                == FCI_DEP_PHYSICAL_BOUNDARY
+            explicit_forward_residual = jnp.where(
+                wall_data["selected_forward_wall"][..., None],
+                0.0,
+                wall_data["forward_residual"],
             )
-            # Keep one canonical live eigensystem/endpoint projection for the
-            # material residual and the characteristic current closure.  The
-            # projected primitive vector is a first-order modal trace, so the
-            # current exported to the vorticity/phi pair is the corresponding
-            # first-order characteristic current, not a nonlinear product of
-            # projected primitive components.
-            wall_data = None
-            if self.parallel_boundary_pairing == "characteristic-sat" or (
-                return_electron_force_diagnostics
-            ):
-                wall_data = parallel_characteristic_wall_data(
-                    center,
-                    minus,
-                    plus,
+            explicit_center_geometric_residual = (
+                parallel_material_residual
+                - explicit_backward_residual
+                - explicit_forward_residual
+            )
+            parallel_material_explicit_components = jnp.stack(
+                (
+                    explicit_backward_residual,
+                    explicit_center_geometric_residual,
+                    explicit_forward_residual,
+                ),
+                axis=-2,
+            )
+            # The production path has the same directional residuals and
+            # endpoint states as the wall helper.  Retain them in the
+            # replay diagnostics so the electron-force report does not
+            # silently show zero characteristic terms in production mode.
+            backward_residual = wall_data["backward_residual"]
+            forward_residual = wall_data["forward_residual"]
+            material_upwind_principal = (
+                backward_residual + forward_residual
+            )
+            material_centered_principal = (
+                parallel_material_residual - material_upwind_principal
+            )
+            material_upwind_correction_components = jnp.stack(
+                (
+                    backward_residual,
+                    material_centered_principal,
+                    forward_residual,
+                ),
+                axis=-2,
+            )
+            material_characteristic_endpoint_values = jnp.stack(
+                (
+                    wall_data["backward_endpoint_state"],
+                    wall_data["forward_endpoint_state"],
+                ),
+                axis=-2,
+            )
+            material_characteristic_leg_lengths = jnp.stack(
+                (
                     primitive_stencils[0].dx_min,
                     primitive_stencils[0].dx_plus,
-                    self.parameters.tau,
-                    self.parameters.mi_over_me,
-                    selection_dt=short_leg_selection_dt
-                    if self.parallel_short_leg_treatment == "local-backward-euler"
-                    else 0.0,
-                    cfl_limit=self.parallel_short_leg_cfl_limit,
-                    parallel_short_leg_selection=self.parallel_short_leg_selection,
-                    backward_wall=backward_wall,
-                    forward_wall=forward_wall,
-                    backward_wall_state=minus,
-                    forward_wall_state=plus,
-                    parallel_characteristic_wall_law=(
-                        self.parameters.parallel_characteristic_wall_law
-                    ),
-                )
-            if self.parallel_boundary_pairing == "characteristic-sat":
-                # The homogeneous pair is the weighted-adjoint operator used
-                # for grad(phi).  The characteristic wall trace is evaluated
-                # separately and its difference is an affine lift applied
-                # only to the vorticity current divergence.
-                _, characteristic_current_divergence, _ = (
-                    self._fci_current_phi_boundary_pair(
-                        face_bc=face_bc,
-                        context=context,
-                        wall_endpoint_current_values=(
-                            wall_data["backward_wall_characteristic_current"],
-                            wall_data["forward_wall_characteristic_current"],
-                        ),
-                        build_adjoint=False,
-                    )
-                )
-                actual_current = fields["current"][owned]
-                characteristic_sat_current_divergence = characteristic_current_divergence(
-                    actual_current
-                )
-                if current_phi_divergence is None:
-                    raise RuntimeError(
-                        "characteristic-sat requires a homogeneous current pair"
-                    )
-                characteristic_sat_homogeneous_current_divergence = (
-                    current_phi_divergence(actual_current)
-                )
-                characteristic_sat_affine_current_divergence = (
-                    characteristic_sat_current_divergence
-                    - characteristic_sat_homogeneous_current_divergence
-                )
-                # The affine characteristic wall-current lift is part of the
-                # selected characteristic SAT closure. The former suppressed
-                # variant was diagnostic-only.
-                support_flux_values["vorticity_current"] = (
-                    characteristic_sat_current_divergence
-                )
-            parallel_material_residual, parallel_material_diagnostics = (
-                parallel_target_row_material_residual(
-                    center,
-                    minus,
-                    plus,
-                    primitive_stencils[0].dx_min,
-                    primitive_stencils[0].dx_plus,
-                    self.parameters.tau,
-                    self.parameters.mi_over_me,
-                    backward_wall=backward_wall,
-                    forward_wall=forward_wall,
-                    backward_wall_state=minus,
-                    forward_wall_state=plus,
-                    div_b=div_b,
-                    selection_dt=short_leg_selection_dt
-                    if self.parallel_short_leg_treatment == "local-backward-euler"
-                    else 0.0,
-                    cfl_limit=self.parallel_short_leg_cfl_limit,
-                    parallel_short_leg_selection=self.parallel_short_leg_selection,
-                    parallel_characteristic_wall_law=(
-                        self.parameters.parallel_characteristic_wall_law
-                    ),
-                )
+                ),
+                axis=-1,
             )
-            if return_electron_force_diagnostics and wall_data is not None:
-                # Exact additive split of the *live explicit* production
-                # residual. Selected physical-wall legs are advanced by the
-                # local implicit solve and therefore contribute zero here;
-                # the middle lane retains the geometric div(b) source and
-                # any algebraic remainder. This uses the already-live
-                # directional actions rather than restoring the retired
-                # full-grid provenance diagnostics.
-                explicit_backward_residual = jnp.where(
-                    wall_data["selected_backward_wall"][..., None],
-                    0.0,
-                    wall_data["backward_residual"],
-                )
-                explicit_forward_residual = jnp.where(
-                    wall_data["selected_forward_wall"][..., None],
-                    0.0,
-                    wall_data["forward_residual"],
-                )
-                explicit_center_geometric_residual = (
-                    parallel_material_residual
-                    - explicit_backward_residual
-                    - explicit_forward_residual
-                )
-                parallel_material_explicit_components = jnp.stack(
-                    (
-                        explicit_backward_residual,
-                        explicit_center_geometric_residual,
-                        explicit_forward_residual,
-                    ),
-                    axis=-2,
-                )
-                # The production path has the same directional residuals and
-                # endpoint states as the wall helper.  Retain them in the
-                # replay diagnostics so the electron-force report does not
-                # silently show zero characteristic terms in production mode.
-                backward_residual = wall_data["backward_residual"]
-                forward_residual = wall_data["forward_residual"]
-                material_upwind_principal = (
-                    backward_residual + forward_residual
-                )
-                material_centered_principal = (
-                    parallel_material_residual - material_upwind_principal
-                )
-                material_upwind_correction_components = jnp.stack(
-                    (
-                        backward_residual,
-                        material_centered_principal,
-                        forward_residual,
-                    ),
-                    axis=-2,
-                )
-                material_characteristic_endpoint_values = jnp.stack(
-                    (
-                        wall_data["backward_endpoint_state"],
-                        wall_data["forward_endpoint_state"],
-                    ),
-                    axis=-2,
-                )
-                material_characteristic_leg_lengths = jnp.stack(
-                    (
-                        primitive_stencils[0].dx_min,
-                        primitive_stencils[0].dx_plus,
-                    ),
-                    axis=-1,
-                )
         result = {
             "parallel_div_b": div_b,
             "density_flux_div": flux_div("density_flux"),
@@ -2455,25 +2159,15 @@ class LocalFciDrbEBRhs:
         boundary bundle, and the time integrator reconstructs it after the
         local solve.
 
-        In the default ``cfl`` mode, a physical wall leg is selected when it exceeds
-        ``parallel_short_leg_cfl_limit`` measured with ``selection_dt``;
-        ``all-physical-walls`` selects every physical wall leg.  All
-        mapped/bulk rows, the geometric ``div(b)`` source, diffusion,
-        collisions, perpendicular physics, polarization, and vorticity remain
-        in the explicit RHS.  The fine-row increment is passed through the
-        same volume-weighted RLP restriction as an ordinary RHS contribution.
-        ``return_increment`` exposes that owner-space increment for an IMEX
-        stage without inferring it from the algebraic ``phi`` field.
+        Every physical wall leg is selected for the local backward-Euler
+        solve.  All mapped/bulk rows, the geometric ``div(b)`` source,
+        diffusion, collisions, perpendicular physics, polarization, and
+        vorticity remain in the explicit RHS.  The fine-row increment is
+        passed through the same volume-weighted RLP restriction as an
+        ordinary RHS contribution.  ``return_increment`` exposes that
+        owner-space increment for an IMEX stage without inferring it from the
+        algebraic ``phi`` field.
         """
-        if self.parallel_short_leg_treatment != "local-backward-euler":
-            raise ValueError(
-                "apply_short_leg_implicit_material_step requires "
-                "parallel_short_leg_treatment='local-backward-euler'"
-            )
-        if self.parallel_material_scheme != "production-path":
-            raise ValueError(
-                "short-leg implicit material step requires the production FCI path"
-            )
         solve_dt = jnp.asarray(solve_dt, dtype=jnp.float64)
         if selection_dt is None:
             selection_dt = solve_dt
@@ -2563,15 +2257,10 @@ class LocalFciDrbEBRhs:
             self.parameters.mi_over_me,
             selection_dt=selection_dt,
             solve_dt=solve_dt,
-            cfl_limit=self.parallel_short_leg_cfl_limit,
-            parallel_short_leg_selection=self.parallel_short_leg_selection,
             backward_wall=backward_wall,
             forward_wall=forward_wall,
             backward_wall_state=minus,
             forward_wall_state=plus,
-            parallel_characteristic_wall_law=(
-                self.parameters.parallel_characteristic_wall_law
-            ),
             coupled_residual=coupled_residual,
         )
 
@@ -2767,19 +2456,6 @@ class LocalFciDrbEBRhs:
         Vi_perp_halo = state_halo.Vi
         Ve_perp_halo = state_halo.Ve
         perpendicular_operator_boundary = operator_boundary
-        # These state halos have already been closed with each field's
-        # physical face BC.  Preserve those ghost values in the cell
-        # gradients.  The one-sided physical builder is for
-        # intermediate fields that do not have a physical ghost closure; using
-        # it here silently discards the supplied Dirichlet/Neumann BCs.
-        build_gradient = build_local_cell_gradient_from_field
-        density_gradient = build_gradient(state_halo.density, self.geometry, context)
-        Te_gradient = build_gradient(state_halo.Te, self.geometry, context)
-        Ti_gradient = build_gradient(state_halo.Ti, self.geometry, context)
-        Vi_gradient = build_gradient(Vi_perp_halo, self.geometry, context)
-        Ve_gradient = build_gradient(Ve_perp_halo, self.geometry, context)
-        vorticity_gradient = build_gradient(state_halo.vorticity, self.geometry, context)
-        phi_gradient = build_gradient(state_halo.phi, self.geometry, context)
 
         Ve_conservative_stencil = build_local_conservative_stencil_from_field(
             Ve_perp_halo,
@@ -2904,8 +2580,6 @@ class LocalFciDrbEBRhs:
         Ve_parallel_diff = fci_parallel_terms["Ve_parallel_diff"]
         vorticity_parallel_diff = fci_parallel_terms["vorticity_parallel_diff"]
         poisson_density = self._poisson_bracket_over_B(
-            phi_gradient,
-            density_gradient,
             phi_conservative_stencil,
             density_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
@@ -2914,8 +2588,6 @@ class LocalFciDrbEBRhs:
             g_positivity_floor=1.0e-12,
         )
         poisson_Te = self._poisson_bracket_over_B(
-            phi_gradient,
-            Te_gradient,
             phi_conservative_stencil,
             Te_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
@@ -2924,8 +2596,6 @@ class LocalFciDrbEBRhs:
             g_positivity_floor=1.0e-12,
         )
         poisson_Ti = self._poisson_bracket_over_B(
-            phi_gradient,
-            Ti_gradient,
             phi_conservative_stencil,
             Ti_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
@@ -2934,8 +2604,6 @@ class LocalFciDrbEBRhs:
             g_positivity_floor=1.0e-12,
         )
         poisson_Vi = self._poisson_bracket_over_B(
-            phi_gradient,
-            Vi_gradient,
             phi_conservative_stencil,
             Vi_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
@@ -2943,8 +2611,6 @@ class LocalFciDrbEBRhs:
             g_field_halo=Vi_perp_halo,
         )
         poisson_Ve = self._poisson_bracket_over_B(
-            phi_gradient,
-            Ve_gradient,
             phi_conservative_stencil,
             Ve_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
@@ -2952,8 +2618,6 @@ class LocalFciDrbEBRhs:
             g_field_halo=Ve_perp_halo,
         )
         poisson_vorticity = self._poisson_bracket_over_B(
-            phi_gradient,
-            vorticity_gradient,
             phi_conservative_stencil,
             vorticity_conservative_stencil,
             f_boundary_trace=operator_boundary.phi,
@@ -2963,13 +2627,9 @@ class LocalFciDrbEBRhs:
         )
 
         stage_parallel_terms = fci_parallel_terms
-        parallel_density_flux_divergence = stage_parallel_terms["density_flux_div"]
-        parallel_current_flux_divergence = stage_parallel_terms["current_flux_div"]
         vorticity_current_flux_divergence = stage_parallel_terms[
             "vorticity_current_flux_div"
         ]
-        parallel_Ve_flux_divergence = stage_parallel_terms["Ve_flux_div"]
-        parallel_Vi_flux_divergence = stage_parallel_terms["parallel_Vi_flux_div"]
         grad_parallel_Te = stage_parallel_terms["grad_Te"]
         grad_parallel_Ti = stage_parallel_terms["grad_Ti"]
         grad_parallel_Ve = stage_parallel_terms["grad_Ve"]
@@ -2987,31 +2647,14 @@ class LocalFciDrbEBRhs:
             "parallel_material_residual",
             jnp.zeros(self.geometry.owned_shape + (5,), dtype=jnp.float64),
         )
-        production_parallel = self.parallel_material_scheme == "production-path"
-        if production_parallel:
-            # The coupled production residual already contains all five
-            # material equations, including the geometric div(b) terms.  The
-            # legacy correction is deliberately disabled in this mode so the
-            # same interface action cannot be counted twice.
-            material_upwind_correction = jnp.zeros_like(
-                production_material_residual
-            )
-        n_face_safe = density_safe
-        Vi_parallel_value, Ve_parallel_value = Vi, Ve
+        # The coupled production residual already contains all five material
+        # equations, including the geometric div(b) terms.
+        material_upwind_correction = jnp.zeros_like(production_material_residual)
         current_parallel_value = density * (Vi - Ve)
-        Te_parallel_advection = -Ve * grad_parallel_Te
-        Ti_parallel_advection = -Vi * grad_parallel_Ti
         vorticity_parallel_advection = -Vi * grad_parallel_vorticity
-        Vi_self_advection_term = -Vi_parallel_value * grad_parallel_Vi
-        Vi_pressure_term = -grad_parallel_pressure / n_face_safe
-        Ve_self_advection_term = -Ve_parallel_value * grad_parallel_Ve
         Ve_collision_term = mi_over_me * Ve_nu * current_parallel_value
         Ve_phi_force_term = mi_over_me * grad_parallel_phi
-        Ve_Ti_force_complete_term = (
-            mi_over_me * tau * grad_parallel_Ti
-            if production_parallel
-            else jnp.zeros_like(grad_parallel_phi)
-        )
+        Ve_Ti_force_complete_term = mi_over_me * tau * grad_parallel_Ti
         material_diagnostics = stage_parallel_terms.get(
             "parallel_material_diagnostics", {}
         )
@@ -3023,20 +2666,13 @@ class LocalFciDrbEBRhs:
         # balance.  Hand both to the same short-leg stage.  The phi force is
         # not masked: it stays explicit with its weighted-adjoint
         # current-divergence partner in the vorticity equation.
-        Ve_Ti_force_term = (
-            jnp.where(selected_short_wall, 0.0, Ve_Ti_force_complete_term)
-            if (
-                production_parallel
-                and self.parallel_short_leg_treatment == "local-backward-euler"
-            )
-            else Ve_Ti_force_complete_term
+        Ve_Ti_force_term = jnp.where(
+            selected_short_wall, 0.0, Ve_Ti_force_complete_term
         )
         Ve_electrostatic_term = Ve_phi_force_term + Ve_Ti_force_term
         vorticity_current_term = (
             (bmag * bmag / density_safe) * vorticity_current_flux_divergence
         )
-        Ve_pressure_term = -mi_over_me * grad_parallel_Pe / n_face_safe
-        Ve_thermal_force_term = -0.71 * mi_over_me * grad_parallel_Te
         curvature_outputs = self._curvature_rhs_contributions(
             state_halo=state_halo,
             context=context,
@@ -3075,11 +2711,7 @@ class LocalFciDrbEBRhs:
 
         density_rhs = (
             -(poisson_density / rho_star)
-            + (
-                production_material_residual[..., 0]
-                if production_parallel
-                else -parallel_density_flux_divergence
-            )
+            + production_material_residual[..., 0]
             + curvature_density_contribution
             + density_diff
             + density_parallel_diff
@@ -3087,36 +2719,16 @@ class LocalFciDrbEBRhs:
         )
         Te_rhs = (
             -(poisson_Te / rho_star)
-            + (
-                production_material_residual[..., 1]
-                if production_parallel
-                else Te_parallel_advection
-            )
+            + production_material_residual[..., 1]
             + curvature_Te_contribution
-            + (
-                0.0
-                if production_parallel
-                else (2.0 * Te / (3.0 * density_safe))
-                * (0.71 * parallel_current_flux_divergence - density * parallel_Ve_flux_divergence)
-            )
             + Te_diff
             + Te_parallel_diff
             + material_upwind_correction[..., 1]
         )
         Ti_rhs = (
             -(poisson_Ti / rho_star)
-            + (
-                production_material_residual[..., 2]
-                if production_parallel
-                else Ti_parallel_advection
-            )
+            + production_material_residual[..., 2]
             + curvature_Ti_contribution
-            + (
-                0.0
-                if production_parallel
-                else (2.0 * Ti / (3.0 * density_safe))
-                * (parallel_current_flux_divergence - density * parallel_Vi_flux_divergence)
-            )
             + Ti_diff
             + Ti_parallel_diff
             + material_upwind_correction[..., 2]
@@ -3132,28 +2744,16 @@ class LocalFciDrbEBRhs:
         Ve_diff_term = Ve_diff
         Vi_rhs = (
             Vi_perpendicular_rhs
-            + (
-                production_material_residual[..., 3]
-                if production_parallel
-                else Vi_self_advection_term + Vi_pressure_term
-            )
+            + production_material_residual[..., 3]
             + Vi_parallel_diff
             + material_upwind_correction[..., 3]
         )
-        Ve_characteristic_upwind_term = material_upwind_correction[..., 4]
         Ve_rhs = (
             Ve_perpendicular_rhs
-            + (
-                production_material_residual[..., 4]
-                if production_parallel
-                else Ve_self_advection_term
-            )
+            + production_material_residual[..., 4]
             + Ve_collision_term
             + Ve_electrostatic_term
-            + (0.0 if production_parallel else Ve_pressure_term)
-            + (0.0 if production_parallel else Ve_thermal_force_term)
             + Ve_parallel_diff
-            + (0.0 if production_parallel else Ve_characteristic_upwind_term)
         )
         vorticity_rhs = (
             -(poisson_vorticity / rho_star)
@@ -3165,36 +2765,11 @@ class LocalFciDrbEBRhs:
         )
 
         zero_term = jnp.zeros_like(density)
-        density_parallel_material_term = (
-            production_material_residual[..., 0]
-            if production_parallel else -parallel_density_flux_divergence
-        )
-        Te_parallel_material_term = (
-            production_material_residual[..., 1]
-            if production_parallel else (
-                Te_parallel_advection
-                + (2.0 * Te / (3.0 * density_safe))
-                * (0.71 * parallel_current_flux_divergence
-                   - density * parallel_Ve_flux_divergence)
-            )
-        )
-        Ti_parallel_material_term = (
-            production_material_residual[..., 2]
-            if production_parallel else (
-                Ti_parallel_advection
-                + (2.0 * Ti / (3.0 * density_safe))
-                * (parallel_current_flux_divergence
-                   - density * parallel_Vi_flux_divergence)
-            )
-        )
-        Vi_parallel_material_term = (
-            production_material_residual[..., 3]
-            if production_parallel else Vi_self_advection_term + Vi_pressure_term
-        )
-        Ve_parallel_material_term = (
-            production_material_residual[..., 4]
-            if production_parallel else Ve_self_advection_term
-        )
+        density_parallel_material_term = production_material_residual[..., 0]
+        Te_parallel_material_term = production_material_residual[..., 1]
+        Ti_parallel_material_term = production_material_residual[..., 2]
+        Vi_parallel_material_term = production_material_residual[..., 3]
+        Ve_parallel_material_term = production_material_residual[..., 4]
 
         def pack_rhs_terms(
             fine_terms: tuple[jnp.ndarray, ...],
@@ -3231,13 +2806,9 @@ class LocalFciDrbEBRhs:
             Te_terms = pack_rhs_terms(
                 (
                     -(poisson_Te / rho_star),
-                    Te_parallel_material_term if production_parallel else Te_parallel_advection,
+                    Te_parallel_material_term,
                     curvature_Te_contribution,
-                    zero_term if production_parallel else (
-                        (2.0 * Te / (3.0 * density_safe))
-                        * (0.71 * parallel_current_flux_divergence
-                           - density * parallel_Ve_flux_divergence)
-                    ),
+                    zero_term,
                     Te_diff,
                     Te_parallel_diff,
                     material_upwind_correction[..., 1],
@@ -3247,13 +2818,9 @@ class LocalFciDrbEBRhs:
             Ti_terms = pack_rhs_terms(
                 (
                     -(poisson_Ti / rho_star),
-                    Ti_parallel_material_term if production_parallel else Ti_parallel_advection,
+                    Ti_parallel_material_term,
                     curvature_Ti_contribution,
-                    zero_term if production_parallel else (
-                        (2.0 * Ti / (3.0 * density_safe))
-                        * (parallel_current_flux_divergence
-                           - density * parallel_Vi_flux_divergence)
-                    ),
+                    zero_term,
                     Ti_diff,
                     Ti_parallel_diff,
                     material_upwind_correction[..., 2],
@@ -3263,8 +2830,8 @@ class LocalFciDrbEBRhs:
             Vi_terms = pack_rhs_terms(
                 (
                     Vi_poisson_term,
-                    Vi_parallel_material_term if production_parallel else Vi_self_advection_term,
-                    zero_term if production_parallel else Vi_pressure_term,
+                    Vi_parallel_material_term,
+                    zero_term,
                     Vi_diff_term,
                     Vi_parallel_diff,
                     material_upwind_correction[..., 3],
@@ -3274,14 +2841,14 @@ class LocalFciDrbEBRhs:
             Ve_terms = pack_rhs_terms(
                 (
                     Ve_poisson_term,
-                    Ve_parallel_material_term if production_parallel else Ve_self_advection_term,
+                    Ve_parallel_material_term,
                     Ve_collision_term,
                     Ve_electrostatic_term,
-                    zero_term if production_parallel else Ve_pressure_term,
-                    zero_term if production_parallel else Ve_thermal_force_term,
+                    zero_term,
+                    zero_term,
                     Ve_diff_term,
                     Ve_parallel_diff,
-                    zero_term if production_parallel else Ve_characteristic_upwind_term,
+                    zero_term,
                 ),
                 source_owned.Ve,
             )
@@ -3359,27 +2926,14 @@ class LocalFciDrbEBRhs:
             Ve_terms = jnp.stack(
                 (
                     Ve_poisson_term,
-                    (
-                        production_material_residual[..., 4]
-                        if production_parallel else Ve_self_advection_term
-                    ),
+                    production_material_residual[..., 4],
                     Ve_collision_term,
                     Ve_electrostatic_term,
-                    (
-                        jnp.zeros_like(Ve)
-                        if production_parallel else Ve_pressure_term
-                    ),
-                    (
-                        jnp.zeros_like(Ve)
-                        if production_parallel else Ve_thermal_force_term
-                    ),
+                    jnp.zeros_like(Ve),
+                    jnp.zeros_like(Ve),
                     Ve_diff_term,
                     Ve_parallel_diff,
-                    (
-                        jnp.zeros_like(Ve)
-                        if production_parallel
-                        else Ve_characteristic_upwind_term
-                    ),
+                    jnp.zeros_like(Ve),
                 ),
                 axis=0,
             )

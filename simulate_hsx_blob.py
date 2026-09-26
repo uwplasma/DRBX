@@ -899,8 +899,6 @@ def build_local_eb_model(
     gmres_max_iterations: int,
     gmres_restart: int = 100,
     gmres_residual_correction_steps: int = 0,
-    poisson_bracket_scheme: str = "direct",
-    parallel_material_scheme: str | None = None,
     control_volume_geometry=None,
     control_volume_boundary_bc=None,
     curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
@@ -909,22 +907,6 @@ def build_local_eb_model(
         raise ValueError("gmres_restart must be positive")
     if gmres_residual_correction_steps < 0:
         raise ValueError("gmres_residual_correction_steps must be non-negative")
-    if poisson_bracket_scheme not in (
-        "direct",
-        "compatible-flux",
-        "compatible-third-order-upwind",
-        "material-scalar-third-order-upwind",
-    ):
-        raise ValueError(
-            "poisson_bracket_scheme must be 'direct', 'compatible-flux', or "
-            "'compatible-third-order-upwind', or "
-            "'material-scalar-third-order-upwind', "
-            f"got {poisson_bracket_scheme!r}"
-        )
-    if parallel_material_scheme is None:
-        parallel_material_scheme = os.environ.get(
-            "DRBX_PARALLEL_MATERIAL_SCHEME", "legacy"
-        )
     halo_exchange = HaloExchange3D()
     topology_filler = (
         make_default_topology_halo_filler_3d(
@@ -1023,11 +1005,9 @@ def build_local_eb_model(
             preconditioner="line-u",
             residual_correction_steps=int(gmres_residual_correction_steps),
         ),
-        parallel_material_scheme=str(parallel_material_scheme),
         face_bc_builder=build_face_bc_bundle,
         axis_regular_axes=domain.axis_regular_axes,
         curvature_face_coefficients=curvature_face_coefficients,
-        poisson_bracket_scheme=poisson_bracket_scheme,
         control_volume_geometry=control_volume_geometry,
         control_volume_boundary_bc=control_volume_boundary_bc,
     )
@@ -1473,8 +1453,6 @@ def run_full_eb(
     run_metadata: dict[str, object] | None = None,
     reconstruct_initial_phi: bool = True,
     parallel_operator_scheme: str = "fci",
-    poisson_bracket_scheme: str = "direct",
-    parallel_material_scheme: str | None = None,
     control_volume_descriptor=None,
     control_volume_fields_host=None,
     control_volume_boundary_bc=None,
@@ -1529,14 +1507,6 @@ def run_full_eb(
     history_numpy_dtype = (
         np.float32 if history_dtype == "float32" else np.float64
     )
-    short_leg_treatment = os.environ.get(
-        "DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"
-    )
-    if short_leg_treatment != "local-backward-euler":
-        raise ValueError(
-            "time_integrator='imex-ssp222' currently requires "
-            "parallel_short_leg_treatment='local-backward-euler'"
-        )
     if gmres_restart < 1:
         raise ValueError("gmres_restart must be positive")
     if int(checkpoint_every) < 0:
@@ -1813,8 +1783,6 @@ def run_full_eb(
             gmres_residual_correction_steps=int(
                 gmres_residual_correction_steps
             ),
-            parallel_material_scheme=parallel_material_scheme,
-            poisson_bracket_scheme=poisson_bracket_scheme,
             control_volume_geometry=local_control_volume_geometry,
             control_volume_boundary_bc=control_volume_boundary_bc,
             curvature_face_coefficients_override=(
@@ -2134,14 +2102,7 @@ def run_full_eb(
                 stage_state,
                 source_owned=source_owned,
                 phi_owned=phi,
-                short_leg_selection_dt=(
-                    dt
-                    if os.environ.get(
-                        "DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"
-                    )
-                    == "local-backward-euler"
-                    else None
-                ),
+                short_leg_selection_dt=dt,
             )
         rhs = model.project_galerkin_state(rhs)
         mark_operator(rhs)
@@ -3572,165 +3533,24 @@ def run_full_eb(
     return materialized_state(state)
 
 
-def _validate_flux_framework(args: argparse.Namespace) -> None:
-    """Validate native production/diagnostic selectors before compilation.
+def _parallel_characteristic_wall_metadata() -> dict[str, object]:
+    """Describe the fixed production physical-boundary-state wall law."""
 
-    The driver always runs the production-split flux framework with the FCI
-    parallel operator and the IMEX-SSP222 time integrator, so only the
-    checks that still guard a retained, user-selectable option remain.
-    """
-
-    if args.parallel_short_leg_selection == "all-physical-walls":
-        if args.parallel_short_leg_treatment != "local-backward-euler":
-            raise ValueError(
-                "all-physical-walls short-leg selection requires "
-                "--parallel-short-leg-treatment local-backward-euler"
-            )
-        if args.parallel_flux_pairing != "support-core":
-            raise ValueError("all-physical-walls requires support-core pairing")
-        if args.parallel_boundary_pairing != "characteristic-sat":
-            raise ValueError("all-physical-walls requires characteristic-sat pairing")
-    if args.parallel_characteristic_wall_law == "energy-absorbing":
-        if args.parallel_boundary_pairing != "characteristic-sat":
-            raise ValueError(
-                "energy-absorbing parallel characteristic wall law requires "
-                "characteristic-sat boundary pairing"
-            )
-    if args.parallel_characteristic_wall_law == "physical-boundary-state":
-        if args.parallel_boundary_pairing != "characteristic-sat":
-            raise ValueError(
-                "physical-boundary-state parallel characteristic wall law "
-                "requires characteristic-sat boundary pairing"
-            )
-    if not np.isfinite(args.parallel_short_leg_cfl_limit) or (
-        args.parallel_short_leg_cfl_limit <= 0.0
-    ):
-        raise ValueError("--parallel-short-leg-cfl-limit must be finite and positive")
-    if args.parallel_short_leg_treatment != "local-backward-euler":
-        raise ValueError(
-            "the HSX backend's IMEX-SSP222 integrator currently requires "
-            "--parallel-short-leg-treatment local-backward-euler"
-        )
-    if args.parallel_flux_pairing != "support-core":
-        raise ValueError("production-split requires support-core current pairing")
-    if args.parallel_boundary_pairing == "legacy":
-        raise ValueError(
-            "production-split trajectories require current-phi or characteristic-sat "
-            "boundary pairing"
-        )
-    if args.poisson_bracket_scheme not in (
-        "compatible-flux",
-        "compatible-third-order-upwind",
-        "material-scalar-third-order-upwind",
-    ):
-        raise ValueError("production-split requires compatible Poisson brackets")
-
-
-def _configure_runtime_selectors(args: argparse.Namespace) -> None:
-    """Export native CLI selectors consumed by LocalFciDrbEBRhs factories."""
-
-    os.environ["DRBX_FLUX_FRAMEWORK"] = "production-split"
-    os.environ["DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"] = str(args.parallel_characteristic_wall_law)
-    os.environ["DRBX_PARALLEL_FLUX_PAIRING"] = str(args.parallel_flux_pairing)
-    os.environ["DRBX_PARALLEL_BOUNDARY_PAIRING"] = (
-        str(args.parallel_boundary_pairing)
-        if args.parallel_flux_pairing == "support-core"
-        else "legacy"
-    )
-    os.environ["DRBX_PARALLEL_SHORT_LEG_TREATMENT"] = str(
-        args.parallel_short_leg_treatment
-    )
-    os.environ["DRBX_PARALLEL_SHORT_LEG_SELECTION"] = str(
-        args.parallel_short_leg_selection
-    )
-    os.environ["DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT"] = str(
-        args.parallel_short_leg_cfl_limit
-    )
-    for name in (
-        "DRBX_CHARACTERISTIC_SAT_AFFINE_CURRENT_LIFT",
-        "DRBX_PARALLEL_CURRENT_PHI_PAIR",
-        "DRBX_CURVATURE_EVOLUTION_COMPONENT",
-        "DRBX_CURVATURE_RADIAL_ABLATION",
-        "DRBX_CURVATURE_CHARACTERISTIC_AXES",
-        "DRBX_CURVATURE_RADIAL_CHARACTERISTIC_SCHEME",
-        "DRBX_CURVATURE_POLOIDAL_CHARACTERISTIC_SCHEME",
-        "DRBX_CURVATURE_COMPONENT_DIAGNOSTIC_SCHEME",
-    ):
-        os.environ.pop(name, None)
-    os.environ["DRBX_PARALLEL_MATERIAL_SCHEME"] = "production-path"
-    os.environ["DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"] = (
-        _parallel_characteristic_wall_metadata(
-            str(args.parallel_characteristic_wall_law)
-        )["parallel_material_wall_flux_closure"]
-    )
-    os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY", None)
-    os.environ.pop("DRBX_POLOIDAL_CHARACTERISTIC_PENALTY_SOURCE", None)
-    for name in (
-        "DRBX_RHS_TERM_HISTORY",
-        "DRBX_RHS_TERM_FRAMES",
-        "DRBX_RHS_TERM_OUTPUT",
-    ):
-        os.environ.pop(name, None)
-
-
-def _parallel_characteristic_wall_metadata(wall_law: str) -> dict[str, object]:
-    """Describe the selected wall law without inheriting stale environment state."""
-
-    if wall_law == "primitive-least-residual":
-        return {
-            "parallel_material_wall_flux_closure": (
-                "characteristic-projected-operator-trace-canonical-face-state"
-            ),
-            "parallel_material_wall_flux_closure_source": (
-                "DRBX_PARALLEL_MATERIAL_WALL_FLUX_CLOSURE"
-            ),
-            "parallel_characteristic_wall_equilibrium_reference": None,
-            "parallel_characteristic_wall_equilibrium_reference_source": None,
-            "parallel_characteristic_wall_provenance": "primitive-least-residual",
-            "parallel_characteristic_wall_energy_normalizer": None,
-            "parallel_characteristic_wall_energy_normalizer_source": None,
-        }
-    if wall_law == "energy-absorbing":
-        return {
-            "parallel_material_wall_flux_closure": (
-                "maximally-dissipative-energy-absorbing-normalized-equilibrium"
-            ),
-            "parallel_material_wall_flux_closure_source": (
-                "simulate_hsx_blob.py:--parallel-characteristic-wall-law"
-            ),
-            "parallel_characteristic_wall_equilibrium_reference": [
-                1.0, 1.0, 1.0, 0.0, 0.0
-            ],
-            "parallel_characteristic_wall_equilibrium_reference_source": (
-                "normalized-equilibrium-contract"
-            ),
-            "parallel_characteristic_wall_provenance": (
-                "experimental-normalized-equilibrium-absorber"
-            ),
-            "parallel_characteristic_wall_energy_normalizer": (
-                "unit-modal-mathematical"
-            ),
-            "parallel_characteristic_wall_energy_normalizer_source": (
-                "characteristic-wall-residual.py:unit-modal-energy"
-            ),
-        }
-    if wall_law == "physical-boundary-state":
-        return {
-            "parallel_material_wall_flux_closure": (
-                "live-characteristic-physical-boundary-state"
-            ),
-            "parallel_material_wall_flux_closure_source": (
-                "simulate_hsx_blob.py:--parallel-characteristic-wall-law"
-            ),
-            "parallel_characteristic_wall_equilibrium_reference": None,
-            "parallel_characteristic_wall_equilibrium_reference_source": None,
-            "parallel_characteristic_wall_provenance": (
-                "physical-face-trace-live-characteristic-split"
-            ),
-            "parallel_characteristic_wall_energy_normalizer": None,
-            "parallel_characteristic_wall_energy_normalizer_source": None,
-        }
-    raise ValueError(f"unknown parallel characteristic wall law: {wall_law!r}")
+    return {
+        "parallel_material_wall_flux_closure": (
+            "live-characteristic-physical-boundary-state"
+        ),
+        "parallel_material_wall_flux_closure_source": (
+            "fixed production configuration"
+        ),
+        "parallel_characteristic_wall_equilibrium_reference": None,
+        "parallel_characteristic_wall_equilibrium_reference_source": None,
+        "parallel_characteristic_wall_provenance": (
+            "physical-face-trace-live-characteristic-split"
+        ),
+        "parallel_characteristic_wall_energy_normalizer": None,
+        "parallel_characteristic_wall_energy_normalizer_source": None,
+    }
 
 
 def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
@@ -3751,73 +3571,6 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--parallel-flux-pairing",
-        choices=("legacy", "support-core"),
-        default="support-core",
-        help=(
-            "Pairing used by mapped parallel gradient/divergence operators. "
-            "The production path requires support-core."
-        ),
-    )
-    parser.add_argument(
-        "--parallel-boundary-pairing",
-        choices=("legacy", "current-phi", "characteristic-sat"),
-        default="current-phi",
-        help=(
-            "Physical-wall closure for support-core FCI fluxes. "
-            "characteristic-sat uses the projected characteristic wall "
-            "state for the affine current flux and the homogeneous paired "
-            "gradient."
-        ),
-    )
-    parser.add_argument(
-        "--parallel-characteristic-wall-law",
-        choices=(
-            "primitive-least-residual",
-            "energy-absorbing",
-            "physical-boundary-state",
-        ),
-        default="primitive-least-residual",
-        help=(
-            "Characteristic parallel material wall law. "
-            "'primitive-least-residual' retains the primitive incoming "
-            "trace; 'energy-absorbing' selects the experimental mathematical "
-            "characteristic normalized-equilibrium absorber with unit modal "
-            "weights (reference [1,1,1,0,0]); 'physical-boundary-state' "
-            "passes the complete physical face trace through the live "
-            "characteristic split without a fixed incoming-mode solve."
-        ),
-    )
-    parser.add_argument(
-        "--parallel-short-leg-treatment",
-        choices=("explicit", "local-backward-euler"),
-        default="local-backward-euler",
-        help=(
-            "Treatment of selected short FCI wall legs. local-backward-euler "
-            "hands the complete characteristic material plus "
-            "mu*tau*grad_parallel(Ti) row residual to every imex-ssp222 "
-            "stage; the weighted-adjoint current/phi pair stays explicit."
-        ),
-    )
-    parser.add_argument(
-        "--parallel-short-leg-selection",
-        choices=("cfl", "all-physical-walls"),
-        default="cfl",
-        help=(
-            "Select material wall legs for the local backward-Euler split. "
-            "'cfl' preserves threshold selection; 'all-physical-walls' "
-            "uses no CFL threshold and splits all physical wall material "
-            "legs to local backward Euler. The vorticity current-divergence "
-            "part of the characteristic-SAT pair remains explicit."
-        ),
-    )
-    parser.add_argument(
-        "--parallel-short-leg-cfl-limit",
-        type=float,
-        default=2.5,
-        help="CFL threshold selecting short wall legs for the local implicit split.",
-    )
-    parser.add_argument(
         "--shard-counts",
         "--shards",
         nargs=3,
@@ -3832,28 +3585,6 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--halo-width", type=int, default=2)
-    parser.add_argument(
-        "--poisson-bracket-scheme",
-        choices=(
-            "direct",
-            "compatible-flux",
-            "compatible-third-order-upwind",
-            "material-scalar-third-order-upwind",
-        ),
-        default="compatible-flux",
-        help=(
-            "Poisson-bracket discretization. 'compatible-flux' is the "
-            "production antisymmetrized shared-face flux form and includes "
-            "the RHS 1/B factor. 'compatible-third-order-upwind' evaluates "
-            "one compatible characteristic bracket for every equation: it "
-            "keeps the compatible skew core and replaces the physical "
-            "A_phi(q) channel by the complete third-order upwind action, with "
-            "first-order wall/RLP fallbacks and retained D(Uq)-qD(U)."
-            " 'material-scalar-third-order-upwind' uses pure third-order "
-            "A_phi(q) transport for material fields and the centered "
-            "compatible bracket for vorticity."
-        ),
-    )
     parser.add_argument(
         "--filament-cache-dir",
         type=Path,
@@ -4107,20 +3838,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"trace_substeps={geometry_metadata.get('trace_substeps')}",
         flush=True,
     )
-    try:
-        _validate_flux_framework(args)
-    except ValueError as error:
-        parser.error(str(error))
-    _configure_runtime_selectors(args)
     print(
         "[simulation] flux_framework=production-split; "
         "parallel_velocities=cell-centered; "
-        f"parallel_flux_pairing={args.parallel_flux_pairing}; "
-        f"parallel_characteristic_wall_law={args.parallel_characteristic_wall_law}; "
-        "parallel_boundary_pairing="
-        f"{os.environ['DRBX_PARALLEL_BOUNDARY_PAIRING']}; "
-        f"parallel_short_leg_treatment={args.parallel_short_leg_treatment}; "
-        f"parallel_short_leg_selection={args.parallel_short_leg_selection}",
+        "parallel_flux_pairing=support-core; "
+        "parallel_characteristic_wall_law=physical-boundary-state; "
+        "parallel_boundary_pairing=characteristic-sat; "
+        "parallel_short_leg_treatment=local-backward-euler; "
+        "parallel_short_leg_selection=all-physical-walls",
         flush=True,
     )
     if resolution[1] % 2:
@@ -4132,12 +3857,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error(
             "production sharding is eta-only; use --shard-counts 1 1 NETA_SHARDS"
         )
-    if args.poisson_bracket_scheme not in (
-        "compatible-flux",
-        "compatible-third-order-upwind",
-        "material-scalar-third-order-upwind",
-    ):
-        parser.error("toroidal RLP requires a compatible Poisson-bracket scheme")
     for axis, (cell_count, shard_count) in enumerate(
         zip(resolution, shard_counts)
     ):
@@ -4426,7 +4145,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     print(
         "[simulation] Poisson bracket scheme: "
-        f"{str(args.poisson_bracket_scheme)}",
+        "material-scalar-third-order-upwind (fixed production configuration)",
         flush=True,
     )
     print(
@@ -4440,15 +4159,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     print(
         "[simulation] parallel characteristic wall law: "
-        f"{str(args.parallel_characteristic_wall_law)} "
-        "(source=simulate_hsx_blob.py:--parallel-characteristic-wall-law)",
+        "physical-boundary-state (fixed production configuration)",
         flush=True,
     )
     print(
         "[simulation] parallel short-leg selection: "
-        f"{str(args.parallel_short_leg_selection)} "
-        "(all-physical-walls uses no CFL threshold; selected material and "
-        "electron Ti-force are one IMEX stage residual)",
+        "all-physical-walls (fixed production configuration; selected "
+        "material and electron Ti-force are one IMEX stage residual)",
         flush=True,
     )
     print(
@@ -4516,40 +4233,30 @@ def main(argv: Sequence[str] | None = None) -> None:
             **{key: geometry_metadata.get(key) for key in GEOMETRY_PRODUCER_METADATA_KEYS},
             "fci_trace_substeps": geometry_metadata.get("trace_substeps"),
             "parallel_operator_scheme": "fci",
-            "parallel_flux_pairing": os.environ.get("DRBX_PARALLEL_FLUX_PAIRING", "legacy"),
-            "parallel_characteristic_wall_law": str(args.parallel_characteristic_wall_law),
-            "parallel_characteristic_wall_law_env": os.environ.get("DRBX_PARALLEL_CHARACTERISTIC_WALL_LAW"),
-            "parallel_characteristic_wall_law_source": "simulate_hsx_blob.py:--parallel-characteristic-wall-law",
-            "parallel_boundary_pairing": os.environ.get("DRBX_PARALLEL_BOUNDARY_PAIRING", "legacy"),
-            "parallel_boundary_pairing_source": "simulate_hsx_blob.py:--parallel-boundary-pairing",
-            "parallel_short_leg_treatment": os.environ.get("DRBX_PARALLEL_SHORT_LEG_TREATMENT", "explicit"),
-            "parallel_short_leg_treatment_source": "simulate_hsx_blob.py:--parallel-short-leg-treatment",
-            "parallel_short_leg_selection": str(args.parallel_short_leg_selection),
-            "parallel_short_leg_selection_source": "simulate_hsx_blob.py:--parallel-short-leg-selection",
-            "parallel_short_leg_cfl_limit": float(os.environ.get("DRBX_PARALLEL_SHORT_LEG_CFL_LIMIT", "2.5")),
-            "parallel_short_leg_cfl_limit_source": "simulate_hsx_blob.py:--parallel-short-leg-cfl-limit",
-            "parallel_short_leg_implicit_terms": (
-                [
-                    "selected-characteristic-material-action",
-                    "selected-mu-tau-grad-parallel-Ti",
-                ]
-                if args.parallel_short_leg_treatment == "local-backward-euler"
-                else []
-            ),
+            "parallel_flux_pairing": "support-core",
+            "parallel_flux_pairing_source": "fixed production configuration",
+            "parallel_characteristic_wall_law": "physical-boundary-state",
+            "parallel_characteristic_wall_law_source": "fixed production configuration",
+            "parallel_boundary_pairing": "characteristic-sat",
+            "parallel_boundary_pairing_source": "fixed production configuration",
+            "parallel_short_leg_treatment": "local-backward-euler",
+            "parallel_short_leg_treatment_source": "fixed production configuration",
+            "parallel_short_leg_selection": "all-physical-walls",
+            "parallel_short_leg_selection_source": "fixed production configuration",
+            "parallel_short_leg_implicit_terms": [
+                "selected-characteristic-material-action",
+                "selected-mu-tau-grad-parallel-Ti",
+            ],
             "parallel_short_leg_explicit_energy_pair": (
                 "mu-grad-parallel-phi<->weighted-adjoint-current-divergence"
             ),
-            "parallel_short_leg_time_handoff": (
-                "imex-ssp222-stage-wise"
-                if args.parallel_short_leg_treatment == "local-backward-euler"
-                else "none"
-            ),
+            "parallel_short_leg_time_handoff": "imex-ssp222-stage-wise",
             "curvature_wall_flux_closure": (
                 "bc-characteristic-operator-trace-canonical-face-state"
             ),
             "curvature_wall_flux_closure_source": "fixed production method",
             "curvature_wall_characteristic_jump": "direct-boundary-minus-interior",
-            **_parallel_characteristic_wall_metadata(str(args.parallel_characteristic_wall_law)),
+            **_parallel_characteristic_wall_metadata(),
             "field_locations": {"Vi": "cell-center", "Ve": "cell-center"},
             "perpendicular_velocity_geometry": "face-to-center-perpendicular-center-to-face",
             "tau": float(args.tau),
@@ -4573,19 +4280,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                 else ("monolithic-advance",)
             ),
             "flux_framework": "production-split",
-            "flux_framework_env": os.environ.get("DRBX_FLUX_FRAMEWORK", "production-split"),
             "flux_framework_source": "fixed production configuration",
             "production_characteristic_solver": "canonical-face-state",
             "production_characteristic_solver_source": "fixed production method",
             "curvature_operator": "production-characteristic-owner-face",
             "curvature_operator_source": "fixed production method",
-            "parallel_material_scheme": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME"),
-            "parallel_material_scheme_env": os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME"),
-            "parallel_material_scheme_source": (
-                "DRBX_PARALLEL_MATERIAL_SCHEME"
-                if os.environ.get("DRBX_PARALLEL_MATERIAL_SCHEME") is not None
-                else None
-            ),
+            "parallel_material_scheme": "production-path",
+            "parallel_material_scheme_source": "fixed production configuration",
             "gmres_target_tolerance": float(
                 args.gmres_target_tolerance
             ),
@@ -4605,7 +4306,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
             "neumann_ghost_scheme": "physical",
             "parallel_velocity_wall_bc": "dirichlet-zero",
-            "poisson_bracket_scheme": str(args.poisson_bracket_scheme),
+            "poisson_bracket_scheme": "material-scalar-third-order-upwind",
+            "poisson_bracket_scheme_source": "fixed production configuration",
             "axis_treatment": "radius-dependent-angular-rlp",
             "angular_owner_profile": "geometry-artifact",
             "angular_group_sizes": [
@@ -4623,8 +4325,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
         },
         reconstruct_initial_phi=not restart_used,
-        poisson_bracket_scheme=str(args.poisson_bracket_scheme),
-        parallel_material_scheme="production-path",
         control_volume_descriptor=control_volume_descriptor,
         control_volume_fields_host=control_volume_fields,
         control_volume_boundary_bc=control_volume_boundary_bc,
