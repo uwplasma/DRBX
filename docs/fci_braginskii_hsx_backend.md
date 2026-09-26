@@ -1,67 +1,130 @@
 # HSX FCI Braginskii backend (drbx.fci_braginskii)
 
-The `drbx.fci_braginskii` package is the FCI drift-reduced Braginskii plasma
-backend from the 2D_fci line at `d340f4d638e0d9495546d1fd2e2c66c1c206704a`,
-vendored into its own namespace (`drbx.fci_braginskii.native`,
-`drbx.fci_braginskii.geometry`) so it is independent of the `drbx.native` FCI
-modules. Its plasma operators and IMEX advance are those of that commit, apart
-from tracer-safe host guards (`drbx.fci_braginskii._host_guards`) and
-dead-code removal, which leave the compiled graph unchanged. Geometry is
-produced separately: `simulate_hsx_blob.py` requires `--geometry` and only
-deserializes the schema-v1 base geometry, center maps, RLP topology and cell
-positions (`drbx.fci_braginskii.geometry.fci_simulation_geometry`). It never
-builds physical geometry and does not activate the artifact's newer overlap,
-vertex reconstruction, endpoint-field extensions, or curvature edge one-form.
-Initial filament label tracing and device lowering still occur.
+`drbx.fci_braginskii` is a compact FCI drift-reduced Braginskii plasma backend
+for HSX. It is the plasma model of the 2D_fci line at
+`d340f4d638e0d9495546d1fd2e2c66c1c206704a`, vendored into its own namespace
+(`drbx.fci_braginskii.native`, `drbx.fci_braginskii.geometry`) and independent
+of the `drbx.native` FCI modules. The code was reduced to the one production
+configuration below; for that configuration the compiled advance and its fields
+are identical to the base commit. Tracing is about ten times faster because
+host-side validation no longer builds JAX's jaxpr-walking error messages
+(`drbx.fci_braginskii._host_guards`).
 
-The canonical 32-cubed bundle uses 64 trace substeps and a 64-cubed coordinate
-fit sample, unlike the historical 48-cubed/four-substep run. This is a test of
-the old plasma architecture with canonical geometry, not an exact replay.
-The bundle controls resolution, topology and producer geometry metadata.
+The backend consumes a precomputed geometry artifact. It contains no geometry
+production (field-line tracing, metric fitting, RLP construction); those live
+in the 2D_fci geometry pipeline.
+
+## Fixed configuration
+
+- Geometry: toroidal FCI geometry with the radius-dependent angular (RLP)
+  topology, read from a schema-v1 artifact.
+- Time advance: IMEX-SSP222. Material fluxes on all physical wall legs are
+  treated by local backward Euler inside each stage.
+- Parallel transport: FCI parallel operator, production-path characteristic
+  material fluxes with support-core pairing and characteristic-SAT
+  boundaries, physical-boundary-state characteristic wall law.
+- E x B advection: material-scalar third-order upwind bracket (compatible
+  centred bracket for vorticity).
+- Boundaries: no-flow walls (Vi = Ve = 0 face traces), physical-normal Neumann
+  ghosts for density and temperatures, Dirichlet potential and vorticity.
+- Potential solve: SOLVAX FGMRES with the line-u preconditioner.
+
+No sheath, presheath, recycling or neutral model is included.
+
+## Geometry artifact
+
+`--geometry` names a directory with `manifest.json` (schema
+`drbx.fci_simulation_geometry`, version 1). The reader
+(`drbx.fci_braginskii.geometry.fci_simulation_geometry`) loads the base
+geometry, centre maps, RLP topology and cell positions, and ignores the
+artifact's newer overlap, vertex-reconstruction, endpoint-field and curvature
+edge one-form components. Resolution, topology and producer metadata come from
+the artifact.
+
+The canonical 32-cubed bundle uses 64 trace substeps and a 64-cubed
+coordinate-fit sample, unlike the historical 48-cubed, four-substep runs, so it
+tests the old plasma model on canonical geometry rather than replaying a
+historical run.
+
+## Running
 
 From the repository root:
 
 ```bash
 python simulate_hsx_blob.py --geometry /path/to/hsx_fci_32x32x32 \
-  --flux-framework production-split --parallel-operator-scheme fci \
-  --parallel-flux-pairing support-core \
-  --parallel-boundary-pairing characteristic-sat \
-  --parallel-characteristic-wall-law physical-boundary-state \
-  --parallel-velocity-wall-bc dirichlet-zero \
-  --parallel-short-leg-treatment local-backward-euler \
-  --parallel-short-leg-selection all-physical-walls \
-  --parallel-short-leg-cfl-limit 2.5 \
-  --time-integrator imex-ssp222 --advance-execution staged-compiled --no-phase-timing \
-  --shard-counts 1 1 1 --halo-width 2 --neumann-ghost-scheme physical \
-  --poisson-bracket-scheme material-scalar-third-order-upwind \
-  --parallel-diffusion 0.0 --perp-diffusion 1e-5 \
-  --gmres-preconditioner line-u --final-time 0.0075 --num-steps 32 \
+  --final-time 0.0075 --num-steps 32 \
   --save-every 8 --checkpoint-every 8 --diagnostic-every 8 \
   --filament-cache-dir /path/to/run/initialization_cache \
   --output /path/to/run/history.npz
 ```
 
-`staged-compiled` compiles four smaller kernels (implicit stage with potential
-solve, explicit right-hand side, standalone potential, stage diagnostics)
-instead of one fused IMEX step; on the N32 case it was faster both with a cold
-and with a warm compilation cache. `compiled` remains available.
+The driver imports `drbx` from this repository's `src`; `DRBX_SOURCE_ROOT`
+overrides that. Set `DRBX_CACHE_DIR` to a writable, run-local JAX compilation
+cache so repeated runs skip compilation.
 
-The driver imports `drbx` from this repository's `src` by default;
-`DRBX_SOURCE_ROOT` overrides that. Set `DRBX_CACHE_DIR` to a writable,
-run-local compilation cache.
+Remaining options cover time and output cadence, snapshots and restarts, the
+initial filament (`--blob-*`, `--density-amplitude`), physical parameters
+(`--tau`, `--rho-star`, `--mi-over-me`, `--perp-diffusion`,
+`--parallel-diffusion` (default 0), `--electron-collision-frequency`) and GMRES
+tolerances; see `python simulate_hsx_blob.py --help`.
 
-The velocity selector is the historical no-flow wall implementation, not the
-later named physical-wall selector. Density/temperature physical Neumann and
-potential/vorticity Dirichlet conditions retain historical axis/periodic handling.
-This plasma-only smoke does not qualify wall budgets, neutral reactions, coupling,
-MMS accuracy, or long-time stability. No sheath/recycling model is introduced.
+`--advance-execution` selects how each step runs:
 
-Focused checks:
+- `staged-compiled` (default): four reusable kernels (implicit stage with
+  potential solve, explicit right-hand side, standalone potential, stage
+  diagnostics). Fastest on the N32 case with both cold and warm caches.
+- `compiled`: one fused IMEX step.
+- `eager`: no outer `jax.jit`; slow, but Python-level debugging and printing
+  work inside the right-hand side.
+
+Phase timing, which reports the operator and GMRES shares of each step, is on
+by default; `--no-phase-timing` disables it. At N32 the potential solve takes
+almost all of each step (roughly 45 to 50 GMRES iterations per solve, four
+solves per step).
+
+Multi-device runs decompose only the toroidal (eta) direction:
+`--shard-counts 1 1 N`, with N dividing the eta resolution. On CPU, emulate N
+devices with `DRBX_HOST_DEVICE_COUNT=N`.
+
+## Neutral-model integration
+
+`run_full_eb(..., source_evaluator=...)` accepts an explicit source term. The
+callable receives a time `t` and returns an `FciDrbEBState` of host arrays
+with the global grid shape for every field (`density`, `phi`, `Te`, `Ti`,
+`Vi`, `Ve`, `vorticity`). It is evaluated at the two explicit IMEX-SSP222
+stage times of each step (`t` and `t + dt`), and the values are added to the
+explicit right-hand side. The hook is available from Python, not from the
+command line.
+
+The hook supplies a prescribed source `S(x, t)`: it cannot depend on the
+evolving plasma state. Reaction sources that depend on density and
+temperatures (ionization, charge exchange, recombination) have to be
+evaluated inside the compiled stage, for example alongside the other terms in
+`LocalFciDrbEBRhs.evaluate_stage`, or through a new state-aware hook.
+
+## Known limitations
+
+- Multi-device runs differ from single-device runs at the eta shard
+  interfaces. After one N32 step on two shards the largest relative
+  differences are 5e-4 (vorticity) and 3e-4 (potential), confined to the
+  planes adjacent to the two interfaces, and unchanged by a tighter GMRES
+  tolerance. The discrepancy is inherited from the base commit. Treat
+  single-device runs as the reference.
+- The largest relative GMRES residual in the first N32 step is about 8e-4 at
+  the default tolerances, above the 5e-5 acceptance tolerance; the driver logs
+  it as `gmres-relres`.
+- Under the physical-boundary-state wall law, an isolated stiff two-wall row
+  (the historical hotspot) is admissible, but its selected parallel material
+  residual is not sign-restoring on its own.
+- A short successful evolution does not qualify wall budgets, MMS accuracy or
+  long-time stability.
+
+## Tests
 
 ```bash
 DRBX_TEST_GEOMETRY_BUNDLE=/path/to/hsx_fci_32x32x32 python -m pytest -q tests/fci_braginskii
+XLA_FLAGS=--xla_force_host_platform_device_count=4 DRBX_HOST_DEVICE_COUNT=4 \
+  python -m pytest -q tests/fci_braginskii
 ```
 
-Report geometry loading/lowering, compilation, advance and total wall time
-separately. A short successful evolution does not establish a ten-minute full
-physics run; cold and warm-cache runs must be distinguished.
+The second run also covers the multi-device halo exchange.
