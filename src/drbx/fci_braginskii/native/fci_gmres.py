@@ -22,10 +22,6 @@ _pytree_base = jax.tree_util.register_pytree_node_class
 PyTree = TypeVar("PyTree")
 
 
-def _as_bool(value: object) -> bool:
-    return bool(value)
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class SolvaxGmresConfig:
@@ -81,7 +77,7 @@ class SolvaxGmresConfig:
         object.__setattr__(self, "restart", int(self.restart))
         object.__setattr__(self, "acceptance_tol", float(acceptance_tol))
         object.__setattr__(self, "acceptance_atol", float(acceptance_atol))
-        object.__setattr__(self, "project_mean_zero", _as_bool(self.project_mean_zero))
+        object.__setattr__(self, "project_mean_zero", bool(self.project_mean_zero))
         object.__setattr__(
             self,
             "regularization_epsilon",
