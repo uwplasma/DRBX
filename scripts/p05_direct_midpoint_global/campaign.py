@@ -707,7 +707,7 @@ def main(args=None):
     try:
         if args.command=="verify-inputs":
             identity=verify_inputs(args.input_root,args.output)
-            print(json.dumps({"verified":True,"identity":identity,"output":str(args.output)},flush=True))
+            print(json.dumps({"verified":True,"identity":identity,"output":str(args.output)}),flush=True)
             return
         identity=current_identity(args.output)
         manifest=json.loads((args.output/"campaign_manifest.json").read_text())
