@@ -1,5 +1,24 @@
 # Roadmap: second-order perpendicular operators on angular RLP grids
 
+## P07N physical-normal Neumann static qualification accepted — 27 September 2026
+
+**User decision: P07N is qualified** as a global static qualification of the
+physical-normal Neumann diffusion/polarization closure on the canonical
+N32/N48/N64 geometries. The field-derived campaign at `274e93e9`, with its
+[analysis](../../../../work/p07n_field_derived_274e93e9_20260927T054625Z_72cfa1/local_analysis/report.md)
+and [acceptance record](../../../../work/p07n_field_derived_274e93e9_20260927T054625Z_72cfa1/local_analysis/acceptance_decision.md),
+is accepted on the closure error. N−O converges at
+`2.24–3.85/2.25–3.73` on every field, including the held-out field, and the
+wall-normal residual converges at about 4th order. The returned headline flag
+`global_order_pass=false` is preserved. N−R ≈ O−R orders are
+`1.55–1.74/1.72–1.83`, exactly as the predeclared screen predicted; the held-out
+field reaches `1.713/1.719`. That midpoint shortfall is recorded as a geometry-resolution
+limitation of the test problem, not as a closure or reference defect. See the
+[near-wall toroidal geometry resolution](#near-wall-toroidal-geometry-resolution-coil-ripple--27-september-2026)
+section below. The earlier `5930b72c` campaign remains a preserved failure.
+Pure-Neumann polarization inversion, energy, evolution and production
+integration remain separate.
+
 ## P05 direct midpoint static qualification accepted — 26 September 2026
 
 **User decision: P05 is qualified for global static midpoint MMS accuracy**
@@ -76,6 +95,42 @@ The fitted coordinate map has not been independently certified by these tests.
 If no improved input becomes available, retain the uncertainty explicitly;
 simulation refinement alone is not independent geometry certification, but the
 missing input does not block P08/P09 integration and evolution work.
+
+### Near-wall toroidal geometry resolution (coil ripple) — 27 September 2026
+
+**Finding:** the HSX geometry the solver consumes contains toroidal structure
+that the canonical N32/N48/N64 grids do not resolve near the wall. For
+flux-form operators (P07, P07N, and P06's face corrections), this limits
+midpoint-target accuracy of fields with near-wall content. It is a property of
+geometry resolution, separate from the solver's own error. Evidence is in the
+[compatible-field screen report](../../../../work/p07n_compatible_fields_20260927/report.md)
+(addenda 1–3) and its JSON artifacts.
+
+- **Source: modular-coil ripple.** HSX has 48 modular coils (12 per field period), so the field carries toroidal mode n = 48, mixed with the 4-period shaping into sidebands 48 ± 4j. On the unit field's logical radial component b^u, which is 0.2–0.44 of b^η because the grid is not field-aligned, the n ≈ 48 band is among the top modes on every surface. Its energy grows about 6× from u = 0.5 to the wall.
+- **Amplitude** ([ripple_amplitude.json](../../../../work/p07n_compatible_fields_20260927/ripple_amplitude.json)):
+
+  | u | \|B\| ripple pk-pk / mean | Pitch b^u/b^η ripple vs shaping (rms) | η-derivative ratio ripple/shaping: \|B\| / pitch |
+  |---|---|---|---|
+  | 0.5 | 1.4% | 0.03 vs 0.20 | 0.41 / 1.2 |
+  | 0.75 | 3.1% | 0.08 vs 0.24 | 0.65 / 1.9 |
+  | 0.9 | 5.4% | 0.15 vs 0.29 | 0.95 / 2.5 |
+  | 1.0 | 8.2% | 0.22 vs 0.35 | 1.33 / 2.9 |
+
+  The ripple is modest in |B| values, but from about u ≈ 0.9 outward it dominates η-derivatives, which feed divergence terms, ∇|B| drifts, curvature and div b. It is therefore not a negligible perturbation for edge/SOL physics.
+- **Resolution:** the eta Nyquist is n = 16/24/32 at N32/N48/N64, and n·h_η for n = 48 is 9.4/6.3/4.7. An unresolved mode's cell-average-minus-midpoint gap scales as `1 − sinc(n h/2)`, i.e. `1.21/1.00/0.70`, and barely shrinks. It mixes with the resolved O(h²) part and stalls the observed order as refinement proceeds. N, O and R share identical coefficients, so N−O is unaffected and O−R carries it.
+- **Why the Dirichlet fields converge:** the shaping-dominated tensor components (T_uu, T_uθ, T_θθ) have eta-spectrum decay α = 3.1–5.5 even at the wall, which predicts asymptotic second order. Only the b^u-driven part of T_uη is near-flat (α ≈ 0.8–1.4). The accepted Dirichlet fields' u²(1−u²)⁴ envelope keeps them away from the ripple-strong outer band. An envelope sweep with the same angular field shows O−R orders falling monotonically from `1.79/2.07` to `1.30/1.80` as field content moves toward the wall, independent of the boundary-condition type.
+- **Excluded causes:** B interpolation between the 1° MAKEGRID planes contributes ≤1e-3 of the ripple at the value level (≤ about 1% for first derivatives). The P05 higher-derivative interpolation sensitivity above remains a separate note. The references are self-consistent: O, N and R use the same fitted map and B. The reference numerical-step uncertainty is about 1e-8.
+- **Not yet proven:** aliasing cannot separate ripple from high shaping harmonics, because 48 lies on the 4-period lattice. The only fully decisive test is a consistent ripple-filtered B used in both operator and reference.
+
+**Visibility in midpoint MMS depends on the operator form — this is a test property, not an accuracy property.**
+- **Volume (flux-form) operators, P07/P07N and P06's face terms:** the action is a cell average (the divergence theorem), but the midpoint reference samples one point. The cell spans about 1.5/1.0/0.75 ripple wavelengths (7.5° toroidally) at N32/N48/N64, so the average largely smooths the ripple while the midpoint picks up one phase of it, amplified by the reference's coefficient derivatives (n≈48). The midpoint MMS therefore **exposes** the unresolved geometry as O−R error.
+- **Pointwise operators, P05's centered bracket and P06's q1 volume terms:** the operator and the reference evaluate identical coefficient functions at the same midpoints, so both alias the ripple at the same phase and the error cancels exactly. The [P06N exact-input screen](../../../../work/p06n_exact_input_screen_20260927/report.md) confirms this by code identity. Their midpoint MMS **hides** the limitation: N−R measures only the field reconstruction and closure.
+- **Consequence:** P05/P05N/P06/P06N midpoint passes certify their reconstructions and Neumann closures. They do **not** show near-wall physical accuracy at N32–N64. Pointwise sampling aliases unresolved coefficient structure, and that would only show against an independent cell-averaged or better-resolved reference, or in evolved/physics comparisons. Physically both operator forms see the same unresolved geometry: pointwise operators alias it, volume operators partly filter it.
+
+**Consequences and open decisions for P08/P09 (not scheduled by this note):**
+1. Midpoint-accuracy statements for wall-active fields at N32–N64 must cite this limitation. The Dirichlet fine-interval orders (2.06–2.11) are optimistic for near-wall edge structure.
+2. Resolving n = 48 to asymptotic second order needs n·h_η ≲ 1, i.e. N_η of order 300 in the outer region. Eta-only refinement would be sufficient for this effect.
+3. The alternatives are to deliberately filter the ripple, which is a physics modelling assumption to justify separately and must be applied consistently in operator and reference, or to revisit how the perpendicular operators couple in η on a grid that is not field-aligned. Both are design decisions for P08/P09, not repairs to accepted operators.
 
 ## Next P milestone: shared extraction and replay before P08
 
@@ -1763,13 +1818,28 @@ the midpoint target, so a field failing this screen cannot fairly test P07N at
 these grids. P05N/P06N apply the analogous exact-input/midpoint screen for their
 own actions. Every screened candidate, including rejected ones, is reported.
 
-The P06N physical characteristic wall-state requirement is unchanged. A
-field-derived Neumann datum still does not determine that state.
+**Wall-face exterior-state contract for P05N and P06N — user decision, 27 September 2026.**
+At the wall face, the exterior state entering P05's `U − A` jump and P06's characteristic wall
+solve is the **recovered Neumann trace** from the shared rows; for Dirichlet fields it is the
+prescribed trace, as accepted. The wall-face jump and characteristic correction are therefore zero
+by construction, exactly as in the accepted P05 and P06 qualifications. No manufactured wall state
+and no independent constraint is used. This qualifies the operators and their Neumann
+reconstruction, not a physical characteristic wall law. The rung ladder or production wall-trace closure,
+including the curvature drift's wall-normal component and the wall-normal E×B velocity for
+Neumann φ, is a separate later qualification, and both acceptance records must say so. P07N's
+elliptic flux closure has no exterior state. The [design](../../../../work/p_neumann_p05n_p06n_design_20260927/design.md)
+records the shared row families and the exact-input screens.
 
 ### P07N — Explicit Neumann boundary implementation and qualification
 
-**Status:** the frozen static global campaign ran at `5930b72c` and **failed**
-its gate. The result is preserved unchanged, and P07N is not qualified. The
+**Status: passed — user-accepted closure qualification, 27 September 2026.** See the
+[acceptance record](../../../../work/p07n_field_derived_274e93e9_20260927T054625Z_72cfa1/local_analysis/acceptance_decision.md)
+and the summary at the top of this roadmap. The field-derived campaign `274e93e9`
+is accepted on N−O. Its midpoint accuracy for wall-active fields is limited by
+[near-wall toroidal geometry resolution](#near-wall-toroidal-geometry-resolution-coil-ripple--27-september-2026).
+
+**Preserved earlier failure:** the frozen static global campaign ran at `5930b72c` and
+failed its gate; that result is preserved unchanged. The
 [local analysis](../../../../work/p07n_static_global_5930b72c_20260926T2355Z_a91d3c/local_analysis/report.md)
 verifies all 24,495 chunks and reassembles the arrays exactly. It records N−R
 orders of `1.548/1.830` for the smooth nonzero control, `0.677/0.747` for
@@ -1793,7 +1863,8 @@ reopen the accepted Dirichlet static passes.
 - **Frozen catalogue:** `field_b1` (the frozen smooth-control base), `field_e3` and `field_e12`, which give weak and strong theta wall-trace gradients and so exercise `r_theta` non-orthogonality. `heldout_field_b2` (m2/m3 content) is held out, and the constant is included. All wall data are field-derived.
 - **Reporting and acceptance:** N−R global L2 order ≥ 1.8 on both intervals for every nonconstant field stays the headline gate, as traditional MMS reporting. The constant and wall-trend checks stay as well. The acceptance decision is the user's, made after the results by examining N−O (reconstruction/closure error against exact face fluxes) and O−R (exact-flux consistency with the midpoint target) separately. This follows the Dirichlet P07 observed-order acceptance. The frozen gate flag is preserved as returned, whatever the decision.
 - **Predeclared expectation:** the [admission screen](../../../../work/p07n_compatible_fields_20260927/report.md) gives exact-gradient O−R orders of `1.548/1.830`, `1.739/1.782`, `1.684/1.809` and `1.712/1.719` respectively. The accepted Dirichlet P07 fields give `1.75–1.81/2.06–2.11` under the same screen. For smooth fields, N−O is about `5e-5` of O−R, so N−R is expected to track O−R. A gate failure consistent with this prediction is therefore expected, and is a field/geometry/target property rather than a closure defect.
-- **Remaining uncertainty:** the screen found the residual pre-asymptotic O−R to be spread across the domain, with near-wall metric coefficients carrying eta harmonics up to n ≈ 20. Whether that roughness comes from the fitted coordinate map belongs to the geometry/reference follow-up.
+- **Why Neumann converges more slowly than Dirichlet (measured 27 September):** an [envelope sweep](../../../../work/p07n_compatible_fields_20260927/report.md#addendum-why-the-dirichlet-fields-converge-faster-27-september-2026) shows O−R order is controlled by how much field content sits in u>7/8, where the perpendicular-tensor coefficients' sub-Nyquist eta content grows about tenfold. This holds even for fields with zero wall value and gradient. The accepted Dirichlet fields peak at u≈0.45. A Neumann test must have wall content. The Dirichlet fine-interval orders are therefore optimistic for near-wall edge/SOL structure, and P08/P09 resolution planning should use the outer-band behavior.
+- **Outcome and attribution:** the returned campaign matched this expectation exactly (N−O `2.24–3.85/2.25–3.73`; N−R ≈ O−R as predicted), and the user accepted it on 27 September. The residual midpoint stall of wall-active fields, including the held-out field, is most plausibly unresolved modular-coil ripple. See [near-wall toroidal geometry resolution](#near-wall-toroidal-geometry-resolution-coil-ripple--27-september-2026).
 
 The [bounded pilot](../../../../work/p_neumann_structured_trace_20260926/report.md)
 passes its algebra and 23 focused tests. Its operator errors are N-O comparisons
@@ -1889,6 +1960,23 @@ operator-specific gate. Preserve the accepted P05 Dirichlet qualification.
   ordinary and aggregate/core owners and regional norms. Retain the existing
   order criteria and P05 magnetic-reference caveats; use independent reference
   sensitivity checks where needed, without mandatory volume integration.
+
+**Frozen catalogue — user decision, 27 September 2026**, recorded in [p05n_catalogue.json](../../../scripts/p05n_field_derived_global/p05n_catalogue.json):
+- **(a) Neumann generator × Neumann transported field:** `field_b1→field_e3` and `field_e12→field_b1`; held-out `heldout_field_b2→field_e12`.
+- **(b) Dirichlet generator × Neumann transported field:** `field_b1(D)→field_e3` and `zero_trace_generator(D)→field_e12`; held-out `heldout_field_b2(D)→field_b1`. The new `zero_trace_generator`, (1−u²)(0.12x cos η + 0.08(x²−y²) sin 2η), has zero wall value and nonzero normal derivative, i.e. the physical φ=0 wall.
+- **Controls:** a constant in each slot.
+- **Candidates:** centered, and centered plus the live `U − A` jump, under the recovered-trace wall-exterior contract.
+- **Predeclared expectation:** N−R ≈ N−O (pointwise operator, no O−R ceiling). A pass does not certify near-wall physical accuracy.
+- **Held-out disclosure:** the bounded construction (below) chose its own pairings before the freeze. One of them, `field_e12→heldout_field_b2`, is by exact antisymmetry the negative of the frozen held-out centered action, so that pair's centered N−R was seen at 52 near-wall owners per grid. Nothing was tuned from it, and `heldout_field_b2` was already evaluated globally in P07N. The user kept the held-out pair (27 September 2026).
+
+**Bounded construction — passed, 27 September 2026.** At the 54 selected owners per grid on N32/N48/N64, every structural check passes:
+- the all-Dirichlet replay of accepted P05 (at most 3% of an atol + rtol = 1e-12 tolerance);
+- Neumann conditioning (≤ 7) and row linearity with zero data;
+- constant action (≤ 3e-13) and swapped-argument antisymmetry (≤ 3e-16);
+- a zero live jump on the physical-wall, radial n−1 and last-two-layer transverse faces, which holds by construction under the wall contract;
+- JAX lowering.
+
+The Neumann and accepted Dirichlet rows share identical donor patches at every near-wall face quadrature point. The batched global package `scripts/p05n_field_derived_global/` reproduces the per-owner construction on those owners for every frozen pairing, to at most 3% of the same tolerance. The package batches rows across fields and pairings, caches the physical normal and wall data once per grid on the wall lattice, and memoizes the frozen cardinal exactly. The local N32 smoke run cost about 35 CPU-minutes, so all three grids are projected at about 7 CPU-hours. The remaining hot spot is the Python loop in the shared `StructuredReconstruction._tensor`, which a separate verified vectorization would address.
 
 **Gate:** full centered and centered-plus-live-jump actions qualified with the
 new input contract and unchanged Dirichlet replay. No production/default or
@@ -2255,11 +2343,11 @@ revision, configuration, measured results, and unresolved failures.
 | P03 | Geometry, interfaces, return maps, closures | P01 | passed — HSX mechanism audit | The [bounded localization](../../../../work/perpendicular_p03_failure_localization_20260920/report.md), [factorization](../../../../work/perpendicular_generator_factorization_20260920/report.md), and [face-factor audit](../../../../work/perpendicular_face_factor_audit_20260920/report.md) identify the derivative/value/integration mechanisms on actual HSX geometry. The baseline failures remain historical evidence, not a failed task gate. The [clean remote pass](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md) validates the resulting centered-bracket repair. P04 readiness is satisfied; other operator and runtime/sharding checks follow their own work packages. |
 | P04 | Consistent owner-to-face functionals | P02, P03 | passed — numerical design/research qualification | The [clean remote evidence](../../../../work/p_centered_cubic_c54b0552_kFhdmt_analysis/report.md) verifies polynomial reproduction and qualifies general cubic selection-v3 reconstruction with shared face values/gradients and matched q3 face/volume integration globally on all three fields. Freeze adaptive support, continuous geometry queries, and the boundary/owner conventions. Reusable payload/JAX extraction with saved-output replay is engineering follow-through during P05–P07 adoption, not a remaining numerical-design blocker. Other operators retain separate qualifications. |
 | P05 | Brackets | P04 | qualified — direct midpoint global static MMS; production integration/evolution pending | User acceptance 26 September: [completed direct campaign](../../../../work/p05_direct_midpoint_global_565e1d1a_HsoyFbJ3/local_analysis/report.md), producer `565e1d1a`, passes both centered and centered-plus-saved-jump candidates for all seven nonconstant cases on both intervals. Actual-vorticity orders: centered `4.030/1.847`, with jump `4.047/1.930`; six other centered fine orders `2.810–2.989`. Preserve the [acceptance scope](../../../../work/p05_direct_midpoint_global_565e1d1a_HsoyFbJ3/local_analysis/acceptance_decision.md): localized omega maximum rebound and interpolation-sensitive geometry derivatives remain documented, without blocking this static pass. The [bounded Phase B replay](../../../../work/p_shared_face_extraction_20260926/report.md) recomputes the accepted jump from live state and matches saved `U-A`; coupled production integration, structural and evolved checks remain. Magnetic-field derivative/reference resolution remains a nonblocking accuracy follow-up. |
-| P06 | Complete curvature | P04 | closed — user-accepted observed-order pass; reference caveat retained | Remote campaign `4bb8336e…` at `6f95ecea` completed; [local analysis](../../../../work/p06-curvature-cpu_4bb8336e_8ijYwA5H/local_analysis/report.md) replays all 22 required nonzero M/R/total components above 1.8 on both intervals (minimum 1.94027). User accepts milestone closure with the [bounded reference audit](../../../../work/p06_reference_qualification_20260922/report.md) retained as a nonblocking note: q5/q7 remains unsettled on raw cell 169732; q3 global-reference uncertainty is not fully quantified. Archived flags and results remain unchanged. Proceed to P07; no automatic reference rerun or production promotion. |
+| P06 | Complete curvature | P04 | passed — midpoint static qualification 25 September; earlier integrated-reference closure retained | Current qualification: [job 58880303 at `2458dbf6`](../../../../work/p06_completed_58880303/local_analysis/report.md) (`scripts/p06_structured_global`) passes all 44 primary nonzero M/R/total entries, with orders `3.010–3.747/2.659–2.929`. It uses a prescribed Dirichlet trace lift for every field, and its physical-wall characteristic correction is identically zero because the wall solve receives the interior reconstruction as its trace. Its MMS states have zero thermodynamic wall gradients; only the two phi-Dirichlet controls carry nonzero normal derivatives. Historical: remote campaign `4bb8336e…` at `6f95ecea` completed; [local analysis](../../../../work/p06-curvature-cpu_4bb8336e_8ijYwA5H/local_analysis/report.md) replays all 22 required nonzero M/R/total components above 1.8 on both intervals (minimum 1.94027). User accepts milestone closure with the [bounded reference audit](../../../../work/p06_reference_qualification_20260922/report.md) retained as a nonblocking note: q5/q7 remains unsettled on raw cell 169732; q3 global-reference uncertainty is not fully quantified. Archived flags and results remain unchanged. Proceed to P07; no automatic reference rerun or production promotion. |
 | P07 | Perpendicular diffusion/polarization | P04, P03 | Combined structured static accuracy accepted — observed approximately third order; reference caveat nonblocking; integration/evolution pending | User decision 25 September: accept the [combined global campaign](../../../../work/p07_combined_global_analysis_20260925/report.md), orders phi `3.257/3.546`, Ti `3.251/3.591`, regular `3.099/3.338`, mixed `3.098/3.327`. The [bounded reference audit](../../../../work/p07_bounded_reference_audit_20260925/report.md) supports the accuracy assessment but does not recompute global orders. Preserve the archived failed reference flag and the [acceptance distinction](../../../../work/p07_combined_global_analysis_20260925/acceptance_decision.md). Preserve older D_trace results separately; its energy defect is not a measured defect of the new candidate. Elliptic/energy work remains deferred, and no production promotion or automatic run is authorized. |
-| P05N | Physical-normal Neumann brackets | Shared extraction/replay and bounded Neumann reconstruction admission | planned | Qualify full centered and live-jump midpoint actions; the bounded scalar-jump pilot alone is insufficient. Use field-derived nonzero data and the row-linearity/zero-data check per the 27 September field contract. Preserve Dirichlet qualification. |
-| P06N | Physical-normal Neumann curvature | Shared extraction/replay and bounded Neumann reconstruction admission | planned | Qualify complete material/remainder/characteristic actions with a separately specified compatible physical wall state. Use field-derived nonzero data and the row-linearity/zero-data check per the 27 September field contract. |
-| P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | frozen global campaign failed; field-derived catalogue frozen, new campaign in local preparation | The [`5930b72c` campaign](../../../../work/p07n_static_global_5930b72c_20260926T2355Z_a91d3c/local_analysis/report.md) fails its order gate, which is preserved unchanged. Its error is exact-gradient-face-versus-midpoint (O−R) error forced by the zero-normal correction fields, not the Neumann closure (N−D ≈ 1e-5 of N−R). Under the 27 September field contract, the [global O−R screen](../../../../work/p07n_compatible_fields_20260927/report.md) was run before the catalogue freeze. The catalogue is now frozen (b1, e3, e12, held-out b2), with the N−R gate unchanged and a predeclared expectation of a pre-asymptotic O−R-limited result. A new campaign is required; no production promotion. |
+| P05N | Physical-normal Neumann brackets | Shared extraction/replay and bounded Neumann reconstruction admission | in progress — bounded construction passed; global static campaign prepared | Qualify full centered and live-jump midpoint actions; the bounded scalar-jump pilot alone is insufficient. Use field-derived nonzero data and the row-linearity/zero-data check per the 27 September field contract. Preserve Dirichlet qualification. Pairings (27 September): Neumann generator with Neumann transported field, and Dirichlet generator with Neumann transported field. Shared recovered-trace wall-exterior contract adopted; the live-jump wall face is zero by construction. Not a physical wall-law qualification. Catalogue frozen 27 September; held-out pair partly seen in bounded checks (disclosed, kept). |
+| P06N | Physical-normal Neumann curvature | Shared extraction/replay and bounded Neumann reconstruction admission | in progress — exact-input screen passed; bounded construction | Qualify complete material/remainder/characteristic actions with a separately specified compatible physical wall state. Use field-derived nonzero data and the row-linearity/zero-data check per the 27 September field contract. Shared recovered-trace wall-exterior contract adopted 27 September; the characteristic wall correction is zero by construction. Not a physical wall-law qualification. The exact-input O ≡ R screen comes first. |
+| P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | passed — user-accepted closure qualification 27 September; midpoint accuracy geometry-limited | [Acceptance record](../../../../work/p07n_field_derived_274e93e9_20260927T054625Z_72cfa1/local_analysis/acceptance_decision.md) for campaign `274e93e9`: N−O `2.24–3.85/2.25–3.73` on every field including held-out; wall-normal residual about 4th order; returned `global_order_pass=false` preserved; N−R ≈ O−R `1.55–1.74/1.72–1.83` limited by unresolved near-wall toroidal geometry (most plausibly coil ripple). The `5930b72c` failure is preserved. Inversion/gauge, energy, evolution and production integration remain open. |
 | P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | pending | Include separately qualified Dirichlet and Neumann variants. |
 | P09 | Evolved MMS and promotion | P08 | pending | — |
 

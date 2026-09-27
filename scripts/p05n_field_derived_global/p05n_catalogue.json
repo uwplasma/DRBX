@@ -1,0 +1,25 @@
+{
+  "schema": "drbx.p05n-catalogue-v1",
+  "frozen": "2026-09-27, user decision, before any P05N global evaluation (bounded construction checks pending)",
+  "wall_data": "Neumann fields supply g_N = n.grad_x f from the field itself; Dirichlet generators supply their analytic trace through the accepted lifted rows",
+  "field_sources": {
+    "field_b1, field_e3, field_e12, heldout_field_b2, constant": "DRBX/scripts/p07n_field_derived_global/fields.py (unchanged analytic definitions)",
+    "zero_trace_generator": "(1-u^2) * (0.12 x cos(eta) + 0.08 (x^2 - y^2) sin(2 eta)), x = u cos(theta), y = u sin(theta), eta period 2*pi; zero wall value, nonzero normal derivative, axis-regular"
+  },
+  "pairings": {
+    "a_neumann_f_neumann": {
+      "main": [["field_b1", "field_e3"], ["field_e12", "field_b1"]],
+      "heldout": [["heldout_field_b2", "field_e12"]],
+      "controls": [["field_b1", "constant"], ["constant", "field_e3"]]
+    },
+    "a_dirichlet_f_neumann": {
+      "main": [["field_b1:dirichlet", "field_e3"], ["zero_trace_generator:dirichlet", "field_e12"]],
+      "heldout": [["heldout_field_b2:dirichlet", "field_b1"]],
+      "controls": [["field_b1:dirichlet", "constant"], ["constant", "field_e3"]]
+    }
+  },
+  "candidates": ["direct_centered", "direct_centered_plus_live_U_minus_A"],
+  "wall_exterior_contract": "recovered Neumann trace (Dirichlet: prescribed trace); wall-face jump zero by construction; not a physical wall-law qualification",
+  "gate": "headline N-R global L2 order >= 1.8 on both intervals per nonconstant pair and candidate; acceptance decided by the user with the N-O split reported",
+  "predeclared_expectation": "pointwise operator: exact-input action equals the midpoint reference, so N-R ~ N-O (reconstruction-limited); no O-R ceiling. The midpoint pass does not certify near-wall physical accuracy (pointwise aliasing is invisible to the midpoint MMS)."
+}
