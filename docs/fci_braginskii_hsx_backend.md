@@ -88,11 +88,14 @@ The defaults run to t = 0.15 in 200 steps (dt = 7.5e-4) at rho* = 5e-4 with
 the implicit current/potential pair. With the explicit pair this rho* limits
 dt to about 1e-4. With the implicit pair, 32-cubed runs are stable at dt =
 1.5e-3 (tested to t = 0.3) and fail at 5e-3, where the explicit electron
-parallel terms set the limit. Between dt = 7.5e-4 and 1.5e-3, density and
-temperatures agree to about 0.2% (relative L2) and the blob centroid to
-1e-5 m through t = 0.15. The potential, Ve and vorticity keep their shape but
-differ by 15 to 45% in amplitude, so they are not converged in dt at these
-step sizes.
+parallel terms set the limit. Runs at dt = 1.5e-3, 7.5e-4 and 3.75e-4 to
+t = 0.15 converge at about order 1.5 in dt. At the default step the
+estimated error is 0.1% or less (relative L2) for density and temperatures,
+and the blob centroid is converged to 1e-5 m. The potential is 2 to 5% off
+in amplitude and about 13% off in relative L2. That error is smooth and sits
+in the bulk around the filament, not at the walls. Ve behaves the same way,
+and vorticity converges more slowly. Where the potential matters, use more
+steps: 400 steps (dt = 3.75e-4) bring the potential error to about 5%.
 
 The driver imports `drbx` from this repository's `src`; `DRBX_SOURCE_ROOT`
 overrides that. Set `DRBX_CACHE_DIR` to a writable, run-local JAX compilation
