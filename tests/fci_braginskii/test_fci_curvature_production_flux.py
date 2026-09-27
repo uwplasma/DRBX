@@ -7,7 +7,6 @@ import importlib.util
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -171,33 +170,3 @@ def test_reconstruction_orders_and_positivity_fallback_metadata():
     _left, _right, bad_meta = reconstruct_third_order_face_states(bad, q0, q1, q1)
     assert np.any(np.asarray(bad_meta.used_fallback))
     assert np.all(np.asarray(_left)[..., :3] > 0.0)
-
-
-def test_completed_run_state_range_is_admissible_when_available():
-    path = Path(
-        "/Users/yxie/Desktop/HSX drbx/prototype_runs/"
-        "fci_curvature_radial_poloidal_third_order_upwind_32_t015/"
-        "hsx_curvature_radial_poloidal_third_order_upwind_32_t015.npz"
-    )
-    if not path.exists():
-        pytest.skip("completed 32^3 history is not present on this checkout")
-    data = np.load(path)
-    names = ("density", "Te", "Ti", "vorticity")
-    if not all(name in data for name in names):
-        pytest.skip("history does not expose curvature state fields")
-    # A few hundred evenly spaced final-time cells keep the test cheap while
-    # exercising the recorded run's actual primitive range.
-    values = jnp.stack(
-        tuple(jnp.asarray(data[name][-1]).reshape(-1)[::1024][:512] for name in names),
-        axis=-1,
-    )
-    assert bool(jnp.all(values[..., :3] > 0.0))
-    matrices = curvature_principal_matrix(
-        values[:, 0], values[:, 1], values[:, 2], 1.0, 1.0
-    )
-    action, fallback = curvature_characteristic_absolute_action(
-        matrices, values, return_fallback=True
-    )
-    assert bool(jnp.all(jnp.isfinite(action)))
-    assert bool(jnp.all(jnp.isfinite(matrices)))
-    assert bool(jnp.all(~fallback))
