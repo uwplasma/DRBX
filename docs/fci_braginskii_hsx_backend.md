@@ -5,10 +5,12 @@ for HSX. It is the plasma model of the 2D_fci line at
 `d340f4d638e0d9495546d1fd2e2c66c1c206704a`, vendored into its own namespace
 (`drbx.fci_braginskii.native`, `drbx.fci_braginskii.geometry`) and independent
 of the `drbx.native` FCI modules. The code was reduced to the one production
-configuration below; for that configuration the compiled advance and its fields
-are identical to the base commit. Tracing is about ten times faster because
-host-side validation no longer builds JAX's jaxpr-walking error messages
-(`drbx.fci_braginskii._host_guards`).
+configuration below; with `--rho-star 1 --no-implicit-current-phi-pair` the
+compiled advance and its fields are identical to the base commit. The
+defaults add two changes on top of that: a consistent rho* normalization and
+an implicit current/potential pair (see Normalization below). Tracing is
+about ten times faster because host-side validation no longer builds JAX's
+jaxpr-walking error messages (`drbx.fci_braginskii._host_guards`).
 
 The backend consumes a precomputed geometry artifact. It contains no geometry
 production (field-line tracing, metric fitting, RLP construction); those live
@@ -19,7 +21,12 @@ in the 2D_fci geometry pipeline.
 - Geometry: toroidal FCI geometry with the radius-dependent angular (RLP)
   topology, read from a schema-v1 artifact.
 - Time advance: IMEX-SSP222. Material fluxes on all physical wall legs are
-  treated by local backward Euler inside each stage.
+  treated by local backward Euler inside each stage. By default, each
+  implicit stage also does one linearized backward-Euler coupled potential
+  solve treating mu*grad_par(phi) and the homogeneous parallel current
+  divergence implicitly, with every other coefficient frozen at the stage
+  state; the wall current lift stays explicit.
+  `--no-implicit-current-phi-pair` restores the explicit pair.
 - Parallel transport: FCI parallel operator, production-path characteristic
   material fluxes with support-core pairing and characteristic-SAT
   boundaries, physical-boundary-state characteristic wall law.
@@ -30,6 +37,19 @@ in the 2D_fci geometry pipeline.
 - Potential solve: SOLVAX FGMRES with the line-u preconditioner.
 
 No sheath, presheath, recycling or neutral model is included.
+
+## Normalization
+
+Lengths in the geometry are in metres (the artifact is SI: major radius
+0.87-1.53 m). |B| is in tesla (B_ref = 1 T). n, Te, Ti are in reference
+units, and time is in L_ref/c_s with L_ref = 1 m. rho* = rho_s / L_ref,
+rho_s = sqrt(Te m_i) / (e B_ref); E x B and curvature drift terms scale with
+rho*, and the polarization relation scales with rho*^2. The default rho* is
+5e-4 (hydrogen, Te ~ 24 eV, B = 1 T; rho* scales as sqrt(Te)/B, e.g. 4.6e-4
+at 20 eV). With these values c_s ~ 4.8e4 m/s, so one time unit is about 21
+microseconds and t = 0.15 is about 3 microseconds. The base commit used
+rho* only as a divisor of the E x B terms; this is the same operator at
+rho* = 1.
 
 ## Geometry artifact
 
@@ -64,11 +84,15 @@ python simulate_hsx_blob.py --geometry artifacts/geometry/hsx_fci_32x32x32 \
   --output /path/to/run/history.npz
 ```
 
-The defaults run to t = 0.15 in 200 steps (dt = 7.5e-4). Short probes on the
-32-cubed bundle are stable up to dt of about 8.5e-4 and start to grow near
-1.2e-3; that limit does not change with the electron mass ratio or the E x B
-scaling, so larger steps need a different treatment of the explicit bulk
-terms.
+The defaults run to t = 0.15 in 200 steps (dt = 7.5e-4) at rho* = 5e-4 with
+the implicit current/potential pair. With the explicit pair this rho* limits
+dt to about 1e-4. With the implicit pair, 32-cubed runs are stable at dt =
+1.5e-3 (tested to t = 0.3) and fail at 5e-3, where the explicit electron
+parallel terms set the limit. Between dt = 7.5e-4 and 1.5e-3, density and
+temperatures agree to about 0.2% (relative L2) and the blob centroid to
+1e-5 m through t = 0.15. The potential, Ve and vorticity keep their shape but
+differ by 15 to 45% in amplitude, so they are not converged in dt at these
+step sizes.
 
 The driver imports `drbx` from this repository's `src`; `DRBX_SOURCE_ROOT`
 overrides that. Set `DRBX_CACHE_DIR` to a writable, run-local JAX compilation
@@ -90,9 +114,11 @@ tolerances; see `python simulate_hsx_blob.py --help`.
   work inside the right-hand side.
 
 Phase timing, which reports the operator and GMRES shares of each step, is on
-by default; `--no-phase-timing` disables it. At N32 the potential solve takes
-almost all of each step (roughly 45 to 50 GMRES iterations per solve, four
-solves per step).
+by default; `--no-phase-timing` disables it. At N32 with the defaults the
+potential solves take a little over half of each step (about 90 GMRES
+iterations per solve on average, four solves per step: two coupled
+current/potential solves and two standalone potential solves), and a step
+takes about 16 s on an 8-core M1.
 
 Multi-device runs decompose only the toroidal (eta) direction:
 `--shard-counts 1 1 N`, with N dividing the eta resolution. On CPU, emulate N

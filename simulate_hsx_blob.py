@@ -902,6 +902,7 @@ def build_local_eb_model(
     control_volume_geometry=None,
     control_volume_boundary_bc=None,
     curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
+    implicit_current_phi_pair: bool = False,
 ) -> LocalFciDrbEBRhs:
     if gmres_restart < 1:
         raise ValueError("gmres_restart must be positive")
@@ -1010,6 +1011,7 @@ def build_local_eb_model(
         curvature_face_coefficients=curvature_face_coefficients,
         control_volume_geometry=control_volume_geometry,
         control_volume_boundary_bc=control_volume_boundary_bc,
+        implicit_current_phi_pair=bool(implicit_current_phi_pair),
     )
     model = LocalFciDrbEBRhs(
         **rhs_kwargs,
@@ -1415,6 +1417,7 @@ def run_full_eb(
     control_volume_field_count: int = RLP_PACKED_FIELD_COUNT,
     owner_host_geometry=None,
     history_dtype: str = "float32",
+    implicit_current_phi_pair: bool = False,
 ) -> FciDrbEBState:
     """Advance the global EB state."""
 
@@ -1672,6 +1675,7 @@ def run_full_eb(
             curvature_face_coefficients_override=(
                 local_curvature_face_coefficients
             ),
+            implicit_current_phi_pair=implicit_current_phi_pair,
         )
 
     phi_start = time.perf_counter()
@@ -1767,6 +1771,23 @@ def run_full_eb(
             )
         diagnostics = _format_phi_solver_diagnostics(info)
         return phi, diagnostics
+
+    def mark_pair_solve_phi(phi: jax.Array) -> None:
+        """Record the same ordered gmres host marker ``reconstruct_stage_phi``
+        would have recorded, for the coupled current/phi pair solve.
+
+        ``_JittedPhaseTimer`` expects a fixed number of ordered markers per
+        compiled step; the implicit current/phi pair path replaces
+        ``reconstruct_stage_phi`` (which records its own marker) with
+        ``solve_implicit_current_phi_pair`` (which does not), so the marker
+        must be recorded explicitly here to keep the count matched.
+        """
+        if gmres_marker is not None:
+            jax.debug.callback(
+                gmres_marker,
+                jnp.ravel(phi)[0],
+                ordered=True,
+            )
 
     def evaluate_operators(
         stage_state: FciDrbEBState,
@@ -1885,9 +1906,21 @@ def run_full_eb(
                     return_increment=True,
                 )
             )
-            stage_phi, phi_info = reconstruct_stage_phi(updated, model)
-            stage = updated.replace(phi=stage_phi)
-            implicit_rate = increment.map_fields(
+            if model.implicit_current_phi_pair:
+                with jax.named_scope("gmres"):
+                    stage, pair_increment, pair_solver_info = (
+                        model.solve_implicit_current_phi_pair(
+                            updated, solve_dt=gamma_dt,
+                        )
+                    )
+                mark_pair_solve_phi(stage.phi)
+                phi_info = _format_phi_solver_diagnostics(pair_solver_info)
+                total_increment = increment.axpy(pair_increment, scale=1.0)
+            else:
+                stage_phi, phi_info = reconstruct_stage_phi(updated, model)
+                stage = updated.replace(phi=stage_phi)
+                total_increment = increment
+            implicit_rate = total_increment.map_fields(
                 lambda value: value / gamma_dt
             )
             return stage, implicit_rate, phi_info
@@ -2023,6 +2056,17 @@ def run_full_eb(
                     return_increment=True,
                 )
             )
+            if model.implicit_current_phi_pair:
+                with jax.named_scope("gmres"):
+                    stage, pair_increment, pair_solver_info = (
+                        model.solve_implicit_current_phi_pair(
+                            updated, solve_dt=solve_dt,
+                        )
+                    )
+                mark_pair_solve_phi(stage.phi)
+                phi_info = _format_phi_solver_diagnostics(pair_solver_info)
+                total_increment = increment.axpy(pair_increment, scale=1.0)
+                return stage, total_increment, phi_info
             stage_phi, phi_info = reconstruct_stage_phi(updated, model)
             return updated.replace(phi=stage_phi), increment, phi_info
 
@@ -3252,7 +3296,8 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         default=200,
         help=(
             "Number of equal IMEX-SSP222 steps used to reach --final-time. "
-            "The default gives dt = 7.5e-4 (0.15/200)."
+            "The default gives dt = 7.5e-4 (0.15/200), validated with the "
+            "implicit current/phi pair at the default rho*."
         ),
     )
     parser.add_argument("--save-every", type=int, default=1)
@@ -3383,11 +3428,35 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         help="Initial toroidal perturbation phase in radians.",
     )
     parser.add_argument("--tau", type=float, default=1.0)
-    parser.add_argument("--rho-star", type=float, default=1.0)
+    parser.add_argument(
+        "--rho-star",
+        type=float,
+        default=5.0e-4,
+        help=(
+            "rho_s / L_ref with L_ref = 1 m (lengths in the geometry are in "
+            "metres). Scales E x B and curvature drifts by rho*, "
+            "polarization by rho*^2. The default is hydrogen at Te ~ 24 eV "
+            "and B = 1 T; rho* scales as sqrt(Te)/B. --rho-star 1 "
+            "--no-implicit-current-phi-pair reproduces the base-commit "
+            "operators."
+        ),
+    )
     parser.add_argument("--mi-over-me", type=float, default=1836.0)
     parser.add_argument("--perp-diffusion", type=float, default=1.0e-5)
     parser.add_argument("--parallel-diffusion", type=float, default=0.0)
     parser.add_argument("--electron-collision-frequency", type=float, default=0.0)
+    parser.add_argument(
+        "--implicit-current-phi-pair",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Treat mu*grad_par(phi) and the homogeneous parallel current "
+            "divergence implicitly through a coupled potential solve in "
+            "each implicit IMEX stage (default). "
+            "--no-implicit-current-phi-pair restores the explicit "
+            "treatment, which at rho* = 5e-4 limits dt to about 1e-4."
+        ),
+    )
     parser.add_argument(
         "--advance-execution",
         choices=("compiled", "staged-compiled", "eager"),
@@ -3857,6 +3926,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         checkpoint_every=int(args.checkpoint_every),
         snapshot_times=tuple(float(value) for value in args.snapshot_times),
         snapshot_dir=args.snapshot_dir,
+        implicit_current_phi_pair=bool(args.implicit_current_phi_pair),
         run_metadata={
             "command": " ".join(sys.argv),
             "drbx_source_root": str(DRBX_SRC),
@@ -3909,6 +3979,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "electron_collision_frequency": float(
                 args.electron_collision_frequency
             ),
+            "implicit_current_phi_pair": bool(args.implicit_current_phi_pair),
             "time_integrator": "imex-ssp222",
             "advance_execution": str(args.advance_execution),
             "advance_execution_kernel_layout": (
