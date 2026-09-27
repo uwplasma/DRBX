@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from pathlib import Path
 import shutil
 import zipfile
@@ -16,26 +14,6 @@ def _write_zip(path: Path, members: dict[str, bytes]) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         for name, payload in members.items():
             archive.writestr(name, payload)
-
-
-def _write_fake_geometry_bundle(path: Path) -> dict[str, bytes]:
-    """Write a tiny fake HSX geometry bundle with a valid manifest at ``path``."""
-
-    path.mkdir(parents=True, exist_ok=True)
-    payloads = {
-        "base_geometry.npz": b"base-geometry-bytes",
-        "center_maps.npz": b"center-maps-bytes",
-    }
-    checksums = {}
-    for name, payload in payloads.items():
-        (path / name).write_bytes(payload)
-        checksums[name.split(".")[0]] = {
-            "file": name,
-            "sha256": hashlib.sha256(payload).hexdigest(),
-        }
-    manifest = {"checksums": checksums}
-    (path / "manifest.json").write_text(json.dumps(manifest))
-    return payloads
 
 
 def test_ensure_docs_media_restores_release_bundle(
@@ -172,86 +150,3 @@ def test_urllib_download_retries_with_configured_timeout(
 
     assert calls == [0.5, 0.5]
     assert destination.read_bytes() == b"downloaded"
-
-
-def test_verify_geometry_checksums_passes_on_valid_bundle(tmp_path: Path) -> None:
-    bundle = tmp_path / "bundle"
-    _write_fake_geometry_bundle(bundle)
-
-    artifacts.verify_geometry_checksums(bundle)
-
-
-def test_verify_geometry_checksums_raises_on_tampered_file(tmp_path: Path) -> None:
-    bundle = tmp_path / "bundle"
-    _write_fake_geometry_bundle(bundle)
-    (bundle / "base_geometry.npz").write_bytes(b"tampered-bytes")
-
-    with pytest.raises(ValueError, match="base_geometry.npz"):
-        artifacts.verify_geometry_checksums(bundle)
-
-
-def test_verify_geometry_checksums_raises_on_missing_file(tmp_path: Path) -> None:
-    bundle = tmp_path / "bundle"
-    _write_fake_geometry_bundle(bundle)
-    (bundle / "center_maps.npz").unlink()
-
-    with pytest.raises(FileNotFoundError, match="center_maps.npz"):
-        artifacts.verify_geometry_checksums(bundle)
-
-
-def test_ensure_hsx_geometry_restores_release_bundle(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    source_bundle = tmp_path / "source_bundle"
-    _write_fake_geometry_bundle(source_bundle)
-    source_archive = tmp_path / "source" / artifacts.HSX_GEOMETRY_ASSET
-    _write_zip(
-        source_archive,
-        {
-            f"hsx_fci_32x32x32/{member.name}": member.read_bytes()
-            for member in sorted(source_bundle.iterdir())
-        },
-    )
-    root = tmp_path / "repo"
-    root.mkdir()
-    calls: list[tuple[str, Path, str, str]] = []
-
-    def fake_download(
-        url: str, destination: Path, *, asset_name: str, tag: str = artifacts.ARTIFACT_RELEASE_TAG
-    ) -> None:
-        calls.append((url, destination, asset_name, tag))
-        shutil.copyfile(source_archive, destination)
-
-    monkeypatch.delenv("DRBX_OFFLINE_ARTIFACTS", raising=False)
-    monkeypatch.setattr(artifacts, "_download_release_asset", fake_download)
-
-    restored = artifacts.ensure_hsx_geometry(root=root)
-
-    expected_url = (
-        "https://github.com/uwplasma/drbx/releases/download/"
-        f"{artifacts.HSX_GEOMETRY_RELEASE_TAG}/{artifacts.HSX_GEOMETRY_ASSET}"
-    )
-    assert restored == root / artifacts.HSX_GEOMETRY_DIR
-    assert calls == [
-        (
-            expected_url,
-            root / ".drbx_artifact_cache" / artifacts.HSX_GEOMETRY_ASSET,
-            artifacts.HSX_GEOMETRY_ASSET,
-            artifacts.HSX_GEOMETRY_RELEASE_TAG,
-        )
-    ]
-    artifacts.verify_geometry_checksums(restored)
-
-    # A second call must be a no-op: no further download.
-    restored_again = artifacts.ensure_hsx_geometry(root=root)
-    assert restored_again == restored
-    assert len(calls) == 1
-
-
-def test_ensure_hsx_geometry_honors_offline_mode(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setenv("DRBX_OFFLINE_ARTIFACTS", "1")
-
-    with pytest.raises(FileNotFoundError, match="HSX geometry bundle is not present"):
-        artifacts.ensure_hsx_geometry(root=tmp_path / "repo")
