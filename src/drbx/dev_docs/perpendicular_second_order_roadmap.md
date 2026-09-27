@@ -101,7 +101,8 @@ search and tensor convention; the P05/P06 correction kernels retain their
 different signs and owner measures. The bounded receipts separate preparation,
 lowering/cache, compilation and repeated application without a whole-grid
 speed claim. Next qualify physical-normal Neumann data through the shared
-boundary construction and the separate P05N, P06N and P07N operator gates below
+boundary construction and the separate P05N, P06N and P07N operator gates below,
+under the [27 September Neumann MMS field contract](#physical-normal-neumann-mms-field-contract--27-september-2026),
 before combined P08 certification. Full
 model/default integration remains at P09. Equivalent replay does not require a
 new global static campaign. The older extraction applies only to its own
@@ -1725,14 +1726,74 @@ reference or weaken the success criterion.
 
 ## 4. MMS certification, integration, and progress tracking
 
+### Physical-normal Neumann MMS field contract — 27 September 2026
+
+**User decision, applying to P05N, P06N and P07N:** qualify the Neumann
+closures with nonzero physical-normal data taken from the manufactured field
+itself, `g_N = n · grad_x f` at the wall. The fields are smooth, axis-regular,
+theta/eta-periodic analytic functions with nonconstant wall traces. They carry
+no boundary-correction term, and their values, gradients and Hessians are exact.
+The HSX wall geometry enters only through the prescribed data `g_N`, which is
+what the closure must consume. Each campaign freezes a held-out field together
+with its catalogue, before any numerical action is evaluated.
+
+Zero data is not a separate global field requirement. The shared Neumann rows are
+linear in owner observations and prescribed data. The `g_N = 0` path is instead
+covered by a bounded row-level check that the restored traces/gradients satisfy
+`row(f, g) = row(f, 0) + row(0, g)`, and that zero data replays the homogeneous
+application exactly. This supersedes the earlier "zero and spatially varying
+nonzero data" field requirement below.
+
+**Reason:** a zero-normal field with a nonconstant trace must satisfy
+`f_u = -(r_theta f_theta + r_eta f_eta)` at the wall, with
+`r_* = g^{u*}/g^{uu}`. On HSX, `r_theta` has standard deviation 0.43 and eta
+harmonics n = 4–20 ([wall spectrum](../../../../work/p07n_compatible_fields_20260927/wall_spectrum.json)).
+That requirement forces wall non-orthogonality into the field itself, through a
+correction differentiated by finite differences. The failed P07N campaign below
+localized its error to exactly this construction. It is a property of the test
+field, not of the operator.
+
+**Field admission:** before a catalogue is frozen, screen each candidate
+globally on N32/N48/N64 with the exact-gradient face action O against the locked
+midpoint target R. No reconstruction is evaluated, so candidates are not chosen
+by numerical-operator error. The [admissibility design](../../../../work/p07n_compatible_fields_20260927/screen_design.json)
+was frozen before any result: O−R global L2 order ≥ 1.8 on both intervals, and
+≥ 1.9 preferred. A conservative flux-form action is at best second order against
+the midpoint target, so a field failing this screen cannot fairly test P07N at
+these grids. P05N/P06N apply the analogous exact-input/midpoint screen for their
+own actions. Every screened candidate, including rejected ones, is reported.
+
+The P06N physical characteristic wall-state requirement is unchanged. A
+field-derived Neumann datum still does not determine that state.
+
 ### P07N — Explicit Neumann boundary implementation and qualification
 
-**Status:** bounded structured physical-normal trace candidate and axis-regular
-field/reference preflight complete; P07N static global campaign preparation is
-local and pending a published, verified source revision and immutable-input
-transfer. The global campaign has not run or qualified P07N. Shared extraction
-and replay are complete for the bounded scope. This does not reopen the
-accepted Dirichlet static passes.
+**Status:** the frozen static global campaign ran at `5930b72c` and **failed**
+its gate. The result is preserved unchanged, and P07N is not qualified. The
+[local analysis](../../../../work/p07n_static_global_5930b72c_20260926T2355Z_a91d3c/local_analysis/report.md)
+verifies all 24,495 chunks and reassembles the arrays exactly. It records N−R
+orders of `1.548/1.830` for the smooth nonzero control, `0.677/0.747` for
+zero-normal m1, `0.669/0.747` for prescribed-nonzero m1 and `1.077/1.257` for the
+held-out field. The constant and wall-residual trend checks pass. N−D stays
+about `1e-5` of N−R, so the physical-normal closure does not explain the
+failure. The dominant error is O−R in the interior correction collar
+(u = 0.25–0.75, 91–92% of squared error). The
+[reference/face audit](../../../../work/p07n_reference_face_audit_20260926/report.md)
+excludes derivative, reference, extraction and face-quadrature defects. It shows
+the exact-gradient gap closing at about second order under box shrinking, mostly
+through eta. The
+[eta-span comparison](../../../../work/p07n_eta_span_comparison_20260926/report.md)
+confirms that, locally, midpoint error falls monotonically with the eta extent;
+true eta refinement is location-dependent. The next P07N campaign uses the field
+contract above, with a new catalogue and output folder; it is not a rerun.
+Shared extraction and replay are complete for the bounded scope. This does not
+reopen the accepted Dirichlet static passes.
+
+**Next campaign definition — user decisions, 27 September 2026:**
+- **Frozen catalogue:** `field_b1` (the frozen smooth-control base), `field_e3` and `field_e12`, which give weak and strong theta wall-trace gradients and so exercise `r_theta` non-orthogonality. `heldout_field_b2` (m2/m3 content) is held out, and the constant is included. All wall data are field-derived.
+- **Reporting and acceptance:** N−R global L2 order ≥ 1.8 on both intervals for every nonconstant field stays the headline gate, as traditional MMS reporting. The constant and wall-trend checks stay as well. The acceptance decision is the user's, made after the results by examining N−O (reconstruction/closure error against exact face fluxes) and O−R (exact-flux consistency with the midpoint target) separately. This follows the Dirichlet P07 observed-order acceptance. The frozen gate flag is preserved as returned, whatever the decision.
+- **Predeclared expectation:** the [admission screen](../../../../work/p07n_compatible_fields_20260927/report.md) gives exact-gradient O−R orders of `1.548/1.830`, `1.739/1.782`, `1.684/1.809` and `1.712/1.719` respectively. The accepted Dirichlet P07 fields give `1.75–1.81/2.06–2.11` under the same screen. For smooth fields, N−O is about `5e-5` of O−R, so N−R is expected to track O−R. A gate failure consistent with this prediction is therefore expected, and is a field/geometry/target property rather than a closure defect.
+- **Remaining uncertainty:** the screen found the residual pre-asymptotic O−R to be spread across the domain, with near-wall metric coefficients carrying eta harmonics up to n ≈ 20. Whether that roughness comes from the fitted coordinate map belongs to the geometry/reference follow-up.
 
 The [bounded pilot](../../../../work/p_neumann_structured_trace_20260926/report.md)
 passes its algebra and 23 focused tests. Its operator errors are N-O comparisons
@@ -1756,9 +1817,11 @@ The accepted shared construction uses prescribed Dirichlet traces. Fields named
 values; they establish accuracy on Neumann-compatible fields, not qualification
 of a boundary closure supplied only with physical-normal derivative data.
 
-The supported input for these new gates is prescribed `g_N = n · grad_x f`,
-including zero and spatially varying nonzero data. Logical radial derivatives
-and prescribed tensor fluxes are not alternative APIs in this work package.
+The supported input for these new gates is prescribed `g_N = n · grad_x f`.
+Qualification fields supply nonzero, spatially varying data from the field
+itself, and zero data is verified by the bounded row-linearity check, both per
+the field contract above. Logical radial derivatives and prescribed tensor fluxes
+are not alternative APIs in this work package.
 On the nonorthogonal grid use `a = E^{-1} n`, so the constraint is
 `a · grad_q f = g_N`; zero normal derivative does not generally imply zero
 anisotropic diffusive flux.
@@ -1777,9 +1840,9 @@ anisotropic diffusive flux.
    analytic fields independently to score the result. Preserve owner unknowns,
    interior policy, axis treatment and operator-specific measures. No additional
    global elliptic reconstruction solve is part of this step.
-3. **Run bounded real-HSX tests first.** Cover homogeneous zero data and nonzero,
-   spatially varying prescribed data, using multiple manufactured fields with
-   unknown, nontrivial wall traces. Include wall-adjacent rows, periodic seams and
+3. **Run bounded real-HSX tests first.** Use multiple admitted manufactured
+   fields with field-derived nonzero data and unknown, nontrivial wall traces,
+   plus the row-linearity/zero-data check. Include wall-adjacent rows, periodic seams and
    the boundary-to-interior transition at N32/N48/N64. Check boundary-functional
    satisfaction, recovered wall values/gradients, complete selected-owner actions,
    constants where applicable, JIT/JVP and unchanged Dirichlet replay. Retain
@@ -1811,12 +1874,14 @@ operator-specific gate. Preserve the accepted P05 Dirichlet qualification.
   with its live scalar face-jump correction. The three-wall-owner jump pilot in
   the P07N bundle is useful evidence but does not qualify the full bracket.
 - Prescribe physical-normal derivatives for the declared generator and
-  transported-field combinations. Recover unknown wall values and all required
+  transported-field combinations, taken from each field (`g_N = n · grad_x f`)
+  per the field contract above. Recover unknown wall values and all required
   gradients from owner observations and those data; keep common gradients,
   fixed-anchor side reconstructions and physical exterior-state policy explicit.
   Exact traces are scoring or matched-Dirichlet controls only.
-- Run bounded N32/N48/N64 wall, seam and boundary-to-interior checks with zero
-  and varying nonzero data, nonconstant wall traces, and held-out fields. Cover
+- Run bounded N32/N48/N64 wall, seam and boundary-to-interior checks with
+  field-derived nonzero data, nonconstant wall traces, held-out fields and the
+  row-linearity/zero-data check. Cover
   complete owner actions and separate centered/jump errors, constants where
   applicable, and JIT/JVP in owner and boundary data. Verify periodicity and axis
   regularity of fields before expanding to the entire grid.
@@ -1838,13 +1903,15 @@ shared Neumann reconstruction. Preserve the accepted P06 Dirichlet qualification
   material/remainder terms with their J/B measure, q3 characteristic corrections,
   and the total coupled action. A scalar trace or gradient test alone is not
   sufficient.
-- State which fields receive physical-normal data and recover their wall traces
-  consistently. Separately freeze a compatible physical characteristic exterior
+- State which fields receive physical-normal data, taken from each field
+  (`g_N = n · grad_x f`) per the field contract above, and recover their wall
+  traces consistently. Separately freeze a compatible physical characteristic exterior
   state and wall law. A scalar Neumann datum does not determine that state;
   do not fill the gap with the exact unknown manufactured wall state or impose
   incompatible independent constraints. Respect the existing wall-rung contract.
-- Run bounded N32/N48/N64 zero and varying nonzero data with nonconstant traces,
-  eta dependence, wall/seam/transition owners, and held-out fields. Report each
+- Run bounded N32/N48/N64 checks with field-derived nonzero data, nonconstant
+  traces, eta dependence, wall/seam/transition owners, held-out fields and the
+  row-linearity/zero-data check. Report each
   material/remainder/characteristic contribution and the total, together with
   boundary residuals and JIT/JVP on smooth admitted states.
 - Once both reconstruction and physical wall-state contracts pass, run the
@@ -2190,9 +2257,9 @@ revision, configuration, measured results, and unresolved failures.
 | P05 | Brackets | P04 | qualified — direct midpoint global static MMS; production integration/evolution pending | User acceptance 26 September: [completed direct campaign](../../../../work/p05_direct_midpoint_global_565e1d1a_HsoyFbJ3/local_analysis/report.md), producer `565e1d1a`, passes both centered and centered-plus-saved-jump candidates for all seven nonconstant cases on both intervals. Actual-vorticity orders: centered `4.030/1.847`, with jump `4.047/1.930`; six other centered fine orders `2.810–2.989`. Preserve the [acceptance scope](../../../../work/p05_direct_midpoint_global_565e1d1a_HsoyFbJ3/local_analysis/acceptance_decision.md): localized omega maximum rebound and interpolation-sensitive geometry derivatives remain documented, without blocking this static pass. The [bounded Phase B replay](../../../../work/p_shared_face_extraction_20260926/report.md) recomputes the accepted jump from live state and matches saved `U-A`; coupled production integration, structural and evolved checks remain. Magnetic-field derivative/reference resolution remains a nonblocking accuracy follow-up. |
 | P06 | Complete curvature | P04 | closed — user-accepted observed-order pass; reference caveat retained | Remote campaign `4bb8336e…` at `6f95ecea` completed; [local analysis](../../../../work/p06-curvature-cpu_4bb8336e_8ijYwA5H/local_analysis/report.md) replays all 22 required nonzero M/R/total components above 1.8 on both intervals (minimum 1.94027). User accepts milestone closure with the [bounded reference audit](../../../../work/p06_reference_qualification_20260922/report.md) retained as a nonblocking note: q5/q7 remains unsettled on raw cell 169732; q3 global-reference uncertainty is not fully quantified. Archived flags and results remain unchanged. Proceed to P07; no automatic reference rerun or production promotion. |
 | P07 | Perpendicular diffusion/polarization | P04, P03 | Combined structured static accuracy accepted — observed approximately third order; reference caveat nonblocking; integration/evolution pending | User decision 25 September: accept the [combined global campaign](../../../../work/p07_combined_global_analysis_20260925/report.md), orders phi `3.257/3.546`, Ti `3.251/3.591`, regular `3.099/3.338`, mixed `3.098/3.327`. The [bounded reference audit](../../../../work/p07_bounded_reference_audit_20260925/report.md) supports the accuracy assessment but does not recompute global orders. Preserve the archived failed reference flag and the [acceptance distinction](../../../../work/p07_combined_global_analysis_20260925/acceptance_decision.md). Preserve older D_trace results separately; its energy defect is not a measured defect of the new candidate. Elliptic/energy work remains deferred, and no production promotion or automatic run is authorized. |
-| P05N | Physical-normal Neumann brackets | Shared extraction/replay and bounded Neumann reconstruction admission | planned | Qualify full centered and live-jump midpoint actions; the bounded scalar-jump pilot alone is insufficient. Preserve Dirichlet qualification. |
-| P06N | Physical-normal Neumann curvature | Shared extraction/replay and bounded Neumann reconstruction admission | planned | Qualify complete material/remainder/characteristic actions with a separately specified compatible physical wall state. |
-| P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | local global-campaign preparation; execution pending pinned revision and input transfer | Axis-regular N32/N48/N64 bounded preflight and matched N/D/O/R audit complete. Frozen static global plan, portable inputs and recovery are locally prepared; no global pass or production promotion. Exact wall values remain diagnostic-only. |
+| P05N | Physical-normal Neumann brackets | Shared extraction/replay and bounded Neumann reconstruction admission | planned | Qualify full centered and live-jump midpoint actions; the bounded scalar-jump pilot alone is insufficient. Use field-derived nonzero data and the row-linearity/zero-data check per the 27 September field contract. Preserve Dirichlet qualification. |
+| P06N | Physical-normal Neumann curvature | Shared extraction/replay and bounded Neumann reconstruction admission | planned | Qualify complete material/remainder/characteristic actions with a separately specified compatible physical wall state. Use field-derived nonzero data and the row-linearity/zero-data check per the 27 September field contract. |
+| P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | frozen global campaign failed; field-derived catalogue frozen, new campaign in local preparation | The [`5930b72c` campaign](../../../../work/p07n_static_global_5930b72c_20260926T2355Z_a91d3c/local_analysis/report.md) fails its order gate, which is preserved unchanged. Its error is exact-gradient-face-versus-midpoint (O−R) error forced by the zero-normal correction fields, not the Neumann closure (N−D ≈ 1e-5 of N−R). Under the 27 September field contract, the [global O−R screen](../../../../work/p07n_compatible_fields_20260927/report.md) was run before the catalogue freeze. The catalogue is now frozen (b1, e3, e12, held-out b2), with the N−R gate unchanged and a predeclared expectation of a pre-asymptotic O−R-limited result. A new campaign is required; no production promotion. |
 | P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | pending | Include separately qualified Dirichlet and Neumann variants. |
 | P09 | Evolved MMS and promotion | P08 | pending | — |
 
