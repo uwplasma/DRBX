@@ -190,12 +190,6 @@ the right-hand side is assembled in `LocalFciDrbEBRhs.evaluate_stage`.
 
 ## Known limitations
 
-- Multi-device runs differ from single-device runs at the eta shard
-  interfaces. After one N32 step on two shards the largest relative
-  differences are 5e-4 (vorticity) and 3e-4 (potential), confined to the
-  planes adjacent to the two interfaces, and unchanged by a tighter GMRES
-  tolerance. The discrepancy is inherited from the base commit. Treat
-  single-device runs as the reference.
 - The largest relative GMRES residual in the first N32 step is about 8e-4 at
   the default tolerances, above the 5e-5 acceptance tolerance; the driver logs
   it as `gmres-relres`.
