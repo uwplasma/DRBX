@@ -517,6 +517,11 @@ class LocalFciDrbEBRhs:
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None
     control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None = None
     axis_regular_axes: tuple[bool, bool, bool] = (False, False, False)
+    # Treat mu*grad_parallel(phi) and the homogeneous parallel current
+    # divergence implicitly through a coupled potential solve in each IMEX
+    # stage (see ``solve_implicit_current_phi_pair``).  Default False here
+    # must match the integrator, which the driver controls.
+    implicit_current_phi_pair: bool = False
 
     @property
     def neumann_normal_scheme(self) -> str:
@@ -755,6 +760,57 @@ class LocalFciDrbEBRhs:
             Vi=self._restrict_fine_field(state.Vi),
             Ve=self._restrict_fine_field(state.Ve),
             vorticity=self._restrict_fine_field(state.vorticity),
+        )
+
+    def _expand_owner_field_for_stencil(self, values_owned: jnp.ndarray) -> jnp.ndarray:
+        """Expand an owner-space (RLP-collapsed) array into dense fine storage.
+
+        Mirrors, exactly, the expansion
+        :meth:`LocalPerpLaplacianInverseSolver._apply_A` performs on its own
+        GMRES unknown before building the base ``-L_perp`` stencil,
+        including the halo exchange needed when a merged cell's owner lives
+        on a different shard.  This is required before handing a candidate
+        ``phi`` (or any other owner-collapsed array) to
+        ``current_phi_gradient``/``current_phi_divergence`` from
+        :meth:`_fci_current_phi_boundary_pair`: those closures consume the
+        same every-fine-cell-populated representation that ordinary state
+        fields carry after ``_prepare_state_halo``/``_prepare_scalar_halo``,
+        not the owner-collapsed (zero-at-alias) representation state arrays
+        are persisted in.  Without control-volume geometry the two
+        representations coincide and this is the identity.
+        """
+
+        values_owned = jnp.asarray(values_owned, dtype=jnp.float64)
+        if self.control_volume_geometry is None:
+            return values_owned
+        owner_halo = inject_owned_field_to_halo(values_owned, self.domain.layout)
+        if self.halo_exchange is not None:
+            owner_halo = self.halo_exchange(owner_halo, self.domain)
+        return expand_local_control_volume_owner_field(
+            values_owned,
+            self.control_volume_geometry.cells,
+            owner_values_halo=owner_halo,
+        )
+
+    def _project_fine_cell_term(self, value_fine: jnp.ndarray) -> jnp.ndarray:
+        """Map a raw fine-cell-space RHS contribution into owner/state space.
+
+        This is exactly the per-term projection ``evaluate_stage`` applies to
+        every raw RHS contribution before assembling the final state -- see
+        ``pack_rhs_terms`` and the ``_restrict_fine_state``/``_owner_state``
+        pair at the end of ``evaluate_stage``: RLP volume-average restriction
+        (``_restrict_fine_field``), inactive-cell masking, then owner-alias
+        zeroing (``_owner_field``, the same projection
+        :meth:`project_galerkin_state` applies at the whole-state level).
+        Used by :meth:`solve_implicit_current_phi_pair` to map both the
+        vorticity-current (``Pvort``) and Ve (``PVe``) contributions -- the
+        operation does not depend on which field slot the term belongs to.
+        """
+
+        return self._owner_field(
+            _mask_inactive_owned(
+                self._restrict_fine_field(value_fine), self.geometry
+            )
         )
 
     def _prepare_phi_halo(
@@ -1835,11 +1891,26 @@ class LocalFciDrbEBRhs:
                 ),
                 axis=-1,
             )
+        vorticity_current_flux_div_value = flux_div("vorticity_current")
+        # Affine-only variant: the same target-masked closure with the
+        # homogeneous D_h(J) part subtracted off, leaving just the wall
+        # current lift.  Non-target rows are unaffected (already masked).
+        vorticity_current_affine_flux_div_value = (
+            vorticity_current_flux_div_value
+            - (
+                jnp.zeros_like(div_b)
+                if characteristic_sat_homogeneous_current_divergence is None
+                else characteristic_sat_homogeneous_current_divergence
+            )
+        )
         result = {
             "parallel_div_b": div_b,
             "density_flux_div": flux_div("density_flux"),
             "current_flux_div": flux_div("current"),
-            "vorticity_current_flux_div": flux_div("vorticity_current"),
+            "vorticity_current_flux_div": vorticity_current_flux_div_value,
+            "vorticity_current_affine_flux_div": (
+                vorticity_current_affine_flux_div_value
+            ),
             "parallel_Vi_flux_div": flux_div("Vi"),
             "Ve_flux_div": flux_div("Ve"),
             "grad_density": gradient_values["density"],
@@ -1994,6 +2065,7 @@ class LocalFciDrbEBRhs:
         phi_rhs = (
             jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_laplacian
             - jnp.asarray(state_owned.vorticity, dtype=jnp.float64)
+            / jnp.asarray(self.parameters.rho_star, dtype=jnp.float64) ** 2
         )
         phi_lift = jnp.asarray(state_owned.phi, dtype=jnp.float64)
         solver = LocalPerpLaplacianInverseSolver(
@@ -2122,7 +2194,8 @@ class LocalFciDrbEBRhs:
                 -phi_laplacian,
                 jnp.asarray(self.parameters.tau, dtype=jnp.float64)
                 * ti_laplacian,
-                -jnp.asarray(state_owned.vorticity, dtype=jnp.float64),
+                -jnp.asarray(state_owned.vorticity, dtype=jnp.float64)
+                / jnp.asarray(self.parameters.rho_star, dtype=jnp.float64) ** 2,
             ),
             axis=0,
         )
@@ -2316,6 +2389,178 @@ class LocalFciDrbEBRhs:
             )
         info["selected_complete_residual_owner"] = complete_residual_owner
         return updated_state, increment_state, info
+
+    def solve_implicit_current_phi_pair(
+        self,
+        state_owned: FciDrbEBState,
+        *,
+        solve_dt: Any,
+    ) -> tuple[FciDrbEBState, FciDrbEBState, SolvaxGmresInfo]:
+        """Linearized backward-Euler current/phi coupled potential solve.
+
+        Treats ``mu*grad_parallel(phi)`` and its weighted-adjoint partner,
+        the homogeneous parallel current divergence, implicitly through one
+        coupled potential solve, in place of the ordinary standalone
+        polarization solve (:meth:`reconstruct_phi`) for this IMEX stage.
+        Every other coefficient (density, Vi, Ve, Ti, bmag) is frozen at
+        ``state_owned`` -- the state after the existing material short-leg
+        solve (``apply_short_leg_implicit_material_step``).  Only ``Ve``,
+        ``vorticity``, and ``phi`` change; the caller is responsible for
+        combining the returned increment with the material increment.
+
+        The coupling is a single scalar linear correction added to the
+        ordinary ``-L_perp`` operator via
+        ``LocalPerpLaplacianInverseSolver.extra_operator``; see that class
+        for how the correction is mapped in and out of the solver's own
+        unknown space.
+        """
+
+        h = jnp.asarray(solve_dt, dtype=jnp.float64)
+        state_owned = self._owner_state(state_owned)
+        face_bc = self._face_bcs(state_owned)
+        state_halo = self._prepare_state_halo(state_owned, face_bc)
+        context = self._stencil_builder_context()
+        owned = self.domain.layout.owned_slices_cell
+
+        # Dense (every-fine-cell-populated) base-state coefficients, exactly
+        # as evaluate_stage extracts them (state_halo.X[owned]), since
+        # current_phi_gradient/current_phi_divergence below need the
+        # expanded representation.
+        density_dense = jnp.asarray(state_halo.density[owned], dtype=jnp.float64)
+        density_safe_dense = jnp.maximum(density_dense, 1.0e-30)
+        Vi_dense = jnp.asarray(state_halo.Vi[owned], dtype=jnp.float64)
+        Ve_dense = jnp.asarray(state_halo.Ve[owned], dtype=jnp.float64)
+        bmag = jnp.maximum(
+            jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
+            1.0e-30,
+        )
+        kappa_dense = bmag * bmag / density_safe_dense
+        tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+        mu = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
+        rho_star = jnp.asarray(self.parameters.rho_star, dtype=jnp.float64)
+
+        # The homogeneous current/phi weighted-adjoint pair, built from the
+        # base state's face_bc/context exactly as _fci_parallel_terms builds
+        # it (wall_endpoint_current_values=(0, 0) => the exact zero-Neumann
+        # homogeneous closure; build_adjoint defaults True).
+        current_phi_gradient, current_phi_divergence, _current_phi_target = (
+            self._fci_current_phi_boundary_pair(
+                face_bc=face_bc,
+                context=context,
+                wall_endpoint_current_values=(
+                    jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                    jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                ),
+            )
+        )
+
+        omega_b = jnp.asarray(state_owned.vorticity, dtype=jnp.float64)
+        Ve_b = jnp.asarray(state_owned.Ve, dtype=jnp.float64)
+
+        # omega_pred = omega_b + h * Pvort(kappa * D_h(n * (Vi_b - Ve_b)))
+        homogeneous_current_dense = density_dense * (Vi_dense - Ve_dense)
+        homogeneous_div_dense = current_phi_divergence(homogeneous_current_dense)
+        omega_pred = omega_b + h * self._project_fine_cell_term(
+            kappa_dense * homogeneous_div_dense
+        )
+
+        # tau * L_perp(Ti_b), restricted to owner space exactly as
+        # _reconstruct_phi_from_prepared computes its own phi_rhs.
+        ti_conservative = build_local_conservative_stencil_from_field(
+            state_halo.Ti, self.geometry, context,
+        )
+        ti_laplacian = local_perp_laplacian_conservative_op(
+            ti_conservative,
+            self.geometry,
+            self.domain,
+            face_projectors=self.face_projectors,
+            face_bc=face_bc.Ti,
+            regular_face_geometry=self.geometry.regular_face_geometry,
+            axis_regular_axes=self.axis_regular_axes,
+            neumann_normal_scheme=self.neumann_normal_scheme,
+        )
+        ti_laplacian = self._restrict_fine_field(ti_laplacian)
+
+        phi_rhs = tau * ti_laplacian - omega_pred / rho_star ** 2
+
+        # extra_operator(phi) = -(h**2 * mu / rho_star**2)
+        #                       * Pvort(kappa * D_h(n * G(phi)))
+        # added by LocalPerpLaplacianInverseSolver._apply_A to its -L_perp
+        # result, in the solver's own owner-space unknown representation;
+        # see _expand_owner_field_for_stencil for the in-mapping and
+        # _project_fine_cell_term for the out-mapping.
+        coefficient = (h ** 2 * mu) / rho_star ** 2
+
+        def extra_operator(field_owned: jnp.ndarray) -> jnp.ndarray:
+            phi_dense = self._expand_owner_field_for_stencil(field_owned)
+            g_dense = current_phi_gradient(phi_dense)
+            divergence_dense = current_phi_divergence(density_dense * g_dense)
+            return -coefficient * self._project_fine_cell_term(
+                kappa_dense * divergence_dense
+            )
+
+        solver = LocalPerpLaplacianInverseSolver(
+            geometry=self.geometry,
+            domain=self.domain,
+            control_volume_geometry=self.control_volume_geometry,
+            control_volume_boundary_bc=self.control_volume_boundary_bc,
+            stencil_builder=build_local_conservative_stencil_from_field,
+            stencil_builder_context=context,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+            physical_ghost_filler=self.physical_ghost_filler,
+            face_projectors=self.face_projectors,
+            face_bc=face_bc.phi,
+            axis_regular_axes=self.axis_regular_axes,
+            neumann_normal_scheme=self.neumann_normal_scheme,
+            config=self.gmres_config,
+            extra_operator=extra_operator,
+        )
+        phi_lift = jnp.asarray(state_owned.phi, dtype=jnp.float64)
+        if self.control_volume_geometry is not None:
+            phi_solution, info = solver.solve_rlp_owner(
+                phi_rhs,
+                guess_owned=state_owned.phi,
+                phi_lift_owned=phi_lift,
+                return_diagnostics=True,
+            )
+        else:
+            phi_solution, info = solver.solve_full_grid(
+                phi_rhs,
+                guess_owned=state_owned.phi,
+                phi_lift_owned=phi_lift,
+                return_diagnostics=True,
+            )
+        phi_owned = self._owner_field(
+            _mask_inactive_owned(phi_solution, self.geometry)
+        )
+
+        # g = G(phi*); Ve* = Ve_b + h*mu*PVe(g);
+        # omega* = omega_pred - h**2*mu*Pvort(kappa*D_h(n*g))
+        phi_dense_final = self._expand_owner_field_for_stencil(phi_owned)
+        g_dense = current_phi_gradient(phi_dense_final)
+        Ve_star = Ve_b + h * mu * self._project_fine_cell_term(g_dense)
+        coupled_divergence_dense = current_phi_divergence(density_dense * g_dense)
+        omega_star = omega_pred - h ** 2 * mu * self._project_fine_cell_term(
+            kappa_dense * coupled_divergence_dense
+        )
+
+        stage_state = self._owner_state(state_owned.replace(
+            phi=phi_owned,
+            Ve=Ve_star,
+            vorticity=omega_star,
+        ))
+        zero = jnp.zeros_like(state_owned.density)
+        increment_state = self._owner_state(FciDrbEBState(
+            density=zero,
+            phi=zero,
+            Te=zero,
+            Ti=zero,
+            Vi=zero,
+            Ve=Ve_star - Ve_b,
+            vorticity=omega_star - omega_b,
+        ))
+        return stage_state, increment_state, info
 
     def evaluate_stage(
         self,
@@ -2547,8 +2792,13 @@ class LocalFciDrbEBRhs:
         )
 
         stage_parallel_terms = fci_parallel_terms
+        # When the coupled potential solve owns the homogeneous current
+        # divergence and the phi force, only the affine wall lift stays in
+        # the explicit vorticity RHS (the phi force term is zeroed below).
         vorticity_current_flux_divergence = stage_parallel_terms[
-            "vorticity_current_flux_div"
+            "vorticity_current_affine_flux_div"
+            if self.implicit_current_phi_pair
+            else "vorticity_current_flux_div"
         ]
         grad_parallel_Te = stage_parallel_terms["grad_Te"]
         grad_parallel_Ti = stage_parallel_terms["grad_Ti"]
@@ -2573,7 +2823,13 @@ class LocalFciDrbEBRhs:
         current_parallel_value = density * (Vi - Ve)
         vorticity_parallel_advection = -Vi * grad_parallel_vorticity
         Ve_collision_term = mi_over_me * Ve_nu * current_parallel_value
-        Ve_phi_force_term = mi_over_me * grad_parallel_phi
+        # This force term moves into the coupled potential solve when that
+        # path is active; keeping it here too would double-count it.
+        Ve_phi_force_term = (
+            jnp.zeros_like(grad_parallel_phi)
+            if self.implicit_current_phi_pair
+            else mi_over_me * grad_parallel_phi
+        )
         Ve_Ti_force_complete_term = mi_over_me * tau * grad_parallel_Ti
         material_diagnostics = stage_parallel_terms.get(
             "parallel_material_diagnostics", {}
@@ -2613,9 +2869,14 @@ class LocalFciDrbEBRhs:
             curvature_Ti_contribution,
             curvature_vorticity_contribution,
         ) = curvature_outputs
+        # Curvature drifts are O(rho_star) in metre-normalized units.
+        curvature_density_contribution = rho_star * curvature_density_contribution
+        curvature_Te_contribution = rho_star * curvature_Te_contribution
+        curvature_Ti_contribution = rho_star * curvature_Ti_contribution
+        curvature_vorticity_contribution = rho_star * curvature_vorticity_contribution
 
         density_rhs = (
-            -(poisson_density / rho_star)
+            -(poisson_density * rho_star)
             + production_material_residual[..., 0]
             + curvature_density_contribution
             + density_diff
@@ -2623,7 +2884,7 @@ class LocalFciDrbEBRhs:
             + material_upwind_correction[..., 0]
         )
         Te_rhs = (
-            -(poisson_Te / rho_star)
+            -(poisson_Te * rho_star)
             + production_material_residual[..., 1]
             + curvature_Te_contribution
             + Te_diff
@@ -2631,7 +2892,7 @@ class LocalFciDrbEBRhs:
             + material_upwind_correction[..., 1]
         )
         Ti_rhs = (
-            -(poisson_Ti / rho_star)
+            -(poisson_Ti * rho_star)
             + production_material_residual[..., 2]
             + curvature_Ti_contribution
             + Ti_diff
@@ -2639,12 +2900,12 @@ class LocalFciDrbEBRhs:
             + material_upwind_correction[..., 2]
         )
         Vi_perpendicular_rhs = (
-            -(poisson_Vi / rho_star)
+            -(poisson_Vi * rho_star)
             + Vi_diff
         )
-        Ve_poisson_term = -(poisson_Ve / rho_star)
+        Ve_poisson_term = -(poisson_Ve * rho_star)
         Ve_perpendicular_rhs = Ve_poisson_term + Ve_diff
-        Vi_poisson_term = -(poisson_Vi / rho_star)
+        Vi_poisson_term = -(poisson_Vi * rho_star)
         Vi_diff_term = Vi_diff
         Ve_diff_term = Ve_diff
         Vi_rhs = (
@@ -2661,7 +2922,7 @@ class LocalFciDrbEBRhs:
             + Ve_parallel_diff
         )
         vorticity_rhs = (
-            -(poisson_vorticity / rho_star)
+            -(poisson_vorticity * rho_star)
             + vorticity_parallel_advection
             + vorticity_current_term
             + curvature_vorticity_contribution
@@ -2697,7 +2958,7 @@ class LocalFciDrbEBRhs:
         def all_rhs_term_fields() -> jnp.ndarray:
             density_terms = pack_rhs_terms(
                 (
-                    -(poisson_density / rho_star),
+                    -(poisson_density * rho_star),
                     density_parallel_material_term,
                     curvature_density_contribution,
                     density_diff,
@@ -2707,7 +2968,7 @@ class LocalFciDrbEBRhs:
             )
             Te_terms = pack_rhs_terms(
                 (
-                    -(poisson_Te / rho_star),
+                    -(poisson_Te * rho_star),
                     Te_parallel_material_term,
                     curvature_Te_contribution,
                     zero_term,
@@ -2718,7 +2979,7 @@ class LocalFciDrbEBRhs:
             )
             Ti_terms = pack_rhs_terms(
                 (
-                    -(poisson_Ti / rho_star),
+                    -(poisson_Ti * rho_star),
                     Ti_parallel_material_term,
                     curvature_Ti_contribution,
                     zero_term,
@@ -2752,7 +3013,7 @@ class LocalFciDrbEBRhs:
             )
             vorticity_terms = pack_rhs_terms(
                 (
-                    -(poisson_vorticity / rho_star),
+                    -(poisson_vorticity * rho_star),
                     vorticity_parallel_advection,
                     vorticity_current_term,
                     curvature_vorticity_contribution,
