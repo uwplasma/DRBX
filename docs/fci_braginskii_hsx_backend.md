@@ -12,9 +12,14 @@ an implicit current/potential pair (see Normalization below). Tracing is
 about ten times faster because host-side validation no longer builds JAX's
 jaxpr-walking error messages (`drbx.fci_braginskii._host_guards`).
 
-The backend consumes a precomputed geometry artifact. It contains no geometry
-production (field-line tracing, metric fitting, RLP construction); those live
-in the 2D_fci geometry pipeline.
+The backend consumes a precomputed geometry artifact. The geometry builder
+that produces it (field-line tracing, metric fitting, RLP construction) is a
+separate subpackage, `drbx.fci_braginskii.geometry_build`, run through
+`generate_hsx_fci_geometry.py`. It is the 2D_fci producer at
+`6c2b005d81d3`, the commit that built the canonical 32-cubed bundle, with only
+its imports changed. It keeps its own copies of the geometry and boundary
+modules it shares with the backend, so building geometry cannot change the
+backend.
 
 ## Fixed configuration
 
@@ -65,6 +70,62 @@ The canonical 32-cubed bundle uses 64 trace substeps and a 64-cubed
 coordinate-fit sample, unlike the historical 48-cubed, four-substep runs, so it
 tests the old plasma model on canonical geometry rather than replaying a
 historical run.
+
+The bundle is not in the repository; obtain it from the maintainers and place
+it at `artifacts/geometry/hsx_fci_32x32x32` (`artifacts/` is ignored by git).
+The manifest records a SHA-256 for every file. To check a copy:
+
+```bash
+python -c "from drbx.fci_braginskii.geometry_build.fci_simulation_geometry import audit_fci_simulation_geometry_checksums as a; print(a('artifacts/geometry/hsx_fci_32x32x32')['valid'])"
+```
+
+## Building geometry
+
+`generate_hsx_fci_geometry.py` builds a bundle from the HSX vacuum field and
+vessel. It needs two input files, also not in the repository and obtained from
+the maintainers. The builder looks for them under `artifacts/inputs/hsx/` by
+default; `--makegrid` and `--vessel` override the paths.
+
+| File | Size | SHA-256 |
+|---|---|---|
+| `mgrid_res2p5cm_180pln.nc` (MAKEGRID vacuum field) | 5,831,797,532 bytes | `45dd643a4ae3930386b8f8bff7a789c796a0d5174b5209e1202b5bfd4ac87e44` |
+| `vessel_hsx_flare.txt` (vessel outline) | 909,289 bytes | `65d794b7131e35dc72b554e5b6ae3c97974a5e11a7d936ebedc66451749d1ff3` |
+
+The canonical bundle was built on Perlmutter with a vessel file of the same
+length but a different SHA-256 (`b5ad2a36...`), so a rebuild from these inputs
+is close to the canonical bundle but not identical to it (see below). The
+default coil
+currents are the QHS configuration (10722 A in the first six MAKEGRID coil
+groups, the main coils, and 0 A in the other six); `--makegrid-currents`
+changes them.
+
+The canonical 32-cubed settings:
+
+```bash
+python generate_hsx_fci_geometry.py \
+  --resolution 32 32 32 --metric-mesh-shape 32 32 32 \
+  --fit-sample-shape 64 64 64 --toroidal-modes 10 --metric-toroidal-modes 3 \
+  --include-curvature-edge-one-form \
+  --metric-cache-dir /path/to/build/metric_cache \
+  --output /path/to/build/hsx_fci_32x32x32
+```
+
+The builder runs in stages (metric fit and cell maps, vertex-trace atlas,
+angular owner geometry, owner-boundary overlap, artifact write). Completed
+stages are checkpointed in the output's sibling
+`.NAME.producer-checkpoints/` directory, so an interrupted build resumes.
+The bundle is written atomically after its structural checks pass. Field-line
+tracing uses JAX by default and shards the trajectory batch across all local
+devices (`--trace-device-count`, `--trace-batch-size`); `--trace-backend numpy`
+is the reference implementation.
+
+On an 8-core M1 the canonical 32-cubed build takes about 17 minutes with a
+3.7 GB peak; field-line tracing of the cell-centre maps takes about 3.5 minutes
+and the owner-overlap stage about 4.5 minutes. The overlap stage grows quickly
+with resolution: on Perlmutter it peaked at 29 GiB for 48-cubed and 65 GiB for
+64-cubed. A 32-cubed rebuild from the inputs above differs from the canonical
+bundle by 1.4 to 3.5 mm in cell positions and by up to 0.7% in |B|, most likely
+because of the vessel file; the backend runs on either.
 
 ## Running
 
@@ -152,4 +213,7 @@ XLA_FLAGS=--xla_force_host_platform_device_count=4 DRBX_HOST_DEVICE_COUNT=4 \
   python -m pytest -q tests/fci_braginskii
 ```
 
-The second run also covers the multi-device halo exchange.
+The second run also covers the multi-device halo exchange. The builder tests
+live in `tests/fci_braginskii/geometry_build` and use synthetic or mocked
+inputs; the few that read the real field or vessel run only when
+`DRBX_HSX_MGRID` and `DRBX_HSX_VESSEL` point at those files.
