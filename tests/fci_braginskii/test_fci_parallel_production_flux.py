@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -631,19 +629,3 @@ def test_failed_two_wall_hotspot_is_admissible():
     assert bool(jnp.all(jnp.isfinite(wall["selected_residual"])))
     assert bool(jnp.all(jnp.isfinite(wall["selected_jacobian"])))
     assert bool(info["admissible"])
-
-
-def test_completed_run_state_range_is_admissible_when_available():
-    path = Path("/Users/yxie/Desktop/HSX drbx/prototype_runs/fci_curvature_radial_poloidal_third_order_upwind_32_t015/hsx_curvature_radial_poloidal_third_order_upwind_32_t015.npz")
-    if not path.exists():
-        pytest.skip("completed 32^3 history is not present on this checkout")
-    data = np.load(path)
-    names = ("density", "Te", "Ti", "Vi", "Ve")
-    if not all(name in data for name in names):
-        pytest.skip("history does not expose primitive state fields")
-    values = jnp.stack(tuple(jnp.asarray(data[name]).reshape(-1)[:64] for name in names), axis=-1)
-    matrices = parallel_characteristic_matrix(*values.T, tau=1.0, mu=1836.0)
-    _plus, _minus, valid = parallel_characteristic_projectors(matrices)
-    assert bool(jnp.all(values[:, :3] > 0.0))
-    assert bool(jnp.all(valid))
-
