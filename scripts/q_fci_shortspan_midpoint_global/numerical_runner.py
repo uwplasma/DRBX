@@ -5,7 +5,7 @@ P/R is reused from the separately verified exact screen. Every owner batch is
 atomic and resumable. A caller must name owner IDs explicitly.
 """
 from __future__ import annotations
-import argparse,concurrent.futures,hashlib,io,json,os,resource,shutil,sys,time,zipfile
+import argparse,concurrent.futures,hashlib,io,json,multiprocessing,os,resource,shutil,sys,time,zipfile
 from pathlib import Path
 for key in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS','VECLIB_MAXIMUM_THREADS','NUMEXPR_NUM_THREADS'):
     os.environ[key]='1'
@@ -37,6 +37,10 @@ PAIRS=json.loads((HERE/'catalogue.json').read_text())['boundary_pairs']
 CTX=INDEX=STATE=TRACER=None;OUT=DESIGN=CACHE=MAPZIP=SCREEN=CHECK_REUSE=None;N=None;TRACE_FIRST=True
 def sha(p):return exact.sha(p)
 def write(path,obj):exact.write_json(path,obj)
+def peak_rss_gib():
+    """getrusage uses bytes on macOS and KiB on Linux (including Perlmutter)."""
+    peak=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak/(1024**3 if sys.platform=='darwin' else 1024**2)
 def source_paths():
     root=HERE.parents[1]
     return [HERE/x for x in ('numerical_runner.py','exact_screen.py','qcommon.py','candidate.py','wall_fit.py','wall_score.py','selection.py','compact.py','trace.py','fields.py','span_contract.py','catalogue.json','reuse.py','campaign.py','reduce_numerical.py')]+[CONFIG,HERE.parent/'q_fci_return_campaign/numerics.py',HERE.parent/'q_fci_return_campaign/endpoints.py',HERE.parent/'q03_direct_campaign/frozen_mms.py']+[root/'src/drbx/geometry'/x for x in ('MetricEvaluator.py','Bfield_evaluator.py','hsx_jax_field.py','jax_metric_evaluator.py','jax_bfield_evaluator.py','fci_boundary_functional_reconstruction.py','solve_MMPDE.py')]+[root/'src/drbx/_host_guards.py']
@@ -303,7 +307,7 @@ def _run_chunk_unlocked(job):
                     times['diagnostics']+=time.process_time()-start
     tmp=path.with_name(path.stem+'.tmp.npz');start=time.process_time();np.savez_compressed(tmp,owners=np.asarray(owners),raw_count=np.asarray(raw_counts),volume=np.asarray(volumes),N=Nout,E=Eout,P=Pout,R=Rout,R_half=Rhout,**compactarrays,**representatives);os.replace(tmp,path);times['io']+=time.process_time()-start
     import jax
-    receipt=dict(schema='q-numerical-owner-chunk-v2',N=N,owners=owners,raw_count=int(sum(raw_counts)),map_count=len(mapmeta),cases=cases,source_design_sha256=designhash,design_sha256=designhash,sha256=sha(path),stage_cpu_s=times,cpu_s=time.process_time()-t0,maxrss_gib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024**3,cpu_backend=jax.default_backend(),affinity_cpus=sorted(os.sched_getaffinity(0)) if hasattr(os,'sched_getaffinity') else None,thread_limits={key:os.environ.get(key) for key in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS','VECLIB_MAXIMUM_THREADS','NUMEXPR_NUM_THREADS','JAX_PLATFORMS')},max_endpoint_error=max_endpoint,max_imposed_bc_residual=max_bc,max_independent_bc_residual=max_independent_bc,max_first_crossing_bc_residual=max_crossing_bc,max_RK4_256_to_512_endpoint=max_512,rk4_checks=trace_checks,map_meta=mapmeta)
+    receipt=dict(schema='q-numerical-owner-chunk-v2',N=N,owners=owners,raw_count=int(sum(raw_counts)),map_count=len(mapmeta),cases=cases,source_design_sha256=designhash,design_sha256=designhash,sha256=sha(path),stage_cpu_s=times,cpu_s=time.process_time()-t0,maxrss_gib=peak_rss_gib(),cpu_backend=jax.default_backend(),affinity_cpus=sorted(os.sched_getaffinity(0)) if hasattr(os,'sched_getaffinity') else None,thread_limits={key:os.environ.get(key) for key in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS','VECLIB_MAXIMUM_THREADS','NUMEXPR_NUM_THREADS','JAX_PLATFORMS')},max_endpoint_error=max_endpoint,max_imposed_bc_residual=max_bc,max_independent_bc_residual=max_independent_bc,max_first_crossing_bc_residual=max_crossing_bc,max_RK4_256_to_512_endpoint=max_512,rk4_checks=trace_checks,map_meta=mapmeta)
     write(path.with_suffix('.json'),receipt)
     return dict(skipped=False,cpu_s=receipt['cpu_s'],path=str(path))
 def run_chunk(job):
@@ -335,7 +339,7 @@ def run_jobs(n,owner_groups,input_root,output,screen,workers,host_memory_gib,wor
     if workers==1:
         init_worker(n,input_root,output,screen);done=[run_chunk(x) for x in jobs]
     else:
-        with concurrent.futures.ProcessPoolExecutor(max_workers=workers,initializer=init_worker,initargs=(n,input_root,output,screen)) as pool:done=list(pool.map(run_chunk,jobs))
+        with concurrent.futures.ProcessPoolExecutor(max_workers=workers,mp_context=multiprocessing.get_context('spawn'),initializer=init_worker,initargs=(n,input_root,output,screen)) as pool:done=list(pool.map(run_chunk,jobs))
     receipt=dict(N=n,owners=len(flat),first_owner=min(flat),last_owner=max(flat),chunks=len(jobs),computed=sum(not x['skipped'] for x in done),chunk_cpu_s=sum(x['cpu_s'] for x in done),design_sha256=dh,worker_policy=policy)
     write(Path(output)/f'N{n}/run_{min(flat):06d}_{max(flat):06d}_{len(flat)}.json',receipt)
     print(json.dumps(receipt));return receipt
