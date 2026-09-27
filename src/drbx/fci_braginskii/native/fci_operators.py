@@ -5215,6 +5215,12 @@ class LocalPerpLaplacianInverseSolver:
     config: SolvaxGmresConfig = SolvaxGmresConfig()
     # Optional configured context for cut-wall stencil policies.
     stencil_builder_context: StencilBuilderContext | None = None
+    # Optional additional linear operator added to ``-L_perp`` in the
+    # solver's own unknown space (used by the implicit current/phi pair).
+    # Applied inside ``_apply_A``, so it is picked up consistently by the
+    # GMRES action, the zero-field boundary source, and the Dirichlet-lift
+    # correction.  ``None`` (the default) keeps this solver unchanged.
+    extra_operator: Callable[[jnp.ndarray], jnp.ndarray] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.geometry, LocalFciGeometry3D):
@@ -5309,6 +5315,8 @@ class LocalPerpLaplacianInverseSolver:
             )
         if not isinstance(self.config, SolvaxGmresConfig):
             raise TypeError("config must be a SolvaxGmresConfig instance")
+        if self.extra_operator is not None and not callable(self.extra_operator):
+            raise TypeError("extra_operator must be callable or None")
         object.__setattr__(self, "b_floor", float(self.b_floor))
         object.__setattr__(self, "jacobian_floor", float(self.jacobian_floor))
 
@@ -5432,6 +5440,14 @@ class LocalPerpLaplacianInverseSolver:
                 b_floor=self.b_floor,
                 jacobian_floor=self.jacobian_floor,
             )
+        if self.extra_operator is not None:
+            # ``values`` is the same masked (and, if applicable, mean-removed)
+            # owned-shape representation of the unknown that the base -L_perp
+            # action above was built from.  Adding the extra term here means
+            # every ``_apply_A`` call site -- the GMRES action, the
+            # zero-field boundary source, and the Dirichlet-lift correction
+            # ``A(lift)`` -- picks it up automatically and consistently.
+            result = result + self.extra_operator(values)
         if self.config.regularization_epsilon != 0.0:
             result = result + self.config.regularization_epsilon * values
         if project_mean_zero:
@@ -5777,6 +5793,7 @@ class LocalPerpLaplacianInverseSolver:
             self.control_volume_boundary_bc,
             self.face_bc,
             self.config,
+            self.extra_operator,
         )
         aux_data = (
             self.axis_regular_axes,
@@ -5801,6 +5818,7 @@ class LocalPerpLaplacianInverseSolver:
             control_volume_boundary_bc,
             face_bc,
             config,
+            extra_operator,
         ) = children
         (
             axis_regular_axes,
@@ -5825,4 +5843,5 @@ class LocalPerpLaplacianInverseSolver:
             b_floor=b_floor,
             jacobian_floor=jacobian_floor,
             config=config,
+            extra_operator=extra_operator,
         )
