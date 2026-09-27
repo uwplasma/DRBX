@@ -10,7 +10,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from drbx.runtime.artifacts import ensure_docs_media, ensure_hsx_geometry  # noqa: E402
+from drbx.runtime.artifacts import ensure_docs_media  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
@@ -32,11 +32,6 @@ def _parse_args() -> argparse.Namespace:
         help="Do not restore docs figures, movies, and NPZ arrays.",
     )
     parser.add_argument(
-        "--hsx-geometry",
-        action="store_true",
-        help="Also restore the canonical 32-cubed HSX geometry bundle for simulate_hsx_blob.py.",
-    )
-    parser.add_argument(
         "--force",
         action="store_true",
         help="Re-download and re-extract artifacts even if sentinels exist.",
@@ -55,16 +50,12 @@ def _auth_hint() -> str:
 def main() -> None:
     args = _parse_args()
     root = args.root.expanduser().resolve()
-    if args.skip_media and not args.hsx_geometry:
+    if args.skip_media:
         raise SystemExit("Nothing to fetch: --skip-media was set.")
 
     try:
-        if not args.skip_media:
-            docs_data = ensure_docs_media(root=root, force=args.force)
-            print(f"Restored docs media under {docs_data}")
-        if args.hsx_geometry:
-            geometry_dir = ensure_hsx_geometry(root=root, force=args.force)
-            print(f"Restored HSX geometry bundle under {geometry_dir}")
+        docs_data = ensure_docs_media(root=root, force=args.force)
+        print(f"Restored docs media under {docs_data}")
     except Exception as error:
         print(_auth_hint(), file=sys.stderr)
         print(f"{type(error).__name__}: {error}", file=sys.stderr)

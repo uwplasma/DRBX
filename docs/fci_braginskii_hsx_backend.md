@@ -66,13 +66,6 @@ coordinate-fit sample, unlike the historical 48-cubed, four-substep runs, so it
 tests the old plasma model on canonical geometry rather than replaying a
 historical run.
 
-Restore the canonical bundle with
-`python scripts/fetch_example_artifacts.py --skip-media --hsx-geometry`, which
-downloads the `fci-braginskii-geometry-v1` release asset into
-`artifacts/geometry/hsx_fci_32x32x32` and checks every file against the
-manifest checksums. Until that release is published, obtain the bundle from
-the maintainers and place it at the same path.
-
 ## Running
 
 From the repository root:
@@ -154,11 +147,9 @@ the right-hand side is assembled in `LocalFciDrbEBRhs.evaluate_stage`.
 ## Tests
 
 ```bash
-DRBX_TEST_GEOMETRY_BUNDLE=artifacts/geometry/hsx_fci_32x32x32 python -m pytest -q tests/fci_braginskii
+DRBX_TEST_GEOMETRY_BUNDLE=/path/to/hsx_fci_32x32x32 python -m pytest -q tests/fci_braginskii
 XLA_FLAGS=--xla_force_host_platform_device_count=4 DRBX_HOST_DEVICE_COUNT=4 \
   python -m pytest -q tests/fci_braginskii
 ```
 
-The second run also covers the multi-device halo exchange. The tests find the
-bundle at `artifacts/geometry/hsx_fci_32x32x32` automatically, so
-`DRBX_TEST_GEOMETRY_BUNDLE` can be omitted once it is restored there.
+The second run also covers the multi-device halo exchange.
