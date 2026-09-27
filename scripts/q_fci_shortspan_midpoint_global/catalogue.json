@@ -1,0 +1,25 @@
+{
+  "schema": "q-field-derived-neumann-20260927-v1",
+  "decision": "Keep the current Q smooth and wave fields; prescribe their own physical-normal derivative. Add an analytic simple zero-Neumann control; retire the geometry-corrected oblique zero-N field from primary qualification without relabelling historical results.",
+  "fields": ["common", "homogeneous_D", "simple_zero_N", "constant", "x_lambda0.5_m1", "x_lambda0.25_m1", "x_lambda2_m1", "x_lambda4_m1", "y_lambda0.5_m1", "y_lambda0.25_m1", "y_lambda2_m1", "y_lambda4_m1"],
+  "boundary_pairs": {
+    "common": ["D", "N"],
+    "homogeneous_D": ["D"],
+    "simple_zero_N": ["N"],
+    "constant": ["D", "N"],
+    "waves": ["D", "N"]
+  },
+  "common": "s=1+0.1*x*cos(eta)+0.05*y*sin(eta)+0.02*(x*x-y*y)*cos(2*eta); x=u*cos(theta), y=u*sin(theta)",
+  "homogeneous_D": "(1-u*u)^2*s",
+  "simple_zero_N": "1+(1-u*u)^2*s; wall value 1, all first logical derivatives zero at u=1",
+  "normal_data": "n dot physical grad(f) = (g^{u j}/sqrt(g^{uu}))*partial_j f, using full outward physical normal; no manufactured wall correction",
+  "wave_formula": "exp(i*(2*pi*x_or_y/lambda+eta)); real and imaginary parts are cosine and sine controls",
+  "primary_wave_wavelengths": [2.0, 4.0],
+  "stress_wave_wavelengths": [0.5, 0.25],
+  "retired_primary_field": "oblique_zero_N",
+  "outer_pair_separations": [0.125, 0.25],
+  "inner_eta_offsets_over_H": [-0.125, 0.125, -0.0625, 0.0625],
+  "reference": "unchanged continuum midpoint operator, followed by complete stored-volume owner projection",
+  "scope": "Existing 36 singleton wall/switch targets and existing selected maps/traces. No new tracing, support selection, factorization, global qualification or P-path changes.",
+  "limits": {"cpu_seconds": 300, "rss_gib": 3, "artifact_mib": 100}
+}
