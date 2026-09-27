@@ -1,0 +1,63 @@
+{
+  "extractor_sha256": "cd2096d6e968923be5f4f187e50b78459636ef123e0b4bcd2d04bdca7a3ea385",
+  "resolutions": {
+    "32": {
+      "donor_owners": 3845,
+      "fixture_bytes": {
+        "accepted_p05_replay": 127862,
+        "selection": 13763
+      },
+      "fixture_hashes": {
+        "accepted_p05_replay": "9a59dd0331129898f1f38f047d88b7909907f5a407623868bdfb9ee3e4e07d1a",
+        "selection": "d363f6bf24ac8d79a6dc234a3c79f09c3f8fc0354f378b14da1397a6cfecf859"
+      },
+      "n": 32,
+      "owner_count": 25376,
+      "selected_owners": 54,
+      "source_hashes": {
+        "accepted": "faf81cea38ad6eda377c3f832489179deaf03b2f5cd2082a64a43046114f0e6c",
+        "reuse": "8131f6dce441301cf6b5c6a219275aabfd1e50feeaf719bc24a4654c77e0aac8",
+        "selection": "d363f6bf24ac8d79a6dc234a3c79f09c3f8fc0354f378b14da1397a6cfecf859"
+      }
+    },
+    "48": {
+      "donor_owners": 3877,
+      "fixture_bytes": {
+        "accepted_p05_replay": 128611,
+        "selection": 13789
+      },
+      "fixture_hashes": {
+        "accepted_p05_replay": "174474b8974fb49cb2dc935b3632412b6cf1e92261371353a855680cb966ffe9",
+        "selection": "f8cbf8ed0975b08fd2304f76f43168b4e2f2ff71d1eeb1de11afb357d65f8cac"
+      },
+      "n": 48,
+      "owner_count": 86016,
+      "selected_owners": 54,
+      "source_hashes": {
+        "accepted": "fdc39098ca65025ed1965c9905c79a2f6d5fae97408fa89d2fd49b090da5399f",
+        "reuse": "0aa68cb47ae84403c671789ae07b3c6ea8f9f2b7ca2961b1ee484006a3e51ea5",
+        "selection": "f8cbf8ed0975b08fd2304f76f43168b4e2f2ff71d1eeb1de11afb357d65f8cac"
+      }
+    },
+    "64": {
+      "donor_owners": 3931,
+      "fixture_bytes": {
+        "accepted_p05_replay": 131370,
+        "selection": 13893
+      },
+      "fixture_hashes": {
+        "accepted_p05_replay": "c49af2a6a8745b630334053aadd029cb7af6811691cecf6ba0d7a72711a2518b",
+        "selection": "997375e91c23fe9f50a52f0f4a1d25bdb11f6dfc8148a66e5f2054c57d3b4238"
+      },
+      "n": 64,
+      "owner_count": 202304,
+      "selected_owners": 54,
+      "source_hashes": {
+        "accepted": "294d656207e69b5e61b2fc87077ea6c67a77aa8263a1f5862c0dea3d8e14a69f",
+        "reuse": "2905100f6e3e2644f99b5cb242663ad35a15d0cf5f5a1d5f26d7bcd433745152",
+        "selection": "997375e91c23fe9f50a52f0f4a1d25bdb11f6dfc8148a66e5f2054c57d3b4238"
+      }
+    }
+  },
+  "schema": "drbx.p05n-preflight-fixtures-v1"
+}
