@@ -35,6 +35,7 @@ HERE=Path(__file__).resolve().parent;CONFIG=HERE.parent/'q_fci_projected_campaig
 FIELDS=tuple(json.loads((HERE/'catalogue.json').read_text())['fields'])
 PAIRS=json.loads((HERE/'catalogue.json').read_text())['boundary_pairs']
 CTX=INDEX=STATE=TRACER=None;OUT=DESIGN=CACHE=MAPZIP=SCREEN=CHECK_REUSE=None;N=None;TRACE_FIRST=True
+TRACE_CACHE=TRACE_STORE_SHA=None
 def sha(p):return exact.sha(p)
 def write(path,obj):exact.write_json(path,obj)
 def peak_rss_gib():
@@ -43,7 +44,7 @@ def peak_rss_gib():
     return peak/(1024**3 if sys.platform=='darwin' else 1024**2)
 def source_paths():
     root=HERE.parents[1]
-    return [HERE/x for x in ('numerical_runner.py','exact_screen.py','qcommon.py','candidate.py','wall_fit.py','wall_score.py','selection.py','compact.py','trace.py','fields.py','span_contract.py','catalogue.json','reuse.py','campaign.py','reduce_numerical.py')]+[CONFIG,HERE.parent/'q_fci_return_campaign/numerics.py',HERE.parent/'q_fci_return_campaign/endpoints.py',HERE.parent/'q03_direct_campaign/frozen_mms.py']+[root/'src/drbx/geometry'/x for x in ('MetricEvaluator.py','Bfield_evaluator.py','hsx_jax_field.py','jax_metric_evaluator.py','jax_bfield_evaluator.py','fci_boundary_functional_reconstruction.py','solve_MMPDE.py')]+[root/'src/drbx/_host_guards.py']
+    return [HERE/x for x in ('numerical_runner.py','exact_screen.py','qcommon.py','candidate.py','wall_fit.py','wall_score.py','selection.py','compact.py','trace.py','trace_store.py','gpu_trace.py','gpu_preflight.py','fields.py','span_contract.py','catalogue.json','reuse.py','campaign.py','reduce_numerical.py')]+[CONFIG,HERE.parent/'q_fci_return_campaign/numerics.py',HERE.parent/'q_fci_return_campaign/endpoints.py',HERE.parent/'q03_direct_campaign/frozen_mms.py']+[root/'src/drbx/geometry'/x for x in ('MetricEvaluator.py','Bfield_evaluator.py','hsx_jax_field.py','jax_metric_evaluator.py','jax_bfield_evaluator.py','fci_boundary_functional_reconstruction.py','solve_MMPDE.py')]+[root/'src/drbx/_host_guards.py']
 TRACE_REUSE_SOURCES=('trace.py','span_contract.py','hsx_jax_field.py','jax_metric_evaluator.py','jax_bfield_evaluator.py','MetricEvaluator.py','Bfield_evaluator.py','numerics.py','endpoints.py','configuration.json')
 def freeze_check_reuse(old_output,output,manifest,checks):
     old_output=Path(old_output);old=json.loads((old_output/'design.json').read_text())
@@ -65,7 +66,9 @@ def freeze_check_reuse(old_output,output,manifest,checks):
     path=Path(output)/'rk4_512_reuse.json'
     write(path,dict(schema='q-rk4-512-reuse-v1',source_design_sha256=sha(old_output/'design.json'),trace_source_sha256=relevant,input_manifest=manifest,checks=records,source_receipts=receipts))
     return path.name
-def freeze(input_root,output,screen,preflight=None,force_fresh_raw=(),rk4_check_cache=None):
+def freeze(input_root,output,screen,preflight=None,force_fresh_raw=(),rk4_check_cache=None,trace_mode='cpu_inline',rk4_steps=256):
+    if trace_mode not in ('cpu_inline','gpu_cache') or rk4_steps not in (64,256):raise ValueError('unsupported trace mode or RK4 steps')
+    if rk4_check_cache and (trace_mode!='cpu_inline' or rk4_steps!=256):raise ValueError('legacy RK4 checks require CPU-inline RK4-256')
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
     manifest=json.loads(MANIFEST.read_text())
     for x in manifest['files']:
@@ -101,14 +104,16 @@ def freeze(input_root,output,screen,preflight=None,force_fresh_raw=(),rk4_check_
     checks={str(n):sorted({int(role['members'][0]['raw_id']) for role in sample['roles'] if role['N']==n}) if preflight else [] for n in (32,48,64)}
     check_reuse_name=freeze_check_reuse(rk4_check_cache,output,manifest,checks) if rk4_check_cache else None
     design=dict(schema='q-shortspan-numerical-v2',input_manifest=manifest,exact_design_sha256=sha(screen_design),exact_reuse_sha256=sha(output/'exact_reuse_manifest.json'),preflight_cache=cache,force_fresh_raw_ids=sorted(set(map(int,force_fresh_raw))),representative_owners=representative_owners,rk4_512_raw_ids=checks,rk4_512_reuse_sha256=sha(output/check_reuse_name) if check_reuse_name else None,
-                method=dict(outer_spans=('h/8','h/4'),inner_eta_factors=tuple(map(float,LEG_FACTORS)),rk4_steps=256,float64=True,wall_band='i>=N-7',families=FAMILIES,selection='strict lexicographic minimum A',owner_batch_max=64,fields=FIELDS),
+                trace_mode=trace_mode,method=dict(outer_spans=('h/8','h/4'),inner_eta_factors=tuple(map(float,LEG_FACTORS)),rk4_steps=rk4_steps,float64=True,wall_band='i>=N-7',families=FAMILIES,selection='strict lexicographic minimum A',owner_batch_max=64,fields=FIELDS),
                 sources={str(p.relative_to(HERE.parents[1])):sha(p) for p in source_paths()})
     path=output/'design.json'
     if path.exists() and json.loads(path.read_text())!=design:raise RuntimeError('incompatible numerical output identity')
     write(path,design)
 def validate(input_root,output,screen):
     output=Path(output);d=json.loads((output/'design.json').read_text());assert d['schema']=='q-shortspan-numerical-v2'
-    expected=dict(outer_spans=['h/8','h/4'],inner_eta_factors=list(map(float,LEG_FACTORS)),rk4_steps=256,float64=True,wall_band='i>=N-7',families=list(FAMILIES),selection='strict lexicographic minimum A',owner_batch_max=64,fields=list(FIELDS))
+    if d.get('trace_mode','cpu_inline') not in ('cpu_inline','gpu_cache') or d['method']['rk4_steps'] not in (64,256):raise RuntimeError('unsupported trace mode or RK4 steps')
+    if d['rk4_512_reuse_sha256'] and (d.get('trace_mode','cpu_inline')!='cpu_inline' or d['method']['rk4_steps']!=256):raise RuntimeError('incompatible legacy RK4 check reuse')
+    expected=dict(outer_spans=['h/8','h/4'],inner_eta_factors=list(map(float,LEG_FACTORS)),rk4_steps=d['method']['rk4_steps'],float64=True,wall_band='i>=N-7',families=list(FAMILIES),selection='strict lexicographic minimum A',owner_batch_max=64,fields=list(FIELDS))
     if d['method']!=expected:raise RuntimeError('numerical method identity differs')
     if set(d['representative_owners'])!={'32','48','64'} or any(not isinstance(v,list) or v!=sorted(set(v)) for v in d['representative_owners'].values()):raise RuntimeError('representative subset differs')
     if d['sources']!={str(p.relative_to(HERE.parents[1])):sha(p) for p in source_paths()}:raise RuntimeError('numerical source differs')
@@ -133,6 +138,7 @@ def validate(input_root,output,screen):
     return d
 def init_worker(n,input_root,output,screen):
     global CTX,INDEX,STATE,TRACER,OUT,DESIGN,CACHE,MAPZIP,SCREEN,CHECK_REUSE,N,TRACE_FIRST
+    global TRACE_CACHE,TRACE_STORE_SHA
     N=n;OUT=Path(output);DESIGN=json.loads((OUT/'design.json').read_text());TRACE_FIRST=True
     SCREEN=Path(screen)
     CHECK_REUSE=json.loads((OUT/'rk4_512_reuse.json').read_text())['checks'][str(n)] if DESIGN['rk4_512_reuse_sha256'] else {}
@@ -141,9 +147,14 @@ def init_worker(n,input_root,output,screen):
     os.environ['DRBX_CACHE_DIR']=str(cache);os.environ['JAX_COMPILATION_CACHE_DIR']=str(cache)
     import jax
     if jax.default_backend()!='cpu':raise RuntimeError('Q numerical backend is not CPU')
-    CTX=qnum.context(n,input_root,json.loads(CONFIG.read_text()));INDEX=qcommon.LocalOwnerMoments(CTX);TRACER=JaxHsxMagneticField.from_evaluators(CTX['evaluator'],CTX['bfield'])
+    CTX=qnum.context(n,input_root,json.loads(CONFIG.read_text()));INDEX=qcommon.LocalOwnerMoments(CTX)
+    TRACE_CACHE=TRACE_STORE_SHA=TRACER=None;MAPZIP=None
+    if DESIGN.get('trace_mode','cpu_inline')=='gpu_cache':
+        from .trace_store import TraceStore
+        TRACE_CACHE=TraceStore(OUT,n);TRACE_STORE_SHA=sha(OUT/'traces'/f'complete_N{n}.json')
+    else:TRACER=JaxHsxMagneticField.from_evaluators(CTX['evaluator'],CTX['bfield'])
     STATE=raw_owner_states(CTX,FIELDS,callable_field);CACHE={}
-    if DESIGN['preflight_cache']:
+    if DESIGN['preflight_cache'] and TRACE_CACHE is None and DESIGN['method']['rk4_steps']==256:
         root=OUT/'cache_inputs';MAPZIP=zipfile.ZipFile(OUT/DESIGN['preflight_cache']['archives'][str(n)]['name'],'r')
         for stage in ('pilot','full'):
             prep=json.loads((root/f'{stage}_prepare.json').read_text())
@@ -191,7 +202,7 @@ def fit(q,ijk,seeds,ends,owner,kind):
     return chosen,choice,scores,failed,dict(geometry=geometry_cpu,moments_factorization=factor_cpu,selection=select_cpu)
 def trace_target(seeds):
     global TRACE_FIRST
-    H=2*np.pi/N;delta=np.repeat(LEG_FACTORS*H,12);t=time.process_time();out=trace_padded(TRACER,np.tile(seeds,(4,1)),delta,256);elapsed=time.process_time()-t;first=TRACE_FIRST;TRACE_FIRST=False
+    H=2*np.pi/N;delta=np.repeat(LEG_FACTORS*H,12);t=time.process_time();out=trace_padded(TRACER,np.tile(seeds,(4,1)),delta,DESIGN['method']['rk4_steps']);elapsed=time.process_time()-t;first=TRACE_FIRST;TRACE_FIRST=False
     if not np.all(out[1]) or np.any(out[3]) or np.max((out[4]-1).clip(min=0)*N)>2:raise RuntimeError('frozen trace validity/reentry/reach gate')
     return np.asarray(out[0]).reshape(4,12,3),out,elapsed,first
 def boundary_rows(points,data,kind):
@@ -213,12 +224,13 @@ def completed(path,designhash,owners):
     try:
         r=json.loads(receipt.read_text())
         if r['design_sha256']!=designhash or r['owners']!=owners or r['sha256']!=sha(path):raise RuntimeError(f'incompatible or corrupt numerical chunk: {path}')
+        if r.get('trace_inventory_sha256') and r['trace_inventory_sha256']!=sha(path.parent.parent/'traces'/f"complete_N{r['N']}.json"):raise RuntimeError('numerical chunk trace inventory changed')
         return True
     except (OSError,ValueError,KeyError) as exc:raise RuntimeError(f'corrupt numerical chunk: {path}') from exc
 def _run_chunk_unlocked(job):
     owners,designhash=job;path=chunk_path(OUT,N,owners);path.parent.mkdir(parents=True,exist_ok=True)
     if completed(path,designhash,owners):return dict(skipped=True,cpu_s=0)
-    t0=time.process_time();times={k:0. for k in ('trace_compile_execute','trace_warm','rk4_512_check','moments_factorization','selection','geometry','field','application','diagnostics','io')}
+    t0=time.process_time();times={k:0. for k in ('trace_compile_execute','trace_warm','trace_cache_io','rk4_512_check','moments_factorization','selection','geometry','field','application','diagnostics','io')}
     cases=[]
     for name in FIELDS:
         for bc in PAIRS.get(name,PAIRS['waves']):cases.append((name,bc))
@@ -234,7 +246,11 @@ def _run_chunk_unlocked(job):
             INDEX.begin_target();ijk,q,w=raw_geometry(int(raw));iswall=ijk[0]>=N-7;seeds=seeds_for(q,w,iswall)
             kinds=('D','N') if iswall else ('interior',)
             cache=CACHE.get((int(raw),kinds[0])) if int(raw) not in DESIGN['force_fresh_raw_ids'] else None;use_cache=False
-            if cache is not None and np.array_equal(cache[1],seeds):
+            gpu_check=None
+            if TRACE_CACHE is not None:
+                start=time.process_time();traceinfo,gpu_check=TRACE_CACHE.get(int(raw),seeds);times['trace_cache_io']+=time.process_time()-start
+                ends=traceinfo[0].reshape(4,12,3)
+            elif cache is not None and np.array_equal(cache[1],seeds):
                 ends=cache[2];traceinfo=None;use_cache=True
                 if int(raw) in frozen_checks:
                     replay,traceinfo,spent,first=trace_target(seeds);times['trace_compile_execute' if first else 'trace_warm']+=spent
@@ -247,7 +263,11 @@ def _run_chunk_unlocked(job):
                     if saved['owner']!=int(owner):raise RuntimeError('reused RK4 owner differs')
                     trace_checks.append(dict(saved,reused=True));max_512=max(max_512,saved['endpoint_max'])
                 else:
-                    start=time.process_time();check=trace_padded(TRACER,np.tile(seeds,(4,1)),np.repeat(LEG_FACTORS*2*np.pi/N,12),512);times['rk4_512_check']+=time.process_time()-start
+                    if TRACE_CACHE is not None:
+                        if gpu_check is None:raise RuntimeError('missing frozen GPU RK4-512 check')
+                        check=gpu_check
+                    else:
+                        start=time.process_time();check=trace_padded(TRACER,np.tile(seeds,(4,1)),np.repeat(LEG_FACTORS*2*np.pi/N,12),512);times['rk4_512_check']+=time.process_time()-start
                     delta=np.asarray(check[0]).reshape(4,12,3)-ends
                     sensitivity=float(np.max(abs(delta)))
                     max_512=max(max_512,sensitivity);trace_checks.append(dict(owner=int(owner),raw=int(raw),endpoint_max=sensitivity,endpoint_signed_min=float(np.min(delta)),endpoint_signed_max=float(np.max(delta)),valid=bool(np.all(check[1])),reentry=bool(np.any(check[3])),max_normal_cell_reach=float(np.max((check[4]-1).clip(min=0)*N)),first_crossings=int(np.sum(check[2])),reused=False))
@@ -308,6 +328,8 @@ def _run_chunk_unlocked(job):
     tmp=path.with_name(path.stem+'.tmp.npz');start=time.process_time();np.savez_compressed(tmp,owners=np.asarray(owners),raw_count=np.asarray(raw_counts),volume=np.asarray(volumes),N=Nout,E=Eout,P=Pout,R=Rout,R_half=Rhout,**compactarrays,**representatives);os.replace(tmp,path);times['io']+=time.process_time()-start
     import jax
     receipt=dict(schema='q-numerical-owner-chunk-v2',N=N,owners=owners,raw_count=int(sum(raw_counts)),map_count=len(mapmeta),cases=cases,source_design_sha256=designhash,design_sha256=designhash,sha256=sha(path),stage_cpu_s=times,cpu_s=time.process_time()-t0,maxrss_gib=peak_rss_gib(),cpu_backend=jax.default_backend(),affinity_cpus=sorted(os.sched_getaffinity(0)) if hasattr(os,'sched_getaffinity') else None,thread_limits={key:os.environ.get(key) for key in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS','VECLIB_MAXIMUM_THREADS','NUMEXPR_NUM_THREADS','JAX_PLATFORMS')},max_endpoint_error=max_endpoint,max_imposed_bc_residual=max_bc,max_independent_bc_residual=max_independent_bc,max_first_crossing_bc_residual=max_crossing_bc,max_RK4_256_to_512_endpoint=max_512,rk4_checks=trace_checks,map_meta=mapmeta)
+    receipt.update(trace_mode=DESIGN.get('trace_mode','cpu_inline'),rk4_steps=DESIGN['method']['rk4_steps'],trace_inventory_sha256=TRACE_STORE_SHA,max_RK4_primary_to_512_endpoint=max_512)
+    if DESIGN['method']['rk4_steps']!=256:receipt.pop('max_RK4_256_to_512_endpoint')
     write(path.with_suffix('.json'),receipt)
     return dict(skipped=False,cpu_s=receipt['cpu_s'],path=str(path))
 def run_chunk(job):
@@ -335,6 +357,11 @@ def run_jobs(n,owner_groups,input_root,output,screen,workers,host_memory_gib,wor
     expected={32:25376,48:86016,64:202304}[n]
     if not flat or len(set(flat))!=len(flat) or min(flat)<0 or max(flat)>=expected:raise ValueError('unique valid complete owner IDs required')
     if any(not group or len(group)>design['method']['owner_batch_max'] or list(group)!=sorted(group) for group in owner_groups):raise ValueError('invalid stable complete-owner chunk')
+    if design.get('trace_mode')=='gpu_cache':
+        from .trace_store import TraceStore
+        from .gpu_trace import load_grid
+        _,_,labels=load_grid(input_root,n,json.loads(CONFIG.read_text()))
+        TraceStore(output,n).require_raw_ids(np.flatnonzero(np.isin(labels,flat)))
     jobs=[(list(group),dh) for group in owner_groups]
     if workers==1:
         init_worker(n,input_root,output,screen);done=[run_chunk(x) for x in jobs]

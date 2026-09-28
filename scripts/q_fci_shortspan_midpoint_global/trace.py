@@ -88,6 +88,31 @@ def trace(field, seeds, deltas, steps):
 
 
 CAPACITIES=(64,128,256)
+def trace_fixed_batch(field, seeds, deltas, steps, capacity, device):
+    """Trace one large, fixed-shape batch on an explicitly selected device.
+
+    ``field`` must already reside on that device. Only seeds/deltas are sent
+    per call; all RK stages stay on device. Fetch the nine outputs together,
+    synchronizing execution before returning host arrays to the CPU fitter.
+    """
+    seeds = np.asarray(seeds, dtype=np.float64)
+    deltas = np.asarray(deltas, dtype=np.float64)
+    count = len(seeds)
+    if seeds.shape != (count, 3) or deltas.shape != (count,):
+        raise ValueError('seed/delta shape')
+    if not 0 < count <= capacity or steps < 1:
+        raise ValueError('positive steps and 0 < count <= capacity required')
+    padded = np.tile(np.array([[.5, 0., 0.]]), (capacity, 1))
+    padded[:count] = seeds
+    delta = np.zeros(capacity, dtype=np.float64)
+    delta[:count] = deltas
+    with jax.default_device(device):
+        result = trace(field, jax.device_put(padded, device),
+                       jax.device_put(delta, device), steps)
+        host = jax.device_get(result)
+    return tuple(np.asarray(value)[:count].copy() for value in host)
+
+
 def trace_padded(field,seeds,deltas,steps=256):
     """Fixed shapes, harmless valid padding, all nine real-row diagnostics."""
     seeds=np.asarray(seeds,float);deltas=np.asarray(deltas,float)
