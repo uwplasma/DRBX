@@ -2100,6 +2100,60 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
+**Execution plan — 28 September 2026.** Status: step 1 in progress (design survey). Update each step's status here as it completes.
+
+Starting point (code inventory, 28 September):
+- Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
+- The package already has JAX apply kernels for:
+  - point rows;
+  - Neumann point rows;
+  - P07 integrated face rows;
+  - the P05 jump;
+  - P06 q1 and q3 corrections.
+- Still missing:
+  - a package version of the P05 midpoint bracket;
+  - a combined RHS;
+  - any η-sharding.
+- `fci_perpendicular_bracket` is the superseded face-flux bracket and is not a basis for P08.
+
+Steps:
+1. **Consolidate the host layer** (required by the integration-sequencing contract).
+   - One shared P-path layer for the wall lattice, observation functional, deduplicated face census, quadrature/context/sidecar, and a single chunked runner.
+   - A field-independent **per-grid row artifact**: all point, side, Neumann and integrated rows, plus face geometry, built once per grid with an identity. Each operator then becomes an application of that artifact.
+   - Gate: a one-off replay of the six accepted campaigns' saved owner arrays (complete N32; N48/N64 owners preselected across every region), within 0.1% of each archived spatial error. The accepted P06 run is replayed with its duplicated seam census.
+2. **JAX application layer.**
+   - Add a package P05 midpoint bracket kernel.
+   - Wire the existing kernels to the row artifact.
+   - Gate: replay against the step-1 host outputs, plus eager/JIT/JVP.
+3. **Combined perpendicular RHS.** An opt-in verification path, not production.
+   - Terms: bracket with live jump, centered vorticity bracket, curvature q1+q3, diffusion and polarization; parallel terms off.
+   - The reference is the sum of the qualified per-term references.
+   - Gate: the combined action equals the sum of the separately qualified actions on bounded N32 sets.
+4. **Campaign A, prescribed exact φ.**
+   - N32/N48/N64 on a frozen catalogue, with held-out fields, and Dirichlet and Neumann variants kept separate.
+   - The catalogue has rich fields (upwinding active) and low-degree fields (asymptotic rate).
+   - Report each term and the sum, with regional budgets that name the RLP transition region.
+5. **Reconstructed φ — user decision, 28 September.** The solver must invert the same operator the forward RHS uses for the perpendicular Laplacian. Keep the production `LocalPerpLaplacianInverseSolver` machinery (matrix-free FGMRES, preconditioner, augmented-Neumann gauge), and add an `operator_form` that applies the qualified P07 action from the row artifact.
+   - Sequence:
+     1. Check that the new form's apply matches the P07 host action.
+     2. Qualify the solve against a host direct sparse solve of the same operator at N32/N48. That solve is an oracle only; it separates the linear-solve error from the discretization error.
+     3. Repeat campaign A with the solved φ.
+   - **Preconditioner development is expected.** `fci_polarization_coarse` was built for the production RLP operator, so its convergence on the P07 operator must be measured, and new preconditioners are likely needed.
+   - All-Neumann φ must first establish that the operator's null space is exactly the constants before `solve_augmented_neumann` applies.
+6. **Remaining gates.**
+   - A bounded geometry/reference recheck on N64.
+   - Matched single-device and η-sharded execution. This needs a sharded owner-value gather in the application layer, and is the largest new engineering item.
+7. **Acceptance record and roadmap update.**
+
+Pending decisions:
+- **Neumann closure in the harness.** Proposed: the qualified P-path point rows. Reconciling them with production's physical halos belongs to P09 integration.
+- **The combined catalogue**, frozen before evaluation.
+
+Carry-forwards:
+- the deduplicated periodic census;
+- the recovered-trace wall contract (not a wall law);
+- pre-asymptotic rich-field orders read alongside low-degree fields.
+
 **Gate:** the certified operator contributions and the combined perpendicular
 residual meet the global operator-order criterion, with qualified references
 and matched sharding/source/phi diagnostics. Keep term-resolved and regional
@@ -2414,7 +2468,7 @@ revision, configuration, measured results, and unresolved failures.
 | P05N | Physical-normal Neumann brackets | Shared extraction/replay and bounded Neumann reconstruction admission | passed — user-accepted static qualification 28 September; recovered-trace wall contract | [Acceptance record](../../../../work/p05n_p06n_43250ccf_20260928T053254Z_c415a4cd/local_analysis/acceptance_decision.md) from `frozen_v1` (`05be9063`: centered 2.31–3.41, with jump 3.06–3.54; jump active only at n−2 and on η faces) and `upwind_v1` (`43250ccf`: rich pairs 5.17–5.87 pre-asymptotic, jump active and converging at about 3.5, b1×e3 regression reproduced exactly). O ≡ R. The wall-face and outer-two-layer jumps are zero (contract and row structure); this is not a physical wall-law qualification. Transition region lowest (about 3.0). Evolution, production integration and the rung wall law remain open. |
 | P06N | Physical-normal Neumann curvature | Shared extraction/replay and bounded Neumann reconstruction admission | passed — user-accepted static qualification 28 September; recovered-trace wall contract | [Acceptance record](../../../../work/p05n_p06n_43250ccf_20260928T053254Z_c415a4cd/local_analysis/acceptance_decision.md) for `43250ccf`, job 58995223: all 30 gated entries pass, including held-out (centered 4.38–6.15, U 4.47–6.12, pre-asymptotic). The q3 correction is active and converges at 4.2–5.4. φ enters only through the remainder (bitwise check). The all-Dirichlet rich case closes the P06 seam defect. The wall characteristic correction is zero by contract; not a physical wall-law qualification. Transition region lowest (2.2–2.6 on N48→N64). Evolution, production integration and the rung wall law remain open. |
 | P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | passed — user-accepted closure qualification 27 September; midpoint accuracy geometry-limited | [Acceptance record](../../../../work/p07n_field_derived_274e93e9_20260927T054625Z_72cfa1/local_analysis/acceptance_decision.md) for campaign `274e93e9`: N−O `2.24–3.85/2.25–3.73` on every field including held-out; wall-normal residual about 4th order; returned `global_order_pass=false` preserved; N−R ≈ O−R `1.55–1.74/1.72–1.83` limited by unresolved near-wall toroidal geometry (most plausibly coil ripple). The `5930b72c` failure is preserved. Inversion/gauge, energy, evolution and production integration remain open. |
-| P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | ready — all dependencies passed 28 September | Include separately qualified Dirichlet and Neumann variants. Use the deduplicated periodic face census. Decide or reconcile the Neumann closure (P-path point rows vs production physical halos). Watch the RLP transition region. |
+| P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | in progress — step 1 (host consolidation and row artifact) started 28 September; see the P08 execution plan | Include separately qualified Dirichlet and Neumann variants. Use the deduplicated periodic face census. Decide or reconcile the Neumann closure (P-path point rows vs production physical halos). Watch the RLP transition region. Reconstructed φ: production FGMRES inverting the qualified P07 operator (new `operator_form`); new preconditioners likely. |
 | P09 | Evolved MMS and promotion | P08 | pending | — |
 
 
