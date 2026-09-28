@@ -2121,6 +2121,15 @@ Steps:
    - One shared P-path layer for the wall lattice, observation functional, deduplicated face census, quadrature/context/sidecar, and a single chunked runner.
    - A field-independent **per-grid row artifact**: all point, side, Neumann and integrated rows, plus face geometry, built once per grid with an identity. Each operator then becomes an application of that artifact.
    - Gate: a one-off replay of the six accepted campaigns' saved owner arrays (complete N32; N48/N64 owners preselected across every region), within 0.1% of each archived spatial error. The accepted P06 run is replayed with its duplicated seam census.
+   - Decisions (user, 28 September; design in `work/p08_step1_consolidation_design_20260928/design.md`):
+     - The one-time setup goes in a new package layer, `drbx.stencils`, built after `drbx.geometry`: the face census, geometry coefficients at stencil nodes, and the row artifact with its I/O and identity.
+     - The research harness is `scripts/p_shared/`.
+     - The six accepted campaign packages stay frozen as oracles.
+     - The operator geometry is the frozen MMS-reference metric.
+     - Precontracting the P07N Neumann rows (a summation reorder of about 1e-15) is accepted.
+     - Polarization is Boussinesq, a physics model choice: the geometry-only tensor J(g^ij − b^i b^j) that P07 qualified and production uses. The artifact stores rows already contracted with it. A density-weighted, non-Boussinesq coefficient would be a separate, separately qualified extension.
+     - Build and replay N32 locally. N48/N64 (about 14 and 33 GB, which exceeds local disk) are built and replayed remotely.
+     - The artifact is plain CSR. An exact factored encoding (about 20 GB at N64) is deferred to step 2.
 2. **JAX application layer.**
    - Add a package P05 midpoint bracket kernel.
    - Wire the existing kernels to the row artifact.
