@@ -1,0 +1,63 @@
+{
+  "extractor_sha256": "fe5041bcdc6dfa1eac67b51f5bd0ae162724783fa33d0558821393d76b7ac905",
+  "resolutions": {
+    "32": {
+      "donor_owners": 2245,
+      "fixture_bytes": {
+        "replay": 265033,
+        "selection": 14041
+      },
+      "fixture_hashes": {
+        "replay": "ceb5ff4cb852968c21499d22d70c57e869ecbaefc72b46da4bd7375b99f49175",
+        "selection": "b9e8272ddc868db15b5f4fa72561d27e368261eb572334befa5d95f89d75b305"
+      },
+      "n": 32,
+      "owner_count": 25376,
+      "selected_owners": 11,
+      "source_hashes": {
+        "preflight": "9cfa57bd42286618bff7d38b567b7b174d85df1acb0c7d60349d29a6aaa557be",
+        "prepare": "2e1bac3fb40a2e14542ba8a77b07e36b6e38465edd953ee9902707cf6a54ee13",
+        "selection": "b9e8272ddc868db15b5f4fa72561d27e368261eb572334befa5d95f89d75b305"
+      }
+    },
+    "48": {
+      "donor_owners": 2774,
+      "fixture_bytes": {
+        "replay": 358529,
+        "selection": 14583
+      },
+      "fixture_hashes": {
+        "replay": "8bb65ec49702128d7c7c0940c7054efad5d103ddab05f52856a8ce34bc9e222c",
+        "selection": "77d2c1b9b0480ce23ba3941ba78d0eecb347696a55b9038c0719ec6ab452f293"
+      },
+      "n": 48,
+      "owner_count": 86016,
+      "selected_owners": 13,
+      "source_hashes": {
+        "preflight": "056385a8fa3d2232131b49b959ea1c14fb4ebcefbc61da0f20d109010f44020f",
+        "prepare": "e24109f4c8df7eb7cd389929abb0a8e7296583c36581cfeddf20fd322fedbde6",
+        "selection": "77d2c1b9b0480ce23ba3941ba78d0eecb347696a55b9038c0719ec6ab452f293"
+      }
+    },
+    "64": {
+      "donor_owners": 2954,
+      "fixture_bytes": {
+        "replay": 379878,
+        "selection": 14699
+      },
+      "fixture_hashes": {
+        "replay": "3547e8e098f2c70eebefb457311706ba0efe572bc297f2012e2b9474a6354a14",
+        "selection": "305e0164c9fd9f4010ed2de20be26699d3d93941809e3231424b988e705b5df8"
+      },
+      "n": 64,
+      "owner_count": 202304,
+      "selected_owners": 13,
+      "source_hashes": {
+        "preflight": "8e62f4bdde1d582084951637f355f9522f4316dbbd3b8099eab581a585010b77",
+        "prepare": "34f2d3c879362638539911d1f49ed170151e8e1ba7e7f56f08738e40e485ac56",
+        "selection": "305e0164c9fd9f4010ed2de20be26699d3d93941809e3231424b988e705b5df8"
+      }
+    }
+  },
+  "schema": "drbx.p06n-preflight-fixtures-v1"
+}

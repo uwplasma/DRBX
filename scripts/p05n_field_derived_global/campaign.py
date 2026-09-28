@@ -107,6 +107,10 @@ def config():
         raise ValueError("unsupported frozen P05N field-derived contract")
     if cfg["physical_fields"] != list(core.NAMES):
         raise ValueError("physical field catalogue changed")
+    if cfg["catalogue_reference"] != core.CATALOGUE_REFERENCE or sha(HERE / cfg["catalogue_reference"]) != cfg["catalogue_sha256"]:
+        raise ValueError("frozen catalogue file changed")
+    if cfg["gated_pairs"] != list(core.GATED_PAIRS) or cfg["control_pairs"] != list(core.CONTROL_PAIRS):
+        raise ValueError("gated/control pair scope changed")
     return cfg
 
 
@@ -127,6 +131,7 @@ def source_hashes():
            "scripts/p05n_field_derived_global/configuration.json",
            "scripts/p05n_field_derived_global/input_manifest.json",
            "scripts/p05n_field_derived_global/p05n_catalogue.json",
+           "scripts/p05n_field_derived_global/p05n_upwind_catalogue.json",
            "scripts/p05n_field_derived_global/README.md",
            "scripts/p07n_field_derived_global/fields.py",
            "scripts/p07n_field_derived_global/campaign.py",

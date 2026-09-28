@@ -1,0 +1,811 @@
+{
+  "all_owners": [
+    {
+      "labels": [
+        "adjacent:r42:theta0:eta0"
+      ],
+      "owner": 72192,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta6:eta30"
+      ],
+      "owner": 72510,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta12:eta12"
+      ],
+      "owner": 72780,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta18:eta42"
+      ],
+      "owner": 73098,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta24:eta24"
+      ],
+      "owner": 73368,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta30:eta6"
+      ],
+      "owner": 73638,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta36:eta36"
+      ],
+      "owner": 73956,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta42:eta18"
+      ],
+      "owner": 74226,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta0:eta0"
+      ],
+      "owner": 74496,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta6:eta30"
+      ],
+      "owner": 74814,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta12:eta12"
+      ],
+      "owner": 75084,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta18:eta42"
+      ],
+      "owner": 75402,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta24:eta24"
+      ],
+      "owner": 75672,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta30:eta6"
+      ],
+      "owner": 75942,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta36:eta36"
+      ],
+      "owner": 76260,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta42:eta18"
+      ],
+      "owner": 76530,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta0:eta0"
+      ],
+      "owner": 76800,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta6:eta30"
+      ],
+      "owner": 77118,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta12:eta12"
+      ],
+      "owner": 77388,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta18:eta42"
+      ],
+      "owner": 77706,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta24:eta24"
+      ],
+      "owner": 77976,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta30:eta6"
+      ],
+      "owner": 78246,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta36:eta36"
+      ],
+      "owner": 78564,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta42:eta18"
+      ],
+      "owner": 78834,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta0:eta0"
+      ],
+      "owner": 79104,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta6:eta30"
+      ],
+      "owner": 79422,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta12:eta12"
+      ],
+      "owner": 79692,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta18:eta42"
+      ],
+      "owner": 80010,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta24:eta24"
+      ],
+      "owner": 80280,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta30:eta6"
+      ],
+      "owner": 80550,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta36:eta36"
+      ],
+      "owner": 80868,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta42:eta18"
+      ],
+      "owner": 81138,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta0:eta0"
+      ],
+      "owner": 81408,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta6:eta30"
+      ],
+      "owner": 81726,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta12:eta12"
+      ],
+      "owner": 81996,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta18:eta42"
+      ],
+      "owner": 82314,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta24:eta24"
+      ],
+      "owner": 82584,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta30:eta6"
+      ],
+      "owner": 82854,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta36:eta36"
+      ],
+      "owner": 83172,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta42:eta18"
+      ],
+      "owner": 83442,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta0:eta0"
+      ],
+      "owner": 83712,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta6:eta30"
+      ],
+      "owner": 84030,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta12:eta12"
+      ],
+      "owner": 84300,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta18:eta42"
+      ],
+      "owner": 84618,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta24:eta24"
+      ],
+      "owner": 84888,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta30:eta6"
+      ],
+      "owner": 85158,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta36:eta36"
+      ],
+      "owner": 85476,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta42:eta18"
+      ],
+      "owner": 85746,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "seam_theta0:r46:eta24"
+      ],
+      "owner": 81432,
+      "role": "seam"
+    },
+    {
+      "labels": [
+        "seam_eta0:r46:theta24"
+      ],
+      "owner": 82560,
+      "role": "seam"
+    },
+    {
+      "labels": [
+        "seam_theta0:r47:eta24"
+      ],
+      "owner": 83736,
+      "role": "seam"
+    },
+    {
+      "labels": [
+        "seam_eta0:r47:theta24"
+      ],
+      "owner": 84864,
+      "role": "seam"
+    },
+    {
+      "labels": [
+        "control_aggregate:r1"
+      ],
+      "owner": 48,
+      "role": "control_aggregate"
+    },
+    {
+      "labels": [
+        "control_interior:r24"
+      ],
+      "owner": 30720,
+      "role": "control_interior"
+    },
+    {
+      "labels": [
+        "archived_reference_hotspot:61623"
+      ],
+      "owner": 61623,
+      "role": "hotspot"
+    },
+    {
+      "labels": [
+        "archived_reference_hotspot:62036"
+      ],
+      "owner": 62036,
+      "role": "hotspot"
+    },
+    {
+      "labels": [
+        "archived_reference_hotspot:73604"
+      ],
+      "owner": 73604,
+      "role": "hotspot"
+    }
+  ],
+  "controls": [
+    {
+      "labels": [
+        "control_aggregate:r1"
+      ],
+      "owner": 48,
+      "role": "control_aggregate"
+    },
+    {
+      "labels": [
+        "control_interior:r24"
+      ],
+      "owner": 30720,
+      "role": "control_interior"
+    }
+  ],
+  "hotspots": [
+    {
+      "labels": [
+        "archived_reference_hotspot:61623"
+      ],
+      "owner": 61623,
+      "role": "hotspot"
+    },
+    {
+      "labels": [
+        "archived_reference_hotspot:62036"
+      ],
+      "owner": 62036,
+      "role": "hotspot"
+    },
+    {
+      "labels": [
+        "archived_reference_hotspot:73604"
+      ],
+      "owner": 73604,
+      "role": "hotspot"
+    }
+  ],
+  "n": 48,
+  "seam": [
+    {
+      "labels": [
+        "seam_theta0:r46:eta24"
+      ],
+      "owner": 81432,
+      "role": "seam"
+    },
+    {
+      "labels": [
+        "seam_eta0:r46:theta24"
+      ],
+      "owner": 82560,
+      "role": "seam"
+    },
+    {
+      "labels": [
+        "seam_theta0:r47:eta24"
+      ],
+      "owner": 83736,
+      "role": "seam"
+    },
+    {
+      "labels": [
+        "seam_eta0:r47:theta24"
+      ],
+      "owner": 84864,
+      "role": "seam"
+    }
+  ],
+  "wall_adjacent": [
+    {
+      "labels": [
+        "adjacent:r42:theta0:eta0"
+      ],
+      "owner": 72192,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta6:eta30"
+      ],
+      "owner": 72510,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta12:eta12"
+      ],
+      "owner": 72780,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta18:eta42"
+      ],
+      "owner": 73098,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta24:eta24"
+      ],
+      "owner": 73368,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta30:eta6"
+      ],
+      "owner": 73638,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta36:eta36"
+      ],
+      "owner": 73956,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r42:theta42:eta18"
+      ],
+      "owner": 74226,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta0:eta0"
+      ],
+      "owner": 74496,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta6:eta30"
+      ],
+      "owner": 74814,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta12:eta12"
+      ],
+      "owner": 75084,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta18:eta42"
+      ],
+      "owner": 75402,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta24:eta24"
+      ],
+      "owner": 75672,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta30:eta6"
+      ],
+      "owner": 75942,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta36:eta36"
+      ],
+      "owner": 76260,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r43:theta42:eta18"
+      ],
+      "owner": 76530,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta0:eta0"
+      ],
+      "owner": 76800,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta6:eta30"
+      ],
+      "owner": 77118,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta12:eta12"
+      ],
+      "owner": 77388,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta18:eta42"
+      ],
+      "owner": 77706,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta24:eta24"
+      ],
+      "owner": 77976,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta30:eta6"
+      ],
+      "owner": 78246,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta36:eta36"
+      ],
+      "owner": 78564,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r44:theta42:eta18"
+      ],
+      "owner": 78834,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta0:eta0"
+      ],
+      "owner": 79104,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta6:eta30"
+      ],
+      "owner": 79422,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta12:eta12"
+      ],
+      "owner": 79692,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta18:eta42"
+      ],
+      "owner": 80010,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta24:eta24"
+      ],
+      "owner": 80280,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta30:eta6"
+      ],
+      "owner": 80550,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta36:eta36"
+      ],
+      "owner": 80868,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r45:theta42:eta18"
+      ],
+      "owner": 81138,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta0:eta0"
+      ],
+      "owner": 81408,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta6:eta30"
+      ],
+      "owner": 81726,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta12:eta12"
+      ],
+      "owner": 81996,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta18:eta42"
+      ],
+      "owner": 82314,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta24:eta24"
+      ],
+      "owner": 82584,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta30:eta6"
+      ],
+      "owner": 82854,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta36:eta36"
+      ],
+      "owner": 83172,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "adjacent:r46:theta42:eta18"
+      ],
+      "owner": 83442,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta0:eta0"
+      ],
+      "owner": 83712,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta6:eta30"
+      ],
+      "owner": 84030,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta12:eta12"
+      ],
+      "owner": 84300,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta18:eta42"
+      ],
+      "owner": 84618,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta24:eta24"
+      ],
+      "owner": 84888,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta30:eta6"
+      ],
+      "owner": 85158,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta36:eta36"
+      ],
+      "owner": 85476,
+      "role": "wall_adjacent"
+    },
+    {
+      "labels": [
+        "wall:r47:theta42:eta18"
+      ],
+      "owner": 85746,
+      "role": "wall_adjacent"
+    }
+  ]
+}

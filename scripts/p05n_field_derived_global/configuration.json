@@ -1,10 +1,25 @@
 {
   "schema": "drbx.p05n-field-derived-static-global-v1",
-  "resolutions": [32, 48, 64],
-  "physical_fields": ["field_b1", "field_e3", "field_e12", "heldout_field_b2", "constant", "zero_trace_generator"],
-  "catalogue_reference": "p05n_catalogue.json",
-  "catalogue_sha256": "1862f660c6a9eb041711cd862255f789c029da4a4f7a5ba84d3f7ddb50861048",
-  "candidates": ["direct_centered", "direct_centered_plus_live_U_minus_A"],
+  "resolutions": [
+    32,
+    48,
+    64
+  ],
+  "catalogue_name": "upwind_v1",
+  "physical_fields": [
+    "field_b1",
+    "field_e3",
+    "constant",
+    "rich_a",
+    "rich_f",
+    "heldout_rich_g"
+  ],
+  "catalogue_reference": "p05n_upwind_catalogue.json",
+  "catalogue_sha256": "739cb433361da8cdd174234d05702380dc0a58bde430fab40119e052d45e258e",
+  "candidates": [
+    "direct_centered",
+    "direct_centered_plus_live_U_minus_A"
+  ],
   "reference": "stored_physical_raw_volume_midpoint",
   "face_quadrature": 3,
   "raw_chunk": 1024,
@@ -12,14 +27,30 @@
   "face_chunk": 64,
   "patch_cache_limit": 256,
   "global_l2_order_minimum": 1.8,
-  "constant_action_absolute_maximum": 1e-8,
+  "constant_action_absolute_maximum": 1e-08,
   "antisymmetry_absolute_maximum": 1e-12,
   "exact_input_absolute_maximum": 1e-12,
-  "neumann_condition_maximum": 1e8,
+  "neumann_condition_maximum": 100000000.0,
   "zero_jump_absolute_maximum": 1e-12,
-  "gated_pairs": ["a_main1", "a_main2", "b_main1", "b_main2", "a_heldout", "b_heldout"],
-  "control_pairs": ["a_control1", "a_control2", "b_control1", "b_control2"],
+  "gated_pairs": [
+    "a_main1",
+    "a_main2",
+    "a_main_regression",
+    "b_main1",
+    "a_heldout",
+    "b_heldout"
+  ],
+  "control_pairs": [
+    "a_control1",
+    "a_control2",
+    "b_control1"
+  ],
   "constant_role_policy": "constant is treated as Dirichlet-role in every pairing (mirrors the bounded construction-verification run's CATALOGUE_ROLES; see README.md, 'Constant role decision')",
   "production_promotion": false,
-  "acceptance": "N-R order gate on gated_pairs is the headline traditional MMS report, reported unchanged and uninterpreted here; the acceptance decision is made by the user after results, by examining N_minus_D (candidate vs matched-Dirichlet-diagnostic) and the O-R structural identity (O===R for this pointwise operator, recorded, not computed as a separate array) separately from N-R"
+  "acceptance": "N-R order gate on gated_pairs is the headline traditional MMS report, reported unchanged and uninterpreted here; the acceptance decision is made by the user after results, by examining N_minus_D (candidate vs matched-Dirichlet-diagnostic) and the O-R structural identity (O===R for this pointwise operator, recorded, not computed as a separate array) separately from N-R",
+  "previous_catalogue": {
+    "name": "frozen_v1",
+    "reference": "p05n_catalogue.json",
+    "campaign_commit": "05be90630590274abc4ee00dc5f01d126ac0af04"
+  }
 }

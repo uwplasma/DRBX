@@ -1,0 +1,96 @@
+{
+  "schema": "drbx.p06n-field-derived-static-global-v1",
+  "resolutions": [
+    32,
+    48,
+    64
+  ],
+  "catalogue_reference": "p06n_catalogue.json",
+  "catalogue_sha256": "26449290a924262a7de2a1c45d3f06d38b437cc030a77b424982ed418aed85a9",
+  "physical_fields": [
+    "constant",
+    "field_b1_minus1",
+    "heldout_rich_h",
+    "rich_a",
+    "rich_a_minus1",
+    "rich_c",
+    "rich_f",
+    "rich_f_minus1",
+    "zero_trace_generator"
+  ],
+  "state_order": [
+    "n",
+    "Te",
+    "Ti",
+    "omega",
+    "phi"
+  ],
+  "equations": [
+    "density",
+    "Te",
+    "Ti",
+    "omega"
+  ],
+  "gated_equations": [
+    "density",
+    "Te",
+    "Ti"
+  ],
+  "terms": [
+    "material",
+    "remainder",
+    "total"
+  ],
+  "candidates": [
+    "centered",
+    "U"
+  ],
+  "cases": [
+    "control_constant_dirichlet",
+    "control_constant_neumann",
+    "dirichlet_rich",
+    "heldout_phi_dirichlet",
+    "heldout_phi_neumann",
+    "main_phi_dirichlet",
+    "main_phi_neumann"
+  ],
+  "gated_cases": [
+    "main_phi_dirichlet",
+    "main_phi_neumann",
+    "heldout_phi_dirichlet",
+    "heldout_phi_neumann",
+    "dirichlet_rich"
+  ],
+  "heldout_cases": [
+    "heldout_phi_dirichlet",
+    "heldout_phi_neumann"
+  ],
+  "control_cases": [
+    "control_constant_dirichlet",
+    "control_constant_neumann"
+  ],
+  "face_quadrature": 3,
+  "cell_quadrature_order": 1,
+  "raw_chunk": 512,
+  "face_chunk": 256,
+  "observation_chunk": 2048,
+  "patch_cache_limit": 256,
+  "global_l2_order_minimum": 1.8,
+  "constant_action_absolute_maximum": 1e-08,
+  "replay_atol": 1e-09,
+  "replay_rtol": 1e-12,
+  "equivalence_atol": 1e-12,
+  "equivalence_rtol": 1e-12,
+  "linearity_absolute_maximum": 1e-09,
+  "zero_wall_correction_absolute_maximum": 1e-12,
+  "zero_jump_absolute_maximum": 1e-12,
+  "omega_independence_absolute_maximum": 1e-10,
+  "exact_input_absolute_maximum": 1e-12,
+  "neumann_condition_maximum": 100000000.0,
+  "seam_defect_absolute_maximum": 1e-09,
+  "norm": "owner-weighted global L2, matching p06_structured_global.numerics._statistics/_compact_statistics (owner physical volume weight); the stored-owner-volume L2 is also reported (P05N convention)",
+  "wall_exterior_contract": "recovered Neumann trace (Dirichlet: prescribed trace) as the characteristic wall solve's boundary_trace; the physical-wall characteristic correction is zero by construction (see p06n_catalogue.json)",
+  "gate": "N-R global L2 order >= 1.8 on both intervals (32->48, 48->64), for every nonconstant case (main, held-out and dirichlet_rich) in gated_cases, equation in gated_equations, candidate in {centered, U}, on the total term; material/remainder and N-D reported ungated. The held-out field is evaluated only in the campaign run, never during preparation. Constant controls: |action| <= constant_action_absolute_maximum.",
+  "acceptance": "returned unchanged, no interpretation performed here; the user decides pass/fail from the reported gate table",
+  "production_promotion": false
+}

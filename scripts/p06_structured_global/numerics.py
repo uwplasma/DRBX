@@ -560,6 +560,12 @@ def _apply_rows(rows: Any, owner_values: np.ndarray, trace: Any) -> tuple[np.nda
     return value, gradient
 
 
+def _periodic_duplicate_face(n: int, keys: np.ndarray) -> np.ndarray:
+    """True for theta slot n and eta slot n: the same physical face as slot 0."""
+    keys = np.asarray(keys)
+    return ((keys[:, 0] == 1) & (keys[:, 2] == n)) | ((keys[:, 0] == 2) & (keys[:, 3] == n))
+
+
 def _face_incidence(n: int, keys: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Raw-cell face incidence with periodic theta/eta and radial boundaries."""
     lower = np.full(len(keys), -1, dtype=np.int64)
@@ -671,7 +677,14 @@ def _compute_faces(
     left = np.zeros_like(central); right = np.zeros_like(central)
     donor_count = np.zeros(face_count, dtype=np.int32)
     conditioned = np.zeros(face_count, dtype=bool)
-    collapsed = (keys[:,0] == 0) & (keys[:,1] == 0)
+    axis_collapsed = (keys[:,0] == 0) & (keys[:,1] == 0)
+    # The face index space has n+1 slots per axis. For the periodic theta and
+    # eta axes, slot n is the same physical face as slot 0 (identical lower and
+    # upper raw cells), so counting both would apply that seam face's
+    # characteristic correction twice. Slot n is skipped exactly like the
+    # collapsed axis face and contributes nothing.
+    periodic_duplicate = _periodic_duplicate_face(context.resolution, keys)
+    collapsed = axis_collapsed | periodic_duplicate
     for row, key in enumerate(keys):
         if collapsed[row]:
             continue
@@ -747,6 +760,8 @@ def _compute_faces(
         correction[state,:,1] = -np.sum(weights[...,None]*dplus,axis=1)
         jump_rms.append(float(np.sqrt(np.mean(jump[regular]**2))) if np.any(regular) else 0.0)
     lower_raw, lower_valid, upper_raw, upper_valid = _face_incidence(context.resolution, keys)
+    lower_valid = lower_valid & ~periodic_duplicate
+    upper_valid = upper_valid & ~periodic_duplicate
     arrays = {
         "indices": indices,
         "keys": np.asarray(keys),
@@ -761,7 +776,8 @@ def _compute_faces(
     details = {
         "entity_count": face_count,
         "wall_face_count": len(wall_rows),
-        "collapsed_face_count": int(np.count_nonzero(collapsed)),
+        "collapsed_face_count": int(np.count_nonzero(axis_collapsed)),
+        "periodic_duplicate_face_count": int(np.count_nonzero(periodic_duplicate)),
         "boundary_conditioned_count": int(np.count_nonzero(conditioned)),
         "dirichlet_trace_error_max": trace_error,
         "phi_wall_normal_gradient_max": wall_normal_gradient_max,

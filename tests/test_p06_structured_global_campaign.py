@@ -90,3 +90,27 @@ def test_allocation_memory_cap_is_applied_before_worker_start():
     with pytest.raises(ValueError, match="cannot accommodate"):
         runner._effective_worker_count(2,memory_budget_gib=3,worker_memory_gib=4,
                                        memory_reserve_gib=1)
+
+
+def test_periodic_duplicate_face_slots_are_exactly_the_slot_n_aliases(numeric):
+    """Theta slot n and eta slot n alias slot 0: same lower/upper raw cells.
+
+    The face index space has n+1 slots per axis. Counting the periodic alias
+    as a second face would apply the seam's characteristic correction twice,
+    so ``_compute_faces`` skips exactly the faces this helper marks.
+    """
+    n = 6
+    count = numeric._face_count(n)
+    keys = np.asarray(numeric.base._face_keys(n, np.arange(count)))
+    duplicate = numeric._periodic_duplicate_face(n, keys)
+    assert int(np.count_nonzero(duplicate)) == 2 * n * n
+    assert not np.any(duplicate[keys[:, 0] == 0])
+    lower, lower_valid, upper, upper_valid = numeric._face_incidence(n, keys)
+    for row in np.flatnonzero(duplicate):
+        alias = keys[row].copy(); alias[1 + int(alias[0])] = 0
+        match = np.flatnonzero(np.all(keys == alias, axis=1))
+        assert len(match) == 1 and not duplicate[match[0]]
+        assert lower[row] == lower[match[0]] and upper[row] == upper[match[0]]
+    # After removing the aliases, every (lower, upper) incidence pair is unique.
+    pairs = {(int(lower[r]), int(upper[r]), int(keys[r, 0])) for r in np.flatnonzero(~duplicate & lower_valid & upper_valid)}
+    assert len(pairs) == int(np.count_nonzero(~duplicate & lower_valid & upper_valid))
