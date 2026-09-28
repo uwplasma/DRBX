@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Resumable node-local CPU campaign for the P05N field-derived global qualification.
+"""Resumable node-local CPU campaign for the P06N global static qualification
+of the accepted P06 curvature operator under physical-normal Neumann rows.
 
-Mirrors scripts/p07n_field_derived_global/campaign.py's CLI and resumability
+Mirrors scripts/p05n_field_derived_global/campaign.py's CLI, resumability
 (chunk NPZ + JSON receipts bound to a campaign identity digest of
-configuration + source hashes + input manifest), with a simpler three-stage
-pipeline ('observations', 'raw', 'faces') since P05N's reference R is cheap
-and computed alongside the centered action rather than as its own MMS stage.
+configuration + source hashes + input manifest + commit) and stage structure,
+with three stages: 'observations' (owner-averaged live fields), 'raw' (the q1
+material/remainder volume term and the exact reference R, at raw midpoints),
+and 'faces' (the q3 characteristic face correction, in the accepted P06 face
+index space -- see core.py's module docstring).
 
 Do not put this package's own directory first on sys.path (it contains
 operator.py, which would shadow the stdlib operator module). Put
-DRBX/scripts on sys.path and run this as `python -m p05n_field_derived_global.campaign`
-or invoke it directly with DRBX/scripts on sys.path (see README.md).
+DRBX/scripts on sys.path and run this as
+`python -m p06n_field_derived_global.campaign` from DRBX/scripts.
 """
 from __future__ import annotations
 
@@ -41,15 +44,16 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]              # .../DRBX
 
-from p05n_field_derived_global import core
-from p05n_field_derived_global import preflight as p05n_preflight
+from p06n_field_derived_global import core
+from p06n_field_derived_global import preflight as p06n_preflight
 
 STAGES = ("observations", "raw", "faces")
+ZERO_JUMP_KINDS = ("physical_wall", "radial_n_minus_1", "transverse_last_two_layers")
 STATE = {}
 
 
 # ---------------------------------------------------------------------------
-# Small persistence helpers (mirrors p07n_field_derived_global/campaign.py).
+# Small persistence helpers (mirrors p05n_field_derived_global/campaign.py).
 # ---------------------------------------------------------------------------
 def sha(path):
     h = hashlib.sha256()
@@ -103,55 +107,54 @@ def lock(output):
 
 def config():
     cfg = json.loads((HERE / "configuration.json").read_text())
-    if cfg["schema"] != "drbx.p05n-field-derived-static-global-v1" or cfg["resolutions"] != [32, 48, 64]:
-        raise ValueError("unsupported frozen P05N field-derived contract")
+    if cfg["schema"] != "drbx.p06n-field-derived-static-global-v1" or cfg["resolutions"] != [32, 48, 64]:
+        raise ValueError("unsupported frozen P06N field-derived contract")
     if cfg["physical_fields"] != list(core.NAMES):
         raise ValueError("physical field catalogue changed")
-    if cfg["catalogue_reference"] != core.CATALOGUE_REFERENCE or sha(HERE / cfg["catalogue_reference"]) != cfg["catalogue_sha256"]:
+    if cfg["catalogue_reference"] != "p06n_catalogue.json" or sha(HERE / cfg["catalogue_reference"]) != cfg["catalogue_sha256"]:
         raise ValueError("frozen catalogue file changed")
-    if cfg["gated_pairs"] != list(core.GATED_PAIRS) or cfg["control_pairs"] != list(core.CONTROL_PAIRS):
-        raise ValueError("gated/control pair scope changed")
+    if cfg["cases"] != list(core.CASE_NAMES) or cfg["gated_cases"] != list(core.GATED_CASES) or \
+       cfg["heldout_cases"] != list(core.HELDOUT_CASES) or cfg["control_cases"] != list(core.CONTROL_CASES):
+        raise ValueError("case catalogue scope changed")
     return cfg
 
 
 def _fixture_files():
-    """Every vendored preflight fixture (tracked in the package), by resolution."""
-    rel = ["scripts/p05n_field_derived_global/preflight_fixtures/fixtures_manifest.json",
-           "scripts/p05n_field_derived_global/preflight_fixtures/extract.py"]
+    rel = ["scripts/p06n_field_derived_global/preflight_fixtures/fixtures_manifest.json",
+           "scripts/p06n_field_derived_global/preflight_fixtures/extract.py"]
     for n in (32, 48, 64):
-        rel.append(f"scripts/p05n_field_derived_global/preflight_fixtures/N{n}.selection.json")
-        rel.append(f"scripts/p05n_field_derived_global/preflight_fixtures/N{n}.accepted_p05_replay.npz")
+        rel.append(f"scripts/p06n_field_derived_global/preflight_fixtures/N{n}.selection.json")
+        rel.append(f"scripts/p06n_field_derived_global/preflight_fixtures/N{n}.replay.npz")
     return rel
 
 
 def source_hashes():
-    rel = ["scripts/p05n_field_derived_global/campaign.py", "scripts/p05n_field_derived_global/core.py",
-           "scripts/p05n_field_derived_global/fields.py", "scripts/p05n_field_derived_global/rows.py",
-           "scripts/p05n_field_derived_global/operator.py", "scripts/p05n_field_derived_global/preflight.py",
-           "scripts/p05n_field_derived_global/configuration.json",
-           "scripts/p05n_field_derived_global/input_manifest.json",
-           "scripts/p05n_field_derived_global/p05n_catalogue.json",
-           "scripts/p05n_field_derived_global/p05n_upwind_catalogue.json",
-           "scripts/p05n_field_derived_global/README.md",
-           "scripts/p07n_field_derived_global/fields.py",
-           "scripts/p07n_field_derived_global/campaign.py",
+    rel = ["scripts/p06n_field_derived_global/campaign.py", "scripts/p06n_field_derived_global/core.py",
+           "scripts/p06n_field_derived_global/fields.py", "scripts/p06n_field_derived_global/rows.py",
+           "scripts/p06n_field_derived_global/operator.py", "scripts/p06n_field_derived_global/preflight.py",
+           "scripts/p06n_field_derived_global/configuration.json",
+           "scripts/p06n_field_derived_global/input_manifest.json",
+           "scripts/p06n_field_derived_global/p06n_catalogue.json",
+           "scripts/p06n_field_derived_global/README.md",
+           "scripts/p05n_field_derived_global/fields.py", "scripts/p05n_field_derived_global/core.py",
+           "scripts/p05n_field_derived_global/operator.py",
+           "scripts/p06_structured_global/numerics.py",
            "scripts/p07_combined_global/kernels.py", "scripts/p07_combined_global/topology.py",
            "scripts/p07_diffusion_global/numerics.py",
            "scripts/perpendicular_structured/reconstruction.py",
-           "scripts/p05_direct_midpoint_global/direct_operator.py",
+           "scripts/perpendicular_structured/reference_geometry.py",
            "src/drbx/geometry/fci_perpendicular_neumann_trace.py",
            "src/drbx/geometry/fci_perpendicular_reconstruction.py",
-           "src/drbx/native/fci_perpendicular_face_corrections.py"] + _fixture_files()
+           "src/drbx/native/fci_perpendicular_face_corrections.py",
+           "src/drbx/native/fci_curvature_production_flux.py",
+           "src/drbx/native/fci_operators.py"] + _fixture_files()
     return {p: sha(REPO / p) for p in rel}
 
 
 def localize_sidecar(input_root, output):
-    """Read the raw continuum reference sidecar and patch its absolute file
-    paths to this input_root, exactly as scripts/p07n_field_derived_global's
-    campaign.py does (verified locally to give a bit-identical `ref._metric`
-    to the previously used already-localized sidecar). Idempotent: on resume,
-    the existing localized copy must be byte-identical or verify() fails.
-    """
+    """Same localized reference sidecar p05n/p07n use (identical underlying
+    continuum reference geometry); see p05n_field_derived_global/campaign.py's
+    localize_sidecar for the equivalence note."""
     input_root = Path(input_root); output = Path(output)
     side = json.loads((input_root / "DRBX/work/perpendicular_second_order_hsx_p01_p03/continuous_reference_sidecar.json").read_text())
     side["metric_cache"]["path"] = str((input_root / "hsx_metric_d58d392545fd3917efeb83b6.npz").resolve())
@@ -178,8 +181,7 @@ def verify(input_root, output):
     sources = source_hashes()
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
     identity = digest({"configuration": cfg, "input_manifest": im, "sources": sources, "commit": commit,
-                        "catalogue": {"roles": core.ROLES, "pairings": core.PAIRINGS,
-                                      "dirichlet_counterpart": core.DIRICHLET_COUNTERPART}})
+                        "catalogue": core.CASES})
     manifest_path = output / "campaign_manifest.json"
     local = localize_sidecar(input_root, output)
     if manifest_path.exists():
@@ -197,26 +199,19 @@ def verify(input_root, output):
                                "localized_sidecar_sha256": sha(local),
                                "python": sys.version, "platform": platform.platform(),
                                "jax_backend": jax.default_backend()})
-    for name in ("chunks", "scratch", "cache", "logs", "invocations"):
+    for name in ("chunks", "scratch", "cache", "logs", "invocations", "executions"):
         (output / name).mkdir(exist_ok=True)
     return identity
 
 
 # ---------------------------------------------------------------------------
-# Topology / planning.
+# Chunk id ranges (no separate topology stage: both raw-cell and accepted
+# face-id ranges are pure, cheap functions of n; see core.all_face_ids).
 # ---------------------------------------------------------------------------
-def load_topology(output, n):
-    with np.load(Path(output) / f"N{n}.topology.npz", allow_pickle=False) as z:
-        return z["face_ids"].copy(), z["endpoints"].copy()
-
-
-def topo_one(input_root, output, n):
-    started = time.process_time()
-    core.pt.census(n, str(input_root), str(output))
-    face_ids, endpoints = load_topology(output, n)
-    t = core.load_context(n, input_root)
-    return {"n": n, "faces": len(face_ids), "owners": len(t.vol), "cpu_seconds": time.process_time() - started,
-            "rss_gib": rss()}
+def ids_for(n, stage):
+    if stage == "faces":
+        return core.all_face_ids(n)
+    return np.arange(n ** 3, dtype=np.int64)
 
 
 def effective(args):
@@ -230,28 +225,6 @@ def effective(args):
     return count
 
 
-def topology_stage(args, identity):
-    output = args.output
-    path = output / "topology_summary.json"
-    if path.exists():
-        saved = json.loads(path.read_text())
-        if saved["identity"] != identity:
-            raise ValueError("topology identity changed")
-        for n in args.resolutions:
-            if sha(output / f"N{n}.topology.npz") != saved["hashes"][str(n)]:
-                raise ValueError("topology hash changed")
-        return
-    items = [topo_one(args.input_root, output, n) for n in args.resolutions]
-    write(path, {"identity": identity, "results": items,
-                 "hashes": {str(n): sha(output / f"N{n}.topology.npz") for n in args.resolutions}})
-
-
-def ids_for(output, n, stage):
-    if stage == "faces":
-        return load_topology(output, n)[0]
-    return np.arange(n ** 3, dtype=np.int64)
-
-
 def plan(output, identity, resolutions):
     cfg = config()
     chunks = {"observations": cfg["observation_chunk"], "raw": cfg["raw_chunk"], "faces": cfg["face_chunk"]}
@@ -259,7 +232,7 @@ def plan(output, identity, resolutions):
     for stage in STAGES:
         data["stages"][stage] = {}
         for n in resolutions:
-            ids = ids_for(output, n, stage); size = chunks[stage]
+            ids = ids_for(n, stage); size = chunks[stage]
             data["stages"][stage][str(n)] = [{"stage": stage, "n": n, "start": j, "stop": min(j + size, len(ids))}
                                               for j in range(0, len(ids), size)]
     path = Path(output) / "plan.json"
@@ -276,8 +249,8 @@ def unit_path(output, unit):
     return Path(output) / "chunks" / f"N{unit['n']}" / unit["stage"] / f"{unit['start']:07d}-{unit['stop'] - 1:07d}.npz"
 
 
-def unit_ids(output, unit):
-    return ids_for(output, unit["n"], unit["stage"])[unit["start"]:unit["stop"]]
+def unit_ids(unit):
+    return ids_for(unit["n"], unit["stage"])[unit["start"]:unit["stop"]]
 
 
 def valid_unit(output, unit, identity):
@@ -292,14 +265,15 @@ def valid_unit(output, unit, identity):
     if sha(path) != item["sha256"]:
         raise ValueError(f"corrupt checkpoint {path}")
     with np.load(path, allow_pickle=False) as z:
-        if not np.array_equal(z["ids"], unit_ids(output, unit)):
+        if not np.array_equal(z["ids"], unit_ids(unit)):
             raise ValueError(f"wrong chunk IDs {path}")
         for name in z.files:
             if z[name].dtype.kind in "fc" and not np.isfinite(z[name]).all():
                 raise ValueError(f"nonfinite {path}:{name}")
         expected = {"observations": ("numerator", "owner_ids"),
-                    "raw": ("N", "D", "R", "owner_ids", "raw_volume"),
-                    "faces": ("N", "D", "endpoints")}[unit["stage"]]
+                    "raw": ("material", "remainder", "total", "R_material", "R_remainder", "R_total",
+                            "evolution_weight", "owner_ids"),
+                    "faces": ("keys", "lo", "hi", "correction_lo", "correction_hi")}[unit["stage"]]
         if any(key not in z for key in expected):
             raise ValueError(f"incomplete chunk {path}")
     return True
@@ -317,7 +291,8 @@ def initialize(input_root, output, n, stage, identity, worker_memory_gib):
     t, ref = core.load(input_root, output / "reference_sidecar.json", n)
     S = core.StructuredReconstruction(t)
     ctx = core.context(t)
-    lattice = core.WallLattice(t, ref, t.g.eta_period)
+    period = t.g.eta_period
+    lattice = core.WallLattice(t, ref, period)
     normal_coefficients = lattice.normal  # one bound object: patch_cache keys on its id
     owner_values = None
     if stage in ("raw", "faces"):
@@ -328,37 +303,41 @@ def initialize(input_root, output, n, stage, identity, worker_memory_gib):
         with np.load(path, allow_pickle=False) as z:
             owner_values = z["values"].copy()
     STATE = {"t": t, "ref": ref, "S": S, "ctx": ctx, "normal_coefficients": normal_coefficients,
-             "normal_data_fn": lattice.normal_data,
-             "owner_values": owner_values, "stage": stage, "output": output, "identity": identity, "n": n,
-             "worker_memory_gib": worker_memory_gib, "patch_cache": {}}
+             "normal_data_fn": lattice.normal_data, "owner_values": owner_values, "stage": stage,
+             "output": output, "identity": identity, "n": n, "worker_memory_gib": worker_memory_gib,
+             "patch_cache": {}}
 
 
 def compute(unit):
-    s = STATE; ids = unit_ids(s["output"], unit); stage = s["stage"]; started = time.monotonic()
+    s = STATE; ids = unit_ids(unit); stage = s["stage"]; started = time.monotonic()
     period = s["t"].g.eta_period
     cfg = config()
     if stage == "observations":
         data = core.observation_chunk(s["t"], s["ref"], ids, period)
     elif stage == "raw":
-        data = core.raw_chunk(s["t"], s["S"], s["ref"], s["ctx"], ids, s["owner_values"],
-                               s["normal_coefficients"], s["patch_cache"], period,
-                               normal_data_override=s["normal_data_fn"])
+        rc = core.raw_chunk(s["t"], s["S"], s["ref"], s["ctx"], ids, s["owner_values"], s["normal_coefficients"],
+                             s["patch_cache"], period, normal_data_override=s["normal_data_fn"])
+        data = {k: v for k, v in rc.items() if k != "variants"}
         if len(s["patch_cache"]) > cfg["patch_cache_limit"]:
             s["patch_cache"].clear()
     else:
-        all_ids, all_endpoints = load_topology(s["output"], s["n"])
-        pos = np.searchsorted(all_ids, ids)
-        if not np.array_equal(all_ids[pos], ids):
-            raise ValueError("face topology changed")
-        data = core.face_chunk(s["t"], s["S"], s["ref"], s["ctx"], ids, all_endpoints[pos], s["owner_values"],
-                                s["normal_coefficients"], s["patch_cache"], period, order=cfg["face_quadrature"],
-                                normal_data_override=s["normal_data_fn"])
+        keys = core.face_keys_for_ids(s["n"], ids)
+        fc = core.face_chunk(s["t"], s["S"], s["ref"], s["ctx"], keys, s["owner_values"], s["normal_coefficients"],
+                              s["patch_cache"], period, order=cfg["face_quadrature"],
+                              normal_data_override=s["normal_data_fn"], dedupe=True)
+        data = {"keys": fc["keys"], "lo": fc["lo"], "hi": fc["hi"], "correction_lo": fc["correction_lo"],
+                "correction_hi": fc["correction_hi"], "condition_max": fc["condition_max"],
+                "residual_max": fc["residual_max"], "wall_exterior_defect_max": fc["wall_exterior_defect_max"],
+                "wall_faces_seen": fc["wall_faces_seen"]}
+        for kind in ZERO_JUMP_KINDS:
+            data[f"zero_{kind}"] = fc["zero_face_max"].get(kind, 0.0)
         if len(s["patch_cache"]) > cfg["patch_cache_limit"]:
             s["patch_cache"].clear()
     if rss() > s["worker_memory_gib"]:
         raise MemoryError(f"{stage} worker exceeded declared memory cap: {rss():.3f} GiB")
+    data.pop("ids", None)
     path = unit_path(s["output"], unit)
-    save(path, **data)
+    save(path, ids=ids, **data)
     record = {"identity": s["identity"], "unit": unit, "sha256": sha(path), "seconds": time.monotonic() - started,
               "peak_rss_gib": rss(), "pid": os.getpid(), "jax_backend": "cpu"}
     write(path.with_suffix(".json"), record)
@@ -412,8 +391,8 @@ def run_stage(args, stage, stage_units, identity):
     return run
 
 
-def complete_chunks(output, units, identity):
-    cursor = 0; expected = ids_for(output, units[0]["n"], units[0]["stage"]) if units else np.empty(0, dtype=np.int64)
+def complete_chunks(output, units, stage, n, identity):
+    cursor = 0; expected = ids_for(n, stage) if units else np.empty(0, dtype=np.int64)
     for u in units:
         if u["start"] != cursor or u["stop"] <= cursor or not valid_unit(output, u, identity):
             raise ValueError(f"incomplete/overlapping stage at {cursor}: {u}")
@@ -429,7 +408,7 @@ def complete_chunks(output, units, identity):
 def reduce_observations(input_root, output, n, units, identity):
     t = core.load_context(n, input_root)
     values = np.zeros((len(t.vol), len(core.NAMES))); volume = np.zeros(len(t.vol))
-    complete_chunks(output, units, identity)
+    complete_chunks(output, units, "observations", n, identity)
     for u in units:
         with np.load(unit_path(output, u)) as z:
             ids = z["ids"]; oid = z["owner_ids"]
@@ -443,105 +422,115 @@ def reduce_observations(input_root, output, n, units, identity):
     return {"owner_values_sha256": sha(path), "owners": len(t.vol), "raw_members": n ** 3}
 
 
-def regional_masks(t):
-    n = t.n
-    count = np.bincount(t.ro, minlength=len(t.vol))
-    rawcount = count[t.ro].reshape((n, n, n))
-    trans = np.zeros((n, n, n), bool)
-    diff = rawcount[1:] != rawcount[:-1]
-    trans[1:] |= diff; trans[:-1] |= diff
-    transition_owner = np.bincount(t.ro, weights=trans.reshape(-1), minlength=len(t.vol)) > 0
-    radius = np.zeros((n, n, n), np.int64); radius[:] = np.arange(n)[:, None, None]
-    def owner_has(mask3d):
-        return np.bincount(t.ro, weights=mask3d.reshape(-1), minlength=len(t.vol)) > 0
-    axis_core = owner_has(radius == 0)
-    first_ring = owner_has(radius == 1)
-    wall = owner_has(radius == n - 1)
-    last_two_layers = owner_has(radius >= n - 2)
-    transition = transition_owner & ~axis_core & ~wall
-    aggregate = (count > 1) & ~axis_core & ~wall & ~transition
-    ordinary = ~(axis_core | wall | transition | aggregate)
-    return {"axis_core": axis_core, "first_ring": first_ring, "physical_wall": wall,
-            "transverse_last_two_layers": last_two_layers, "transition": transition,
-            "aggregate": aggregate, "ordinary": ordinary, "interior": ~(axis_core | wall | last_two_layers)}
-
-
-def project_raw(numerator, raw_owner, raw_volume, owner_count):
-    out = np.zeros((owner_count,) + numerator.shape[1:])
-    np.add.at(out, raw_owner, raw_volume.reshape(-1, *([1] * (numerator.ndim - 1))) * numerator)
-    return out
-
-
 def reduce_raw(input_root, output, n, units, identity):
     t = core.load_context(n, input_root)
-    P = len(core.PAIR_NAMES)
-    N = np.zeros((len(t.vol), P)); D = np.zeros((len(t.vol), P)); R = np.zeros((len(t.vol), P))
-    volume = np.zeros(len(t.vol))
-    condition_max = 0.0; residual_max = 0.0; antisymmetry_max = 0.0; exact_input_defect_max = np.zeros(P)
-    complete_chunks(output, units, identity)
+    V = len(core.VARIANT_NAMES)
+    owners = len(t.vol)
+    material = np.zeros((V, owners, 4)); remainder = np.zeros((V, owners, 4)); total = np.zeros((V, owners, 4))
+    r_material = np.zeros((V, owners, 4)); r_remainder = np.zeros((V, owners, 4)); r_total = np.zeros((V, owners, 4))
+    evolution_volume = np.zeros(owners)
+    condition_max = 0.0; residual_max = 0.0; closure_max = 0.0
+    exact_input_defect_max = np.zeros((V, 4))
+    complete_chunks(output, units, "raw", n, identity)
     for u in units:
         with np.load(unit_path(output, u), allow_pickle=False) as z:
-            ids = z["ids"]; oid = z["owner_ids"]; vol = z["raw_volume"]
+            ids = z["ids"]; oid = z["owner_ids"]; w = z["evolution_weight"]
             if not np.array_equal(oid, t.ro[ids]):
                 raise ValueError("raw owner mismatch")
-            np.add.at(N, oid, vol[:, None] * z["N"]); np.add.at(D, oid, vol[:, None] * z["D"])
-            np.add.at(R, oid, vol[:, None] * z["R"]); np.add.at(volume, oid, vol)
+            for vi in range(V):
+                np.add.at(material[vi], oid, w[:, None] * z["material"][vi])
+                np.add.at(remainder[vi], oid, w[:, None] * z["remainder"][vi])
+                np.add.at(total[vi], oid, w[:, None] * z["total"][vi])
+                np.add.at(r_material[vi], oid, w[:, None] * z["R_material"][vi])
+                np.add.at(r_remainder[vi], oid, w[:, None] * z["R_remainder"][vi])
+                np.add.at(r_total[vi], oid, w[:, None] * z["R_total"][vi])
+            np.add.at(evolution_volume, oid, w)
             condition_max = max(condition_max, float(z["condition_max"]))
             residual_max = max(residual_max, float(z["residual_max"]))
-            antisymmetry_max = max(antisymmetry_max, float(z["antisymmetry"]))
-            exact_input_defect_max = np.maximum(exact_input_defect_max, z["exact_input_defect"])
-    if not np.allclose(volume, t.vol, rtol=1e-12, atol=1e-12):
-        raise ValueError("incomplete raw members in reduced raw stage")
-    N /= t.vol[:, None]; D /= t.vol[:, None]; R /= t.vol[:, None]
+            closure_max = max(closure_max, float(z["closure_max"]))
+            exact_input_defect_max = np.maximum(exact_input_defect_max, np.max(z["exact_input_defect"], axis=1))
+    nonzero = evolution_volume > 0
+    for arr in (material, remainder, total, r_material, r_remainder, r_total):
+        arr[:, nonzero] /= evolution_volume[nonzero][None, :, None]
+        arr[:, ~nonzero] = np.nan
     path = output / f"N{n}.raw.npz"
-    save(path, N=N, D=D, R=R, condition_max=condition_max, residual_max=residual_max,
-         antisymmetry_max=antisymmetry_max, exact_input_defect_max=exact_input_defect_max)
+    save(path, material=material, remainder=remainder, total=total, R_material=r_material,
+         R_remainder=r_remainder, R_total=r_total, evolution_volume=evolution_volume,
+         condition_max=condition_max, residual_max=residual_max, closure_max=closure_max,
+         exact_input_defect_max=exact_input_defect_max)
     return {"raw_sha256": sha(path), "condition_max": condition_max, "residual_max": residual_max,
-            "antisymmetry_max": antisymmetry_max, "exact_input_defect_max": exact_input_defect_max.tolist()}
+            "closure_max": closure_max, "exact_input_defect_max": exact_input_defect_max.tolist(),
+            "owners_with_zero_evolution_volume": int(np.sum(~nonzero))}
 
 
 def reduce_faces(input_root, output, n, units, identity):
     t = core.load_context(n, input_root)
-    P = len(core.PAIR_NAMES)
-    N = np.zeros((len(t.vol), P)); D = np.zeros((len(t.vol), P))
-    zero_max = {"physical_wall": 0.0, "radial_n_minus_1": 0.0, "transverse_last_two_layers": 0.0}
-    condition_max = 0.0; residual_max = 0.0
-    complete_chunks(output, units, identity)
-    all_ids, all_endpoints = load_topology(output, n)
+    V = len(core.VARIANT_NAMES)
+    owners = len(t.vol)
+    correction = np.zeros((V, owners, 4))
+    zero_max = {kind: 0.0 for kind in ZERO_JUMP_KINDS}
+    condition_max = 0.0; residual_max = 0.0; wall_exterior_defect_max = 0.0; wall_faces_seen = 0
+    complete_chunks(output, units, "faces", n, identity)
     for u in units:
         with np.load(unit_path(output, u), allow_pickle=False) as z:
-            ids = z["ids"]; ep = z["endpoints"]
-            pos = np.searchsorted(all_ids, ids)
-            if not np.array_equal(all_ids[pos], ids) or not np.array_equal(ep, all_endpoints[pos]):
-                raise ValueError("face topology changed")
-            lo = ep[:, 0]; hi = ep[:, 1]
+            lo = z["lo"]; hi = z["hi"]
             valid_lo = lo >= 0; valid_hi = hi >= 0
-            np.add.at(N, lo[valid_lo], z["N"][valid_lo]); np.add.at(D, lo[valid_lo], z["D"][valid_lo])
-            np.add.at(N, hi[valid_hi], -z["N"][valid_hi]); np.add.at(D, hi[valid_hi], -z["D"][valid_hi])
-            keys = core.pt.decode(n, ids)
-            for row in range(len(ids)):
-                kind = core._face_kind(n, keys[row])
-                if kind is not None:
-                    zero_max[kind] = max(zero_max[kind], float(np.max(np.abs(z["N"][row]))),
-                                          float(np.max(np.abs(z["D"][row]))))
+            for vi in range(V):
+                np.add.at(correction[vi], lo[valid_lo], z["correction_lo"][vi][valid_lo])
+                np.add.at(correction[vi], hi[valid_hi], z["correction_hi"][vi][valid_hi])
             condition_max = max(condition_max, float(z.get("condition_max", 0.0)))
             residual_max = max(residual_max, float(z.get("residual_max", 0.0)))
-    N /= t.vol[:, None]; D /= t.vol[:, None]
+            wall_exterior_defect_max = max(wall_exterior_defect_max, float(z.get("wall_exterior_defect_max", 0.0)))
+            wall_faces_seen += int(z.get("wall_faces_seen", 0))
+            for kind in ZERO_JUMP_KINDS:
+                zero_max[kind] = max(zero_max[kind], float(z.get(f"zero_{kind}", 0.0)))
     path = output / f"N{n}.faces.npz"
-    save(path, N=N, D=D)
+    save(path, correction=correction)
     return {"faces_sha256": sha(path), "zero_jump_max": zero_max, "condition_max": condition_max,
-            "residual_max": residual_max}
+            "residual_max": residual_max, "wall_exterior_defect_max": wall_exterior_defect_max,
+            "wall_faces_seen": wall_faces_seen}
 
 
-def stats(error, volume, regions):
-    sq = volume * error ** 2; total = float(np.sum(sq)); V = float(np.sum(volume))
-    out = {"l2": float(np.sqrt(total / V)), "max_abs": float(np.max(np.abs(error))), "regions": {}}
+def stats(error, weight, regions):
+    """The P05N-convention report: {l2, max_abs, regions: {owners, l2, max_abs}},
+    owner-physical-volume weighted (mirrors p05n_field_derived_global.campaign.stats)."""
+    finite = np.isfinite(error) & np.isfinite(weight)
+    error = np.where(finite, error, 0.0); weight = np.where(finite, weight, 0.0)
+    sq = weight * error ** 2; total = float(np.sum(sq)); V = float(np.sum(weight))
+    out = {"l2": float(np.sqrt(total / V)) if V > 0 else None, "max_abs": float(np.max(np.abs(error[finite]))) if np.any(finite) else None,
+           "regions": {}}
     for label, mask in regions.items():
-        v = float(np.sum(volume[mask]))
+        m = mask & finite
+        v = float(np.sum(weight[m]))
         out["regions"][label] = {"owners": int(np.sum(mask)),
-                                  "l2": float(np.sqrt(np.sum(sq[mask]) / v)) if v > 0 else None,
-                                  "max_abs": float(np.max(np.abs(error[mask]))) if np.any(mask) else None}
+                                  "l2": float(np.sqrt(np.sum(sq[m]) / v)) if v > 0 else None,
+                                  "max_abs": float(np.max(np.abs(error[m]))) if np.any(m) else None}
     return out
+
+
+def accepted_stats(error, weight, regions):
+    """The accepted-P06 report format (``p06_structured_global.numerics``'s
+    own ``_compact_statistics``: absolute_l2, relative_l2,
+    maximum_absolute_error, signed_volume_weighted_mean_error, and a
+    per-region squared_error_fraction/volume_fraction breakdown), called
+    unmodified via a minimal ``owner_volume``/``masks`` shim. Same
+    owner-physical-volume weight as ``stats``' P05N-convention report
+    (``data.owner_volume`` there is the same portable owner volume ``t.vol``
+    is here -- see this package's README.md, "Reduction outputs"); the two
+    differ only in reported statistics/region taxonomy, not in the
+    underlying weight, so the region breakdown uses this package's own
+    region labels (``core.regional_masks``), not the accepted campaign's own
+    (axis_core/first_ring/aggregate_interface/theta_seam/eta_seam) partition.
+
+    Note: ``_compact_statistics`` is called here as ``(error, 0, shim)`` (its
+    own ``actual - exact`` gives back ``error`` unchanged), so its
+    ``relative_l2`` field -- defined relative to ``exact`` -- is not
+    meaningful for an already-differenced N-R/N-D error and should be
+    ignored; every other field is exactly its own accepted formula.
+    """
+    from types import SimpleNamespace
+    shim = SimpleNamespace(owner_volume=weight, masks=regions)
+    return core.p06numerics._compact_statistics(error + 0.0, np.zeros_like(error), shim)
 
 
 def reduce_global(args, identity):
@@ -549,67 +538,77 @@ def reduce_global(args, identity):
     for n in args.resolutions:
         t = core.load_context(n, args.input_root)
         with np.load(output / f"N{n}.raw.npz", allow_pickle=False) as z:
-            N_centered = z["N"].copy(); D_centered = z["D"].copy(); R = z["R"].copy()
+            total = z["total"].copy(); r_total = z["R_total"].copy()
+            material = z["material"].copy(); remainder = z["remainder"].copy()
+            evolution_volume = z["evolution_volume"].copy()
             condition_max = float(z["condition_max"]); residual_max = float(z["residual_max"])
-            antisymmetry_max = float(z["antisymmetry_max"]); exact_input_defect_max = z["exact_input_defect_max"].copy()
+            closure_max = float(z["closure_max"])
         with np.load(output / f"N{n}.faces.npz", allow_pickle=False) as z:
-            N_jump = z["N"].copy(); D_jump = z["D"].copy()
-        N1 = N_centered; N2 = N_centered + N_jump
-        D1 = D_centered; D2 = D_centered + D_jump
-        regions = regional_masks(t)
+            correction = z["correction"].copy()
+        centered_total = total
+        u_material = material + correction / np.maximum(evolution_volume, 1e-300)[None, :, None]
+        u_total = u_material + remainder
+        owner_volume_weight = np.asarray(t.vol)
+        regions = core.regional_masks(t)
+
+        def _both(error):
+            return {"p05n_norm": stats(error, owner_volume_weight, regions),
+                    "accepted_norm": accepted_stats(error, owner_volume_weight, regions)}
+
         results = {}
-        for col, name in enumerate(core.PAIR_NAMES):
-            results[name] = {
-                "candidate_direct_centered": {"N_minus_R": stats(N1[:, col] - R[:, col], t.vol, regions),
-                                               "N_minus_D": stats(N1[:, col] - D1[:, col], t.vol, regions)},
-                "candidate_direct_centered_plus_live_U_minus_A": {
-                    "N_minus_R": stats(N2[:, col] - R[:, col], t.vol, regions),
-                    "N_minus_D": stats(N2[:, col] - D2[:, col], t.vol, regions)},
-            }
-        constant_action_max = max(float(np.max(np.abs(N1[:, core.PAIR_NAMES.index(p)])))
-                                   for p in core.CONSTANT_PAIRS)
-        constant_action_max = max(constant_action_max,
-                                   max(float(np.max(np.abs(N2[:, core.PAIR_NAMES.index(p)])))
-                                       for p in core.CONSTANT_PAIRS))
+        for ci, name in enumerate(core.CASE_NAMES):
+            vi_n = core.VARIANT_NAMES.index(name)
+            vi_d = core.VARIANT_NAMES.index(f"{name}:D")
+            eq = {}
+            for eqi, eqname in enumerate(core.EQUATIONS):
+                eq[eqname] = {
+                    "centered": {"N_minus_R": _both(centered_total[vi_n, :, eqi] - r_total[vi_n, :, eqi]),
+                                 "N_minus_D": _both(centered_total[vi_n, :, eqi] - centered_total[vi_d, :, eqi])},
+                    "U": {"N_minus_R": _both(u_total[vi_n, :, eqi] - r_total[vi_n, :, eqi]),
+                          "N_minus_D": _both(u_total[vi_n, :, eqi] - u_total[vi_d, :, eqi])},
+                }
+            results[name] = eq
+        constant_action_max = 0.0
+        for cname in core.CONTROL_CASES:
+            vi = core.VARIANT_NAMES.index(cname)
+            constant_action_max = max(constant_action_max, float(np.nanmax(np.abs(centered_total[vi]))),
+                                       float(np.nanmax(np.abs(u_total[vi]))))
         cases[str(n)] = {"owners": len(t.vol), "fields": results, "condition_max": condition_max,
-                          "residual_max": residual_max, "antisymmetry_max": antisymmetry_max,
-                          "exact_input_defect_max": exact_input_defect_max.tolist(),
+                          "residual_max": residual_max, "closure_max": closure_max,
                           "constant_action_max": constant_action_max,
-                          "arrays_sha256": {"raw": sha(output / f"N{n}.raw.npz"),
-                                            "faces": sha(output / f"N{n}.faces.npz")}}
+                          "arrays_sha256": {"raw": sha(output / f"N{n}.raw.npz"), "faces": sha(output / f"N{n}.faces.npz")}}
     orders = {}
-    for cand in ("candidate_direct_centered", "candidate_direct_centered_plus_live_U_minus_A"):
+    for cand in ("centered", "U"):
         orders[cand] = {}
-        for name in core.GATED_PAIRS:
-            e = np.array([cases[str(n)]["fields"][name][cand]["N_minus_R"]["l2"] for n in args.resolutions])
-            entry = {"errors": e.tolist()}
-            if len(e) == 3 and np.all(e > 0):
-                p = np.log(e[:-1] / e[1:]) / np.log(np.array([48 / 32, 64 / 48]))
-                entry["orders"] = p.tolist()
-                entry["order_pass"] = bool(np.all(p >= cfg["global_l2_order_minimum"]))
-            orders[cand][name] = entry
+        for name in core.GATED_CASES:
+            for eqname in core.GATED_EQUATIONS:
+                e = np.array([cases[str(n)]["fields"][name][eqname][cand]["N_minus_R"]["p05n_norm"]["l2"] for n in args.resolutions])
+                entry = {"errors": e.tolist()}
+                if len(e) == 3 and np.all(np.asarray(e, dtype=object) != None) and np.all(e > 0):
+                    p = np.log(e[:-1] / e[1:]) / np.log(np.array([48 / 32, 64 / 48]))
+                    entry["orders"] = p.tolist()
+                    entry["order_pass"] = bool(np.all(p >= cfg["global_l2_order_minimum"]))
+                orders[cand][f"{name}:{eqname}"] = entry
     global_order_pass = (len(args.resolutions) == 3 and
-                          all(orders[cand][name].get("order_pass", False)
-                              for cand in orders for name in core.GATED_PAIRS))
+                          all(orders[cand][key].get("order_pass", False)
+                              for cand in orders for key in orders[cand]))
     constant_pass = all(cases[str(n)]["constant_action_max"] <= cfg["constant_action_absolute_maximum"]
                          for n in args.resolutions)
-    antisymmetry_pass = all(cases[str(n)]["antisymmetry_max"] <= cfg["antisymmetry_absolute_maximum"]
-                             for n in args.resolutions)
     summary = {"identity": identity, "computation_completed": len(args.resolutions) == 3, "cases": cases,
                "orders": orders, "global_order_pass": global_order_pass, "constant_pass": constant_pass,
-               "antisymmetry_pass": antisymmetry_pass, "gated_pairs": list(core.GATED_PAIRS),
-               "control_pairs": list(core.CONTROL_PAIRS), "production_promoted": False,
-               "accuracy_record_note": "N_minus_D is reported per candidate/pairing, not gated; "
-                                       "the scientific gate is global_order_pass on N_minus_R for gated_pairs, both candidates"}
+               "gated_cases": list(core.GATED_CASES), "heldout_cases": list(core.HELDOUT_CASES),
+               "control_cases": list(core.CONTROL_CASES), "production_promoted": False,
+               "note": "gated_cases are every nonconstant case, including the held-out cases (frozen catalogue gate); "
+                       "N_minus_D is reported per case/equation/candidate, not gated"}
     write(output / "summary.json", summary)
     return summary
 
 
 # ---------------------------------------------------------------------------
-# Preflight (small-scale, non-chunked): gates (i)/(ii)/(iii).
+# Preflight / equivalence.
 # ---------------------------------------------------------------------------
 def preflight_one(input_root, output, n, oracle=False):
-    return p05n_preflight.run(input_root, n, output, oracle=oracle)
+    return p06n_preflight.run(input_root, n, output, oracle=oracle)
 
 
 def preflight_stage(args, identity, oracle=False):
@@ -621,8 +620,6 @@ def preflight_stage(args, identity, oracle=False):
         if saved["identity"] == identity:
             cases = saved["cases"]
     todo = [n for n in args.resolutions if str(n) not in cases]
-    # The per-grid preflights are independent: run them concurrently, bounded
-    # by the same worker and memory controls as the main stages.
     count = max(1, min(len(todo), effective(args))) if todo else 0
     if count > 1:
         with ProcessPoolExecutor(max_workers=count, mp_context=get_context("spawn")) as pool:
@@ -642,12 +639,9 @@ def validate(args, planned, identity):
     if planned["identity"] != identity:
         raise ValueError("plan identity changed")
     output = args.output
-    topo = json.loads((output / "topology_summary.json").read_text())
-    if topo["identity"] != identity:
-        raise ValueError("topology summary identity changed")
     for stage in STAGES:
         for n in args.resolutions:
-            complete_chunks(output, planned["stages"][stage][str(n)], identity)
+            complete_chunks(output, planned["stages"][stage][str(n)], stage, n, identity)
     summary = json.loads((output / "summary.json").read_text())
     if summary["identity"] != identity or not summary["computation_completed"]:
         raise ValueError("incomplete results")
@@ -658,7 +652,7 @@ def validate(args, planned, identity):
 
 def parse():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("command", choices=("verify-inputs", "topology", "plan", "preflight", "verify-equivalence",
+    p.add_argument("command", choices=("verify-inputs", "plan", "preflight", "verify-equivalence",
                                        "run-stage", "reduce-stage", "run", "validate"))
     p.add_argument("--input-root", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
@@ -675,7 +669,7 @@ def main():
     args = parse(); args.output = args.output.resolve(); args.input_root = args.input_root.resolve()
     if args.resolutions != sorted(set(args.resolutions)):
         raise ValueError("resolutions must be unique and ascending")
-    if args.command in ("topology", "run-stage", "run"):
+    if args.command in ("run-stage", "run"):
         effective(args)
     with lock(args.output):
         for name in ("scratch", "cache", "logs"):
@@ -687,10 +681,6 @@ def main():
         write(args.output / "invocations" / f"{time.time_ns()}_{args.command}.json",
               {"argv": sys.argv, "identity": identity, "time": time.time()})
         if args.command == "verify-inputs":
-            return
-        if args.command in ("topology", "plan", "run"):
-            topology_stage(args, identity)
-        if args.command == "topology":
             return
         if args.command in ("plan", "run"):
             planned = plan(args.output, identity, args.resolutions)

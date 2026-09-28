@@ -33,6 +33,9 @@ preflight check.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 
 from p07_combined_global import kernels as pk
@@ -48,53 +51,80 @@ from p05n_field_derived_global import fields as p05n_fields
 from p05n_field_derived_global import operator as p05n_operator
 
 # ---------------------------------------------------------------------------
-# Frozen P05N catalogue (vendored byte-identically as p05n_catalogue.json in
-# this package directory; see configuration.json's catalogue_sha256).
+# Frozen P05N catalogues. configuration.json's catalogue_reference selects one;
+# each is vendored in this package directory and checked by SHA-256.
+#   p05n_catalogue.json         frozen_v1 (campaign 05be9063)
+#   p05n_upwind_catalogue.json  upwind_v1 (fields outside the reconstruction's
+#                               exactness space, so the live U - A jump is exercised)
+# Role names carry their boundary condition as a _N / _D suffix.
 # ---------------------------------------------------------------------------
-NAMES = p05n_fields.NAMES  # 6 physical fields, fixed column order for owner_values
+_CATALOGUE_TABLES = {
+    "p05n_catalogue.json": dict(
+        names=p05n_fields.NAMES,
+        roles={
+            "b1_N": ("field_b1", "neumann"), "b1_D": ("field_b1", "dirichlet"),
+            "e3_N": ("field_e3", "neumann"), "e3_D": ("field_e3", "dirichlet"),
+            "e12_N": ("field_e12", "neumann"), "e12_D": ("field_e12", "dirichlet"),
+            "b2_N": ("heldout_field_b2", "neumann"), "b2_D": ("heldout_field_b2", "dirichlet"),
+            "ztg_D": ("zero_trace_generator", "dirichlet"),
+            "constant_D": ("constant", "dirichlet"),
+        },
+        pairings={
+            "a_main1": ("b1_N", "e3_N"),
+            "a_main2": ("e12_N", "b1_N"),
+            "a_heldout": ("b2_N", "e12_N"),
+            "a_control1": ("b1_N", "constant_D"),
+            "a_control2": ("constant_D", "e3_N"),
+            "b_main1": ("b1_D", "e3_N"),
+            "b_main2": ("ztg_D", "e12_N"),
+            "b_heldout": ("b2_D", "b1_N"),
+            "b_control1": ("b1_D", "constant_D"),
+            "b_control2": ("constant_D", "e3_N"),
+        }),
+    "p05n_upwind_catalogue.json": dict(
+        names=("field_b1", "field_e3", "constant", "rich_a", "rich_f", "heldout_rich_g"),
+        roles={
+            "b1_N": ("field_b1", "neumann"), "b1_D": ("field_b1", "dirichlet"),
+            "e3_N": ("field_e3", "neumann"), "e3_D": ("field_e3", "dirichlet"),
+            "ra_N": ("rich_a", "neumann"), "ra_D": ("rich_a", "dirichlet"),
+            "rf_N": ("rich_f", "neumann"), "rf_D": ("rich_f", "dirichlet"),
+            "rg_N": ("heldout_rich_g", "neumann"), "rg_D": ("heldout_rich_g", "dirichlet"),
+            "constant_D": ("constant", "dirichlet"),
+        },
+        pairings={
+            "a_main1": ("ra_N", "rf_N"),
+            "a_main2": ("rf_N", "ra_N"),
+            "a_heldout": ("ra_N", "rg_N"),
+            "a_main_regression": ("b1_N", "e3_N"),
+            "a_control1": ("ra_N", "constant_D"),
+            "a_control2": ("constant_D", "rf_N"),
+            "b_main1": ("ra_D", "rf_N"),
+            "b_heldout": ("ra_D", "rg_N"),
+            "b_control1": ("ra_D", "constant_D"),
+        }),
+}
+CATALOGUE_REFERENCE = json.loads((Path(__file__).resolve().parent / "configuration.json").read_text())["catalogue_reference"]
+_TABLE = _CATALOGUE_TABLES[CATALOGUE_REFERENCE]
+
+NAMES = tuple(_TABLE["names"])  # physical fields of the active catalogue, fixed column order for owner_values
 NAME_INDEX = {name: i for i, name in enumerate(NAMES)}
 
 # role name -> (physical field name, boundary condition)
-ROLES = {
-    "b1_N": ("field_b1", "neumann"), "b1_D": ("field_b1", "dirichlet"),
-    "e3_N": ("field_e3", "neumann"), "e3_D": ("field_e3", "dirichlet"),
-    "e12_N": ("field_e12", "neumann"), "e12_D": ("field_e12", "dirichlet"),
-    "b2_N": ("heldout_field_b2", "neumann"), "b2_D": ("heldout_field_b2", "dirichlet"),
-    "ztg_D": ("zero_trace_generator", "dirichlet"),
-    "constant_D": ("constant", "dirichlet"),
-}
-ROLE_NAMES = tuple(sorted(ROLES))  # fixed column order, 10 roles
+ROLES = dict(_TABLE["roles"])
+ROLE_NAMES = tuple(sorted(ROLES))
 ROLE_INDEX = {r: i for i, r in enumerate(ROLE_NAMES)}
 ROLE_PHYSICAL_INDEX = np.array([NAME_INDEX[ROLES[r][0]] for r in ROLE_NAMES], dtype=np.int64)
 ROLE_BC = {r: ROLES[r][1] for r in ROLE_NAMES}
 
 # Every role's Dirichlet counterpart (self-mapped if already Dirichlet), used
 # to build the matched-Dirichlet diagnostic D for every catalogue pairing.
-DIRICHLET_COUNTERPART = {
-    "b1_N": "b1_D", "b1_D": "b1_D",
-    "e3_N": "e3_D", "e3_D": "e3_D",
-    "e12_N": "e12_D", "e12_D": "e12_D",
-    "b2_N": "b2_D", "b2_D": "b2_D",
-    "ztg_D": "ztg_D",
-    "constant_D": "constant_D",
-}
+DIRICHLET_COUNTERPART = {r: (r[:-2] + "_D" if r.endswith("_N") else r) for r in ROLES}
 
-# pairing name -> (generator role, transported role); mirrors p05n_catalogue.json
-# pairings exactly. 'constant' is treated as Dirichlet-role throughout (mirrors
-# the bounded run's CATALOGUE_ROLES; documented in README.md).
-PAIRINGS = {
-    "a_main1": ("b1_N", "e3_N"),
-    "a_main2": ("e12_N", "b1_N"),
-    "a_heldout": ("b2_N", "e12_N"),
-    "a_control1": ("b1_N", "constant_D"),
-    "a_control2": ("constant_D", "e3_N"),
-    "b_main1": ("b1_D", "e3_N"),
-    "b_main2": ("ztg_D", "e12_N"),
-    "b_heldout": ("b2_D", "b1_N"),
-    "b_control1": ("b1_D", "constant_D"),
-    "b_control2": ("constant_D", "e3_N"),
-}
-PAIR_NAMES = tuple(sorted(PAIRINGS))  # fixed order, 10 entries
+# pairing name -> (generator role, transported role); mirrors the active
+# catalogue's pairings exactly. 'constant' is treated as Dirichlet-role
+# throughout (documented in README.md).
+PAIRINGS = dict(_TABLE["pairings"])
+PAIR_NAMES = tuple(sorted(PAIRINGS))  # fixed order
 MAIN_PAIRS = tuple(p for p in PAIR_NAMES if "main" in p)
 HELDOUT_PAIRS = tuple(p for p in PAIR_NAMES if "heldout" in p)
 CONTROL_PAIRS = tuple(p for p in PAIR_NAMES if "control" in p)
@@ -228,7 +258,8 @@ class WallLattice:
     point that is not bitwise a lattice node raises an error.
     """
 
-    def __init__(self, t, ref, period):
+    def __init__(self, t, ref, period, names=None):
+        self.names = tuple(NAMES if names is None else names)
         theta = np.asarray(t.centers[1], dtype=np.float64)
         eta = np.asarray(t.centers[2], dtype=np.float64)
         self._theta_index = {float(v): i for i, v in enumerate(theta)}
@@ -237,7 +268,11 @@ class WallLattice:
         self.points = np.column_stack((np.ones(len(theta) * len(eta)),
                                        np.repeat(theta, len(eta)), np.tile(eta, len(theta))))
         self.a = p05n_fields.normal(ref, self.points)
-        self.g_n = normal_data_all(ref, self.points, period)
+        if names is None:
+            self.g_n = normal_data_all(ref, self.points, period)
+        else:
+            gradients = [p05n_fields.evaluate(ref, self.points, name, period)[1] for name in self.names]
+            self.g_n = np.stack([np.einsum("qa,qa->q", self.a, g) for g in gradients], axis=1)
 
     def index(self, q):
         q = np.asarray(q, dtype=np.float64)

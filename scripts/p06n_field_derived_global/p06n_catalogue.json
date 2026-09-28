@@ -1,0 +1,37 @@
+{
+  "schema": "drbx.p06n-catalogue-v1",
+  "name": "p06n_v1",
+  "frozen": "2026-09-28, user decision, before any operator evaluation of heldout_rich_h",
+  "purpose": "Qualify the accepted P06 curvature operator (q1 material/remainder volume terms and the q3 characteristic face correction) with physical-normal Neumann states. The transported states n, Te, Ti are outside the reconstruction's exactness space, so the characteristic upwind correction is active. phi enters only through the q1 remainder (K.grad(phi)); omega is inert (no omega column in the principal matrix).",
+  "state_order": ["n", "Te", "Ti", "omega", "phi"],
+  "wall_data": "Neumann states supply g_N = n.grad_x f from the field itself; Dirichlet states supply their analytic trace through the accepted lifted rows",
+  "field_sources": {
+    "rich_a, rich_f": "DRBX/scripts/p05n_field_derived_global/fields.py (P05N upwind_v1 fields)",
+    "rich_c": "1 + 0.08 exp(-2 u^2) sin(z + 0.3) + 0.05 u^4 (1 - 0.3 u^2) cos(4 th + 0.6) cos(z) + 0.04 u^6 sin(6 th) cos(2 z) + 0.06 u sin(th) cos(z)",
+    "heldout_rich_h": "1 + 0.07 cos(pi u^2/3) cos(2 z + 0.5) + 0.05 u^5 sin(5 th + 0.2) sin(z) + 0.04 u^4 (1 + 0.2 u^2) cos(4 th) sin(2 z + 0.1) + 0.05 u cos(th) sin(z)",
+    "rich_a_minus1, rich_f_minus1": "rich_a - 1 and rich_f - 1 (phi only enters through its gradient)",
+    "zero_trace_generator": "DRBX/scripts/p05n_field_derived_global/fields.py, (1 - u^2)(0.12 x cos z + 0.08 (x^2 - y^2) sin 2z): the physical phi = 0 wall",
+    "field_b1_minus1": "field_b1 - 1 (omega, inert)",
+    "constant": "controls",
+    "coordinates": "z = 2 pi eta / eta_period; every term is a smooth function of (u cos th, u sin th) times eta harmonics (axis-regular); n, Te, Ti stay within about 0.9-1.1"
+  },
+  "cases": {
+    "main_phi_neumann": {"n": "rich_f", "Te": "rich_a", "Ti": "rich_c", "omega": "field_b1_minus1:dirichlet", "phi": "rich_a_minus1"},
+    "main_phi_dirichlet": {"n": "rich_f", "Te": "rich_a", "Ti": "rich_c", "omega": "field_b1_minus1:dirichlet", "phi": "zero_trace_generator:dirichlet"},
+    "heldout_phi_neumann": {"n": "heldout_rich_h", "Te": "rich_c", "Ti": "rich_f", "omega": "field_b1_minus1:dirichlet", "phi": "rich_f_minus1"},
+    "heldout_phi_dirichlet": {"n": "heldout_rich_h", "Te": "rich_c", "Ti": "rich_f", "omega": "field_b1_minus1:dirichlet", "phi": "zero_trace_generator:dirichlet"},
+    "dirichlet_rich": {"n": "rich_f:dirichlet", "Te": "rich_a:dirichlet", "Ti": "rich_c:dirichlet", "omega": "field_b1_minus1:dirichlet", "phi": "zero_trace_generator:dirichlet"},
+    "control_constant_neumann": {"n": "constant", "Te": "constant", "Ti": "constant", "omega": "constant:dirichlet", "phi": "constant"},
+    "control_constant_dirichlet": {"n": "constant:dirichlet", "Te": "constant:dirichlet", "Ti": "constant:dirichlet", "omega": "constant:dirichlet", "phi": "constant:dirichlet"}
+  },
+  "dirichlet_rich_purpose": "All-Dirichlet case with the accepted lifted rows and an active upwind correction. It re-qualifies accepted P06's upwinded (U) operator with the corrected face census (periodic theta/eta slot n no longer double-counts the seam correction; accepted P06 run 58880303 counted it twice, invisible there because its corrections were ~1e-12 or smaller).",
+  "equations": ["density", "Te", "Ti"],
+  "terms": ["material", "remainder", "total"],
+  "candidates": ["centered", "U (centered plus q3 characteristic correction)"],
+  "diagnostic": "D: the same case with every Neumann state replaced by its Dirichlet counterpart (accepted lifted rows)",
+  "face_census": "deduplicated: each physical face once (topology census); the accepted-P06 replay gate alone uses the accepted census with the periodic duplicate, to reproduce the saved accepted artifact",
+  "wall_exterior_contract": "recovered Neumann trace (Dirichlet: prescribed trace) as the characteristic wall solve's boundary_trace; the physical-wall characteristic correction is zero by construction; not a physical wall-law qualification",
+  "gate": "headline N-R global L2 order >= 1.8 on both intervals for every nonconstant case, equation (density, Te, Ti) and candidate, on the total term; material/remainder and N-D reported; acceptance decided by the user",
+  "disclosure": "rich_a and rich_f were evaluated in the P05N outer-region test (not through P06). The P06N bounded construction used the provisional fields b1/e3/e12 only. heldout_rich_h has not been evaluated through any operator.",
+  "predeclared_expectation": "Pointwise q1 terms: O equals R by code identity, so N-R measures reconstruction and closure. The characteristic correction is nonzero on interior faces for these states. Orders at N32-N64 may be pre-asymptotic (high theta harmonics under-resolved at N32), well above 2."
+}

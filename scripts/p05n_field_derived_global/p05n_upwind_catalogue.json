@@ -1,0 +1,33 @@
+{
+  "schema": "drbx.p05n-catalogue-v1",
+  "name": "upwind_v1",
+  "frozen": "2026-09-28, user decision, before any operator evaluation of heldout_rich_g",
+  "purpose": "Exercise the upwind (live U - A) correction. The frozen_v1 fields are at most cubic in u with theta harmonics <= 3, which the 4-point radial Lagrange and 7-point theta stencils reproduce exactly, so interior one-sided reconstructions coincide and the upwind jump vanishes there. These fields have non-polynomial radial profiles, radial degree above 3, theta harmonics 4-6 and eta harmonics 1-2.",
+  "wall_data": "Neumann fields supply g_N = n.grad_x f from the field itself; Dirichlet generators supply their analytic trace through the accepted lifted rows",
+  "field_sources": {
+    "field_b1, field_e3, constant": "DRBX/scripts/p07n_field_derived_global/fields.py (unchanged analytic definitions)",
+    "rich_a": "1 + 0.10 u cos(th) cos(z) + 0.08 sin(pi u^2/2) sin(z) + 0.05 u^4 sin(4 th) cos(2 z + 0.2) + 0.03 u^6 cos(6 th) sin(z)",
+    "rich_f": "1 + 0.10 exp(-u^2) cos(z) + 0.06 u^4 (1 + u^2/2) cos(4 th) cos(z + 0.4) + 0.04 u^5 sin(5 th) sin(2 z) + 0.05 u cos(th) cos(z)",
+    "heldout_rich_g": "1 + 0.09 cos(pi u^2/2) cos(z + 0.7) + 0.05 u^5 cos(5 th + 0.3) cos(z) + 0.05 u^4 (1 - 0.4 u^2) sin(4 th + 0.5) sin(2 z) + 0.06 u sin(th) sin(z)",
+    "coordinates": "z = 2 pi eta / eta_period; every term is a smooth function of (u cos th, u sin th) times eta harmonics (axis-regular)"
+  },
+  "pairings": {
+    "a_neumann_f_neumann": {
+      "main": [["rich_a", "rich_f"], ["rich_f", "rich_a"]],
+      "heldout": [["rich_a", "heldout_rich_g"]],
+      "regression": [["field_b1", "field_e3"]],
+      "controls": [["rich_a", "constant"], ["constant", "rich_f"]]
+    },
+    "a_dirichlet_f_neumann": {
+      "main": [["rich_a:dirichlet", "rich_f"]],
+      "heldout": [["rich_a:dirichlet", "heldout_rich_g"]],
+      "controls": [["rich_a:dirichlet", "constant"]]
+    }
+  },
+  "gate_scope": "main, held-out and the regression pair (b1 x e3, gated and reproduced from frozen_v1 campaign 05be9063), both candidates",
+  "candidates": ["direct_centered", "direct_centered_plus_live_U_minus_A"],
+  "wall_exterior_contract": "recovered Neumann trace (Dirichlet: prescribed trace); wall-face jump zero by construction; not a physical wall-law qualification",
+  "gate": "headline N-R global L2 order >= 1.8 on both intervals per gated pair and candidate; acceptance decided by the user",
+  "disclosure": "rich_a and rich_f were evaluated before this freeze in the local outer-region test work/p05n_rich_fields_20260928 (N-R orders 5.2-5.7), so they are main pairs, not held-out. heldout_rich_g has not been evaluated through any operator.",
+  "predeclared_expectation": "Pointwise operator: O equals R by code identity, so N-R measures the reconstruction and Neumann closure. The live jump is nonzero on interior radial and theta faces. Orders at N32-N64 may be pre-asymptotic (high theta harmonics are under-resolved at N32), well above 2."
+}

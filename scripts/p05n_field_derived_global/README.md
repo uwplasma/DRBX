@@ -25,6 +25,15 @@ layers:
   extraction script that built them). `tests/test_p05n_field_derived_campaign.py`
   covers it.
 
+## Catalogues (`configuration.json: catalogue_reference`)
+
+`core.py` holds one frozen table per catalogue, and `configuration.json` selects
+the active one. The selected file is checked against `catalogue_sha256`, and the
+gated/control pair lists are checked against `core`.
+
+- **`p05n_catalogue.json` (frozen_v1):** the original P05N catalogue, run and returned as campaign `05be9063`. Its fields are at most cubic in u with θ harmonics ≤ 3. The 4-point radial Lagrange and 7-point θ stencils reproduce them exactly, so the live U − A jump is roundoff on interior faces and nonzero only on η faces and at the n−2 interior/boundary interface.
+- **`p05n_upwind_catalogue.json` (upwind_v1, active):** `rich_a`, `rich_f` and the held-out `heldout_rich_g` are outside that exactness space, with non-polynomial radial profiles, radial degree above 3, θ harmonics 4–6 and η harmonics 1–2. The upwind jump is therefore exercised on interior radial and θ faces. Pair `a_main_regression` (b1 × e3) repeats a frozen_v1 pair so the two campaigns can be tied together. The rich fields' code was generated once with sympy and pasted as plain numpy (`fields.py`); there is no sympy at run time.
+
 ## Why batching, and how it stays bit-faithful to the oracle
 
 Profiling of the per-owner path (`operator.owner_centered`/`owner_jump`)

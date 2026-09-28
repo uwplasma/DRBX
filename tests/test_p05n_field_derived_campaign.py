@@ -27,8 +27,8 @@ from p05n_field_derived_global import core  # noqa: E402
 from p05n_field_derived_global import campaign  # noqa: E402
 
 PKG = REPO / "scripts/p05n_field_derived_global"
-CATALOGUE = json.loads((PKG / "p05n_catalogue.json").read_text())  # vendored byte-identical copy
 CONFIG = json.loads((PKG / "configuration.json").read_text())
+CATALOGUE = json.loads((PKG / CONFIG["catalogue_reference"]).read_text())  # active frozen catalogue
 PERIOD = 1.7
 RNG = np.random.default_rng(20260927)
 
@@ -45,6 +45,7 @@ def test_configuration_schema_and_physical_fields_match_core():
 def test_names_extend_p07n_verbatim_plus_zero_trace_generator():
     assert p05n_fields.NAMES[:5] == p05n_fields._P07N_NAMES
     assert p05n_fields.NAMES[-1] == "zero_trace_generator"
+    assert p05n_fields.ALL_NAMES == p05n_fields.NAMES + p05n_fields.RICH_NAMES
     assert p05n_fields._P07N_NAMES == ("field_b1", "field_e3", "field_e12", "heldout_field_b2", "constant")
 
 
@@ -76,7 +77,7 @@ def test_pairings_match_frozen_catalogue_physical_fields_and_bc():
         return token, "neumann" if token != "constant" else "dirichlet"
 
     def catalogue_pairs(block):
-        return [tuple(pair) for group in ("main", "heldout", "controls") for pair in block[group]]
+        return [tuple(pair) for group in ("main", "heldout", "regression", "controls") for pair in block.get(group, [])]
 
     a_pairs = catalogue_pairs(CATALOGUE["pairings"]["a_neumann_f_neumann"])
     b_pairs = catalogue_pairs(CATALOGUE["pairings"]["a_dirichlet_f_neumann"])
@@ -93,18 +94,75 @@ def test_pairings_match_frozen_catalogue_physical_fields_and_bc():
 def test_gated_and_control_pairs_partition_pair_names():
     assert set(core.GATED_PAIRS) | set(core.CONTROL_PAIRS) == set(core.PAIR_NAMES)
     assert set(core.GATED_PAIRS) & set(core.CONTROL_PAIRS) == set()
-    assert len(core.PAIR_NAMES) == 10
+    expected = sum(len(block.get(g, [])) for block in CATALOGUE["pairings"].values()
+                   for g in ("main", "heldout", "regression", "controls"))
+    assert len(core.PAIR_NAMES) == expected
     for name in core.CONSTANT_PAIRS:
         assert "constant_D" in core.PAIRINGS[name]
 
 
 def test_r_pair_index_depends_only_on_physical_fields():
-    """R('a_main1') and R('b_main1') must reference the identical physical-field
-    pair (field_b1, field_e3): R is BC-role-independent by construction."""
+    """R depends only on the physical fields of a pairing, not on the BC roles:
+    a_main1 and b_main1 share their physical fields in both frozen catalogues."""
     a_idx = core.PAIR_NAMES.index("a_main1"); b_idx = core.PAIR_NAMES.index("b_main1")
     assert core.R_PAIR_INDEX[a_idx] == core.R_PAIR_INDEX[b_idx]
     gen, tra = core.R_PAIR_INDEX[a_idx]
-    assert core.NAMES[gen] == "field_b1" and core.NAMES[tra] == "field_e3"
+    gen_role, tra_role = core.PAIRINGS["a_main1"]
+    assert (core.NAMES[gen], core.NAMES[tra]) == (core.ROLES[gen_role][0], core.ROLES[tra_role][0])
+
+
+def test_catalogue_selection_and_every_frozen_table_is_consistent():
+    assert core.CATALOGUE_REFERENCE == CONFIG["catalogue_reference"]
+    assert campaign.sha(PKG / CONFIG["catalogue_reference"]) == CONFIG["catalogue_sha256"]
+    assert CONFIG["gated_pairs"] == list(core.GATED_PAIRS)
+    assert CONFIG["control_pairs"] == list(core.CONTROL_PAIRS)
+    for reference, table in core._CATALOGUE_TABLES.items():
+        assert (PKG / reference).exists()
+        assert {v[0] for v in table["roles"].values()} == set(table["names"])
+        assert all(n in p05n_fields.ALL_NAMES for n in table["names"])
+        for gen, tra in table["pairings"].values():
+            assert gen in table["roles"] and tra in table["roles"]
+
+
+# ---------------------------------------------------------------------------
+# Rich fields (upwind_v1): exact derivatives, periodicity, axis regularity,
+# nonzero wall normal derivative, and outside the reconstruction exactness space.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("name", ["rich_a", "rich_f", "heldout_rich_g"])
+def test_rich_field_derivatives_periodicity_and_axis_regularity(name):
+    q = _random_points(40, u_range=(0.05, 1.0))
+    v, g, H = p05n_fields.evaluate(None, q, name, PERIOD)
+    for axis in range(3):
+        fd_g = _fd4(lambda p: p05n_fields.evaluate(None, p, name, PERIOD)[0], q, axis, 1e-3)
+        np.testing.assert_allclose(g[:, axis], fd_g, atol=1e-9)
+        fd_H = _fd4(lambda p: p05n_fields.evaluate(None, p, name, PERIOD)[1], q, axis, 1e-3)
+        np.testing.assert_allclose(H[:, :, axis], fd_H, atol=1e-8)
+    for shift in ((0, 2 * np.pi, 0), (0, 0, PERIOD)):
+        v1, g1, _ = p05n_fields.evaluate(None, q + np.array(shift), name, PERIOD)
+        np.testing.assert_allclose(v1, v, atol=1e-12); np.testing.assert_allclose(g1, g, atol=1e-10)
+    # Axis regularity: at u -> 0 the value is independent of theta.
+    ring = np.column_stack([np.full(16, 1e-7), np.linspace(0, 2 * np.pi, 16, endpoint=False), np.full(16, 0.3)])
+    vr = p05n_fields.evaluate(None, ring, name, PERIOD)[0]
+    assert np.ptp(vr) < 1e-7
+    # Nonzero wall normal (u) derivative, so Neumann data are nontrivial.
+    wall = np.column_stack([np.ones(64), RNG.uniform(0, 2 * np.pi, 64), RNG.uniform(0, PERIOD, 64)])
+    assert np.max(np.abs(p05n_fields.evaluate(None, wall, name, PERIOD)[1][:, 0])) > 0.05
+
+
+def test_rich_fields_are_outside_the_theta_stencil_exactness_space():
+    """A 7-point trigonometric interpolant (exact through harmonic 3) must not
+    reproduce the rich fields, unlike the frozen_v1 fields."""
+    nodes = np.arange(7) * 2 * np.pi / 32
+    target = nodes[3] + np.pi / 32
+    def interp_error(name):
+        pts = lambda th: np.column_stack([np.full(len(th), 0.9), th, np.full(len(th), 0.2)])
+        vals = p05n_fields.evaluate(None, pts(nodes), name, PERIOD)[0]
+        w = np.array([np.prod([np.sin((target - nodes[m]) / 2) / np.sin((nodes[j] - nodes[m]) / 2)
+                               for m in range(7) if m != j]) for j in range(7)])
+        return abs(w @ vals - p05n_fields.evaluate(None, pts(np.array([target])), name, PERIOD)[0][0])
+    assert interp_error("field_e3") < 1e-12
+    for name in p05n_fields.RICH_NAMES:
+        assert interp_error(name) > 1e-8
 
 
 # ---------------------------------------------------------------------------
