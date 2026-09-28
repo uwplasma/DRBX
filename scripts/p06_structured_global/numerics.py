@@ -417,20 +417,50 @@ def _principal_matrix(state: np.ndarray, bmag: np.ndarray) -> np.ndarray:
     return matrix
 
 
+def _absolute_action_row(operator: np.ndarray, vector: np.ndarray) -> tuple[np.ndarray, int]:
+    eigenvalues, eigenvectors = np.linalg.eig(operator)
+    if (
+        np.max(np.abs(np.imag(eigenvalues))) <= 1.0e-10*(1+np.max(np.abs(np.real(eigenvalues))))
+        and np.isfinite(np.linalg.cond(eigenvectors))
+        and np.linalg.cond(eigenvectors) <= 1.0e8
+    ):
+        return np.real(eigenvectors @ (np.abs(np.real(eigenvalues)) * (np.linalg.inv(eigenvectors) @ vector))), 0
+    return np.linalg.norm(operator) * vector, 1
+
+
 def _absolute_action(matrix: np.ndarray, jump: np.ndarray) -> tuple[np.ndarray, int]:
-    result = np.empty_like(jump)
-    fallback = 0
-    for row, (operator, vector) in enumerate(zip(matrix.reshape(-1,4,4), jump.reshape(-1,4), strict=True)):
-        eigenvalues, eigenvectors = np.linalg.eig(operator)
-        if (
-            np.max(np.abs(np.imag(eigenvalues))) <= 1.0e-10*(1+np.max(np.abs(np.real(eigenvalues))))
-            and np.isfinite(np.linalg.cond(eigenvectors))
-            and np.linalg.cond(eigenvectors) <= 1.0e8
-        ):
-            result.reshape(-1,4)[row] = np.real(eigenvectors @ (np.abs(np.real(eigenvalues)) * (np.linalg.inv(eigenvectors) @ vector)))
-        else:
-            result.reshape(-1,4)[row] = np.linalg.norm(operator) * vector
-            fallback += 1
+    """Characteristic |A| action, batched over rows; bitwise equal to the per-row version.
+
+    Real-spectrum rows are processed in one batch. numpy's eig returns their eigenvectors as the
+    real-part view of a complex buffer, exactly as a single-matrix call does, and the outer matmul
+    runs on that un-copied view, so it takes the same (non-BLAS) kernel as the per-row product.
+    inv and cond copy their input internally, so subsetting them is safe. Rows with a complex
+    spectrum, which nearly always take the fallback, keep the per-row code.
+    """
+    operators = matrix.reshape(-1, 4, 4); vectors = jump.reshape(-1, 4)
+    result = np.empty_like(jump); flat = result.reshape(-1, 4); fallback = 0
+    if not len(operators):
+        return result, 0
+    eigenvalues, eigenvectors = np.linalg.eig(operators)
+    if np.iscomplexobj(eigenvalues):
+        real_rows = np.all(eigenvalues.imag == 0.0, axis=1)
+        values = eigenvalues.real; vecs = eigenvectors.real
+    else:
+        real_rows = np.ones(len(operators), bool); values = eigenvalues; vecs = eigenvectors
+    index = np.flatnonzero(real_rows)
+    if len(index):
+        condition = np.linalg.cond(vecs[index])
+        ok = np.isfinite(condition) & (condition <= 1.0e8)
+        good = index[ok]
+        if len(good):
+            inner = np.zeros_like(vectors)
+            inner[good] = np.matmul(np.linalg.inv(vecs[good]), vectors[good][..., None])[..., 0]
+            outer = np.matmul(vecs, (np.abs(values) * inner)[..., None])[..., 0]
+            flat[good] = np.real(outer[good])
+        for row in index[~ok]:
+            flat[row] = np.linalg.norm(operators[row]) * vectors[row]; fallback += 1
+    for row in np.flatnonzero(~real_rows):
+        flat[row], used = _absolute_action_row(operators[row], vectors[row]); fallback += used
     return result, fallback
 
 

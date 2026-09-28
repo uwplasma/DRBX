@@ -34,25 +34,45 @@ def nearest(nodes,target,count,period):
 
 
 # Frozen from work/p07_matched_radial_layers_20260924/run.py
-def theta_rows(nodes,target):
- nn=np.asarray(nodes,dtype=np.longdouble);t=np.longdouble(target);v=[];d=[]
- for j in range(len(nn)):
-  kk=[k for k in range(len(nn)) if k!=j];den=np.sin((nn[j]-nn[kk])/2);f=np.sin((t-nn[kk])/2)/den;df=.5*np.cos((t-nn[kk])/2)/den
-  v.append(np.prod(f));d.append(sum(df[k]*np.prod(np.delete(f,k)) for k in range(len(kk))))
- hit=np.flatnonzero(abs(wrap(target-nodes,2*np.pi))<32*np.finfo(float).eps*2*np.pi)
- if len(hit):v=np.eye(len(nn))[hit[0]]
- return np.array(v,float),np.array(d,float)
+# Vectorized 28 September 2026: same elementwise operations and reduction order as the frozen
+# formulas (bitwise-identical outputs, verified against the loop versions); only Python loops removed.
+def _leave_one_out(m):
+    others = np.array([[k for k in range(m) if k != j] for j in range(m)], dtype=np.intp)
+    drop = np.array([[i for i in range(m - 1) if i != k] for k in range(m - 1)], dtype=np.intp)
+    return others, drop
+
+
+def _loo_products(f, drop):
+    # f[..., k] over the m-1 "others"; returns P[..., k] = prod of f without entry k, in original order.
+    return np.prod(f[..., drop], axis=-1)
+
+
+def theta_rows(nodes, target):
+    nn = np.asarray(nodes, dtype=np.longdouble); t = np.longdouble(target); m = len(nn)
+    others_idx, drop = _leave_one_out(m)
+    others = nn[others_idx]
+    den = np.sin((nn[:, None] - others) / 2); f = np.sin((t - others) / 2) / den; df = .5 * np.cos((t - others) / 2) / den
+    v = np.prod(f, axis=1); P = _loo_products(f, drop)
+    d = 0
+    for k in range(m - 1): d = d + df[:, k] * P[:, k]
+    hit = np.flatnonzero(abs(wrap(target - nodes, 2 * np.pi)) < 32 * np.finfo(float).eps * 2 * np.pi)
+    if len(hit): v = np.eye(m)[hit[0]]
+    return np.array(v, float), np.array(d, float)
 
 
 # Frozen from work/p07_matched_radial_layers_20260924/run.py
-def eta_rows(nodes,target,period,step):
- x=np.asarray(wrap(nodes-target,period)/step,dtype=np.longdouble);v=[];d=[]
- for j in range(len(x)):
-  kk=[k for k in range(len(x)) if k!=j];den=x[j]-x[kk];f=-x[kk]/den;df=1/den
-  v.append(np.prod(f));d.append(sum(df[k]*np.prod(np.delete(f,k)) for k in range(len(kk)))/step)
- hit=np.flatnonzero(abs(x)*step<32*np.finfo(float).eps*period)
- if len(hit):v=np.eye(len(x))[hit[0]]
- return np.array(v,float),np.array(d,float)
+def eta_rows(nodes, target, period, step):
+    x = np.asarray(wrap(nodes - target, period) / step, dtype=np.longdouble); m = len(x)
+    others_idx, drop = _leave_one_out(m)
+    xo = x[others_idx]
+    den = x[:, None] - xo; f = -xo / den; df = 1 / den
+    v = np.prod(f, axis=1); P = _loo_products(f, drop)
+    d = 0
+    for k in range(m - 1): d = d + df[:, k] * P[:, k]
+    d = d / step
+    hit = np.flatnonzero(abs(x) * step < 32 * np.finfo(float).eps * period)
+    if len(hit): v = np.eye(len(x))[hit[0]]
+    return np.array(v, float), np.array(d, float)
 
 
 # Frozen from work/p07_aggregated_structured_extension_20260924/run.py
@@ -70,29 +90,37 @@ def members(t,o):return t.order[t.starts[o]:t.starts[o+1]]
 
 
 # Frozen from work/p07_aggregated_structured_extension_20260924/run.py
-def radial(nodes,target):
-    v=[];d=[]
-    for j,x in enumerate(nodes):
-        other=np.delete(nodes,j);den=np.prod(x-other)
-        v.append(np.prod(target[:,None]-other,axis=1)/den)
-        d.append(sum(np.prod(target[:,None]-np.delete(other,k),axis=1) for k in range(3))/den)
-    return np.array(v).T,np.array(d).T
+def radial(nodes, target):
+    nodes = np.asarray(nodes); target = np.asarray(target)
+    others_idx, drop = _leave_one_out(len(nodes))
+    other = nodes[others_idx]
+    den = np.prod(nodes[:, None] - other, axis=1)
+    diff = target[:, None, None] - other[None]
+    v = np.prod(diff, axis=2) / den
+    P = _loo_products(diff, drop)
+    d = 0
+    for k in range(3): d = d + P[:, :, k]
+    # The frozen version returns np.array(per-node list).T (Fortran-ordered); keep that layout,
+    # since downstream BLAS contractions can round differently for a different memory order.
+    return np.array(v.T, order="C").T, np.array((d / den).T, order="C").T
 
 
 # Frozen from work/p07_direct_structured_comparison_20260924/compare.py
-def cardinal(nodes,targets):
+def cardinal(nodes, targets):
     """Vectorized literal replay of frozen trigonometric cardinal formula."""
-    nodes=np.asarray(nodes,np.longdouble);targets=np.asarray(targets,np.longdouble)
-    v=np.empty((len(targets),7),np.longdouble);d=v.copy()
-    for j in range(7):
-        others=np.delete(nodes,j);den=np.sin((nodes[j]-others)/2)
-        f=np.sin((targets[:,None]-others)/2)/den
-        df=.5*np.cos((targets[:,None]-others)/2)/den
-        v[:,j]=np.prod(f,axis=1)
-        d[:,j]=sum(df[:,k]*np.prod(np.delete(f,k,axis=1),axis=1) for k in range(6))
-    hit=np.abs(wrap(targets[:,None]-nodes[None],2*np.pi))<32*np.finfo(float).eps*2*np.pi
-    for i in np.flatnonzero(hit.any(axis=1)):v[i]=hit[i].astype(float)
-    return np.asarray(v,float),np.asarray(d,float)
+    nodes = np.asarray(nodes, np.longdouble); targets = np.asarray(targets, np.longdouble)
+    others_idx, drop = _leave_one_out(7)
+    others = nodes[others_idx]                                   # (7, 6)
+    den = np.sin((nodes[:, None] - others) / 2)                  # (7, 6)
+    arg = (targets[:, None, None] - others[None]) / 2            # (Q, 7, 6)
+    f = np.sin(arg) / den; df = .5 * np.cos(arg) / den
+    v = np.prod(f, axis=2)
+    P = _loo_products(f, drop)
+    d = 0
+    for k in range(6): d = d + df[:, :, k] * P[:, :, k]
+    hit = np.abs(wrap(targets[:, None] - nodes[None], 2 * np.pi)) < 32 * np.finfo(float).eps * 2 * np.pi
+    for i in np.flatnonzero(hit.any(axis=1)): v[i] = hit[i].astype(float)
+    return np.asarray(v, float), np.asarray(d, float)
 
 
 # Frozen from work/p07_direct_structured_comparison_20260924/compare.py
@@ -154,12 +182,17 @@ def eta_plane_rows(t,p):
 
 
 # Frozen from work/p07_wall_quartic_closure_20260924/prepare.py
-def rows(nodes,targets):
-    x=np.asarray(nodes,float);s=np.asarray(targets,float);v=np.empty((len(s),len(x)));d=np.empty_like(v)
-    for k,here in enumerate(x):
-        other=np.delete(x,k);den=np.prod(here-other);v[:,k]=np.prod(s[:,None]-other[None],axis=1)/den
-        d[:,k]=sum(np.prod(s[:,None]-np.delete(other,j)[None],axis=1) for j in range(len(other)))/den
-    return v,d
+def rows(nodes, targets):
+    x = np.asarray(nodes, float); s = np.asarray(targets, float); m = len(x)
+    others_idx, drop = _leave_one_out(m)
+    other = x[others_idx]                                        # (m, m-1)
+    den = np.prod(x[:, None] - other, axis=1)                    # (m,)
+    diff = s[:, None, None] - other[None]                        # (Q, m, m-1)
+    v = np.prod(diff, axis=2) / den
+    P = _loo_products(diff, drop)
+    d = 0
+    for j in range(m - 1): d = d + P[:, :, j]
+    return v, d / den
 
 def family(n,key):
     axis,i=map(int,key[:2])
