@@ -281,11 +281,13 @@ def sample_keys():
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_provider_conforms_to_geometry_provider_protocol(geometry_provider):
     assert isinstance(geometry_provider, GeometryProvider)
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_p05_metric_is_bitwise_equal_to_the_direct_campaign_formula(
     campaign_context, frozen_reference, geometry_provider, sample_keys
 ):
@@ -307,6 +309,7 @@ def test_p05_metric_is_bitwise_equal_to_the_direct_campaign_formula(
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_p06_curvature_is_bitwise_equal_to_curvature_geometry(
     campaign_context, frozen_reference, geometry_provider, sample_keys
 ):
@@ -326,6 +329,7 @@ def test_p06_curvature_is_bitwise_equal_to_curvature_geometry(
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_p06_face_curvature_is_bitwise_equal_to_face_geometry(
     campaign_context, frozen_reference, geometry_provider, sample_keys
 ):
@@ -345,6 +349,7 @@ def test_p06_face_curvature_is_bitwise_equal_to_face_geometry(
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_p07_perpendicular_tensor_is_bitwise_equal_at_face_nodes(
     campaign_context, frozen_reference, geometry_provider, sample_keys
 ):
@@ -362,6 +367,7 @@ def test_p07_perpendicular_tensor_is_bitwise_equal_at_face_nodes(
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_p07_perpendicular_tensor_and_divergence_is_bitwise_equal_at_raw_midpoints(
     campaign_context, frozen_reference, geometry_provider, sample_keys
 ):
@@ -387,6 +393,7 @@ class _Shim:
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_raw_cell_weight_matches_p06s_own_q1_quadrature_call(
     campaign_context, geometry_provider, sample_keys
 ):
@@ -408,6 +415,7 @@ def test_raw_cell_weight_matches_p06s_own_q1_quadrature_call(
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_face_node_weight_matches_p06s_own_q3_quadrature_call(
     campaign_context, geometry_provider, sample_keys
 ):
@@ -425,6 +433,7 @@ def test_face_node_weight_matches_p06s_own_q3_quadrature_call(
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_geometry_arrays_build_end_to_end_matches_direct_calls(
     campaign_context, frozen_reference, geometry_provider, sample_keys
 ):
@@ -469,6 +478,7 @@ def test_geometry_arrays_build_end_to_end_matches_direct_calls(
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_geometry_arrays_from_real_sample_saves_and_loads_bitwise_equal(
     tmp_path, campaign_context, geometry_provider, sample_keys
 ):

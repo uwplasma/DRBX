@@ -273,6 +273,7 @@ needs_workspace = pytest.mark.skipif(not _workspace_inputs_available(),
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_row_index_from_on_the_fly_builder_subset_matches_direct_application():
     """Develop/verify replay's row plumbing against a *small* owner subset
     built directly via drbx.stencils.builder (never the multi-GB row

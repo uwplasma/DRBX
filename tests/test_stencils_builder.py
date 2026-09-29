@@ -180,6 +180,7 @@ def _assert_integrated_rows_equal(actual, expected):
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_r1_cell_rows_bitwise_equal_across_families(real_n32, radial_regions):
     """Mirrors ``p05n_field_derived_global.core.batched_cell_values``: one
     ``S.rows(key, points, location='cell')`` call per raw cell; interior
@@ -245,6 +246,7 @@ def _face_points(real_n32, key):
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_r2_face_rows_bitwise_equal_across_families(real_n32, radial_regions):
     """Mirrors ``p05n_field_derived_global.core.batched_face_common_gradient``
     / ``p06n_field_derived_global.rows.batched_face_common_value``: one
@@ -318,6 +320,7 @@ def test_r2_face_rows_bitwise_equal_across_families(real_n32, radial_regions):
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_collapsed_r0_is_a_zero_donor_row_and_is_excluded_from_r2_selection(real_n32):
     """``S.rows`` at the collapsed r=0 face returns a documented zero-donor,
     unconditioned row (design section 2's R2 entry); the census-row
@@ -339,6 +342,7 @@ def test_collapsed_r0_is_a_zero_donor_row_and_is_excluded_from_r2_selection(real
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_r3_side_rows_share_one_neumann_companion_between_lower_and_upper(real_n32):
     """Design section 2, R3: "N: degree 3, target-anchored, the same row for
     both sides." Verified against direct ``S.side_rows``/
@@ -376,6 +380,7 @@ def test_r3_side_rows_share_one_neumann_companion_between_lower_and_upper(real_n
 # R4: P07 integrated face rows, families 0-7.
 # ---------------------------------------------------------------------------
 @needs_workspace
+@pytest.mark.slow
 def test_r4_integrated_rows_bitwise_equal_across_all_p07_families(real_n32):
     """Mirrors ``scripts/p07n_field_derived_global/core.py``'s ``face_chunk``:
     ``prepare_integrated_face_rows`` at every P07-census face, plus a

@@ -400,6 +400,7 @@ def test_integrated_rows_real_hsx_fixture_roundtrip(n):
 # Freshly built on a small real N32 set — skip cleanly if unavailable
 # --------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_real_n32_point_rows_if_geometry_inputs_are_available():
     env_path = os.environ.get("DRBX_P08_REAL_N32_CONTEXT")
     if not env_path or not Path(env_path).exists():

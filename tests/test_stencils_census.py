@@ -303,6 +303,7 @@ def real_n32():
 
 
 @needs_n32_geometry
+@pytest.mark.slow
 def test_matches_topology_census_bitwise(real_n32, tmp_path):
     from p07_combined_global import topology as pt
     ro3, census = real_n32
@@ -348,6 +349,7 @@ def test_matches_topology_census_bitwise(real_n32, tmp_path):
 
 
 @needs_n32_geometry
+@pytest.mark.slow
 def test_matches_p06_face_incidence_and_periodic_duplicate_bitwise(real_n32):
     import p06_structured_global.numerics as p06numerics
     ro3, census = real_n32
@@ -366,6 +368,7 @@ def test_matches_p06_face_incidence_and_periodic_duplicate_bitwise(real_n32):
 
 
 @needs_n32_geometry
+@pytest.mark.slow
 def test_matches_p06n_all_face_ids_and_face_keys(real_n32):
     from p06n_field_derived_global import core as p06n_core
     ro3, census = real_n32
@@ -416,6 +419,7 @@ def _owner_all_faces_from_census(census: FaceCensus, owner: int, *, dedupe: bool
 
 
 @needs_n32_geometry
+@pytest.mark.slow
 def test_matches_owner_all_faces_both_dedupe_values(real_n32):
     from types import SimpleNamespace
     from p06n_field_derived_global import operator as p06n_operator
