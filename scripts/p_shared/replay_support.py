@@ -70,12 +70,22 @@ from p_shared import provider as pshared_provider                       # noqa: 
 
 N = 32  # the row artifact/replay run to completion locally; see the task report.
 
+# ---------------------------------------------------------------------------
+# Test-only local-workspace defaults (design section 5's table; each is a
+# frozen campaign's own output directory, read-only). Nothing on this
+# package's runtime path (``p08_step1_global.campaign``, this module's own
+# ``build_environment``, ``p_shared.replay_units``, ``p_shared.owner_closure``)
+# uses these as a fallback default any more -- every runtime caller takes its
+# ``sidecar_path``/``paths`` explicitly (``campaign.py``'s ``--input-root``/
+# ``--oracle-root``), so a remote run whose checkout does not sit inside this
+# local workspace is never affected by ``_WORKSPACE`` being wrong there. The
+# only remaining use is a handful of gated tests (``tests/test_p_shared_
+# owner_closure.py``, guarded by its own ``needs_geometry``/``needs_oracle``
+# skip marks) that want a real local oracle tree to compare against when one
+# happens to be present.
+# ---------------------------------------------------------------------------
 DEFAULT_SIDECAR = _WORKSPACE / "work/p07n_extraction_hotspot_audit_20260926/localized_sidecar.json"
 
-# ---------------------------------------------------------------------------
-# Default campaign oracle locations (design section 5's table; each is a
-# frozen campaign's own output directory, read-only).
-# ---------------------------------------------------------------------------
 DEFAULT_PATHS = {
     "p05": _WORKSPACE / "work/p05_direct_midpoint_global_565e1d1a_HsoyFbJ3",
     "p05_upwind_chunks": _WORKSPACE / "work/p05_failed_58880191/p05/chunks",

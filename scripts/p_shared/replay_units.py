@@ -118,8 +118,6 @@ import numpy as np
 
 _HERE = Path(__file__).resolve().parent
 _SCRIPTS = _HERE.parent            # .../DRBX/scripts
-_REPO = _SCRIPTS.parent            # .../DRBX
-_WORKSPACE = _REPO.parent          # .../HSX drbx
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
@@ -133,7 +131,7 @@ from p_shared import apply as pshared_apply                             # noqa: 
 from p_shared import provider as pshared_provider                       # noqa: E402
 from p_shared import runner                                             # noqa: E402
 from p_shared.replay_support import (                                   # noqa: E402
-    N, DEFAULT_PATHS, DEFAULT_SIDECAR, CAMPAIGN_FUNCS, CAMPAIGN_CATALOGUE_FILES,
+    CAMPAIGN_FUNCS, CAMPAIGN_CATALOGUE_FILES,
     Environment, NeumannSource, build_environment,
     compare_owner_term, compare_pointwise_only, owner_weighted_l2,
     _face_weight_for_key, _load_p05_upwind, _p05n_evaluate, _tables_trace_all,

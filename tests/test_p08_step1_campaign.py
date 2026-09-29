@@ -33,8 +33,19 @@ from p_shared import runner  # noqa: E402
 # minimal, schema-shaped fixture file so localize_sidecar's own read/rewrite
 # logic runs for real.
 # ---------------------------------------------------------------------------
-def _fake_workspace(tmp_path, monkeypatch):
+def _fake_workspace(tmp_path, monkeypatch, *, empty_oracle_manifest=True):
     monkeypatch.setattr(campaign, "_input_manifest", lambda: {"files": []})
+    if empty_oracle_manifest:
+        # verify() now always hashes the *committed* oracle manifest's files
+        # under ORACLE_ROOT (never rebuilding a manifest from local state --
+        # see campaign.committed_oracle_manifest's docstring), so a synthetic
+        # workspace with no real oracle data needs an empty committed
+        # manifest to avoid spurious "oracle verification failed" errors in
+        # tests that are not themselves about oracle verification. See
+        # test_verify_with_oracle_root_reports_missing_files_clearly for the
+        # one test that deliberately keeps the real committed manifest.
+        monkeypatch.setattr(campaign, "committed_oracle_manifest",
+                            lambda: {"schema": om.MANIFEST_SCHEMA, "workspace_root": "", "campaigns": {}})
     workspace = tmp_path / "workspace"
     cfg = campaign.config()
     sidecar_path = workspace / cfg["canonical_sidecar_relative"]
@@ -178,7 +189,12 @@ def test_sidecar_path_is_localized_under_output_not_a_work_scratch_path(tmp_path
 
 
 def test_verify_with_oracle_root_reports_missing_files_clearly(tmp_path, monkeypatch):
-    fake_workspace = _fake_workspace(tmp_path, monkeypatch)
+    # Deliberately keeps the real committed oracle manifest (empty_oracle_manifest=False):
+    # this exercises verify()'s real hash-verification path against a root that
+    # holds none of the manifest's real files, and must fail cleanly (a list of
+    # missing files, never a relative_to/traceback crash) rather than trivially
+    # pass against a stubbed-empty manifest.
+    fake_workspace = _fake_workspace(tmp_path, monkeypatch, empty_oracle_manifest=False)
     output = tmp_path / "campaign_output"
     empty_oracle_root = tmp_path / "nowhere"
     with pytest.raises(ValueError, match="oracle verification failed"):
@@ -198,11 +214,18 @@ def test_pack_oracles_tar_contains_exactly_the_manifest_files(tmp_path, monkeypa
         return [paths["fake"] / f"N{n}.owner_values.npz"]
 
     monkeypatch.setattr(om, "campaign_files", fake_campaign_files)
-    monkeypatch.setattr(om, "_WORKSPACE", workspace)
     _orig_config = campaign.config()
     monkeypatch.setattr(campaign, "config", lambda: {**_orig_config,
                                                      "campaigns": ["fake"],
                                                      "oracle_default_paths": {"fake": "work/fake_campaign"}})
+    # pack_oracles() now asserts its freshly built manifest still matches the
+    # *committed* scripts/p08_step1_global/oracle_manifest.json (the real
+    # 7-campaign manifest) over the requested campaigns/grids slice -- stub
+    # the committed manifest to exactly this fake single-campaign build so
+    # that assertion is self-consistent for this synthetic test (mirrors
+    # ``om.campaign_files``/``campaign.config`` already being stubbed above).
+    fake_committed = campaign.oracle_manifest_for(input_root=workspace, grids=[32])
+    monkeypatch.setattr(campaign, "committed_oracle_manifest", lambda: fake_committed)
 
     output = tmp_path / "campaign_output"
     output.mkdir()
