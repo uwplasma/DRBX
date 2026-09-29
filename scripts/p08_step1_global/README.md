@@ -160,10 +160,12 @@ Identity (`campaign.verify`) covers: `configuration.json` (every numerical
 policy parameter, including the geometry chunk sizes), `input_manifest.json`
 (every immutable input file's own sha256), every listed source file's hash
 (`campaign.SOURCE_FILES` -- this package's own modules, `p_shared`'s shared
-modules, and the frozen package builders/kernels this design pins as
-oracles, including `build_artifact.py`'s own hash even though this package
-never imports its private internals), the git commit, and the **oracle
-manifest** (every oracle file's own sha256 -- see below). The localized
+modules, the frozen package builders/kernels this design pins as oracles
+(including `build_artifact.py`'s own hash even though this package never
+imports its private internals), and the committed `oracle_manifest.json`
+itself), the git commit, and the **committed oracle manifest**'s own content
+(every oracle file's recorded sha256 -- see below; never a manifest rebuilt
+from local file state). The localized
 sidecar's own sha256 is recorded alongside the identity in
 `campaign_manifest.json` (see "Inputs" above) and checked on every
 subsequent `verify-inputs` call, but is not itself hashed into `identity`
@@ -177,20 +179,52 @@ JSON receipt, both required, sha256-verified).
 
 Lists **exactly the files the replay reads** per campaign and grid (never
 "a whole chunk folder" beyond the one campaign -- P05's own "upwind" oracle
--- that genuinely has no single merged file on disk). `--oracle-root`
-remaps the whole `oracle_default_paths` tree (a per-campaign mapping) to a
-different local copy or a remote extraction of a delivered tarball;
-`verify-inputs` hashes every manifest file under whatever root it is given
-and fails, naming every missing/mismatched file, not just the first.
+-- that genuinely has no single merged file on disk).
+
+**The manifest is committed, not rebuilt.** `scripts/p08_step1_global/
+oracle_manifest.json` is a *frozen* copy of this manifest (extracted once
+from a `pack-oracles` tarball -- see `campaign.committed_oracle_manifest`),
+checked in and hashed into `campaign.SOURCE_FILES`/the campaign identity.
+`verify()`/`verify-inputs` load this committed file and hash-verify every
+listed file under `ORACLE_ROOT` -- **`--oracle-root` if given, else
+`--input-root`** (which suits local use, where the workspace root is both)
+-- failing, naming every missing/mismatched file (not just the first),
+without ever touching `--input-root`'s own (possibly oracle-file-free, e.g.
+the 17-file immutable `INPUT_ROOT`) tree to *build* a manifest. This fixes
+two remote-portability bugs the old "rebuild on every `verify()` call" design
+had: (1) the old rebuild path resolved every path relative to `<repo>.parent`
+(an assumed local workspace layout), which crashed (`relative_to`
+`ValueError`) whenever the checkout did not sit inside that same workspace
+(a remote run, or a `git archive` export elsewhere); (2) rebuilding against
+`--input-root` alone silently produced an empty/all-missing manifest on a
+remote run, since the remote's immutable `INPUT_ROOT` holds none of the
+17,739 oracle files. Every later command (`preflight`, `run`, `validate`,
+`run-stage`) resolves oracle paths under the same `ORACLE_ROOT` (via
+`campaign.oracle_paths`) and is refused (a new `--output` folder is
+required) if `ORACLE_ROOT` or the committed manifest's identity changed
+relative to a previous run recorded in that output's `campaign_manifest.json`
+(which records `oracle_root` and `oracle_verified` alongside the identity).
+
+A *fresh* build (`campaign.oracle_manifest_for`, backed by
+`om.build_manifest(..., root=...)` -- `root` is always passed explicitly,
+never guessed) still exists, used only by `pack-oracles` (below) and tests;
+nothing on `verify()`'s own runtime path calls it any more.
 
 **Oracle delivery.** Rather than point a remote run at each frozen
 campaign's own `work/` folder over the network, `pack-oracles` tars exactly
 the manifest's files (plus the manifest itself, as `oracle_manifest.json`)
 into one tarball, preserving every file's workspace-relative path; the
 remote run's `--oracle-root` is wherever that tarball gets extracted.
+Before packing, `pack-oracles` asserts that a manifest freshly built against
+`--input-root` still equals the *committed*
+`scripts/p08_step1_global/oracle_manifest.json` over the requested
+campaigns/grids slice -- refusing to pack (and deliver) a tarball
+`verify()`'s committed-manifest hash checks would not recognize.
 `pack-oracles` was tested only on a tiny synthetic file set (not the real,
 ~9 GB oracle data) -- see the task report for what was and was not run for
-real.
+real; the committed manifest itself was checked to equal a fresh local
+build byte-for-byte (every path, size, sha256) as part of the P08 step-1
+remote-portability fix.
 
 ## Preflight
 

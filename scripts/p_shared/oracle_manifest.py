@@ -12,18 +12,28 @@ necessarily a whole (but bounded, per-grid) set of small files is P05's
 campaign itself saved that array chunked, one file per face-chunk, with no
 single merged array anywhere on disk.
 
-Every path in the manifest is stored **workspace-relative** (the workspace
-root, ``.../HSX drbx``, not ``DRBX/``) so a manifest built here matches one
-rebuilt against a different local copy or a remote extraction of a
-delivered tarball -- see ``--oracle-root`` below.
+Every path in the manifest is stored **workspace-relative** (relative to
+whatever ``root`` :func:`build_manifest` is given -- the workspace root,
+``.../HSX drbx``, not ``DRBX/``, for every real build) so a manifest built
+here matches one rebuilt against a different local copy or a remote
+extraction of a delivered tarball -- see ``--oracle-root`` below. This
+module never assumes the checkout sits inside that workspace (no
+``<repo>.parent`` guess): a caller (``p08_step1_global.campaign``) always
+passes ``root`` explicitly, resolved from ``--input-root``.
 
 Delivery: rather than point the remote run at each frozen campaign's own
 ``work/`` folder over the network, the oracle files this manifest lists are
 tarred locally (:func:`pack_oracle_tar` / the campaign CLI's
 ``pack-oracles`` command) and the tarball is uploaded once; the remote run
-then points ``--oracle-root`` at wherever it extracted that tarball. This
-module's ``verify`` step is identical either way: hash every manifest file
-under whatever root it is given.
+then points ``--oracle-root`` at wherever it extracted that tarball.
+``p08_step1_global/campaign.py``'s own ``verify()`` never rebuilds this
+manifest any more (it loads the *committed*
+``scripts/p08_step1_global/oracle_manifest.json`` instead -- see that
+package's README "Oracles"); :func:`build_manifest` is now used only by
+:func:`pack_oracle_tar`'s caller (``pack-oracles``, which asserts its own
+fresh build still equals the committed manifest before packing) and by
+tests. This module's ``verify_manifest`` step is identical either way: hash
+every manifest file under whatever root it is given.
 
 Run from ``DRBX/scripts``.
 """
@@ -35,11 +45,6 @@ import tarfile
 from pathlib import Path
 from typing import Optional
 
-_HERE = Path(__file__).resolve().parent
-_SCRIPTS = _HERE.parent
-_REPO = _SCRIPTS.parent
-_WORKSPACE = _REPO.parent
-
 MANIFEST_SCHEMA = "drbx.p08-step1-oracle-manifest.v1"
 
 #: The accepted (pre-fix) P05 campaign's own per-face-chunk "upwind" array
@@ -49,8 +54,8 @@ MANIFEST_SCHEMA = "drbx.p08-step1-oracle-manifest.v1"
 P05_UPWIND_GLOB = "N{n}_faces_*.npz"
 
 
-def _rel(path: Path) -> str:
-    return str(Path(path).resolve().relative_to(_WORKSPACE))
+def _rel(path: Path, root: Path) -> str:
+    return str(Path(path).resolve().relative_to(Path(root).resolve()))
 
 
 def campaign_files(campaign: str, n: int, paths: dict) -> list[Path]:
@@ -87,13 +92,16 @@ def campaign_files(campaign: str, n: int, paths: dict) -> list[Path]:
     return files
 
 
-def build_manifest(*, campaigns, grids, paths: dict, hash_fn=None) -> dict:
+def build_manifest(*, campaigns, grids, paths: dict, root: Path, hash_fn=None) -> dict:
     """``{"schema", "workspace_root", "campaigns": {name: {str(n): {"files": [...], "missing": [...],
-    "total_bytes": ...}}}}``. ``hash_fn`` defaults to sha256 (overridable for tests, never for real use)."""
+    "total_bytes": ...}}}}``. ``root`` is the workspace root every listed path is stored relative to
+    (never guessed from ``<repo>.parent`` -- see the module docstring); ``hash_fn`` defaults to sha256
+    (overridable for tests, never for real use)."""
     from p_shared import runner as _runner
 
     hash_fn = hash_fn or _runner.sha256_file
-    out = {"schema": MANIFEST_SCHEMA, "workspace_root": str(_WORKSPACE), "campaigns": {}}
+    root = Path(root).resolve()
+    out = {"schema": MANIFEST_SCHEMA, "workspace_root": str(root), "campaigns": {}}
     for campaign in campaigns:
         out["campaigns"][campaign] = {}
         for n in grids:
@@ -102,7 +110,7 @@ def build_manifest(*, campaigns, grids, paths: dict, hash_fn=None) -> dict:
             total = 0
             seen = set()
             for path in campaign_files(campaign, n, paths):
-                key = _rel(path) if path.exists() else None
+                key = _rel(path, root) if path.exists() else None
                 if key is not None and key in seen:
                     continue
                 if key is not None:

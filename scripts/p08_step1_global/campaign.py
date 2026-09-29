@@ -132,6 +132,7 @@ SOURCE_FILES = [
     "scripts/p08_step1_global/bounded_build.py",
     "scripts/p08_step1_global/configuration.json",
     "scripts/p08_step1_global/input_manifest.json",
+    "scripts/p08_step1_global/oracle_manifest.json",
     "scripts/p_shared/replay_units.py",
     "scripts/p_shared/replay_support.py",
     "scripts/p_shared/apply.py",
@@ -169,10 +170,32 @@ def oracle_paths(oracle_root: Path | None, input_root: Path) -> dict:
     return {name: base / rel for name, rel in cfg["oracle_default_paths"].items()}
 
 
-def oracle_manifest_for(*, input_root: Path, grids) -> dict:
+def oracle_manifest_for(*, input_root: Path, grids, campaigns=None) -> dict:
+    """Build a *fresh* oracle manifest against ``input_root`` (never guessing
+    a workspace root from ``<repo>.parent`` -- ``input_root`` is passed
+    straight through to :func:`p_shared.oracle_manifest.build_manifest` as
+    its explicit ``root``). :func:`verify` never calls this any more (it
+    loads the *committed* manifest instead -- see
+    :func:`committed_oracle_manifest`); this remains only for
+    :func:`pack_oracles` (which asserts its own fresh build still equals the
+    committed manifest before packing) and for tests."""
     cfg = config()
+    campaigns = list(campaigns) if campaigns is not None else list(cfg["campaigns"])
     paths = oracle_paths(None, input_root)
-    return om.build_manifest(campaigns=cfg["campaigns"], grids=grids, paths=paths)
+    return om.build_manifest(campaigns=campaigns, grids=grids, paths=paths, root=input_root)
+
+
+def committed_oracle_manifest() -> dict:
+    """The frozen oracle manifest committed alongside this package
+    (``scripts/p08_step1_global/oracle_manifest.json``), extracted once from
+    the delivered ``pack-oracles`` tarball (see this package's README
+    "Oracles" and the task report). :func:`verify` loads this file and
+    verifies every listed file's hash under ``ORACLE_ROOT`` -- it never
+    rebuilds the manifest from local file state any more, so a checkout that
+    does not sit inside the workspace (a remote run, or this repo's own
+    ``git archive`` export) never hits the ``<repo>.parent``/``relative_to``
+    crash the un-fixed :func:`oracle_manifest_for` path used to raise."""
+    return json.loads((HERE / "oracle_manifest.json").read_text())
 
 
 def localize_sidecar(input_root: Path, output: Path) -> Path:
@@ -205,6 +228,17 @@ def localize_sidecar(input_root: Path, output: Path) -> Path:
 
 
 def verify(*, input_root: Path, output: Path, oracle_root: Path | None) -> dict:
+    """Verify the immutable inputs, this campaign's own sources, and the
+    oracle files -- never rebuilding the oracle manifest from local file
+    state (bug fix: the checkout is not guaranteed to sit inside the same
+    workspace the oracle files live under, and a remote run's ``--input
+    -root`` holds none of the oracle files at all -- see
+    ``committed_oracle_manifest``'s docstring). ``ORACLE_ROOT`` (the root
+    every oracle file's hash is checked under) is ``oracle_root`` if given,
+    else ``input_root`` -- which suits local use, where the workspace root
+    is both. Refuses (raises) if ``ORACLE_ROOT`` or the committed manifest's
+    own identity changed relative to a previous run recorded at the same
+    ``output``."""
     input_root = Path(input_root); output = Path(output)
     cfg = config()
     im = _input_manifest()
@@ -213,7 +247,8 @@ def verify(*, input_root: Path, output: Path, oracle_root: Path | None) -> dict:
         if not path.is_file() or path.stat().st_size != rec["bytes"] or sha(path) != rec["sha256"]:
             raise ValueError(f"missing or changed immutable input: {path}")
     sources = source_hashes()
-    manifest = oracle_manifest_for(input_root=input_root, grids=GRIDS)
+    manifest = committed_oracle_manifest()
+    resolved_oracle_root = Path(oracle_root) if oracle_root is not None else input_root
     try:
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
     except Exception:
@@ -222,31 +257,48 @@ def verify(*, input_root: Path, output: Path, oracle_root: Path | None) -> dict:
                        "oracle_manifest": manifest})
     manifest_path = output / "campaign_manifest.json"
     local = localize_sidecar(input_root, output)
+    oracle_errors = om.verify_manifest(manifest, resolved_oracle_root)
     if manifest_path.exists():
         saved = json.loads(manifest_path.read_text())
         if saved["identity"] != identity:
             raise ValueError("campaign identity changed; use a new output folder")
         if saved["localized_sidecar_sha256"] != sha(local):
             raise ValueError("localized sidecar hash changed")
-    else:
+        if saved.get("oracle_root") != str(resolved_oracle_root.resolve()):
+            raise ValueError("oracle root changed; use a new output folder")
+    if oracle_errors:
+        raise ValueError("oracle verification failed:\n" + "\n".join(oracle_errors[:50]) +
+                         (f"\n(+{len(oracle_errors) - 50} more)" if len(oracle_errors) > 50 else ""))
+    if not manifest_path.exists():
         import jax
         if jax.default_backend() != "cpu":
             raise ValueError("JAX CPU backend required")
         write(manifest_path, {"identity": identity, "configuration": cfg, "input_manifest": im,
                               "source_hashes": sources, "commit": commit,
                               "input_root": str(input_root.resolve()),
-                              "oracle_manifest": manifest, "localized_sidecar_sha256": sha(local),
+                              "oracle_root": str(resolved_oracle_root.resolve()),
+                              "oracle_manifest": manifest, "oracle_verified": True,
+                              "localized_sidecar_sha256": sha(local),
                               "python": sys.version, "platform": platform.platform(),
                               "jax_backend": jax.default_backend()})
     write(output / "oracle_manifest.json", manifest)
-    if oracle_root is not None:
-        errors = om.verify_manifest(manifest, oracle_root)
-        if errors:
-            raise ValueError("oracle verification failed:\n" + "\n".join(errors[:50]) +
-                             (f"\n(+{len(errors) - 50} more)" if len(errors) > 50 else ""))
     for name in ("logs", "invocations", "executions"):
         (output / name).mkdir(exist_ok=True)
     return identity
+
+
+def _manifest_campaigns_slice(manifest: dict, *, campaigns, grids) -> dict:
+    """The subset of ``manifest["campaigns"]`` covering exactly
+    ``campaigns``/``grids`` (as ``str(n)`` keys) -- used to compare a
+    freshly built manifest against the committed one over only the slice
+    actually requested (the CLI's ``pack-oracles --resolutions`` can ask for
+    fewer than all three grids; ``workspace_root`` is deliberately excluded
+    from the comparison, since it legitimately differs between the
+    committed manifest's original build workspace and whatever local
+    ``input_root`` this call was given)."""
+    grid_keys = [str(n) for n in grids]
+    return {c: {n: manifest["campaigns"][c][n] for n in grid_keys if n in manifest["campaigns"].get(c, {})}
+           for c in campaigns if c in manifest["campaigns"]}
 
 
 def pack_oracles(*, input_root: Path, output: Path, tar_path: Path, campaigns=None, grids=None) -> dict:
@@ -255,9 +307,27 @@ def pack_oracles(*, input_root: Path, output: Path, tar_path: Path, campaigns=No
     in this package's README, "Oracle delivery"). Always reads from the
     *local* default oracle paths (``--oracle-root`` is where a remote run
     points *after* extracting this tarball, never where packing itself
-    reads from)."""
-    manifest = oracle_manifest_for(input_root=input_root, grids=grids or GRIDS)
-    result = om.pack_oracle_tar(manifest, input_root, tar_path, campaigns=campaigns, grids=grids)
+    reads from).
+
+    Before packing, asserts that a manifest freshly built against
+    ``input_root`` (never rebuilt at ``verify()`` time any more -- see
+    ``committed_oracle_manifest``) still equals the committed
+    ``scripts/p08_step1_global/oracle_manifest.json`` over exactly the
+    requested ``campaigns``/``grids`` slice -- refuses to pack (and deliver)
+    a tarball the committed manifest, and therefore ``verify()``'s later
+    hash checks, would not recognize."""
+    cfg = config()
+    campaigns = list(campaigns) if campaigns is not None else list(cfg["campaigns"])
+    grids = list(grids) if grids is not None else list(GRIDS)
+    fresh = oracle_manifest_for(input_root=input_root, grids=grids, campaigns=campaigns)
+    committed = committed_oracle_manifest()
+    fresh_slice = _manifest_campaigns_slice(fresh, campaigns=campaigns, grids=grids)
+    committed_slice = _manifest_campaigns_slice(committed, campaigns=campaigns, grids=grids)
+    if fresh_slice != committed_slice:
+        raise ValueError("freshly built oracle manifest no longer matches the committed "
+                         "scripts/p08_step1_global/oracle_manifest.json for the requested "
+                         "campaigns/grids; regenerate and review before packing")
+    result = om.pack_oracle_tar(fresh, input_root, tar_path, campaigns=campaigns, grids=grids)
     write(output / "pack_oracles_receipt.json", {**result, "tar_path": str(tar_path)})
     return result
 

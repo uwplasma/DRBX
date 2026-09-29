@@ -51,7 +51,7 @@ from p_shared import selection as sel                              # noqa: E402
 from p_shared import provider as pshared_provider                  # noqa: E402
 from p_shared import replay_units as ru                            # noqa: E402
 from p_shared.replay_support import (                              # noqa: E402
-    Environment, build_environment, DEFAULT_PATHS, _load_p05_upwind,
+    Environment, build_environment, _load_p05_upwind,
 )
 from drbx.stencils import builder as stencil_builder                # noqa: E402
 
