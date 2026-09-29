@@ -106,6 +106,35 @@ class PointRows:
     diagnostics: dict
 
 
+@dataclass
+class PointFactors:
+    """The 1-D factors a source's weights were actually built from (opt-in capture).
+
+    Returned by ``StructuredReconstruction.rows_with_factors`` beside the unchanged
+    ``PointRows``; only for the unconditioned ``singleton``, ``ringwise`` and
+    ``centered_radial`` families. Arrays run over the source's ``q`` targets; the
+    donor block of one target is (layer l, plane e, slot j) = 4 x 4 x 7.
+    ``radial[:, 0]``/``radial[:, 1]`` are ``L``/``D`` of ``r.rows`` (``D`` undivided by ``h``).
+    ``owner`` are the donor owners of singleton/centered_radial (theta_index, eta_index and
+    ``layers`` locate their raw cells); ringwise instead carries per (l, e) ring entries
+    ``ring_owner``/``ring_value``/``ring_derivative`` (owner ids and the ``vv``/``dd`` vectors).
+    """
+    family: str
+    n: int
+    layers: np.ndarray
+    eta_index: np.ndarray
+    eta_value: np.ndarray
+    eta_derivative: np.ndarray
+    radial: np.ndarray
+    theta_index: np.ndarray = None
+    theta_value: np.ndarray = None
+    theta_derivative: np.ndarray = None
+    owner: np.ndarray = None
+    ring_owner: np.ndarray = None
+    ring_value: np.ndarray = None
+    ring_derivative: np.ndarray = None
+
+
 class StructuredReconstruction:
     def __init__(self, t):
         self.t = t
@@ -146,6 +175,16 @@ class StructuredReconstruction:
         return np.array([(t.faces[a] if a==axis else t.centers[a])[ijk[a]] for a in range(3)])
 
     def rows(self, key, points, location='face', *, fixed_anchor=False):
+        return self._rows(key,points,location,fixed_anchor,None)
+
+    def rows_with_factors(self, key, points, location='face', *, fixed_anchor=False):
+        """``(rows(...), PointFactors or None)``: the same ``PointRows`` bit for bit, plus the factors
+        actually used (``None`` outside the unconditioned singleton/ringwise/centered_radial families)."""
+        cap=[]
+        row=self._rows(key,points,location,fixed_anchor,cap)
+        return row,(cap[0] if cap else None)
+
+    def _rows(self, key, points, location, fixed_anchor, cap):
         t=self.t; n=t.n; p=np.asarray(points,float)
         if len(self.fits)>4096:self.fits.clear()
         if location not in ('face','cell'):raise ValueError(location)
@@ -159,22 +198,25 @@ class StructuredReconstruction:
             z=r.boundary_map(n,'point',facekey,0,p,np.zeros(len(p)),np.zeros((len(p),3)),self.top,t.g.eta_period)
             off=int(z['boundary_conditioned'])
             v=np.einsum('ql,qld->qd',z['radial_value'][:,off:],z['layer_maps'][0])
+            if cap is not None and z['kind']=='centered_radial' and not z['boundary_conditioned']:
+                cap.append(PointFactors('centered_radial',n,np.asarray(z['radial_layers']),z['eta_indices'],z['eta_value'],z['eta_derivative'],
+                    np.stack((z['radial_value'],z['radial_derivative']),axis=1),z['theta_indices'],z['theta_value'],z['theta_derivative'],t.ro[z['requested_raw_ids']]))
             return PointRows(z['donor_ids'],v,z['gradient_map'],z['boundary_conditioned'],z['trace_donor_points'],z['trace_target_points'],{'family':z['kind'],'max_residual':0.})
         layers=np.arange(i-2,i+2) if axis==0 else np.arange(i-1,i+3)
         rid=np.where(layers<0,-layers-1,layers)
         if np.min(self.profile[rid])<7:
             return self._coupled(key,p,anchor,layers,rid,fixed_anchor)
         if np.all(self.profile[rid]==n):
-            return self._singleton(p,anchor,layers,rid,fixed_anchor)
-        return self._tensor(p,anchor,layers,rid,fixed_anchor)
+            return self._singleton(p,anchor,layers,rid,fixed_anchor,cap)
+        return self._tensor(p,anchor,layers,rid,fixed_anchor,cap)
 
     def _pack(self,p,columns,diagnostics):
         ids=np.array(sorted(columns),int)
         a=np.stack([columns[k] for k in ids],axis=-1)
         return PointRows(ids,a[:,0],a[:,1:],False,np.empty((0,3)),p.copy(),diagnostics)
 
-    def _singleton(self,p,anchor,layers,rid,fixed_anchor):
-        t=self.t;n=t.n;L,D=r.rows((layers+.5)/n,p[:,0]);allids=[];blocks=[]
+    def _singleton(self,p,anchor,layers,rid,fixed_anchor,cap=None):
+        t=self.t;n=t.n;L,D=r.rows((layers+.5)/n,p[:,0]);allids=[];blocks=[];fac=[]
         for q,point in enumerate(p):
             ta=anchor[1] if fixed_anchor else point[1]
             ea=anchor[2] if fixed_anchor else point[2]
@@ -183,6 +225,7 @@ class StructuredReconstruction:
             theta=(ti[None,:]+np.where(layers<0,n//2,0)[:,None])%n
             raw=(rid[:,None,None]*n+theta[:,None,:])*n+ei[None,:,None]
             allids.append(t.ro[raw].ravel())
+            if cap is not None:fac.append((ti,tv,td,ei,ev,ed,t.ro[raw]))
             blocks.append(np.array([L[q,:,None,None]*ev[None,:,None]*tv[None,None,:],
                 D[q,:,None,None]*ev[None,:,None]*tv[None,None,:],
                 L[q,:,None,None]*ev[None,:,None]*td[None,None,:],
@@ -190,15 +233,20 @@ class StructuredReconstruction:
         ids=np.unique(allids);a=np.zeros((len(p),4,len(ids)))
         for q,don in enumerate(allids):
             for k in range(4):np.add.at(a[q,k],np.searchsorted(ids,don),blocks[q][k])
+        if cap is not None:
+            f=[np.array(x) for x in zip(*fac)]
+            cap.append(PointFactors('singleton',n,np.array(layers),f[3],f[4],f[5],np.stack((L,D),axis=1),f[0],f[1],f[2],f[6]))
         return PointRows(ids,a[:,0],a[:,1:],False,np.empty((0,3)),p.copy(),{'family':'singleton','max_residual':0.})
 
-    def _tensor(self,p,anchor,layers,rid,fixed_anchor):
+    def _tensor(self,p,anchor,layers,rid,fixed_anchor,cap=None):
         t=self.t; n=t.n
         L,D=r.rows((layers+.5)/n,p[:,0]); columns={}; worst=0.; rank=7
+        if cap is not None:fac=dict(ei=[],ev=[],ed=[],own=np.zeros((len(p),4,4,7),int),rv=np.zeros((len(p),4,4,7)),rd=np.zeros((len(p),4,4,7)))
         for q,point in enumerate(p):
             ea=anchor[2] if fixed_anchor else point[2]
             ei=r.nearest(t.centers[2],ea,4,t.g.eta_period)
             ev,ed=r.eta_rows(t.centers[2][ei],point[2],t.g.eta_period,t.g.deta)
+            if cap is not None:fac['ei'].append(ei);fac['ev'].append(ev);fac['ed'].append(ed)
             for l,rr in enumerate(rid):
                 theta=(point[1]+(np.pi if layers[l]<0 else 0))%(2*np.pi)
                 ta=((anchor[1] if fixed_anchor else point[1])+(np.pi if layers[l]<0 else 0))%(2*np.pi)
@@ -218,11 +266,16 @@ class StructuredReconstruction:
                     residual=max(r.resid(target,C,A),r.resid(target,CU,U)); worst=max(worst,residual);rank=min(rank,ra,ru)
                     if residual>1e-9:raise RuntimeError(('unsupported angular target',residual))
                     vv=v[0]@C; dd=d[0]@C
+                    if cap is not None:fac['own'][q,l,e]=don;fac['rv'][q,l,e]=vv;fac['rd'][q,l,e]=dd
                     block=np.array([L[q,l]*ev[e]*vv,D[q,l]*ev[e]*vv,L[q,l]*ev[e]*dd,L[q,l]*ed[e]*vv])
                     for j,oid in enumerate(don):
                         if int(oid) not in columns:columns[int(oid)]=np.zeros((len(p),4))
                         columns[int(oid)][q]+=block[:,j]
-        return self._pack(p,columns,{'family':'singleton' if np.all(self.profile[rid]==n) else 'ringwise','max_residual':worst,'min_rank':rank})
+        row=self._pack(p,columns,{'family':'singleton' if np.all(self.profile[rid]==n) else 'ringwise','max_residual':worst,'min_rank':rank})
+        if cap is not None:
+            cap.append(PointFactors('ringwise',n,np.array(layers),np.array(fac['ei']),np.array(fac['ev']),np.array(fac['ed']),np.stack((L,D),axis=1),
+                ring_owner=fac['own'],ring_value=fac['rv'],ring_derivative=fac['rd']))
+        return row
 
     def _coupled(self,key,p,anchor,layers,rid,fixed_anchor):
         t=self.t;n=t.n;center=anchor[0]*np.array([np.cos(anchor[1]),np.sin(anchor[1])]);scale=max(t.g.dr,anchor[0]*t.g.dtheta)
@@ -261,6 +314,13 @@ class StructuredReconstruction:
         return self._pack(p,columns,{'family':'coupled_quartic','max_residual':worst,'min_rank':minrank,'cubic_expansion':maxlevel,'quartic_expansion':maxextra})
 
     def side_rows(self,key,points):
+        return tuple(row for row,_ in self._sides(key,points,False))
+
+    def side_rows_with_factors(self,key,points):
+        """``side_rows`` with each side as ``(PointRows, PointFactors or None)``; ``(None, None)`` for a missing side."""
+        return self._sides(key,points,True)
+
+    def _sides(self,key,points,capture):
         """Adjacent-cell anchored structured states; exterior radial side is None.
 
         Common rows are unchanged. Distinct angular/eta supports are selected about
@@ -271,8 +331,10 @@ class StructuredReconstruction:
         left=ijk.copy();left[axis]-=1;right=ijk.copy()
         result=[]
         for cell in (left,right):
-            if axis==0 and not 0<=cell[0]<n:result.append(None)
+            if axis==0 and not 0<=cell[0]<n:result.append((None,None))
             else:
                 cell[1]%=n;cell[2]%=n
-                result.append(self.rows(tuple(cell),points,'cell',fixed_anchor=True))
+                cell=tuple(cell)
+                result.append(self.rows_with_factors(cell,points,'cell',fixed_anchor=True) if capture
+                              else (self.rows(cell,points,'cell',fixed_anchor=True),None))
         return tuple(result)

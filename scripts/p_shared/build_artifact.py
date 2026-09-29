@@ -162,6 +162,9 @@ POLICY = {
     "p07_neumann_degree_by_family": {"1": 4, "2": 4, "4": 3},
     "seam_policy": "p06_slot_space_dedupe_theta_eta_slot_n_alias",
     "census_row_order": "radial_block_then_theta_then_eta_C_order",
+    # storage only (decoded rows are bit-identical either way): unconditioned singleton/ringwise/centered_radial
+    # sources are written as tensor factors, each verified by bitwise expansion, else CSR (design section 5-6)
+    "point_row_encoding": "v3_tensor_factored_unconditioned_with_csr_fallback",
 }
 
 # Every builder/provider source contributing to this artifact's arithmetic
@@ -175,6 +178,7 @@ SOURCE_FILES = [
     "src/drbx/stencils/census.py",
     "src/drbx/stencils/geometry_arrays.py",
     "src/drbx/stencils/artifact.py",
+    "src/drbx/stencils/tensor_rows.py",
     "src/drbx/geometry/fci_perpendicular_reconstruction.py",
     "src/drbx/geometry/fci_perpendicular_neumann_trace.py",
     "src/drbx/geometry/fci_perpendicular_integrated_rows.py",
@@ -411,6 +415,33 @@ def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identi
 
 MIN_FREE_GIB_PER_UNIT = 2.0
 
+#: set to a non-empty, non-"0" value (inherited by the spawned workers) to write plain CSR point chunks
+CSR_ONLY_ENV = "P_SHARED_CSR_ONLY"
+
+
+def tensor_encoding_enabled() -> bool:
+    return os.environ.get(CSR_ONLY_ENV, "") in ("", "0")
+
+
+def _pack_point_rows(point_rows):
+    """Pack tagged R1/R2/R3 ``PointRowRequest``s into one ``PointRowChunk``. R3 side rows are consumed as
+    values only (P05N/P06N batched_side_values), so their gradient weights are not stored (design section 3):
+    they were 57% of the face-row bytes in the first full N32 build."""
+    return artifact_mod.pack_point_rows(
+        [r.row for r in point_rows], request=[r.request for r in point_rows],
+        entity_id=[r.entity_id for r in point_rows], bc_variant=[r.bc_variant for r in point_rows],
+        radial_degree=[r.radial_degree for r in point_rows],
+        store_gradient=[not str(r.request).startswith("R3") for r in point_rows])
+
+
+def _point_chunk_arrays(point_chunk, point_rows, *, tensor: bool) -> tuple[dict, dict]:
+    """The v3 members of a packed point chunk, storing the unconditioned singleton / ringwise /
+    centered_radial sources as verified tensor factors when ``tensor`` (the rows need to have been built with
+    ``capture_factors=True``), plus the ``artifact.py`` tensor/fallback counts."""
+    stats: dict = {}
+    factors = [r.factors for r in point_rows] if tensor else None
+    return artifact_mod._point_chunk_to_arrays(point_chunk, factors=factors, stats=stats), stats
+
 
 def _require_free_disk(output) -> None:
     """Stop a worker before it writes a chunk onto a nearly full volume."""
@@ -424,22 +455,21 @@ def _compute_cells(unit: dict) -> dict:
     _require_free_disk(s["output"])
     started = time.time()
     raw_ids = np.arange(unit["start"], unit["stop"], dtype=np.int64)
+    tensor = tensor_encoding_enabled()
     point_rows, neumann_rows = builder.build_r1_cell_rows(
         s["S"], s["context"], raw_ids,
-        normal_coefficients=s["normal_coefficients"], patch_cache=s["patch_cache"])
-    point_chunk = artifact_mod.pack_point_rows(
-        [r.row for r in point_rows], request=[r.request for r in point_rows],
-        entity_id=[r.entity_id for r in point_rows], bc_variant=[r.bc_variant for r in point_rows],
-        radial_degree=[r.radial_degree for r in point_rows])
+        normal_coefficients=s["normal_coefficients"], patch_cache=s["patch_cache"], capture_factors=tensor)
+    point_chunk = _pack_point_rows(point_rows)
     neumann_chunk = artifact_mod.pack_neumann_rows(
         [r.row for r in neumann_rows], entity_id=[r.entity_id for r in neumann_rows],
         quad_node=[r.quad_node for r in neumann_rows], request=[r.source for r in neumann_rows],
         radial_degree=[r.radial_degree for r in neumann_rows])
-    chunks = {"chunk": artifact_mod._point_chunk_to_arrays(point_chunk),
-              "neumann": artifact_mod._neumann_chunk_to_arrays(neumann_chunk)}
+    point_arrays, tensor_stats = _point_chunk_arrays(point_chunk, point_rows, tensor=tensor)
+    chunks = {"chunk": point_arrays, "neumann": artifact_mod._neumann_chunk_to_arrays(neumann_chunk)}
     extra = {"point_diagnostics": _row_diagnostics_summary(point_rows),
              "neumann_diagnostics": _neumann_diagnostics_summary(neumann_rows),
-             "point_row_count": len(point_rows), "neumann_row_count": len(neumann_rows)}
+             "point_row_count": len(point_rows), "neumann_row_count": len(neumann_rows),
+             "tensor_encoding": tensor_stats}
     return runner.write_unit(s["output"], unit, s["identity"], chunks=chunks, started=started, extra=extra)
 
 
@@ -450,31 +480,26 @@ def _compute_faces(unit: dict) -> dict:
     sl = slice(unit["start"], unit["stop"])
     row_indices = s["face_row_indices"][sl]
     face_points = s["geometry"].face_points[sl]
+    tensor = tensor_encoding_enabled()
     point_rows_2, neumann_rows_2 = builder.build_r2_face_rows(
         s["S"], s["context"], s["census"], row_indices, face_points,
-        normal_coefficients=s["normal_coefficients"], patch_cache=s["patch_cache"])
+        normal_coefficients=s["normal_coefficients"], patch_cache=s["patch_cache"], capture_factors=tensor)
     point_rows_3, neumann_rows_3 = builder.build_r3_side_rows(
         s["S"], s["context"], s["census"], row_indices, face_points,
-        normal_coefficients=s["normal_coefficients"], patch_cache=s["patch_cache"])
+        normal_coefficients=s["normal_coefficients"], patch_cache=s["patch_cache"], capture_factors=tensor)
     point_rows = point_rows_2 + point_rows_3
     neumann_rows = neumann_rows_2 + neumann_rows_3
-    # R3 side rows are consumed as values only (P05N/P06N batched_side_values),
-    # so their gradient weights are not stored (design section 3). They were
-    # 57% of the face-row bytes in the first full N32 build.
-    point_chunk = artifact_mod.pack_point_rows(
-        [r.row for r in point_rows], request=[r.request for r in point_rows],
-        entity_id=[r.entity_id for r in point_rows], bc_variant=[r.bc_variant for r in point_rows],
-        radial_degree=[r.radial_degree for r in point_rows],
-        store_gradient=[not str(r.request).startswith("R3") for r in point_rows])
+    point_chunk = _pack_point_rows(point_rows)
     neumann_chunk = artifact_mod.pack_neumann_rows(
         [r.row for r in neumann_rows], entity_id=[r.entity_id for r in neumann_rows],
         quad_node=[r.quad_node for r in neumann_rows], request=[r.source for r in neumann_rows],
         radial_degree=[r.radial_degree for r in neumann_rows])
-    chunks = {"chunk": artifact_mod._point_chunk_to_arrays(point_chunk),
-              "neumann": artifact_mod._neumann_chunk_to_arrays(neumann_chunk)}
+    point_arrays, tensor_stats = _point_chunk_arrays(point_chunk, point_rows, tensor=tensor)
+    chunks = {"chunk": point_arrays, "neumann": artifact_mod._neumann_chunk_to_arrays(neumann_chunk)}
     extra = {"point_diagnostics": _row_diagnostics_summary(point_rows),
              "neumann_diagnostics": _neumann_diagnostics_summary(neumann_rows),
-             "point_row_count": len(point_rows), "neumann_row_count": len(neumann_rows)}
+             "point_row_count": len(point_rows), "neumann_row_count": len(neumann_rows),
+             "tensor_encoding": tensor_stats}
     return runner.write_unit(s["output"], unit, s["identity"], chunks=chunks, started=started, extra=extra)
 
 
@@ -526,6 +551,16 @@ _COMPUTE = {"cells": _compute_cells, "faces": _compute_faces, "p07": _compute_p0
 # now-empty ``_chunks/`` scratch tree is removed once every file has been
 # moved and the manifest is written.
 # ---------------------------------------------------------------------------
+def _chunk_stats(group: str, path: Path) -> dict:
+    """The v3 manifest entry's ``sources``/``targets``/``bytes`` for one moved chunk
+    file (index member only). A file without the row-chunk index members -- only the
+    re-entry test harness's stand-in files -- records just its size."""
+    try:
+        return artifact_mod.chunk_file_stats(group, path)
+    except KeyError:
+        return {"bytes": path.stat().st_size}
+
+
 def _assemble(output: Path, grid_dir: Path, identity: dict, plan: dict) -> dict:
     rows_dir = grid_dir / "rows"
     rows_dir.mkdir(parents=True, exist_ok=True)
@@ -545,7 +580,8 @@ def _assemble(output: Path, grid_dir: Path, identity: dict, plan: dict) -> dict:
                 dest = grid_dir / relative
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(src), str(dest))
-                manifest_chunks[group].append({"file": relative, "sha256": runner.sha256_file(dest)})
+                manifest_chunks[group].append({"file": relative, "sha256": runner.sha256_file(dest),
+                                               **_chunk_stats(group, dest)})
     manifest = {"schema": artifact_mod.SCHEMA, "identity": artifact_mod._json_safe(identity), "chunks": manifest_chunks}
     (grid_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2))
     return manifest
@@ -615,6 +651,7 @@ def _aggregate_receipts(output: Path, plan: dict) -> dict:
     max_neumann_residual = 0.0
     max_condition = 0.0
     point_rows = neumann_rows = integrated_rows = 0
+    tensor_encoding: dict = {}
     # Geometry units carry no row diagnostics, and their receipts are gone
     # once a previous build has assembled (or a caller pruned) ``_chunks/``
     # -- never require them here.
@@ -634,6 +671,13 @@ def _aggregate_receipts(output: Path, plan: dict) -> dict:
             if nd:
                 max_neumann_residual = max(max_neumann_residual, nd["max_residual"])
                 max_condition = max(max_condition, nd["max_condition"])
+            for key, value in (item.get("tensor_encoding") or {}).items():
+                if isinstance(value, dict):
+                    by = tensor_encoding.setdefault(key, {})
+                    for name, count in value.items():
+                        by[name] = by.get(name, 0) + count
+                else:
+                    tensor_encoding[key] = tensor_encoding.get(key, 0) + value
             point_rows += item.get("point_row_count", 0)
             neumann_rows += item.get("neumann_row_count", 0)
             integrated_rows += item.get("integrated_row_count", 0)
@@ -646,6 +690,8 @@ def _aggregate_receipts(output: Path, plan: dict) -> dict:
         "total_point_rows": point_rows,
         "total_neumann_rows": neumann_rows,
         "total_integrated_rows": integrated_rows,
+        # sources stored as tensor factors / CSR fallbacks of a failed bitwise expansion (expect 0 fallbacks)
+        "tensor_encoding": tensor_encoding,
     }
 
 

@@ -343,8 +343,9 @@ def init_worker(*, artifact_root: str, n: int, input_root: str, sidecar_path: st
     grid_dir = artifact_root / f"N{n}"
     build_identity = json.loads((grid_dir / "build_identity.json").read_text())
     manifest = json.loads((grid_dir / "manifest.json").read_text())
-    if manifest.get("schema") != artifact_mod.SCHEMA:
-        raise ValueError(f"row artifact schema mismatch: {manifest.get('schema')!r} != {artifact_mod.SCHEMA!r}")
+    if manifest.get("schema") not in artifact_mod.SUPPORTED_SCHEMAS:
+        raise ValueError(f"row artifact schema mismatch: {manifest.get('schema')!r} "
+                         f"not in {artifact_mod.SUPPORTED_SCHEMAS!r}")
     if manifest.get("identity") != artifact_mod._json_safe(build_identity):
         raise ValueError("row artifact identity mismatch")
 

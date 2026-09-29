@@ -458,10 +458,8 @@ def test_missing_manifest_raises_file_not_found(tmp_path):
 
 
 def test_legacy_v1_schema_is_rejected_with_a_clear_error(tmp_path):
-    """The pre-tag schema (no ``request``/``radial_degree`` on Neumann chunks)
-    must not silently load; only ``scripts/p_shared/backfill_neumann_tags.py``
-    is meant to read it (bypassing this loader) and upgrade it in place."""
-    assert artifact_module.SCHEMA_V1_NEUMANN_UNTAGGED != artifact_module.SCHEMA
+    """The pre-tag v1 schema (no ``request``/``radial_degree`` on Neumann chunks)
+    must not silently load."""
     _, rows, request, entity_id, bc_variant, radial_degree = _toy_point_rows()
     chunk = pack_point_rows(rows, request=request, entity_id=entity_id,
                             bc_variant=bc_variant, radial_degree=radial_degree)
@@ -469,7 +467,7 @@ def test_legacy_v1_schema_is_rejected_with_a_clear_error(tmp_path):
     grid_dir = save_row_artifact(tmp_path, 41, identity=identity, cells=[chunk])
     manifest_path = grid_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
-    manifest["schema"] = artifact_module.SCHEMA_V1_NEUMANN_UNTAGGED
+    manifest["schema"] = "drbx.p-row-artifact.v1"
     manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2))
     with pytest.raises(ValueError, match="schema mismatch"):
         load_row_artifact(tmp_path, 41, identity)

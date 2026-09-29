@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """P08 step-1 global campaign: builds the per-grid row artifact (schema
-``drbx.p-row-artifact.v2``) and replays it, unit-parallel, against the six
+``drbx.p-row-artifact.v3``) and replays it, unit-parallel, against the six
 frozen accepted-campaign oracles (P05, P05N frozen/upwind, P06N, P06 legacy,
 P07, P07N) -- see ``work/p08_step1_consolidation_design_20260928/design.md``
 and this package's ``README.md``.
