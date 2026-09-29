@@ -130,6 +130,7 @@ def _set_geometry_state_in_process(tmp_path, geometry_state, n=N):
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_geometry_units_assemble_in_plan_order(tmp_path, geometry_state):
     _set_geometry_state_in_process(tmp_path, geometry_state)
     raw_units = runner.chunk_units("geometry_raw", N, 38, 13)
@@ -182,6 +183,7 @@ def test_geometry_units_assemble_in_plan_order(tmp_path, geometry_state):
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_geometry_raw_stage_resumes_without_recomputing(tmp_path, geometry_state):
     """A first invocation over half the units, then a second invocation over
     the full list: the first half must resume (skip, not recompute), only

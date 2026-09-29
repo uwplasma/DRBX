@@ -20,6 +20,11 @@ if str(SCRIPTS) not in sys.path:
 
 from p_shared import selection  # noqa: E402
 
+# Every test in this module loads real HSX geometry/topology (via
+# selection.build_selection/verify_frozen/freeze) behind an inline
+# _require_inputs skip gate -- the whole file is real-data.
+pytestmark = pytest.mark.slow
+
 FROZEN_ROOT = WORKSPACE / "work/p08_step1_replay_selection_20260928"
 
 

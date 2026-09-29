@@ -238,6 +238,7 @@ REQUIRED_CATEGORIES = {
 
 
 @needs_geometry
+@pytest.mark.slow
 def test_select_owners_is_deterministic_and_covers_every_required_category():
     from p_shared.replay_support import build_environment
 
@@ -256,6 +257,7 @@ def test_select_owners_is_deterministic_and_covers_every_required_category():
 
 
 @needs_geometry
+@pytest.mark.slow
 def test_build_owner_rows_covers_every_selected_owners_incident_faces():
     from p_shared.replay_support import build_environment
 
@@ -278,6 +280,7 @@ def test_build_owner_rows_covers_every_selected_owners_incident_faces():
 
 
 @needs_oracle
+@pytest.mark.slow
 def test_run_owner_closure_check_passes_against_every_frozen_oracle():
     """The task report's own gate: build only the selected owners' rows, run
     every campaign's replay-unit arithmetic, and diff against each frozen
@@ -293,6 +296,7 @@ def test_run_owner_closure_check_passes_against_every_frozen_oracle():
     assert len(payload["table"]) > 20  # every campaign x term/variant row actually ran
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("n", [48, 64])
 def test_run_owner_closure_check_passes_at_n48_and_n64(n):
     """Grid-generic oracle comparison (task): the same gate as the N32 test

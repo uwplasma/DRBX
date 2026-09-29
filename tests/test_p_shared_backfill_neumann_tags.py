@@ -278,6 +278,7 @@ def _write_stage(grid_dir: Path, manifest_chunks: dict, stage: str, index: int, 
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_backfill_dry_run_end_to_end_on_a_tiny_real_artifact(tmp_path, real_geometry):
     """Build a tiny (few-row) legacy-schema artifact directly from real N32
     geometry -- one boundary cell, one boundary face (with both R2 and R3
@@ -397,6 +398,7 @@ def test_backfill_dry_run_end_to_end_on_a_tiny_real_artifact(tmp_path, real_geom
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_backfill_rejects_a_tampered_neumann_key_sequence(tmp_path, real_geometry):
     """A hand-corrupted neumann chunk (entity_id sequence that disagrees with
     the sibling point chunk's own deterministic enumeration) must fail

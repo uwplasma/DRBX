@@ -121,6 +121,7 @@ def p05n_env():
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_p05n_raw_chunk_matches_apply(p05n_env):
     from p_shared import apply as pshared_apply
     from drbx.geometry.fci_perpendicular_neumann_trace import prepare_neumann_point_rows
@@ -189,6 +190,7 @@ def test_p05n_raw_chunk_matches_apply(p05n_env):
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_p05n_face_chunk_matches_apply(p05n_env, tmp_path):
     from p_shared import apply as pshared_apply
     from drbx.geometry.fci_perpendicular_neumann_trace import prepare_neumann_point_rows
@@ -334,6 +336,7 @@ def p06n_env():
 
 
 @needs_workspace
+@pytest.mark.slow
 def test_p06n_raw_chunk_matches_apply(p06n_env):
     from p_shared import apply as pshared_apply
     from drbx.geometry.fci_perpendicular_neumann_trace import prepare_neumann_point_rows
@@ -412,6 +415,7 @@ def test_p06n_raw_chunk_matches_apply(p06n_env):
 
 
 @needs_workspace
+@pytest.mark.slow
 @pytest.mark.parametrize("dedupe", [True, False])
 def test_p06n_face_chunk_matches_apply(p06n_env, dedupe):
     from p_shared import apply as pshared_apply
@@ -541,6 +545,7 @@ def test_p06n_face_chunk_matches_apply(p06n_env, dedupe):
 # the P07 tensor integrand.
 # ---------------------------------------------------------------------------
 @needs_workspace
+@pytest.mark.slow
 def test_p07n_face_chunk_matches_apply(tmp_path):
     sys.path.insert(0, str(REPO / "scripts/p07_combined_global"))
     sys.path.insert(0, str(REPO / "scripts/p07n_field_derived_global"))
