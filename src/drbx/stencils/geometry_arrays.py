@@ -118,6 +118,91 @@ def _hash_arrays(names_and_arrays) -> "hashlib._Hash":
     return digest
 
 
+# ---------------------------------------------------------------------------
+# Split raw/face building blocks, reused (not copied) by both
+# ``GeometryArrays.build`` (one-shot, single-process) and the parallel
+# geometry stage (``scripts/p_shared/build_artifact.py``'s ``geometry_raw``/
+# ``geometry_face`` units, run through ``scripts/p_shared/runner.run_stage``).
+# Each function below is exactly the corresponding slice of ``build``'s own
+# body (same provider methods, same argument batching, same reshapes) so a
+# unit computing a sub-batch of raw cells or faces is bitwise/near-bitwise
+# consistent with a single call over the whole batch -- see
+# ``build_artifact.py``'s module docstring for why a small residual
+# (batch-size-dependent metric-evaluator roundoff, not a numerics change)
+# can remain between the two call shapes.
+# ---------------------------------------------------------------------------
+def build_raw_geometry_arrays(
+    provider: GeometryProvider,
+    faces: tuple[np.ndarray, np.ndarray, np.ndarray],
+    raw_keys: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """The ``*_raw_*`` half of :meth:`GeometryArrays.build`, over one batch
+    of raw ``(i, j, k)`` cell keys. Returns a plain ``{field: array}`` dict
+    keyed by the raw subset of ``GeometryArrays``'s own ``_ARRAY_FIELDS``."""
+    raw_keys = np.asarray(raw_keys, dtype=np.int64)
+    if raw_keys.ndim != 2 or raw_keys.shape[1] != 3:
+        raise ValueError("raw_keys must have shape (R, 3)")
+
+    raw_node_points, raw_weight = provider.raw_cell_weight(faces, raw_keys)
+    raw_node_points = _array(raw_node_points)
+    if raw_node_points.shape[1:] != (1, 3):
+        raise ValueError("raw_cell_weight must return a single (q1) node per raw cell")
+    raw_points = raw_node_points.reshape(-1, 3)
+    raw_weight = _array(raw_weight).reshape(-1)
+
+    p05_raw_h, p05_raw_jacobian = provider.p05_metric(raw_points)
+    p06_raw_J, p06_raw_B, p06_raw_K = provider.p06_curvature(raw_points)
+    p07_raw_tensor, p07_raw_divergence = provider.p07_perpendicular_tensor_and_divergence(raw_points)
+
+    return dict(
+        raw_points=raw_points,
+        p05_raw_h=_array(p05_raw_h),
+        p05_raw_jacobian=_array(p05_raw_jacobian),
+        p06_raw_J=_array(p06_raw_J),
+        p06_raw_B=_array(p06_raw_B),
+        p06_raw_K=_array(p06_raw_K),
+        p06_raw_weight=raw_weight,
+        p07_raw_tensor=_array(p07_raw_tensor),
+        p07_raw_divergence=_array(p07_raw_divergence),
+    )
+
+
+def build_face_geometry_arrays(
+    provider: GeometryProvider,
+    faces: tuple[np.ndarray, np.ndarray, np.ndarray],
+    face_keys: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """The ``*_face_*`` half of :meth:`GeometryArrays.build`, over one batch
+    of ``(axis, i, j, k)`` face keys. Returns a plain ``{field: array}`` dict
+    keyed by the face subset of ``GeometryArrays``'s own ``_ARRAY_FIELDS``."""
+    face_keys = np.asarray(face_keys, dtype=np.int64)
+    if face_keys.ndim != 2 or face_keys.shape[1] != 4:
+        raise ValueError("face_keys must have shape (F, 4)")
+
+    face_points, face_weight = provider.face_node_weight(faces, face_keys)
+    face_points = _array(face_points)
+    if face_points.shape[1:] != (9, 3):
+        raise ValueError("face_node_weight must return nine (q3) nodes per face")
+    n_faces = face_points.shape[0]
+    flat_faces = face_points.reshape(-1, 3)
+    face_weight = _array(face_weight).reshape(n_faces, 9)
+
+    p05_face_h, p05_face_jacobian = provider.p05_metric(flat_faces)
+    p06_face_J, p06_face_B, p06_face_K = provider.p06_face_curvature(flat_faces)
+    p07_face_tensor = provider.p07_perpendicular_tensor(flat_faces)
+
+    return dict(
+        face_points=face_points,
+        p05_face_h=_array(p05_face_h).reshape(n_faces, 9, 3),
+        p05_face_jacobian=_array(p05_face_jacobian).reshape(n_faces, 9),
+        p06_face_J=_array(p06_face_J).reshape(n_faces, 9),
+        p06_face_B=_array(p06_face_B).reshape(n_faces, 9),
+        p06_face_K=_array(p06_face_K).reshape(n_faces, 9, 3),
+        p06_face_weight=face_weight,
+        p07_face_tensor=_array(p07_face_tensor).reshape(n_faces, 9, 3, 3),
+    )
+
+
 # Field order fixes the identity hash and the npz layout; do not reorder
 # without also bumping SCHEMA (identity would silently change meaning).
 _ARRAY_FIELDS = (
