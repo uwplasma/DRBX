@@ -1,0 +1,44 @@
+{
+  "pass_": true,
+  "comparison": "N-O signed complete-owner replay of both rules",
+  "runs": [
+    {
+      "n": 32,
+      "owners": 62,
+      "raw": 200,
+      "fields": 26,
+      "compact_error_max": 8.707428221781496e-13,
+      "balanced_error_max": 4.586192536848444e-13,
+      "plane_donor_counts": [
+        28
+      ],
+      "max_reproduction": 1.858847909825158e-14
+    },
+    {
+      "n": 48,
+      "owners": 72,
+      "raw": 280,
+      "fields": 26,
+      "compact_error_max": 1.5577477445439213e-11,
+      "balanced_error_max": 1.2601829641107655e-12,
+      "plane_donor_counts": [
+        28
+      ],
+      "max_reproduction": 6.34661805428871e-14
+    },
+    {
+      "n": 64,
+      "owners": 82,
+      "raw": 332,
+      "fields": 26,
+      "compact_error_max": 1.6279387760907945e-11,
+      "balanced_error_max": 1.7208799489196724e-12,
+      "plane_donor_counts": [
+        28
+      ],
+      "max_reproduction": 4.1223087836227174e-14
+    }
+  ],
+  "wall_seconds": 39.70791741699941,
+  "gpu_execution_tested": false
+}

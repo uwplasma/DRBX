@@ -1,4 +1,73 @@
-# Local release validation — 29 September 2026
+# Balanced-28 campaign preparation — 29 September 2026
+
+The current runner is the always-balanced28 comparison candidate, with26 fields
+and the same GPU RK4-64 tracing contract. It is prepared locally; a published
+revision and successful remote gates are required before global qualification.
+
+## Candidate extraction replay
+
+`local_balanced_validate.py` compares signed complete-owner N-O against the
+previous bounded support experiment, without importing its implementation.
+All216 owners,812 raw members,26 fields and both spans were replayed for both
+compact and balanced selections. Maximum absolute discrepancy was1.63e-11 for
+compact and1.73e-12 for balanced. Every balanced plane uses exactly28 donors;
+maximum moment reproduction residual was6.35e-14. See
+`validation/balanced_replay.json`.
+
+The source selection rule is copied from the tested geometry-only candidate;
+no optimization against these fields has been introduced. The original18 field
+indices remain stable and8 previously bounded fresh orientations are appended.
+
+## Focused automated checks
+
+Eight tests passed in `tests/test_q_fci_layered_campaign.py`. They cover atomic
+checkpoint corruption/identity checks, complete-owner chunking, resource caps,
+analytic gradients including all fresh controls, catalogue stability, N-O-R
+reduction and maximum orders/worst-owner IDs. Canonical-HSX tests independently
+check quartic moment reproduction, unchanged outer rows and rejection when no
+exactly28-donor balanced set passes. The two input-dependent HSX tests skip in
+CI environments lacking the research inputs; both ran locally.
+
+## CPU numerical preflight
+
+The expanded test-mode preflight covers five phase locations including the seam,
+known hotspot/rank-repair rings, the axis, both sides of the aggregate join, and
+wall layers. It evaluates all26 fields, both D/N and h/16+h/32 through the actual
+campaign worker. All eight canonical inputs are SHA256 verified. Local tracing
+uses CPU64 with CPU256 checks, not a GPU claim. The final receipt is stored in
+`validation/balanced_preflight.json`; exhaustive all-location geometry and GPU
+checks are required remotely.
+
+All three numerical preflights passed.
+
+| N | Owners | Raw cells | Constant action max | CPU64/256 cell-scaled difference | Peak worker GiB |
+|---|---:|---:|---:|---:|---:|
+| 32 | 75 | 320 | 1.051e-12 | 3.908e-14 | 0.793 |
+| 48 | 75 | 440 | 9.294e-12 | 7.461e-14 | 0.914 |
+| 64 | 80 | 570 | 1.708e-11 | 8.527e-14 | 1.588 |
+
+Every inspected inner plane selected exactly28 donors. The extra candidate-pool
+expansion levels were not needed on this preflight panel. A repeated N32 score
+retained its checkpoint checksum (`validation/balanced_resume.json`). The
+geometry-only worker was separately exercised on axis, last-aggregate and wall
+owners at all three N (`validation/balanced_geometry_smoke.json`); this is a
+bounded branch check, not the required exhaustive remote geometry gate.
+
+## Scope of evidence
+
+The bounded short-wave response experiments show both attenuation and phase
+errors for balanced support and possible amplification for compact support.
+This campaign tests global convergence and regional errors, not turbulence-scale
+resolution or time stability. Keep the known O-R limitations separate from N-O.
+No source changes to P or production runtime are part of this campaign.
+
+The following section records the completed extraction checks for the original
+compact implementation. Those numbers describe that baseline, not the new
+balanced campaign's runtime or coverage.
+
+---
+
+# Historical compact campaign validation — 29 September 2026
 
 This is a portable research campaign ready for remote preflight. It is not a
 completed global scientific qualification or a production promotion.

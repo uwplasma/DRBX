@@ -70,4 +70,60 @@ def test_reduction_preserves_bc_span_and_nor_axes(tmp_path):
     assert row['NR']==row['NO'] and row['OR']==0
     order=next(x for x in summary['orders'] if x['BC']=='N' and x['alpha']==1/32 and x['region']=='global' and x['field']=='common' and x['channel']=='NO')
     assert order['orders']==pytest.approx([2,2])
+    maximum_order=next(x for x in summary['orders'] if x['BC']=='N' and x['alpha']==1/32 and x['region']=='inner_join' and x['field']=='common' and x['channel']=='NO_max')
+    assert maximum_order['orders']==pytest.approx([2,2])
+    with np.load(tmp_path/'results_N64.npz') as result:
+        assert result['fields'].tolist()==list(FIELDS)
+    assert row['NO_max_owner'] in range(6)
     assert storage.read(tmp_path/'completion.json')['complete']
+
+
+def test_extended_catalogue_keeps_baseline_axes():
+    from scripts.q_fci_layered_global.fields import BASELINE_FIELDS,FRESH_FIELDS
+    assert len(BASELINE_FIELDS)==18 and len(FRESH_FIELDS)==8
+    assert FIELDS[:18]==BASELINE_FIELDS
+    assert len(set(FIELDS))==26
+
+
+def test_balanced_exhaustion_never_enlarges_runtime_stencil(monkeypatch):
+    """Failed 28-owner candidates must stop, not inherit full-pool fallback."""
+    from scripts.q_fci_layered_global import support
+    # Use canonical HSX when available; missing research inputs are not CI failures.
+    from pathlib import Path
+    from scripts.q_fci_layered_global import model
+    root=Path(__file__).resolve().parents[2]
+    config=json.loads((Path(model.__file__).parent/'inputs.json').read_text())
+    if not (root/config['geometry']/'32x32x32/base_geometry.npz').exists():
+        pytest.skip('canonical HSX research inputs unavailable')
+    _,t=model.context(32,root,physical=False,magnetic=False)
+    h=support.BalancedHybrid(t)
+    monkeypatch.setattr(support,'good',lambda _:False)
+    ijk=np.array([8,24,23]);p=t.pts[(8*32+24)*32+23][None]
+    with pytest.raises(RuntimeError,match='no passing balanced28 support'):
+        h.rows(ijk,p)
+
+
+def test_balanced_rows_reproduce_moments_and_keep_outer_identical():
+    from pathlib import Path
+    from scripts.q_fci_layered_global import model,primitives as r
+    from scripts.q_fci_layered_global.support import Hybrid,BalancedHybrid
+    root=Path(__file__).resolve().parents[2]
+    config=json.loads((Path(model.__file__).parent/'inputs.json').read_text())
+    if not (root/config['geometry']/'48x48x48/base_geometry.npz').exists():
+        pytest.skip('canonical HSX research inputs unavailable')
+    _,t=model.context(48,root,physical=False,magnetic=False)
+    old=Hybrid(t);new=BalancedHybrid(t)
+    ijk=np.array([12,36,35]);center=t.pts[(12*48+36)*48+35]
+    points=center+np.array([[.12/48,.15*t.g.dtheta,t.g.deta/32],[-.08/48,-.2*t.g.dtheta,-t.g.deta/32]])
+    ids,V,D,meta=new.rows(ijk,points)
+    assert all(len(p['donors'])==28 and p['rank']==15 for p in meta['planes'])
+    # Independent owner observations for all transverse quartic monomials.
+    xy=center[0]*np.array([np.cos(center[1]),np.sin(center[1])]);scale=max(t.g.dr,center[0]*t.g.dtheta)
+    obs=np.array([(t.rv[r.members(t,o)]/t.vol[o])@r.basis(t.xy[r.members(t,o)],xy,scale,r.EXP4) for o in ids])
+    B,du,dt=r.planar(points,xy,scale,r.EXP4)
+    np.testing.assert_allclose(V@obs,B,atol=2e-10,rtol=2e-10)
+    np.testing.assert_allclose(np.einsum('sid,df->sif',D,obs),np.stack((du,dt,np.zeros_like(du)),axis=1),atol=2e-9,rtol=2e-9)
+    ijk[0]=new.last+1
+    center=t.pts[(ijk[0]*48+ijk[1])*48+ijk[2]]
+    for a,b in zip(old.rows(ijk,center[None])[:3],new.rows(ijk,center[None])[:3]):
+        np.testing.assert_array_equal(a,b)

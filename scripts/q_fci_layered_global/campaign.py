@@ -36,6 +36,7 @@ def groups(t,owners,capacity):
 
 def initialize(a):
     from .model import context
+    from .fields import FIELDS, BASELINE_FIELDS
     root=Path(a.campaign);root.mkdir(parents=True,exist_ok=True)
     if (root/'design.json').exists():
         _,d=io.identity(root)
@@ -44,14 +45,14 @@ def initialize(a):
     verify_inputs(root,a.input_root)
     try:commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=HERE,text=True).strip()
     except subprocess.CalledProcessError:commit='unavailable'
-    design=dict(schema='q-layered-dn-v1',commit=commit,sources=io.sources(),inputs=io.read(HERE/'input_manifest.json'),raw_chunk=a.raw_chunk,rk4_steps=64,spans=[1/16,1/32],BC=['D','N'],test_mode=a.test_mode,input_root=str(Path(a.input_root).resolve()),method='compact28 repaired inner / ringwise outer / two-layer quartic D and physical-normal N / fixed five-plane eta / divB')
+    design=dict(schema='q-layered-balanced28-dn-v2',commit=commit,sources=io.sources(),inputs=io.read(HERE/'input_manifest.json'),raw_chunk=a.raw_chunk,rk4_steps=64,spans=[1/16,1/32],BC=['D','N'],test_mode=a.test_mode,input_root=str(Path(a.input_root).resolve()),inner_policy='balanced28',fields=list(FIELDS),baseline_fields=list(BASELINE_FIELDS),method='always balanced28 inner / ringwise outer / two-layer quartic D and physical-normal N / fixed five-plane eta / divB')
     plans={}
     for n in NS:
         _,t=context(n,a.input_root,physical=False,magnetic=False)
         profile=np.array([len(np.unique(t.ro.reshape((n,)*3)[i,:,0])) for i in range(n)]);last=int(np.flatnonzero(profile==n)[0])-1;sample=set()
-        for th,et in ((1.83,2.41),(4.37,5.12),(0,0)):
+        for th,et in ((1.83,2.41),(4.37,5.12),(0,0),(.73,1.19),(2.91,4.07)):
             j,k=[int(np.argmin(abs((t.centers[x+1]-v+np.pi)%(2*np.pi)-np.pi))) for x,v in enumerate((th,et))]
-            for i in sorted({0,1,2,last-1,last,last+1,last+2,int(.24*n),int(.26*n),n//2,3*n//4,n-4,n-3,n-2,n-1}):sample.add(int(t.ro[(i*n+j)*n+k]))
+            for i in sorted({0,1,2,last-1,last,last+1,last+2,int(.24*n),int(.26*n),{32:7,48:12,64:18}[n],{32:8,48:12,64:16}[n],n//2,3*n//4,n-4,n-3,n-2,n-1}):sample.add(int(t.ro[(i*n+j)*n+k]))
         full=groups(t,range(len(t.vol)),a.raw_chunk);pre=groups(t,sorted(sample),a.raw_chunk);pick=np.unique(np.linspace(0,len(full)-1,12,dtype=int));pilot=[full[i] for i in pick]
         plans[str(n)]=dict(geometry=full,preflight=pre,pilot=pilot,global_=full,owner_count=len(t.vol),raw_count=n**3,last_aggregate=last)
     io.write(root/'plan.json',plans);design['plan_sha256']=io.sha(root/'plan.json');io.write(root/'design.json',design)
@@ -160,7 +161,7 @@ def validate(a,stage=None,prefix='score'):
         z=np.load(path);assert np.array_equal(z['owners'],owners);seen.extend(z['owners'].tolist());m=io.read(path.with_suffix('.json'));maxconst=max(maxconst,m['constant_max']);meta.append(m)
         if prefix=='score' and not all(np.all(np.isfinite(z[k])) for k in ('N','O','R','R_half')):raise RuntimeError('nonfinite checkpoint')
     if len(set(seen))!=len(seen) or not np.array_equal(expected,seen):raise RuntimeError('owner coverage failure')
-    io.write(root/stage/f'validate_N{a.N}.json',dict(identity=ident,operational_pass=True,chunks=len(jobs),owners=len(seen),raw=sum(z['raw'] for z in meta),max_constant=maxconst,max_condition=max(z['max_condition'] for z in meta),max_reproduction=max(z['max_reproduction'] for z in meta),max_donors=max(z['max_donors'] for z in meta),repair_planes=sum(z['repair_planes'] for z in meta)))
+    io.write(root/stage/f'validate_N{a.N}.json',dict(identity=ident,operational_pass=True,chunks=len(jobs),owners=len(seen),raw=sum(z['raw'] for z in meta),max_constant=maxconst,max_condition=max(z['max_condition'] for z in meta),max_reproduction=max(z['max_reproduction'] for z in meta),max_donors=max(z['max_donors'] for z in meta),repair_planes=sum(z['repair_planes'] for z in meta),balanced_planes=sum(z['balanced_planes'] for z in meta),inner_plane_donor_counts=sorted({c for z in meta for c in z['inner_plane_donor_counts']}),inner_max_pool=max(z['inner_max_pool'] for z in meta),inner_max_scaled_radius=max(z['inner_max_scaled_radius'] for z in meta),inner_expanded_planes=sum(z['inner_expanded_planes'] for z in meta),inner_policy='balanced28'))
 
 def reduce(a):
     from .fields import FIELDS
@@ -172,15 +173,16 @@ def reduce(a):
             if not io.complete(path,ident):raise RuntimeError('missing reduction input')
             with np.load(path) as z:zs.append({k:z[k] for k in ('owners','N','O','R','R_half','radial','volume')})
         D={k:np.concatenate([z[k] for z in zs]) for k in ('owners','N','O','R','R_half','radial','volume')};p=io.read(root/'plan.json')[str(n)];assert len(D['owners'])==p['owner_count']
-        io.arrays(root/f'results_N{n}.npz',**D)
-        last=p['last_aggregate'];rad=D['radial'];regions={'global':np.ones(len(rad),bool),'core':rad==0,'inner':rad<=last,'aggregate_join':(rad>=last-1)&(rad<=last+2),'outer':(rad>last)&(rad<n-2),'wall':rad>=n-2,'wall_join':(rad>=n-4)&(rad<=n-2)}
+        io.arrays(root/f'results_N{n}.npz',**D,fields=np.array(FIELDS))
+        last=p['last_aggregate'];rad=D['radial'];regions={'global':np.ones(len(rad),bool),'core':rad==0,'first_ring':rad==1,'inner':rad<=last,'inner_join':(rad>=last-1)&(rad<=last),'aggregate_join':(rad>=last-1)&(rad<=last+2),'outer':(rad>last)&(rad<n-2),'wall':rad>=n-2,'wall_join':(rad>=n-4)&(rad<=n-2)}
         for bc in range(2):
          for ai,alpha in enumerate((1/16,1/32)):
           for field,name in enumerate(FIELDS):
            for region,mask in regions.items():
             wt=D['volume'][mask];wt=wt/wt.sum();N=D['N'][mask,bc,ai,field];O=D['O'][mask,ai,field];R=D['R'][mask,field];Rh=D['R_half'][mask,field]
             row=dict(Ngrid=n,BC=('D','N')[bc],alpha=alpha,field=name,region=region)
-            for label,v in dict(NO=N-O,OR=O-R,NR=N-R,reference_step=R-Rh).items():row[label]=float(np.sqrt(wt@abs(v)**2));row[label+'_max']=float(abs(v).max())
+            for label,v in dict(NO=N-O,OR=O-R,NR=N-R,reference_step=R-Rh).items():
+                row[label]=float(np.sqrt(wt@abs(v)**2));row[label+'_max']=float(abs(v).max());row[label+'_max_owner']=int(D['owners'][mask][np.argmax(abs(v))])
             row['reference_step_fraction_NR']=row['reference_step']/max(row['NR'],1e-300)
             result.append(row)
     orders=[]
@@ -189,10 +191,10 @@ def reduce(a):
       for field in FIELDS:
        for region in regions:
         series=[next(x for x in result if x['BC']==bc and x['alpha']==alpha and x['field']==field and x['region']==region and x['Ngrid']==n) for n in NS]
-        for channel in ('NO','OR','NR'):
+        for channel in ('NO','OR','NR','NO_max','OR_max','NR_max'):
             v=[x[channel] for x in series];slopes=[math.log(max(v[i],1e-300)/max(v[i+1],1e-300))/math.log(NS[i+1]/NS[i]) for i in range(2)]
             orders.append(dict(BC=bc,alpha=alpha,field=field,region=region,channel=channel,orders=slopes,order_ge_1p8=all(s>=1.8 for s in slopes) if field!='constant' else None))
-    io.write(root/'summary.json',dict(identity=ident,norms=result,orders=orders,interpretation='machine output only; N-O and O-R separate; no automatic promotion'))
+    io.write(root/'summary.json',dict(identity=ident,fields=list(FIELDS),inner_policy='balanced28',norms=result,orders=orders,interpretation='machine output only; N-O and O-R separate; no automatic promotion'))
     io.write(root/'completion.json',dict(identity=ident,operational_pass=True,resolutions=list(NS),complete=True,scientific_pass_not_required_for_completion=True))
 
 def main():

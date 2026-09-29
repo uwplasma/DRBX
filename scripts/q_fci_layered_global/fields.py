@@ -52,11 +52,14 @@ def evaluate(points, name):
 def callable_field(name):
     return lambda points: evaluate(points, name)
 
-FIELDS=('common','homogeneous_D','x_lambda2_m1','x_lambda4_m1','y_lambda2_m1','y_lambda4_m1','constant','fA','fB')+tuple(f'wave_a{a}_lambda{l}' for a in (30,60,120,150) for l in (2,4))+('simple_zero_N',)
+BASELINE_FIELDS=('common','homogeneous_D','x_lambda2_m1','x_lambda4_m1','y_lambda2_m1','y_lambda4_m1','constant','fA','fB')+tuple(f'wave_a{a}_lambda{l}' for a in (30,60,120,150) for l in (2,4))+('simple_zero_N',)
+FRESH_FIELDS=tuple(f'fresh_a{a}_lambda{l}' for a in (15,75,105,165) for l in (2,4))
+FIELDS=BASELINE_FIELDS+FRESH_FIELDS
+
 def field(name,p):
     p=np.asarray(p).reshape(-1,3);u,t,e=p.T;x=u*np.cos(t);y=u*np.sin(t)
-    if name.startswith('wave_a'):
-        angle,lam=name.removeprefix('wave_a').split('_lambda');a=np.deg2rad(float(angle));k=2*np.pi/float(lam);c=np.cos(t-a);s=np.sin(t-a);v=np.exp(1j*(k*u*c+e))
+    if name.startswith(('wave_a', 'fresh_a')):
+        angle,lam=name.removeprefix('wave_a').removeprefix('fresh_a').split('_lambda');a=np.deg2rad(float(angle));k=2*np.pi/float(lam);c=np.cos(t-a);s=np.sin(t-a);v=np.exp(1j*(k*u*c+e))
         return v,1j*v[:,None]*np.column_stack((k*c,-k*u*s,np.ones(len(p))))
     if name not in ('fA','fB'):return evaluate(p,name)
     if name=='fA':

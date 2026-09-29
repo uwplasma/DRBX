@@ -224,3 +224,82 @@ class Hybrid:
         return (self.inner if ijk[0]<=self.last else self.outer).rows(ijk,points)
     def clear(self):
         self.inner.fits.clear();self.inner.cache.clear();self.inner.events.clear();self.outer.cache.clear()
+
+
+class Balanced(Repaired):
+
+    def select(self, pool, order, xy, scale):
+        t = self.t
+        n = t.n
+        u = np.linalg.norm(xy)
+        i = int(np.argmin(abs(t.centers[0] - u)))
+        theta = float(np.arctan2(xy[1], xy[0]) % (2 * np.pi))
+        k = int(round((t.pts[r.members(t, int(pool[0]))[0], 2] - t.centers[2][0]) / t.g.deta)) % n
+        for (radius, angular) in ((2, 7), (3, 9), (4, 11)):
+            ids = set(map(int, pool[order[:40]]))
+            for rr in range(max(0, i - radius), min(n - 1, i + radius) + 1):
+                (oo, aa) = self.ring(rr, k)
+                ids.update(map(int, oo[r.nearest(aa, theta, min(angular, len(oo)), 2 * np.pi)]))
+            ids = np.array(sorted(ids))
+            dist = np.round(np.linalg.norm((self.centroid[ids] - xy) / scale, axis=1), 12)
+            near = np.lexsort((ids, dist))
+            ids = ids[near]
+            ft = r.fit(t, ids, xy, scale, np.eye(15))
+            (A, U, root) = ft[:3]
+            pivots = [qr((root[:, None] * M).T, mode='economic', pivoting=True)[2][:15] for M in (A, U)]
+            candidates = []
+            for (name, pv) in zip(('weighted', 'uniform'), pivots):
+                take = list(map(int, pv))
+                take += [z for z in range(len(ids)) if z not in take][:28 - len(take)]
+                take = np.array(sorted(take))
+                sub = r.fit(t, ids[take], xy, scale, np.eye(15))
+                if len(take) == 28 and good(sub):
+                    candidates.append((quality(sub[0], sub[1], sub[2]), name, take, sub))
+            if candidates:
+                (_, name, take, sub) = max(candidates, key=lambda x: x[0])
+                don = ids[take]
+            else:
+                take = sorted(set(map(int, np.concatenate(pivots))))
+                take += [z for z in range(len(ids)) if z not in take][:max(0, 28 - len(take))]
+                don = ids[take]
+                sub = r.fit(t, don, xy, scale, np.eye(15))
+                name = 'pivot_union'
+                if len(don) != 28 or not good(sub):
+                    continue
+            return (don, sub, dict(radius=radius, angular=angular, pool_size=len(ids), selection=name))
+        raise RuntimeError(('no passing balanced28 support', i, k))
+
+    def rows(self, ijk, points):
+        t = self.t
+        n = t.n
+        (i, j, k) = map(int, ijk)
+        center = t.pts[(i * n + j) * n + k]
+        xy = t.xy[(i * n + j) * n + k]
+        scale = max(1 / n, center[0] * 2 * np.pi / n)
+        for kk in (k + np.arange(-2, 3)) % n:
+            tag = (i, j, int(kk))
+            if tag in self.fits:
+                continue
+            pool = self.plane(kk)
+            delta = self.centroid[pool] - xy
+            distance = np.round(np.linalg.norm(delta / scale, axis=1), 12)
+            order = np.lexsort((pool, distance))
+            (don, ft, selection) = self.select(pool, order, xy, scale)
+            (A, U, root, C, ra, ru, ca, cu, res) = ft
+            dd = self.centroid[don] - xy
+            ev = np.linalg.eigvalsh(dd.T @ dd / 28)
+            sectors = np.floor(np.arctan2(dd[:, 1], dd[:, 0]) % (2 * np.pi) / (np.pi / 4)).astype(int)
+            info = dict(donors=don.tolist(), rank=min(ra, ru), condition=max(ca, cu), reproduction=res, expansion=selection['radius'] - 2, aspect=float(np.sqrt(ev[-1] / ev[0])), max_radius=float(np.linalg.norm(dd / scale, axis=1).max()), sector_counts=np.bincount(sectors, minlength=8).tolist(), selection=selection, exchanges=[], initial_rank=[ra, ru])
+            self.fits[tag] = (don, A, C, info)
+        ids, values, gradients, metadata = super().rows(ijk, points)
+        metadata['family'] = 'balanced28'
+        return ids, values, gradients, metadata
+
+
+class BalancedHybrid(Hybrid):
+    """Frozen always-balanced inner support, unchanged structured outer rows."""
+
+    def __init__(self, t):
+        self.inner = Balanced(t)
+        self.outer = Layers(t)
+        self.last = int(np.flatnonzero(self.outer.profile == t.n)[0]) - 1

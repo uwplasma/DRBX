@@ -1,28 +1,59 @@
-# Frozen layered Q global D/N campaign
+# Balanced-28 layered Q global D/N comparison campaign
 
-Research qualification, not production promotion. This is a new runner; do not
-reuse the old shortspan campaign's fits, exact screens, traces or checkpoints.
+Research qualification, not production promotion. Start a fresh campaign directory; do not reuse the completed compact campaign's
+fits, traces, scores, receipts, or source identities. The compact baseline is
+commit `ad54c33207835814296f0c83fffa9db87c269e66`; compare returned arrays locally.
 The immutable eight canonical inputs are shared. `input_manifest.json` pins
 all bytes/hashes; do not regenerate geometry or replace missing files.
 
 ## Numerical contract
 
 N32/N48/N64; all complete owners. Volume-weighted raw-midpoint observations and
-reference projection. Eighteen frozen fields (`fields.FIELDS`), both prescribed
+reference projection. Twenty-six frozen fields (`fields.FIELDS`), both prescribed
 Dirichlet and physical-normal Neumann. All cases use the same fields, geometry
 and traces. N/O/R are retained separately per owner; complex waves retain sign
 and phase. h/16 and h/32 use four RK4 legs per raw cell, one midpoint seed and
 six cap/center evaluation slots (two centers coincide). **64 RK4 steps on GPU**.
 There is no subface quadrature or nested inner scalar tracing in this method.
 
-Inner: frozen repaired compact28 Cartesian quartic through the last aggregate;
+Inner: frozen always-balanced28 Cartesian quartic through the last aggregate;
 outer: ringwise angular7/radial-cubic reconstruction. Common five-plane eta
 quartic in every region. Last two wall layers: four interior radial layers and
 a quartic wall polynomial. D retains the analytic prescribed-trace extension
 and supplied trace tangential derivatives. N eliminates35 wall trace values
 using all metric-normal derivative components; only prescribed normal data
 enter the runtime loading. Its35x35 solve is setup only. Include nonzero divB
-in the short-span outer action. See the pinned research evidence in `VALIDATION.md`.
+in the short-span outer action. See local extraction evidence and remaining remote gates in `VALIDATION.md`.
+
+### Frozen support and comparison contract
+
+Always apply the bounded `Balanced` rule on every inner raw anchor and all five
+eta planes. Pool the nearest40 owners plus nearest7 on rings within +/-2,
+select15 independent pivot rows from weighted/uniform moment matrices, fill
+with nearest unused owners to28, and choose the passing set with the better
+singular-value ratio. The frozen fallback pools use +/-3 rings/angular9, then
++/-4/angular11. Every successful runtime plane has exactly28 donors and rank15.
+If no such set passes, stop; never silently use a larger runtime stencil.
+Only geometry and moment matrices drive selection, never field values/errors.
+The structured outer rule and the last-two-layer wall rules are unchanged.
+
+The first18 field names and positions match the compact baseline exactly.
+Eight fresh orientation controls follow: angles15/75/105/165 degrees, each with
+wavelength2/4, eta mode1. These remain long-wave MMS controls. The separate
+bounded short-wave response audit documents the loss of small-scale fidelity;
+this global MMS campaign does not certify turbulence-scale resolution or time
+stability. Both original and fresh fields are evaluated globally for D and N.
+
+The design records field names, source/input hashes, policy and plan. Numerical
+preflight includes the prior hotspot rings and fresh phases. Exhaustive geometry
+preflight covers every raw anchor/eta plane and records selected donor counts,
+candidate-pool sizes, support radius and expansion counts. Each field retains
+N/O/R/R_half arrays per complete owner. Reduction reports first ring and inner
+join separately, RMS and maximum orders, and worst-owner IDs. No scientific
+order flag authorizes candidate tuning or automatically promotes the method.
+Compare the shared18 fields against the saved compact campaign after return;
+the additional8 fields have no old global baseline and must be identified as
+fresh controls. Do not rerun compact globally just to populate that comparison.
 
 The geometry evaluator snapshot in `vendor/` is deliberately frozen to the
 validated research runtime, avoiding unrelated production edits. Its origin
@@ -38,7 +69,7 @@ selected GPU, immutable resident field data and fixed batches; it does not run
 CPU reconstruction concurrently. CPU stages use spawned single-thread workers,
 capped by requested workers, allocation CPU affinity, and floor(memory budget /
 per-worker GiB). On Linux each worker is pinned to one allowed CPU. Every worker
-loads geometry and batches all18 fields. Start with at least2.5GiB per worker;
+loads geometry and batches all26 fields. Start with at least2.5GiB per worker;
 inspect pilot measured memory and increase this operational cap if necessary.
 Bounded caches clear at chunk boundaries. Do not allocate extra nodes for this
 node-local runner. No GPU benchmark or scaling study is prescribed.

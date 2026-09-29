@@ -1,0 +1,78 @@
+{
+  "pass_": true,
+  "scope": "three complete owners per N through geometry-only worker; not exhaustive coverage",
+  "runs": [
+    {
+      "n": 32,
+      "block": 0,
+      "owners": 3,
+      "raw": 35,
+      "max_condition": 109.9063751981047,
+      "max_reproduction": 6.619260732785821e-13,
+      "max_donors": 140,
+      "repair_planes": 0,
+      "outside_caps": 0,
+      "wall_holdout_normal_max": 0.0,
+      "constant_max": 0.0,
+      "balanced_planes": 170,
+      "inner_plane_donor_counts": [
+        28
+      ],
+      "inner_max_pool": 56,
+      "inner_max_scaled_radius": 6.057663922532421,
+      "inner_expanded_planes": 0,
+      "inner_policy": "balanced28",
+      "wall_s": 0.38835287500114646,
+      "peak_rss_gib": 0.15045166015625,
+      "backend": "cpu"
+    },
+    {
+      "n": 48,
+      "block": 0,
+      "owners": 3,
+      "raw": 51,
+      "max_condition": 114.71356426234915,
+      "max_reproduction": 1.051755671906142e-12,
+      "max_donors": 140,
+      "repair_planes": 0,
+      "outside_caps": 0,
+      "wall_holdout_normal_max": 0.0,
+      "constant_max": 0.0,
+      "balanced_planes": 250,
+      "inner_plane_donor_counts": [
+        28
+      ],
+      "inner_max_pool": 56,
+      "inner_max_scaled_radius": 6.301101620031377,
+      "inner_expanded_planes": 0,
+      "inner_policy": "balanced28",
+      "wall_s": 0.5964068329994916,
+      "peak_rss_gib": 0.1694488525390625,
+      "backend": "cpu"
+    },
+    {
+      "n": 64,
+      "block": 0,
+      "owners": 3,
+      "raw": 67,
+      "max_condition": 114.807321967426,
+      "max_reproduction": 1.5441626808620504e-12,
+      "max_donors": 140,
+      "repair_planes": 0,
+      "outside_caps": 0,
+      "wall_holdout_normal_max": 0.0,
+      "constant_max": 0.0,
+      "balanced_planes": 330,
+      "inner_plane_donor_counts": [
+        28
+      ],
+      "inner_max_pool": 56,
+      "inner_max_scaled_radius": 6.3877530745170334,
+      "inner_expanded_planes": 0,
+      "inner_policy": "balanced28",
+      "wall_s": 0.8255303749974701,
+      "peak_rss_gib": 0.20538330078125,
+      "backend": "cpu"
+    }
+  ]
+}
