@@ -2100,7 +2100,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 in progress (design survey). Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 implemented and verified on bounded sets; its full remote campaign is pending (29 September). Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2128,8 +2128,24 @@ Steps:
      - The operator geometry is the frozen MMS-reference metric.
      - Precontracting the P07N Neumann rows (a summation reorder of about 1e-15) is accepted.
      - Polarization is Boussinesq, a physics model choice: the geometry-only tensor J(g^ij − b^i b^j) that P07 qualified and production uses. The artifact stores rows already contracted with it. A density-weighted, non-Boussinesq coefficient would be a separate, separately qualified extension.
-     - Build and replay N32 locally. N48/N64 (about 14 and 33 GB, which exceeds local disk) are built and replayed remotely.
+     - ~~Build and replay N32 locally.~~ Superseded by a later user decision the same day: every full-grid build and replay, N32 included, runs remotely as one unit-parallel campaign (`scripts/p08_step1_global/`). Local runs are bounded unit subsets only. A monolithic local N32 replay ran for 50 minutes at 7 GB without output before it was stopped.
      - The artifact is plain CSR. An exact factored encoding (about 20 GB at N64) is deferred to step 2.
+   - Status, 28–29 September: implementation complete and locally verified on bounded sets. The full remote campaign is pending.
+     - **Artifact schema v2.** Neumann rows are tagged by request (R1–R4) and radial degree: at wall faces, R2 and R3 rows share a key but use degrees 4 and 3. R3 side rows are value-only. N32 size: 9.2 GB. Row counts: 326,656 point, 195,584 Neumann, 91,904 integrated.
+     - **Parallel geometry stage** in 4096-row units. The 4096 chunking is a numerical parameter: moving batch boundaries changes the finite-difference-derived K and P07 divergence by up to about 4.5e-9 relative. Bounded units reproduce the serial N32 geometry bitwise.
+     - **Unit-parallel replay** (`scripts/p_shared/replay_units.py`):
+       - It reads stored rows, including the tagged Neumann rows, face geometry from `geometry.npz`, and wall data cached once per grid on the n×n lattice.
+       - It pins each oracle's catalogue explicitly.
+       - The owner-closure check (`scripts/p_shared/owner_closure.py`) compares the replay with the six frozen campaigns at 12 owners spanning the interior, wall, transition, aggregate, both seams and the axis, with every incident face. All 143 campaign × term entries pass at N32, N48 and N64: roundoff for P05/P05N/P07 (≤ 4e-13), and ≤ 3.4e-10 for P06/P06N/P07N (the cross-platform finite-difference floor). It is the campaign's bounded preflight at every grid.
+     - **Replay defects found and fixed** before the gate passed:
+       1. Neumann rows were rebuilt at the wall-projected trace point instead of the true query point.
+       2. Plain P07's wall families use the Dirichlet lift, not Neumann restoration.
+       3. The P05N/P06N exterior-side Neumann fallback was wrong.
+       4. P06N face corrections are stored undivided.
+       5. P07N family-0 rows sit at u = 0.
+       The stored artifact rows were correct throughout.
+     - **Remote campaign cost:** about 10 CPU-hours for build and replay across N32, N48 and N64. The frozen-oracle inputs are 3.6 GB and are uploaded as a tarball.
+     - **Open performance item:** face replay units take about 40 s per N32 unit warm, against a 30 s target.
 2. **JAX application layer.**
    - Add a package P05 midpoint bracket kernel.
    - Wire the existing kernels to the row artifact.
@@ -2151,6 +2167,33 @@ Steps:
    - All-Neumann φ must first establish that the operator's null space is exactly the constants before `solve_augmented_neumann` applies.
 6. **Remaining gates.**
    - A bounded geometry/reference recheck on N64.
+   - **Scoped change: autodiff curvature K (user decision, 28 September).** Compute K = (B/2J)∇×(b_cov/B) with `jax.jacfwd` through the JAX metric and B-field evaluators. These are the same interpolants the NumPy reference uses, and they agree to 4e-15. The frozen fourth-order finite difference it replaces uses step 2e-4, shrunk near u = 0 and u = 1, with a one-sided rule at the wall.
+     - [Comparison](../../../../work/p08_autodiff_curvature_20260928/) on N32 raw midpoints and face nodes:
+       - median relative difference 3e-11, 99th percentile ~1e-7, max 1.5e-5;
+       - the finite-difference error falls with the step at fourth order, bottoms out near 2e-4, then grows as roundoff/h; at the worst points it converges onto the autodiff value, so it is finite-difference truncation, most likely at MAKEGRID cubic-spline knots;
+       - autodiff is ~14× faster per point.
+     - Adoption:
+       1. Switch the operator and the MMS reference together, so K cancels in the pointwise q1 N−R.
+       2. Replace the one-sided wall rule.
+       3. Show that the P06/P06N actions change far below their archived spatial errors (bounded check), or rerun a bounded P06 check.
+     - Step 1 keeps the finite-difference K, because it must replay the accepted campaigns. After adoption, the face-geometry build cost drops accordingly.
+   - **Candidate, not adopted: q2 (2×2 Gauss) face quadrature.** The q3 face rule is part of the qualified operator action. The reconstruction (the moment functional) is independent of it: the nodes are only where the reconstruction and metric are evaluated to integrate the face flux. A one-point (midpoint) face rule has not been tested. The 25 September contract kept q3 faces by choice; what failed then was the P05 face/cell volume formulation. A midpoint rule is consistent with the second-order target but leaves no margin above the gate, and it samples near-wall coil ripple at a single phase. q2 is the tested reduction.
+     - q2 has 4 nodes instead of 9. What that saves depends on the operator:
+       - **P05 and P06 (nonlinear):** they need per-node rows at runtime, so both runtime face cost and per-node artifact rows drop by 2.25×.
+       - **P07 (linear):** it is precontracted into one integrated row per face, so q2 saves build time only.
+     - Recommendation, not a decision: keep P07 at q3. Consider q2 for P05/P06 only.
+     - [Bounded evidence](../../../../work/p08_face_quadrature_q2_20260928/report.md), 28 September: 57 wall-weighted owners per grid (48 wall-adjacent), all incident faces, N32/N48/N64. The q3 recompute reproduces the archived outputs.
+       - The q2 − q3 delta converges at 2.3–8, and it stays below half of the archived q3 N−R error at those owners.
+       - The low-degree P05N regression pair (b1×e3), the asymptotic indicator: the delta converges at about 3, the same order as the error, at a flat 44% of it. q2 changes the constant, not the order.
+       - Rich fields: the delta decays at about 3 against an error decaying at about 5 (pre-asymptotic), so its share rises to 0.25 at N64.
+       - The constant field stays exact.
+     - Coverage:
+       - P05N covers the upwind jump and P06N the characteristic correction; these are the only face-quadrature terms in those operators.
+       - P07N covers only the boundary families 1/2/4. The regular families 0/3/5/6/7, which are most P07 faces, are untested, because `prepare_integrated_face_rows` hard-codes 9 nodes.
+     - Before adoption:
+       1. Test the P07 regular families at q2.
+       2. Run a global (not wall-weighted) check.
+       3. Re-qualify the affected operators against their frozen oracles. Since step 1 must replay the accepted campaigns, the step-1 artifact stays at q3.
    - Matched single-device and η-sharded execution. This needs a sharded owner-value gather in the application layer, and is the largest new engineering item.
 7. **Acceptance record and roadmap update.**
 

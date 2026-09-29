@@ -48,10 +48,21 @@ from drbx.geometry.fci_perpendicular_reconstruction import PointRows
 from drbx.geometry.fci_perpendicular_neumann_trace import NeumannPointRows
 from drbx.geometry.fci_perpendicular_integrated_rows import IntegratedFaceRow
 
-SCHEMA = "drbx.p-row-artifact.v1"
+SCHEMA = "drbx.p-row-artifact.v2"
+#: The previous schema, kept only so tooling (e.g.
+#: ``scripts/p_shared/backfill_neumann_tags.py``) can recognize an artifact
+#: that predates the Neumann ``request``/``radial_degree`` tags (see
+#: ``NeumannRowChunk``) and upgrade it in place; ``load_row_artifact`` never
+#: accepts this schema string.
+SCHEMA_V1_NEUMANN_UNTAGGED = "drbx.p-row-artifact.v1"
 
 REQUEST_KINDS = ("R1", "R2", "R3", "R4", "neumann")
 BC_VARIANTS = ("", "D", "N")
+#: The request kinds a Neumann row's own ``request`` tag may take -- the
+#: *originating* request that needed this wall-lattice companion row (see
+#: ``drbx.stencils.builder.NeumannRowRequest.source``). Never ``"neumann"``
+#: itself or an R-kind that has no Neumann companion.
+NEUMANN_SOURCE_KINDS = ("R1", "R2", "R3", "R4")
 
 
 # --------------------------------------------------------------------------
@@ -123,6 +134,11 @@ def build_identity(*, component_hashes: dict, source_hashes: dict, policy: dict)
                 "policy": dict(policy)}
     identity.update(_numpy_blas_platform())
     return _json_safe(identity)
+
+
+def _common_dtype(blocks):
+    """Result dtype of a list of arrays (float64 when empty); never narrows longdouble."""
+    return np.result_type(*blocks) if blocks else np.dtype(np.float64)
 
 
 class _QueryTable:
@@ -367,28 +383,54 @@ class NeumannRowChunk:
     already returns one row per requested point). The 28 wall-lattice points
     are stored once per target as ids into the chunk's deduplicated query
     table (design §3: "Neumann rows with their 28 wall-lattice ids").
+
+    ``request``/``radial_degree`` tag each row with the *originating* request
+    that needed this Neumann companion (``NeumannRowRequest.source`` /
+    ``.radial_degree`` in ``drbx.stencils.builder``) -- the same idiom
+    ``PointRowChunk.request``/``.radial_degree`` uses. This matters because,
+    in a faces unit, an R2 and an R3 row can share the same
+    ``(entity_id, quad_node)`` key (R3's Neumann row is tagged at the face's
+    own census row index, not the side-doubled R3 point-row id) while using
+    different degrees -- without this tag a consumer cannot tell the two
+    apart.
     """
 
     entity_id: np.ndarray           # (T,) int64
     quad_node: np.ndarray           # (T,) int16
+    request: np.ndarray             # (T,) '<U8', the originating R1/R2/R3/R4
+    radial_degree: np.ndarray       # (T,) int8
     donor_ptr: np.ndarray           # (T+1,) int64
     donor: np.ndarray               # (nnz,) int32
     value: np.ndarray               # (nnz,) float64
     gradient: np.ndarray            # (3, nnz) float64
     wall_query: np.ndarray          # (T, 28) int32
-    boundary_value: np.ndarray      # (T, 28) float64
-    boundary_gradient: np.ndarray   # (T, 3, 28) float64
+    boundary_value: np.ndarray      # (T, 28) builder dtype (longdouble; float64 on arm64)
+    boundary_gradient: np.ndarray   # (T, 3, 28) builder dtype (longdouble; float64 on arm64)
     condition: np.ndarray           # (T,) float64
     constraint_residual: np.ndarray  # (T,) float64
     query_table: np.ndarray         # (Q, 3) float64
 
 
-def pack_neumann_rows(rows: Sequence[NeumannPointRows], *, entity_id, quad_node=None,
-                      query_table: _QueryTable | None = None) -> NeumannRowChunk:
+def pack_neumann_rows(rows: Sequence[NeumannPointRows], *, entity_id, request, radial_degree,
+                      quad_node=None, query_table: _QueryTable | None = None) -> NeumannRowChunk:
+    """Pack a sequence of ``NeumannPointRows`` into a chunk.
+
+    ``request`` (the originating ``R1``/``R2``/``R3``/``R4`` request) and
+    ``radial_degree`` are required -- callers must state them explicitly,
+    there is no silent default -- and are broadcast if scalar, else must
+    supply one entry per row in ``rows`` (matching ``entity_id``'s own
+    broadcast convention). ``quad_node`` defaults to each row's index within
+    ``rows``.
+    """
     rows = list(rows)
     n = len(rows)
     entity_id = _broadcast(entity_id, n, "entity_id")
     quad_node = _broadcast(quad_node if quad_node is not None else list(range(n)), n, "quad_node")
+    request = _broadcast(request, n, "request")
+    radial_degree = _broadcast(radial_degree, n, "radial_degree")
+    for value in request:
+        if value not in NEUMANN_SOURCE_KINDS:
+            raise ValueError(f"unsupported Neumann source request: {value!r}")
     table = query_table if query_table is not None else _QueryTable()
     donor_ptr = [0]
     donor_blocks, value_blocks, gradient_blocks = [], [], []
@@ -405,8 +447,10 @@ def pack_neumann_rows(rows: Sequence[NeumannPointRows], *, entity_id, quad_node=
         gradient_blocks.append(row.gradient)
         donor_ptr.append(donor_ptr[-1] + d)
         wall_query.append(table.add_many(row.boundary_points))
-        boundary_value.append(np.asarray(row.boundary_value, dtype=np.float64))
-        boundary_gradient.append(np.asarray(row.boundary_gradient, dtype=np.float64))
+        # Keep the builder's own dtype: prepare_neumann_point_rows returns these as
+        # longdouble, which is float64 on arm64 but 80-bit extended on x86 (Perlmutter).
+        boundary_value.append(np.asarray(row.boundary_value))
+        boundary_gradient.append(np.asarray(row.boundary_gradient))
         condition.append(float(row.condition))
         residual.append(float(row.constraint_residual))
     donor = np.concatenate(donor_blocks).astype(np.int32) if donor_blocks else np.zeros(0, dtype=np.int32)
@@ -415,11 +459,13 @@ def pack_neumann_rows(rows: Sequence[NeumannPointRows], *, entity_id, quad_node=
     return NeumannRowChunk(
         entity_id=np.array(entity_id, dtype=np.int64),
         quad_node=np.array(quad_node, dtype=np.int16),
+        request=np.array(request, dtype="<U8"),
+        radial_degree=np.array(radial_degree, dtype=np.int8),
         donor_ptr=np.array(donor_ptr, dtype=np.int64),
         donor=donor, value=value, gradient=gradient,
         wall_query=np.array(wall_query, dtype=np.int32).reshape(n, 28),
-        boundary_value=np.array(boundary_value, dtype=np.float64).reshape(n, 28),
-        boundary_gradient=np.array(boundary_gradient, dtype=np.float64).reshape(n, 3, 28),
+        boundary_value=np.array(boundary_value, dtype=_common_dtype(boundary_value)).reshape(n, 28),
+        boundary_gradient=np.array(boundary_gradient, dtype=_common_dtype(boundary_gradient)).reshape(n, 3, 28),
         condition=np.array(condition, dtype=np.float64),
         constraint_residual=np.array(residual, dtype=np.float64),
         query_table=table.array(),
@@ -547,7 +593,7 @@ _POINT_CHUNK_ARRAY_FIELDS = (
     "has_gradient", "gradient_ptr", "gradient", "donor_query", "source_ptr", "query_table",
 )
 _NEUMANN_CHUNK_ARRAY_FIELDS = (
-    "entity_id", "quad_node", "donor_ptr", "donor", "value", "gradient",
+    "entity_id", "quad_node", "request", "radial_degree", "donor_ptr", "donor", "value", "gradient",
     "wall_query", "boundary_value", "boundary_gradient", "condition",
     "constraint_residual", "query_table",
 )

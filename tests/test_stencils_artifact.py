@@ -24,7 +24,7 @@ from drbx.geometry.fci_perpendicular_integrated_rows import (
 from drbx.native.fci_perpendicular_point_rows import load_point_row_plan
 
 from drbx.stencils.artifact import (
-    build_identity, expand_integrated_rows, expand_neumann_rows, expand_point_rows,
+    _common_dtype, build_identity, expand_integrated_rows, expand_neumann_rows, expand_point_rows,
     hash_bytes, hash_file, hash_source, load_row_artifact, pack_integrated_rows,
     pack_neumann_rows, pack_point_rows, save_row_artifact,
 )
@@ -57,6 +57,11 @@ def _assert_point_rows_equal(actual, expected):
     np.testing.assert_array_equal(actual.trace_donor_points, expected.trace_donor_points)
     np.testing.assert_array_equal(actual.trace_target_points, expected.trace_target_points)
     assert actual.diagnostics == expected.diagnostics
+
+
+def _assert_neumann_chunk_tags(chunk, *, request, radial_degree):
+    np.testing.assert_array_equal(chunk.request, np.array(request, dtype="<U8"))
+    np.testing.assert_array_equal(chunk.radial_degree, np.array(radial_degree, dtype=np.int8))
 
 
 def _assert_neumann_rows_equal(actual, expected):
@@ -230,11 +235,50 @@ def test_neumann_row_chunk_roundtrip_toy():
         normal_coefficients=lambda q: np.broadcast_to(coeff, (len(q), 3)))
     assert len(rows) == 2
 
-    chunk = pack_neumann_rows(rows, entity_id=[0, 1], quad_node=[0, 1])
+    chunk = pack_neumann_rows(rows, entity_id=[0, 1], quad_node=[0, 1],
+                              request=["R2", "R3"], radial_degree=[4, 3])
     assert chunk.donor.dtype == np.int32
+    assert chunk.request.dtype == np.dtype("<U8")
+    assert chunk.radial_degree.dtype == np.int8
+    # boundary_value/boundary_gradient keep their native (builder) dtype,
+    # untouched by the request/radial_degree tags added alongside them.
+    assert chunk.boundary_value.dtype == _common_dtype([r.boundary_value for r in rows])
+    assert chunk.boundary_gradient.dtype == _common_dtype([r.boundary_gradient for r in rows])
+    _assert_neumann_chunk_tags(chunk, request=["R2", "R3"], radial_degree=[4, 3])
     expanded = expand_neumann_rows(chunk)
     for actual, expected in zip(expanded, rows, strict=True):
         _assert_neumann_rows_equal(actual, expected)
+
+
+def test_neumann_row_chunk_scalar_request_and_degree_broadcast():
+    n = 12
+    context = _toy_context(n)
+    centers = context.centers
+    coeff = np.array((1., 0., 0.))
+    points = np.array([[.99, centers[1][4], centers[2][4]],
+                       [.98, centers[1][5], centers[2][5]]])
+    rows = prepare_neumann_point_rows(context, points,
+        normal_coefficients=lambda q: np.broadcast_to(coeff, (len(q), 3)))
+    chunk = pack_neumann_rows(rows, entity_id=[3, 4], request="R4", radial_degree=3)
+    _assert_neumann_chunk_tags(chunk, request=["R4", "R4"], radial_degree=[3, 3])
+
+
+def test_neumann_row_chunk_request_and_radial_degree_are_required():
+    n = 12
+    context = _toy_context(n)
+    centers = context.centers
+    coeff = np.array((1., 0., 0.))
+    points = np.array([[.99, centers[1][4], centers[2][4]]])
+    rows = prepare_neumann_point_rows(context, points,
+        normal_coefficients=lambda q: np.broadcast_to(coeff, (len(q), 3)))
+    with pytest.raises(TypeError):
+        pack_neumann_rows(rows, entity_id=[0])
+    with pytest.raises(TypeError):
+        pack_neumann_rows(rows, entity_id=[0], request=["R1"])
+    with pytest.raises(TypeError):
+        pack_neumann_rows(rows, entity_id=[0], radial_degree=[3])
+    with pytest.raises(ValueError, match="unsupported Neumann source request"):
+        pack_neumann_rows(rows, entity_id=[0], request=["neumann"], radial_degree=[3])
 
 
 def test_neumann_row_artifact_save_load_roundtrip(tmp_path):
@@ -245,11 +289,12 @@ def test_neumann_row_artifact_save_load_roundtrip(tmp_path):
     points = np.array([[.99, centers[1][4], centers[2][4]]])
     rows = prepare_neumann_point_rows(context, points,
         normal_coefficients=lambda q: np.broadcast_to(coeff, (len(q), 3)))
-    chunk = pack_neumann_rows(rows, entity_id=[7])
+    chunk = pack_neumann_rows(rows, entity_id=[7], request=["R1"], radial_degree=[3])
     identity = build_identity(component_hashes={}, source_hashes={}, policy={"max_condition": 1e8})
     save_row_artifact(tmp_path, 16, identity=identity, neumann=[chunk])
     loaded = load_row_artifact(tmp_path, 16, identity)
     _assert_neumann_rows_equal(expand_neumann_rows(loaded.neumann[0])[0], rows[0])
+    _assert_neumann_chunk_tags(loaded.neumann[0], request=["R1"], radial_degree=[3])
 
 
 # --------------------------------------------------------------------------
@@ -409,6 +454,24 @@ def test_corrupted_chunk_is_rejected(tmp_path):
 def test_missing_manifest_raises_file_not_found(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_row_artifact(tmp_path, 999, {})
+
+
+def test_legacy_v1_schema_is_rejected_with_a_clear_error(tmp_path):
+    """The pre-tag schema (no ``request``/``radial_degree`` on Neumann chunks)
+    must not silently load; only ``scripts/p_shared/backfill_neumann_tags.py``
+    is meant to read it (bypassing this loader) and upgrade it in place."""
+    assert artifact_module.SCHEMA_V1_NEUMANN_UNTAGGED != artifact_module.SCHEMA
+    _, rows, request, entity_id, bc_variant, radial_degree = _toy_point_rows()
+    chunk = pack_point_rows(rows, request=request, entity_id=entity_id,
+                            bc_variant=bc_variant, radial_degree=radial_degree)
+    identity = build_identity(component_hashes={}, source_hashes={}, policy={})
+    grid_dir = save_row_artifact(tmp_path, 41, identity=identity, cells=[chunk])
+    manifest_path = grid_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema"] = artifact_module.SCHEMA_V1_NEUMANN_UNTAGGED
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2))
+    with pytest.raises(ValueError, match="schema mismatch"):
+        load_row_artifact(tmp_path, 41, identity)
 
 
 # --------------------------------------------------------------------------
