@@ -8,6 +8,80 @@ evidence in linked research artifacts. The separate
 
 ## 1. Objective and shared acceptance contract
 
+### Bounded compact-inner / ringwise-outer candidate — 29 September 2026
+
+The [separate inner-rank and outer-accuracy comparison](../../../../work/q_fci_rank_outer_comparison_20260929/report.md)
+supports repaired compact Cartesian-quartic reconstruction through the last
+agglomerated ring, followed by P's transverse ringwise angular/radial-cubic
+construction. Both retain Q's common five-plane quartic eta representation;
+this borrows P's transverse machinery, not its complete operator. The switch
+is after zero-based rings 10/15/21 at N32/N48/N64, as requested by the user.
+
+Geometry-only balanced-pool QR selection repairs all 512 previously failing
+sampled inner fits at N64 rings 15/16 with 28 selected donors per plane and
+no larger-support fallback. Previously valid rows are unchanged. The candidate
+pool reaches 56 owners during setup; this is not the runtime donor count.
+Coverage is all theta indices on four eta planes, through radial index N-3;
+the final two wall rings and all-eta coverage remain unqualified.
+
+On 58 complete owners with 17 fields, the ringwise outer candidate reduces
+N64 pooled outer-wave N-O RMS from `2.403e-3` to `2.274e-4` compared with the
+four-ring structured Cartesian quartic. Its bounded pooled orders are
+`3.72/2.97`, not global convergence orders. All five outer radial wave-RMS
+groups decrease on both intervals, but two of 120 individual outer wave
+tracks still rebound on the fine interval, and two neighboring singleton
+roles have larger absolute error than the old quartic. The five-radial-layer
+quartic passes geometric checks but worsens pooled outer accuracy and is not
+preferred. h/16 and h/32 give the same ranking. Preserve the unchanged O-R
+channel and report N-O-R separately; do not choose by cancellation in N-R.
+
+**Next bounded candidate, not promotion:** retain the repaired compact-inner /
+ringwise-outer split, confirm independent phases/orientations and full row
+coverage, and audit the intended Dirichlet and physical-normal Neumann wall
+closures before a global campaign. This research test changes no P-path or
+production implementation and confers no new Q global qualification.
+
+**Bounded wall integration completed:** the
+[layered D/N comparison](../../../../work/q_fci_layered_dn_qualification_20260929/report.md)
+retains this interior and adds radial-quartic wall rows on the outer two
+layers. Dirichlet uses the prescribed trace and its tangential derivatives.
+Physical-normal Neumann adapts P's local trace elimination to Q's fixed
+seven-angular by five-eta wall lattice: 140 singleton donor values and 35
+normal-data samples, with a setup-only 35-by-35 solve (maximum sampled
+condition 6.55). Runtime is a linear owner/data row application. The full
+metric normal, including tangential contributions, is enforced; no unknown
+analytic wall value enters the Neumann action.
+
+On 36 actual-HSX owners, three phases including the seam, distances 1–4,
+and 18 fields, every selected wall-field pooled N-O norm decreases on both
+intervals. h/16 wave fine orders on the outer two layers are 2.01/2.33 for
+D and 4.22/4.00 for N; adjacent interior layers give 2.04/1.96. Preserve
+seven individual D fine-interval wave rebounds and eight N coarse-interval
+rebounds, and coarse orders below two in some non-wave controls. Neumann
+node residuals are about 1e-12; held-out normal residual wave RMS decreases
+`2.08e-3 -> 1.30e-4 -> 1.80e-5`. Algebra, tensor reproduction, constant,
+affine-shift, periodicity and independent old-row replay checks pass.
+
+All primary midpoint caps stay inside the wall. Separate near-wall probes on
+the same HSX geometry produce six outside caps per resolution; extension
+value and gradient errors decrease for both BCs. This is bounded extension
+evidence, not all-crossing coverage. N-R remains dominated by the unchanged
+O-R channel, so this is not a global midpoint-reference convergence pass.
+Next: full geometry/conditioning coverage and independent phase/orientation
+checks for the complete candidate, followed by global campaign preparation
+under an explicit N-O-R/reference scope. No support retuning, P modification,
+or production promotion follows from this bounded result.
+
+**Remote campaign engineering:** `scripts/q_fci_layered_global/` packages the
+frozen candidate with GPU RK4-64 tracing, parallel CPU all-location geometry
+preflight/reconstruction, complete-owner projection, D/N cases, h/16+h/32,
+resumable identity-checked chunks and separate N-O-R reductions. The prescribed
+remote sequence includes exhaustive geometry coverage, numerical preflight,
+CPU/GPU and RK4-step checks, a throughput pilot, then global N32/N48/N64.
+Local CPU replay is evidence of extraction correctness; actual GPU execution
+and exhaustive global coverage remain remote gates. See the runner README and
+VALIDATION.md; no new numerical qualification is claimed by packaging it.
+
 ### Current result: whole-support exchange improves accuracy but fails the gate
 
 The [returned Q03 remote campaign and independent local analysis](../../../../work/q03-exchange-tNlxO86M_analysis/report.md)

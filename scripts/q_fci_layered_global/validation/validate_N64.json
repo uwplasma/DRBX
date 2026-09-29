@@ -1,0 +1,12 @@
+{
+  "identity": "08ec383183d0d43153121de50b24138644f0e4133a3126274267148545eb7b4f",
+  "operational_pass": true,
+  "chunks": 1,
+  "owners": 45,
+  "raw": 336,
+  "max_constant": 1.716671249596402e-11,
+  "max_condition": 248.52721042177157,
+  "max_reproduction": 4.62059936446925e-12,
+  "max_donors": 140,
+  "repair_planes": 60
+}
