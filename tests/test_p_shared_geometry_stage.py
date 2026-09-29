@@ -25,8 +25,7 @@ Three groups:
 
 Skipped cleanly (the assembly/resume groups) if the local HSX workspace
 geometry inputs are unavailable, the same way
-``tests/test_stencils_builder.py``/``tests/test_p_shared_backfill_neumann_tags.py``
-do.
+``tests/test_stencils_builder.py`` does.
 """
 from __future__ import annotations
 

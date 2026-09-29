@@ -2129,7 +2129,7 @@ Steps:
      - Precontracting the P07N Neumann rows (a summation reorder of about 1e-15) is accepted.
      - Polarization is Boussinesq, a physics model choice: the geometry-only tensor J(g^ij − b^i b^j) that P07 qualified and production uses. The artifact stores rows already contracted with it. A density-weighted, non-Boussinesq coefficient would be a separate, separately qualified extension.
      - ~~Build and replay N32 locally.~~ Superseded by a later user decision the same day: every full-grid build and replay, N32 included, runs remotely as one unit-parallel campaign (`scripts/p08_step1_global/`). Local runs are bounded unit subsets only. A monolithic local N32 replay ran for 50 minutes at 7 GB without output before it was stopped.
-     - The artifact is plain CSR. An exact factored encoding (about 20 GB at N64) is deferred to step 2.
+     - The step-1 artifact is plain CSR. Step 2a replaced its storage with schema v3 and exact tensor factoring.
    - Status: **accepted, 29 September (user decision)**, on the remote campaign below plus the bounded owner closure at every grid.
      - **Artifact schema v2.** Neumann rows are tagged by request (R1–R4) and radial degree: at wall faces, R2 and R3 rows share a key but use degrees 4 and 3. R3 side rows are value-only. N32 size: 9.2 GB. Row counts: 326,656 point, 195,584 Neumann, 91,904 integrated.
      - **Parallel geometry stage** in 4096-row units. The 4096 chunking is a numerical parameter: moving batch boundaries changes the finite-difference-derived K and P07 divergence by up to about 4.5e-9 relative. Bounded units reproduce the serial N32 geometry bitwise.
@@ -2155,9 +2155,14 @@ Steps:
        - Cost: N32 build plus replay took about 23 minutes of wall time on 96 workers. N48 ran across restarts, so it has no single wall time.
      - **Open performance item:** face replay units take about 40 s per N32 unit warm, against a 30 s target.
 2. **JAX application layer.**
-   - Add a package P05 midpoint bracket kernel.
-   - Wire the existing kernels to the row artifact.
-   - Gate: replay against the step-1 host outputs, plus eager/JIT/JVP.
+   - **2a, artifact layout and runtime loader: done 29 September** ([design and measurements](../../../../work/p08_step2_layout_loader_design_20260929/design.md)). Numerics unchanged: every stored weight decodes bitwise, and every new apply path matches the per-row kernels to roundoff (≤ 5e-16 relative).
+     - **Schema v3** (`drbx/stencils/artifact.py`) stores donor lists, tags and boundary queries once per source instead of once per quadrature node: about 1.5× smaller than v2 on face rows. v2 remains readable; only v3 is written.
+     - **Exact tensor-factored rows** (`drbx/stencils/tensor_rows.py`). The unconditioned singleton, ringwise and centered_radial rows are products of 1-D Lagrange factors (ringwise: per-ring angular vectors). The builder captures the factors it multiplies (`rows_with_factors`) and stores bit-deduplicated tables plus a few indices per node. Decoding reproduces the rows bitwise, checked on every source at encode time with CSR fallback (0 fallbacks on real N32 units). On real N32 units: 400 → 129 MB on disk; pure singleton/ringwise units shrink 25–135×. Coupled-quartic and the conditioned wall families stay CSR. Estimated N64 point rows: v2 about 68 GB, v3 45 GB, factored about 5.5 GB.
+     - **Vectorized loader** (`drbx/stencils/loader.py`) lowers chunks to JAX payloads without per-row Python loops, streaming per chunk, with grid-global deduplicated boundary queries and factor tables, and per-source η-offset halos for sharding.
+     - **Kernels** (`native/fci_perpendicular_source_rows.py`, `native/fci_perpendicular_tensor_rows.py`). CSR sources gather donors once per source and keep gradients only where stored. Tensor sources never materialize weights: θ is precontracted once per apply per used (θ entry, layer) and per ring entry, then each node gathers 16 rows and contracts η and radial. Eager and JIT are bitwise equal, and JVP is linear. On real N32 units the runtime plan is 120 MB against 398 MB all-CSR (the remainder is coupled-quartic), and apply takes about half the CSR time.
+     - The one-time artifact migration tools were removed.
+   - **2b, remaining:** a package P05 midpoint-bracket kernel; per-operator JAX assembly (P05, P05N, P06 q1+q3, P07/P07N) on the loader, carrying the step-1 replay fixes (true-query-point Neumann rows, P07 wall Dirichlet lift, exterior-side Neumann fallback, undivided P06N corrections, P07N family-0 exclusion).
+   - Gate: replay against the step-1 host outputs (the per-owner N32/N48 replay arrays, with the corrected pointwise cap), plus eager/JIT/JVP.
 3. **Combined perpendicular RHS.** An opt-in verification path, not production.
    - Terms: bracket with live jump, centered vorticity bracket, curvature q1+q3, diffusion and polarization; parallel terms off.
    - The reference is the sum of the qualified per-term references.

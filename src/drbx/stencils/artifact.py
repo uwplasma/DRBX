@@ -20,6 +20,16 @@ identity or per-chunk sha256 does not match, and ``expand()`` the CSR back
 into the *same* row objects, bitwise: donor order and coefficients are
 copied, never re-summed.
 
+On disk (schema v3, P08 step 2; see
+``work/p08_step2_layout_loader_design_20260929/design.md`` section 2) the point
+chunks are re-keyed by source, and the P07 chunks keep their conditioned-only
+arrays compact; decoding reproduces the in-memory chunks bitwise, and the v2
+layout (schema v2) is still read.
+A v3 point chunk may additionally store its unconditioned singleton / ringwise /
+centered_radial sources as exact tensor factors (``src_encoding`` 1, members ``tr_*``;
+design section 6, ``drbx.stencils.tensor_rows``); decoding expands them bitwise, so the
+in-memory chunk is the same either way. A v3 file without ``src_encoding`` is all CSR.
+
 Deliberate simplifications relative to the full design (left to later
 tasks): this module does not itself write ``census.npz`` / ``topology.npz``
 / ``geometry.npz`` (task 1/2 outputs) or a single artifact-wide
@@ -38,7 +48,7 @@ import inspect
 import io
 import json
 import platform
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Sequence
 
@@ -47,14 +57,14 @@ import numpy as np
 from drbx.geometry.fci_perpendicular_reconstruction import PointRows
 from drbx.geometry.fci_perpendicular_neumann_trace import NeumannPointRows
 from drbx.geometry.fci_perpendicular_integrated_rows import IntegratedFaceRow
+from .tensor_rows import TensorRows, expand_tensor_rows, verified_tensor_rows
 
-SCHEMA = "drbx.p-row-artifact.v2"
-#: The previous schema, kept only so tooling (e.g.
-#: ``scripts/p_shared/backfill_neumann_tags.py``) can recognize an artifact
-#: that predates the Neumann ``request``/``radial_degree`` tags (see
-#: ``NeumannRowChunk``) and upgrade it in place; ``load_row_artifact`` never
-#: accepts this schema string.
-SCHEMA_V1_NEUMANN_UNTAGGED = "drbx.p-row-artifact.v1"
+SCHEMA = "drbx.p-row-artifact.v3"
+#: The previous schema: per-target point chunks and dense P07 side arrays. It is
+#: read by ``load_row_artifact`` / ``decode_chunk`` but never written.
+SCHEMA_V2 = "drbx.p-row-artifact.v2"
+#: Every schema string ``load_row_artifact`` accepts.
+SUPPORTED_SCHEMAS = (SCHEMA, SCHEMA_V2)
 
 REQUEST_KINDS = ("R1", "R2", "R3", "R4", "neumann")
 BC_VARIANTS = ("", "D", "N")
@@ -603,19 +613,395 @@ _INTEGRATED_CHUNK_ARRAY_FIELDS = (
 )
 
 
-def _point_chunk_to_arrays(chunk: PointRowChunk) -> dict:
+# -- v2: one dense array per ``PointRowChunk`` / ``IntegratedRowChunk`` field ----
+# The decoders below are live (v2 files are read); the encoders are private and only
+# used by tests to build v2 fixtures -- ``encode_chunk`` writes v3 only.
+
+def _point_chunk_to_arrays_v2(chunk: PointRowChunk) -> dict:
     arrays = {name: np.asarray(getattr(chunk, name)) for name in _POINT_CHUNK_ARRAY_FIELDS}
     arrays["source_ptr"] = np.asarray(chunk.source_ptr)
     arrays["source_diagnostics_json"] = np.asarray(chunk.source_diagnostics_json)
     return arrays
 
 
-def _arrays_to_point_chunk(arrays: dict) -> PointRowChunk:
+def _arrays_to_point_chunk_v2(arrays: dict) -> PointRowChunk:
     kwargs = {name: np.asarray(arrays[name]) for name in _POINT_CHUNK_ARRAY_FIELDS}
     kwargs["source_ptr"] = np.asarray(arrays["source_ptr"])
     kwargs["source_diagnostics_json"] = str(np.asarray(arrays["source_diagnostics_json"]).item())
     return PointRowChunk(**kwargs)
 
+
+def _integrated_chunk_to_arrays_v2(chunk: IntegratedRowChunk) -> dict:
+    return {name: np.asarray(getattr(chunk, name)) for name in _INTEGRATED_CHUNK_ARRAY_FIELDS}
+
+
+def _arrays_to_integrated_chunk_v2(arrays: dict) -> IntegratedRowChunk:
+    kwargs = {name: np.asarray(arrays[name]) for name in _INTEGRATED_CHUNK_ARRAY_FIELDS}
+    return IntegratedRowChunk(**kwargs)
+
+
+# -- v3: source-major point chunks, conditioned-only P07 side arrays ------------
+#
+# Lossless: decoding reproduces the in-memory chunk field for field (dtype,
+# shape, bytes). The encoders check every invariant the re-keying relies on and
+# raise ``ValueError`` on a violation -- nothing lossy is ever stored silently.
+
+#: dtypes the v3 point decoder produces (and hence the only dtypes the encoder
+#: accepts for the fields it re-keys).
+_POINT_V3_DTYPES = {
+    "request": np.dtype("<U8"), "entity_id": np.dtype(np.int64), "family": np.dtype("<U32"),
+    "conditioned": np.dtype(bool), "bc_variant": np.dtype("<U1"),
+    "radial_degree": np.dtype(np.int16), "has_gradient": np.dtype(bool),
+    "donor_ptr": np.dtype(np.int64), "donor": np.dtype(np.int32),
+    "gradient_ptr": np.dtype(np.int64), "donor_query": np.dtype(np.int32),
+    "source_ptr": np.dtype(np.int64),
+}
+_INTEGRATED_V3_DTYPES = {
+    "conditioned": np.dtype(bool), "donor_ptr": np.dtype(np.int64), "donor": np.dtype(np.int32),
+    "donor_query": np.dtype(np.int32), "value_loading": np.dtype(np.float64),
+    "tangential_loading": np.dtype(np.float64),
+}
+
+
+def _require_dtypes(chunk, expected: dict, kind: str) -> None:
+    for name, dtype in expected.items():
+        actual = np.asarray(getattr(chunk, name)).dtype
+        if actual != dtype:
+            raise ValueError(f"v3 {kind} encoding needs {name} dtype {dtype}, got {actual}")
+
+
+def _ptr_from_counts(counts: np.ndarray) -> np.ndarray:
+    ptr = np.zeros(len(counts) + 1, dtype=np.int64)
+    np.cumsum(counts, dtype=np.int64, out=ptr[1:])
+    return ptr
+
+
+def _flat_index(base: np.ndarray, counts: np.ndarray) -> np.ndarray:
+    """``np.repeat(base, counts) + [0..counts[0]), [0..counts[1]), ...`` (int64)."""
+    ptr = _ptr_from_counts(counts)
+    return np.repeat(np.asarray(base, dtype=np.int64) - ptr[:-1], counts) + np.arange(ptr[-1], dtype=np.int64)
+
+
+def _point_chunk_to_arrays_v3(chunk: PointRowChunk, factors=None, stats=None) -> dict:
+    """v3 members of a point chunk. ``factors`` (one ``PointFactors`` or ``None`` per source, from
+    ``StructuredReconstruction.rows_with_factors``) opts unconditioned sources into the tensor encoding: a
+    source is stored as factors only if its bitwise expansion reproduces the chunk's rows, otherwise it stays
+    CSR. ``stats`` (a dict) receives the counts."""
+    _require_dtypes(chunk, _POINT_V3_DTYPES, "point chunk")
+    source_ptr = np.asarray(chunk.source_ptr)
+    n_sources = len(source_ptr) - 1
+    if n_sources < 0 or source_ptr[0] != 0:
+        raise ValueError("v3 point chunk encoding needs source_ptr to start at 0")
+    n_targets = int(source_ptr[-1])
+    counts = np.diff(source_ptr)
+    if np.any(counts <= 0):
+        raise ValueError("v3 point chunk encoding needs at least one target per source")
+    first = source_ptr[:-1]
+    source_of = np.repeat(np.arange(n_sources), counts)
+
+    def per_target(name):
+        array = np.asarray(getattr(chunk, name))
+        if array.shape[:1] != (n_targets,):
+            raise ValueError(f"v3 point chunk encoding: {name} must have one entry per target")
+        return array
+
+    def per_source(name):
+        array = per_target(name)
+        head = array[first]
+        if not np.array_equal(array, head[source_of]):
+            raise ValueError(f"v3 point chunk encoding: {name} differs between the targets of one source")
+        return head
+
+    def coded(name, table, dtype):
+        head = per_source(name)
+        codes = np.full(n_sources, -1, dtype=dtype)
+        for index, entry in enumerate(table):
+            codes[head == entry] = index
+        if np.any(codes < 0):
+            raise ValueError(f"v3 point chunk encoding: unsupported {name} value")
+        return codes
+
+    src_request = coded("request", REQUEST_KINDS, np.int8)
+    src_bc_variant = coded("bc_variant", BC_VARIANTS, np.int8)
+    table, src_family = np.unique(per_source("family"), return_inverse=True)
+    if len(table) > np.iinfo(np.int16).max:
+        raise ValueError("v3 point chunk encoding: too many distinct families")
+    src_entity_id = per_source("entity_id")
+    src_conditioned = per_source("conditioned")
+    src_radial_degree = per_source("radial_degree")
+    src_has_gradient = per_source("has_gradient")
+    per_target("quad_node")
+    per_target("target_point")
+
+    donor_ptr = np.asarray(chunk.donor_ptr)
+    donor = np.asarray(chunk.donor)
+    donor_query = np.asarray(chunk.donor_query)
+    widths = np.diff(donor_ptr)
+    if (len(donor_ptr) != n_targets + 1 or donor_ptr[0] != 0 or np.any(widths < 0)
+            or donor_ptr[-1] != len(donor) or donor_query.shape != donor.shape
+            or np.asarray(chunk.value).shape != donor.shape):
+        raise ValueError("v3 point chunk encoding: inconsistent donor_ptr/donor/value/donor_query")
+    src_width = widths[first]
+    if not np.array_equal(widths, src_width[source_of]):
+        raise ValueError("v3 point chunk encoding: the targets of one source differ in donor count")
+    reference = _flat_index(donor_ptr[first][source_of], widths)
+    if not (np.array_equal(donor, donor[reference]) and np.array_equal(donor_query, donor_query[reference])):
+        raise ValueError("v3 point chunk encoding: the targets of one source differ in donor list "
+                         "or donor_query")
+    src_donor_ptr = _ptr_from_counts(src_width)
+    take = _flat_index(donor_ptr[first], src_width)
+    src_donor = donor[take]
+    src_query = donor_query[take]
+    entry_conditioned = np.repeat(src_conditioned, src_width)
+    if np.any(src_query[~entry_conditioned] != -1):
+        raise ValueError("v3 point chunk encoding: an unconditioned source carries donor_query != -1")
+    src_donor_query = src_query[entry_conditioned]
+
+    gradient_ptr = _ptr_from_counts(np.where(np.asarray(chunk.has_gradient), widths, 0))
+    gradient = np.asarray(chunk.gradient)
+    if (not np.array_equal(gradient_ptr, np.asarray(chunk.gradient_ptr)) or gradient.ndim != 2
+            or gradient.shape != (3, gradient_ptr[-1])):
+        raise ValueError("v3 point chunk encoding: gradient_ptr/gradient do not match has_gradient "
+                         "and the donor counts")
+
+    value = np.asarray(chunk.value)
+    src_query_ptr = _ptr_from_counts(src_width[src_conditioned])
+    extra = {}
+    if factors is not None:
+        family_names = np.asarray(table)[src_family.reshape(-1)]
+        tensor = _select_tensor_sources(
+            chunk, factors, stats, family_names=family_names, src_conditioned=src_conditioned,
+            src_has_gradient=src_has_gradient, src_width=src_width, src_donor_ptr=src_donor_ptr,
+            src_donor=src_donor, first=first, counts=counts, gradient=gradient)
+        if tensor is not None:
+            rows, is_tensor = tensor
+            entry_csr = np.repeat(~is_tensor, src_width)
+            target_csr = np.repeat(~is_tensor, counts)
+            has_gradient = np.asarray(chunk.has_gradient)
+            entry_target_csr = np.repeat(target_csr, widths)
+            gradient_csr = np.repeat(target_csr[has_gradient], widths[has_gradient])
+            src_donor = src_donor[entry_csr]
+            src_donor_ptr = _ptr_from_counts(np.where(is_tensor, 0, src_width))
+            value, gradient = value[entry_target_csr], gradient[:, gradient_csr]
+            extra = {"src_encoding": is_tensor.astype(np.int8), **rows.to_arrays()}
+
+    return {
+        "src_request": src_request,
+        "src_entity_id": src_entity_id,
+        "src_family": src_family.astype(np.int16).reshape(-1),
+        "family_table": np.asarray(json.dumps([str(name) for name in table.tolist()])),
+        "src_conditioned": src_conditioned,
+        "src_bc_variant": src_bc_variant,
+        "src_radial_degree": src_radial_degree,
+        "src_has_gradient": src_has_gradient,
+        "source_ptr": source_ptr,
+        "src_donor_ptr": src_donor_ptr,
+        "src_donor": src_donor,
+        "src_donor_query_ptr": src_query_ptr,
+        "src_donor_query": src_donor_query,
+        "quad_node": np.asarray(chunk.quad_node),
+        "target_point": np.asarray(chunk.target_point),
+        "value": value,
+        "gradient": gradient,
+        "query_table": np.asarray(chunk.query_table),
+        "source_diagnostics_json": np.asarray(chunk.source_diagnostics_json),
+        **extra,
+    }
+
+
+def _select_tensor_sources(chunk, factors, stats, *, family_names, src_conditioned, src_has_gradient, src_width,
+                           src_donor_ptr, src_donor, first, counts, gradient):
+    """``(TensorRows, is_tensor (S,) bool)`` for the candidate sources whose bitwise expansion reproduces the
+    chunk's rows, or ``None`` if there are none. Candidates: unconditioned sources with captured factors of
+    their own family. Failing candidates stay CSR and are counted in ``stats``."""
+    factors = list(factors)
+    n_sources = len(first)
+    if len(factors) != n_sources:
+        raise ValueError("v3 point chunk encoding: factors must supply exactly one entry (or None) per source")
+    with_factors = np.array([s for s, f in enumerate(factors) if f is not None and not src_conditioned[s]], dtype=np.int64)
+    candidate = np.array([s for s in with_factors if factors[s].family == family_names[s]], dtype=np.int64)
+    donor_ptr = np.asarray(chunk.donor_ptr)
+    gradient_ptr = np.asarray(chunk.gradient_ptr)
+    value = np.asarray(chunk.value)
+
+    def expected_for(indices):
+        sel = candidate[indices]
+        width, count = src_width[sel], counts[sel]
+        span = count * width
+        has_gradient = src_has_gradient[sel]
+        return {
+            "donor_ptr": _ptr_from_counts(width),
+            "donor": src_donor[_flat_index(src_donor_ptr[sel], width)].astype(np.int64),
+            "value": value[_flat_index(donor_ptr[first[sel]], span)],
+            "gradient": gradient[:, _flat_index(gradient_ptr[first[sel]][has_gradient], span[has_gradient])],
+        }
+
+    rows, accepted = (verified_tensor_rows([factors[s] for s in candidate], src_has_gradient[candidate], expected_for)
+                      if len(candidate) else (None, np.zeros(0, dtype=bool)))
+    is_tensor = np.zeros(n_sources, dtype=bool)
+    is_tensor[candidate[accepted]] = True
+    if stats is not None:
+        def bump(key, amount):
+            stats[key] = stats.get(key, 0) + amount
+        bump("sources", n_sources)
+        bump("candidate_sources", len(with_factors))
+        bump("tensor_sources", int(is_tensor.sum()))
+        bump("fallback_sources", int(len(with_factors) - is_tensor.sum()))
+        bump("tensor_targets", int(counts[is_tensor].sum()))
+        rejected = np.setdiff1d(with_factors, candidate[accepted])
+        for name in np.unique(family_names[with_factors]) if len(with_factors) else ():
+            for label, count in (("tensor", int((is_tensor & (family_names == name)).sum())),
+                                 ("fallback", int((np.isin(np.arange(n_sources), rejected) & (family_names == name)).sum()))):
+                by = stats.setdefault(f"{label}_by_family", {})
+                by[str(name)] = by.get(str(name), 0) + count
+    return (rows, is_tensor) if is_tensor.any() else None
+
+
+def _merge_tensor_sources(arrays, is_tensor, counts, src_has_gradient, src_width, src_donor, value, gradient):
+    """Expand the tensor sources and interleave them with the stored CSR sources: the full
+    ``(src_donor_ptr, src_donor, value, gradient, src_width)`` of the chunk, in source order."""
+    tensor = TensorRows.from_arrays(arrays, has_gradient=src_has_gradient[is_tensor], target_counts=counts[is_tensor])
+    expansion = expand_tensor_rows(tensor)
+    width = src_width.copy()
+    width[is_tensor] = np.diff(expansion.donor_ptr)
+    ptr = _ptr_from_counts(width)
+    entry_csr = np.repeat(~is_tensor, width)
+    donor = np.empty(ptr[-1], dtype=np.int32)
+    donor[entry_csr] = src_donor
+    donor[~entry_csr] = expansion.donor
+    widths = np.repeat(width, counts)
+    target_csr = np.repeat(~is_tensor, counts)
+    value_csr = np.repeat(target_csr, widths)
+    full_value = np.empty(int(widths.sum()))
+    full_value[value_csr] = value
+    full_value[~value_csr] = expansion.value
+    has_gradient = np.repeat(src_has_gradient, counts)
+    gradient_csr = np.repeat(target_csr[has_gradient], widths[has_gradient])
+    full_gradient = np.empty((3, len(gradient_csr)))
+    full_gradient[:, gradient_csr] = gradient
+    full_gradient[:, ~gradient_csr] = expansion.gradient
+    return ptr, donor, full_value, full_gradient, width
+
+
+def _arrays_to_point_chunk_v3(arrays: dict, expand: bool = True) -> PointRowChunk:
+    source_ptr = np.asarray(arrays["source_ptr"], dtype=np.int64)
+    counts = np.diff(source_ptr)
+    n_sources = len(counts)
+    n_targets = int(source_ptr[-1])
+    if len(arrays["target_point"]) != n_targets or len(arrays["quad_node"]) != n_targets:
+        raise ValueError("corrupted v3 point-row chunk: target counts disagree with source_ptr")
+    table = json.loads(str(np.asarray(arrays["family_table"]).item()))
+
+    def repeated(values):
+        return np.repeat(values, counts)
+
+    src_donor_ptr = np.asarray(arrays["src_donor_ptr"], dtype=np.int64)
+    src_width = np.diff(src_donor_ptr)
+    src_conditioned = np.asarray(arrays["src_conditioned"], dtype=bool)
+    src_donor = np.asarray(arrays["src_donor"], dtype=np.int32)
+    src_donor_query = np.asarray(arrays["src_donor_query"], dtype=np.int32)
+    if (len(src_width) != n_sources or src_donor_ptr[-1] != len(src_donor)
+            or src_width[src_conditioned].sum() != len(src_donor_query)
+            or not np.array_equal(_ptr_from_counts(src_width[src_conditioned]),
+                                  np.asarray(arrays["src_donor_query_ptr"], dtype=np.int64))):
+        raise ValueError("corrupted v3 point-row chunk: inconsistent source donor pointers")
+    src_has_gradient = np.asarray(arrays["src_has_gradient"], dtype=bool)
+    value, gradient = np.asarray(arrays["value"]), np.asarray(arrays["gradient"])
+    if "src_encoding" in arrays:
+        is_tensor = np.asarray(arrays["src_encoding"]) == 1
+        if (len(is_tensor) != n_sources or np.any(np.asarray(arrays["src_encoding"]) > 1)
+                or np.any(src_width[is_tensor] != 0) or np.any(src_conditioned[is_tensor])):
+            raise ValueError("corrupted v3 point-row chunk: inconsistent src_encoding")
+        if is_tensor.any() and expand:
+            src_donor_ptr, src_donor, value, gradient, src_width = _merge_tensor_sources(
+                arrays, is_tensor, counts, src_has_gradient, src_width, src_donor, value, gradient)
+    entry_conditioned = np.repeat(src_conditioned, src_width)
+    src_query = np.full(len(src_donor), -1, dtype=np.int32)
+    src_query[entry_conditioned] = src_donor_query
+
+    widths = repeated(src_width)
+    donor_ptr = _ptr_from_counts(widths)
+    take = _flat_index(repeated(src_donor_ptr[:-1]), widths)
+    has_gradient = repeated(src_has_gradient)
+
+    return PointRowChunk(
+        request=repeated(np.array(REQUEST_KINDS, dtype="<U8")[np.asarray(arrays["src_request"])]),
+        entity_id=repeated(np.asarray(arrays["src_entity_id"], dtype=np.int64)),
+        quad_node=np.asarray(arrays["quad_node"]),
+        family=repeated(np.asarray(table, dtype="<U32")[np.asarray(arrays["src_family"])]),
+        conditioned=repeated(src_conditioned),
+        bc_variant=repeated(np.array(BC_VARIANTS, dtype="<U1")[np.asarray(arrays["src_bc_variant"])]),
+        radial_degree=repeated(np.asarray(arrays["src_radial_degree"], dtype=np.int16)),
+        target_point=np.asarray(arrays["target_point"]),
+        donor_ptr=donor_ptr,
+        donor=src_donor[take],
+        value=value,
+        has_gradient=has_gradient,
+        gradient_ptr=_ptr_from_counts(np.where(has_gradient, widths, 0)),
+        gradient=gradient,
+        donor_query=src_query[take],
+        source_ptr=source_ptr,
+        source_diagnostics_json=str(np.asarray(arrays["source_diagnostics_json"]).item()),
+        query_table=np.asarray(arrays["query_table"]),
+    )
+
+
+def _integrated_chunk_to_arrays_v3(chunk: IntegratedRowChunk) -> dict:
+    _require_dtypes(chunk, _INTEGRATED_V3_DTYPES, "integrated chunk")
+    conditioned = np.asarray(chunk.conditioned)
+    donor_ptr = np.asarray(chunk.donor_ptr)
+    donor_query = np.asarray(chunk.donor_query)
+    value_loading = np.asarray(chunk.value_loading)
+    tangential = np.asarray(chunk.tangential_loading)
+    n = len(conditioned)
+    widths = np.diff(donor_ptr)
+    if (len(donor_ptr) != n + 1 or donor_ptr[0] != 0 or np.any(widths < 0)
+            or donor_ptr[-1] != len(np.asarray(chunk.donor)) or donor_query.shape != (donor_ptr[-1],)
+            or value_loading.shape != (donor_ptr[-1],) or tangential.shape != (n, 9, 2)):
+        raise ValueError("v3 integrated chunk encoding: inconsistent donor_ptr/donor_query/loading shapes")
+    entry_conditioned = np.repeat(conditioned, widths)
+    if np.any(donor_query[~entry_conditioned] != -1):
+        raise ValueError("v3 integrated chunk encoding: an unconditioned row carries donor_query != -1")
+    if np.any(np.ascontiguousarray(value_loading[~entry_conditioned]).view(np.uint64) != 0):
+        raise ValueError("v3 integrated chunk encoding: an unconditioned row carries value_loading != +0.0")
+    if np.any(np.ascontiguousarray(tangential[~conditioned]).view(np.uint64) != 0):
+        raise ValueError("v3 integrated chunk encoding: an unconditioned row carries tangential_loading != +0.0")
+    arrays = {name: np.asarray(getattr(chunk, name)) for name in _INTEGRATED_CHUNK_ARRAY_FIELDS}
+    for name in ("donor_query", "value_loading", "tangential_loading"):
+        del arrays[name]
+    arrays["cond_donor_ptr"] = _ptr_from_counts(widths[conditioned])
+    arrays["cond_donor_query"] = donor_query[entry_conditioned]
+    arrays["cond_value_loading"] = value_loading[entry_conditioned]
+    arrays["cond_tangential_loading"] = tangential[conditioned]
+    return arrays
+
+
+def _arrays_to_integrated_chunk_v3(arrays: dict) -> IntegratedRowChunk:
+    conditioned = np.asarray(arrays["conditioned"], dtype=bool)
+    donor_ptr = np.asarray(arrays["donor_ptr"], dtype=np.int64)
+    widths = np.diff(donor_ptr)
+    cond_donor_query = np.asarray(arrays["cond_donor_query"], dtype=np.int32)
+    cond_value_loading = np.asarray(arrays["cond_value_loading"], dtype=np.float64)
+    cond_tangential = np.asarray(arrays["cond_tangential_loading"], dtype=np.float64)
+    if (not np.array_equal(_ptr_from_counts(widths[conditioned]), np.asarray(arrays["cond_donor_ptr"], dtype=np.int64))
+            or cond_donor_query.shape != cond_value_loading.shape
+            or cond_donor_query.shape != (widths[conditioned].sum(),)
+            or cond_tangential.shape != (int(conditioned.sum()), 9, 2)):
+        raise ValueError("corrupted v3 integrated-row chunk: conditioned side arrays disagree with donor_ptr")
+    entry_conditioned = np.repeat(conditioned, widths)
+    donor_query = np.full(int(donor_ptr[-1]), -1, dtype=np.int32)
+    donor_query[entry_conditioned] = cond_donor_query
+    value_loading = np.zeros(int(donor_ptr[-1]), dtype=np.float64)
+    value_loading[entry_conditioned] = cond_value_loading
+    tangential = np.zeros((len(conditioned), 9, 2), dtype=np.float64)
+    tangential[conditioned] = cond_tangential
+    kwargs = {name: np.asarray(arrays[name]) for name in _INTEGRATED_CHUNK_ARRAY_FIELDS
+              if name not in ("donor_query", "value_loading", "tangential_loading")}
+    return IntegratedRowChunk(donor_query=donor_query, value_loading=value_loading,
+                              tangential_loading=tangential, **kwargs)
+
+
+# -- Neumann: unchanged in v3 ---------------------------------------------------
 
 def _neumann_chunk_to_arrays(chunk: NeumannRowChunk) -> dict:
     return {name: np.asarray(getattr(chunk, name)) for name in _NEUMANN_CHUNK_ARRAY_FIELDS}
@@ -626,13 +1012,25 @@ def _arrays_to_neumann_chunk(arrays: dict) -> NeumannRowChunk:
     return NeumannRowChunk(**kwargs)
 
 
+# -- schema dispatch: encoders write the current schema; decoders read either ---
+
+def _point_chunk_to_arrays(chunk: PointRowChunk, factors=None, stats=None) -> dict:
+    return _point_chunk_to_arrays_v3(chunk, factors, stats)
+
+
+def _arrays_to_point_chunk(arrays: dict) -> PointRowChunk:
+    """Decode either layout (v3 is recognized by its source-major ``src_request``)."""
+    return _arrays_to_point_chunk_v3(arrays) if "src_request" in arrays else _arrays_to_point_chunk_v2(arrays)
+
+
 def _integrated_chunk_to_arrays(chunk: IntegratedRowChunk) -> dict:
-    return {name: np.asarray(getattr(chunk, name)) for name in _INTEGRATED_CHUNK_ARRAY_FIELDS}
+    return _integrated_chunk_to_arrays_v3(chunk)
 
 
 def _arrays_to_integrated_chunk(arrays: dict) -> IntegratedRowChunk:
-    kwargs = {name: np.asarray(arrays[name]) for name in _INTEGRATED_CHUNK_ARRAY_FIELDS}
-    return IntegratedRowChunk(**kwargs)
+    """Decode either layout (v3 is recognized by ``cond_donor_query``)."""
+    return (_arrays_to_integrated_chunk_v3(arrays) if "cond_donor_query" in arrays
+            else _arrays_to_integrated_chunk_v2(arrays))
 
 
 _GROUP_CODECS = {
@@ -641,6 +1039,92 @@ _GROUP_CODECS = {
     "neumann": (_neumann_chunk_to_arrays, _arrays_to_neumann_chunk),
     "p07": (_integrated_chunk_to_arrays, _arrays_to_integrated_chunk),
 }
+
+
+def encode_chunk(group: str, chunk, *, factors=None, stats=None) -> bytes:
+    """The uncompressed ``np.savez`` bytes of one chunk in the current (v3) layout.
+
+    ``factors`` (point chunks only): one ``PointFactors`` or ``None`` per source, see
+    ``_point_chunk_to_arrays_v3``; ``stats`` (a dict) accumulates the tensor/fallback source counts."""
+    to_arrays, _ = _GROUP_CODECS[group]
+    if factors is not None and group not in ("cells", "faces"):
+        raise ValueError("factors apply to point chunks (cells, faces) only")
+    buffer = io.BytesIO()
+    np.savez(buffer, **(to_arrays(chunk, factors=factors, stats=stats) if factors is not None
+                        else to_arrays(chunk)))
+    return buffer.getvalue()
+
+
+def decode_chunk(group: str, data: bytes):
+    """The in-memory chunk stored in ``data`` (either schema's layout)."""
+    _, from_arrays = _GROUP_CODECS[group]
+    with np.load(io.BytesIO(data), allow_pickle=False) as source:
+        arrays = {name: source[name] for name in source.files}
+    return from_arrays(arrays)
+
+
+def decode_chunk_factored(group: str, data: bytes):
+    """``(chunk, tensor_rows, is_tensor)`` of a point chunk *without* expanding its tensor sources.
+
+    ``chunk`` is the stored view: every tag, ``source_ptr``, ``quad_node`` and ``target_point`` as in
+    ``decode_chunk``, but a tensor source has zero donors and stores no value or gradient (the CSR arrays
+    hold the other sources only). ``tensor_rows`` (a ``drbx.stencils.tensor_rows.TensorRows``, ``None`` if the
+    chunk has no tensor source) holds those sources in chunk order; ``is_tensor`` is the per-source mask.
+    Expanding them (``expand_tensor_rows``) and interleaving gives exactly ``decode_chunk``'s chunk."""
+    if group not in ("cells", "faces"):
+        raise ValueError("only point chunks (cells, faces) carry tensor sources")
+    with np.load(io.BytesIO(data), allow_pickle=False) as source:
+        arrays = {name: source[name] for name in source.files}
+    if "src_request" not in arrays:
+        return _arrays_to_point_chunk_v2(arrays), None, np.zeros(len(arrays["source_ptr"]) - 1, dtype=bool)
+    is_tensor = (np.asarray(arrays["src_encoding"]) == 1 if "src_encoding" in arrays
+                 else np.zeros(len(arrays["source_ptr"]) - 1, dtype=bool))
+    chunk = _arrays_to_point_chunk_v3(arrays, expand=False)
+    tensor = None
+    if is_tensor.any():
+        counts = np.diff(np.asarray(arrays["source_ptr"], dtype=np.int64))
+        tensor = TensorRows.from_arrays(arrays, has_gradient=np.asarray(arrays["src_has_gradient"], dtype=bool)[is_tensor],
+                                        target_counts=counts[is_tensor])
+    return chunk, tensor, is_tensor
+
+
+def chunk_counts(group: str, chunk) -> tuple[int, int]:
+    """``(sources, targets)``: a point chunk's ``PointRows`` and evaluated points;
+    one of each per row for the Neumann and integrated chunks."""
+    if group in ("cells", "faces"):
+        return len(chunk.source_ptr) - 1, int(chunk.source_ptr[-1])
+    return len(chunk.entity_id), len(chunk.entity_id)
+
+
+def chunk_file_stats(group: str, path) -> dict:
+    """``{"sources", "targets", "bytes"}`` of a chunk file, reading only its small
+    index member (npz members load lazily), for either schema."""
+    path = Path(path)
+    with np.load(path, allow_pickle=False) as source:
+        if group in ("cells", "faces"):
+            source_ptr = source["source_ptr"]
+            sources, targets = len(source_ptr) - 1, int(source_ptr[-1])
+        else:
+            sources = targets = len(source["entity_id"])
+    return {"sources": sources, "targets": targets, "bytes": path.stat().st_size}
+
+
+def chunk_mismatches(actual, expected) -> list[str]:
+    """Names of the chunk fields that differ in dtype, shape or bytes (empty if the
+    two chunks are identical, bit for bit)."""
+    if type(actual) is not type(expected):
+        return [f"type {type(actual).__name__} != {type(expected).__name__}"]
+    bad = []
+    for field in fields(expected):
+        a, b = getattr(actual, field.name), getattr(expected, field.name)
+        if isinstance(b, str):
+            if a != b:
+                bad.append(field.name)
+            continue
+        a, b = np.asarray(a), np.asarray(b)
+        if a.dtype != b.dtype or a.shape != b.shape or np.ascontiguousarray(a).tobytes() != np.ascontiguousarray(b).tobytes():
+            bad.append(field.name)
+    return bad
 
 
 # --------------------------------------------------------------------------
@@ -675,27 +1159,32 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
 
 
 def save_row_artifact(root, n: int, *, identity: dict, cells=(), faces=(),
-                      neumann=(), p07=()) -> Path:
+                      neumann=(), p07=(), point_factors=None, stats=None) -> Path:
     """Write ``row_artifact/N{n}/manifest.json`` and its ``rows/*.npz`` chunks.
 
     Every chunk file gets a sha256 recorded in the manifest, alongside
-    ``identity`` (schema ``drbx.p-row-artifact.v1``); see ``load_row_artifact``.
+    ``identity`` and ``schema`` (always the current v3 layout); see
+    ``load_row_artifact``. Each entry also records the chunk's
+    ``sources``, ``targets`` and file ``bytes``. ``point_factors`` (optional,
+    ``{"cells": [...], "faces": [...]}``, one per-source factors sequence per chunk) stores the
+    factored sources of those point chunks as tensors; ``stats`` accumulates the counts.
     """
     root = Path(root)
     grid_dir = root / f"N{int(n)}"
     groups = {"cells": tuple(cells), "faces": tuple(faces), "neumann": tuple(neumann), "p07": tuple(p07)}
     manifest_chunks: dict = {}
     for group, chunks in groups.items():
-        to_arrays, _ = _GROUP_CODECS[group]
         entries = []
         for index, chunk in enumerate(chunks):
-            arrays = to_arrays(chunk)
             relative = f"rows/{group}_{index}.npz"
-            buffer = io.BytesIO()
-            np.savez(buffer, **arrays)
-            data = buffer.getvalue()
+            chunk_factors = (point_factors or {}).get(group)
+            data = encode_chunk(group, chunk, stats=stats,
+                                factors=None if chunk_factors is None else chunk_factors[index])
             _atomic_write_bytes(grid_dir / relative, data)
-            entries.append({"file": relative, "sha256": hash_bytes(data)})
+            sources, targets = chunk_counts(group, chunk)
+            entry = {"file": relative, "sha256": hash_bytes(data),
+                     "sources": sources, "targets": targets, "bytes": len(data)}
+            entries.append(entry)
         manifest_chunks[group] = entries
     manifest = {"schema": SCHEMA, "identity": _json_safe(identity), "chunks": manifest_chunks}
     _atomic_write_bytes(grid_dir / "manifest.json",
@@ -704,30 +1193,27 @@ def save_row_artifact(root, n: int, *, identity: dict, cells=(), faces=(),
 
 
 def load_row_artifact(root, n: int, identity: dict) -> RowArtifact:
-    """Load a row artifact, rejecting an identity or per-chunk sha256 mismatch."""
+    """Load a row artifact (v3, or the older v2 layout), rejecting a schema,
+    identity or per-chunk sha256 mismatch."""
     grid_dir = Path(root) / f"N{int(n)}"
     manifest_path = grid_dir / "manifest.json"
     if not manifest_path.exists():
         raise FileNotFoundError(f"no row artifact manifest at {manifest_path}")
     manifest = json.loads(manifest_path.read_text())
-    if manifest.get("schema") != SCHEMA:
-        raise ValueError(f"row artifact schema mismatch: {manifest.get('schema')!r} != {SCHEMA!r}")
+    if manifest.get("schema") not in SUPPORTED_SCHEMAS:
+        raise ValueError(f"row artifact schema mismatch: {manifest.get('schema')!r} not in {SUPPORTED_SCHEMAS!r}")
     if manifest.get("identity") != _json_safe(identity):
         raise ValueError("row artifact identity mismatch: geometry/topology/policy/platform inputs differ")
     groups: dict = {}
     for group, entries in manifest.get("chunks", {}).items():
-        _, from_arrays = _GROUP_CODECS[group]
         chunks = []
         for entry in entries:
-            path = grid_dir / entry["file"]
-            data = path.read_bytes()
+            data = (grid_dir / entry["file"]).read_bytes()
             actual = hash_bytes(data)
             if actual != entry["sha256"]:
                 raise ValueError(f"row artifact chunk corrupted: {entry['file']} "
                                  f"(sha256 {actual} != manifest {entry['sha256']})")
-            with np.load(io.BytesIO(data), allow_pickle=False) as source:
-                arrays = {name: source[name] for name in source.files}
-            chunks.append(from_arrays(arrays))
+            chunks.append(decode_chunk(group, data))
         groups[group] = tuple(chunks)
     return RowArtifact(int(n), manifest["identity"], groups.get("cells", ()),
                        groups.get("faces", ()), groups.get("neumann", ()), groups.get("p07", ()))

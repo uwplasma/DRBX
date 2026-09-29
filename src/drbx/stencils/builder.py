@@ -46,7 +46,7 @@ frozen campaign):
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -89,6 +89,9 @@ class PointRowRequest:
     bc_variant: str        # '' (unconditioned) | 'D' (boundary-conditioned)
     radial_degree: int      # the D-lift degree (3 or 4); 0 where unconditioned
     row: PointRows
+    #: the 1-D factors the row was built from (``PointFactors``; unconditioned singleton / ringwise /
+    #: centered_radial rows only), captured when a builder is called with ``capture_factors=True``
+    factors: object = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -163,7 +166,8 @@ def build_geometry_arrays(provider: GeometryProvider, context: PointRowContext, 
 # R1: raw-midpoint cell rows.
 # ---------------------------------------------------------------------------
 def build_r1_cell_rows(S: StructuredReconstruction, context: PointRowContext, raw_ids, *,
-                       normal_coefficients, patch_cache) -> tuple[list[PointRowRequest], list[NeumannRowRequest]]:
+                       normal_coefficients, patch_cache,
+                       capture_factors: bool = False) -> tuple[list[PointRowRequest], list[NeumannRowRequest]]:
     """R1: ``S.rows(key, points, location='cell')`` at every raw midpoint.
 
     Mirrors ``p05n_field_derived_global.core.batched_cell_values``: interior
@@ -174,6 +178,11 @@ def build_r1_cell_rows(S: StructuredReconstruction, context: PointRowContext, ra
     anchored" -- ``prepare_neumann_point_rows`` batched over every boundary
     point in this call, exactly as ``batched_cell_values`` batches its own
     ``bpoints``).
+
+    ``capture_factors`` (here and in ``build_r2_face_rows`` / ``build_r3_side_rows``) additionally records,
+    on each returned ``PointRowRequest.factors``, the factors an unconditioned singleton / ringwise /
+    centered_radial row was built from (``StructuredReconstruction.rows_with_factors``); the rows are
+    bitwise the same either way.
     """
     n = context.n
     raw_ids = np.asarray(raw_ids, dtype=np.int64)
@@ -184,7 +193,10 @@ def build_r1_cell_rows(S: StructuredReconstruction, context: PointRowContext, ra
     point_rows: list[PointRowRequest] = []
     for j in range(len(raw_ids)):
         key = tuple(int(v) for v in keys[j])
-        row = S.rows(key, points[j:j + 1], location="cell")
+        if capture_factors:
+            row, factors = S.rows_with_factors(key, points[j:j + 1], location="cell")
+        else:
+            row, factors = S.rows(key, points[j:j + 1], location="cell"), None
         if bool(row.boundary_conditioned) != bool(boundary_mask[j]):
             raise ValueError(f"unexpected boundary conditioning at raw cell {key}")
         family = row.diagnostics.get("family")
@@ -192,7 +204,7 @@ def build_r1_cell_rows(S: StructuredReconstruction, context: PointRowContext, ra
         if row.boundary_conditioned and family != "boundary_transverse":
             raise ValueError(f"R1 boundary cell {key} has unexpected family {family!r}")
         bc_variant = "D" if row.boundary_conditioned else ""
-        point_rows.append(PointRowRequest("R1", int(raw_ids[j]), bc_variant, degree, row))
+        point_rows.append(PointRowRequest("R1", int(raw_ids[j]), bc_variant, degree, row, factors))
 
     neumann_rows: list[NeumannRowRequest] = []
     if np.any(boundary_mask):
@@ -210,7 +222,8 @@ def build_r1_cell_rows(S: StructuredReconstruction, context: PointRowContext, ra
 # ---------------------------------------------------------------------------
 def build_r2_face_rows(S: StructuredReconstruction, context: PointRowContext, census: FaceCensus,
                        row_indices, face_points_by_row, *,
-                       normal_coefficients, patch_cache) -> tuple[list[PointRowRequest], list[NeumannRowRequest]]:
+                       normal_coefficients, patch_cache,
+                       capture_factors: bool = False) -> tuple[list[PointRowRequest], list[NeumannRowRequest]]:
     """R2: ``S.rows(key, points, location='face')`` at each census face's 9
     q3 nodes. ``row_indices``/``face_points_by_row`` must already exclude
     the collapsed r=0 face and the legacy alias slots (design section 2:
@@ -237,14 +250,17 @@ def build_r2_face_rows(S: StructuredReconstruction, context: PointRowContext, ce
         if axis == 0 and i == 0:
             raise ValueError("R2 must not receive the collapsed r=0 census row")
         points = np.asarray(face_points_by_row[local], dtype=np.float64)
-        row = S.rows(key, points, location="face")
+        if capture_factors:
+            row, factors = S.rows_with_factors(key, points, location="face")
+        else:
+            row, factors = S.rows(key, points, location="face"), None
         kind = face_kind(n, key)
         boundary = kind in ("quartic_wall", "boundary_transverse")
         if bool(row.boundary_conditioned) != boundary:
             raise ValueError(f"unexpected boundary conditioning at census row {int(ridx)} key={key}")
         degree = 4 if kind == "quartic_wall" else 3 if kind == "boundary_transverse" else 0
         bc_variant = "D" if boundary else ""
-        point_rows.append(PointRowRequest("R2", int(ridx), bc_variant, degree, row))
+        point_rows.append(PointRowRequest("R2", int(ridx), bc_variant, degree, row, factors))
         if boundary:
             nrows = prepare_neumann_point_rows(context, points, normal_coefficients=normal_coefficients,
                                                 radial_degree=degree, patch_cache=patch_cache)
@@ -258,7 +274,8 @@ def build_r2_face_rows(S: StructuredReconstruction, context: PointRowContext, ce
 # ---------------------------------------------------------------------------
 def build_r3_side_rows(S: StructuredReconstruction, context: PointRowContext, census: FaceCensus,
                        row_indices, face_points_by_row, *,
-                       normal_coefficients, patch_cache) -> tuple[list[PointRowRequest], list[NeumannRowRequest]]:
+                       normal_coefficients, patch_cache,
+                       capture_factors: bool = False) -> tuple[list[PointRowRequest], list[NeumannRowRequest]]:
     """R3: ``S.side_rows(key, points)`` (lower, upper) at the same nodes as R2.
 
     Mirrors ``p05n_field_derived_global.core.batched_side_values``: each
@@ -283,15 +300,18 @@ def build_r3_side_rows(S: StructuredReconstruction, context: PointRowContext, ce
         if key[0] == 0 and key[1] == 0:
             raise ValueError("R3 must not receive the collapsed r=0 census row")
         points = np.asarray(face_points_by_row[local], dtype=np.float64)
-        lower, upper = S.side_rows(key, points)
+        if capture_factors:
+            (lower, lower_factors), (upper, upper_factors) = S.side_rows_with_factors(key, points)
+        else:
+            (lower, upper), (lower_factors, upper_factors) = S.side_rows(key, points), (None, None)
         any_conditioned = False
-        for side_code, row in ((0, lower), (1, upper)):
+        for side_code, row, factors in ((0, lower, lower_factors), (1, upper, upper_factors)):
             if row is None:
                 continue
             entity_id = int(ridx) * 2 + side_code
             bc_variant = "D" if row.boundary_conditioned else ""
             degree = _SIDE_NEUMANN_DEGREE if row.boundary_conditioned else 0
-            point_rows.append(PointRowRequest("R3", entity_id, bc_variant, degree, row))
+            point_rows.append(PointRowRequest("R3", entity_id, bc_variant, degree, row, factors))
             any_conditioned = any_conditioned or bool(row.boundary_conditioned)
         if any_conditioned:
             nrows = prepare_neumann_point_rows(context, points, normal_coefficients=normal_coefficients,

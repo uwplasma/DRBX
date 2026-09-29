@@ -2,7 +2,7 @@
 
 ## What this package does
 
-Builds the per-grid, schema-v2 row artifact (`drbx.stencils.artifact`,
+Builds the per-grid, schema-v3 row artifact (`drbx.stencils.artifact`,
 `NeumannRowChunk` tagged by `(request, radial_degree)`) and replays it,
 **unit-parallel**, against the six frozen accepted-campaign oracles: P05,
 P05N (both catalogues: `frozen_v1`/`05be9063` and `upwind_v1`/`43250ccf`),
