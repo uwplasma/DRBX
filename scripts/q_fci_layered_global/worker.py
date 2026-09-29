@@ -7,7 +7,7 @@ os.environ.setdefault('XLA_FLAGS','--xla_cpu_multi_thread_eigen=false intra_op_p
 import numpy as np
 from . import storage as io,model
 from .fields import FIELDS,all_fields
-from .support import Hybrid
+from .support import BalancedHybrid as Hybrid
 from .wall import Wall,normal
 CTX=T=H=STATE=ROOT=IDENT=MODE=None
 
@@ -62,7 +62,19 @@ def task(job):
             if MODE=='score':
                 act=L[pos]@np.einsum('si,sid->sd',b[pos],D)@STATE[ids];N[pos]=act[None]
         meta['outside_caps']+=int(np.sum(points[:,0]>1))
-    meta['repair_planes']=len(H.inner.events)
+    # Inspect every cached plane fit, including geometry-only preflight. A larger
+    # runtime stencil is forbidden: pool expansion is setup-only.
+    plane_info=[fit[3] for fit in H.inner.fits.values()]
+    counts=[len(p['donors']) for p in plane_info]
+    if any(c != 28 for c in counts) or any(p['rank'] != 15 for p in plane_info):
+        raise RuntimeError(('balanced28 plane invariant',block,counts))
+    meta['repair_planes']=0
+    meta['balanced_planes']=len(plane_info)
+    meta['inner_plane_donor_counts']=sorted(set(counts))
+    meta['inner_max_pool']=max((p['selection']['pool_size'] for p in plane_info),default=0)
+    meta['inner_max_scaled_radius']=max((p['max_radius'] for p in plane_info),default=0.)
+    meta['inner_expanded_planes']=sum(p['expansion']>0 for p in plane_info)
+    meta['inner_policy']='balanced28'
     if MODE=='score':
         # Project every complete raw owner, retaining signed complex fields.
         Ni=[];Oi=[];Ri=[];Rhi=[];rad=[];vol=[]

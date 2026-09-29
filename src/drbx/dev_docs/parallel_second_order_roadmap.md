@@ -8,6 +8,51 @@ evidence in linked research artifacts. The separate
 
 ## 1. Objective and shared acceptance contract
 
+### Balanced-28 global comparison candidate — 29 September 2026
+
+**Current authorized campaign:** use always-balanced28 inner support in
+`scripts/q_fci_layered_global/`, with unchanged ringwise angular7/radial-cubic
+outer support, quartic D/physical-normal N wall treatment, common five-plane
+eta quartic, h/16+h/32 spans and GPU RK4-64 tracing. The inner/outer switch stays
+after the last aggregate rings 10/15/21. This is research qualification, not a
+production change. The completed compact baseline is frozen at commit
+`ad54c33207835814296f0c83fffa9db87c269e66`.
+
+The [balanced-inner comparison](../../../../work/q_fci_balanced_inner_20260929/report.md)
+reduces bounded pooled inner-wave N-O by38% at N48 and25% at N64, while
+increasing it2.8x at N32 and worsening some fresh/join locations. The user accepts
+N32 as a coarse stress case; evaluate fine-interval convergence and absolute
+N64 accuracy alongside regional maxima. Preserve the outer envelope's observed
+lower coarse order; increasing its polynomial degree is not authorized.
+
+Balanced selection chooses exactly28 runtime donors from a geometry-only local
+pool on every inner eta-plane fit, rather than activating only when nearest28
+loses rank. Keep the tested QR choices, tie-breaking, pool expansion sequence
+and polynomial basis frozen. A failed28-donor fit is an operational stop, not
+permission to enlarge the runtime stencil or tune against MMS errors.
+
+The [resolved-wave response](../../../../work/q_fci_balanced_wave_response_20260929/report.md)
+and [short-wave extension](../../../../work/q_fci_short_wave_response_20260929/report.md)
+show a genuine fidelity tradeoff: balanced attenuates shorter transverse waves
+more, while compact can amplify underresolved values and reverse gradient
+response. At N64 wavelength0.125 has8 radial widths but only about2 tangential
+owner widths near the aggregate join. Neither method is certified for those
+small scales. Global MMS consistency must not be relabelled as turbulence-scale
+resolution or timestep damping/stability qualification.
+
+Campaign scope: N32/N48/N64 all complete owners, both D/N, original18 fields
+plus8 fresh orientation controls. Parallel exhaustive geometry preflight must
+exercise the balanced rule everywhere before GPU tracing/pilot/global scoring.
+Keep N-O/O-R/N-R separate, RMS and maxima, first ring, inner join, aggregate
+join, ordinary outer and wall regions; retain signed arrays for local comparison
+with the completed compact baseline. O-R and the magnetic-reference limitations
+are unchanged. Fresh source identities require a new campaign folder.
+
+Local bounded extraction/preflight receipts and remaining remote GPU/all-location
+gates are recorded in the runner's `VALIDATION.md`. Publication and remote
+execution require the prepared source revision to be committed and pushed;
+preparing this candidate confers no new global numerical pass.
+
 ### Bounded compact-inner / ringwise-outer candidate — 29 September 2026
 
 The [separate inner-rank and outer-accuracy comparison](../../../../work/q_fci_rank_outer_comparison_20260929/report.md)

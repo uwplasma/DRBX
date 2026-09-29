@@ -1,0 +1,171 @@
+{
+  "pass_": true,
+  "mode": "CPU test-mode numerical preflight; GPU and exhaustive coverage remain remote gates",
+  "runs": [
+    {
+      "n": 32,
+      "trace": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "backend": "cpu-test",
+        "devices": [
+          "TFRT_CPU_0"
+        ],
+        "jax_version": "0.9.2",
+        "rk4_steps": 64,
+        "chunks": 1,
+        "wall_s": 18.915711000001465,
+        "operational_pass": true
+      },
+      "check": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "operational_pass": true,
+        "backend": "cpu-test",
+        "raw_checked": 30,
+        "cpu_gpu_scaled_error": 7.105427357601002e-15,
+        "rk64_256_scaled_error": 3.907985046680551e-14
+      },
+      "run": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "requested_workers": 2,
+        "effective_workers": 1,
+        "memory_gib": 6.0,
+        "per_worker_gib": 2.5,
+        "peak_worker_gib": 0.793060302734375,
+        "wall_s": 12.424144958000397,
+        "backend": "cpu",
+        "chunks": 1,
+        "operational_pass": true
+      },
+      "validate": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "operational_pass": true,
+        "chunks": 1,
+        "owners": 75,
+        "raw": 320,
+        "max_constant": 1.051464949823212e-12,
+        "max_condition": 243.13442710024665,
+        "max_reproduction": 1.4835423374750395e-12,
+        "max_donors": 140,
+        "repair_planes": 0,
+        "balanced_planes": 1400,
+        "inner_plane_donor_counts": [
+          28
+        ],
+        "inner_max_pool": 57,
+        "inner_max_scaled_radius": 6.950694493623865,
+        "inner_expanded_planes": 0,
+        "inner_policy": "balanced28"
+      }
+    },
+    {
+      "n": 48,
+      "trace": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "backend": "cpu-test",
+        "devices": [
+          "TFRT_CPU_0"
+        ],
+        "jax_version": "0.9.2",
+        "rk4_steps": 64,
+        "chunks": 1,
+        "wall_s": 11.825809875001141,
+        "operational_pass": true
+      },
+      "check": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "operational_pass": true,
+        "backend": "cpu-test",
+        "raw_checked": 29,
+        "cpu_gpu_scaled_error": 5.329070518200751e-15,
+        "rk64_256_scaled_error": 7.460698725481052e-14
+      },
+      "run": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "requested_workers": 2,
+        "effective_workers": 1,
+        "memory_gib": 6.0,
+        "per_worker_gib": 2.5,
+        "peak_worker_gib": 0.9139862060546875,
+        "wall_s": 14.60231775000284,
+        "backend": "cpu",
+        "chunks": 1,
+        "operational_pass": true
+      },
+      "validate": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "operational_pass": true,
+        "chunks": 1,
+        "owners": 75,
+        "raw": 440,
+        "max_constant": 9.293761940587508e-12,
+        "max_condition": 222.1673714875107,
+        "max_reproduction": 1.3896885635798022e-12,
+        "max_donors": 140,
+        "repair_planes": 0,
+        "balanced_planes": 2000,
+        "inner_plane_donor_counts": [
+          28
+        ],
+        "inner_max_pool": 58,
+        "inner_max_scaled_radius": 6.955766309679445,
+        "inner_expanded_planes": 0,
+        "inner_policy": "balanced28"
+      }
+    },
+    {
+      "n": 64,
+      "trace": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "backend": "cpu-test",
+        "devices": [
+          "TFRT_CPU_0"
+        ],
+        "jax_version": "0.9.2",
+        "rk4_steps": 64,
+        "chunks": 2,
+        "wall_s": 16.27700287499465,
+        "operational_pass": true
+      },
+      "check": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "operational_pass": true,
+        "backend": "cpu-test",
+        "raw_checked": 45,
+        "cpu_gpu_scaled_error": 9.04691109394067e-15,
+        "rk64_256_scaled_error": 8.526512829121202e-14
+      },
+      "run": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "requested_workers": 2,
+        "effective_workers": 2,
+        "memory_gib": 6.0,
+        "per_worker_gib": 2.5,
+        "peak_worker_gib": 1.5883941650390625,
+        "wall_s": 15.793001124999137,
+        "backend": "cpu",
+        "chunks": 2,
+        "operational_pass": true
+      },
+      "validate": {
+        "identity": "71ae8de1d5cbf67f87cc78374999c136cee1ea304fb076c57e731f3abdd3ccfa",
+        "operational_pass": true,
+        "chunks": 2,
+        "owners": 80,
+        "raw": 570,
+        "max_constant": 1.7080822867221457e-11,
+        "max_condition": 257.6246818064367,
+        "max_reproduction": 4.62059936446925e-12,
+        "max_donors": 140,
+        "repair_planes": 0,
+        "balanced_planes": 2650,
+        "inner_plane_donor_counts": [
+          28
+        ],
+        "inner_max_pool": 58,
+        "inner_max_scaled_radius": 6.913929772351946,
+        "inner_expanded_planes": 0,
+        "inner_policy": "balanced28"
+      }
+    }
+  ]
+}
