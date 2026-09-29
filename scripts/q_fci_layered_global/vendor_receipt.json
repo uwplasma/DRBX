@@ -1,0 +1,12 @@
+{
+  "origin": "8fa7e729c6e628aec3708f3a4494f939f91291bd frozen local research runtime",
+  "sha256": {
+    "_host_guards.py": "1c0e9929ea4fcfd531e193faf74164f713cab735662923a6cacab1755b1e485a",
+    "geometry/MetricEvaluator.py": "fa97f44de97971d91ebdde2c83e69310c2d05023796e2aba33c61f441d5f25af",
+    "geometry/Bfield_evaluator.py": "3d4273feaf4439650449906dbf729dffe7b1e7ba86f17fd500b08da1cf0bed30",
+    "geometry/solve_MMPDE.py": "a54ea29da75c87293d40f59fab75d14c648b5ed65973acdbc2c20175290ae25d",
+    "geometry/jax_metric_evaluator.py": "0dbb7009a21bc9caa3b5e40707c8b9b810e82deb5d3ba80520f79f32e13ea5ad",
+    "geometry/jax_bfield_evaluator.py": "8aaf3923100867c3166def1b494abe80b8434f702fc5f749073ed18ba9e75720",
+    "geometry/hsx_jax_field.py": "de5578ca2951d63e3fd2ceb8f09ed22b207e513d0c5a901a0bf67dc63dc9ca3f"
+  }
+}

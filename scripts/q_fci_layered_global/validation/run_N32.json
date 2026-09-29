@@ -1,0 +1,12 @@
+{
+  "identity": "08ec383183d0d43153121de50b24138644f0e4133a3126274267148545eb7b4f",
+  "requested_workers": 2,
+  "effective_workers": 1,
+  "memory_gib": 5.0,
+  "per_worker_gib": 2.5,
+  "peak_worker_gib": 0.9049835205078125,
+  "wall_s": 4.506562665999809,
+  "backend": "cpu",
+  "chunks": 1,
+  "operational_pass": true
+}

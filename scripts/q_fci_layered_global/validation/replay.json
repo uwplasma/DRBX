@@ -1,0 +1,12 @@
+{
+  "checks": {
+    "interior_action": 0.0,
+    "wall_action": 4.349682372307138e-11,
+    "oracle": 2.907258638988376e-13,
+    "reference": 4.140066067748194e-11
+  },
+  "comparisons": 4564,
+  "wall_s": 12.696415209000406,
+  "pass_": true,
+  "gpu_execution_tested": false
+}

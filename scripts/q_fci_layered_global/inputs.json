@@ -1,0 +1,19 @@
+{
+  "geometry": "geometry_artifacts/rlp_convergence_32_48_64_20260917",
+  "metric_cache": "hsx_metric_d58d392545fd3917efeb83b6.npz",
+  "makegrid": "mgrid_res2p5cm_180pln.nc",
+  "currents": [
+    10722.0,
+    10722.0,
+    10722.0,
+    10722.0,
+    10722.0,
+    10722.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ]
+}

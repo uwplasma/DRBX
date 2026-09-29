@@ -1,0 +1,8 @@
+{
+  "identity": "08ec383183d0d43153121de50b24138644f0e4133a3126274267148545eb7b4f",
+  "operational_pass": true,
+  "backend": "cpu-test",
+  "raw_checked": 29,
+  "cpu_gpu_scaled_error": 9.04691109394067e-15,
+  "rk64_256_scaled_error": 8.526512829121202e-14
+}
