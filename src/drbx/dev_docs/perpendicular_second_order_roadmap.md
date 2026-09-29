@@ -2100,7 +2100,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 implemented and verified on bounded sets; its full remote campaign is pending (29 September). Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 accepted (29 September); step 2 is next. Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2130,7 +2130,7 @@ Steps:
      - Polarization is Boussinesq, a physics model choice: the geometry-only tensor J(g^ij − b^i b^j) that P07 qualified and production uses. The artifact stores rows already contracted with it. A density-weighted, non-Boussinesq coefficient would be a separate, separately qualified extension.
      - ~~Build and replay N32 locally.~~ Superseded by a later user decision the same day: every full-grid build and replay, N32 included, runs remotely as one unit-parallel campaign (`scripts/p08_step1_global/`). Local runs are bounded unit subsets only. A monolithic local N32 replay ran for 50 minutes at 7 GB without output before it was stopped.
      - The artifact is plain CSR. An exact factored encoding (about 20 GB at N64) is deferred to step 2.
-   - Status, 28–29 September: implementation complete and locally verified on bounded sets. The full remote campaign is pending.
+   - Status: **accepted, 29 September (user decision)**, on the remote campaign below plus the bounded owner closure at every grid.
      - **Artifact schema v2.** Neumann rows are tagged by request (R1–R4) and radial degree: at wall faces, R2 and R3 rows share a key but use degrees 4 and 3. R3 side rows are value-only. N32 size: 9.2 GB. Row counts: 326,656 point, 195,584 Neumann, 91,904 integrated.
      - **Parallel geometry stage** in 4096-row units. The 4096 chunking is a numerical parameter: moving batch boundaries changes the finite-difference-derived K and P07 divergence by up to about 4.5e-9 relative. Bounded units reproduce the serial N32 geometry bitwise.
      - **Unit-parallel replay** (`scripts/p_shared/replay_units.py`):
@@ -2144,7 +2144,15 @@ Steps:
        4. P06N face corrections are stored undivided.
        5. P07N family-0 rows sit at u = 0.
        The stored artifact rows were correct throughout.
-     - **Remote campaign cost:** about 10 CPU-hours for build and replay across N32, N48 and N64. The frozen-oracle inputs are 3.6 GB and are uploaded as a tarball.
+     - **Remote campaign** (Perlmutter, one CPU node, commit `e936dac4`; [results](../../../../work/p08_step1_e936dac4_20260929T140249Z_52372a/)):
+       - Scope: complete build and replay at N32 and N48. N64 was cancelled by decision during its face stage: the gate needs only preselected owners there, which the owner closure covers, and the N64 CSR artifact (about 75 GB) is not a usable runtime operator (see step 2).
+       - Tier B passes every term of all six campaigns. The worst ratio to the archived spatial error is 1.8e-10 at N32 and 1.7e-9 at N48 (P06 finite-difference floor), against the 1e-3 tolerance. P05/P05N/P07 are at ≤ 2e-11.
+       - The pointwise caps flagged entries in p05, p05n_frozen, p07 and p07n. They are all roundoff. The entrywise cap, 1e-11 × |saved|, cannot be met where an entry is far below the terms that produced it:
+         - the p05 jump check compares with the archived U − A, a subtraction of terms up to 36 leaving results 3–7 orders smaller; the largest difference is 3.5e-15;
+         - the other 1–3 entries per term differ by 8e-19 to 8e-14, about 1e-16 of their array's scale.
+       - The cap rule was corrected after this run, as an explicit record: it now scales with the term's column magnitude (for the p05 jump, the centered term's), so step 2's replay against these outputs uses the corrected rule. Re-reducing the returned N32/N48 replay outputs locally under it: every term of all six campaigns passes, with zero pointwise violations and unchanged Tier-B ratios ([re-reduction](../../../../work/p08_step1_e936dac4_20260929T140249Z_52372a/local_rereduction_corrected_cap/)).
+       - Operational fixes from the run: per-worker peak RSS (forked workers reported the controller's high-water mark; the controller itself peaks near 29 GB at N48), resume after an assembled artifact (the remote worker regenerated N32/N48 geometry, and it hashed identical to the originals), and the replay report's host label.
+       - Cost: N32 build plus replay took about 23 minutes of wall time on 96 workers. N48 ran across restarts, so it has no single wall time.
      - **Open performance item:** face replay units take about 40 s per N32 unit warm, against a 30 s target.
 2. **JAX application layer.**
    - Add a package P05 midpoint bracket kernel.
@@ -2194,6 +2202,28 @@ Steps:
        1. Test the P07 regular families at q2.
        2. Run a global (not wall-weighted) check.
        3. Re-qualify the affected operators against their frozen oracles. Since step 1 must replay the accepted campaigns, the step-1 artifact stays at q3.
+   - **Later check, not yet scheduled: transverse reconstruction at the coupled/ringwise switch.** This was found by the Q path and confirmed for P, 29 September. The [P audit](../../../../work/p_transverse_wave_audit_20260929/report.md) and its [follow-up](../../../../work/p_transverse_wave_audit_20260929/followup/report.md) are bounded: Q's 36 owners plus fresh phases and fixed-coordinate tracks, N32/N48/N64, run through P's own assemblies.
+     - **Controls.** Fixed-wavelength transverse waves exp(i[2πx/λ + η]) and the y analogue, with λ = 2 and 4, in computational disk coordinates.
+     - **Finding.**
+       - The ringwise construction (ringwise angular with radial cubic) reproduces Cartesian cubics but not quartics.
+       - At the first ringwise layer, its transverse gradient error rebounds 2.2× from N48 to N64 (2.6× at face q3 nodes). λ = 4 shows no rebound.
+       - The switch radius moves inward with refinement. A fixed point it crosses flips from coupled quartic to ringwise, and its transverse error jumps 13–60×.
+       - The η-free controls reproduce every ratio, so the effect is purely transverse. The η-derivative error is a separate, spatially uniform, roughly third-order floor.
+     - **Effect on the operators:**
+       - P06 q1 and the P05 bracket with a smooth partner amplify the rebound in place (about 1.9×).
+       - The P05 wave × wave bracket and the P05 jump do not rebound.
+       - P07 carries it through the radial face shared with the switch layer into the next layer out (3.2×). There, N−O reaches 50–60% of O−R, and the N−R order drops to 0.85 (y, λ = 2).
+       - N−R still decreases everywhere sampled, because O−R dominates it. O−R is the transverse face-flux versus midpoint gap, not an η effect.
+     - **Why the accepted campaigns missed it.** The low-degree catalogue fields are Cartesian polynomials of degree 3 or less, by the axis-regularity design, so they lie inside ringwise's exact space. The rich fields' quartic-and-higher terms scale as uᵐ and are negligible at the switch radius (u ≈ 0.06–0.14). The global volume-weighted gates weight the switch layers at about 1–2%. The accepted passes are unaffected, but they do not certify under-resolved transverse structure near the switch. P07 is the most exposed operator, and it is the one inverted for φ.
+     - **Candidate remedy, from the [Q donor-support study](../../../../work/q_fci_donor_support_20260928/report.md).** Keep the coupled Cartesian-quartic basis and change only the donor support:
+       - nearest-40 complete-owner centroids per η plane removes the wave rebounds in all six sampled roles on both intervals;
+       - nearest-28 gives the lowest pooled error but keeps one coarse-interval rebound;
+       - neither dominates ringwise uniformly. At the first singleton (N64, y, λ = 2), ringwise gives 1.2e-5, nearest-40 gives 1.1e-4 and nearest-28 gives 3.7e-5.
+       - This is not adopted for P. It would change the qualified reconstruction and require re-qualifying P05–P07 against their oracles.
+     - **Planned checks** (bounded first, then campaign-level if a change is proposed):
+       1. Add a transverse-wave MMS control with order-one degree-≥4 Cartesian content at the switch radius. Score it per layer and at fixed coordinates across the switch, reporting the transverse and η parts separately, alongside the global gates.
+       2. Evaluate the Q support candidates in P's own assemblies at the same owners. Priority is P07 N−O/N−R at switch_plus1, and the first-singleton regression.
+       3. Only then decide on a P support or switch-policy change, then re-qualify and re-freeze the row artifact.
    - Matched single-device and η-sharded execution. This needs a sharded owner-value gather in the application layer, and is the largest new engineering item.
 7. **Acceptance record and roadmap update.**
 
@@ -2204,7 +2234,8 @@ Pending decisions:
 Carry-forwards:
 - the deduplicated periodic census;
 - the recovered-trace wall contract (not a wall law);
-- pre-asymptotic rich-field orders read alongside low-degree fields.
+- pre-asymptotic rich-field orders read alongside low-degree fields;
+- the coupled/ringwise switch weakness for transverse degree-≥4 structure (see the step-6 later check). The transition layers are the first place to look for order loss.
 
 **Gate:** the certified operator contributions and the combined perpendicular
 residual meet the global operator-order criterion, with qualified references
@@ -2520,7 +2551,7 @@ revision, configuration, measured results, and unresolved failures.
 | P05N | Physical-normal Neumann brackets | Shared extraction/replay and bounded Neumann reconstruction admission | passed — user-accepted static qualification 28 September; recovered-trace wall contract | [Acceptance record](../../../../work/p05n_p06n_43250ccf_20260928T053254Z_c415a4cd/local_analysis/acceptance_decision.md) from `frozen_v1` (`05be9063`: centered 2.31–3.41, with jump 3.06–3.54; jump active only at n−2 and on η faces) and `upwind_v1` (`43250ccf`: rich pairs 5.17–5.87 pre-asymptotic, jump active and converging at about 3.5, b1×e3 regression reproduced exactly). O ≡ R. The wall-face and outer-two-layer jumps are zero (contract and row structure); this is not a physical wall-law qualification. Transition region lowest (about 3.0). Evolution, production integration and the rung wall law remain open. |
 | P06N | Physical-normal Neumann curvature | Shared extraction/replay and bounded Neumann reconstruction admission | passed — user-accepted static qualification 28 September; recovered-trace wall contract | [Acceptance record](../../../../work/p05n_p06n_43250ccf_20260928T053254Z_c415a4cd/local_analysis/acceptance_decision.md) for `43250ccf`, job 58995223: all 30 gated entries pass, including held-out (centered 4.38–6.15, U 4.47–6.12, pre-asymptotic). The q3 correction is active and converges at 4.2–5.4. φ enters only through the remainder (bitwise check). The all-Dirichlet rich case closes the P06 seam defect. The wall characteristic correction is zero by contract; not a physical wall-law qualification. Transition region lowest (2.2–2.6 on N48→N64). Evolution, production integration and the rung wall law remain open. |
 | P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | passed — user-accepted closure qualification 27 September; midpoint accuracy geometry-limited | [Acceptance record](../../../../work/p07n_field_derived_274e93e9_20260927T054625Z_72cfa1/local_analysis/acceptance_decision.md) for campaign `274e93e9`: N−O `2.24–3.85/2.25–3.73` on every field including held-out; wall-normal residual about 4th order; returned `global_order_pass=false` preserved; N−R ≈ O−R `1.55–1.74/1.72–1.83` limited by unresolved near-wall toroidal geometry (most plausibly coil ripple). The `5930b72c` failure is preserved. Inversion/gauge, energy, evolution and production integration remain open. |
-| P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | in progress — step 1 (host consolidation and row artifact) started 28 September; see the P08 execution plan | Include separately qualified Dirichlet and Neumann variants. Use the deduplicated periodic face census. Decide or reconcile the Neumann closure (P-path point rows vs production physical halos). Watch the RLP transition region. Reconstructed φ: production FGMRES inverting the qualified P07 operator (new `operator_form`); new preconditioners likely. |
+| P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | in progress — step 1 (host consolidation and row artifact) accepted 29 September; step 2 next; see the P08 execution plan | Include separately qualified Dirichlet and Neumann variants. Use the deduplicated periodic face census. Decide or reconcile the Neumann closure (P-path point rows vs production physical halos). Watch the RLP transition region. Reconstructed φ: production FGMRES inverting the qualified P07 operator (new `operator_form`); new preconditioners likely. |
 | P09 | Evolved MMS and promotion | P08 | pending | — |
 
 

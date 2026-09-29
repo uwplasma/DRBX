@@ -551,6 +551,55 @@ def _assemble(output: Path, grid_dir: Path, identity: dict, plan: dict) -> dict:
     return manifest
 
 
+def _verify_assembled(output: Path, grid_dir: Path, identity: dict, plan: dict) -> tuple[dict | None, str | None, bool]:
+    """Check whether ``grid_dir`` already holds a finished, intact build for
+    ``identity``/``plan``: ``build_receipt.json`` with this identity,
+    ``geometry.npz`` whose sha256 equals the receipt's ``geometry_sha256``,
+    and a manifest (this identity and schema, one entry per planned unit
+    part) whose every row file matches its recorded sha256 -- checked by
+    streaming hashes, never by decoding the rows (N64 rows do not fit in
+    memory). Returns ``(receipt, reason, geometry_mismatch)``: the receipt
+    when everything verifies; ``(None, None, False)`` when there is nothing
+    to verify (no receipt, or a bounded local-testing build's receipt, which
+    is not a finished grid); otherwise ``reason`` names the first failed
+    check and ``geometry_mismatch`` says ``geometry.npz`` itself disagrees
+    with the receipt."""
+    receipt_path = grid_dir / "build_receipt.json"
+    manifest_path = grid_dir / "manifest.json"
+    geometry_path = grid_dir / "geometry.npz"
+    if not receipt_path.exists():
+        return None, None, False
+    try:
+        receipt = json.loads(receipt_path.read_text())
+    except ValueError:
+        return None, "build_receipt.json is unreadable", False
+    if receipt.get("bounded") or "geometry_sha256" not in receipt:
+        return None, None, False
+    if receipt.get("identity") != json.loads(json.dumps(identity, default=runner._json_default)):
+        return None, "build_receipt.json identity differs from this build", False
+    if not geometry_path.exists() or runner.sha256_file(geometry_path) != receipt["geometry_sha256"]:
+        return None, "geometry.npz is missing or does not match the receipt's geometry_sha256", True
+    if not manifest_path.exists():
+        return None, "manifest.json is missing", False
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except ValueError:
+        return None, "manifest.json is unreadable", False
+    if manifest.get("schema") != artifact_mod.SCHEMA or manifest.get("identity") != artifact_mod._json_safe(identity):
+        return None, "manifest.json schema/identity differs from this build", False
+    expected = {"cells": len(plan["cells"]), "faces": len(plan["faces"]), "p07": len(plan["p07"])}
+    expected["neumann"] = sum(expected.values())
+    chunks = manifest.get("chunks", {})
+    if {group: len(chunks.get(group, ())) for group in expected} != expected:
+        return None, "manifest.json chunk counts differ from the plan", False
+    for entries in chunks.values():
+        for entry in entries:
+            path = grid_dir / entry["file"]
+            if not path.exists() or runner.sha256_file(path) != entry["sha256"]:
+                return None, f"row file {entry['file']} is missing or corrupted", False
+    return receipt, None, False
+
+
 def _disk_free_gib(path: Path) -> float:
     usage = shutil.disk_usage(path)
     return usage.free / (2 ** 30)
@@ -566,8 +615,11 @@ def _aggregate_receipts(output: Path, plan: dict) -> dict:
     max_neumann_residual = 0.0
     max_condition = 0.0
     point_rows = neumann_rows = integrated_rows = 0
-    for stage, units in plan.items():
-        for unit in units:
+    # Geometry units carry no row diagnostics, and their receipts are gone
+    # once a previous build has assembled (or a caller pruned) ``_chunks/``
+    # -- never require them here.
+    for stage in ("cells", "faces", "p07"):
+        for unit in plan.get(stage, ()):
             item = json.loads(runner.receipt_path(output, unit).read_text())
             pd = item.get("point_diagnostics")
             if pd:
@@ -655,6 +707,15 @@ def run_full_build(
     picks back up from its own per-unit receipts on the next call with the
     same ``output`` (and the same build identity/plan -- a changed input
     raises rather than silently reusing stale units).
+
+    Re-entering a grid that is already assembled (``_chunks/`` -- every unit
+    receipt -- is deleted once the rows are assembled) does nothing: if
+    ``build_receipt.json`` (same identity), ``geometry.npz`` (sha256 equal to
+    the receipt's ``geometry_sha256``) and every manifest row file verify, the
+    stored receipt is returned with ``"reentry": "already_assembled"``.
+    Otherwise the stale receipt/manifest (and a mismatching ``geometry.npz``)
+    are discarded and the grid is rebuilt; the new receipt then carries
+    ``rebuilt_after_failed_verification``.
     """
     input_root = Path(input_root).resolve()
     sidecar_path = Path(sidecar_path).resolve()
@@ -700,6 +761,20 @@ def run_full_build(
                 raise ValueError("plan changed for an existing output directory; use a new --output")
         else:
             runner.write_json(plan_path, plan_payload)
+
+        # Re-entry after a finished build: ``_chunks/`` (every unit receipt)
+        # is deleted once the rows are assembled, so an assembled grid must
+        # not be re-run through the stages. If it verifies, return its
+        # receipt as is; if not, discard the stale receipt/manifest (and a
+        # geometry.npz that disagrees with the receipt) and rebuild.
+        assembled, rebuilt_reason, geometry_mismatch = _verify_assembled(output, grid_dir, identity, plan)
+        if assembled is not None:
+            return {**assembled, "reentry": "already_assembled"}
+        if rebuilt_reason is not None:
+            (grid_dir / "build_receipt.json").unlink(missing_ok=True)
+            (grid_dir / "manifest.json").unlink(missing_ok=True)
+            if geometry_mismatch:
+                geometry_path.unlink(missing_ok=True)
 
         # Disk-space guard: abort rather than run a build that could exhaust the
         # volume. The estimate is measured, not the design's: the first full N32
@@ -788,6 +863,8 @@ def run_full_build(
             "disk_free_gib_after": _disk_free_gib(output),
             "geometry_sha256": runner.sha256_file(geometry_path),
         }
+        if rebuilt_reason is not None:
+            receipt["rebuilt_after_failed_verification"] = rebuilt_reason
         runner.write_json(grid_dir / "build_receipt.json", receipt)
         return receipt
 

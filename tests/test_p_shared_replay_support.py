@@ -73,14 +73,79 @@ def test_owner_weighted_l2_rejects_owner_axis_mismatch():
 
 def test_pointwise_cap_scaled_flat_and_zero_target():
     saved = np.array([0.0, 1.0, -1000.0])
+    # Scaled: the default reference is the array max (1-D), so every entry gets 1e-11 * 1000.
     cap = replay.pointwise_cap(saved, mode="scaled", scale_factor=1e-11, zero_atol=1e-11, zero_threshold=1e-11)
-    np.testing.assert_allclose(cap, [1e-11, 1e-11, 1e-8])
+    np.testing.assert_allclose(cap, [1e-8, 1e-8, 1e-8])
 
     cap_flat = replay.pointwise_cap(saved, mode="flat", flat_abs=1e-9, zero_atol=1e-11, zero_threshold=1e-11)
     np.testing.assert_allclose(cap_flat, [1e-11, 1e-9, 1e-9])
 
     with pytest.raises(ValueError):
         replay.pointwise_cap(saved, mode="bogus")
+
+
+def test_pointwise_cap_default_reference_is_per_column_max_over_owners():
+    saved = np.array([[1e-7, 2.0, 0.0],
+                      [-4.0, 1e-3, 0.0],
+                      [0.5, -8.0, 0.0]])
+    cap = replay.pointwise_cap(saved, mode="scaled", scale_factor=1e-11)
+    column_max = np.array([4.0, 8.0, 0.0])
+    expected = np.where(column_max[None, :] <= 1e-11, 1e-11, 1e-11 * np.broadcast_to(column_max, saved.shape))
+    np.testing.assert_allclose(cap, expected)
+    # An all-zero column falls back to the zero-target atol.
+    np.testing.assert_allclose(cap[:, 2], 1e-11)
+
+
+def test_pointwise_cap_explicit_reference_and_elementwise_max_with_saved():
+    saved = np.array([[1.0, 100.0], [1e-9, 1e-9]])
+    reference = np.array([[10.0, 10.0]])  # (1, ncols), broadcast over owners
+    cap = replay.pointwise_cap(saved, mode="scaled", scale_factor=1e-2, cap_reference=reference)
+    # scale = max(|saved|, reference) elementwise.
+    np.testing.assert_allclose(cap, 1e-2 * np.array([[10.0, 100.0], [10.0, 10.0]]))
+    # A 1-D (ncols,) reference broadcasts the same way.
+    cap_1d = replay.pointwise_cap(saved, mode="scaled", scale_factor=1e-2, cap_reference=np.array([10.0, 10.0]))
+    np.testing.assert_allclose(cap_1d, cap)
+    # A zero reference and a zero-ish saved entry -> zero_atol; a large reference lifts a tiny entry out of it.
+    zero = replay.pointwise_cap(np.array([[0.0], [0.0]]), mode="scaled", cap_reference=np.array([[0.0]]),
+                                zero_atol=3e-11)
+    np.testing.assert_allclose(zero, 3e-11)
+    lifted = replay.pointwise_cap(np.array([[0.0]]), mode="scaled", scale_factor=1e-11, cap_reference=np.array([[5.0]]))
+    np.testing.assert_allclose(lifted, 5e-11)
+
+
+def test_pointwise_cap_flat_mode_ignores_reference_and_keys_zero_rule_on_saved():
+    saved = np.array([[0.0, 1.0], [-1000.0, 1e-3]])
+    cap = replay.pointwise_cap(saved, mode="flat", flat_abs=1e-9, zero_atol=1e-11, cap_reference=np.array([[1e6, 1e6]]))
+    np.testing.assert_allclose(cap, [[1e-11, 1e-9], [1e-9, 1e-9]])
+
+
+def test_pointwise_cap_scales_with_column_magnitude_at_cancellation_points():
+    owner_volume = np.ones(4)
+    # Column 0: entries near 1e-7 in a column whose terms are O(100); column 1: O(1).
+    saved = np.array([[100.0, 1.0], [1e-7, 1.0], [-50.0, 1.0], [2e-2, 1.0]])
+    archived_error = np.full_like(saved, 1e3)  # huge archived error: ratio never the limiting check
+    roundoff = saved.copy()
+    roundoff[1, 0] += 1e-14  # roundoff of the O(100) terms, 7 orders above the entry's own 1e-11 cap
+    result = replay.compare_owner_term("demo", roundoff, saved, owner_volume=owner_volume,
+                                       archived_error=archived_error)
+    assert result["pointwise"]["violations"] == 0
+    assert result["pass"]
+    # Under the old entrywise rule this entry would have failed.
+    assert 1e-14 > 1e-11 * abs(saved[1, 0])
+
+    # A genuine 1e-9-relative error at a large entry still fails (cap there is 1e-11 * 100 = 1e-9).
+    genuine = saved.copy()
+    genuine[0, 0] *= 1.0 + 1e-9
+    bad = replay.compare_owner_term("demo", genuine, saved, owner_volume=owner_volume, archived_error=archived_error)
+    assert bad["pointwise"]["violations"] == 1
+    assert bad["pointwise"]["worst_index"] == [0, 0]
+    assert not bad["pass"]
+
+    # An explicit constituent-scale reference (p05 live_jump_vs_old_U_minus_A) lifts the cap further.
+    result_ref = replay.compare_owner_term("demo", genuine, saved, owner_volume=owner_volume,
+                                           archived_error=archived_error,
+                                           cap_reference=np.array([[1e5, 1.0]]))
+    assert result_ref["pointwise"]["violations"] == 0
 
 
 def test_compare_owner_term_passes_when_ratio_and_cap_are_satisfied():
@@ -144,6 +209,25 @@ def test_compare_pointwise_only_has_no_ratio_concept():
     assert not result2["pass"]
     assert result2["pointwise"]["violations"] == 1
     assert result2["pointwise"]["worst_index"] == [0, 0]
+
+    # The column-magnitude reference applies here too.
+    small_at_large_column = np.array([[100.0], [1e-7]])
+    ok = replay.compare_pointwise_only("demo", small_at_large_column + np.array([[0.0], [1e-14]]),
+                                       small_at_large_column)
+    assert ok["pass"]
+    lifted = replay.compare_pointwise_only("demo", small_at_large_column + 1e-8, small_at_large_column,
+                                           cap_reference=np.array([[1e4]]))
+    assert lifted["pass"]
+
+
+def test_write_report_names_the_actual_reduction_host(tmp_path):
+    import platform
+    payload = {"n": 8, "generated_at": "2026-01-01T00:00:00+00:00", "artifact_root": "/x", "wall_seconds": 1.0,
+               "campaigns": {}}
+    text = replay.write_report(payload, tmp_path).read_text()
+    assert f"Reduction ran on {platform.system()} ({platform.node()})" in text
+    assert "Oracle arrays come from their original campaigns" in text
+    assert "macOS" not in text and "Perlmutter" not in text
 
 
 # ---------------------------------------------------------------------------

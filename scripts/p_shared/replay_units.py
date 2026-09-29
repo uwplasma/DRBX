@@ -1833,7 +1833,9 @@ def reduce_grid(*, output: Path, artifact_root: Path, n: int, input_root: Path, 
         owner_live_jump = p05_owner_num.total / t.vol[:, None]
         terms["live_jump_vs_old_U_minus_A"] = compare_owner_term(
             "p05.live_jump_vs_old_U_minus_A", owner_live_jump, saved_old_u_minus_a,
-            owner_volume=owner_volume, archived_error=archived_error, region_masks=masks)
+            owner_volume=owner_volume, archived_error=archived_error, region_masks=masks,
+            # U - A cancels terms of size |centered|; roundoff is set by those, not by the result.
+            cap_reference=np.max(np.abs(saved_centered), axis=0, keepdims=True))
         results["p05"] = {"campaign": "p05", "status": "ok", "terms": terms, "antisymmetry_max": p05_antisym_max}
 
     import p06n_field_derived_global.core as p06n_core

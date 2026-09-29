@@ -45,6 +45,7 @@ rows -- never as a substitute for reading the artifact.
 from __future__ import annotations
 
 import json
+import platform
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional, Sequence
@@ -152,23 +153,46 @@ def _safe_ratio(numerator: Optional[float], denominator: Optional[float]) -> Opt
     return float(numerator / denominator)
 
 
+def _column_reference(saved: np.ndarray) -> np.ndarray:
+    """The default cap reference: per-column max of ``|saved|`` over owners
+    (axis 0, ``keepdims``); the whole-array max for 1-D input."""
+    mag = np.abs(saved)
+    if mag.size == 0:
+        return np.zeros((1,) * max(mag.ndim, 1))
+    if mag.ndim <= 1:
+        return np.max(mag)
+    return np.max(mag, axis=0, keepdims=True)
+
+
 def pointwise_cap(saved: np.ndarray, *, mode: str = "scaled", scale_factor: float = 1e-11,
-                  flat_abs: float = 1e-9, zero_atol: float = 1e-11, zero_threshold: float = 1e-11) -> np.ndarray:
+                  flat_abs: float = 1e-9, zero_atol: float = 1e-11, zero_threshold: float = 1e-11,
+                  cap_reference: Optional[np.ndarray] = None) -> np.ndarray:
     """The per-entry absolute cap (design section 5 "Pointwise caps").
 
-    ``mode="scaled"``: ``scale_factor * |saved|`` in general (the "1e-11 x
-    scale" rule). ``mode="flat"``: a flat ``flat_abs`` absolute cap (the
-    "1e-9 absolute for P06 and P06N raw" rule, for the ~2e-10 cross
-    -platform finite-difference curvature gap). Either way, a target the
-    saved array records as (numerically) zero gets ``zero_atol`` instead
-    ("1e-11 absolute for zero targets").
+    ``mode="scaled"``: ``scale_factor * scale`` with ``scale =
+    max(|saved|, reference)`` elementwise (the "1e-11 x scale" rule). The
+    reference is the term's column magnitude: ``cap_reference`` (broadcastable
+    to ``saved``, e.g. shape ``(1, ncols)``) when given, otherwise the
+    per-column max of ``|saved|`` over owners (the array max for 1-D input).
+    An entrywise cap ``1e-11 * |saved|`` fails at cancellation points, where an
+    entry is far smaller than the numbers that produced it and roundoff is
+    set by the latter (a difference of O(1..100) terms landing near 1e-7).
+    An entry whose ``scale`` is (numerically) zero gets ``zero_atol`` instead
+    ("1e-11 absolute for zero targets"). ``mode="flat"``: a flat ``flat_abs``
+    absolute cap (the "1e-9 absolute for P06 and P06N raw" rule, for the
+    ~2e-10 cross-platform finite-difference curvature gap), with the same
+    zero-target rule keyed on ``|saved|``; ``cap_reference`` is ignored.
     """
     saved = np.asarray(saved, dtype=np.float64)
-    is_zero = np.abs(saved) <= zero_threshold
     if mode == "scaled":
-        general = scale_factor * np.abs(saved)
+        reference = _column_reference(saved) if cap_reference is None else np.abs(
+            np.asarray(cap_reference, dtype=np.float64))
+        scale = np.maximum(np.abs(saved), reference)
+        general = scale_factor * scale
+        is_zero = scale <= zero_threshold
     elif mode == "flat":
         general = np.full(saved.shape, flat_abs, dtype=np.float64)
+        is_zero = np.abs(saved) <= zero_threshold
     else:
         raise ValueError(f"unknown pointwise cap mode {mode!r}")
     return np.where(is_zero, zero_atol, general)
@@ -177,13 +201,16 @@ def pointwise_cap(saved: np.ndarray, *, mode: str = "scaled", scale_factor: floa
 def compare_owner_term(name: str, replay: np.ndarray, saved: np.ndarray, *, owner_volume: np.ndarray,
                        archived_error: np.ndarray, region_masks: Optional[dict] = None,
                        rtol: float = 1e-3, cap_mode: str = "scaled", cap_scale_factor: float = 1e-11,
-                       cap_flat_abs: float = 1e-9, cap_zero_atol: float = 1e-11) -> dict:
+                       cap_flat_abs: float = 1e-9, cap_zero_atol: float = 1e-11,
+                       cap_reference: Optional[np.ndarray] = None) -> dict:
     """Design section 5, Tier B + pointwise caps, for one term/array.
 
     Returns a JSON-safe dict: ``ratios`` (global + per region), ``worst_ratio``,
     the pointwise-cap violation count/location, and an overall ``pass``.
     A ``None`` ratio means "not evaluable" (e.g. an empty/zero-volume
-    region) and never counts as a pass *or* a fail on its own.
+    region) and never counts as a pass *or* a fail on its own. The pointwise
+    cap scales with the term's column magnitude (``cap_reference``, default the
+    per-column max of ``|saved|``; see :func:`pointwise_cap`).
     """
     replay = np.asarray(replay, dtype=np.float64)
     saved = np.asarray(saved, dtype=np.float64)
@@ -212,7 +239,7 @@ def compare_owner_term(name: str, replay: np.ndarray, saved: np.ndarray, *, owne
 
     abs_diff = np.abs(diff)
     cap = pointwise_cap(saved, mode=cap_mode, scale_factor=cap_scale_factor,
-                        flat_abs=cap_flat_abs, zero_atol=cap_zero_atol)
+                        flat_abs=cap_flat_abs, zero_atol=cap_zero_atol, cap_reference=cap_reference)
     violation = abs_diff > cap
     n_violations = int(np.count_nonzero(violation))
     if abs_diff.size:
@@ -240,9 +267,10 @@ def compare_owner_term(name: str, replay: np.ndarray, saved: np.ndarray, *, owne
 
 def compare_pointwise_only(name: str, replay: np.ndarray, saved: np.ndarray, *, cap_mode: str = "scaled",
                           cap_scale_factor: float = 1e-11, cap_flat_abs: float = 1e-9,
-                          cap_zero_atol: float = 1e-11) -> dict:
+                          cap_zero_atol: float = 1e-11, cap_reference: Optional[np.ndarray] = None) -> dict:
     """A pointwise-cap-only check (no owner-volume/region concept), for
-    per-face targets such as P05's saved ``upwind`` array."""
+    per-face targets such as P05's saved ``upwind`` array. The cap scales
+    with the column magnitude (see :func:`pointwise_cap`)."""
     replay = np.asarray(replay, dtype=np.float64)
     saved = np.asarray(saved, dtype=np.float64)
     if replay.shape != saved.shape:
@@ -250,7 +278,7 @@ def compare_pointwise_only(name: str, replay: np.ndarray, saved: np.ndarray, *, 
     diff = replay - saved
     abs_diff = np.abs(diff)
     cap = pointwise_cap(saved, mode=cap_mode, scale_factor=cap_scale_factor,
-                        flat_abs=cap_flat_abs, zero_atol=cap_zero_atol)
+                        flat_abs=cap_flat_abs, zero_atol=cap_zero_atol, cap_reference=cap_reference)
     violation = abs_diff > cap
     n_violations = int(np.count_nonzero(violation))
     if abs_diff.size:
@@ -595,8 +623,9 @@ def write_report(replay: dict, output_dir: Path) -> Path:
     lines = [f"# P08 step 1 replay gate -- N{replay['n']}", "",
             f"Generated {replay['generated_at']} against artifact `{replay['artifact_root']}` "
             f"in {replay['wall_seconds']:.1f} s.", "",
-            "Replay ran on macOS; saved arrays were computed on Perlmutter, so small "
-            "cross-platform differences are expected (worst ratios reported below).", "",
+            f"Reduction ran on {platform.system()} ({platform.node()}). Oracle arrays come from their "
+            "original campaigns, so small cross-platform differences are possible "
+            "(worst ratios reported below).", "",
             "| Campaign | Status | Terms | Worst ratio | Pointwise violations | Pass |",
             "|---|---|---|---|---|---|"]
     for name, result in replay["campaigns"].items():

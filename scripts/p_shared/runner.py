@@ -28,9 +28,17 @@ Guarantees kept from the campaign lineage:
   context (never ``fork``), the same JAX-safety requirement the campaign
   lineage enforces.
 * **peak RSS per worker** -- every unit's receipt records this worker's own
-  ``peak_rss_gib`` (``resource.getrusage(RUSAGE_SELF).ru_maxrss``, scaled
-  for the current platform); ``run_stage``'s summary reports the maximum
-  across every unit executed in this invocation.
+  ``peak_rss_gib`` and the ``rss_method`` that produced it. ``run_stage``
+  resets the worker's high-water mark at the start of each unit (Linux:
+  writing ``5`` to ``/proc/self/clear_refs``) and the receipt reads
+  ``VmHWM`` from ``/proc/self/status`` (``"vmhwm_reset"``); a worker's
+  ``ru_maxrss`` can otherwise report the controller's high-water mark (every
+  N48 unit reported the controller's 29.3 GiB). Where ``/proc`` is unavailable (macOS) it
+  falls back to ``resource.getrusage(RUSAGE_SELF).ru_maxrss``
+  (``"ru_maxrss"``, scaled for the platform). ``run_stage``'s summary reports
+  the maximum across every unit executed in this invocation
+  (``peak_worker_rss_gib``) and, separately, the controller process's own peak
+  (``controller_peak_rss_gib``).
 * **CPU backend check** -- ``require_cpu_backend`` mirrors the campaign
   lineage's ``if jax.default_backend() != 'cpu': raise ...``, called once
   per worker process at initialization.
@@ -52,7 +60,7 @@ from pathlib import Path
 import numpy as np
 
 __all__ = [
-    "sha256_file", "sha256_bytes", "digest", "write_json", "save_npz", "peak_rss_gib",
+    "sha256_file", "sha256_bytes", "digest", "write_json", "save_npz", "peak_rss_gib", "reset_peak_rss",
     "lock", "require_cpu_backend", "chunk_units", "unit_path", "valid_unit", "run_stage",
 ]
 
@@ -109,9 +117,64 @@ def save_npz(path, **arrays) -> None:
     os.replace(tmp, path)
 
 
-def peak_rss_gib() -> float:
+# ``/proc/self`` (a module global so tests can point it at a temp dir).
+_PROC_SELF = Path("/proc/self")
+# How this process's peak RSS is measured: set to "vmhwm_reset" by a
+# successful :func:`reset_peak_rss`, otherwise the ``ru_maxrss`` fallback.
+_RSS_METHOD = "ru_maxrss"
+
+
+def _vmhwm_gib() -> float:
+    """``VmHWM`` (the process's peak RSS) from ``/proc/self/status``, in GiB."""
+    for line in (_PROC_SELF / "status").read_text().splitlines():
+        if line.startswith("VmHWM:"):
+            return float(line.split()[1]) / 2 ** 20  # kB -> GiB
+    raise ValueError("no VmHWM line in /proc/self/status")
+
+
+def _ru_maxrss_gib() -> float:
     v = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return v / (2 ** 30 if sys.platform == "darwin" else 2 ** 20)
+
+
+def reset_peak_rss() -> str:
+    """Start a fresh peak-RSS window for this process and return the method
+    that will measure it: ``"vmhwm_reset"`` after ``clear_refs`` reset ``VmHWM``
+    (Linux), else ``"ru_maxrss"`` (the never-reset, process-lifetime high-water
+    mark, which a spawned child inherits from its parent)."""
+    global _RSS_METHOD
+    try:
+        (_PROC_SELF / "clear_refs").write_text("5")
+        _vmhwm_gib()
+        _RSS_METHOD = "vmhwm_reset"
+    except (OSError, ValueError):
+        _RSS_METHOD = "ru_maxrss"
+    return _RSS_METHOD
+
+
+def peak_rss_gib() -> float:
+    """This process's peak RSS in GiB since the last :func:`reset_peak_rss`
+    (``VmHWM``), or its lifetime ``ru_maxrss`` if no reset succeeded."""
+    if _RSS_METHOD == "vmhwm_reset":
+        try:
+            return _vmhwm_gib()
+        except (OSError, ValueError):
+            pass
+    return _ru_maxrss_gib()
+
+
+def _controller_peak_rss_gib() -> float:
+    """The controller's own lifetime peak (never reset): ``VmHWM`` if readable, else ``ru_maxrss``."""
+    try:
+        return _vmhwm_gib()
+    except (OSError, ValueError):
+        return _ru_maxrss_gib()
+
+
+def _run_unit(compute, unit):
+    """Worker-side wrapper: reset the peak-RSS window, then run one unit."""
+    reset_peak_rss()
+    return compute(unit)
 
 
 @contextmanager
@@ -195,7 +258,7 @@ def write_unit(output, unit, identity, *, chunks: dict, started: float, extra: d
         shas[part] = sha256_file(path)
     receipt = {"identity": identity, "unit": unit, "parts": shas,
                "seconds": time.time() - started, "peak_rss_gib": peak_rss_gib(),
-               "pid": os.getpid()}
+               "rss_method": _RSS_METHOD, "pid": os.getpid()}
     if extra:
         receipt.update(extra)
     write_json(receipt_path(output, unit), receipt)
@@ -244,7 +307,7 @@ def run_stage(output, stage, units, identity, *, compute, initializer, initargs,
                     u = next(iterator, None)
                     if u is None:
                         break
-                    pending[pool.submit(compute, u)] = u
+                    pending[pool.submit(_run_unit, compute, u)] = u
 
             fill()
             while pending:
@@ -269,6 +332,7 @@ def run_stage(output, stage, units, identity, *, compute, initializer, initargs,
         "resumed_units": resumed,
         "total_units": len(units),
         "peak_worker_rss_gib": max((r.get("peak_rss_gib", 0.0) for r in records), default=0.0),
+        "controller_peak_rss_gib": _controller_peak_rss_gib(),
         "worker_seconds": sum(r.get("seconds", 0.0) for r in records),
         "wall_seconds": time.time() - started,
     }
