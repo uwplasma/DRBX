@@ -68,10 +68,10 @@ class CellState(NamedTuple):
 
 
 class FaceState(NamedTuple):
-    value: object | None                    # (Fc, 9, F) common row
-    gradient: object | None                 # (Fc, 9, 3, F)
-    lower: object                           # (Fc, 9, F) lower side value
-    upper: object                           # (Fc, 9, F)
+    value: object | None                    # (Fc, Qf, F) common row
+    gradient: object | None                 # (Fc, Qf, 3, F)
+    lower: object                           # (Fc, Qf, F) lower side value
+    upper: object                           # (Fc, Qf, F)
 
 
 def normalize_kinds(field_kinds, n_fields: int) -> tuple[str, ...]:
@@ -268,8 +268,8 @@ def face_state(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, *
                gradients: bool = True) -> FaceState:
     """Per-face q3 reconstruction in ``plan.faces.census_row`` order.
 
-    ``value (Fc, 9, F)`` / ``gradient (Fc, 9, 3, F)`` at the common row's nodes and the ``lower`` /
-    ``upper`` side values ``(Fc, 9, F)``, per field column by ``field_kinds`` (see the module docstring
+    ``value (Fc, Qf, F)`` / ``gradient (Fc, Qf, 3, F)`` at the common row's nodes and the ``lower`` /
+    ``upper`` side values ``(Fc, Qf, F)``, per field column by ``field_kinds`` (see the module docstring
     for the missing-side rules). ``gradients=False`` skips the gradient outputs (P06 needs values only).
     """
     fields = jnp.asarray(fields)

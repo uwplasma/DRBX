@@ -2233,6 +2233,12 @@ Steps:
        - N64 frozen-oracle rows: 20 of 126 move just past the oracles' 1e-5 equivalence clause, at 1.5e-5 to 4e-5. They are FD-baked.
        - The step-1/step-2 campaign runners, `replay_units` and the frozen-reproduction tests pin `curvature="fd"` explicitly.
        - References are re-frozen once, after the whole bundle, through campaign A.
+   - **q2 for P05/P06 implemented as an option, 30 September 2026** (`face_quadrature="q2"`, default `"q3"`; P07 stays q3). [Design and gate results](../../../../work/p08_q2_face_quadrature_20260930/design.md):
+     - Accuracy on a stratified global sample: the q2 N−R global L2 order is ≥ 3.5 for every P05N pair and P06N case × equation, against the 1.8 acceptance gate. The absolute error is 1.00–1.22× q3 at N64.
+     - Implementation: host q2 = frozen `face_chunk(order=2)` to 1e-14; JAX q2 = host q2 (29/29).
+     - Combined RHS: G3.3 at q2 converges with fit 1.
+     - Cost: the P06 face-apply time halves.
+     - Adoption is the user's decision.
    - **Candidate, not adopted: q2 (2×2 Gauss) face quadrature.** The q3 face rule is part of the qualified operator action. The reconstruction (the moment functional) is independent of it: the nodes are only where the reconstruction and metric are evaluated to integrate the face flux. A one-point (midpoint) face rule has not been tested. The 25 September contract kept q3 faces by choice; what failed then was the P05 face/cell volume formulation. A midpoint rule is consistent with the second-order target but leaves no margin above the gate, and it samples near-wall coil ripple at a single phase. q2 is the tested reduction.
      - q2 has 4 nodes instead of 9. What that saves depends on the operator:
        - **P05 and P06 (nonlinear):** they need per-node rows at runtime, so both runtime face cost and per-node artifact rows drop by 2.25×.

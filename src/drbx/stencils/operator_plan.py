@@ -13,7 +13,7 @@ What the plan holds
            conditioned cells, and the raw geometry (``h, |J|, B, K, J`` and the q1 evolution weight
            ``w = p06_raw_weight * J / max(B, 1e-30)``; ``p06_raw_weight`` is the plain q1 quadrature
            weight, J/B is *not* included in it).
-``faces``  R2 common rows (value + gradient at the 9 q3 nodes), R3 lower/upper side rows (values),
+``faces``  R2 common rows (value + gradient at the ``Qf`` face nodes: 9 q3, or 4 q2), R3 lower/upper side rows (values),
            their Neumann rows, per-face geometry and masks, in ``face_row_selection`` order.
 ``p07``    the R4 integrated rows (one per P07 face, in ``p07_rows`` order), the R4 Neumann rows
            of the conditioned faces (families 1, 2, 4) and their q3 integrand
@@ -69,11 +69,13 @@ __all__ = [
     "CellPlan", "FacePlan", "P07Plan", "NeumannRows", "IntegratedRows", "PerpendicularPlan",
     "face_row_selection", "p07_row_selection", "lower_perpendicular_plan",
     "lower_perpendicular_plan_from_artifact", "lower_perpendicular_plan_from_rows",
-    "pack_owner_rows", "plan_nbytes", "EVOLUTION_FLOOR", "Q3_NODES", "NEUMANN_WALL_POINTS"]
+    "pack_owner_rows", "plan_nbytes", "EVOLUTION_FLOOR", "Q3_NODES", "FACE_NODE_COUNTS", "NEUMANN_WALL_POINTS"]
 
 #: floor of the q1 evolution weight's ``B`` (host: ``np.maximum(B, 1.0e-30)``)
 EVOLUTION_FLOOR = 1.0e-30
 Q3_NODES = 9
+#: admissible P05/P06 face-node counts per face: q3 (3x3) and q2 (2x2)
+FACE_NODE_COUNTS = (9, 4)
 NEUMANN_WALL_POINTS = 28
 
 _R1, _R2, _R3, _R4 = (art.REQUEST_KINDS.index(name) for name in ("R1", "R2", "R3", "R4"))
@@ -150,24 +152,25 @@ class CellPlan:
 class FacePlan:
     """R2/R3 rows, Neumann rows, geometry and masks of the ``Fc`` faces ``census_row`` (face_row_selection order).
 
-    All ``(Fc, 9)`` slot arrays index the value/gradient outputs of ``rows``. Missing sides carry slot 0
+    ``Qf`` = :attr:`nodes` is the per-plan face-node count, 9 (q3, default) or 4 (q2): the P05/P06 face
+    rule. All ``(Fc, Qf)`` slot arrays index the value/gradient outputs of ``rows``. Missing sides carry slot 0
     and ``*_present`` False (their values are replaced by the fallback). ``*_conditioned`` flags a
     boundary-conditioned side row. The Neumann row ``r`` of ``common_neumann`` (R2) / ``side_neumann``
     (R3, one set per face, serving both sides) belongs to the flat (face, node) index
-    ``face * 9 + node = *_neumann_target[r]``.
+    ``face * Qf + node = *_neumann_target[r]``.
     """
 
     rows: SourceRowPayload
-    common_value_slot: np.ndarray       # (Fc, 9) int32
-    common_gradient_slot: np.ndarray    # (Fc, 9) int32
-    lower_slot: np.ndarray              # (Fc, 9) int32
-    upper_slot: np.ndarray              # (Fc, 9) int32
+    common_value_slot: np.ndarray       # (Fc, Qf) int32
+    common_gradient_slot: np.ndarray    # (Fc, Qf) int32
+    lower_slot: np.ndarray              # (Fc, Qf) int32
+    upper_slot: np.ndarray              # (Fc, Qf) int32
     lower_present: np.ndarray           # (Fc,) bool  side exists (census) and its R3 row is stored
     upper_present: np.ndarray           # (Fc,) bool
     common_conditioned: np.ndarray      # (Fc,) bool
     lower_conditioned: np.ndarray       # (Fc,) bool  (False for a missing side)
     upper_conditioned: np.ndarray       # (Fc,) bool
-    fallback_query: np.ndarray          # (Fc, 9) int32, ids into dirichlet_points (0 where no side is missing)
+    fallback_query: np.ndarray          # (Fc, Qf) int32, ids into dirichlet_points (0 where no side is missing)
     common_neumann: NeumannRows | None
     common_neumann_target: np.ndarray   # (Rn2,) int32
     side_neumann: NeumannRows | None
@@ -181,14 +184,19 @@ class FacePlan:
     collapsed: np.ndarray               # (Fc,) bool (all False in face_row_selection)
     p07_valid: np.ndarray               # (Fc,) bool, valid p07 id and not collapsed (the P05 jump domain)
     face_multiplier: np.ndarray         # (Fc,) float64, default 1 (harness: 2 on legacy seam faces)
-    h: np.ndarray                       # (Fc, 9, 3)  p05_face_h
-    jac: np.ndarray                     # (Fc, 9)     |p05_face_jacobian|
-    weight: np.ndarray                  # (Fc, 9)     p06_face_weight (q3)
-    J: np.ndarray                       # (Fc, 9)
-    B: np.ndarray                       # (Fc, 9)
-    K: np.ndarray                       # (Fc, 9, 3)
+    h: np.ndarray                       # (Fc, Qf, 3)  p05_face_h
+    jac: np.ndarray                     # (Fc, Qf)     |p05_face_jacobian|
+    weight: np.ndarray                  # (Fc, Qf)     p06_face_weight (q3, or q2)
+    J: np.ndarray                       # (Fc, Qf)
+    B: np.ndarray                       # (Fc, Qf)
+    K: np.ndarray                       # (Fc, Qf, 3)
     owner_volume: np.ndarray            # (n_owners,)
     has_missing_side: bool              # any face lacks a side row (static: fallback gather is skipped otherwise)
+
+    @property
+    def nodes(self) -> int:
+        """``Qf``: the number of face nodes per face (9: q3, 4: q2)."""
+        return int(self.common_value_slot.shape[1])
 
 
 @dataclass(frozen=True)
@@ -424,13 +432,22 @@ def lower_perpendicular_plan(*, grid: LoaderGrid, census: FaceCensus, geometry: 
         t = fplan.targets
         if np.any((t.quad_node < 0) | (t.quad_node >= Q3_NODES)):
             raise ValueError("faces: q3 node index outside 0..8")
+        # the per-plan face-node count, from the R2 targets: q3 (9) or q2 (4); every face must have exactly Qf
+        r2_nodes = t.quad_node[t.request == _R2]
+        Qf = int(r2_nodes.max()) + 1 if len(r2_nodes) else int(geometry.face_points.shape[1])
+        if Qf not in FACE_NODE_COUNTS:
+            raise ValueError(f"faces: R2 targets span {Qf} nodes per face; expected {FACE_NODE_COUNTS}")
+        if np.any(t.quad_node >= Qf):
+            raise ValueError(f"faces: R3 node index beyond the {Qf} R2 nodes per face")
+        if geometry.face_points.shape[1] != Qf:
+            raise ValueError(f"faces: geometry has {geometry.face_points.shape[1]} face nodes but the rows have {Qf}")
 
         def slot_table(mask, face_of, what):
-            table = np.full((Fc, Q3_NODES), -1, dtype=np.int64)
-            gtable = np.full((Fc, Q3_NODES), -1, dtype=np.int64)
+            table = np.full((Fc, Qf), -1, dtype=np.int64)
+            gtable = np.full((Fc, Qf), -1, dtype=np.int64)
             table[face_of, t.quad_node[mask]] = t.value_slot[mask]
             gtable[face_of, t.quad_node[mask]] = t.gradient_slot[mask]
-            if len(np.unique(face_of * Q3_NODES + t.quad_node[mask])) != int(mask.sum()):
+            if len(np.unique(face_of * Qf + t.quad_node[mask])) != int(mask.sum()):
                 raise ValueError(f"faces: duplicate {what} targets")
             return table, gtable
 
@@ -438,16 +455,16 @@ def lower_perpendicular_plan(*, grid: LoaderGrid, census: FaceCensus, geometry: 
         f2 = _positions(face_rows, t.entity_id[r2], "faces: R2 entity ids")
         common, common_g = slot_table(r2, f2, "R2")
         if np.any(common < 0) or np.any(common_g < 0):
-            raise ValueError("faces: every face needs 9 R2 targets with gradients")
+            raise ValueError(f"faces: every face needs {Qf} R2 targets with gradients")
         r3 = t.request == _R3
         face3 = _positions(face_rows, t.entity_id[r3] // 2, "faces: R3 entity ids")
         side = t.entity_id[r3] % 2
         sides = []
         for s in (0, 1):
             sel = side == s
-            table = np.full((Fc, Q3_NODES), -1, dtype=np.int64)
+            table = np.full((Fc, Qf), -1, dtype=np.int64)
             table[face3[sel], t.quad_node[r3][sel]] = t.value_slot[r3][sel]
-            if len(np.unique(face3[sel] * Q3_NODES + t.quad_node[r3][sel])) != int(sel.sum()):
+            if len(np.unique(face3[sel] * Qf + t.quad_node[r3][sel])) != int(sel.sum()):
                 raise ValueError("faces: duplicate R3 targets")
             cond = np.zeros(Fc, dtype=bool)
             cond[face3[sel]] = t.conditioned[r3][sel]
@@ -473,10 +490,12 @@ def lower_perpendicular_plan(*, grid: LoaderGrid, census: FaceCensus, geometry: 
                     raise ValueError(f"faces: conditioned {what} rows without Neumann rows")
                 return np.zeros(0, dtype=np.int32)
             f = _positions(face_rows, nplan.entity_id, f"faces: {what} Neumann entity ids")
-            target = f * Q3_NODES + nplan.quad_node
+            if np.any(nplan.quad_node >= Qf):
+                raise ValueError(f"faces: {what} Neumann node index beyond the {Qf} nodes per face")
+            target = f * Qf + nplan.quad_node
             if len(np.unique(target)) != len(target):
                 raise ValueError(f"faces: duplicate {what} Neumann rows")
-            _row_counts_ok(f, needed.astype(np.int64) * Q3_NODES, Fc, f"faces {what}")
+            _row_counts_ok(f, needed.astype(np.int64) * Qf, Fc, f"faces {what}")
             return target.astype(np.int32)
 
         common_target = neumann_targets(n2, common_cond, "R2")
@@ -550,7 +569,7 @@ def lower_perpendicular_plan(*, grid: LoaderGrid, census: FaceCensus, geometry: 
             if geometry.face_points.shape[0] != len(face_rows):
                 raise ValueError("geometry face arrays must be aligned with face_rows")
             integrand = np.asarray(contract_face_tensor(
-                np.asarray(geometry.p06_face_weight)[fpos], np.asarray(geometry.p07_face_tensor)[fpos],
+                np.asarray(geometry.p07_weight)[fpos], np.asarray(geometry.p07_face_tensor)[fpos],
                 census.axis[census_row[neumann_face]]))
             neumann_face = neumann_face.astype(np.int32)
         in_faces = np.isin(census_row, face_rows)
@@ -593,9 +612,10 @@ def lower_perpendicular_plan(*, grid: LoaderGrid, census: FaceCensus, geometry: 
             neumann=None if cn is None else _neumann_rows(cn, None, n_remap["cells"]), **fields)
     if faces is not None:
         fplan, n2, n3, _fallback, missing, fields = faces
-        fallback_query = np.zeros((len(face_rows), Q3_NODES), dtype=np.int32)
+        Qf = fields["common_value_slot"].shape[1]
+        fallback_query = np.zeros((len(face_rows), Qf), dtype=np.int32)
         if missing.any():
-            fallback_query[missing] = d_remap["fallback"].reshape(-1, Q3_NODES)
+            fallback_query[missing] = d_remap["fallback"].reshape(-1, Qf)
         face_plan = FacePlan(
             rows=_remap_source_payload(fplan.payload, d_remap["faces"], Qd), fallback_query=fallback_query,
             common_neumann=None if n2 is None else _neumann_rows(n2, None, n_remap["faces_common"]),
@@ -683,14 +703,14 @@ class OwnerRowChunks(NamedTuple):
 
 
 def pack_owner_rows(row_index: Mapping, neumann_index: Mapping, *, raw_ids, face_rows, p07_ids,
-                    include: Sequence[str] = ("cells", "faces", "p07")) -> OwnerRowChunks:
+                    include: Sequence[str] = ("cells", "faces", "p07"), face_nodes: int = Q3_NODES) -> OwnerRowChunks:
     """Pack the row dictionaries of ``p_shared.owner_closure.build_owner_rows`` into one chunk per group.
 
     ``row_index`` maps ``(request, entity_id) -> PointRows`` (R1: raw id; R2: census row; R3: ``2 * census
     row + side``) and ``entity_id -> IntegratedFaceRow`` (R4: P07 id, an ``int`` key);
     ``neumann_index`` maps ``(request, entity_id, quad_node) -> NeumannPointRows``. Only the R3 sides
     that have a row are packed; a conditioned row needs its Neumann rows (packed for the whole set
-    of nodes 0..8, or node 0 for R1). Row objects are packed with the artifact packers (a Python loop
+    of nodes 0..8 (R4) or 0..``face_nodes``-1 (R2/R3; 9 q3, 4 q2), or node 0 for R1). Row objects are packed with the artifact packers (a Python loop
     over the bounded row set; ``bc_variant`` and the informational point-row ``radial_degree`` are not
     kept by the closure and are packed as ``"D"``/``""`` and 0)."""
     include = tuple(include)
@@ -729,7 +749,7 @@ def pack_owner_rows(row_index: Mapping, neumann_index: Mapping, *, raw_ids, face
             row = row_index[("R2", int(ridx))]
             items.append(("R2", int(ridx), row))
             if row.boundary_conditioned:
-                add_neumann("R2", ridx, range(Q3_NODES))
+                add_neumann("R2", ridx, range(face_nodes))
             side_conditioned = False
             for side in (0, 1):
                 side_row = row_index.get(("R3", int(ridx) * 2 + side))
@@ -737,7 +757,7 @@ def pack_owner_rows(row_index: Mapping, neumann_index: Mapping, *, raw_ids, face
                     items.append(("R3", int(ridx) * 2 + side, side_row))
                     side_conditioned |= bool(side_row.boundary_conditioned)
             if side_conditioned:
-                add_neumann("R3", ridx, range(Q3_NODES))
+                add_neumann("R3", ridx, range(face_nodes))
         faces = (point_chunk(items),)
     if "p07" in include:
         rows = [row_index[int(pid)] for pid in p07_ids]
@@ -767,7 +787,7 @@ def lower_perpendicular_plan_from_rows(row_index: Mapping, neumann_index: Mappin
     its incident faces and raw cells are in the set (the owner closure)."""
     p07_ids = census.p07_id[np.asarray(p07_rows, dtype=np.int64)]
     packed = pack_owner_rows(row_index, neumann_index, raw_ids=raw_ids, face_rows=face_rows, p07_ids=p07_ids,
-                             include=include)
+                             include=include, face_nodes=int(geometry.face_points.shape[1]))
     return lower_perpendicular_plan(
         grid=grid, census=census, geometry=geometry, raw_volume=raw_volume, owner_volume=owner_volume,
         cell_chunks=packed.cells, face_chunks=packed.faces, p07_chunks=packed.p07,

@@ -222,7 +222,7 @@ def p06_q1_raw_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, fie
 # --------------------------------------------------------------------------
 
 def _q3_core(faces, common, lower, upper, tau, floor, multiplier):
-    """States ``(V, Fc, 9, 4)`` -> ``(lower, upper (V, Fc, 4), spectral, floor, wall counters (V,))``."""
+    """States ``(V, Fc, Qf, 4)`` -> ``(lower, upper (V, Fc, 4), spectral, floor, wall counters (V,))``."""
     axis = faces.axis.astype(jnp.int32)
     K_axis = jnp.take_along_axis(faces.K, axis[:, None, None], axis=-1)[..., 0]
     normal = faces.J * K_axis / jnp.maximum(faces.B * faces.B, 1e-30)      # J K_axis / B^2, as the host
@@ -236,8 +236,8 @@ def _q3_core(faces, common, lower, upper, tau, floor, multiplier):
 
 
 def _q3_from_state(faces, face_value, lower, upper, groups, tau, floor, multiplier):
-    """Face ``value`` / ``lower`` / ``upper`` ``(Fc, 9, F)`` -> q3 numerators and counters per group."""
-    def pick(x):                                                            # (Fc, 9, F) -> (V, Fc, 9, 4)
+    """Face ``value`` / ``lower`` / ``upper`` ``(Fc, Qf, F)`` -> q3 numerators and counters per group."""
+    def pick(x):                                                            # (Fc, Qf, F) -> (V, Fc, Qf, 4)
         return jnp.moveaxis(x[..., groups[:, :4]], 2, 0)
     return _q3_core(faces, pick(face_value), pick(lower), pick(upper), tau, floor, multiplier)
 
@@ -341,7 +341,7 @@ def p06_action_from_state(plan: PerpendicularPlan, cell_value, cell_gradient, fa
     one ``cell_state`` / ``face_state`` between operators (P08 step 3, the combined perpendicular RHS).
 
     ``cell_value (R, F)`` / ``cell_gradient (R, 3, F)`` are ``cell_state(...)`` value and gradient, and
-    ``face_value`` / ``face_lower`` / ``face_upper`` ``(Fc, 9, F)`` the ``face_state(..., gradients=False)`` common
+    ``face_value`` / ``face_lower`` / ``face_upper`` ``(Fc, Qf, F)`` the ``face_state(..., gradients=False)`` common
     value and side values, all with the per-column kinds already applied; ``groups`` picks the five columns
     of each state exactly as in :func:`p06_action`. Fed the states :func:`p06_action` reconstructs from the same
     fields it returns the same arrays (it is the same arithmetic; bitwise on the tested plans). With

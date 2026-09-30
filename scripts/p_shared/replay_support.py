@@ -69,6 +69,7 @@ from drbx.geometry.fci_perpendicular_neumann_trace import prepare_neumann_point_
 
 from p_shared import provider as pshared_provider                       # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
+from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE, check_face_quadrature  # noqa: E402
 
 N = 32  # the row artifact/replay run to completion locally; see the task report.
 
@@ -685,12 +686,17 @@ class Environment:
     neumann: NeumannSource
     wall_cache: WallDataCache
     curvature: str = DEFAULT_CURVATURE     # "fd" | "autodiff": which K ``ref._curvature`` evaluates (see p_shared.provider)
+    face_quadrature: str = DEFAULT_FACE_QUADRATURE   # "q3" | "q2": the P05/P06 face-node rule (P07 stays q3)
 
 
-def build_environment(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = DEFAULT_CURVATURE) -> Environment:
+def build_environment(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = DEFAULT_CURVATURE,
+                      face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> Environment:
     """The shared campaign environment.  ``curvature="autodiff"`` makes ``env.ref`` an
     :class:`p_shared.curvature_reference.AutodiffCurvatureReference` (autodiff ``_curvature``, everything
-    else delegated); ``"fd"`` (default) is the frozen reference, unchanged."""
+    else delegated); ``"fd"`` (default) is the frozen reference, unchanged.  ``face_quadrature`` (``"q3"``
+    default, or ``"q2"``) is recorded on the environment and selects the P05/P06 face nodes of the owner
+    closure and the host face replay (see :mod:`p_shared.face_quadrature`); it does not change ``ref``."""
+    check_face_quadrature(face_quadrature)
     from perpendicular_structured.reconstruction import load_context
     from p07n_field_derived_global.fields import normal as p07n_normal
 
@@ -711,7 +717,7 @@ def build_environment(*, n: int, input_root: Path, sidecar_path: Path, curvature
     wall_cache = WallDataCache(t)
     return Environment(n=n, t=t, ctx=ctx, S=S, census=census, ref=ref,
                        normal_coefficients=normal_coefficients, neumann=neumann, wall_cache=wall_cache,
-                       curvature=curvature)
+                       curvature=curvature, face_quadrature=face_quadrature)
 
 
 # ---------------------------------------------------------------------------

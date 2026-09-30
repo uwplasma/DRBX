@@ -150,16 +150,19 @@ def p07_row_selection(census: FaceCensus) -> np.ndarray:
 
 
 def build_geometry_arrays(provider: GeometryProvider, context: PointRowContext, *,
-                          raw_ids, face_row_indices, census: FaceCensus) -> GeometryArrays:
+                          raw_ids, face_row_indices, census: FaceCensus, face_order: int = 3) -> GeometryArrays:
     """Build the field-independent ``GeometryArrays`` for a batch of raw
     cells and census faces, in exactly the shape ``GeometryArrays.build``
     needs (design section 4: "plus GeometryArrays via a supplied
-    GeometryProvider")."""
+    GeometryProvider"). ``face_order`` (3, or 2) is the P05/P06 face-node rule of ``GeometryArrays.build``."""
     n = context.n
     raw_ids = np.asarray(raw_ids, dtype=np.int64)
     raw_keys = np.array(np.unravel_index(raw_ids, (n, n, n))).T.astype(np.int64)
     face_keys = census_face_keys(census, face_row_indices)
-    return GeometryArrays.build(provider, faces=context.faces, raw_keys=raw_keys, face_keys=face_keys)
+    if face_order == 3:
+        return GeometryArrays.build(provider, faces=context.faces, raw_keys=raw_keys, face_keys=face_keys)
+    return GeometryArrays.build(provider, faces=context.faces, raw_keys=raw_keys, face_keys=face_keys,
+                                face_order=face_order)
 
 
 # ---------------------------------------------------------------------------
