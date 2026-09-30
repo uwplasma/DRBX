@@ -70,6 +70,7 @@ from p_shared import owner_closure as oc                                        
 from p_shared import perpendicular_reference_rhs as prr                          # noqa: E402
 from p_shared import replay_units as ru                                          # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
+from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE, FACE_QUADRATURE_CHOICES  # noqa: E402
 from p_shared.replay_support import (                                            # noqa: E402
     CAMPAIGN_FUNCS, DEFAULT_PATHS, DEFAULT_SIDECAR, owner_weighted_l2)
 
@@ -178,24 +179,29 @@ class Step3Setup:
     paths: dict
     seconds: float
     curvature: str = DEFAULT_CURVATURE
+    face_quadrature: str = DEFAULT_FACE_QUADRATURE
 
 
 def build_setup(n: int, campaigns: Sequence[str] = CAMPAIGNS, *, input_root=WORKSPACE, sidecar_path=DEFAULT_SIDECAR,
-                paths: Optional[dict] = None, curvature: str = DEFAULT_CURVATURE) -> Step3Setup:
+                paths: Optional[dict] = None, curvature: str = DEFAULT_CURVATURE,
+                face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> Step3Setup:
     """Build the owner-closure rows, the oracle inputs and the JAX closure of ``campaigns`` at grid ``n``.
     ``curvature`` (``"autodiff"`` default | ``"fd"``) switches the operator geometry and the host references
-    (``env.ref``, hence the G3.3 continuum reference) together."""
+    (``env.ref``, hence the G3.3 continuum reference) together.  ``face_quadrature`` (``"q3"`` default | ``"q2"``)
+    is the P05/P06 face-node rule of the rows, the plan and the host references (P07 stays q3)."""
     started = time.perf_counter()
     campaigns = tuple(campaigns)
     paths = dict(DEFAULT_PATHS if paths is None else paths)
     env = jr.build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path),
-                               curvature=curvature)
+                               curvature=curvature, face_quadrature=face_quadrature)
     owners = np.asarray(oc.selection_fixture(env.t, env.census)["owners"], dtype=np.int64)
-    built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(sidecar_path, curvature=curvature))
+    built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(
+        sidecar_path, curvature=curvature, face_quadrature=face_quadrature))
     oracle = ru._load_oracle_owner_values(env, paths, campaigns)
     closure = jr.JaxOwnerClosure(env, built, campaigns, oracle)
     return Step3Setup(n=int(n), env=env, built=built, owners=owners, oracle=oracle, closure=closure,
-                      campaigns=campaigns, paths=paths, seconds=time.perf_counter() - started, curvature=curvature)
+                      campaigns=campaigns, paths=paths, seconds=time.perf_counter() - started, curvature=curvature,
+                      face_quadrature=face_quadrature)
 
 
 # ---------------------------------------------------------------------------
@@ -370,12 +376,15 @@ def _summarize_oracle(rows: list) -> dict:
 
 
 def run_g32(n: int, *, setup: Optional[Step3Setup] = None, campaigns: Sequence[str] = CAMPAIGNS,
-            output_dir=None, curvature: str = DEFAULT_CURVATURE) -> dict:
+            output_dir=None, curvature: str = DEFAULT_CURVATURE,
+            face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> dict:
     """Gate G3.2 at grid ``n`` (module docstring): JSON-able report; ``output_dir`` additionally writes
-    ``N{n}_g32.json`` there.  ``curvature`` applies only when no ``setup`` is given (a setup carries its own)."""
+    ``N{n}_g32.json`` there.  ``curvature`` and ``face_quadrature`` apply only when no ``setup`` is given (a
+    setup carries its own)."""
     started = time.perf_counter()
     campaigns = tuple(campaigns)
-    setup = setup if setup is not None else build_setup(n, campaigns, curvature=curvature)
+    setup = setup if setup is not None else build_setup(n, campaigns, curvature=curvature,
+                                                        face_quadrature=face_quadrature)
     missing = set(campaigns) - set(setup.campaigns)
     if missing:
         raise ValueError(f"the setup was built without {sorted(missing)}")
@@ -424,6 +433,8 @@ def run_g32(n: int, *, setup: Optional[Step3Setup] = None, campaigns: Sequence[s
                      and accounted == len(oracle_rows)),
         "seconds": time.perf_counter() - started, "setup_seconds": setup.seconds,
     }
+    if setup.face_quadrature != DEFAULT_FACE_QUADRATURE:
+        report["face_quadrature"] = setup.face_quadrature
     _write(report, output_dir, f"N{n}_g32.json")
     return report
 
@@ -463,13 +474,16 @@ def term_metrics(combined, reference, owner_volume, *, fallback_l2: Optional[flo
 
 
 def run_g33(n: int, *, setup: Optional[Step3Setup] = None, variants: Sequence[str] = G33_VARIANTS,
-            params: Optional[Mapping] = None, output_dir=None, curvature: str = DEFAULT_CURVATURE) -> dict:
+            params: Optional[Mapping] = None, output_dir=None, curvature: str = DEFAULT_CURVATURE,
+            face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> dict:
     """Gate G3.3 at grid ``n`` (module docstring): JSON-able report; ``output_dir`` additionally writes
-    ``N{n}_g33.json`` there.  ``curvature`` applies only when no ``setup`` is given (a setup carries its own);
+    ``N{n}_g33.json`` there.  ``curvature`` and ``face_quadrature`` apply only when no ``setup`` is given (a
+    setup carries its own);
     with ``"autodiff"`` the operator and the continuum reference use autodiff K together."""
     started = time.perf_counter()
     params = dict(G33_PARAMS if params is None else params)
-    setup = setup if setup is not None else build_setup(n, ("p06n",), curvature=curvature)
+    setup = setup if setup is not None else build_setup(n, ("p06n",), curvature=curvature,
+                                                        face_quadrature=face_quadrature)
     if "p06n" not in setup.campaigns:
         raise ValueError("G3.3 needs the p06n campaign in the setup")
     closure, env, owners = setup.closure, setup.env, setup.owners
@@ -509,6 +523,8 @@ def run_g33(n: int, *, setup: Optional[Step3Setup] = None, variants: Sequence[st
         "owner_volume": [float(v) for v in volume], "results": report_variants, "max_rel_l2": worst,
         "seconds": time.perf_counter() - started, "setup_seconds": setup.seconds,
     }
+    if setup.face_quadrature != DEFAULT_FACE_QUADRATURE:
+        report["face_quadrature"] = setup.face_quadrature
     _write(report, output_dir, f"N{n}_g33.json")
     return report
 
@@ -617,18 +633,25 @@ def main(argv=None) -> int:
     parser.add_argument("--grids", default="32")
     parser.add_argument("--gates", default="g32,g33")
     parser.add_argument("--curvature", choices=("fd", "autodiff"), default=DEFAULT_CURVATURE)
+    parser.add_argument("--face-quadrature", choices=FACE_QUADRATURE_CHOICES, default=DEFAULT_FACE_QUADRATURE,
+                        help="P05/P06 face-node rule (P07 stays q3)")
     parser.add_argument("--output-dir", default=None,
-                        help="default: the saved-gates directory for fd; a sibling '<dir>_autodiff' for autodiff")
+                        help="default: the saved-gates directory for fd; a sibling '<dir>_autodiff' for autodiff; "
+                             "'<dir>_q2' for q2 (autodiff), '<dir>_fd_q2' for q2 with fd")
     parser.add_argument("--orders-only", action="store_true", help="only combine the saved N*_g33.json files")
     args = parser.parse_args(argv)
     if args.output_dir is None:
-        args.output_dir = str(GATES_DIR if args.curvature == "fd" else GATES_DIR.with_name(GATES_DIR.name + "_autodiff"))
+        if args.face_quadrature != DEFAULT_FACE_QUADRATURE:
+            suffix = "_q2" if args.curvature == "autodiff" else "_fd_q2"
+            args.output_dir = str(GATES_DIR.with_name(GATES_DIR.name + suffix))
+        else:
+            args.output_dir = str(GATES_DIR if args.curvature == "fd" else GATES_DIR.with_name(GATES_DIR.name + "_autodiff"))
     gates = set(args.gates.split(","))
     ok = True
     if not args.orders_only:
         for n in (int(g) for g in args.grids.split(",")):
             campaigns = CAMPAIGNS if "g32" in gates else ("p06n",)
-            setup = build_setup(n, campaigns, curvature=args.curvature)
+            setup = build_setup(n, campaigns, curvature=args.curvature, face_quadrature=args.face_quadrature)
             print(f"N{n}: setup {setup.seconds:.0f}s, owners {len(setup.owners)}", flush=True)
             if "g32" in gates:
                 report = run_g32(n, setup=setup, output_dir=args.output_dir)

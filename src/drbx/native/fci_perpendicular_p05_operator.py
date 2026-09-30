@@ -181,8 +181,8 @@ def p05_terms_from_state(plan: PerpendicularPlan, gradient, common_gradient, low
     """The operator arithmetic on an already-reconstructed state (what :func:`p05_terms` does after the
     reconstruction), for callers that share the state between operators or substitute another one.
 
-    ``gradient`` ``(R, 3, F)`` (``cell_state(...).gradient``), ``common_gradient`` ``(Fc, 9, 3, F)`` and the side
-    values ``lower`` / ``upper`` ``(Fc, 9, F)`` (``face_state``), ``pairs`` indexing the last axis. For P05N pass
+    ``gradient`` ``(R, 3, F)`` (``cell_state(...).gradient``), ``common_gradient`` ``(Fc, Qf, 3, F)`` and the side
+    values ``lower`` / ``upper`` ``(Fc, Qf, F)`` (``face_state``), ``pairs`` indexing the last axis. For P05N pass
     the role-selected arrays and ``n_pair_index + d_pair_index`` and split the pair axis at ``P``.
     """
     cells, faces = _need_parts(plan)

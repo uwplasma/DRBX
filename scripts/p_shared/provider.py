@@ -53,6 +53,10 @@ and ``p06_face_curvature`` returns ``J`` and ``B`` exactly as the frozen
 ``_face_geometry`` does but ``K`` from autodiff at *every* node, wall nodes
 included (the one-sided finite-difference wall rule is not used).
 
+Face-quadrature option.  ``face_node_weight(faces, keys, order=3)`` is the q3 default; ``order=2`` gives the q2 face
+nodes of the P05/P06 option (``p_shared.face_quadrature``).  The provider's ``face_quadrature`` attribute only
+records the declared rule (checked against the environment's); P07 always asks for ``order=3``.
+
 Do not put this package's own directory first on ``sys.path`` -- it has no
 stdlib-shadowing modules today, but per the P-path convention (see
 ``p06n_field_derived_global/campaign.py``'s module docstring) always import
@@ -80,6 +84,8 @@ from p_shared.curvature_reference import check_curvature as _check_curvature  # 
 from p_shared.curvature_reference import wrap_reference as _wrap_reference  # noqa: E402
 from p_shared.curvature_reference import face_geometry as _face_geometry_for  # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
+from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE  # noqa: E402
+from p_shared.face_quadrature import check_face_quadrature as _check_face_quadrature  # noqa: E402
 
 from drbx.stencils.geometry_arrays import GeometryProvider  # noqa: E402
 
@@ -92,15 +98,19 @@ class ScriptsGeometryProvider:
     of the frozen calls documented in this module's docstring, unchanged.
     """
 
-    def __init__(self, reference: Any, *, curvature: str = DEFAULT_CURVATURE) -> None:
+    def __init__(self, reference: Any, *, curvature: str = DEFAULT_CURVATURE,
+                 face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> None:
         self._curvature_choice = _check_curvature(curvature)
+        self._face_quadrature = _check_face_quadrature(face_quadrature)
         self._reference = _wrap_reference(reference, curvature)
 
     @classmethod
-    def from_sidecar(cls, sidecar, *, verify_hashes: bool = False, curvature: str = DEFAULT_CURVATURE) -> "ScriptsGeometryProvider":
+    def from_sidecar(cls, sidecar, *, verify_hashes: bool = False, curvature: str = DEFAULT_CURVATURE,
+                     face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> "ScriptsGeometryProvider":
         """Build the frozen reference exactly as every accepted campaign
         does, via ``p07_diffusion_global.numerics.reference``, then wrap it."""
-        return cls(_refnum.reference(sidecar, verify_hashes=verify_hashes), curvature=curvature)
+        return cls(_refnum.reference(sidecar, verify_hashes=verify_hashes), curvature=curvature,
+                   face_quadrature=face_quadrature)
 
     @property
     def reference(self) -> Any:
@@ -110,6 +120,13 @@ class ScriptsGeometryProvider:
     def curvature(self) -> str:
         """``"fd"`` (frozen finite-difference K) or ``"autodiff"``."""
         return self._curvature_choice
+
+    @property
+    def face_quadrature(self) -> str:
+        """``"q3"`` (default) or ``"q2"``: the P05/P06 face-node rule this provider is declared for
+        (checked against ``Environment.face_quadrature`` by ``owner_closure.build_owner_rows``).
+        ``face_node_weight`` takes its ``order`` explicitly, so this attribute selects nothing itself."""
+        return self._face_quadrature
 
     # -- P05 -----------------------------------------------------------
     def p05_metric(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -144,7 +161,7 @@ class ScriptsGeometryProvider:
         points = np.asarray(points, dtype=np.float64)
         return self._reference._perpendicular_geometry(points)
 
-    # -- Quadrature (q1 / q3) ---------------------------------------------
+    # -- Quadrature (q1 / q3, q2 faces) ---------------------------------------------
     def raw_cell_weight(
         self, faces: tuple[np.ndarray, np.ndarray, np.ndarray], keys: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -152,10 +169,11 @@ class ScriptsGeometryProvider:
         return _quadrature(faces, keys, 1, face=False)
 
     def face_node_weight(
-        self, faces: tuple[np.ndarray, np.ndarray, np.ndarray], keys: np.ndarray
+        self, faces: tuple[np.ndarray, np.ndarray, np.ndarray], keys: np.ndarray, order: int = 3
     ) -> tuple[np.ndarray, np.ndarray]:
+        """``order x order`` Gauss face nodes and weights (3, the default: q3; 2: q2, the P05/P06 option)."""
         keys = np.asarray(keys, dtype=np.int64)
-        return _quadrature(faces, keys, 3, face=True)
+        return _quadrature(faces, keys, order, face=True)
 
 
 def _assert_conforms() -> None:

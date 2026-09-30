@@ -124,6 +124,8 @@ from p_shared import runner                                       # noqa: E402
 from p_shared import provider as p_shared_provider                 # noqa: E402
 from p_shared.curvature_reference import check_curvature           # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
+from p_shared.face_quadrature import (               # noqa: E402
+    DEFAULT_FACE_QUADRATURE, FACE_QUADRATURE_CHOICES, check_face_quadrature, face_order as _face_order)
 from p07_diffusion_global.numerics import quadrature as _p07_quadrature  # noqa: E402
 from perpendicular_structured.reconstruction import load_context   # noqa: E402
 from p07n_field_derived_global.fields import normal as _p07n_normal  # noqa: E402
@@ -149,6 +151,8 @@ FACE_GEOMETRY_FIELDS = (
     "face_points", "p05_face_h", "p05_face_jacobian", "p06_face_J",
     "p06_face_B", "p06_face_K", "p06_face_weight", "p07_face_tensor",
 )
+#: the additional face fields of a ``face_quadrature="q2"`` build (the P07 q3 set; see ``GeometryArrays``)
+FACE_GEOMETRY_FIELDS_Q2 = FACE_GEOMETRY_FIELDS + ("p07_face_points", "p07_face_weight")
 
 GEOMETRY_SUBDIR = "geometry_artifacts/rlp_convergence_32_48_64_20260917"
 
@@ -222,19 +226,32 @@ AUTODIFF_SOURCE_FILES = [
 ]
 
 
-def build_policy(curvature: str = DEFAULT_CURVATURE) -> dict:
-    """``POLICY`` for ``curvature="fd"`` (exactly, so existing identities are unchanged); with
-    ``"autodiff"`` the same policy plus ``curvature`` (distinct identity)."""
+#: extra source pinned only for ``face_quadrature="q2"`` builds (the ``"q3"`` identity is unchanged)
+Q2_SOURCE_FILES = [
+    "scripts/p_shared/face_quadrature.py",
+]
+
+
+def build_policy(curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> dict:
+    """``POLICY`` for ``curvature="fd"`` and ``face_quadrature="q3"`` (exactly, so existing identities are
+    unchanged); with ``"autodiff"`` the same policy plus ``curvature`` (distinct identity); with ``"q2"`` the
+    P05/P06 face rule is recorded as ``quadrature = {"raw": "q1", "face": "q2", "p07_face": "q3"}``."""
     check_curvature(curvature)
-    return dict(POLICY) if curvature == "fd" else {**POLICY, "curvature": "autodiff"}
+    check_face_quadrature(face_quadrature)
+    policy = dict(POLICY) if curvature == "fd" else {**POLICY, "curvature": "autodiff"}
+    if face_quadrature != DEFAULT_FACE_QUADRATURE:
+        policy["quadrature"] = {"raw": "q1", "face": face_quadrature, "p07_face": "q3"}
+    return policy
 
 
-def build_identity(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = DEFAULT_CURVATURE) -> dict:
+def build_identity(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = DEFAULT_CURVATURE,
+                   face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> dict:
     component_hashes = {**_geometry_component_hashes(input_root, n), **_sidecar_component_hashes(sidecar_path)}
-    sources = SOURCE_FILES + (AUTODIFF_SOURCE_FILES if curvature != "fd" else [])
+    sources = (SOURCE_FILES + (AUTODIFF_SOURCE_FILES if curvature != "fd" else [])
+               + (Q2_SOURCE_FILES if face_quadrature != DEFAULT_FACE_QUADRATURE else []))
     source_hashes = {rel: artifact_mod.hash_file(REPO / rel) for rel in sources}
     return artifact_mod.build_identity(component_hashes=component_hashes, source_hashes=source_hashes,
-                                       policy=build_policy(curvature))
+                                       policy=build_policy(curvature, face_quadrature))
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +280,8 @@ def face_row_selection(census: FaceCensus) -> np.ndarray:
     return np.flatnonzero(~(census.collapsed_r0 | census.legacy_alias_slots))
 
 
-def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_dir: Path, curvature: str = DEFAULT_CURVATURE):
+def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_dir: Path, curvature: str = DEFAULT_CURVATURE,
+                        face_quadrature: str = DEFAULT_FACE_QUADRATURE):
     """Load ``t``/build ``context``/``census``/``GeometryArrays`` once, all
     in this single process (no parallelism) -- the original, still-supported
     one-shot geometry build. Saves ``census.npz``/``geometry.npz`` under
@@ -282,9 +300,11 @@ def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_di
 
     face_row_indices = face_row_selection(census)
     provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False,
-                                                                     curvature=curvature)
+                                                                     curvature=curvature,
+                                                                     face_quadrature=face_quadrature)
+    extra = {} if face_quadrature == DEFAULT_FACE_QUADRATURE else {"face_order": _face_order(face_quadrature)}
     geometry = builder.build_geometry_arrays(provider, context, raw_ids=np.arange(n ** 3, dtype=np.int64),
-                                             face_row_indices=face_row_indices, census=census)
+                                             face_row_indices=face_row_indices, census=census, **extra)
     geometry.save(grid_dir / "geometry.npz")
     return t, context, census, geometry
 
@@ -300,18 +320,19 @@ GEOMETRY_STATE: dict = {}
 
 
 def _init_geometry_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict,
-                          curvature: str = DEFAULT_CURVATURE):
+                          curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFAULT_FACE_QUADRATURE):
     global GEOMETRY_STATE
     runner.require_cpu_backend()
     grid_dir = Path(output) / f"N{n}"
     t = load_context(n, str(input_root))
     census = FaceCensus.load(grid_dir / "census.npz")
     provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(sidecar_path, verify_hashes=False,
-                                                                     curvature=curvature)
+                                                                     curvature=curvature,
+                                                                     face_quadrature=face_quadrature)
     GEOMETRY_STATE = {
         "faces": t.faces, "census": census, "provider": provider,
         "face_row_indices": face_row_selection(census), "n": n,
-        "output": Path(output), "identity": identity,
+        "output": Path(output), "identity": identity, "face_order": _face_order(face_quadrature),
     }
 
 
@@ -334,7 +355,9 @@ def _compute_geometry_face(unit: dict) -> dict:
     sl = slice(unit["start"], unit["stop"])
     row_indices = s["face_row_indices"][sl]
     face_keys = builder.census_face_keys(s["census"], row_indices)
-    arrays = build_face_geometry_arrays(s["provider"], s["faces"], face_keys)
+    face_order = s.get("face_order", 3)                    # (test states set up by hand have no "face_order")
+    arrays = (build_face_geometry_arrays(s["provider"], s["faces"], face_keys) if face_order == 3
+              else build_face_geometry_arrays(s["provider"], s["faces"], face_keys, face_order))
     return runner.write_unit(s["output"], unit, s["identity"], chunks={"chunk": arrays},
                               started=started, extra={"count": int(len(row_indices))})
 
@@ -342,14 +365,15 @@ def _compute_geometry_face(unit: dict) -> dict:
 _GEOMETRY_COMPUTE = {"geometry_raw": _compute_geometry_raw, "geometry_face": _compute_geometry_face}
 
 
-def _assemble_geometry(output: Path, grid_dir: Path, plan: dict) -> GeometryArrays:
+def _assemble_geometry(output: Path, grid_dir: Path, plan: dict, face_order: int = 3) -> GeometryArrays:
     """Concatenate every geometry_raw/geometry_face unit's own slice, in
     plan order -- the same raw-id order (``np.arange(n**3)``) and the same
     face-row order (``face_row_selection(census)``) the one-shot serial
     build used, so this reproduces its array layout exactly -- into one
     ``GeometryArrays``, recompute its identity from the assembled arrays,
     and save it to ``geometry.npz`` (same path/schema
-    ``_init_worker``/``build_geometry_only`` already read)."""
+    ``_init_worker``/``build_geometry_only`` already read). ``face_order`` 2 (the ``q2`` face rule) adds the
+    P07 q3 face set (``p07_face_points`` / ``p07_face_weight``) to the assembled arrays."""
     def _load(stage_units, fields):
         parts = []
         for unit in stage_units:
@@ -358,7 +382,9 @@ def _assemble_geometry(output: Path, grid_dir: Path, plan: dict) -> GeometryArra
         return {name: np.concatenate([p[name] for p in parts], axis=0) for name in fields}
 
     arrays = {**_load(plan["geometry_raw"], RAW_GEOMETRY_FIELDS),
-              **_load(plan["geometry_face"], FACE_GEOMETRY_FIELDS)}
+              **_load(plan["geometry_face"], FACE_GEOMETRY_FIELDS if face_order == 3 else FACE_GEOMETRY_FIELDS_Q2)}
+    if face_order != 3:
+        arrays["face_order"] = face_order
     identity = GeometryArrays._compute_identity(arrays)
     geometry = GeometryArrays(schema=GEOMETRY_SCHEMA, identity=identity, **arrays)
     geometry.save(grid_dir / "geometry.npz")
@@ -535,11 +561,12 @@ def _compute_p07(unit: dict) -> dict:
     geometry = s["geometry"]
     regular = face_pos >= 0
     count = len(row_indices)
-    face_points = np.empty((count,) + geometry.face_points.shape[1:], dtype=geometry.face_points.dtype)
-    face_weight = np.zeros((count,) + geometry.p06_face_weight.shape[1:], dtype=geometry.p06_face_weight.dtype)
+    p07_points, p07_weight = geometry.p07_points, geometry.p07_weight      # the q3 set (= the face set at q3)
+    face_points = np.empty((count,) + p07_points.shape[1:], dtype=p07_points.dtype)
+    face_weight = np.zeros((count,) + p07_weight.shape[1:], dtype=p07_weight.dtype)
     face_tensor = np.zeros((count,) + geometry.p07_face_tensor.shape[1:], dtype=geometry.p07_face_tensor.dtype)
-    face_points[regular] = geometry.face_points[face_pos[regular]]
-    face_weight[regular] = geometry.p06_face_weight[face_pos[regular]]
+    face_points[regular] = p07_points[face_pos[regular]]
+    face_weight[regular] = p07_weight[face_pos[regular]]
     face_tensor[regular] = geometry.p07_face_tensor[face_pos[regular]]
     if np.any(~regular):
         collapsed_keys = s["census"].keys()[row_indices[~regular]]
@@ -757,6 +784,7 @@ def run_full_build(
     max_tasks_per_worker: int | None = None,
     max_units: int | None = None,
     curvature: str = DEFAULT_CURVATURE,
+    face_quadrature: str = DEFAULT_FACE_QUADRATURE,
 ) -> dict:
     """Build the full N{n} row artifact and return the same dict written to
     ``<output>/N{n}/build_receipt.json``.
@@ -764,6 +792,10 @@ def run_full_build(
     ``curvature`` (``"autodiff"``, the default, or ``"fd"``) selects the curvature ``K`` of the geometry
     arrays and of the reference used by the row builders (see ``p_shared.provider``); it is recorded in
     the build policy, so an autodiff build has a different identity from an fd build.
+
+    ``face_quadrature`` (``"q3"``, the default, or ``"q2"``) is the P05/P06 face-node rule: q2 builds R2/R3 rows
+    and the face geometry at 2x2 Gauss (four nodes per face); P07 (R4) stays q3. It is recorded in the build
+    policy (``quadrature.face``), so a q2 build has a distinct identity; ``"q3"`` is bitwise the historic build.
 
     ``workers`` is the requested process-pool size for every stage; if both
     ``memory_budget_gib`` and ``worker_memory_gib`` are given, the effective
@@ -791,6 +823,8 @@ def run_full_build(
     ``rebuilt_after_failed_verification``.
     """
     check_curvature(curvature)
+    check_face_quadrature(face_quadrature)
+    face_order = _face_order(face_quadrature)
     input_root = Path(input_root).resolve()
     sidecar_path = Path(sidecar_path).resolve()
     output = Path(output).resolve()
@@ -799,7 +833,8 @@ def run_full_build(
     effective_workers = _effective_workers(workers, memory_budget_gib, worker_memory_gib, memory_reserve_gib)
 
     with runner.lock(output):
-        identity = build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path, curvature=curvature)
+        identity = build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path, curvature=curvature,
+                                  face_quadrature=face_quadrature)
         identity_path = grid_dir / "build_identity.json"
         if identity_path.exists():
             saved = json.loads(identity_path.read_text())
@@ -863,6 +898,7 @@ def run_full_build(
                 f"~{estimated_gib:.2f} GiB would leave <8 GiB free")
 
         initargs = (str(input_root), str(sidecar_path), str(output), n, identity, curvature)
+        geometry_initargs = initargs if face_order == 3 else initargs + (face_quadrature,)
         summaries = {}
 
         geometry_complete = geometry_path.exists()
@@ -872,7 +908,7 @@ def run_full_build(
             for stage in ("geometry_raw", "geometry_face"):
                 summaries[stage] = runner.run_stage(
                     output, stage, plan[stage], identity,
-                    compute=_GEOMETRY_COMPUTE[stage], initializer=_init_geometry_worker, initargs=initargs,
+                    compute=_GEOMETRY_COMPUTE[stage], initializer=_init_geometry_worker, initargs=geometry_initargs,
                     workers=effective_workers, parts=("chunk",),
                     max_tasks_per_worker=max_tasks_per_worker, max_units=max_units)
             # `max_units` (a bounded, resumable invocation -- e.g. a
@@ -889,7 +925,8 @@ def run_full_build(
                 runner.valid_unit(output, unit, identity, parts=("chunk",))
                 for stage in ("geometry_raw", "geometry_face") for unit in plan[stage])
             if geometry_complete:
-                _assemble_geometry(output, grid_dir, plan)
+                (_assemble_geometry(output, grid_dir, plan) if face_order == 3
+                 else _assemble_geometry(output, grid_dir, plan, face_order))
 
         if not geometry_complete:
             return {
@@ -967,6 +1004,9 @@ def parse_args(argv=None):
     p.add_argument("--max-units", type=int, default=None, help="for smoke-testing a partial build")
     p.add_argument("--curvature", choices=("fd", "autodiff"), default=DEFAULT_CURVATURE,
                    help="curvature K of the geometry and reference (recorded in the build identity)")
+    p.add_argument("--face-quadrature", choices=FACE_QUADRATURE_CHOICES, default=DEFAULT_FACE_QUADRATURE,
+                   help="P05/P06 face-node rule: q3 (9 nodes) or q2 (4 nodes); P07 stays q3 "
+                        "(recorded in the build identity)")
     return p.parse_args(argv)
 
 
@@ -978,7 +1018,8 @@ def main(argv=None) -> dict:
         memory_reserve_gib=args.memory_reserve_gib,
         cell_chunk_size=args.cell_chunk_size, face_chunk_size=args.face_chunk_size, p07_chunk_size=args.p07_chunk_size,
         geometry_raw_chunk_size=args.geometry_raw_chunk_size, geometry_face_chunk_size=args.geometry_face_chunk_size,
-        max_tasks_per_worker=args.max_tasks_per_worker, max_units=args.max_units, curvature=args.curvature)
+        max_tasks_per_worker=args.max_tasks_per_worker, max_units=args.max_units, curvature=args.curvature,
+        face_quadrature=args.face_quadrature)
 
 
 if __name__ == "__main__":

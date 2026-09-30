@@ -50,6 +50,7 @@ if str(_SCRIPTS) not in sys.path:
 from p_shared import selection as sel                              # noqa: E402
 from p_shared import provider as pshared_provider                  # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
+from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE, face_order as _face_order  # noqa: E402
 from p_shared import replay_units as ru                            # noqa: E402
 from p_shared.replay_support import (                              # noqa: E402
     Environment, build_environment, _load_p05_upwind,
@@ -159,14 +160,17 @@ def selection_fixture(t, census) -> dict:
     }
 
 
-def load_provider_for_env(sidecar_path, *, curvature: str = DEFAULT_CURVATURE) -> "pshared_provider.ScriptsGeometryProvider":
+def load_provider_for_env(sidecar_path, *, curvature: str = DEFAULT_CURVATURE,
+                          face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> "pshared_provider.ScriptsGeometryProvider":
     """A ``ScriptsGeometryProvider`` built the same way ``build_environment``
     builds ``env.ref`` internally (``env.ref`` is only its ``.reference``
     attribute -- ``build_geometry_arrays`` below needs the provider itself,
     for its ``.face_points``/``.p06_face_weight``/``.p07_face_tensor``
-    methods).  ``curvature`` must match the environment's (``build_environment(..., curvature=...)``)."""
+    methods).  ``curvature`` and ``face_quadrature`` must match the environment's
+    (``build_environment(..., curvature=..., face_quadrature=...)``)."""
     return pshared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False,
-                                                                 curvature=curvature)
+                                                                 curvature=curvature,
+                                                                 face_quadrature=face_quadrature)
 
 
 # ---------------------------------------------------------------------------
@@ -204,14 +208,19 @@ _FACE_GEOMETRY_FIELDS = (
 )
 
 
+_FACE_GEOMETRY_FIELDS_Q2 = _FACE_GEOMETRY_FIELDS + ("p07_face_points", "p07_face_weight")
+
+
 def _owner_geometry_arrays(provider, faces, raw_keys: np.ndarray, face_keys: np.ndarray, *,
-                           raw_chunk: int = _GEOMETRY_RAW_CHUNK, face_chunk: int = _GEOMETRY_FACE_CHUNK):
+                           raw_chunk: int = _GEOMETRY_RAW_CHUNK, face_chunk: int = _GEOMETRY_FACE_CHUNK,
+                           face_order: int = 3):
     """Build a :class:`~drbx.stencils.geometry_arrays.GeometryArrays` for
     exactly ``raw_keys``/``face_keys`` (an owner-selected subset, never the
     whole grid), batched at ``raw_chunk``/``face_chunk`` -- see this module's
     own section docstring above for why this is bitwise-equivalent to the
     previous single unchunked ``stencil_builder.build_geometry_arrays`` call
-    whenever the subset stays under one chunk."""
+    whenever the subset stays under one chunk.  ``face_order`` (3 default, or 2) is the P05/P06 face-node
+    rule (``GeometryArrays.face_order``); at 3 every array is exactly the historic one."""
     from drbx.stencils import geometry_arrays as geom_arrays_mod
 
     raw_keys = np.asarray(raw_keys, dtype=np.int64)
@@ -219,13 +228,17 @@ def _owner_geometry_arrays(provider, faces, raw_keys: np.ndarray, face_keys: np.
     raw_parts = [geom_arrays_mod.build_raw_geometry_arrays(provider, faces, raw_keys[start:start + raw_chunk])
                 for start in range(0, len(raw_keys), raw_chunk)] or [
         geom_arrays_mod.build_raw_geometry_arrays(provider, faces, raw_keys[:0])]
-    face_parts = [geom_arrays_mod.build_face_geometry_arrays(provider, faces, face_keys[start:start + face_chunk])
+    face_args = () if face_order == 3 else (face_order,)      # the q3 call stays exactly the historic one
+    face_parts = [geom_arrays_mod.build_face_geometry_arrays(provider, faces, face_keys[start:start + face_chunk],
+                                                             *face_args)
                  for start in range(0, len(face_keys), face_chunk)] or [
-        geom_arrays_mod.build_face_geometry_arrays(provider, faces, face_keys[:0])]
+        geom_arrays_mod.build_face_geometry_arrays(provider, faces, face_keys[:0], *face_args)]
 
     arrays = {field: np.concatenate([part[field] for part in raw_parts], axis=0) for field in _RAW_GEOMETRY_FIELDS}
     arrays.update({field: np.concatenate([part[field] for part in face_parts], axis=0)
-                  for field in _FACE_GEOMETRY_FIELDS})
+                  for field in (_FACE_GEOMETRY_FIELDS if face_order == 3 else _FACE_GEOMETRY_FIELDS_Q2)})
+    if face_order != 3:
+        arrays["face_order"] = face_order
     identity = geom_arrays_mod.GeometryArrays._compute_identity(arrays)
     return geom_arrays_mod.GeometryArrays(schema=geom_arrays_mod.SCHEMA, identity=identity, **arrays)
 
@@ -252,10 +265,17 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
 
     The geometry's curvature follows ``provider.curvature`` (``"fd"`` or ``"autodiff"``) and must equal
     ``env.curvature`` (one flag switches the operator geometry and the reference together); a mismatch raises.
+    The same holds for ``face_quadrature`` (``"q3"`` default, or ``"q2"``: the P05/P06 face nodes, R2/R3 rows
+    and geometry; the P07 R4 rows stay q3): ``provider.face_quadrature`` must equal ``env.face_quadrature``.
     """
     if provider is not None and getattr(provider, "curvature", "fd") != getattr(env, "curvature", "fd"):
         raise ValueError(f"provider curvature {provider.curvature!r} does not match environment curvature "
                          f"{env.curvature!r}")
+    env_face_quadrature = getattr(env, "face_quadrature", DEFAULT_FACE_QUADRATURE)
+    if provider is not None and getattr(provider, "face_quadrature", DEFAULT_FACE_QUADRATURE) != env_face_quadrature:
+        raise ValueError(f"provider face_quadrature {provider.face_quadrature!r} does not match environment "
+                         f"face_quadrature {env_face_quadrature!r}")
+    face_order = _face_order(env_face_quadrature)
     t = env.t
     census = env.census
     unique_owners = sorted(set(int(o) for o in owners))
@@ -276,7 +296,10 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
     n = t.n
     raw_keys = np.array(np.unravel_index(raw_ids, (n, n, n))).T.astype(np.int64)
     face_keys = stencil_builder.census_face_keys(census, face_row_indices)
-    geometry = _owner_geometry_arrays(provider, env.ctx.faces, raw_keys, face_keys)
+    if face_order == 3:
+        geometry = _owner_geometry_arrays(provider, env.ctx.faces, raw_keys, face_keys)
+    else:
+        geometry = _owner_geometry_arrays(provider, env.ctx.faces, raw_keys, face_keys, face_order=face_order)
 
     patch_cache: dict = {}
     point_requests, neumann_requests = stencil_builder.build_r1_cell_rows(
@@ -294,7 +317,7 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
     if not np.array_equal(face_row_indices[face_pos], p07_row_indices):
         raise ValueError("build_owner_rows: p07_row_indices must be a subset of face_row_indices")
     integrated_requests, p07_neumann = stencil_builder.build_r4_p07_rows(
-        env.ctx, census, p07_row_indices, geometry.face_points[face_pos], geometry.p06_face_weight[face_pos],
+        env.ctx, census, p07_row_indices, geometry.p07_points[face_pos], geometry.p07_weight[face_pos],
         geometry.p07_face_tensor[face_pos], normal_coefficients=env.normal_coefficients, patch_cache=patch_cache)
     neumann_requests = neumann_requests + p07_neumann
 
@@ -306,6 +329,7 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
         "owners": unique_owners, "raw_ids": raw_ids, "face_row_indices": face_row_indices,
         "p07_row_indices": p07_row_indices, "row_index": row_index, "neumann_index": neumann_index,
         "geometry": geometry, "curvature": getattr(provider, "curvature", "fd"),
+        "face_quadrature": env_face_quadrature,
     }
 
 
@@ -392,27 +416,30 @@ def assemble_owner_terms(env: Environment, built: dict, campaigns: tuple, oracle
                                  for local, ridx in enumerate(face_row_indices)]
 
     F = len(face_row_indices)
-    _q_points_all, weight_all = ((np.zeros((0, 9, 3)), np.zeros((0, 9))) if F == 0 else
-                                ru.pshared_provider._quadrature(env.t.faces, keys, 3, face=True))
+    face_ord = _face_order(getattr(env, "face_quadrature", DEFAULT_FACE_QUADRATURE))
+    face_nodes = face_ord ** 2                    # P05/P06 face nodes: 9 (q3) or 4 (q2)
+    _q_points_all, weight_all = ((np.zeros((0, face_nodes, 3)), np.zeros((0, face_nodes))) if F == 0 else
+                                ru.pshared_provider._quadrature(env.t.faces, keys, face_ord, face=True))
     common_counts = [len(p) for p in common_points_by_face]
     common_points_flat = (_q_points_all.reshape(-1, 3) if F else np.zeros((0, 3)))
-    if F and len(set(common_counts)) == 1 and common_counts[0] == 9:
+    if F and len(set(common_counts)) == 1 and common_counts[0] == face_nodes:
         metric_all = env.ref._metric(common_points_flat)
-        h_all = (metric_all["bcov"] / metric_all["B"][:, None]).reshape(F, 9, 3)
+        h_all = (metric_all["bcov"] / metric_all["B"][:, None]).reshape(F, face_nodes, 3)
     elif F:
         metric_all = env.ref._metric(common_points_flat)
         h_flat = metric_all["bcov"] / metric_all["B"][:, None]
         h_all = np.split(h_flat, np.cumsum(common_counts)[:-1])
     else:
-        h_all = np.zeros((0, 9, 3))
+        h_all = np.zeros((0, face_nodes, 3))
 
     J_all = B_all = K_all = None
     if F and ("p06n" in campaigns or "p06_legacy" in campaigns):
         from p_shared.curvature_reference import face_geometry as _face_geometry_for
 
         J_flat, B_flat, K_flat = _face_geometry_for(env.ref, common_points_flat)
-        if len(set(common_counts)) == 1 and common_counts[0] == 9:
-            J_all = J_flat.reshape(F, 9); B_all = B_flat.reshape(F, 9); K_all = K_flat.reshape(F, 9, -1)
+        if len(set(common_counts)) == 1 and common_counts[0] == face_nodes:
+            J_all = J_flat.reshape(F, face_nodes); B_all = B_flat.reshape(F, face_nodes)
+            K_all = K_flat.reshape(F, face_nodes, -1)
         else:
             splits = np.cumsum(common_counts)[:-1]
             J_all = np.split(J_flat, splits); B_all = np.split(B_flat, splits); K_all = np.split(K_flat, splits)
@@ -684,7 +711,8 @@ def oracle_available(paths: dict, campaigns: tuple, n: int = 32) -> bool:
 
 
 def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, paths: dict, campaigns: tuple,
-                            compare: bool, curvature: str = DEFAULT_CURVATURE) -> dict:
+                            compare: bool, curvature: str = DEFAULT_CURVATURE,
+                            face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> dict:
     """The full bounded owner-closure check (task report): build ``env``,
     select owners, build only their incident rows, run every campaign's own
     replay-unit arithmetic, and -- when ``compare`` -- diff against each
@@ -696,19 +724,22 @@ def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, pat
     import time as _time
 
     started = _time.time()
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature)
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature,
+                            face_quadrature=face_quadrature)
     t = env.t; census = env.census
 
     fixture = selection_fixture(t, census)
     unique_owners = fixture["owners"]
 
-    provider = load_provider_for_env(sidecar_path, curvature=curvature)
+    provider = load_provider_for_env(sidecar_path, curvature=curvature, face_quadrature=face_quadrature)
     built = build_owner_rows(env, unique_owners, provider=provider)
     payload = {
         "n": n, "curvature": curvature, "selection": fixture,
         "row_counts": {"raw_ids": int(len(built["raw_ids"])), "face_row_indices": int(len(built["face_row_indices"])),
                       "p07_row_indices": int(len(built["p07_row_indices"]))},
     }
+    if face_quadrature != DEFAULT_FACE_QUADRATURE:
+        payload["face_quadrature"] = face_quadrature
     if not compare:
         payload["seconds"] = _time.time() - started
         return payload

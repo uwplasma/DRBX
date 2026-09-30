@@ -130,6 +130,7 @@ from drbx.geometry.fci_perpendicular_integrated_rows import contract_face_tensor
 from p_shared import apply as pshared_apply                             # noqa: E402
 from p_shared import campaign_fields as cf                              # noqa: E402
 from p_shared import provider as pshared_provider                       # noqa: E402
+from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE, face_order as _face_order  # noqa: E402
 from p_shared import runner                                             # noqa: E402
 from p_shared.replay_support import (                                   # noqa: E402
     CAMPAIGN_FUNCS, CAMPAIGN_CATALOGUE_FILES,
@@ -1235,11 +1236,14 @@ def compute_faces_unit(unit: dict) -> dict:
     # keeps that branch's old behavior unchanged rather than assuming it is
     # dead code.
     F = len(row_indices)
-    ragged = F and (len(set(common_counts)) != 1 or common_counts[0] != 9)
+    # P05/P06 face nodes: q3 (9) by default, q2 (4) with ``env.face_quadrature == "q2"``
+    face_ord = _face_order(getattr(env, "face_quadrature", DEFAULT_FACE_QUADRATURE))
+    face_nodes = face_ord ** 2
+    ragged = F and (len(set(common_counts)) != 1 or common_counts[0] != face_nodes)
     if F == 0:
-        _q_points_all, weight_all = np.zeros((0, 9, 3)), np.zeros((0, 9))
+        _q_points_all, weight_all = np.zeros((0, face_nodes, 3)), np.zeros((0, face_nodes))
     elif ragged:
-        _q_points_all, weight_all = pshared_provider._quadrature(env.t.faces, keys, 3, face=True)
+        _q_points_all, weight_all = pshared_provider._quadrature(env.t.faces, keys, face_ord, face=True)
     else:
         geometry = s["geometry"]
         sl = slice(unit["start"], unit["stop"])
@@ -1255,7 +1259,7 @@ def compute_faces_unit(unit: dict) -> dict:
     common_neumann_points_by_face = [_q_points_all[i] for i in range(F)]
     common_points_flat = (_q_points_all.reshape(-1, 3) if F else np.zeros((0, 3)))
     if F == 0:
-        h_all = np.zeros((0, 9, 3))
+        h_all = np.zeros((0, face_nodes, 3))
     elif ragged:
         metric_all = env.ref._metric(common_points_flat)
         h_flat = metric_all["bcov"] / metric_all["B"][:, None]
@@ -1870,7 +1874,8 @@ def _true_query_point(env: Environment, stage: str, request: str, entity_id: int
         # row index (see drbx.stencils.builder.build_r3_side_rows's
         # docstring), so `entity_id` is directly a census row index here.
         key = env.census.keys()[entity_id][None, :]
-        points, _weight = pshared_provider._quadrature(env.t.faces, key, 3, face=True)
+        points, _weight = pshared_provider._quadrature(
+            env.t.faces, key, _face_order(getattr(env, "face_quadrature", DEFAULT_FACE_QUADRATURE)), face=True)
         return points[0, quad_node:quad_node + 1]
     if stage == "p07":
         rows = np.flatnonzero(env.census.p07_id == entity_id)
