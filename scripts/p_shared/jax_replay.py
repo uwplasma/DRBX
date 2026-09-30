@@ -82,7 +82,7 @@ from drbx.native.fci_perpendicular_p05_operator import p05_terms, p05n_action   
 from drbx.native.fci_perpendicular_p06_operator import bc_columns, p06_action, p06n_layout  # noqa: E402
 from drbx.native.fci_perpendicular_p07_operator import p07_face_flux                     # noqa: E402
 from drbx.native.fci_perpendicular_reconstruction_state import (                         # noqa: E402
-    BoundaryData, boundary_data_from_callables)
+    BoundaryData, boundary_data_from_callables, normalize_kinds)
 from drbx.stencils.loader import LoaderGrid                                              # noqa: E402
 from drbx.stencils.operator_plan import lower_perpendicular_plan_from_rows              # noqa: E402
 
@@ -97,6 +97,7 @@ __all__ = [
     "FLOOR_SEEDS", "CANCELLATION_TERMS", "JaxOwnerClosure", "jax_assemble_owner_terms",
     "run_jax_owner_closure_check", "normalized_terms", "classify_term", "evaluate_policy", "compare_terms",
     "conditioning_floors", "pairs_mismatches", "iter_pairs", "host_only_terms", "perturb_boundary",
+    "batched_callable", "greedy_blocks", "blocked_p05_terms", "blocked_p05n_action", "blocked_p06n_action",
 ]
 
 SCHEMA = "drbx.p08-step2b-jax-owner-closure.v1"
@@ -275,6 +276,117 @@ def pairs_mismatches(host: dict, jax_out: dict) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Batching / blocking (G3, full-grid plans): bound the memory of a replay without changing its arithmetic
+# ---------------------------------------------------------------------------
+def batched_callable(fn, batch, progress=None):
+    """``fn`` evaluated on consecutive ``batch``-point slices of its ``(Q, 3)`` argument and concatenated along
+    the point axis (a callback returning a tuple, like the Dirichlet trace ``(value, gradient)``, is
+    concatenated component-wise). ``batch=None`` (or a table not longer than ``batch``) is ``fn`` itself.
+    Use a multiple of 4096: the frozen metric evaluator re-batches at 4096 points internally.
+    ``progress(done, total)`` is called after every slice (long host callbacks: P05's trace costs ~6 ms/point)."""
+    if fn is None or not batch:
+        return fn
+    batch = int(batch)
+
+    def wrapped(points):
+        points = np.asarray(points)
+        if len(points) <= batch:
+            return fn(points)
+        parts = []
+        for i in range(0, len(points), batch):
+            parts.append(fn(points[i:i + batch]))
+            if progress is not None:
+                progress(min(i + batch, len(points)), len(points))
+        if isinstance(parts[0], tuple):
+            return tuple(np.concatenate([p[k] for p in parts], axis=0) for k in range(len(parts[0])))
+        return np.concatenate(parts, axis=0)
+    return wrapped
+
+
+def greedy_blocks(needs, cap: int, limit: Optional[int] = None) -> list:
+    """Split items ``0..len(needs)-1`` into consecutive blocks whose *union* of needed columns (``needs[i]``, a
+    set of hashables) has at most ``cap`` members and which hold at most ``limit`` items; an item that alone
+    needs more than ``cap`` columns gets a block of its own."""
+    blocks: list = []
+    current: list = []
+    used: set = set()
+    for i, need in enumerate(needs):
+        need = set(need)
+        if current and (len(used | need) > cap or (limit is not None and len(current) >= limit)):
+            blocks.append(current)
+            current, used = [], set()
+        current.append(i)
+        used |= need
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def _host_arrays(result, names) -> dict:
+    return {name: np.asarray(getattr(result, name)) for name in names}
+
+
+def blocked_p05_terms(plan, fields, bc, field_kinds, pairs, *, column_block: int) -> SimpleNamespace:
+    """:func:`p05_terms` over blocks of pairs whose columns fit ``column_block`` (fields are contracted
+    independently, so the blocks reproduce the unblocked terms). Returns host NumPy ``centered_numerator``,
+    ``jump_numerator`` ``(n_owners, P)``, ``face_jump`` ``(Fc, P)`` and the maximum ``antisymmetry``."""
+    fields = np.asarray(fields)
+    kinds = normalize_kinds(field_kinds, fields.shape[1])
+    pairs = [(int(a), int(b)) for a, b in pairs]
+    parts = []
+    for block in greedy_blocks(pairs, column_block):
+        cols = sorted({c for i in block for c in pairs[i]})
+        pos = {c: j for j, c in enumerate(cols)}
+        sub = tuple((pos[pairs[i][0]], pos[pairs[i][1]]) for i in block)
+        r = p05_terms(plan, fields[:, cols], bc_columns(bc, cols), tuple(kinds[c] for c in cols), sub)
+        parts.append(_host_arrays(r, ("centered_numerator", "jump_numerator", "face_jump", "antisymmetry")))
+    cat = lambda name: np.concatenate([p[name] for p in parts], axis=1)
+    return SimpleNamespace(centered_numerator=cat("centered_numerator"), jump_numerator=cat("jump_numerator"),
+                           face_jump=cat("face_jump"), antisymmetry=max(float(p["antisymmetry"]) for p in parts))
+
+
+def blocked_p05n_action(plan, fields, bc, role_kinds, n_pair_index, d_pair_index, *, columns,
+                        column_block: int) -> SimpleNamespace:
+    """:func:`p05n_action` over blocks of pairs whose role columns (N and D pairs together) fit ``column_block``.
+    ``columns`` is the role -> physical column table (``Reconstruction("role").columns``); ``fields`` / ``bc``
+    stay in the physical layout. Returns host NumPy ``raw_N_numerator`` / ``raw_D_numerator`` /
+    ``face_N_numerator`` / ``face_D_numerator`` ``(n_owners, P)`` and the maximum ``antisymmetry``."""
+    columns = [int(c) for c in np.asarray(columns).tolist()]
+    kinds = normalize_kinds(role_kinds, len(columns))
+    n_pairs = [(int(a), int(b)) for a, b in n_pair_index]
+    d_pairs = [(int(a), int(b)) for a, b in d_pair_index]
+    needs = [set(n) | set(d) for n, d in zip(n_pairs, d_pairs)]
+    names = ("raw_N_numerator", "raw_D_numerator", "face_N_numerator", "face_D_numerator", "antisymmetry")
+    parts = []
+    for block in greedy_blocks(needs, column_block):
+        roles = sorted(set().union(*(needs[i] for i in block)))
+        pos = {r: j for j, r in enumerate(roles)}
+        remap = lambda pair: (pos[pair[0]], pos[pair[1]])
+        r = p05n_action(plan, fields, bc, tuple(kinds[k] for k in roles), [remap(n_pairs[i]) for i in block],
+                        [remap(d_pairs[i]) for i in block], columns=[columns[k] for k in roles])
+        parts.append(_host_arrays(r, names))
+    ns = {name: np.concatenate([p[name] for p in parts], axis=1) for name in names[:-1]}
+    return SimpleNamespace(**ns, antisymmetry=max(float(p["antisymmetry"]) for p in parts))
+
+
+def blocked_p06n_action(plan, fields, bc, reconstructions, *, column_block: int,
+                        variant_block: Optional[int] = None) -> SimpleNamespace:
+    """:func:`p06_action` over blocks of P06N variants (``reconstructions``: the adapter ``Reconstruction`` of
+    each variant, in order) whose unique ``(column, kind)`` pairs fit ``column_block`` and which hold at most
+    ``variant_block`` variants (the q3 eigen-solve is per variant and face node). Returns host NumPy
+    ``material_numerator`` / ``remainder_numerator`` / ``correction_numerator`` ``(V, n_owners, 4)``."""
+    fields = np.asarray(fields)
+    needs = [set(zip(np.asarray(rec.columns).tolist(), rec.field_kinds)) for rec in reconstructions]
+    names = ("material_numerator", "remainder_numerator", "correction_numerator")
+    parts = []
+    for block in greedy_blocks(needs, column_block, variant_block):
+        columns, kinds, groups = p06n_layout([reconstructions[i] for i in block])
+        act = p06_action(plan, fields[:, columns], bc_columns(bc, columns), kinds, groups)
+        parts.append(_host_arrays(act, names))
+    return SimpleNamespace(**{name: np.concatenate([p[name] for p in parts], axis=0) for name in names})
+
+
+# ---------------------------------------------------------------------------
 # The JAX closure
 # ---------------------------------------------------------------------------
 class JaxOwnerClosure:
@@ -283,24 +395,48 @@ class JaxOwnerClosure:
     ``env`` / ``built`` / ``campaigns`` / ``oracle`` as for ``owner_closure.assemble_owner_terms``. The plan is
     lowered and the boundary data evaluated once at construction (timings in ``self.timings``);
     :meth:`evaluate` may then be called repeatedly (one-ulp perturbations for the conditioning floors).
+
+    G3 (full-grid replay, ``scripts/p08_step2_global``) options, all off by default (the default path is
+    byte-for-byte the E6 closure):
+
+    * ``plan``: an already lowered plan (e.g. streamed from a row artifact); ``built`` may then be ``None``
+      (the host-only MMS references need it and are skipped without it);
+    * ``column_block`` / ``variant_block``: evaluate the operators in blocks of at most that many field columns
+      (P06N: variants), see :func:`blocked_p05_terms` and friends;
+    * ``boundary_batch``: evaluate the boundary-data callbacks on slices of that many points, optionally
+      reporting ``boundary_progress(label, done, total)`` after every slice.
     """
 
-    def __init__(self, env: Environment, built: dict, campaigns, oracle: dict, *, wall_cache: bool = False):
+    def __init__(self, env: Environment, built: Optional[dict], campaigns, oracle: dict, *,
+                 wall_cache: bool = False, plan=None, column_block: Optional[int] = None,
+                 variant_block: Optional[int] = None, boundary_batch: Optional[int] = None,
+                 boundary_progress=None):
         self.env, self.built, self.oracle = env, built, oracle
+        self.boundary_progress = boundary_progress
         self.campaigns = tuple(campaigns)
         unknown = set(self.campaigns) - set(CAMPAIGN_FUNCS)
         if unknown:
             raise KeyError(f"unknown campaigns {sorted(unknown)}")
         self.wall_cache = bool(wall_cache)
+        self.column_block = None if column_block is None else int(column_block)
+        self.variant_block = None if variant_block is None else int(variant_block)
+        self.boundary_batch = None if boundary_batch is None else int(boundary_batch)
+        if self.column_block is not None and self.column_block < 5:
+            raise ValueError("column_block must be at least 5 (a P06 state has five fields)")
         self.timings: dict = {}
         t = env.t
 
         started = time.perf_counter()
-        grid = LoaderGrid.from_arrays(n=env.n, raw_to_owner=t.ro, eta_centers=t.centers[2])
-        self.plan = lower_perpendicular_plan_from_rows(
-            built["row_index"], built["neumann_index"], grid=grid, census=env.census, geometry=built["geometry"],
-            raw_volume=t.rv, owner_volume=t.vol, raw_ids=built["raw_ids"], face_rows=built["face_row_indices"],
-            p07_rows=built["p07_row_indices"])
+        if plan is not None:
+            self.plan = plan
+        else:
+            if built is None:
+                raise ValueError("either a lowered plan or the built owner rows are required")
+            grid = LoaderGrid.from_arrays(n=env.n, raw_to_owner=t.ro, eta_centers=t.centers[2])
+            self.plan = lower_perpendicular_plan_from_rows(
+                built["row_index"], built["neumann_index"], grid=grid, census=env.census,
+                geometry=built["geometry"], raw_volume=t.rv, owner_volume=t.vol, raw_ids=built["raw_ids"],
+                face_rows=built["face_row_indices"], p07_rows=built["p07_row_indices"])
         self.timings["lower_plan"] = time.perf_counter() - started
 
         self.adapters = self._build_adapters()
@@ -343,7 +479,15 @@ class JaxOwnerClosure:
         dirichlet = adapter.dirichlet
         normal_fn = adapter.normal if normal else None
         if not self.wall_cache:
-            return dirichlet, normal_fn
+            label = getattr(adapter, "campaign", "?") + (f"/{adapter.field_name}" if hasattr(adapter, "field_name") else "")
+
+            def progress(kind):
+                if self.boundary_progress is None:
+                    return None
+                return lambda done, total: self.boundary_progress(f"{label}.{kind}", done, total)
+
+            return (batched_callable(dirichlet, self.boundary_batch, progress("dirichlet")),
+                    batched_callable(normal_fn, self.boundary_batch, progress("normal")))
         cache, keys = self.env.wall_cache, adapter.wall_keys[role]
         d = dirichlet
         if keys.trace is not None:
@@ -375,10 +519,19 @@ class JaxOwnerClosure:
     def _p07_numerator(self, fields, bc, kinds) -> np.ndarray:
         """Owner numerator ``(n_owners, F)`` of the P07 face flux: lower minus, upper plus (divided by one)."""
         p07 = self.plan.p07
-        flux = p07_face_flux(self.plan, fields, bc, kinds)
         payload = SimpleNamespace(lower_owner=p07.rows.lower_owner, upper_owner=p07.rows.upper_owner,
                                   owner_volume=np.ones(len(p07.owner_volume)))
-        return np.asarray(scatter_integrated_face_flux(payload, flux))
+
+        def numerator(f, b, k):
+            return np.asarray(scatter_integrated_face_flux(payload, p07_face_flux(self.plan, f, b, k)))
+
+        cap = getattr(self, "column_block", None)
+        if cap is None:
+            return numerator(fields, bc, kinds)
+        fields = np.asarray(fields)
+        kinds = normalize_kinds(kinds, fields.shape[1])
+        return np.concatenate([numerator(fields[:, i:i + cap], bc_columns(bc, np.arange(i, min(i + cap, fields.shape[1]))),
+                                         kinds[i:i + cap]) for i in range(0, fields.shape[1], cap)], axis=1)
 
     def evaluate(self, *, perturb_seed: Optional[int] = None, host_only_from: Optional[dict] = None,
                  include_host_only: bool = True) -> dict:
@@ -405,7 +558,11 @@ class JaxOwnerClosure:
         if "p05" in campaigns:
             started = time.perf_counter()
             a = adapters["p05"]
-            r = p05_terms(plan, fields_of(a.owner_values), bc_of(self.bc["p05"]), a.field_kinds, a.pairs)
+            if self.column_block is None:
+                r = p05_terms(plan, fields_of(a.owner_values), bc_of(self.bc["p05"]), a.field_kinds, a.pairs)
+            else:
+                r = blocked_p05_terms(plan, fields_of(a.owner_values), bc_of(self.bc["p05"]), a.field_kinds,
+                                      a.pairs, column_block=self.column_block)
             cells["p05_centered"] = _pair(r.centered_numerator, uc)
             cells["p05_antisymmetry_max"] = float(r.antisymmetry)
             mask = self.jump_mask
@@ -420,8 +577,13 @@ class JaxOwnerClosure:
             started = time.perf_counter()
             a = adapters[name]
             role = a.reconstructions["role"]
-            r = p05n_action(plan, fields_of(a.owner_values), bc_of(self.bc[name]), role.field_kinds,
-                            a.n_pair_index, a.d_pair_index, columns=role.columns)
+            if self.column_block is None:
+                r = p05n_action(plan, fields_of(a.owner_values), bc_of(self.bc[name]), role.field_kinds,
+                                a.n_pair_index, a.d_pair_index, columns=role.columns)
+            else:
+                r = blocked_p05n_action(plan, fields_of(a.owner_values), bc_of(self.bc[name]), role.field_kinds,
+                                        a.n_pair_index, a.d_pair_index, columns=role.columns,
+                                        column_block=self.column_block)
             cells[f"{name}_raw_N"] = _pair(r.raw_N_numerator, uc)
             cells[f"{name}_raw_D"] = _pair(r.raw_D_numerator, uc)
             faces[f"{name}_face_N"] = _pair(r.face_N_numerator, uf)
@@ -434,9 +596,14 @@ class JaxOwnerClosure:
         if "p06n" in campaigns:
             started = time.perf_counter()
             a = adapters["p06n"]
-            columns, kinds, groups = p06n_layout([a.reconstructions[v] for v in a.variant_names])
-            fields = fields_of(a.owner_values)[:, columns]
-            act = p06_action(plan, fields, bc_columns(bc_of(self.bc["p06n"]), columns), kinds, groups)
+            if self.column_block is None:
+                columns, kinds, groups = p06n_layout([a.reconstructions[v] for v in a.variant_names])
+                fields = fields_of(a.owner_values)[:, columns]
+                act = p06_action(plan, fields, bc_columns(bc_of(self.bc["p06n"]), columns), kinds, groups)
+            else:
+                act = blocked_p06n_action(plan, fields_of(a.owner_values), bc_of(self.bc["p06n"]),
+                                          [a.reconstructions[v] for v in a.variant_names],
+                                          column_block=self.column_block, variant_block=self.variant_block)
             material, remainder = np.asarray(act.material_numerator), np.asarray(act.remainder_numerator)
             correction = np.asarray(act.correction_numerator)
             V = material.shape[0]
@@ -476,7 +643,7 @@ class JaxOwnerClosure:
             p07["p07n_global_D"] = _pair(self._p07_numerator(fields, bc, a.reconstructions["D"].field_kinds), up)
             timed("p07n", started)
 
-        if rng is None and include_host_only:
+        if rng is None and include_host_only and self.built is not None:
             started = time.perf_counter()
             if host_only_from is not None:
                 host_part = {"cells": {}, "p07": {}}
@@ -645,7 +812,9 @@ def _oracle_table(rows) -> list:
 
 
 def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict, campaigns: tuple = CAMPAIGN_FUNCS,
-                                floor_seeds=FLOOR_SEEDS, wall_cache: bool = False, output=None) -> dict:
+                                floor_seeds=FLOOR_SEEDS, wall_cache: bool = False, output=None,
+                                column_block: Optional[int] = None, variant_block: Optional[int] = None,
+                                boundary_batch: Optional[int] = None) -> dict:
     """The G1 check at grid ``n`` (mirrors ``owner_closure.run_owner_closure_check``): build the owner rows once,
     run the host ``assemble_owner_terms`` and the JAX assembly on them, and return
 
@@ -654,7 +823,9 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
     * ``oracle_jax`` / ``oracle_host``: ``compare_to_oracle`` rows for the JAX terms and the host terms;
     * structure check (``uniq_mismatches``), timings and peak RSS.
 
-    ``output`` (a path) additionally writes the payload as strict JSON."""
+    ``output`` (a path) additionally writes the payload as strict JSON. ``column_block`` / ``variant_block`` /
+    ``boundary_batch`` run the JAX side through the blocked path of the G3 full-grid replay (see
+    :class:`JaxOwnerClosure`); all ``None`` is the plain E6 check."""
     campaigns = tuple(campaigns)
     wall_started = time.perf_counter()
     marks: dict = {}
@@ -679,7 +850,8 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
     mark("host_assemble", started)
 
     started = time.perf_counter()
-    closure = JaxOwnerClosure(env, built, campaigns, oracle, wall_cache=wall_cache)
+    closure = JaxOwnerClosure(env, built, campaigns, oracle, wall_cache=wall_cache, column_block=column_block,
+                              variant_block=variant_block, boundary_batch=boundary_batch)
     mark("jax_plan_and_boundary", started)
     started = time.perf_counter()
     jax_out = closure.evaluate(host_only_from=host_out)
@@ -705,6 +877,7 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
     plan = closure.plan
     payload = {
         "schema": SCHEMA, "n": int(n), "campaigns": list(campaigns), "wall_cache": bool(wall_cache),
+        "blocking": {"column_block": column_block, "variant_block": variant_block, "boundary_batch": boundary_batch},
         "selection": fixture,
         "plan": {"cells": int(len(plan.cells.raw_ids)), "faces": int(len(plan.faces.census_row)),
                  "p07_faces": int(len(plan.p07.p07_id)), "dirichlet_points": int(len(plan.dirichlet_points)),

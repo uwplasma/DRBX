@@ -1,0 +1,23 @@
+{
+  "schema": "drbx.p08-step2b-g3-campaign-v1",
+  "inherits_configuration": "scripts/p08_step1_global/configuration.json",
+  "resolutions": [32, 48],
+  "allowed_resolutions": [32, 48, 64],
+  "campaigns": ["p05", "p05n_frozen", "p05n_upwind", "p06n", "p06_legacy", "p07", "p07n"],
+  "artifact_schema": "drbx.p-row-artifact.v3",
+  "tensor_encoding_required": true,
+  "column_block": 8,
+  "p06n_variant_block": 2,
+  "boundary_batch": 32768,
+  "wall_cache": false,
+  "device_put_plan": true,
+  "preflight_floor_seeds": [0, 1],
+  "operator_terms_only": true,
+  "omitted_host_only_terms": {
+    "p05n_frozen": ["raw_R"],
+    "p05n_upwind": ["raw_R"],
+    "p06n": ["raw_R_material", "raw_R_remainder", "raw_R_total"],
+    "p07n": ["global_O_q3"]
+  },
+  "note": "Everything numerical that is not listed here (chunk sizes, Tier-B ratio, pointwise-cap policy, oracle paths, the canonical sidecar) is inherited from scripts/p08_step1_global/configuration.json and hashed into the campaign identity through it. column_block / p06n_variant_block / boundary_batch only bound memory: fields are contracted column by column, so blocked and unblocked results agree to roundoff (tests/test_p08_step2_campaign.py). boundary_batch should stay a multiple of 4096 (the frozen metric evaluator re-batches at 4096 points). The MMS reference terms listed under omitted_host_only_terms are host-only (they are not operators) and were gated in step 1."
+}
