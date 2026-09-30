@@ -116,12 +116,12 @@ def _is_wall(u: np.ndarray) -> np.ndarray:
 def _make_provider(sidecar, curvature: str, *, mode: Optional[str] = None, block: int = 256) -> ScriptsGeometryProvider:
     """A provider for ``curvature``; ``mode``/``block`` (autodiff only) pick the batching of the autodiff kernel
     (``None`` = the package default)."""
-    provider = ScriptsGeometryProvider.from_sidecar(str(sidecar), verify_hashes=False, curvature="fd")
+    provider = ScriptsGeometryProvider.from_sidecar(str(sidecar), verify_hashes=False, curvature="fd", face_quadrature="q3")
     if curvature == "fd":
         return provider
     kwargs = {} if mode is None else {"mode": mode}
     return ScriptsGeometryProvider(AutodiffCurvatureReference(provider.reference, block=block, **kwargs),
-                                   curvature="autodiff")
+                                   curvature="autodiff", face_quadrature="q3")
 
 
 def _closure_selection(env) -> dict:
@@ -179,7 +179,7 @@ def run_qk1(n: int, *, input_root=WORKSPACE, sidecar_path=DEFAULT_SIDECAR, sampl
     design); a number uses that many random wall faces (x 9 nodes)."""
     started = time.perf_counter()
     rng = np.random.default_rng(seed)
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="autodiff")
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="autodiff", face_quadrature="q3")
     ref_ad, ref_fd = env.ref, env.ref.wrapped
     kernel = ref_ad.autodiff()
     t, census = env.t, env.census
@@ -335,7 +335,7 @@ def run_qk4(n: int = 32, *, input_root=WORKSPACE, sidecar_path=DEFAULT_SIDECAR, 
     """QK4: geometry arrays of a bounded unit built with several geometry chunk sizes, compared bitwise per array
     against the first chunk size; the verdict for K is ``bitwise_K`` and, per config, the geometry-stage seconds."""
     started = time.perf_counter()
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd")
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd", face_quadrature="q3")
     raw_keys, face_keys, n_wall_rows = _qk4_unit(env, raw_count, face_count)
     faces = env.ctx.faces
     raw_fields, face_fields = oc._RAW_GEOMETRY_FIELDS, oc._FACE_GEOMETRY_FIELDS
@@ -440,11 +440,12 @@ def _collect_closure(n: int, curvature: str, *, input_root, sidecar_path, paths,
     import p06n_field_derived_global.core as p06n_core
 
     started = time.perf_counter()
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature)
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature,
+                            face_quadrature="q3")
     t = env.t
     owners = sorted(set(int(o) for o in oc.selection_fixture(t, env.census)["owners"]))
     owner_arr = np.asarray(owners, dtype=np.int64)
-    provider = oc.load_provider_for_env(sidecar_path, curvature=curvature)
+    provider = oc.load_provider_for_env(sidecar_path, curvature=curvature, face_quadrature="q3")
     built = oc.build_owner_rows(env, owners, provider=provider)
     oracle = ru._load_oracle_owner_values(env, dict(paths), campaigns)
     out = oc.assemble_owner_terms(env, built, campaigns, oracle)
@@ -666,7 +667,7 @@ def run_qk3(n: int, *, input_root=WORKSPACE, sidecar_path=DEFAULT_SIDECAR, fd_di
     """QK3 at grid ``n``: ``run_g33`` with autodiff on both sides against the saved finite-difference ``N{n}_g33.json``.
     The autodiff G3.3 report itself is stored in ``report_out[n]`` when given (for :func:`qk3_orders`)."""
     started = time.perf_counter()
-    setup = sg.build_setup(n, ("p06n",), input_root=input_root, sidecar_path=sidecar_path, curvature="autodiff")
+    setup = sg.build_setup(n, ("p06n",), input_root=input_root, sidecar_path=sidecar_path, curvature="autodiff", face_quadrature="q3")
     ad = sg.run_g33(n, setup=setup)
     del setup
     gc.collect()

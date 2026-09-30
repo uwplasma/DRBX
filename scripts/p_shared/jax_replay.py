@@ -921,7 +921,7 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
         "phases": marks, "operator_timings": closure.timings,
         "wall_seconds": time.perf_counter() - wall_started, "peak_rss_gib": _peak_rss_gib(),
     }
-    if face_quadrature != DEFAULT_FACE_QUADRATURE:
+    if face_quadrature != "q3":
         payload["face_quadrature"] = face_quadrature
     if output is not None:
         output = Path(output)

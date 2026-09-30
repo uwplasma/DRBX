@@ -52,9 +52,9 @@ def setup():
     from p_shared import replay_units as ru
     from p_shared.replay_support import DEFAULT_PATHS, build_environment
 
-    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd")
+    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3")
     owners = np.asarray(sorted(set(oc.select_owners(env.t, env.census).values())), dtype=np.int64)
-    built = oc.build_owner_rows(env, owners.tolist(), provider=oc.load_provider_for_env(SIDECAR, curvature="fd"))
+    built = oc.build_owner_rows(env, owners.tolist(), provider=oc.load_provider_for_env(SIDECAR, curvature="fd", face_quadrature="q3"))
     oracle = ru._load_oracle_owner_values(env, dict(DEFAULT_PATHS), CAMPAIGNS)
     closure = jr.JaxOwnerClosure(env, built, CAMPAIGNS, oracle)
     adapter = closure.adapters["p06n"]

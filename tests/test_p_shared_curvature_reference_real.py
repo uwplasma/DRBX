@@ -46,8 +46,9 @@ def _state() -> dict:
             from p_shared.provider import ScriptsGeometryProvider
 
             t = load_context(N, str(WORKSPACE))
-            ad = ScriptsGeometryProvider.from_sidecar(str(SIDECAR), verify_hashes=False, curvature="autodiff")
-            fd = ScriptsGeometryProvider.from_sidecar(str(SIDECAR), verify_hashes=False, curvature="fd")
+            ad = ScriptsGeometryProvider.from_sidecar(str(SIDECAR), verify_hashes=False, curvature="autodiff",
+                                                     face_quadrature="q3")
+            fd = ScriptsGeometryProvider.from_sidecar(str(SIDECAR), verify_hashes=False, curvature="fd", face_quadrature="q3")
         except (FileNotFoundError, OSError) as error:
             pytest.skip(f"HSX inputs unavailable: {error}")
         from p07_diffusion_global.numerics import quadrature

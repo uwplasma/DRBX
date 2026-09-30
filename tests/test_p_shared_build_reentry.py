@@ -72,7 +72,7 @@ def harness(tmp_path, monkeypatch):
         return ba.run_full_build(
             n=N, input_root=tmp_path, sidecar_path=tmp_path / "sidecar.json", output=output, workers=1,
             cell_chunk_size=4, face_chunk_size=4, p07_chunk_size=4,
-            geometry_raw_chunk_size=4, geometry_face_chunk_size=4)
+            geometry_raw_chunk_size=4, geometry_face_chunk_size=4, face_quadrature="q3")
 
     return SimpleNamespace(call=call, calls=calls, output=output, grid=output / f"N{N}")
 

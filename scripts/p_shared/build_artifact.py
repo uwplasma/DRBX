@@ -239,7 +239,7 @@ def build_policy(curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFA
     check_curvature(curvature)
     check_face_quadrature(face_quadrature)
     policy = dict(POLICY) if curvature == "fd" else {**POLICY, "curvature": "autodiff"}
-    if face_quadrature != DEFAULT_FACE_QUADRATURE:
+    if face_quadrature != "q3":
         policy["quadrature"] = {"raw": "q1", "face": face_quadrature, "p07_face": "q3"}
     return policy
 
@@ -248,7 +248,7 @@ def build_identity(*, n: int, input_root: Path, sidecar_path: Path, curvature: s
                    face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> dict:
     component_hashes = {**_geometry_component_hashes(input_root, n), **_sidecar_component_hashes(sidecar_path)}
     sources = (SOURCE_FILES + (AUTODIFF_SOURCE_FILES if curvature != "fd" else [])
-               + (Q2_SOURCE_FILES if face_quadrature != DEFAULT_FACE_QUADRATURE else []))
+               + (Q2_SOURCE_FILES if face_quadrature != "q3" else []))
     source_hashes = {rel: artifact_mod.hash_file(REPO / rel) for rel in sources}
     return artifact_mod.build_identity(component_hashes=component_hashes, source_hashes=source_hashes,
                                        policy=build_policy(curvature, face_quadrature))
@@ -302,7 +302,7 @@ def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_di
     provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False,
                                                                      curvature=curvature,
                                                                      face_quadrature=face_quadrature)
-    extra = {} if face_quadrature == DEFAULT_FACE_QUADRATURE else {"face_order": _face_order(face_quadrature)}
+    extra = {} if face_quadrature == "q3" else {"face_order": _face_order(face_quadrature)}
     geometry = builder.build_geometry_arrays(provider, context, raw_ids=np.arange(n ** 3, dtype=np.int64),
                                              face_row_indices=face_row_indices, census=census, **extra)
     geometry.save(grid_dir / "geometry.npz")

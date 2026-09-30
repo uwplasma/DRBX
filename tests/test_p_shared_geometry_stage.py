@@ -112,7 +112,7 @@ def geometry_state():
 
     t = load_context(N, str(WORKSPACE))
     census = FaceCensus.build(N, t.ro)
-    provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(SIDECAR), verify_hashes=False, curvature="fd")
+    provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(SIDECAR), verify_hashes=False, curvature="fd", face_quadrature="q3")
     return {"t": t, "census": census, "provider": provider,
             "face_row_indices": build_artifact.face_row_selection(census)}
 

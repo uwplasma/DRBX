@@ -33,6 +33,7 @@ if str(SCRIPTS) not in sys.path:
 
 from drbx.stencils.geometry_arrays import (  # noqa: E402
     SCHEMA, GeometryArrays, _ARRAY_FIELDS, build_face_geometry_arrays)
+from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE  # noqa: E402
 from drbx.stencils.operator_plan import FACE_NODE_COUNTS, lower_perpendicular_plan_from_rows  # noqa: E402
 from tests.perpendicular_synthetic import Boundary, lower_world, make_world  # noqa: E402
 
@@ -228,10 +229,11 @@ def test_provider_face_node_weight_order_matches_the_frozen_quadrature_bitwise()
         assert points.shape == (12, order * order, 3)
         np.testing.assert_array_equal(points, ref_points)
         np.testing.assert_array_equal(weight, ref_weight)
-    points, weight = provider.face_node_weight(faces, keys)                     # default: q3
+    points, weight = provider.face_node_weight(faces, keys)        # the method's own default order is 3, not the option
     np.testing.assert_array_equal(points, quadrature(faces, keys, 3, face=True)[0])
-    assert provider.face_quadrature == "q3"
-    assert ScriptsGeometryProvider(object(), curvature="fd", face_quadrature="q2").face_quadrature == "q2"
+    assert provider.face_quadrature == "q2"                        # the option default (DEFAULT_FACE_QUADRATURE)
+    for name in ("q3", "q2"):
+        assert ScriptsGeometryProvider(object(), curvature="fd", face_quadrature=name).face_quadrature == name
     with pytest.raises(ValueError):
         ScriptsGeometryProvider(object(), curvature="fd", face_quadrature="q4")
 
@@ -239,8 +241,8 @@ def test_provider_face_node_weight_order_matches_the_frozen_quadrature_bitwise()
 def test_face_quadrature_module():
     from p_shared import face_quadrature as fq
 
-    assert fq.DEFAULT_FACE_QUADRATURE == "q3" and fq.FACE_QUADRATURE_CHOICES == ("q3", "q2")
-    assert fq.face_order("q3") == 3 and fq.face_order("q2") == 2 and fq.face_order() == 3
+    assert fq.DEFAULT_FACE_QUADRATURE == "q2" and fq.FACE_QUADRATURE_CHOICES == ("q3", "q2")
+    assert fq.face_order("q3") == 3 and fq.face_order("q2") == 2 and fq.face_order() == 2
     assert fq.check_face_quadrature("q2") == "q2"
     with pytest.raises(ValueError):
         fq.check_face_quadrature("q1")
@@ -418,24 +420,25 @@ def test_operators_run_at_q2_with_p07_centered_and_q1_untouched():
 def test_build_policy_and_identity_distinguish_face_quadrature(monkeypatch):
     from p_shared import build_artifact as ba
 
-    assert ba.build_policy("fd") == ba.POLICY == ba.build_policy("fd", "q3")
+    assert ba.build_policy("fd", "q3") == ba.POLICY                       # the frozen identities, exactly
     assert ba.build_policy("fd", "q3")["quadrature"] == {"raw": "q1", "face": "q3"}
     q2 = ba.build_policy("fd", "q2")
     assert q2["quadrature"] == {"raw": "q1", "face": "q2", "p07_face": "q3"}
+    assert ba.build_policy("fd") == q2                                    # q2 is the option default
     assert {k: v for k, v in q2.items() if k != "quadrature"} == {k: v for k, v in ba.POLICY.items() if k != "quadrature"}
     assert ba.POLICY["quadrature"] == {"raw": "q1", "face": "q3"}            # the module constant is untouched
     assert ba.build_policy("autodiff", "q2") == {**q2, "curvature": "autodiff"}
-    assert ba.build_policy("autodiff") == ba.build_policy("autodiff", "q3") == {**ba.POLICY, "curvature": "autodiff"}
+    assert ba.build_policy("autodiff", "q3") == {**ba.POLICY, "curvature": "autodiff"}
     with pytest.raises(ValueError):
         ba.build_policy("fd", "q4")
 
     monkeypatch.setattr(ba, "_geometry_component_hashes", lambda root, n: {"geometry": "g"})
     monkeypatch.setattr(ba, "_sidecar_component_hashes", lambda path: {"sidecar": "s"})
     kw = dict(n=32, input_root=Path("."), sidecar_path=Path("."))
-    q3_id = ba.build_identity(**kw, curvature="fd")
-    assert q3_id == ba.build_identity(**kw, curvature="fd", face_quadrature="q3")
+    q3_id = ba.build_identity(**kw, curvature="fd", face_quadrature="q3")
     assert q3_id["policy"] == ba.POLICY and set(q3_id["source_hashes"]) == set(ba.SOURCE_FILES)
     q2_id = ba.build_identity(**kw, curvature="fd", face_quadrature="q2")
+    assert q2_id == ba.build_identity(**kw, curvature="fd")                  # q2 is the default
     assert q2_id != q3_id and q2_id["policy"]["quadrature"]["face"] == "q2"
     assert set(q2_id["source_hashes"]) == set(ba.SOURCE_FILES) | set(ba.Q2_SOURCE_FILES)
     for rel in ba.Q2_SOURCE_FILES:
@@ -446,14 +449,15 @@ def test_build_artifact_cli_flag():
     from p_shared import build_artifact as ba
 
     argv = ["--n", "32", "--input-root", ".", "--sidecar", "s", "--output", "o", "--workers", "1"]
-    assert ba.parse_args(argv).face_quadrature == "q3"
-    assert ba.parse_args(argv + ["--face-quadrature", "q2"]).face_quadrature == "q2"
+    assert ba.parse_args(argv).face_quadrature == "q2"
+    for name in ("q3", "q2"):
+        assert ba.parse_args(argv + ["--face-quadrature", name]).face_quadrature == name
 
 
 # ---------------------------------------------------------------------------
 # 5. Option threading
 # ---------------------------------------------------------------------------
-def test_face_quadrature_option_is_threaded_with_default_q3():
+def test_face_quadrature_option_is_threaded_with_the_default():
     from p_shared import build_artifact, jax_replay, owner_closure, replay_support, step3_gates
     from p_shared import provider as ps_provider
 
@@ -465,10 +469,11 @@ def test_face_quadrature_option_is_threaded_with_default_q3():
                ps_provider.ScriptsGeometryProvider.from_sidecar, ps_provider.ScriptsGeometryProvider.__init__]
     for fn in targets:
         parameter = inspect.signature(fn).parameters["face_quadrature"]
-        assert parameter.default == "q3", fn
+        assert parameter.default == DEFAULT_FACE_QUADRATURE == "q2", fn
         assert parameter.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD), fn
-    assert replay_support.Environment.__dataclass_fields__["face_quadrature"].default == "q3"
-    assert step3_gates.Step3Setup.__dataclass_fields__["face_quadrature"].default == "q3"
+    assert replay_support.Environment.__dataclass_fields__["face_quadrature"].default == DEFAULT_FACE_QUADRATURE
+    assert step3_gates.Step3Setup.__dataclass_fields__["face_quadrature"].default == DEFAULT_FACE_QUADRATURE
+    # the package-level face order stays 3 (the frozen q3 geometry); only the harness option defaults to q2
     assert inspect.signature(GeometryArrays.build).parameters["face_order"].default == 3
     assert GeometryArrays.face_order == 3 and GeometryArrays.p07_face_points is None
     assert set(GeometryArrays.__dataclass_fields__) == {"schema", "identity", *_ARRAY_FIELDS}     # the schema fields
@@ -485,9 +490,9 @@ def test_build_owner_rows_rejects_a_provider_that_disagrees_on_face_quadrature()
     with pytest.raises(ValueError, match="face_quadrature"):
         owner_closure.build_owner_rows(SimpleNamespace(curvature="fd", face_quadrature="q2"), [0],
                                        provider=SimpleNamespace(curvature="fd", face_quadrature="q3"))
-    with pytest.raises(ValueError, match="face_quadrature"):        # a legacy env/provider is q3
+    with pytest.raises(ValueError, match="face_quadrature"):        # an env without the attribute takes the default (q2)
         owner_closure.build_owner_rows(SimpleNamespace(curvature="fd"), [0],
-                                       provider=SimpleNamespace(curvature="fd", face_quadrature="q2"))
+                                       provider=SimpleNamespace(curvature="fd", face_quadrature="q3"))
 
 
 # ---------------------------------------------------------------------------
@@ -545,7 +550,7 @@ def test_real_owner_closure_rows_and_plans_at_q3_and_q2(real):
     assert g3.face_order == 3 and g3.p07_face_points is None and g2.face_order == 2
     assert g2.face_points.shape == (F, 4, 3) and g2.p06_face_weight.shape == (F, 4)
     # q3 is the historic geometry (the batched legacy call), q2's P07 set is exactly the q3 set
-    provider = oc.load_provider_for_env(SIDECAR, curvature="fd")
+    provider = oc.load_provider_for_env(SIDECAR, curvature="fd", face_quadrature="q3")
     census = q3["env"].census
     from drbx.stencils import builder
     keys = builder.census_face_keys(census, q3["built"]["face_row_indices"])
