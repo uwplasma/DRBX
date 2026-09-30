@@ -135,12 +135,27 @@ class PointFactors:
     ring_derivative: np.ndarray = None
 
 
+#: inner donor-support rules of :class:`StructuredReconstruction`: the current ``"profile7"`` (coupled quartic
+#: only while some ring of the four-layer stencil has fewer than seven owners) and ``"last_aggregate"`` (C1: also
+#: coupled quartic through the last agglomerated ring)
+INNER_SUPPORTS = ("profile7", "last_aggregate", "any_aggregate", "fixed_radius")
+#: C3 (``"fixed_radius"``): coupled quartic for stencils whose anchor-ring centre lies below this logical radius
+#: (the N48/N64 C1-vs-C0 per-ring crossing, work/p08_donor_support_c1_20260930)
+FIXED_SWITCH_U = 0.21
+
+
 class StructuredReconstruction:
-    def __init__(self, t):
+    def __init__(self, t, *, inner_support="profile7"):
+        if inner_support not in INNER_SUPPORTS:
+            raise ValueError(f"inner_support must be one of {INNER_SUPPORTS}, got {inner_support!r}")
         self.t = t
+        self.inner_support = inner_support
         self.rings = {}
         self.fits = {}
         self.profile = np.array([len(np.unique(t.ro.reshape((t.n,)*3)[i,:,0])) for i in range(t.n)])
+        # the last agglomerated ring: the first full ring (profile == n) minus one (n - 1 if no ring is full)
+        full = np.flatnonzero(self.profile == t.n)
+        self.last = int(full[0]) - 1 if len(full) else int(t.n) - 1
         self.top = (t.ro,t.rv,t.vol,t.pts,t.order,t.starts,
                     {'grid.y.centers':t.centers[1], 'grid.z.centers':t.centers[2]})
         # Per-instance bounded caches, with exact float keys (no quantization).
@@ -204,11 +219,31 @@ class StructuredReconstruction:
             return PointRows(z['donor_ids'],v,z['gradient_map'],z['boundary_conditioned'],z['trace_donor_points'],z['trace_target_points'],{'family':z['kind'],'max_residual':0.})
         layers=np.arange(i-2,i+2) if axis==0 else np.arange(i-1,i+3)
         rid=np.where(layers<0,-layers-1,layers)
-        if np.min(self.profile[rid])<7:
+        if (np.min(self.profile[rid])<7 or (self.inner_support=="last_aggregate" and self.anchor_ring(axis,i,location)<=self.last)
+                or (self.inner_support=="any_aggregate" and np.min(self.profile[rid])<n)
+                or (self.inner_support=="fixed_radius" and self.below_fixed_switch(axis,i,location))):
             return self._coupled(key,p,anchor,layers,rid,fixed_anchor)
         if np.all(self.profile[rid]==n):
             return self._singleton(p,anchor,layers,rid,fixed_anchor,cap)
         return self._tensor(p,anchor,layers,rid,fixed_anchor,cap)
+
+    def stencil_min_profile(self, axis, i, location='face'):
+        """Smallest ring owner count over the four radial layers of the stencil ``_rows`` would use (layers
+        mirrored through the axis as in ``_rows``, clipped at the wall)."""
+        n=self.t.n; axis,i=int(axis),int(i)
+        layers=np.arange(i-2,i+2) if (location=='face' and axis==0) else np.arange(i-1,i+3)
+        rid=np.clip(np.where(layers<0,-layers-1,layers),0,n-1)
+        return int(np.min(self.profile[rid]))
+
+    def below_fixed_switch(self, axis, i, location='face'):
+        """C3: the anchor ring's centre ``(anchor_ring + 1/2)/n`` lies below ``FIXED_SWITCH_U``."""
+        return (self.anchor_ring(axis, i, location) + 0.5) / self.t.n < FIXED_SWITCH_U
+
+    @staticmethod
+    def anchor_ring(axis, i, location='face'):
+        """The ring the stencil is anchored on: ``i`` for cells and theta/eta faces, ``i - 1`` for radial faces
+        (axis 0, face ``i`` lies between rings ``i - 1`` and ``i``)."""
+        return int(i)-1 if (location=='face' and int(axis)==0) else int(i)
 
     def _pack(self,p,columns,diagnostics):
         ids=np.array(sorted(columns),int)

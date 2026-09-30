@@ -172,8 +172,14 @@ def _target_for_plane(points, integ, ei, ev, ed, plane, center, scale, exp):
                   +integ[:, 2, None]*B*derivative[:, None], axis=0)
 
 
-def prepare_integrated_face_rows(context: PointRowContext, keys, family, points, integrand):
+def prepare_integrated_face_rows(context: PointRowContext, keys, family, points, integrand, *,
+                                 inner_support="profile7"):
     """Prepare one P07 row per canonical face with explicit q3 geometry arrays.
+
+    ``inner_support`` (``"profile7"`` default, or ``"last_aggregate"``) is the inner donor-support rule of
+    :class:`StructuredReconstruction`. At ``"last_aggregate"`` a singleton or ringwise face (family 5, 6) whose
+    anchor ring is at most the last agglomerated ring is built as the coupled quartic (family code 7, the code
+    it reports); all other faces are unchanged.
 
     ``integrand`` has shape ``(faces, 9, 3)`` and is the face quadrature
     weight times the geometry tensor's selected normal row.  Family codes are
@@ -185,11 +191,20 @@ def prepare_integrated_face_rows(context: PointRowContext, keys, family, points,
     integrand = np.asarray(integrand, dtype=np.float64)
     if keys.shape != (len(family), 4) or points.shape != (len(family), 9, 3) or integrand.shape != points.shape:
         raise ValueError("P07 face keys, q3 points, and weighted integrands have incompatible shapes")
-    service = StructuredReconstruction(context)
+    service = StructuredReconstruction(context, inner_support=inner_support)
     top = service.top
     result = []
     for key, code, p, integ in zip(keys, family, points, integrand, strict=True):
         code = int(code)
+        if (code in (5, 6) and service.inner_support == "fixed_radius"
+                and service.below_fixed_switch(key[0], key[1])):
+            code = 7
+        if (code in (5, 6) and service.inner_support == "any_aggregate"
+                and service.stencil_min_profile(key[0], key[1]) < service.t.n):
+            code = 7
+        if (code in (5, 6) and service.inner_support == "last_aggregate"
+                and service.anchor_ring(key[0], key[1]) <= service.last):
+            code = 7
         if code == 0:
             donor = np.empty(0, np.int64); weight = np.empty(0); conditioned = False
             donor_points = np.empty((0, 3)); target_points = p.copy()

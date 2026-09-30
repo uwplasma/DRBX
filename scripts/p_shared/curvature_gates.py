@@ -179,7 +179,7 @@ def run_qk1(n: int, *, input_root=WORKSPACE, sidecar_path=DEFAULT_SIDECAR, sampl
     design); a number uses that many random wall faces (x 9 nodes)."""
     started = time.perf_counter()
     rng = np.random.default_rng(seed)
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="autodiff", face_quadrature="q3")
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="autodiff", face_quadrature="q3", inner_support="profile7")
     ref_ad, ref_fd = env.ref, env.ref.wrapped
     kernel = ref_ad.autodiff()
     t, census = env.t, env.census
@@ -335,7 +335,7 @@ def run_qk4(n: int = 32, *, input_root=WORKSPACE, sidecar_path=DEFAULT_SIDECAR, 
     """QK4: geometry arrays of a bounded unit built with several geometry chunk sizes, compared bitwise per array
     against the first chunk size; the verdict for K is ``bitwise_K`` and, per config, the geometry-stage seconds."""
     started = time.perf_counter()
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd", face_quadrature="q3")
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd", face_quadrature="q3", inner_support="profile7")
     raw_keys, face_keys, n_wall_rows = _qk4_unit(env, raw_count, face_count)
     faces = env.ctx.faces
     raw_fields, face_fields = oc._RAW_GEOMETRY_FIELDS, oc._FACE_GEOMETRY_FIELDS
@@ -441,7 +441,7 @@ def _collect_closure(n: int, curvature: str, *, input_root, sidecar_path, paths,
 
     started = time.perf_counter()
     env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature,
-                            face_quadrature="q3")
+                            face_quadrature="q3", inner_support="profile7")
     t = env.t
     owners = sorted(set(int(o) for o in oc.selection_fixture(t, env.census)["owners"]))
     owner_arr = np.asarray(owners, dtype=np.int64)
@@ -667,7 +667,7 @@ def run_qk3(n: int, *, input_root=WORKSPACE, sidecar_path=DEFAULT_SIDECAR, fd_di
     """QK3 at grid ``n``: ``run_g33`` with autodiff on both sides against the saved finite-difference ``N{n}_g33.json``.
     The autodiff G3.3 report itself is stored in ``report_out[n]`` when given (for :func:`qk3_orders`)."""
     started = time.perf_counter()
-    setup = sg.build_setup(n, ("p06n",), input_root=input_root, sidecar_path=sidecar_path, curvature="autodiff", face_quadrature="q3")
+    setup = sg.build_setup(n, ("p06n",), input_root=input_root, sidecar_path=sidecar_path, curvature="autodiff", face_quadrature="q3", inner_support="profile7")
     ad = sg.run_g33(n, setup=setup)
     del setup
     gc.collect()

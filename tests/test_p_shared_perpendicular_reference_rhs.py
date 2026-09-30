@@ -319,7 +319,7 @@ def _closure(n: int):
         pytest.skip(f"HSX N{n} geometry/sidecar inputs are unavailable")
     if not _oracle_available(n):
         pytest.skip(f"the frozen N{n} oracle arrays are unavailable")
-    env = build_environment(n=n, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3")
+    env = build_environment(n=n, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3", inner_support="profile7")
     owners = sorted(set(oc.select_owners(env.t, env.census).values()))
     return env, owners
 

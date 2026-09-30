@@ -420,25 +420,25 @@ def test_operators_run_at_q2_with_p07_centered_and_q1_untouched():
 def test_build_policy_and_identity_distinguish_face_quadrature(monkeypatch):
     from p_shared import build_artifact as ba
 
-    assert ba.build_policy("fd", "q3") == ba.POLICY                       # the frozen identities, exactly
+    assert ba.build_policy("fd", "q3", "profile7") == ba.POLICY           # the frozen identities, exactly
     assert ba.build_policy("fd", "q3")["quadrature"] == {"raw": "q1", "face": "q3"}
     q2 = ba.build_policy("fd", "q2")
     assert q2["quadrature"] == {"raw": "q1", "face": "q2", "p07_face": "q3"}
     assert ba.build_policy("fd") == q2                                    # q2 is the option default
-    assert {k: v for k, v in q2.items() if k != "quadrature"} == {k: v for k, v in ba.POLICY.items() if k != "quadrature"}
+    assert {k: v for k, v in q2.items() if k not in ("quadrature", "inner_support")} == {k: v for k, v in ba.POLICY.items() if k != "quadrature"}
     assert ba.POLICY["quadrature"] == {"raw": "q1", "face": "q3"}            # the module constant is untouched
     assert ba.build_policy("autodiff", "q2") == {**q2, "curvature": "autodiff"}
-    assert ba.build_policy("autodiff", "q3") == {**ba.POLICY, "curvature": "autodiff"}
+    assert ba.build_policy("autodiff", "q3", "profile7") == {**ba.POLICY, "curvature": "autodiff"}
     with pytest.raises(ValueError):
         ba.build_policy("fd", "q4")
 
     monkeypatch.setattr(ba, "_geometry_component_hashes", lambda root, n: {"geometry": "g"})
     monkeypatch.setattr(ba, "_sidecar_component_hashes", lambda path: {"sidecar": "s"})
     kw = dict(n=32, input_root=Path("."), sidecar_path=Path("."))
-    q3_id = ba.build_identity(**kw, curvature="fd", face_quadrature="q3")
+    q3_id = ba.build_identity(**kw, curvature="fd", face_quadrature="q3", inner_support="profile7")
     assert q3_id["policy"] == ba.POLICY and set(q3_id["source_hashes"]) == set(ba.SOURCE_FILES)
-    q2_id = ba.build_identity(**kw, curvature="fd", face_quadrature="q2")
-    assert q2_id == ba.build_identity(**kw, curvature="fd")                  # q2 is the default
+    q2_id = ba.build_identity(**kw, curvature="fd", face_quadrature="q2", inner_support="profile7")
+    assert q2_id == ba.build_identity(**kw, curvature="fd", inner_support="profile7")   # q2 is the default
     assert q2_id != q3_id and q2_id["policy"]["quadrature"]["face"] == "q2"
     assert set(q2_id["source_hashes"]) == set(ba.SOURCE_FILES) | set(ba.Q2_SOURCE_FILES)
     for rel in ba.Q2_SOURCE_FILES:

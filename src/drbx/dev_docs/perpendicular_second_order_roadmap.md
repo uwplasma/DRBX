@@ -2100,7 +2100,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K and q2 (P05/P06) adopted 30 September, inner donor support (C1) under evaluation. Standalone campaign A dropped (user decision, 30 September): see step 4. Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K, q2 (P05/P06) and inner donor support C3 adopted 30 September; the bundle is complete (optional C2 follow-up). Standalone campaign A dropped (user decision, 30 September): see step 4. Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2271,6 +2271,14 @@ Steps:
    - **Inner donor support: candidate C1 under evaluation, 30 September 2026** ([design](../../../../work/p08_donor_support_c1_20260930/design.md)). User decision: evaluate C1 only against the current C0.
      - C1 (`inner_support="last_aggregate"`) is Q's layout with P's own coupled quartic fit. The coupled fit is used through the last agglomerated ring, so the switch sits at a fixed radius (after ring 10/15/21).
      - Tested with Q's 26-field catalogue and a short-wave (λ = 0.5, 0.25) response report. The default stays C0 (`"profile7"`) until a decision.
+     - **Adopted 30 September 2026 (user decision): C3, `inner_support="fixed_radius"`.** The coupled quartic is used for stencils whose anchor-ring centre lies below u = 0.21, which is the measured C1/C0 per-band crossing. C0's rule applies beyond.
+       - C1 was worse than C0 in u 0.21–0.40 (1.3–2.4×). C1b was no better than C1.
+       - C3 keeps C1's 8–25× gain in u 0.06–0.21, where C0 fails (P07 N−O orders −3.6 and 1.5), and is identical to C0 from u 0.27 out. Its interface band costs 1.6× C0 at order 2.9.
+       - Documented exceptions:
+         - u 0.12–0.21: P07 N−O order 0.37 on 48→64, error 8× below C0.
+         - Near axis: order 0.5–0.9, pre-existing in all candidates.
+       - Frozen reproduction pins `"profile7"`.
+       - Follow-up C2: Q's isotropic donor pool with a P transverse guard, below u 0.21.
    - **Background: transverse reconstruction at the coupled/ringwise switch.** This was found by the Q path and confirmed for P, 29 September. The [P audit](../../../../work/p_transverse_wave_audit_20260929/report.md) and its [follow-up](../../../../work/p_transverse_wave_audit_20260929/followup/report.md) are bounded: Q's 36 owners plus fresh phases and fixed-coordinate tracks, N32/N48/N64, run through P's own assemblies.
      - **Controls.** Fixed-wavelength transverse waves exp(i[2πx/λ + η]) and the y analogue, with λ = 2 and 4, in computational disk coordinates.
      - **Finding.**

@@ -47,7 +47,7 @@ def closure():
     from drbx.stencils.loader import LoaderGrid
     from drbx.stencils.operator_plan import lower_perpendicular_plan_from_rows
 
-    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3")
+    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3", inner_support="profile7")
     owners = sorted(set(oc.select_owners(env.t, env.census).values()))
     built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(SIDECAR, curvature="fd", face_quadrature="q3"))
     paths = dict(DEFAULT_PATHS)

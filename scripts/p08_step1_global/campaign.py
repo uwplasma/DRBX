@@ -359,7 +359,7 @@ def _build_artifact(*, n: int, input_root: Path, sidecar_path: Path, output: Pat
         # already exist (this never builds a full grid's geometry -- the
         # same hard local constraint preflight's own light-subset path
         # documents).
-        identity = build_artifact_mod.build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path, curvature="fd", face_quadrature="q3")
+        identity = build_artifact_mod.build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path, curvature="fd", face_quadrature="q3", inner_support="profile7")
         grid_dir = Path(output) / f"N{n}"
         if not ((grid_dir / "geometry.npz").is_file() and (grid_dir / "census.npz").is_file()):
             raise ValueError(f"--max-units local-testing run requires pre-existing geometry.npz/census.npz "
@@ -376,7 +376,7 @@ def _build_artifact(*, n: int, input_root: Path, sidecar_path: Path, output: Pat
         memory_reserve_gib=memory_reserve_gib,
         cell_chunk_size=cfg["cell_chunk_size"], face_chunk_size=cfg["face_chunk_size"],
         p07_chunk_size=cfg["p07_chunk_size"], geometry_raw_chunk_size=cfg["geometry_raw_chunk_size"],
-        geometry_face_chunk_size=cfg["geometry_face_chunk_size"], max_tasks_per_worker=max_tasks_per_worker, curvature="fd", face_quadrature="q3")
+        geometry_face_chunk_size=cfg["geometry_face_chunk_size"], max_tasks_per_worker=max_tasks_per_worker, curvature="fd", face_quadrature="q3", inner_support="profile7")
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +456,7 @@ def preflight_grid(*, n: int, input_root: Path, sidecar_path: Path, output: Path
     started = time.time()
 
     if geometry_exists:
-        identity = build_artifact_mod.build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path, curvature="fd", face_quadrature="q3")
+        identity = build_artifact_mod.build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path, curvature="fd", face_quadrature="q3", inner_support="profile7")
         census = FaceCensus.load(grid_dir / "census.npz")
         face_row_indices = build_artifact_mod.face_row_selection(census)
         p07_row_indices = build_artifact_mod.builder.p07_row_selection(census)
@@ -501,7 +501,7 @@ def preflight_grid(*, n: int, input_root: Path, sidecar_path: Path, output: Path
         campaigns_tuple = tuple(cfg["campaigns"])
         owner_closure_result = oc.run_owner_closure_check(
             n=n, input_root=input_root, sidecar_path=sidecar_path, paths=paths, campaigns=campaigns_tuple,
-            compare=oc.oracle_available(paths, campaigns_tuple, n=n), curvature="fd", face_quadrature="q3")
+            compare=oc.oracle_available(paths, campaigns_tuple, n=n), curvature="fd", face_quadrature="q3", inner_support="profile7")
         write(grid_dir / "owner_closure_selection.json", owner_closure_result["selection"])
         all_pass = (neumann_check["pass"]
                    and all(r.get("status") == "ok" for r in replay_result["campaigns"].values())
@@ -606,7 +606,7 @@ def preflight_grid(*, n: int, input_root: Path, sidecar_path: Path, output: Path
     campaigns_tuple = tuple(cfg["campaigns"])
     owner_closure_result = oc.run_owner_closure_check(
         n=n, input_root=input_root, sidecar_path=sidecar_path, paths=paths, campaigns=campaigns_tuple,
-        compare=oc.oracle_available(paths, campaigns_tuple, n=n), curvature="fd", face_quadrature="q3")
+        compare=oc.oracle_available(paths, campaigns_tuple, n=n), curvature="fd", face_quadrature="q3", inner_support="profile7")
     write(grid_dir / "owner_closure_selection.json", owner_closure_result["selection"])
 
     all_pass = (condition_ok and residual_ok and neumann_rebuild_ok
@@ -770,7 +770,7 @@ def main():
                                   "wall_seconds": receipt.get("wall_seconds")}))
                 return
             build_identity = build_artifact_mod.build_identity(n=args.n, input_root=args.input_root,
-                                                                sidecar_path=sidecar_path, curvature="fd", face_quadrature="q3")
+                                                                sidecar_path=sidecar_path, curvature="fd", face_quadrature="q3", inner_support="profile7")
             replay_output = args.output / "replay" / f"N{args.n}"
             summary = _run_stage_with_kwargs_init(
                 replay_output, args.stage, ru.artifact_plan_units(artifact_root, args.n)[args.stage],

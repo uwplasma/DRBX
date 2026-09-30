@@ -68,7 +68,8 @@ def ensure_geometry(*, n: int, input_root: Path, sidecar_path: Path, output: Pat
         "geometry_raw": runner.chunk_units("geometry_raw", n, n ** 3, geometry_raw_chunk_size),
         "geometry_face": runner.chunk_units("geometry_face", n, len(face_row_indices), geometry_face_chunk_size),
     }
-    initargs = (str(input_root), str(sidecar_path), str(output), n, identity)
+    # explicit frozen-reproduction options (P08 bundle defaults changed): finite-difference K, q3 faces
+    initargs = (str(input_root), str(sidecar_path), str(output), n, identity, "fd", "q3")
     for stage in ("geometry_raw", "geometry_face"):
         runner.run_stage(output, stage, plan[stage], identity, compute=ba._GEOMETRY_COMPUTE[stage],
                          initializer=ba._init_geometry_worker, initargs=initargs, workers=workers,
@@ -94,7 +95,8 @@ def build_units(*, n: int, input_root: Path, sidecar_path: Path, output: Path, i
     else:
         runner.write_json(identity_path, identity)
 
-    initargs = (str(input_root), str(sidecar_path), str(output), n, identity)
+    # explicit frozen-reproduction options: finite-difference K, historic inner support
+    initargs = (str(input_root), str(sidecar_path), str(output), n, identity, "fd", "profile7")
     started = time.time()
     summaries = {}
     for stage, units in units_by_stage.items():

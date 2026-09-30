@@ -329,14 +329,16 @@ def build_r3_side_rows(S: StructuredReconstruction, context: PointRowContext, ce
 # ---------------------------------------------------------------------------
 def build_r4_p07_rows(context: PointRowContext, census: FaceCensus, p07_row_indices,
                       face_points_by_row, face_weight_by_row, face_tensor_by_row, *,
-                      normal_coefficients, patch_cache) -> tuple[list[IntegratedRowRequest], list[NeumannRowRequest]]:
+                      normal_coefficients, patch_cache,
+                      inner_support: str = "profile7") -> tuple[list[IntegratedRowRequest], list[NeumannRowRequest]]:
     """R4: ``prepare_integrated_face_rows`` at every P07-census face.
 
     ``p07_row_indices`` (census row indices; see :func:`p07_row_selection`),
     ``face_points_by_row`` (Q3 nodes), ``face_weight_by_row`` (q3 weights,
     the same shared quadrature primitive as R2/R3) and ``face_tensor_by_row``
     (the geometry-only P07 tensor at those nodes) must share the same row
-    order and count. The integrand is P07's frozen normal-row convention,
+    order and count. ``inner_support`` (``"profile7"`` default, or ``"last_aggregate"``) is the inner donor
+    support of the P07 rows (see ``prepare_integrated_face_rows``). The integrand is P07's frozen normal-row convention,
     ``w_q * T[q, axis, :]`` (``contract_face_tensor``).
 
     Families 1 (physical_wall_quartic_BC), 2 (adjacent_radial_quartic_BC)
@@ -362,7 +364,11 @@ def build_r4_p07_rows(context: PointRowContext, census: FaceCensus, p07_row_indi
     tensor = np.asarray(face_tensor_by_row, dtype=np.float64)
     integrand = contract_face_tensor(weights, tensor, face_keys[:, 0])
 
-    rows = prepare_integrated_face_rows(context, face_keys, family, points, integrand)
+    if inner_support == "profile7":
+        rows = prepare_integrated_face_rows(context, face_keys, family, points, integrand)
+    else:
+        rows = prepare_integrated_face_rows(context, face_keys, family, points, integrand,
+                                            inner_support=inner_support)
     result = [IntegratedRowRequest(int(p07_ids[j]), rows[j]) for j in range(len(rows))]
 
     neumann_rows: list[NeumannRowRequest] = []
