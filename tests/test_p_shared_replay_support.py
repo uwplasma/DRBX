@@ -576,7 +576,7 @@ def test_row_index_from_on_the_fly_builder_subset_matches_direct_application():
         return p07n_normal(ref_holder, np.asarray(q, dtype=np.float64))
 
     from p_shared import provider as pshared_provider
-    ref = pshared_provider.ScriptsGeometryProvider.from_sidecar(str(SIDECAR), verify_hashes=False).reference
+    ref = pshared_provider.ScriptsGeometryProvider.from_sidecar(str(SIDECAR), verify_hashes=False, curvature="fd").reference
     normal_coefficients.ref = ref
 
     raw_ids = np.array([0, 1, N ** 3 - 1], dtype=np.int64)  # an interior cell and two boundary (near-axis / wall) cells

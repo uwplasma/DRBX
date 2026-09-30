@@ -288,7 +288,7 @@ needs_geometry = pytest.mark.skipif(not (_geometry_available(N) and SIDECAR.is_f
 def real_env():
     from p_shared.replay_support import build_environment
 
-    return build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR)
+    return build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd")
 
 
 @pytest.fixture(scope="module")

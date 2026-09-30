@@ -89,7 +89,7 @@ def real_n32():
     context = build_artifact._make_context(t)
     S = StructuredReconstruction(context)
     census = FaceCensus.build(N, t.ro)
-    provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(SIDECAR), verify_hashes=False)
+    provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(SIDECAR), verify_hashes=False, curvature="fd")
     normal_coefficients = build_artifact._normal_coefficients_fn(provider.reference)
     return {"t": t, "context": context, "S": S, "census": census, "provider": provider,
             "normal_coefficients": normal_coefficients}

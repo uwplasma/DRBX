@@ -52,7 +52,7 @@ def _payload(n: int) -> dict:
         output = None if REPORT_DIR is None else Path(REPORT_DIR) / f"N{n}.json"
         _PAYLOADS[n] = jr.run_jax_owner_closure_check(
             n=n, input_root=WORKSPACE, sidecar_path=SIDECAR, paths=dict(DEFAULT_PATHS), campaigns=CAMPAIGNS,
-            output=output)
+            output=output, curvature="fd")
     return _PAYLOADS[n]
 
 

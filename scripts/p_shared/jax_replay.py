@@ -91,6 +91,7 @@ from p_shared import campaign_fields as cf                                      
 from p_shared import owner_closure as oc                                                 # noqa: E402
 from p_shared import replay_units as ru                                                  # noqa: E402
 from p_shared.replay_support import CAMPAIGN_FUNCS, Environment, build_environment      # noqa: E402
+from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 
 __all__ = [
     "SCHEMA", "NONCANCELLATION_REL_TOL", "CANCELLATION_FLOOR_FACTOR", "CANCELLATION_REL_TOL", "ULP",
@@ -819,7 +820,7 @@ def _oracle_table(rows) -> list:
 def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict, campaigns: tuple = CAMPAIGN_FUNCS,
                                 floor_seeds=FLOOR_SEEDS, wall_cache: bool = False, output=None,
                                 column_block: Optional[int] = None, variant_block: Optional[int] = None,
-                                boundary_batch: Optional[int] = None, curvature: str = "fd") -> dict:
+                                boundary_batch: Optional[int] = None, curvature: str = DEFAULT_CURVATURE) -> dict:
     """The G1 check at grid ``n`` (mirrors ``owner_closure.run_owner_closure_check``): build the owner rows once,
     run the host ``assemble_owner_terms`` and the JAX assembly on them, and return
 
@@ -952,7 +953,7 @@ def main(argv=None) -> int:
                                                              "localized_sidecar.json"))
     parser.add_argument("--campaigns", default=",".join(CAMPAIGN_FUNCS))
     parser.add_argument("--wall-cache", action="store_true")
-    parser.add_argument("--curvature", choices=("fd", "autodiff"), default="fd")
+    parser.add_argument("--curvature", choices=("fd", "autodiff"), default=DEFAULT_CURVATURE)
     parser.add_argument("--output", default=None)
     args = parser.parse_args(argv)
     payload = run_jax_owner_closure_check(

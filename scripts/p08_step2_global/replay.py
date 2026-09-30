@@ -297,7 +297,7 @@ def run_replay_stage(*, artifact_root, output, n: int, input_root, sidecar_path,
     runner.require_cpu_backend()
 
     with _phase(phases, "environment"):
-        env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path))
+        env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd")
         oracle = ru._load_oracle_owner_values(env, dict(paths), campaigns)
     log(f"N{n}: environment ready in {phases['environment']['seconds']:.1f} s")
 

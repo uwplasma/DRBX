@@ -2100,7 +2100,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); the operator-change bundle (3b) is next. Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K adopted 30 September, q2 face quadrature next. Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2225,6 +2225,14 @@ Steps:
        2. Replace the one-sided wall rule.
        3. Show that the P06/P06N actions change far below their archived spatial errors (bounded check), or rerun a bounded P06 check.
      - Step 1 keeps the finite-difference K, because it must replay the accepted campaigns. After adoption, the face-geometry build cost drops accordingly.
+     - **Adopted 30 September 2026 (user decision); the default for new builds is `curvature="autodiff"` (`p_shared.curvature_reference.DEFAULT_CURVATURE`).** [Qualification](../../../../work/p08_bundle_autodiff_curvature_20260930/design.md) at N32/N48/N64 (QK1–QK4):
+       - K vs finite difference: median 3e-11. The finite difference converges onto autodiff at 4th order at all worst points.
+       - The divergence identity holds at roundoff (≤ 4e-15), against 7e-12 to 4e-11 for the finite difference.
+       - Operator change against the archived error: 7e-9, 4e-8 and 5e-6, below the 1e-2 gate. The region error ratio is 1.000000005, and G3.3 is unchanged.
+       - Geometry is bitwise chunk-independent (block mode) and about 2× faster.
+       - N64 frozen-oracle rows: 20 of 126 move just past the oracles' 1e-5 equivalence clause, at 1.5e-5 to 4e-5. They are FD-baked.
+       - The step-1/step-2 campaign runners, `replay_units` and the frozen-reproduction tests pin `curvature="fd"` explicitly.
+       - References are re-frozen once, after the whole bundle, through campaign A.
    - **Candidate, not adopted: q2 (2×2 Gauss) face quadrature.** The q3 face rule is part of the qualified operator action. The reconstruction (the moment functional) is independent of it: the nodes are only where the reconstruction and metric are evaluated to integrate the face flux. A one-point (midpoint) face rule has not been tested. The 25 September contract kept q3 faces by choice; what failed then was the P05 face/cell volume formulation. A midpoint rule is consistent with the second-order target but leaves no margin above the gate, and it samples near-wall coil ripple at a single phase. q2 is the tested reduction.
      - q2 has 4 nodes instead of 9. What that saves depends on the operator:
        - **P05 and P06 (nonlinear):** they need per-node rows at runtime, so both runtime face cost and per-node artifact rows drop by 2.25×.

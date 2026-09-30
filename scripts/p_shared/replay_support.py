@@ -68,6 +68,7 @@ from drbx.geometry.fci_perpendicular_reconstruction import (            # noqa: 
 from drbx.geometry.fci_perpendicular_neumann_trace import prepare_neumann_point_rows  # noqa: E402
 
 from p_shared import provider as pshared_provider                       # noqa: E402
+from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 
 N = 32  # the row artifact/replay run to completion locally; see the task report.
 
@@ -683,10 +684,10 @@ class Environment:
     normal_coefficients: Callable
     neumann: NeumannSource
     wall_cache: WallDataCache
-    curvature: str = "fd"     # "fd" | "autodiff": which K ``ref._curvature`` evaluates (see p_shared.provider)
+    curvature: str = DEFAULT_CURVATURE     # "fd" | "autodiff": which K ``ref._curvature`` evaluates (see p_shared.provider)
 
 
-def build_environment(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = "fd") -> Environment:
+def build_environment(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = DEFAULT_CURVATURE) -> Environment:
     """The shared campaign environment.  ``curvature="autodiff"`` makes ``env.ref`` an
     :class:`p_shared.curvature_reference.AutodiffCurvatureReference` (autodiff ``_curvature``, everything
     else delegated); ``"fd"`` (default) is the frozen reference, unchanged."""
