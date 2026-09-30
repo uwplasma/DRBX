@@ -2177,6 +2177,9 @@ Steps:
    - Terms: bracket with live jump, centered vorticity bracket, curvature q1+q3, diffusion and polarization; parallel terms off.
    - The reference is the sum of the qualified per-term references.
    - Gate: the combined action equals the sum of the separately qualified actions on bounded N32 sets.
+3b. **Operator-change bundle, before campaign A (user decision, 29 September).** The step-6 candidates that change the qualified operator — autodiff curvature K, q2 face quadrature for P05/P06, and the transverse-reconstruction support at the coupled/ringwise switch — are settled here, after G3 and step 3, so the expensive campaigns run once on the final operator.
+   - For each candidate: the bounded checks listed in step 6, then a decision, then re-frozen references and re-qualification through the JAX owner closure.
+   - G3 runs first, because afterwards the step-1 frozen oracles no longer describe the operator.
 4. **Campaign A, prescribed exact φ.**
    - N32/N48/N64 on a frozen catalogue, with held-out fields, and Dirichlet and Neumann variants kept separate.
    - The catalogue has rich fields (upwinding active) and low-degree fields (asymptotic rate).
