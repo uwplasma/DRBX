@@ -242,7 +242,7 @@ REQUIRED_CATEGORIES = {
 def test_select_owners_is_deterministic_and_covers_every_required_category():
     from p_shared.replay_support import build_environment
 
-    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3")
+    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3", inner_support="profile7")
     owners_a = oc.select_owners(env.t, env.census)
     owners_b = oc.select_owners(env.t, env.census)
     assert owners_a == owners_b  # deterministic, no RNG/dict-order dependence
@@ -261,7 +261,7 @@ def test_select_owners_is_deterministic_and_covers_every_required_category():
 def test_build_owner_rows_covers_every_selected_owners_incident_faces():
     from p_shared.replay_support import build_environment
 
-    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3")
+    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3", inner_support="profile7")
     owners = sorted(set(oc.select_owners(env.t, env.census).values()))
     provider = oc.load_provider_for_env(SIDECAR, curvature="fd", face_quadrature="q3")
     built = oc.build_owner_rows(env, owners, provider=provider)
@@ -289,7 +289,7 @@ def test_run_owner_closure_check_passes_against_every_frozen_oracle():
     from p_shared.replay_support import DEFAULT_PATHS, CAMPAIGN_FUNCS
 
     payload = oc.run_owner_closure_check(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR,
-                                         paths=dict(DEFAULT_PATHS), campaigns=CAMPAIGN_FUNCS, compare=True, curvature="fd", face_quadrature="q3")
+                                         paths=dict(DEFAULT_PATHS), campaigns=CAMPAIGN_FUNCS, compare=True, curvature="fd", face_quadrature="q3", inner_support="profile7")
     failed = [r for r in payload["table"] if not r["pass"]]
     assert failed == []
     assert payload["all_pass"] is True
@@ -312,7 +312,7 @@ def test_run_owner_closure_check_passes_at_n48_and_n64(n):
         pytest.skip(f"the six frozen campaigns' N{n} oracle arrays are unavailable")
 
     payload = oc.run_owner_closure_check(n=n, input_root=WORKSPACE, sidecar_path=SIDECAR,
-                                         paths=dict(DEFAULT_PATHS), campaigns=CAMPAIGN_FUNCS, compare=True, curvature="fd", face_quadrature="q3")
+                                         paths=dict(DEFAULT_PATHS), campaigns=CAMPAIGN_FUNCS, compare=True, curvature="fd", face_quadrature="q3", inner_support="profile7")
     failed = [r for r in payload["table"] if not r["pass"]]
     assert failed == []
     assert payload["all_pass"] is True

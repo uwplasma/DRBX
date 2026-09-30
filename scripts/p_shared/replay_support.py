@@ -70,6 +70,7 @@ from drbx.geometry.fci_perpendicular_neumann_trace import prepare_neumann_point_
 from p_shared import provider as pshared_provider                       # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE, check_face_quadrature  # noqa: E402
+from p_shared.inner_support import DEFAULT_INNER_SUPPORT, check_inner_support  # noqa: E402
 
 N = 32  # the row artifact/replay run to completion locally; see the task report.
 
@@ -687,16 +688,21 @@ class Environment:
     wall_cache: WallDataCache
     curvature: str = DEFAULT_CURVATURE     # "fd" | "autodiff": which K ``ref._curvature`` evaluates (see p_shared.provider)
     face_quadrature: str = DEFAULT_FACE_QUADRATURE   # "q3" | "q2": the P05/P06 face-node rule (P07 stays q3)
+    inner_support: str = DEFAULT_INNER_SUPPORT       # "profile7" | "last_aggregate": the inner donor support of S
 
 
 def build_environment(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = DEFAULT_CURVATURE,
-                      face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> Environment:
+                      face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+                      inner_support: str = DEFAULT_INNER_SUPPORT) -> Environment:
     """The shared campaign environment.  ``curvature="autodiff"`` makes ``env.ref`` an
     :class:`p_shared.curvature_reference.AutodiffCurvatureReference` (autodiff ``_curvature``, everything
     else delegated); ``"fd"`` (default) is the frozen reference, unchanged.  ``face_quadrature`` (``"q3"``
     default, or ``"q2"``) is recorded on the environment and selects the P05/P06 face nodes of the owner
-    closure and the host face replay (see :mod:`p_shared.face_quadrature`); it does not change ``ref``."""
+    closure and the host face replay (see :mod:`p_shared.face_quadrature`); it does not change ``ref``.
+    ``inner_support`` (``"profile7"`` default, or ``"last_aggregate"``) is the inner donor support of ``env.S`` (and of
+    the P07 R4 rows the owner closure builds; see :mod:`p_shared.inner_support`)."""
     check_face_quadrature(face_quadrature)
+    check_inner_support(inner_support)
     from perpendicular_structured.reconstruction import load_context
     from p07n_field_derived_global.fields import normal as p07n_normal
 
@@ -705,7 +711,8 @@ def build_environment(*, n: int, input_root: Path, sidecar_path: Path, curvature
                                       raw_volume=t.rv, owner_volume=t.vol,
                                       owner_centroid_xy=t.g.owner_centroid_xy, eta_period=t.g.eta_period,
                                       dr=t.g.dr, dtheta=t.g.dtheta, deta=t.g.deta)
-    S = StructuredReconstruction(ctx)
+    S = (StructuredReconstruction(ctx) if inner_support == "profile7"
+         else StructuredReconstruction(ctx, inner_support=inner_support))
     census = FaceCensus.build(n, t.ro)
     ref = pshared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False,
                                                                 curvature=curvature).reference
@@ -717,7 +724,8 @@ def build_environment(*, n: int, input_root: Path, sidecar_path: Path, curvature
     wall_cache = WallDataCache(t)
     return Environment(n=n, t=t, ctx=ctx, S=S, census=census, ref=ref,
                        normal_coefficients=normal_coefficients, neumann=neumann, wall_cache=wall_cache,
-                       curvature=curvature, face_quadrature=face_quadrature)
+                       curvature=curvature, face_quadrature=face_quadrature,
+                       inner_support=inner_support)
 
 
 # ---------------------------------------------------------------------------

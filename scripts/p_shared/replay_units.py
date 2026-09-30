@@ -351,7 +351,7 @@ def init_worker(*, artifact_root: str, n: int, input_root: str, sidecar_path: st
     if manifest.get("identity") != artifact_mod._json_safe(build_identity):
         raise ValueError("row artifact identity mismatch")
 
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd", face_quadrature="q3")
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd", face_quadrature="q3", inner_support="profile7")
 
     oracle = _load_oracle_owner_values(env, paths, campaigns)
 
@@ -1546,7 +1546,7 @@ def reduce_grid(*, output: Path, artifact_root: Path, n: int, input_root: Path, 
                 paths: dict, campaigns: tuple, plan: dict) -> dict:
     started = time.time()
     output = Path(output)
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd", face_quadrature="q3")
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd", face_quadrature="q3", inner_support="profile7")
     t = env.t
     owners = len(t.vol)
     results: dict = {}
@@ -1899,7 +1899,7 @@ def neumann_rebuild_compare_check(*, artifact_root, n: int, input_root, sidecar_
         arrays = {name: source[name] for name in source.files}
     neumann_chunk = artifact_mod._arrays_to_neumann_chunk(arrays)
 
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd", face_quadrature="q3")
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd", face_quadrature="q3", inner_support="profile7")
 
     total = len(neumann_chunk.entity_id)
     if total == 0:

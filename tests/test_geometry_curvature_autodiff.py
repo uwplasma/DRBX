@@ -335,8 +335,8 @@ def test_build_owner_rows_rejects_a_provider_that_disagrees_with_the_environment
 def test_build_policy_and_identity_distinguish_curvature(monkeypatch):
     from p_shared import build_artifact as ba
 
-    assert ba.build_policy("fd", "q3") == ba.POLICY and "curvature" not in ba.build_policy("fd")
-    assert ba.build_policy("autodiff", "q3") == {**ba.POLICY, "curvature": "autodiff"}
+    assert ba.build_policy("fd", "q3", "profile7") == ba.POLICY and "curvature" not in ba.build_policy("fd")
+    assert ba.build_policy("autodiff", "q3", "profile7") == {**ba.POLICY, "curvature": "autodiff"}
     assert "curvature" not in ba.POLICY                          # the module constant (fd identities) is untouched
     with pytest.raises(ValueError):
         ba.build_policy("bogus")
@@ -345,9 +345,9 @@ def test_build_policy_and_identity_distinguish_curvature(monkeypatch):
     monkeypatch.setattr(ba, "_sidecar_component_hashes", lambda path: {"sidecar": "s"})
     default = ba.build_identity(n=32, input_root=Path("."), sidecar_path=Path("."))
     assert default == ba.build_identity(n=32, input_root=Path("."), sidecar_path=Path("."), curvature="autodiff")
-    fd = ba.build_identity(n=32, input_root=Path("."), sidecar_path=Path("."), curvature="fd", face_quadrature="q3")
+    fd = ba.build_identity(n=32, input_root=Path("."), sidecar_path=Path("."), curvature="fd", face_quadrature="q3", inner_support="profile7")
     ad = ba.build_identity(n=32, input_root=Path("."), sidecar_path=Path("."), curvature="autodiff",
-                           face_quadrature="q3")
+                           face_quadrature="q3", inner_support="profile7")
     assert fd["policy"] == ba.POLICY
     assert ad != fd and ad["policy"]["curvature"] == "autodiff"
     assert set(fd["source_hashes"]) == set(ba.SOURCE_FILES)

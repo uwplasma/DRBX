@@ -64,7 +64,7 @@ def closure():
     from p_shared.replay_support import build_environment
 
     _need_oracles()
-    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3")
+    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3", inner_support="profile7")
     owners = np.asarray(oc.selection_fixture(env.t, env.census)["owners"], dtype=np.int64)
     built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(SIDECAR, curvature="fd", face_quadrature="q3"))
     paths = _paths()
@@ -315,7 +315,7 @@ def test_comparison_matches_reduce_grid(tmp_path):
 
     _need_oracles()
     paths = _paths()
-    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3")
+    env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3", inner_support="profile7")
     units_out = _synthetic_units(env, paths, np.random.default_rng(7))
 
     output = tmp_path / "reduce"

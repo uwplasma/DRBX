@@ -51,6 +51,7 @@ from p_shared import selection as sel                              # noqa: E402
 from p_shared import provider as pshared_provider                  # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE, face_order as _face_order  # noqa: E402
+from p_shared.inner_support import DEFAULT_INNER_SUPPORT  # noqa: E402
 from p_shared import replay_units as ru                            # noqa: E402
 from p_shared.replay_support import (                              # noqa: E402
     Environment, build_environment, _load_p05_upwind,
@@ -276,6 +277,7 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
         raise ValueError(f"provider face_quadrature {provider.face_quadrature!r} does not match environment "
                          f"face_quadrature {env_face_quadrature!r}")
     face_order = _face_order(env_face_quadrature)
+    env_inner_support = getattr(env, "inner_support", DEFAULT_INNER_SUPPORT)
     t = env.t
     census = env.census
     unique_owners = sorted(set(int(o) for o in owners))
@@ -318,7 +320,8 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
         raise ValueError("build_owner_rows: p07_row_indices must be a subset of face_row_indices")
     integrated_requests, p07_neumann = stencil_builder.build_r4_p07_rows(
         env.ctx, census, p07_row_indices, geometry.p07_points[face_pos], geometry.p07_weight[face_pos],
-        geometry.p07_face_tensor[face_pos], normal_coefficients=env.normal_coefficients, patch_cache=patch_cache)
+        geometry.p07_face_tensor[face_pos], normal_coefficients=env.normal_coefficients, patch_cache=patch_cache,
+        **({} if env_inner_support == "profile7" else {"inner_support": env_inner_support}))
     neumann_requests = neumann_requests + p07_neumann
 
     row_index = {(req.request, req.entity_id): req.row for req in point_requests}
@@ -329,7 +332,7 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
         "owners": unique_owners, "raw_ids": raw_ids, "face_row_indices": face_row_indices,
         "p07_row_indices": p07_row_indices, "row_index": row_index, "neumann_index": neumann_index,
         "geometry": geometry, "curvature": getattr(provider, "curvature", "fd"),
-        "face_quadrature": env_face_quadrature,
+        "face_quadrature": env_face_quadrature, "inner_support": env_inner_support,
     }
 
 
@@ -712,7 +715,8 @@ def oracle_available(paths: dict, campaigns: tuple, n: int = 32) -> bool:
 
 def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, paths: dict, campaigns: tuple,
                             compare: bool, curvature: str = DEFAULT_CURVATURE,
-                            face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> dict:
+                            face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+                            inner_support: str = DEFAULT_INNER_SUPPORT) -> dict:
     """The full bounded owner-closure check (task report): build ``env``,
     select owners, build only their incident rows, run every campaign's own
     replay-unit arithmetic, and -- when ``compare`` -- diff against each
@@ -725,7 +729,7 @@ def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, pat
 
     started = _time.time()
     env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature,
-                            face_quadrature=face_quadrature)
+                            face_quadrature=face_quadrature, inner_support=inner_support)
     t = env.t; census = env.census
 
     fixture = selection_fixture(t, census)
@@ -740,6 +744,8 @@ def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, pat
     }
     if face_quadrature != "q3":
         payload["face_quadrature"] = face_quadrature
+    if inner_support != "profile7":
+        payload["inner_support"] = inner_support
     if not compare:
         payload["seconds"] = _time.time() - started
         return payload

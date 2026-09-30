@@ -93,6 +93,7 @@ from p_shared import replay_units as ru                                         
 from p_shared.replay_support import CAMPAIGN_FUNCS, Environment, build_environment      # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE, FACE_QUADRATURE_CHOICES  # noqa: E402
+from p_shared.inner_support import DEFAULT_INNER_SUPPORT, INNER_SUPPORT_CHOICES  # noqa: E402
 
 __all__ = [
     "SCHEMA", "NONCANCELLATION_REL_TOL", "CANCELLATION_FLOOR_FACTOR", "CANCELLATION_REL_TOL", "ULP",
@@ -423,6 +424,10 @@ class JaxOwnerClosure:
         if built is not None and built.get("face_quadrature", self.face_quadrature) != self.face_quadrature:
             raise ValueError(f"owner rows were built with face_quadrature {built['face_quadrature']!r} but the "
                              f"environment uses {self.face_quadrature!r}")
+        self.inner_support = getattr(env, "inner_support", DEFAULT_INNER_SUPPORT)
+        if built is not None and built.get("inner_support", self.inner_support) != self.inner_support:
+            raise ValueError(f"owner rows were built with inner_support {built['inner_support']!r} but the "
+                             f"environment uses {self.inner_support!r}")
         self.boundary_progress = boundary_progress
         self.campaigns = tuple(campaigns)
         unknown = set(self.campaigns) - set(CAMPAIGN_FUNCS)
@@ -826,7 +831,8 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
                                 floor_seeds=FLOOR_SEEDS, wall_cache: bool = False, output=None,
                                 column_block: Optional[int] = None, variant_block: Optional[int] = None,
                                 boundary_batch: Optional[int] = None, curvature: str = DEFAULT_CURVATURE,
-                                face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> dict:
+                                face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+                                inner_support: str = DEFAULT_INNER_SUPPORT) -> dict:
     """The G1 check at grid ``n`` (mirrors ``owner_closure.run_owner_closure_check``): build the owner rows once,
     run the host ``assemble_owner_terms`` and the JAX assembly on them, and return
 
@@ -854,7 +860,7 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
 
     started = time.perf_counter()
     env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature,
-                            face_quadrature=face_quadrature)
+                            face_quadrature=face_quadrature, inner_support=inner_support)
     mark("environment", started)
     t = env.t
     fixture = oc.selection_fixture(t, env.census)
@@ -923,6 +929,8 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
     }
     if face_quadrature != "q3":
         payload["face_quadrature"] = face_quadrature
+    if inner_support != "profile7":
+        payload["inner_support"] = inner_support
     if output is not None:
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -969,12 +977,15 @@ def main(argv=None) -> int:
     parser.add_argument("--curvature", choices=("fd", "autodiff"), default=DEFAULT_CURVATURE)
     parser.add_argument("--face-quadrature", choices=FACE_QUADRATURE_CHOICES, default=DEFAULT_FACE_QUADRATURE,
                         help="P05/P06 face-node rule (P07 stays q3)")
+    parser.add_argument("--inner-support", choices=INNER_SUPPORT_CHOICES, default=DEFAULT_INNER_SUPPORT,
+                        help="inner donor support of the P05/P06/P07 rows (C0 profile7, C1 last_aggregate)")
     parser.add_argument("--output", default=None)
     args = parser.parse_args(argv)
     payload = run_jax_owner_closure_check(
         n=args.n, input_root=args.input_root, sidecar_path=args.sidecar, paths=dict(DEFAULT_PATHS),
         campaigns=tuple(args.campaigns.split(",")), wall_cache=args.wall_cache, output=args.output,
-        curvature=args.curvature, face_quadrature=args.face_quadrature)
+        curvature=args.curvature, face_quadrature=args.face_quadrature,
+        inner_support=args.inner_support)
     _print_summary(payload)
     return 0 if (payload["all_diff_pass"] and payload["oracle_jax_all_pass"] and not payload["uniq_mismatches"]) else 1
 

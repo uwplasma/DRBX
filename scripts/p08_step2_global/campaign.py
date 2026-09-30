@@ -242,7 +242,7 @@ def preflight_grid(*, n: int, input_root: Path, sidecar_path: Path, output: Path
         n=n, input_root=input_root, sidecar_path=sidecar_path, paths=paths, campaigns=tuple(cfg["campaigns"]),
         floor_seeds=tuple(cfg["preflight_floor_seeds"]), wall_cache=bool(cfg["wall_cache"]), output=report,
         column_block=cfg["column_block"], variant_block=cfg["p06n_variant_block"],
-        boundary_batch=cfg["boundary_batch"], curvature="fd", face_quadrature="q3")
+        boundary_batch=cfg["boundary_batch"], curvature="fd", face_quadrature="q3", inner_support="profile7")
     all_pass = bool(payload["all_diff_pass"] and payload["oracle_jax_all_pass"] and not payload["uniq_mismatches"])
     return {"n": int(n), "all_pass": all_pass, "jax": info,
             "policy_rows": len(payload["diff_table"]), "policy_failures": payload["diff_failures"],

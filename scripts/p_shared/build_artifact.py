@@ -126,6 +126,8 @@ from p_shared.curvature_reference import check_curvature           # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 from p_shared.face_quadrature import (               # noqa: E402
     DEFAULT_FACE_QUADRATURE, FACE_QUADRATURE_CHOICES, check_face_quadrature, face_order as _face_order)
+from p_shared.inner_support import (                 # noqa: E402
+    DEFAULT_INNER_SUPPORT, INNER_SUPPORT_CHOICES, check_inner_support)
 from p07_diffusion_global.numerics import quadrature as _p07_quadrature  # noqa: E402
 from perpendicular_structured.reconstruction import load_context   # noqa: E402
 from p07n_field_derived_global.fields import normal as _p07n_normal  # noqa: E402
@@ -232,26 +234,38 @@ Q2_SOURCE_FILES = [
 ]
 
 
-def build_policy(curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> dict:
+#: extra source pinned only for ``inner_support != "profile7"`` builds (the ``"profile7"`` identity is unchanged)
+INNER_SUPPORT_SOURCE_FILES = [
+    "scripts/p_shared/inner_support.py",
+]
+
+
+def build_policy(curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+                 inner_support: str = DEFAULT_INNER_SUPPORT) -> dict:
     """``POLICY`` for ``curvature="fd"`` and ``face_quadrature="q3"`` (exactly, so existing identities are
     unchanged); with ``"autodiff"`` the same policy plus ``curvature`` (distinct identity); with ``"q2"`` the
     P05/P06 face rule is recorded as ``quadrature = {"raw": "q1", "face": "q2", "p07_face": "q3"}``."""
     check_curvature(curvature)
     check_face_quadrature(face_quadrature)
+    check_inner_support(inner_support)
     policy = dict(POLICY) if curvature == "fd" else {**POLICY, "curvature": "autodiff"}
     if face_quadrature != "q3":
         policy["quadrature"] = {"raw": "q1", "face": face_quadrature, "p07_face": "q3"}
+    if inner_support != "profile7":        # the literal, not the default: the default may move, the frozen identity may not
+        policy["inner_support"] = inner_support
     return policy
 
 
 def build_identity(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = DEFAULT_CURVATURE,
-                   face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> dict:
+                   face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+                   inner_support: str = DEFAULT_INNER_SUPPORT) -> dict:
     component_hashes = {**_geometry_component_hashes(input_root, n), **_sidecar_component_hashes(sidecar_path)}
     sources = (SOURCE_FILES + (AUTODIFF_SOURCE_FILES if curvature != "fd" else [])
-               + (Q2_SOURCE_FILES if face_quadrature != "q3" else []))
+               + (Q2_SOURCE_FILES if face_quadrature != "q3" else [])
+               + (INNER_SUPPORT_SOURCE_FILES if inner_support != "profile7" else []))
     source_hashes = {rel: artifact_mod.hash_file(REPO / rel) for rel in sources}
     return artifact_mod.build_identity(component_hashes=component_hashes, source_hashes=source_hashes,
-                                       policy=build_policy(curvature, face_quadrature))
+                                       policy=build_policy(curvature, face_quadrature, inner_support))
 
 
 # ---------------------------------------------------------------------------
@@ -426,13 +440,15 @@ def _integrated_diagnostics_summary(integrated_rows) -> dict:
     return {"families": families}
 
 
-def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict, curvature: str = DEFAULT_CURVATURE):
+def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict, curvature: str = DEFAULT_CURVATURE,
+                 inner_support: str = DEFAULT_INNER_SUPPORT):
     global STATE
     runner.require_cpu_backend()
     grid_dir = Path(output) / f"N{n}"
     t = load_context(n, str(input_root))
     context = _make_context(t)
-    S = StructuredReconstruction(context)
+    S = (StructuredReconstruction(context) if inner_support == "profile7"
+         else StructuredReconstruction(context, inner_support=inner_support))
     census = FaceCensus.load(grid_dir / "census.npz")
     geometry = GeometryArrays.load(grid_dir / "geometry.npz")
     ref = p_shared_provider.ScriptsGeometryProvider.from_sidecar(sidecar_path, verify_hashes=False,
@@ -458,6 +474,7 @@ def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identi
         "normal_coefficients": normal_coefficients, "patch_cache": {},
         "face_row_indices": face_row_indices, "p07_row_indices": p07_row_indices,
         "p07_to_face_pos": p07_to_face_pos, "output": Path(output), "identity": identity,
+        "inner_support": inner_support,
     }
 
 
@@ -574,7 +591,8 @@ def _compute_p07(unit: dict) -> dict:
         face_points[~regular] = points
     integrated_rows, neumann_rows = builder.build_r4_p07_rows(
         s["context"], s["census"], row_indices, face_points, face_weight, face_tensor,
-        normal_coefficients=s["normal_coefficients"], patch_cache=s["patch_cache"])
+        normal_coefficients=s["normal_coefficients"], patch_cache=s["patch_cache"],
+        **({} if s.get("inner_support", "profile7") == "profile7" else {"inner_support": s["inner_support"]}))
     integrated_chunk = artifact_mod.pack_integrated_rows(
         [r.row for r in integrated_rows], entity_id=[r.entity_id for r in integrated_rows])
     neumann_chunk = artifact_mod.pack_neumann_rows(
@@ -785,6 +803,7 @@ def run_full_build(
     max_units: int | None = None,
     curvature: str = DEFAULT_CURVATURE,
     face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+    inner_support: str = DEFAULT_INNER_SUPPORT,
 ) -> dict:
     """Build the full N{n} row artifact and return the same dict written to
     ``<output>/N{n}/build_receipt.json``.
@@ -824,6 +843,7 @@ def run_full_build(
     """
     check_curvature(curvature)
     check_face_quadrature(face_quadrature)
+    check_inner_support(inner_support)
     face_order = _face_order(face_quadrature)
     input_root = Path(input_root).resolve()
     sidecar_path = Path(sidecar_path).resolve()
@@ -834,7 +854,7 @@ def run_full_build(
 
     with runner.lock(output):
         identity = build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path, curvature=curvature,
-                                  face_quadrature=face_quadrature)
+                                  face_quadrature=face_quadrature, inner_support=inner_support)
         identity_path = grid_dir / "build_identity.json"
         if identity_path.exists():
             saved = json.loads(identity_path.read_text())
@@ -898,7 +918,9 @@ def run_full_build(
                 f"~{estimated_gib:.2f} GiB would leave <8 GiB free")
 
         initargs = (str(input_root), str(sidecar_path), str(output), n, identity, curvature)
-        geometry_initargs = initargs if face_order == 3 else initargs + (face_quadrature,)
+        # always explicit: a worker must never fall back to a (changed) module default
+        geometry_initargs = initargs + (face_quadrature,)
+        row_initargs = initargs + (inner_support,)
         summaries = {}
 
         geometry_complete = geometry_path.exists()
@@ -939,7 +961,7 @@ def run_full_build(
         for stage in ("cells", "faces", "p07"):
             summaries[stage] = runner.run_stage(
                 output, stage, plan[stage], identity,
-                compute=_COMPUTE[stage], initializer=_init_worker, initargs=initargs,
+                compute=_COMPUTE[stage], initializer=_init_worker, initargs=row_initargs,
                 workers=effective_workers, parts=("chunk", "neumann"),
                 max_tasks_per_worker=max_tasks_per_worker, max_units=max_units)
 
@@ -1004,6 +1026,9 @@ def parse_args(argv=None):
     p.add_argument("--max-units", type=int, default=None, help="for smoke-testing a partial build")
     p.add_argument("--curvature", choices=("fd", "autodiff"), default=DEFAULT_CURVATURE,
                    help="curvature K of the geometry and reference (recorded in the build identity)")
+    p.add_argument("--inner-support", choices=INNER_SUPPORT_CHOICES, default=DEFAULT_INNER_SUPPORT,
+                   help="inner donor support of the P05/P06/P07 rows: profile7 (C0) or last_aggregate (C1); "
+                        "recorded in the build identity when not profile7")
     p.add_argument("--face-quadrature", choices=FACE_QUADRATURE_CHOICES, default=DEFAULT_FACE_QUADRATURE,
                    help="P05/P06 face-node rule: q3 (9 nodes) or q2 (4 nodes); P07 stays q3 "
                         "(recorded in the build identity)")
@@ -1019,7 +1044,7 @@ def main(argv=None) -> dict:
         cell_chunk_size=args.cell_chunk_size, face_chunk_size=args.face_chunk_size, p07_chunk_size=args.p07_chunk_size,
         geometry_raw_chunk_size=args.geometry_raw_chunk_size, geometry_face_chunk_size=args.geometry_face_chunk_size,
         max_tasks_per_worker=args.max_tasks_per_worker, max_units=args.max_units, curvature=args.curvature,
-        face_quadrature=args.face_quadrature)
+        face_quadrature=args.face_quadrature, inner_support=args.inner_support)
 
 
 if __name__ == "__main__":
