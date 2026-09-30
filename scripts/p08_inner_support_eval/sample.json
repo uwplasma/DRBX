@@ -1,0 +1,822 @@
+[
+  {
+    "N": 32,
+    "owner": 294,
+    "phase": "nonseam",
+    "radial": 3,
+    "selected_raw": 3174,
+    "roles": [
+      "coupled_control"
+    ],
+    "raw_members": [
+      3078,
+      3110,
+      3142,
+      3174
+    ],
+    "weights": [
+      0.24771009990005435,
+      0.24929180449917948,
+      0.2507938305274678,
+      0.2522042650732982
+    ],
+    "member_count": 4,
+    "cached": true
+  },
+  {
+    "N": 32,
+    "owner": 550,
+    "phase": "nonseam",
+    "radial": 4,
+    "selected_raw": 4198,
+    "roles": [
+      "switch"
+    ],
+    "raw_members": [
+      4102,
+      4134,
+      4166,
+      4198
+    ],
+    "weights": [
+      0.24731865581935483,
+      0.24913633081243483,
+      0.25090801633909393,
+      0.25263699702911646
+    ],
+    "member_count": 4,
+    "cached": true
+  },
+  {
+    "N": 32,
+    "owner": 838,
+    "phase": "nonseam",
+    "radial": 5,
+    "selected_raw": 5222,
+    "roles": [
+      "switch_plus1"
+    ],
+    "raw_members": [
+      5190,
+      5222
+    ],
+    "weights": [
+      0.4979969324588657,
+      0.5020030675411342
+    ],
+    "member_count": 2,
+    "cached": false
+  },
+  {
+    "N": 32,
+    "owner": 1350,
+    "phase": "nonseam",
+    "radial": 6,
+    "selected_raw": 6246,
+    "roles": [
+      "switch_plus2"
+    ],
+    "raw_members": [
+      6214,
+      6246
+    ],
+    "weights": [
+      0.49773574494137474,
+      0.5022642550586253
+    ],
+    "member_count": 2,
+    "cached": false
+  },
+  {
+    "N": 32,
+    "owner": 3398,
+    "phase": "nonseam",
+    "radial": 10,
+    "selected_raw": 10342,
+    "roles": [
+      "last_aggregate"
+    ],
+    "raw_members": [
+      10310,
+      10342
+    ],
+    "weights": [
+      0.4968661204550332,
+      0.5031338795449668
+    ],
+    "member_count": 2,
+    "cached": true
+  },
+  {
+    "N": 32,
+    "owner": 3974,
+    "phase": "nonseam",
+    "radial": 11,
+    "selected_raw": 11366,
+    "roles": [
+      "first_singleton"
+    ],
+    "raw_members": [
+      11366
+    ],
+    "weights": [
+      1.0
+    ],
+    "member_count": 1,
+    "cached": true
+  },
+  {
+    "N": 32,
+    "owner": 288,
+    "phase": "double_seam",
+    "radial": 3,
+    "selected_raw": 3072,
+    "roles": [
+      "coupled_control"
+    ],
+    "raw_members": [
+      3072,
+      3104,
+      3136,
+      3168
+    ],
+    "weights": [
+      0.25150608179113393,
+      0.2506301385070682,
+      0.24956686267404973,
+      0.24829691702774812
+    ],
+    "member_count": 4,
+    "cached": true
+  },
+  {
+    "N": 32,
+    "owner": 544,
+    "phase": "double_seam",
+    "radial": 4,
+    "selected_raw": 4096,
+    "roles": [
+      "switch"
+    ],
+    "raw_members": [
+      4096,
+      4128,
+      4160,
+      4192
+    ],
+    "weights": [
+      0.25165649222152464,
+      0.250699882441866,
+      0.24953500022566805,
+      0.24810862511094137
+    ],
+    "member_count": 4,
+    "cached": true
+  },
+  {
+    "N": 32,
+    "owner": 800,
+    "phase": "double_seam",
+    "radial": 5,
+    "selected_raw": 5120,
+    "roles": [
+      "switch_plus1"
+    ],
+    "raw_members": [
+      5120,
+      5152
+    ],
+    "weights": [
+      0.5009630887492569,
+      0.4990369112507431
+    ],
+    "member_count": 2,
+    "cached": false
+  },
+  {
+    "N": 32,
+    "owner": 1312,
+    "phase": "double_seam",
+    "radial": 6,
+    "selected_raw": 6144,
+    "roles": [
+      "switch_plus2"
+    ],
+    "raw_members": [
+      6144,
+      6176
+    ],
+    "weights": [
+      0.5009081439976218,
+      0.4990918560023782
+    ],
+    "member_count": 2,
+    "cached": false
+  },
+  {
+    "N": 32,
+    "owner": 3360,
+    "phase": "double_seam",
+    "radial": 10,
+    "selected_raw": 10240,
+    "roles": [
+      "last_aggregate"
+    ],
+    "raw_members": [
+      10240,
+      10272
+    ],
+    "weights": [
+      0.5001118872409893,
+      0.49988811275901074
+    ],
+    "member_count": 2,
+    "cached": true
+  },
+  {
+    "N": 32,
+    "owner": 3872,
+    "phase": "double_seam",
+    "radial": 11,
+    "selected_raw": 11264,
+    "roles": [
+      "first_singleton"
+    ],
+    "raw_members": [
+      11264
+    ],
+    "weights": [
+      1.0
+    ],
+    "member_count": 1,
+    "cached": true
+  },
+  {
+    "N": 48,
+    "owner": 826,
+    "phase": "nonseam",
+    "radial": 4,
+    "selected_raw": 9466,
+    "roles": [
+      "coupled_control"
+    ],
+    "raw_members": [
+      9418,
+      9466,
+      9514,
+      9562
+    ],
+    "weights": [
+      0.24939123239702218,
+      0.24985434624934635,
+      0.2502347345970743,
+      0.2505196867565571
+    ],
+    "member_count": 4,
+    "cached": true
+  },
+  {
+    "N": 48,
+    "owner": 1402,
+    "phase": "nonseam",
+    "radial": 5,
+    "selected_raw": 11770,
+    "roles": [
+      "switch"
+    ],
+    "raw_members": [
+      11722,
+      11770,
+      11818,
+      11866
+    ],
+    "weights": [
+      0.24922101763733123,
+      0.24979745225268385,
+      0.2502925618198358,
+      0.2506889682901491
+    ],
+    "member_count": 4,
+    "cached": true
+  },
+  {
+    "N": 48,
+    "owner": 1978,
+    "phase": "nonseam",
+    "radial": 6,
+    "selected_raw": 14074,
+    "roles": [
+      "switch_plus1"
+    ],
+    "raw_members": [
+      14026,
+      14074,
+      14122,
+      14170
+    ],
+    "weights": [
+      0.24903833436269532,
+      0.24973205226726816,
+      0.2503524832849825,
+      0.25087713008505397
+    ],
+    "member_count": 4,
+    "cached": false
+  },
+  {
+    "N": 48,
+    "owner": 2554,
+    "phase": "nonseam",
+    "radial": 7,
+    "selected_raw": 16378,
+    "roles": [
+      "switch_plus2"
+    ],
+    "raw_members": [
+      16330,
+      16378,
+      16426,
+      16474
+    ],
+    "weights": [
+      0.2488437636578944,
+      0.2496584838518138,
+      0.2504143397501799,
+      0.25108341274011187
+    ],
+    "member_count": 4,
+    "cached": false
+  },
+  {
+    "N": 48,
+    "owner": 11242,
+    "phase": "nonseam",
+    "radial": 15,
+    "selected_raw": 34810,
+    "roles": [
+      "last_aggregate"
+    ],
+    "raw_members": [
+      34762,
+      34810
+    ],
+    "weights": [
+      0.49811059257882856,
+      0.5018894074211713
+    ],
+    "member_count": 2,
+    "cached": true
+  },
+  {
+    "N": 48,
+    "owner": 12538,
+    "phase": "nonseam",
+    "radial": 16,
+    "selected_raw": 37114,
+    "roles": [
+      "first_singleton"
+    ],
+    "raw_members": [
+      37114
+    ],
+    "weights": [
+      1.0
+    ],
+    "member_count": 1,
+    "cached": true
+  },
+  {
+    "N": 48,
+    "owner": 768,
+    "phase": "double_seam",
+    "radial": 4,
+    "selected_raw": 9216,
+    "roles": [
+      "coupled_control"
+    ],
+    "raw_members": [
+      9216,
+      9264,
+      9312,
+      9360
+    ],
+    "weights": [
+      0.25064799099648494,
+      0.2502697196045231,
+      0.24981157789591346,
+      0.2492707115030785
+    ],
+    "member_count": 4,
+    "cached": true
+  },
+  {
+    "N": 48,
+    "owner": 1344,
+    "phase": "double_seam",
+    "radial": 5,
+    "selected_raw": 11520,
+    "roles": [
+      "switch"
+    ],
+    "raw_members": [
+      11520,
+      11568,
+      11616,
+      11664
+    ],
+    "weights": [
+      0.25070994880882785,
+      0.2502938623429393,
+      0.24979374528734694,
+      0.24920244356088594
+    ],
+    "member_count": 4,
+    "cached": true
+  },
+  {
+    "N": 48,
+    "owner": 1920,
+    "phase": "double_seam",
+    "radial": 6,
+    "selected_raw": 13824,
+    "roles": [
+      "switch_plus1"
+    ],
+    "raw_members": [
+      13824,
+      13872,
+      13920,
+      13968
+    ],
+    "weights": [
+      0.250743944673472,
+      0.25030567947637733,
+      0.24978401840228087,
+      0.2491663574478698
+    ],
+    "member_count": 4,
+    "cached": false
+  },
+  {
+    "N": 48,
+    "owner": 2496,
+    "phase": "double_seam",
+    "radial": 7,
+    "selected_raw": 16128,
+    "roles": [
+      "switch_plus2"
+    ],
+    "raw_members": [
+      16128,
+      16176,
+      16224,
+      16272
+    ],
+    "weights": [
+      0.2507507190549302,
+      0.2503054129807761,
+      0.2497821145938247,
+      0.24916175337046903
+    ],
+    "member_count": 4,
+    "cached": false
+  },
+  {
+    "N": 48,
+    "owner": 11136,
+    "phase": "double_seam",
+    "radial": 15,
+    "selected_raw": 34560,
+    "roles": [
+      "last_aggregate"
+    ],
+    "raw_members": [
+      34560,
+      34608
+    ],
+    "weights": [
+      0.5000431137698358,
+      0.49995688623016427
+    ],
+    "member_count": 2,
+    "cached": true
+  },
+  {
+    "N": 48,
+    "owner": 12288,
+    "phase": "double_seam",
+    "radial": 16,
+    "selected_raw": 36864,
+    "roles": [
+      "first_singleton"
+    ],
+    "raw_members": [
+      36864
+    ],
+    "weights": [
+      1.0
+    ],
+    "member_count": 1,
+    "cached": true
+  },
+  {
+    "N": 64,
+    "owner": 589,
+    "phase": "nonseam",
+    "radial": 3,
+    "selected_raw": 12749,
+    "roles": [
+      "coupled_control"
+    ],
+    "raw_members": [
+      12301,
+      12365,
+      12429,
+      12493,
+      12557,
+      12621,
+      12685,
+      12749
+    ],
+    "weights": [
+      0.12431692848881686,
+      0.12453582196531195,
+      0.12474424509629595,
+      0.12494111921985412,
+      0.12512532716347255,
+      0.12529569534495222,
+      0.12545098305227498,
+      0.12558987966902135
+    ],
+    "member_count": 8,
+    "cached": true
+  },
+  {
+    "N": 64,
+    "owner": 1101,
+    "phase": "nonseam",
+    "radial": 4,
+    "selected_raw": 16845,
+    "roles": [
+      "switch"
+    ],
+    "raw_members": [
+      16397,
+      16461,
+      16525,
+      16589,
+      16653,
+      16717,
+      16781,
+      16845
+    ],
+    "weights": [
+      0.12415947063899828,
+      0.12442613120345553,
+      0.12468085727585983,
+      0.12492270163891459,
+      0.1251505964792976,
+      0.12536331882810817,
+      0.12555946798253495,
+      0.12573745595283106
+    ],
+    "member_count": 8,
+    "cached": true
+  },
+  {
+    "N": 64,
+    "owner": 1677,
+    "phase": "nonseam",
+    "radial": 5,
+    "selected_raw": 20941,
+    "roles": [
+      "switch_plus1"
+    ],
+    "raw_members": [
+      20749,
+      20813,
+      20877,
+      20941
+    ],
+    "weights": [
+      0.2492794860288937,
+      0.24978286462172763,
+      0.25025259922101223,
+      0.2506850501283665
+    ],
+    "member_count": 4,
+    "cached": false
+  },
+  {
+    "N": 64,
+    "owner": 2701,
+    "phase": "nonseam",
+    "radial": 6,
+    "selected_raw": 25037,
+    "roles": [
+      "switch_plus2"
+    ],
+    "raw_members": [
+      24845,
+      24909,
+      24973,
+      25037
+    ],
+    "weights": [
+      0.24916561612014887,
+      0.24974387084964353,
+      0.2502901379250191,
+      0.25080037510518843
+    ],
+    "member_count": 4,
+    "cached": false
+  },
+  {
+    "N": 64,
+    "owner": 28429,
+    "phase": "nonseam",
+    "radial": 21,
+    "selected_raw": 86477,
+    "roles": [
+      "last_aggregate"
+    ],
+    "raw_members": [
+      86413,
+      86477
+    ],
+    "weights": [
+      0.49833600984566534,
+      0.5016639901543346
+    ],
+    "member_count": 2,
+    "cached": true
+  },
+  {
+    "N": 64,
+    "owner": 30733,
+    "phase": "nonseam",
+    "radial": 22,
+    "selected_raw": 90573,
+    "roles": [
+      "first_singleton"
+    ],
+    "raw_members": [
+      90573
+    ],
+    "weights": [
+      1.0
+    ],
+    "member_count": 1,
+    "cached": true
+  },
+  {
+    "N": 64,
+    "owner": 576,
+    "phase": "double_seam",
+    "radial": 3,
+    "selected_raw": 12288,
+    "roles": [
+      "coupled_control"
+    ],
+    "raw_members": [
+      12288,
+      12352,
+      12416,
+      12480,
+      12544,
+      12608,
+      12672,
+      12736
+    ],
+    "weights": [
+      0.1253857848332364,
+      0.12530975527778476,
+      0.12521625092193656,
+      0.12510553811476297,
+      0.12497791384883536,
+      0.12483373251561745,
+      0.12467343636379778,
+      0.12449758812402886
+    ],
+    "member_count": 8,
+    "cached": true
+  },
+  {
+    "N": 64,
+    "owner": 1088,
+    "phase": "double_seam",
+    "radial": 4,
+    "selected_raw": 16384,
+    "roles": [
+      "switch"
+    ],
+    "raw_members": [
+      16384,
+      16448,
+      16512,
+      16576,
+      16640,
+      16704,
+      16768,
+      16832
+    ],
+    "weights": [
+      0.1254612060589228,
+      0.12537000220495229,
+      0.12525846725185735,
+      0.12512663959226666,
+      0.12497453135820459,
+      0.12480217593450935,
+      0.12460968248828294,
+      0.1243972951110041
+    ],
+    "member_count": 8,
+    "cached": true
+  },
+  {
+    "N": 64,
+    "owner": 1600,
+    "phase": "double_seam",
+    "radial": 5,
+    "selected_raw": 20480,
+    "roles": [
+      "switch_plus1"
+    ],
+    "raw_members": [
+      20480,
+      20544,
+      20608,
+      20672
+    ],
+    "weights": [
+      0.2503547907080051,
+      0.2501480031345804,
+      0.24989676436949448,
+      0.24960044178791996
+    ],
+    "member_count": 4,
+    "cached": false
+  },
+  {
+    "N": 64,
+    "owner": 2624,
+    "phase": "double_seam",
+    "radial": 6,
+    "selected_raw": 24576,
+    "roles": [
+      "switch_plus2"
+    ],
+    "raw_members": [
+      24576,
+      24640,
+      24704,
+      24768
+    ],
+    "weights": [
+      0.2503863642458075,
+      0.2501600881750598,
+      0.24988725762698089,
+      0.24956628995215177
+    ],
+    "member_count": 4,
+    "cached": false
+  },
+  {
+    "N": 64,
+    "owner": 28224,
+    "phase": "double_seam",
+    "radial": 21,
+    "selected_raw": 86016,
+    "roles": [
+      "last_aggregate"
+    ],
+    "raw_members": [
+      86016,
+      86080
+    ],
+    "weights": [
+      0.49998634501459116,
+      0.5000136549854088
+    ],
+    "member_count": 2,
+    "cached": true
+  },
+  {
+    "N": 64,
+    "owner": 30272,
+    "phase": "double_seam",
+    "radial": 22,
+    "selected_raw": 90112,
+    "roles": [
+      "first_singleton"
+    ],
+    "raw_members": [
+      90112
+    ],
+    "weights": [
+      1.0
+    ],
+    "member_count": 1,
+    "cached": true
+  }
+]
