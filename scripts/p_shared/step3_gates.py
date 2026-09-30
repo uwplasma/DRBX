@@ -176,21 +176,25 @@ class Step3Setup:
     campaigns: tuple
     paths: dict
     seconds: float
+    curvature: str = "fd"
 
 
 def build_setup(n: int, campaigns: Sequence[str] = CAMPAIGNS, *, input_root=WORKSPACE, sidecar_path=DEFAULT_SIDECAR,
-                paths: Optional[dict] = None) -> Step3Setup:
-    """Build the owner-closure rows, the oracle inputs and the JAX closure of ``campaigns`` at grid ``n``."""
+                paths: Optional[dict] = None, curvature: str = "fd") -> Step3Setup:
+    """Build the owner-closure rows, the oracle inputs and the JAX closure of ``campaigns`` at grid ``n``.
+    ``curvature`` (``"fd"`` default | ``"autodiff"``) switches the operator geometry and the host references
+    (``env.ref``, hence the G3.3 continuum reference) together."""
     started = time.perf_counter()
     campaigns = tuple(campaigns)
     paths = dict(DEFAULT_PATHS if paths is None else paths)
-    env = jr.build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path))
+    env = jr.build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path),
+                               curvature=curvature)
     owners = np.asarray(oc.selection_fixture(env.t, env.census)["owners"], dtype=np.int64)
-    built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(sidecar_path))
+    built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(sidecar_path, curvature=curvature))
     oracle = ru._load_oracle_owner_values(env, paths, campaigns)
     closure = jr.JaxOwnerClosure(env, built, campaigns, oracle)
     return Step3Setup(n=int(n), env=env, built=built, owners=owners, oracle=oracle, closure=closure,
-                      campaigns=campaigns, paths=paths, seconds=time.perf_counter() - started)
+                      campaigns=campaigns, paths=paths, seconds=time.perf_counter() - started, curvature=curvature)
 
 
 # ---------------------------------------------------------------------------
@@ -365,12 +369,12 @@ def _summarize_oracle(rows: list) -> dict:
 
 
 def run_g32(n: int, *, setup: Optional[Step3Setup] = None, campaigns: Sequence[str] = CAMPAIGNS,
-            output_dir=None) -> dict:
+            output_dir=None, curvature: str = "fd") -> dict:
     """Gate G3.2 at grid ``n`` (module docstring): JSON-able report; ``output_dir`` additionally writes
-    ``N{n}_g32.json`` there."""
+    ``N{n}_g32.json`` there.  ``curvature`` applies only when no ``setup`` is given (a setup carries its own)."""
     started = time.perf_counter()
     campaigns = tuple(campaigns)
-    setup = setup if setup is not None else build_setup(n, campaigns)
+    setup = setup if setup is not None else build_setup(n, campaigns, curvature=curvature)
     missing = set(campaigns) - set(setup.campaigns)
     if missing:
         raise ValueError(f"the setup was built without {sorted(missing)}")
@@ -403,7 +407,7 @@ def run_g32(n: int, *, setup: Optional[Step3Setup] = None, campaigns: Sequence[s
     bracket_mismatch = max((d.get("bracket_term_mismatch", 0.0) for d in diagnostics.values()), default=0.0)
     accounted = sum(e["vs_oracle"]["rows"] for e in per_campaign.values())
     report = {
-        "schema": SCHEMA_G32, "n": int(n), "owners": [int(o) for o in owners], "campaigns": list(campaigns),
+        "schema": SCHEMA_G32, "n": int(n), "curvature": setup.curvature, "owners": [int(o) for o in owners], "campaigns": list(campaigns),
         "coefficients": {"rho_star": 1.0, "tau": 1.0, "diffusion": 1.0, "diffusion_sign": "frozen +P07 = -(combined term)"},
         "policy": {"noncancellation_rel_tol": jr.NONCANCELLATION_REL_TOL,
                    "cancellation_floor_factor": jr.CANCELLATION_FLOOR_FACTOR, "floors_measured": floors_measured},
@@ -458,12 +462,13 @@ def term_metrics(combined, reference, owner_volume, *, fallback_l2: Optional[flo
 
 
 def run_g33(n: int, *, setup: Optional[Step3Setup] = None, variants: Sequence[str] = G33_VARIANTS,
-            params: Optional[Mapping] = None, output_dir=None) -> dict:
+            params: Optional[Mapping] = None, output_dir=None, curvature: str = "fd") -> dict:
     """Gate G3.3 at grid ``n`` (module docstring): JSON-able report; ``output_dir`` additionally writes
-    ``N{n}_g33.json`` there."""
+    ``N{n}_g33.json`` there.  ``curvature`` applies only when no ``setup`` is given (a setup carries its own);
+    with ``"autodiff"`` the operator and the continuum reference use autodiff K together."""
     started = time.perf_counter()
     params = dict(G33_PARAMS if params is None else params)
-    setup = setup if setup is not None else build_setup(n, ("p06n",))
+    setup = setup if setup is not None else build_setup(n, ("p06n",), curvature=curvature)
     if "p06n" not in setup.campaigns:
         raise ValueError("G3.3 needs the p06n campaign in the setup")
     closure, env, owners = setup.closure, setup.env, setup.owners
@@ -498,7 +503,7 @@ def run_g33(n: int, *, setup: Optional[Step3Setup] = None, variants: Sequence[st
     worst = max((m["rel_l2"] for v in report_variants.values() for e in v["fields"].values() for m in e.values()
                  if m["rel_l2"] is not None), default=None)
     report = {
-        "schema": SCHEMA_G33, "n": int(n), "owners": [int(o) for o in owners], "params": params,
+        "schema": SCHEMA_G33, "n": int(n), "curvature": setup.curvature, "owners": [int(o) for o in owners], "params": params,
         "variants": list(variants), "terms": list(G33_TERMS), "n_owners": int(len(owners)),
         "owner_volume": [float(v) for v in volume], "results": report_variants, "max_rel_l2": worst,
         "seconds": time.perf_counter() - started, "setup_seconds": setup.seconds,
@@ -610,15 +615,19 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--grids", default="32")
     parser.add_argument("--gates", default="g32,g33")
-    parser.add_argument("--output-dir", default=str(GATES_DIR))
+    parser.add_argument("--curvature", choices=("fd", "autodiff"), default="fd")
+    parser.add_argument("--output-dir", default=None,
+                        help="default: the saved-gates directory for fd; a sibling '<dir>_autodiff' for autodiff")
     parser.add_argument("--orders-only", action="store_true", help="only combine the saved N*_g33.json files")
     args = parser.parse_args(argv)
+    if args.output_dir is None:
+        args.output_dir = str(GATES_DIR if args.curvature == "fd" else GATES_DIR.with_name(GATES_DIR.name + "_autodiff"))
     gates = set(args.gates.split(","))
     ok = True
     if not args.orders_only:
         for n in (int(g) for g in args.grids.split(",")):
             campaigns = CAMPAIGNS if "g32" in gates else ("p06n",)
-            setup = build_setup(n, campaigns)
+            setup = build_setup(n, campaigns, curvature=args.curvature)
             print(f"N{n}: setup {setup.seconds:.0f}s, owners {len(setup.owners)}", flush=True)
             if "g32" in gates:
                 report = run_g32(n, setup=setup, output_dir=args.output_dir)

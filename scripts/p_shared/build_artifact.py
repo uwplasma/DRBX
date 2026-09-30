@@ -122,6 +122,7 @@ if str(SCRIPTS) not in sys.path:
 
 from p_shared import runner                                       # noqa: E402
 from p_shared import provider as p_shared_provider                 # noqa: E402
+from p_shared.curvature_reference import check_curvature           # noqa: E402
 from p07_diffusion_global.numerics import quadrature as _p07_quadrature  # noqa: E402
 from perpendicular_structured.reconstruction import load_context   # noqa: E402
 from p07n_field_derived_global.fields import normal as _p07n_normal  # noqa: E402
@@ -213,10 +214,26 @@ def _sidecar_component_hashes(sidecar_path: Path) -> dict:
     return hashes
 
 
-def build_identity(*, n: int, input_root: Path, sidecar_path: Path) -> dict:
+#: extra sources pinned only for ``curvature="autodiff"`` builds (the default ``"fd"`` identity is unchanged)
+AUTODIFF_SOURCE_FILES = [
+    "src/drbx/geometry/curvature_autodiff.py",
+    "scripts/p_shared/curvature_reference.py",
+]
+
+
+def build_policy(curvature: str = "fd") -> dict:
+    """``POLICY`` for ``curvature="fd"`` (exactly, so existing identities are unchanged); with
+    ``"autodiff"`` the same policy plus ``curvature`` (distinct identity)."""
+    check_curvature(curvature)
+    return dict(POLICY) if curvature == "fd" else {**POLICY, "curvature": "autodiff"}
+
+
+def build_identity(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = "fd") -> dict:
     component_hashes = {**_geometry_component_hashes(input_root, n), **_sidecar_component_hashes(sidecar_path)}
-    source_hashes = {rel: artifact_mod.hash_file(REPO / rel) for rel in SOURCE_FILES}
-    return artifact_mod.build_identity(component_hashes=component_hashes, source_hashes=source_hashes, policy=POLICY)
+    sources = SOURCE_FILES + (AUTODIFF_SOURCE_FILES if curvature != "fd" else [])
+    source_hashes = {rel: artifact_mod.hash_file(REPO / rel) for rel in sources}
+    return artifact_mod.build_identity(component_hashes=component_hashes, source_hashes=source_hashes,
+                                       policy=build_policy(curvature))
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +262,7 @@ def face_row_selection(census: FaceCensus) -> np.ndarray:
     return np.flatnonzero(~(census.collapsed_r0 | census.legacy_alias_slots))
 
 
-def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_dir: Path):
+def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_dir: Path, curvature: str = "fd"):
     """Load ``t``/build ``context``/``census``/``GeometryArrays`` once, all
     in this single process (no parallelism) -- the original, still-supported
     one-shot geometry build. Saves ``census.npz``/``geometry.npz`` under
@@ -263,7 +280,8 @@ def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_di
     census.save(grid_dir / "census.npz")
 
     face_row_indices = face_row_selection(census)
-    provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False)
+    provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False,
+                                                                     curvature=curvature)
     geometry = builder.build_geometry_arrays(provider, context, raw_ids=np.arange(n ** 3, dtype=np.int64),
                                              face_row_indices=face_row_indices, census=census)
     geometry.save(grid_dir / "geometry.npz")
@@ -280,13 +298,15 @@ def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_di
 GEOMETRY_STATE: dict = {}
 
 
-def _init_geometry_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict):
+def _init_geometry_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict,
+                          curvature: str = "fd"):
     global GEOMETRY_STATE
     runner.require_cpu_backend()
     grid_dir = Path(output) / f"N{n}"
     t = load_context(n, str(input_root))
     census = FaceCensus.load(grid_dir / "census.npz")
-    provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(sidecar_path, verify_hashes=False)
+    provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(sidecar_path, verify_hashes=False,
+                                                                     curvature=curvature)
     GEOMETRY_STATE = {
         "faces": t.faces, "census": census, "provider": provider,
         "face_row_indices": face_row_selection(census), "n": n,
@@ -379,7 +399,7 @@ def _integrated_diagnostics_summary(integrated_rows) -> dict:
     return {"families": families}
 
 
-def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict):
+def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict, curvature: str = "fd"):
     global STATE
     runner.require_cpu_backend()
     grid_dir = Path(output) / f"N{n}"
@@ -388,7 +408,8 @@ def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identi
     S = StructuredReconstruction(context)
     census = FaceCensus.load(grid_dir / "census.npz")
     geometry = GeometryArrays.load(grid_dir / "geometry.npz")
-    ref = p_shared_provider.ScriptsGeometryProvider.from_sidecar(sidecar_path, verify_hashes=False).reference
+    ref = p_shared_provider.ScriptsGeometryProvider.from_sidecar(sidecar_path, verify_hashes=False,
+                                                                 curvature=curvature).reference
     normal_coefficients = _normal_coefficients_fn(ref)
 
     face_row_indices = face_row_selection(census)
@@ -734,9 +755,14 @@ def run_full_build(
     geometry_face_chunk_size: int = 4096,
     max_tasks_per_worker: int | None = None,
     max_units: int | None = None,
+    curvature: str = "fd",
 ) -> dict:
     """Build the full N{n} row artifact and return the same dict written to
     ``<output>/N{n}/build_receipt.json``.
+
+    ``curvature`` (``"fd"``, the default, or ``"autodiff"``) selects the curvature ``K`` of the geometry
+    arrays and of the reference used by the row builders (see ``p_shared.provider``); it is recorded in
+    the build policy, so an autodiff build has a different identity from an fd build.
 
     ``workers`` is the requested process-pool size for every stage; if both
     ``memory_budget_gib`` and ``worker_memory_gib`` are given, the effective
@@ -763,6 +789,7 @@ def run_full_build(
     are discarded and the grid is rebuilt; the new receipt then carries
     ``rebuilt_after_failed_verification``.
     """
+    check_curvature(curvature)
     input_root = Path(input_root).resolve()
     sidecar_path = Path(sidecar_path).resolve()
     output = Path(output).resolve()
@@ -771,7 +798,7 @@ def run_full_build(
     effective_workers = _effective_workers(workers, memory_budget_gib, worker_memory_gib, memory_reserve_gib)
 
     with runner.lock(output):
-        identity = build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path)
+        identity = build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path, curvature=curvature)
         identity_path = grid_dir / "build_identity.json"
         if identity_path.exists():
             saved = json.loads(identity_path.read_text())
@@ -834,7 +861,7 @@ def run_full_build(
                 f"refusing to build N{n}: {free_before:.2f} GiB free, estimated artifact "
                 f"~{estimated_gib:.2f} GiB would leave <8 GiB free")
 
-        initargs = (str(input_root), str(sidecar_path), str(output), n, identity)
+        initargs = (str(input_root), str(sidecar_path), str(output), n, identity, curvature)
         summaries = {}
 
         geometry_complete = geometry_path.exists()
@@ -937,6 +964,8 @@ def parse_args(argv=None):
     p.add_argument("--geometry-face-chunk-size", type=int, default=4096)
     p.add_argument("--max-tasks-per-worker", type=int, default=None)
     p.add_argument("--max-units", type=int, default=None, help="for smoke-testing a partial build")
+    p.add_argument("--curvature", choices=("fd", "autodiff"), default="fd",
+                   help="curvature K of the geometry and reference (recorded in the build identity)")
     return p.parse_args(argv)
 
 
@@ -948,7 +977,7 @@ def main(argv=None) -> dict:
         memory_reserve_gib=args.memory_reserve_gib,
         cell_chunk_size=args.cell_chunk_size, face_chunk_size=args.face_chunk_size, p07_chunk_size=args.p07_chunk_size,
         geometry_raw_chunk_size=args.geometry_raw_chunk_size, geometry_face_chunk_size=args.geometry_face_chunk_size,
-        max_tasks_per_worker=args.max_tasks_per_worker, max_units=args.max_units)
+        max_tasks_per_worker=args.max_tasks_per_worker, max_units=args.max_units, curvature=args.curvature)
 
 
 if __name__ == "__main__":
