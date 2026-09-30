@@ -128,13 +128,14 @@ from drbx.stencils.geometry_arrays import GeometryArrays                # noqa: 
 from drbx.geometry.fci_perpendicular_integrated_rows import contract_face_tensor  # noqa: E402
 
 from p_shared import apply as pshared_apply                             # noqa: E402
+from p_shared import campaign_fields as cf                              # noqa: E402
 from p_shared import provider as pshared_provider                       # noqa: E402
 from p_shared import runner                                             # noqa: E402
 from p_shared.replay_support import (                                   # noqa: E402
     CAMPAIGN_FUNCS, CAMPAIGN_CATALOGUE_FILES,
     Environment, NeumannSource, build_environment,
     compare_owner_term, compare_pointwise_only, owner_weighted_l2,
-    _face_weight_for_key, _load_p05_upwind, _p05n_evaluate, _tables_trace_all,
+    _face_weight_for_key, _load_p05_upwind, _p05n_evaluate, _tables_trace_all,  # noqa: F401 (re-exported)
     _summarize_variants, write_report, _json_default,
 )
 
@@ -622,15 +623,13 @@ def _cells_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
     out: dict = {}
 
     if "p05" in campaigns:
-        import p05_structured_global.numerics as k
+        adapter = cf.P05Adapter(env.ref, oracle["p05"]["owner_values"])
+        k_pairs = adapter.pairs
+        owner_values = adapter.owner_values
+        keys = adapter.wall_keys["cells"]
 
-        owner_values = oracle["p05"]["owner_values"]
-
-        def trace_fn(q):
-            return k.boundary_trace(env.ref, np.asarray(q, dtype=np.float64))
-
-        batch = _batch_dirichlet_neumann(rows, trace_fn, wall_cache=env.wall_cache, trace_key="p05_cells_trace")
-        gradients = np.empty((len(raw_ids), 3, len(k.FIELDS)), dtype=np.float64)
+        batch = _batch_dirichlet_neumann(rows, adapter.dirichlet, wall_cache=env.wall_cache, trace_key=keys.trace)
+        gradients = np.empty((len(raw_ids), 3, len(adapter.fields)), dtype=np.float64)
         for local, row in enumerate(rows):
             _v, g = pshared_apply.apply_point_row_precomputed(
                 row, owner_values, donor_trace_value=batch["donor_trace_value"][local],
@@ -640,7 +639,7 @@ def _cells_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
         metric = env.ref._metric(points)
         h = metric["bcov"] / metric["B"][:, None]
         jac = np.abs(metric["J"])
-        raw_action, antisymmetry = pshared_apply.p05_pair_actions(h, jac, gradients, k.PAIRS)
+        raw_action, antisymmetry = pshared_apply.p05_pair_actions(h, jac, gradients, k_pairs)
         uniq, num = _sparse_scatter(raw_action, volume, owner_ids)
         out["p05_centered"] = (uniq, num)
         out["p05_antisymmetry_max"] = float(antisymmetry)
@@ -651,41 +650,16 @@ def _cells_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
     ):
         if catalogue_name not in campaigns:
             continue
-        import p05n_field_derived_global.core as p05n_core
-
-        table = p05n_core._CATALOGUE_TABLES[table_name]
-        names = tuple(table["names"])
-        roles = dict(table["roles"])
-        role_names = tuple(sorted(roles))
-        role_physical_index = np.array([names.index(roles[r][0]) for r in role_names], dtype=np.int64)
-        role_bc = {r: roles[r][1] for r in role_names}
-        pairings = dict(table["pairings"])
-        pair_names = tuple(sorted(pairings))
-        role_index = {r: i for i, r in enumerate(role_names)}
-        n_pair_index = [(role_index[pairings[p][0]], role_index[pairings[p][1]]) for p in pair_names]
-        dirichlet_counterpart = {r: (r[:-2] + "_D" if r.endswith("_N") else r) for r in roles}
-        d_pair_index = [(role_index[dirichlet_counterpart[pairings[p][0]]],
-                         role_index[dirichlet_counterpart[pairings[p][1]]]) for p in pair_names]
-        r_pair_index = [(int(role_physical_index[a]), int(role_physical_index[b])) for a, b in n_pair_index]
-        owner_values = oracle[oracle_key]["owner_values"]
-        period = t.g.eta_period
-
-        def dirichlet_trace_fn(q, names=names, period=period):
-            q = np.asarray(q, dtype=np.float64)
-            v = np.empty((len(q), len(names))); g = np.empty((len(q), 3, len(names)))
-            for j, name in enumerate(names):
-                vv, gg, _ = _p05n_evaluate(name, env.ref, q, period)
-                v[:, j] = vv; g[:, :, j] = gg
-            return v, g
-
-        def normal_data_fn(q, names=names, period=period):
-            from p07n_field_derived_global.fields import normal as p07n_normal
-            av = p07n_normal(env.ref, np.asarray(q, dtype=np.float64))
-            outv = np.empty((len(q), len(names)))
-            for j, name in enumerate(names):
-                _, gg, _ = _p05n_evaluate(name, env.ref, q, period)
-                outv[:, j] = np.einsum("qa,qa->q", av, gg)
-            return outv
+        adapter = cf.P05NAdapter(catalogue_name, env.ref, t.g.eta_period, oracle[oracle_key]["owner_values"])
+        names = adapter.names
+        role_names = adapter.role_names
+        role_physical_index = adapter.role_physical_index
+        pair_names = adapter.pair_names
+        n_pair_index = adapter.n_pair_index
+        d_pair_index = adapter.d_pair_index
+        r_pair_index = adapter.r_pair_index
+        owner_values = adapter.owner_values
+        keys = adapter.wall_keys["cells"]
 
         value_d = np.empty((len(raw_ids), len(names))); grad_d = np.empty((len(raw_ids), 3, len(names)))
         value_n = np.empty((len(raw_ids), len(names))); grad_n = np.empty((len(raw_ids), 3, len(names)))
@@ -701,9 +675,9 @@ def _cells_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
         # the task report. trace_key is kept: it reproduced every campaign/
         # term bitwise at all three grids. Kept live per this task's own
         # rule: "if one isn't bitwise equal, keep that one live and say why."
-        batch = _batch_dirichlet_neumann(rows, dirichlet_trace_fn, normal_data_fn,
+        batch = _batch_dirichlet_neumann(rows, adapter.dirichlet, adapter.normal,
                                           neumann_rows_by_row=neumann_rows_by_row, wall_cache=env.wall_cache,
-                                          trace_key=f"{catalogue_name}_cells_trace")
+                                          trace_key=keys.trace, normal_key=keys.normal)  # keys.normal is None (deliberate)
         for local, row in enumerate(rows):
             vd, gd = pshared_apply.apply_point_row_precomputed(
                 row, owner_values, donor_trace_value=batch["donor_trace_value"][local],
@@ -718,7 +692,7 @@ def _cells_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
             else:
                 value_n[local], grad_n[local] = value_d[local], grad_d[local]
 
-        is_neumann = np.asarray([role_bc[r] == "neumann" for r in role_names])
+        is_neumann = adapter.role_is_neumann
         value = np.where(is_neumann[None, :], value_n[:, role_physical_index], value_d[:, role_physical_index])
         gradient = np.where(is_neumann[None, None, :], grad_n[:, :, role_physical_index], grad_d[:, :, role_physical_index])
         metric = env.ref._metric(points)
@@ -730,10 +704,7 @@ def _cells_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
             action_N[:, col] = pshared_apply.p05_bracket(h, jac, gradient[:, :, a], gradient[:, :, b])
         for col, (a, b) in enumerate(d_pair_index):
             action_D[:, col] = pshared_apply.p05_bracket(h, jac, gradient[:, :, a], gradient[:, :, b])
-        exact_grad = np.empty((len(raw_ids), 3, len(names)))
-        for j, name in enumerate(names):
-            _vv, gg, _ = _p05n_evaluate(name, env.ref, points, period)
-            exact_grad[:, :, j] = gg
+        exact_grad = adapter.exact_gradient(points)
         action_R = np.empty((len(raw_ids), P))
         for col, (a, b) in enumerate(r_pair_index):
             action_R[:, col] = pshared_apply.p05_bracket(h, jac, exact_grad[:, :, a], exact_grad[:, :, b])
@@ -755,21 +726,11 @@ def _cells_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
         out["q1_evolution_volume"] = (uniq_w, denom_num[:, 0])
 
     if "p06n" in campaigns:
-        import p06n_field_derived_global.core as p06n_core
-
-        tables = p06n_core.CATALOGUE_TABLES
-        variants = tables.variant_names
-        owner_values = oracle["p06n"]["owner_values"]
-        period = t.g.eta_period
-
-        def dirichlet_trace_fn(q):
-            return _tables_trace_all(tables, env.ref, q, period)
-
-        def normal_data_fn(q):
-            from p07n_field_derived_global.fields import normal as p07n_normal
-            a = p07n_normal(env.ref, np.asarray(q, dtype=np.float64))
-            _v, g = dirichlet_trace_fn(q)
-            return np.einsum("qa,qaf->qf", a, g)
+        adapter = cf.P06NAdapter(env.ref, t.g.eta_period, oracle["p06n"]["owner_values"])
+        tables = adapter.tables
+        variants = adapter.variant_names
+        owner_values = adapter.owner_values
+        keys = adapter.wall_keys["cells"]
 
         value_d = np.empty((len(raw_ids), len(tables.names))); grad_d = np.empty((len(raw_ids), 3, len(tables.names)))
         value_n = np.empty((len(raw_ids), len(tables.names))); grad_n = np.empty((len(raw_ids), 3, len(tables.names)))
@@ -785,9 +746,9 @@ def _cells_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
         # stayed bitwise identical either way (see the task report). Kept
         # live per this task's own rule: "if one isn't bitwise equal, keep
         # that one live and say why."
-        batch = _batch_dirichlet_neumann(rows, dirichlet_trace_fn, normal_data_fn,
+        batch = _batch_dirichlet_neumann(rows, adapter.dirichlet, adapter.normal,
                                           neumann_rows_by_row=neumann_rows_by_row, wall_cache=env.wall_cache,
-                                          trace_key="p06n_cells_trace")
+                                          trace_key=keys.trace, normal_key=keys.normal)  # keys.normal is None (deliberate)
         for local, row in enumerate(rows):
             vd, gd = pshared_apply.apply_point_row_precomputed(
                 row, owner_values, donor_trace_value=batch["donor_trace_value"][local],
@@ -814,7 +775,7 @@ def _cells_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
             spec = tables.variant_spec[name]
             exact_values = np.empty((len(spec), len(raw_ids))); exact_gradients = np.empty((len(spec), len(raw_ids), 3))
             for j, (field, _bc) in enumerate(spec):
-                ev, eg, _ = tables.evaluate(env.ref, points, field, period)
+                ev, eg, _ = adapter.evaluate_exact(points, field)
                 exact_values[j] = ev; exact_gradients[j] = eg
             import p06_structured_global.numerics as p06numerics
             exact = p06numerics._continuum_terms(exact_values, exact_gradients, prepared)
@@ -828,18 +789,13 @@ def _cells_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
     if "p06_legacy" in campaigns:
         import p06_structured_global.numerics as p06numerics
 
-        owner_values_all = oracle["p06_legacy"]["owner_values"]
-        time_value = 0.37
+        legacy = cf.P06LegacyAdapter(env.ref, oracle["p06_legacy"]["owner_values"])
         out["p06legacy_raw_centered"] = {}
-        for fi, field_name in enumerate(p06numerics.FIELD_NAMES):
-            owner_values = owner_values_all[fi].T
+        for field_name, adapter in legacy:
+            owner_values = adapter.owner_values
 
-            def trace_fn(q, field_name=field_name):
-                v5, g5 = p06numerics._evaluate_fields(field_name, env.ref, np.asarray(q, dtype=np.float64), time_value)
-                return v5.T, np.moveaxis(g5, 0, -1)
-
-            batch = _batch_dirichlet_neumann(rows, trace_fn, wall_cache=env.wall_cache,
-                                             trace_key=f"p06legacy_cells_trace_{field_name}")
+            batch = _batch_dirichlet_neumann(rows, adapter.dirichlet, wall_cache=env.wall_cache,
+                                             trace_key=adapter.wall_keys["cells"].trace)
             value = np.empty((len(raw_ids), 5)); gradient = np.empty((len(raw_ids), 3, 5))
             for local, row in enumerate(rows):
                 vd, gd = pshared_apply.apply_point_row_precomputed(
@@ -983,31 +939,30 @@ def _faces_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
     # --- P05: live jump (P07-topology domain: valid p07_id, excluding the
     # collapsed r=0 face -- see replay.py's documented domain fix). ---
     if "p05" in campaigns:
-        import p05_structured_global.numerics as k
-
-        owner_values = oracle["p05"]["owner_values"]
+        adapter = cf.P05Adapter(env.ref, oracle["p05"]["owner_values"])
+        k_pairs = adapter.pairs
+        owner_values = adapter.owner_values
+        trace_fn = adapter.dirichlet
+        trace_key = adapter.wall_keys["faces"].trace
         p07_ids_all = census.p07_id[row_indices]
         valid = (p07_ids_all != NO_ID) & ~census.collapsed_r0[row_indices]
         sel = np.flatnonzero(valid)
-
-        def trace_fn(q):
-            return k.boundary_trace(env.ref, np.asarray(q, dtype=np.float64))
 
         p07_ids_local = p07_ids_all[sel].astype(np.int64)
 
         sel_common_rows = [common_rows[local] for local in sel]
         common_batch = _batch_dirichlet_neumann(sel_common_rows, trace_fn, wall_cache=env.wall_cache,
-                                                trace_key="p05_faces_trace")
+                                                trace_key=trace_key)
         always_true = np.ones(len(sel), dtype=bool)
         sel_lower_rows = [lower_rows[local] for local in sel]
         sel_upper_rows = [upper_rows[local] for local in sel]
         sel_common_points = [common_points_by_face[local] for local in sel]
         lower_d, _lower_n = _batch_side_values(sel_lower_rows, always_true, sel_common_points, owner_values, trace_fn,
-                                               wall_cache=env.wall_cache, trace_key="p05_faces_trace")
+                                               wall_cache=env.wall_cache, trace_key=trace_key)
         upper_d, _upper_n = _batch_side_values(sel_upper_rows, always_true, sel_common_points, owner_values, trace_fn,
-                                               wall_cache=env.wall_cache, trace_key="p05_faces_trace")
+                                               wall_cache=env.wall_cache, trace_key=trace_key)
 
-        live_jump = np.zeros((len(sel), len(k.PAIRS)), dtype=np.float64)
+        live_jump = np.zeros((len(sel), len(k_pairs)), dtype=np.float64)
         for out_local, local in enumerate(sel):
             axis = int(keys[local][0])
             _cv, cg = pshared_apply.apply_point_row_precomputed(
@@ -1018,7 +973,7 @@ def _faces_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
             lv = lower_d[out_local]; uv = upper_d[out_local]
             h_f = h_all[local]; weight_f = weight_all[local]
             jump = pshared_apply.p05_face_jump(cg[None], lv[None], uv[None], h_f[None], weight_f[None],
-                                               np.array([axis]), np.asarray(k.PAIRS))
+                                               np.array([axis]), np.asarray(k_pairs))
             live_jump[out_local] = np.asarray(jump)[0]
         out["p05_live_jump_p07ids"] = p07_ids_local
         out["p05_live_jump_values"] = live_jump
@@ -1035,59 +990,31 @@ def _faces_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
     ):
         if catalogue_name not in campaigns:
             continue
-        import p05n_field_derived_global.core as p05n_core
-
-        table = p05n_core._CATALOGUE_TABLES[table_name]
-        names = tuple(table["names"])
-        roles = dict(table["roles"])
-        role_names = tuple(sorted(roles))
-        role_index = {r: i for i, r in enumerate(role_names)}
-        role_physical_index = np.array([names.index(roles[r][0]) for r in role_names], dtype=np.int64)
-        role_bc = {r: roles[r][1] for r in role_names}
-        is_neumann = np.asarray([role_bc[r] == "neumann" for r in role_names])
-        pairings = dict(table["pairings"])
-        pair_names = tuple(sorted(pairings))
-        n_pair_index = [(role_index[pairings[p][0]], role_index[pairings[p][1]]) for p in pair_names]
-        dirichlet_counterpart = {r: (r[:-2] + "_D" if r.endswith("_N") else r) for r in roles}
-        d_pair_index = [(role_index[dirichlet_counterpart[pairings[p][0]]],
-                         role_index[dirichlet_counterpart[pairings[p][1]]]) for p in pair_names]
-        action_pair_index = tuple(n_pair_index) + tuple(d_pair_index)
-        P = len(pair_names)
-        owner_values = oracle[oracle_key]["owner_values"]
-        period = t.g.eta_period
-
-        def dirichlet_trace_fn(q, names=names, period=period):
-            q = np.asarray(q, dtype=np.float64)
-            v = np.empty((len(q), len(names))); g = np.empty((len(q), 3, len(names)))
-            for j, name in enumerate(names):
-                vv, gg, _ = _p05n_evaluate(name, env.ref, q, period)
-                v[:, j] = vv; g[:, :, j] = gg
-            return v, g
-
-        def normal_data_fn(q, names=names, period=period):
-            from p07n_field_derived_global.fields import normal as p07n_normal
-            a = p07n_normal(env.ref, np.asarray(q, dtype=np.float64))
-            outv = np.empty((len(q), len(names)))
-            for j, name in enumerate(names):
-                _, gg, _ = _p05n_evaluate(name, env.ref, q, period)
-                outv[:, j] = np.einsum("qa,qa->q", a, gg)
-            return outv
+        adapter = cf.P05NAdapter(catalogue_name, env.ref, t.g.eta_period, oracle[oracle_key]["owner_values"])
+        role_physical_index = adapter.role_physical_index
+        is_neumann = adapter.role_is_neumann
+        action_pair_index = adapter.action_pair_index
+        P = len(adapter.pair_names)
+        owner_values = adapter.owner_values
+        dirichlet_trace_fn = adapter.dirichlet
+        normal_data_fn = adapter.normal
+        keys_wall = adapter.wall_keys["faces"]
 
         face_N = np.zeros((len(row_indices), P)); face_D = np.zeros((len(row_indices), P))
         common_batch = _batch_dirichlet_neumann(common_rows, dirichlet_trace_fn, normal_data_fn,
                                                  neumann_rows_by_row=common_neumann_rows_by_face,
-                                                 wall_cache=env.wall_cache, trace_key=f"{catalogue_name}_faces_trace",
-                                                 normal_key=f"{catalogue_name}_faces_normal")
+                                                 wall_cache=env.wall_cache, trace_key=keys_wall.trace,
+                                                 normal_key=keys_wall.normal)
         lower_d, lower_n = _batch_side_values(lower_rows, side_exists_lower, common_points_by_face, owner_values,
                                               dirichlet_trace_fn, normal_data_fn,
                                               neumann_rows_by_row=side_neumann_rows_by_face,
-                                              wall_cache=env.wall_cache, trace_key=f"{catalogue_name}_faces_trace",
-                                              normal_key=f"{catalogue_name}_faces_normal")
+                                              wall_cache=env.wall_cache, trace_key=keys_wall.trace,
+                                              normal_key=keys_wall.normal)
         upper_d, upper_n = _batch_side_values(upper_rows, side_exists_upper, common_points_by_face, owner_values,
                                               dirichlet_trace_fn, normal_data_fn,
                                               neumann_rows_by_row=side_neumann_rows_by_face,
-                                              wall_cache=env.wall_cache, trace_key=f"{catalogue_name}_faces_trace",
-                                              normal_key=f"{catalogue_name}_faces_normal")
+                                              wall_cache=env.wall_cache, trace_key=keys_wall.trace,
+                                              normal_key=keys_wall.normal)
         _fix_side_neumann_exterior_fallback(lower_n, upper_n, side_exists_lower, side_exists_upper)
         for local in range(len(row_indices)):
             axis = int(keys[local][0])
@@ -1120,39 +1047,30 @@ def _faces_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
     # --- P06N faces correction (unnormalized: divide by q1 evolution_volume
     # only in the reduction, once every cells unit has been summed). ---
     if "p06n" in campaigns:
-        import p06n_field_derived_global.core as p06n_core
-        import p06_structured_global.numerics as p06numerics
-
-        tables = p06n_core.CATALOGUE_TABLES
-        variants = tables.variant_names
-        owner_values = oracle["p06n"]["owner_values"]
-        period = t.g.eta_period
-
-        def dirichlet_trace_fn(q):
-            return _tables_trace_all(tables, env.ref, q, period)
-
-        def normal_data_fn(q):
-            from p07n_field_derived_global.fields import normal as p07n_normal
-            a = p07n_normal(env.ref, np.asarray(q, dtype=np.float64))
-            _v, g = dirichlet_trace_fn(q)
-            return np.einsum("qa,qaf->qf", a, g)
+        adapter = cf.P06NAdapter(env.ref, t.g.eta_period, oracle["p06n"]["owner_values"])
+        tables = adapter.tables
+        variants = adapter.variant_names
+        owner_values = adapter.owner_values
+        dirichlet_trace_fn = adapter.dirichlet
+        normal_data_fn = adapter.normal
+        keys_wall = adapter.wall_keys["faces"]
 
         V = len(variants)
         corr_lo_all = np.zeros((V, len(row_indices), 4)); corr_hi_all = np.zeros((V, len(row_indices), 4))
         common_batch = _batch_dirichlet_neumann(common_rows, dirichlet_trace_fn, normal_data_fn,
                                                  neumann_rows_by_row=common_neumann_rows_by_face,
-                                                 wall_cache=env.wall_cache, trace_key="p06n_faces_trace",
-                                                 normal_key="p06n_faces_normal")
+                                                 wall_cache=env.wall_cache, trace_key=keys_wall.trace,
+                                                 normal_key=keys_wall.normal)
         lower_d, lower_n = _batch_side_values(lower_rows, side_exists_lower, common_points_by_face, owner_values,
                                               dirichlet_trace_fn, normal_data_fn,
                                               neumann_rows_by_row=side_neumann_rows_by_face,
-                                              wall_cache=env.wall_cache, trace_key="p06n_faces_trace",
-                                              normal_key="p06n_faces_normal")
+                                              wall_cache=env.wall_cache, trace_key=keys_wall.trace,
+                                              normal_key=keys_wall.normal)
         upper_d, upper_n = _batch_side_values(upper_rows, side_exists_upper, common_points_by_face, owner_values,
                                               dirichlet_trace_fn, normal_data_fn,
                                               neumann_rows_by_row=side_neumann_rows_by_face,
-                                              wall_cache=env.wall_cache, trace_key="p06n_faces_trace",
-                                              normal_key="p06n_faces_normal")
+                                              wall_cache=env.wall_cache, trace_key=keys_wall.trace,
+                                              normal_key=keys_wall.normal)
         _fix_side_neumann_exterior_fallback(lower_n, upper_n, side_exists_lower, side_exists_upper)
         for local in range(len(row_indices)):
             axis = int(keys[local][0])
@@ -1192,22 +1110,15 @@ def _faces_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, n: int
     # documented change -- this unit's row_indices already excludes both
     # collapsed_r0 and legacy_alias_slots, matching the artifact's storage). ---
     if "p06_legacy" in campaigns:
-        import p06_structured_global.numerics as p06numerics
-
-        owner_values_all = oracle["p06_legacy"]["owner_values"]
-        time_value = 0.37
-        double_mask = ((keys[:, 0] == 1) & (keys[:, 2] == 0)) | ((keys[:, 0] == 2) & (keys[:, 3] == 0))
-        multiplier = np.where(double_mask, 2.0, 1.0)
+        legacy = cf.P06LegacyAdapter(env.ref, oracle["p06_legacy"]["owner_values"])
+        multiplier = cf.legacy_seam_multiplier(keys)
         out["p06legacy_faces_correction"] = {}
-        for fi, field_name in enumerate(p06numerics.FIELD_NAMES):
-            owner_values = owner_values_all[fi].T
-
-            def trace_fn(q, field_name=field_name):
-                v5, g5 = p06numerics._evaluate_fields(field_name, env.ref, np.asarray(q, dtype=np.float64), time_value)
-                return v5.T, np.moveaxis(g5, 0, -1)
+        for field_name, adapter in legacy:
+            owner_values = adapter.owner_values
+            trace_fn = adapter.dirichlet
 
             corr_lo = np.zeros((len(row_indices), 4)); corr_hi = np.zeros((len(row_indices), 4))
-            trace_key = f"p06legacy_faces_trace_{field_name}"
+            trace_key = adapter.wall_keys["faces"].trace
             common_batch = _batch_dirichlet_neumann(common_rows, trace_fn, wall_cache=env.wall_cache,
                                                     trace_key=trace_key)
             always_true = np.ones(len(row_indices), dtype=bool)
@@ -1530,91 +1441,39 @@ def _p07_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, row_inde
     out: dict = {}
 
     if "p07" in campaigns:
-        from p07_diffusion_global.numerics import fields as p07_fields
-
-        owner_values = oracle["p07"]["owner_values"]
-        # Root cause of the plain-P07 wall mismatch (see the task report):
-        # `p07_diffusion_global.numerics.face_chunk` builds a wall-reaching
-        # face's flux from ITS OWN field-dependent boundary reconstruction
-        # (field 0, `phi_mms`, from a Dirichlet ('value') `BoundaryRelation`;
-        # fields 1-3 -- `Ti_mms`, `regular_neumann`, `mixed_eta_neumann` --
-        # from a Neumann ('normal_derivative') one), but crucially *neither*
-        # branch is the package's 28-node physical-normal wall-trace
-        # elimination this module's Neumann restoration
-        # (`p07_neumann_face_flux`/`NeumannPointRows`) performs for P07N --
-        # that scheme belongs to `p07n_field_derived_global`, a newer
-        # campaign built directly on the current package primitives, not to
-        # this frozen, independently-hand-rolled campaign. This unit
-        # previously applied that Neumann restoration to every field at a
-        # conditioned (family 1/2/4) face, which matched at interior owners
-        # (family 0/3/5/6/7, where D == N) but differed from the frozen
-        # oracle by up to 0.06 absolute at the 3 fully wall-adjacent owners.
-        # A bounded id-level diff against the frozen kernel (see the task
-        # report) confirmed every one of plain P07's four fields reproduces
-        # to roundoff via the row's own Dirichlet D lift
-        # (`apply_integrated_row_precomputed`) at a conditioned face, never
-        # via the Neumann restoration -- so every field is listed here.
-        p07_dirichlet_fields = tuple(range(owner_values.shape[1]))
-
-        def trace_fn(q):
-            # `p07_fields` returns its gradient as (Q, fields, 3) -- unlike
-            # every other trace/normal callback in this module, which the
-            # (Q, 3, fields) convention `apply_point_row`/`apply_integrated
-            # _row`/this module's own batching expect (`[:, 1:]` slicing the
-            # *spatial* axis to theta/eta). Swap it here once, at the source,
-            # rather than special-casing P07 downstream -- confirmed by
-            # direct inspection (`p07_fields(...).shape == (Q, 4, 3)`) while
-            # bounded-testing this campaign for the first time; the
-            # unswapped version raised a shape-mismatch `ValueError` in
-            # `normal_data_fn`'s einsum below (see the task report) and would
-            # have silently mis-sliced `apply_integrated_row`'s tangential
-            # loading contraction for any Dirichlet-conditioned P07 row
-            # (never previously exercised to completion in `replay.py`
-            # either -- see the task report).
-            v, g, _h = p07_fields(env.ref, np.asarray(q, dtype=np.float64))
-            return v, np.swapaxes(g, 1, 2)
-
-        def normal_data_fn(q):
-            from p07n_field_derived_global.fields import normal as p07n_normal
-            a = p07n_normal(env.ref, np.asarray(q, dtype=np.float64))
-            _v, g, _h = p07_fields(env.ref, np.asarray(q, dtype=np.float64))
-            g = np.swapaxes(g, 1, 2)
-            return np.einsum("qa,qaf->qf", a, g)
+        adapter = cf.P07Adapter(env.ref, oracle["p07"]["owner_values"])
+        owner_values = adapter.owner_values
+        keys_wall = adapter.wall_keys["p07"]
+        # Root cause of the plain-P07 wall mismatch (see the task report): plain P07's frozen
+        # ``face_chunk`` builds a wall-reaching face's flux from its own field-dependent boundary
+        # reconstruction, matched by the row's Dirichlet D lift for *every* field at a conditioned
+        # (family 1/2/4) face (replay fix 2) -- ``adapter.dirichlet_fields`` lists every field. The
+        # trace's (Q, fields, 3) gradient is swapped to (Q, 3, fields) at the source, in the adapter.
+        p07_dirichlet_fields = adapter.dirichlet_fields
+        trace_fn = adapter.dirichlet
+        normal_data_fn = adapter.normal
 
         _d, flux_N = _p07_family_flux_unit(env, row_index, neumann_index, row_indices, keys, family, p07_ids,
                                            owner_values, trace_fn, normal_data_fn,
-                                           radial_degree_by_family={1: 4, 2: 4, 4: 3}, need_D=False,
-                                           dirichlet_fields=p07_dirichlet_fields,
-                                           trace_key="p07_p07_trace", normal_key="p07_p07_normal")
+                                           radial_degree_by_family=adapter.radial_degree_by_family,
+                                           need_D=adapter.need_D, dirichlet_fields=p07_dirichlet_fields,
+                                           trace_key=keys_wall.trace, normal_key=keys_wall.normal)
         uniq, num = _sparse_scatter_signed(flux_N, lower_owner, upper_owner, -1.0, +1.0)
         out["p07_global_N"] = (uniq, num)
 
     if "p07n" in campaigns:
-        import p07n_field_derived_global.fields as p07n_fields
-
-        owner_values = oracle["p07n"]["owner_values"]
-        period = env.t.g.eta_period
-
-        def trace_fn(q):
-            q = np.asarray(q, dtype=np.float64)
-            v = np.column_stack([p07n_fields.evaluate(env.ref, q, name, period)[0] for name in p07n_fields.NAMES])
-            g = np.stack([p07n_fields.evaluate(env.ref, q, name, period)[1] for name in p07n_fields.NAMES], axis=-1)
-            return v, g
-
-        def normal_data_fn(q):
-            from p07n_field_derived_global.fields import normal as p07n_normal
-            q = np.asarray(q, dtype=np.float64)
-            a = p07n_normal(env.ref, q)
-            outv = np.empty((len(q), len(p07n_fields.NAMES)))
-            for j, name in enumerate(p07n_fields.NAMES):
-                _, g, _ = p07n_fields.evaluate(env.ref, q, name, period)
-                outv[:, j] = np.einsum("qa,qa->q", a, g)
-            return outv
+        adapter = cf.P07NAdapter(env.ref, env.t.g.eta_period, oracle["p07n"]["owner_values"])
+        p07n_names = adapter.names
+        owner_values = adapter.owner_values
+        keys_wall = adapter.wall_keys["p07"]
+        trace_fn = adapter.dirichlet
+        normal_data_fn = adapter.normal
 
         flux_D, flux_N = _p07_family_flux_unit(env, row_index, neumann_index, row_indices, keys, family, p07_ids,
                                                owner_values, trace_fn, normal_data_fn,
-                                               radial_degree_by_family={1: 4, 2: 4, 4: 3}, need_D=True,
-                                               trace_key="p07n_p07_trace", normal_key="p07n_p07_normal")
+                                               radial_degree_by_family=adapter.radial_degree_by_family,
+                                               need_D=adapter.need_D,
+                                               trace_key=keys_wall.trace, normal_key=keys_wall.normal)
         uniq_n, num_n = _sparse_scatter_signed(flux_N, lower_owner, upper_owner, -1.0, +1.0)
         uniq_d, num_d = _sparse_scatter_signed(flux_D, lower_owner, upper_owner, -1.0, +1.0)
         out["p07n_global_N"] = (uniq_n, num_n)
@@ -1641,16 +1500,15 @@ def _p07_unit_core(*, env: Environment, campaigns: tuple, oracle: dict, row_inde
         # function, same points, same values) and never queries the
         # singular point.
         non_collapsed = np.flatnonzero(family != 0)
-        face_O = np.zeros((len(keys), len(p07n_fields.NAMES)))
+        face_O = np.zeros((len(keys), len(p07n_names)))
         if non_collapsed.size:
             sel_keys = keys[non_collapsed]
             points, weight = pshared_provider._quadrature(env.t.faces, sel_keys, 3, face=True)
             tensor = env.ref._perpendicular_flux_tensor(points.reshape(-1, 3)).reshape(len(non_collapsed), 9, 3, 3)
             integrand = contract_face_tensor(weight, tensor, sel_keys[:, 0])
             flat = points.reshape(-1, 3)
-            grads = np.stack([p07n_fields.evaluate(env.ref, flat, name, period)[1] for name in p07n_fields.NAMES],
-                             axis=1)
-            grads = grads.reshape(len(non_collapsed), 9, len(p07n_fields.NAMES), 3)
+            grads = adapter.exact_gradients(flat)
+            grads = grads.reshape(len(non_collapsed), 9, len(p07n_names), 3)
             face_O[non_collapsed] = np.einsum("fqa,fqka->fk", integrand, grads)
         uniq_o, num_o = _sparse_scatter_signed(face_O, lower_owner, upper_owner, -1.0, +1.0)
         out["p07n_global_O_q3"] = (uniq_o, num_o)

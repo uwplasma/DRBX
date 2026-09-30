@@ -2100,7 +2100,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 accepted (29 September); step 2 is next. Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 accepted; step 2a done and step 2b implemented and locally gated (29 September); G3 remote replay next. Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2161,8 +2161,18 @@ Steps:
      - **Vectorized loader** (`drbx/stencils/loader.py`) lowers chunks to JAX payloads without per-row Python loops, streaming per chunk, with grid-global deduplicated boundary queries and factor tables, and per-source η-offset halos for sharding.
      - **Kernels** (`native/fci_perpendicular_source_rows.py`, `native/fci_perpendicular_tensor_rows.py`). CSR sources gather donors once per source and keep gradients only where stored. Tensor sources never materialize weights: θ is precontracted once per apply per used (θ entry, layer) and per ring entry, then each node gathers 16 rows and contracts η and radial. Eager and JIT are bitwise equal, and JVP is linear. On real N32 units the runtime plan is 120 MB against 398 MB all-CSR (the remainder is coupled-quartic), and apply takes about half the CSR time.
      - The one-time artifact migration tools were removed.
-   - **2b, remaining:** a package P05 midpoint-bracket kernel; per-operator JAX assembly (P05, P05N, P06 q1+q3, P07/P07N) on the loader, carrying the step-1 replay fixes (true-query-point Neumann rows, P07 wall Dirichlet lift, exterior-side Neumann fallback, undivided P06N corrections, P07N family-0 exclusion).
-   - Gate: replay against the step-1 host outputs (the per-owner N32/N48 replay arrays, with the corrected pointwise cap), plus eager/JIT/JVP.
+   - **2b, JAX operator assembly: implemented and locally gated 29 September** ([design, API and gate results](../../../../work/p08_step2b_operator_assembly_design_20260929/design.md)). The spec is the step-1 host replay, including its five fixes.
+     - **Package layers.**
+       - `drbx/stencils/operator_plan.py`: one field-independent plan per grid or bounded owner set. It holds the loader payloads, `geometry.npz` geometry, census maps, precomputed q1 evolution volumes, and two grid-global boundary point tables that every payload indexes.
+       - `native/fci_perpendicular_reconstruction_state.py`: per-field Dirichlet/Neumann reconstruction with the host's missing-side rules.
+       - Operators: `native/fci_perpendicular_midpoint_bracket.py` (the package P05 bracket), `fci_perpendicular_p05_operator.py` (centered plus live jump; P05N per-role D/N), `fci_perpendicular_p06_operator.py` (q1 plus q3, including the wall solve and the legacy seam multiplier), `fci_perpendicular_p07_operator.py`. They reuse the qualified JAX kernels.
+     - **Harness.** `scripts/p_shared/campaign_fields.py` moves the campaigns' boundary callbacks out of the replay closures (host replay bitwise unchanged). `scripts/p_shared/jax_replay.py` builds the JAX owner closure and outputs the host's owner-term format.
+     - **G1**, bounded owner closure at N32, N48 and N64, all seven campaign keys:
+       - JAX vs host: non-cancellation terms ≤ 1e-11 of scale (worst P07N-D, 7.7e-12 at N64). Cancellation terms (face jumps, q3 corrections), ≤ 10× their measured one-ulp conditioning floor: worst 0.87× the floor.
+       - `compare_to_oracle` with the JAX terms: 143/143 rows pass at every grid.
+       - Policy decision: cancellation terms carry no fraction-of-scale bound. Their scale shrinks with refinement below input noise; at N64, P05N-frozen `face_D` has a floor of 7e-8 of its scale.
+     - **G2:** eager and JIT are bitwise equal. JVP equals the linear action (P07; P06 q1 in the gradients) and agrees with finite differences for P05/P06 (≤ 5e-10).
+     - **Remaining:** G3, a remote full-grid JAX replay at N32/N48 against the oracles with Tier B and the corrected cap (campaign scaffolding plus handoff). MMS reference terms stay host-only (P05N `raw_R`, P06N `raw_R_*`, P07N `O_q3`).
 3. **Combined perpendicular RHS.** An opt-in verification path, not production.
    - Terms: bracket with live jump, centered vorticity bracket, curvature q1+q3, diffusion and polarization; parallel terms off.
    - The reference is the sum of the qualified per-term references.
