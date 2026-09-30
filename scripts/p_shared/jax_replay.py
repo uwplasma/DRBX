@@ -412,6 +412,11 @@ class JaxOwnerClosure:
                  variant_block: Optional[int] = None, boundary_batch: Optional[int] = None,
                  boundary_progress=None):
         self.env, self.built, self.oracle = env, built, oracle
+        # one flag switches the operator geometry (``built``) and the reference (``env.ref``) together
+        self.curvature = getattr(env, "curvature", "fd")
+        if built is not None and built.get("curvature", self.curvature) != self.curvature:
+            raise ValueError(f"owner rows were built with curvature {built['curvature']!r} but the environment "
+                             f"uses {self.curvature!r}")
         self.boundary_progress = boundary_progress
         self.campaigns = tuple(campaigns)
         unknown = set(self.campaigns) - set(CAMPAIGN_FUNCS)
@@ -814,7 +819,7 @@ def _oracle_table(rows) -> list:
 def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict, campaigns: tuple = CAMPAIGN_FUNCS,
                                 floor_seeds=FLOOR_SEEDS, wall_cache: bool = False, output=None,
                                 column_block: Optional[int] = None, variant_block: Optional[int] = None,
-                                boundary_batch: Optional[int] = None) -> dict:
+                                boundary_batch: Optional[int] = None, curvature: str = "fd") -> dict:
     """The G1 check at grid ``n`` (mirrors ``owner_closure.run_owner_closure_check``): build the owner rows once,
     run the host ``assemble_owner_terms`` and the JAX assembly on them, and return
 
@@ -825,7 +830,11 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
 
     ``output`` (a path) additionally writes the payload as strict JSON. ``column_block`` / ``variant_block`` /
     ``boundary_batch`` run the JAX side through the blocked path of the G3 full-grid replay (see
-    :class:`JaxOwnerClosure`); all ``None`` is the plain E6 check."""
+    :class:`JaxOwnerClosure`); all ``None`` is the plain E6 check.
+
+    ``curvature`` (``"fd"`` default, or ``"autodiff"``) switches the curvature ``K`` of the operator geometry
+    (owner rows) and of the host references (``env.ref``) together; the frozen oracles still hold finite-difference
+    values, so the oracle rows may move by the operator change."""
     campaigns = tuple(campaigns)
     wall_started = time.perf_counter()
     marks: dict = {}
@@ -834,14 +843,14 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
         marks[label] = {"seconds": time.perf_counter() - since, "peak_rss_gib": _peak_rss_gib()}
 
     started = time.perf_counter()
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path))
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature)
     mark("environment", started)
     t = env.t
     fixture = oc.selection_fixture(t, env.census)
     owners = np.asarray(fixture["owners"], dtype=np.int64)
 
     started = time.perf_counter()
-    built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(sidecar_path))
+    built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(sidecar_path, curvature=curvature))
     mark("build_owner_rows", started)
     oracle = ru._load_oracle_owner_values(env, dict(paths), campaigns)
 
@@ -876,7 +885,8 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
 
     plan = closure.plan
     payload = {
-        "schema": SCHEMA, "n": int(n), "campaigns": list(campaigns), "wall_cache": bool(wall_cache),
+        "schema": SCHEMA, "n": int(n), "curvature": curvature, "campaigns": list(campaigns),
+        "wall_cache": bool(wall_cache),
         "blocking": {"column_block": column_block, "variant_block": variant_block, "boundary_batch": boundary_batch},
         "selection": fixture,
         "plan": {"cells": int(len(plan.cells.raw_ids)), "faces": int(len(plan.faces.census_row)),
@@ -942,11 +952,13 @@ def main(argv=None) -> int:
                                                              "localized_sidecar.json"))
     parser.add_argument("--campaigns", default=",".join(CAMPAIGN_FUNCS))
     parser.add_argument("--wall-cache", action="store_true")
+    parser.add_argument("--curvature", choices=("fd", "autodiff"), default="fd")
     parser.add_argument("--output", default=None)
     args = parser.parse_args(argv)
     payload = run_jax_owner_closure_check(
         n=args.n, input_root=args.input_root, sidecar_path=args.sidecar, paths=dict(DEFAULT_PATHS),
-        campaigns=tuple(args.campaigns.split(",")), wall_cache=args.wall_cache, output=args.output)
+        campaigns=tuple(args.campaigns.split(",")), wall_cache=args.wall_cache, output=args.output,
+        curvature=args.curvature)
     _print_summary(payload)
     return 0 if (payload["all_diff_pass"] and payload["oracle_jax_all_pass"] and not payload["uniq_mismatches"]) else 1
 

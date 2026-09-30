@@ -43,6 +43,16 @@ campaigns use (one call per chunk of points, not one call per point):
   q1 branch; a same-sample check against both of those P06 call sites (see
   ``tests/test_stencils_geometry_provider.py``) found no difference.
 
+Curvature option.  ``curvature="fd"`` (the default) is exactly the above.
+``curvature="autodiff"`` wraps the frozen reference in
+``p_shared.curvature_reference.AutodiffCurvatureReference`` (``_curvature`` is
+the autodiff ``K = (B/2|J|) curl(b_cov/B)`` of ``drbx.geometry.curvature_autodiff``;
+everything else is delegated), so ``p06_curvature`` (which goes through
+``curvature_geometry(reference, points)``) and ``reference`` itself use autodiff K,
+and ``p06_face_curvature`` returns ``J`` and ``B`` exactly as the frozen
+``_face_geometry`` does but ``K`` from autodiff at *every* node, wall nodes
+included (the one-sided finite-difference wall rule is not used).
+
 Do not put this package's own directory first on ``sys.path`` -- it has no
 stdlib-shadowing modules today, but per the P-path convention (see
 ``p06n_field_derived_global/campaign.py``'s module docstring) always import
@@ -66,6 +76,10 @@ from p07_diffusion_global.numerics import quadrature as _quadrature  # noqa: E40
 from perpendicular_structured.reference_geometry import curvature_geometry as _curvature_geometry  # noqa: E402
 import p06_structured_global.numerics as _p06numerics  # noqa: E402
 
+from p_shared.curvature_reference import check_curvature as _check_curvature  # noqa: E402
+from p_shared.curvature_reference import wrap_reference as _wrap_reference  # noqa: E402
+from p_shared.curvature_reference import face_geometry as _face_geometry_for  # noqa: E402
+
 from drbx.stencils.geometry_arrays import GeometryProvider  # noqa: E402
 
 
@@ -77,18 +91,24 @@ class ScriptsGeometryProvider:
     of the frozen calls documented in this module's docstring, unchanged.
     """
 
-    def __init__(self, reference: Any) -> None:
-        self._reference = reference
+    def __init__(self, reference: Any, *, curvature: str = "fd") -> None:
+        self._curvature_choice = _check_curvature(curvature)
+        self._reference = _wrap_reference(reference, curvature)
 
     @classmethod
-    def from_sidecar(cls, sidecar, *, verify_hashes: bool = False) -> "ScriptsGeometryProvider":
+    def from_sidecar(cls, sidecar, *, verify_hashes: bool = False, curvature: str = "fd") -> "ScriptsGeometryProvider":
         """Build the frozen reference exactly as every accepted campaign
         does, via ``p07_diffusion_global.numerics.reference``, then wrap it."""
-        return cls(_refnum.reference(sidecar, verify_hashes=verify_hashes))
+        return cls(_refnum.reference(sidecar, verify_hashes=verify_hashes), curvature=curvature)
 
     @property
     def reference(self) -> Any:
         return self._reference
+
+    @property
+    def curvature(self) -> str:
+        """``"fd"`` (frozen finite-difference K) or ``"autodiff"``."""
+        return self._curvature_choice
 
     # -- P05 -----------------------------------------------------------
     def p05_metric(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -106,7 +126,11 @@ class ScriptsGeometryProvider:
 
     def p06_face_curvature(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         points = np.asarray(points, dtype=np.float64)
-        return _p06numerics._face_geometry(self._reference, points)
+        if self._curvature_choice == "fd":
+            return _p06numerics._face_geometry(self._reference, points)
+        # J and B: the exact ``reference._metric(q)`` call ``_face_geometry`` makes; K: autodiff at every node
+        # (wall nodes included), not the one-sided finite-difference wall rule.
+        return _face_geometry_for(self._reference, points)
 
     # -- P07 ---------------------------------------------------------------
     def p07_perpendicular_tensor(self, points: np.ndarray) -> np.ndarray:

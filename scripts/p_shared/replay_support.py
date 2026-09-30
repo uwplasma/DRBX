@@ -683,9 +683,13 @@ class Environment:
     normal_coefficients: Callable
     neumann: NeumannSource
     wall_cache: WallDataCache
+    curvature: str = "fd"     # "fd" | "autodiff": which K ``ref._curvature`` evaluates (see p_shared.provider)
 
 
-def build_environment(*, n: int, input_root: Path, sidecar_path: Path) -> Environment:
+def build_environment(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = "fd") -> Environment:
+    """The shared campaign environment.  ``curvature="autodiff"`` makes ``env.ref`` an
+    :class:`p_shared.curvature_reference.AutodiffCurvatureReference` (autodiff ``_curvature``, everything
+    else delegated); ``"fd"`` (default) is the frozen reference, unchanged."""
     from perpendicular_structured.reconstruction import load_context
     from p07n_field_derived_global.fields import normal as p07n_normal
 
@@ -696,7 +700,8 @@ def build_environment(*, n: int, input_root: Path, sidecar_path: Path) -> Enviro
                                       dr=t.g.dr, dtheta=t.g.dtheta, deta=t.g.deta)
     S = StructuredReconstruction(ctx)
     census = FaceCensus.build(n, t.ro)
-    ref = pshared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False).reference
+    ref = pshared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False,
+                                                                curvature=curvature).reference
 
     def normal_coefficients(q):
         return p07n_normal(ref, np.asarray(q, dtype=np.float64))
@@ -704,7 +709,8 @@ def build_environment(*, n: int, input_root: Path, sidecar_path: Path) -> Enviro
     neumann = NeumannSource(ctx, normal_coefficients)
     wall_cache = WallDataCache(t)
     return Environment(n=n, t=t, ctx=ctx, S=S, census=census, ref=ref,
-                       normal_coefficients=normal_coefficients, neumann=neumann, wall_cache=wall_cache)
+                       normal_coefficients=normal_coefficients, neumann=neumann, wall_cache=wall_cache,
+                       curvature=curvature)
 
 
 # ---------------------------------------------------------------------------

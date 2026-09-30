@@ -77,7 +77,7 @@ from drbx.geometry.fci_perpendicular_integrated_rows import contract_face_tensor
 from drbx.native.fci_curvature_production_flux import curvature_principal_matrix  # noqa: E402
 
 __all__ = [
-    "FIELDS", "SLOTS", "TERMS", "ReferenceParams", "OwnerSupport", "owner_support", "P06NState",
+    "FIELDS", "SLOTS", "TERMS", "ReferenceParams", "OwnerSupport", "owner_support", "env_curvature", "P06NState",
     "p06n_state", "bracket_reference", "curvature_reference", "diffusion_reference", "reference_rhs",
     "production_formula_pointwise", "production_formula_check", "diffusion_midpoint_check",
     "verify_against_oracles",
@@ -158,6 +158,14 @@ class OwnerSupport:
                                   "B": np.asarray(metric["B"]), "bcov": np.asarray(metric["bcov"]),
                                   "prepared": prepared, "evolution_weight": evolution_weight}
         return self._cache["raw"]
+
+
+def env_curvature(env) -> str:
+    """``"fd"`` or ``"autodiff"``: the curvature ``K`` this module's references use.  It is not an option of this
+    module: every reference geometry call goes through ``env.ref`` (``curvature_geometry(env.ref, ...)``,
+    ``env.ref._curvature``), so ``build_environment(..., curvature=...)`` switches the reference and, with the
+    matching ``build_owner_rows`` provider, the operator geometry together."""
+    return getattr(env, "curvature", "fd")
 
 
 def owner_support(env, owners, built: Optional[dict] = None) -> OwnerSupport:
@@ -489,6 +497,7 @@ def production_formula_check(env, owners, state, params: ReferenceParams,
             report["owner_level"][f"{name}:{term}"] = {"max_abs": d, "max_rel": r}
             worst = max(worst, r)
     report["max_rel"] = worst
+    report["curvature"] = env_curvature(env)
     report["J_min"] = indep["J_min"]
     report["n_points"] = int(len(support.points))
     return report

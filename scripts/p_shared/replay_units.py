@@ -1266,9 +1266,9 @@ def compute_faces_unit(unit: dict) -> dict:
     J_all = B_all = K_all = None
     if F and ("p06n" in s["campaigns"] or "p06_legacy" in s["campaigns"]):
         if ragged:
-            import p06_structured_global.numerics as _p06numerics_geom
+            from p_shared.curvature_reference import face_geometry as _face_geometry_for
 
-            J_flat, B_flat, K_flat = _p06numerics_geom._face_geometry(env.ref, common_points_flat)
+            J_flat, B_flat, K_flat = _face_geometry_for(env.ref, common_points_flat)
             splits = np.cumsum(common_counts)[:-1]
             J_all = np.split(J_flat, splits); B_all = np.split(B_flat, splits); K_all = np.split(K_flat, splits)
         else:

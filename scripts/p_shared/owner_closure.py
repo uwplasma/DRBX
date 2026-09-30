@@ -158,13 +158,14 @@ def selection_fixture(t, census) -> dict:
     }
 
 
-def load_provider_for_env(sidecar_path) -> "pshared_provider.ScriptsGeometryProvider":
+def load_provider_for_env(sidecar_path, *, curvature: str = "fd") -> "pshared_provider.ScriptsGeometryProvider":
     """A ``ScriptsGeometryProvider`` built the same way ``build_environment``
     builds ``env.ref`` internally (``env.ref`` is only its ``.reference``
     attribute -- ``build_geometry_arrays`` below needs the provider itself,
     for its ``.face_points``/``.p06_face_weight``/``.p07_face_tensor``
-    methods)."""
-    return pshared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False)
+    methods).  ``curvature`` must match the environment's (``build_environment(..., curvature=...)``)."""
+    return pshared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False,
+                                                                 curvature=curvature)
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +248,13 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
     (avoids rebuilding one from the sidecar if the caller already has one);
     when omitted, one is built the same way :func:`p_shared.replay_support
     .build_environment` builds ``env.ref`` internally.
+
+    The geometry's curvature follows ``provider.curvature`` (``"fd"`` or ``"autodiff"``) and must equal
+    ``env.curvature`` (one flag switches the operator geometry and the reference together); a mismatch raises.
     """
+    if provider is not None and getattr(provider, "curvature", "fd") != getattr(env, "curvature", "fd"):
+        raise ValueError(f"provider curvature {provider.curvature!r} does not match environment curvature "
+                         f"{env.curvature!r}")
     t = env.t
     census = env.census
     unique_owners = sorted(set(int(o) for o in owners))
@@ -297,7 +304,7 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
     return {
         "owners": unique_owners, "raw_ids": raw_ids, "face_row_indices": face_row_indices,
         "p07_row_indices": p07_row_indices, "row_index": row_index, "neumann_index": neumann_index,
-        "geometry": geometry,
+        "geometry": geometry, "curvature": getattr(provider, "curvature", "fd"),
     }
 
 
@@ -400,9 +407,9 @@ def assemble_owner_terms(env: Environment, built: dict, campaigns: tuple, oracle
 
     J_all = B_all = K_all = None
     if F and ("p06n" in campaigns or "p06_legacy" in campaigns):
-        import p06_structured_global.numerics as _p06numerics_geom
+        from p_shared.curvature_reference import face_geometry as _face_geometry_for
 
-        J_flat, B_flat, K_flat = _p06numerics_geom._face_geometry(env.ref, common_points_flat)
+        J_flat, B_flat, K_flat = _face_geometry_for(env.ref, common_points_flat)
         if len(set(common_counts)) == 1 and common_counts[0] == 9:
             J_all = J_flat.reshape(F, 9); B_all = B_flat.reshape(F, 9); K_all = K_flat.reshape(F, 9, -1)
         else:
@@ -676,7 +683,7 @@ def oracle_available(paths: dict, campaigns: tuple, n: int = 32) -> bool:
 
 
 def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, paths: dict, campaigns: tuple,
-                            compare: bool) -> dict:
+                            compare: bool, curvature: str = "fd") -> dict:
     """The full bounded owner-closure check (task report): build ``env``,
     select owners, build only their incident rows, run every campaign's own
     replay-unit arithmetic, and -- when ``compare`` -- diff against each
@@ -688,16 +695,16 @@ def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, pat
     import time as _time
 
     started = _time.time()
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path))
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature)
     t = env.t; census = env.census
 
     fixture = selection_fixture(t, census)
     unique_owners = fixture["owners"]
 
-    provider = load_provider_for_env(sidecar_path)
+    provider = load_provider_for_env(sidecar_path, curvature=curvature)
     built = build_owner_rows(env, unique_owners, provider=provider)
     payload = {
-        "n": n, "selection": fixture,
+        "n": n, "curvature": curvature, "selection": fixture,
         "row_counts": {"raw_ids": int(len(built["raw_ids"])), "face_row_indices": int(len(built["face_row_indices"])),
                       "p07_row_indices": int(len(built["p07_row_indices"]))},
     }
