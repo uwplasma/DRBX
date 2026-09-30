@@ -2100,7 +2100,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 accepted; step 2 closed (G3 accepted 30 September); step 3 is next. Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); the operator-change bundle (3b) is next. Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2183,10 +2183,22 @@ Steps:
          - Face rows 1.25 / 3.19 GB (step 1: 8.4 GB at N32); whole artifact about 2.3 / 5.8 GB, of which Neumann rows are now the largest part (0.86 / 1.93 GB).
          - Build 10 / 19 min; JAX replay 5.5 / 16 min at 5 / 15 GB peak; 56 min in total on one CPU node.
    - **Step 2 closed, 30 September.**
-3. **Combined perpendicular RHS.** An opt-in verification path, not production.
-   - Terms: bracket with live jump, centered vorticity bracket, curvature q1+q3, diffusion and polarization; parallel terms off.
-   - The reference is the sum of the qualified per-term references.
-   - Gate: the combined action equals the sum of the separately qualified actions on bounded N32 sets.
+3. **Combined perpendicular RHS: done 30 September** ([design, API and gate results](../../../../work/p08_step3_combined_rhs_design_20260930/design.md)). An opt-in verification path, not production.
+   - **Scope (user decision):** the fields n, Te, Ti and ω, with φ prescribed; polarization is step 5. Vi/Ve are deferred; production gives them bracket and diffusion only. The internals are field-generic.
+   - **`native/fci_perpendicular_rhs.py`:** `perpendicular_rhs` returns per-field terms under production's names. One shared cell/face reconstruction feeds P05 and P06; P07 uses its integrated rows.
+     - `poisson_bracket` = `P05(φ, g)/ρ*` (production's `−[φ,g]/ρ*`).
+     - `curvature` = P06 q1 + q3 correction / evolution volume.
+     - `perpendicular_diffusion` = `−D_f·P07(f)`. P07 is the positive operator −∇·(P⊥∇f). This sign was corrected during design after the host reference found it.
+   - **Sign audit** against the published normalized Boussinesq GBS equations (arXiv:2508.04881 §2; Giacomin et al. 2022) and production's code:
+     - The bracket, C(f), all four curvature rows (the code's M plus the ψ = φ + τTi remainder, reduced symbolically) and the diffusion match exactly.
+     - The upwind corrections have no continuum counterpart; they are covered by the convergence checks.
+   - **Gates,** bounded owner closure, N32/N48/N64:
+     - G3.1: the combined call is bitwise equal to the separate operator calls.
+     - G3.2: each frozen campaign's term through the combined path reproduces E6's operators (bitwise or roundoff), and `compare_to_oracle` passes 143/143 rows at every grid.
+     - G3.3: against the host published-form continuum reference (`scripts/p_shared/perpendicular_reference_rhs.py`) on the P06N `main_*` states, every term converges. The worst relative L2 is 3.6e-2 / 6.0e-3 / 7.3e-4, and the least-squares scale fit is 0.9997–1.0000 at N64, where a sign error would give −1.
+     - G3.4: eager and JIT are bitwise equal; JVP matches finite differences to 3e-10.
+     - Sharing the reconstruction gives no measurable speedup at the closure size.
+   - **Also 30 September:** the comparison core gained a roundoff-floor Tier B for control variants and conditioning-floor caps for cancellation terms (`replay_support.py`). Re-comparing G3 under them passes every term at N32/N48.
 3b. **Operator-change bundle, before campaign A (user decision, 29 September).** The step-6 candidates that change the qualified operator — autodiff curvature K, q2 face quadrature for P05/P06, and the transverse-reconstruction support at the coupled/ringwise switch — are settled here, after G3 and step 3, so the expensive campaigns run once on the final operator.
    - For each candidate: the bounded checks listed in step 6, then a decision, then re-frozen references and re-qualification through the JAX owner closure.
    - G3 runs first, because afterwards the step-1 frozen oracles no longer describe the operator.
@@ -2260,6 +2272,10 @@ Pending decisions:
 - **The combined catalogue**, frozen before evaluation.
 
 Carry-forwards:
+- the production wall model (deferred to full RHS wiring, user decision 30 September).
+  - Under the P-path operators a wall model becomes a provider of per-field kinds and `BoundaryData` on the plan's tables.
+  - `no-flow` and `simple-conducting-sheath` map directly. `simplified-gbs-mpe` needs a Robin density condition, the augmented-Neumann φ solve and a derived ω.
+  - The CLI-default `legacy-velocity-trace` is to be removed then. Its legacy "neumann" velocity condition stores the owner velocity as the Neumann value.
 - the deduplicated periodic census;
 - the recovered-trace wall contract (not a wall law);
 - pre-asymptotic rich-field orders read alongside low-degree fields;

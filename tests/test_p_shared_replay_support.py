@@ -220,6 +220,201 @@ def test_compare_pointwise_only_has_no_ratio_concept():
     assert lifted["pass"]
 
 
+def test_default_calls_report_ratio_mode_and_regular_kind_with_the_unchanged_cap():
+    owner_volume = np.ones(4)
+    saved = np.array([[1.0], [2.0], [3.0], [4.0]])
+    result = replay.compare_owner_term("demo", saved + 1e-13, saved, owner_volume=owner_volume,
+                                       archived_error=saved * 10.0)
+    assert result["tier_b_mode"] == "ratio" and result["kind"] == "regular"
+    assert result["roundoff_floor"] is None
+    assert result["pointwise"]["mode"] == "scaled" and "floor_source" not in result["pointwise"]
+    assert replay.compare_pointwise_only("demo", saved, saved)["kind"] == "regular"
+
+
+# --- P08 step 3.0: roundoff-floor Tier B and cancellation-term conditioning floor ---------------------------------
+def _control_case(n=200, seed=0):
+    """A constant-field control: exact result zero, so the oracle's archived error *is* roundoff, and the replay
+    differs from it by another roundoff realisation. ``scale_l2`` is the operator's own magnitude (~7)."""
+    rng = np.random.default_rng(seed)
+    saved = 1e-12 * rng.standard_normal((n, 3))
+    archived = saved.copy()                       # exact result is zero: N - R = N
+    replay_arr = saved + 3e-13 * rng.standard_normal((n, 3))
+    return replay_arr, saved, archived, np.ones(n), 7.0
+
+
+def test_roundoff_floor_gate_passes_a_control_the_ratio_gate_cannot_judge():
+    replay_arr, saved, archived, volume, scale = _control_case()
+    ratio = replay.compare_owner_term("ctl", replay_arr, saved, owner_volume=volume, archived_error=archived,
+                                      cap_mode="flat", cap_flat_abs=1e-9)
+    assert ratio["tier_b_mode"] == "ratio" and not ratio["pass"] and ratio["worst_ratio"] > 0.1   # roundoff / roundoff
+    auto = replay.compare_owner_term("ctl", replay_arr, saved, owner_volume=volume, archived_error=archived,
+                                     cap_mode="flat", cap_flat_abs=1e-9, tier_b="auto", roundoff_scale_l2=scale)
+    assert auto["tier_b_mode"] == "roundoff_floor" and auto["pass"]
+    assert auto["worst_ratio"] is None and auto["ratios"]["global"] is not None       # reported, not judged
+    floor = auto["roundoff_floor"]
+    assert floor["roundoff_level"] and floor["archived_over_scale"] < replay.ROUNDOFF_REL
+    assert floor["floor_l2"] >= replay.ROUNDOFF_FLOOR_FACTOR * floor["archived_l2"]
+    assert floor["margin"] > 5.0 and floor["violations"] == []
+
+
+def test_roundoff_floor_gate_still_fails_a_genuine_error_in_a_control():
+    replay_arr, saved, archived, volume, scale = _control_case()
+    rng = np.random.default_rng(1)
+    # isolate the floor gate: switch the entrywise cap off
+    loose = dict(cap_mode="flat", cap_flat_abs=1e9, cap_zero_atol=1e9)
+    for rel, expect_pass in ((0.0, True), (1e-13, True), (1e-11, False), (1e-8, False)):
+        bad = replay_arr + rel * scale * rng.standard_normal(replay_arr.shape)
+        result = replay.compare_owner_term("ctl", bad, saved, owner_volume=volume, archived_error=archived,
+                                           tier_b="auto", roundoff_scale_l2=scale, **loose)
+        assert result["tier_b_mode"] == "roundoff_floor"
+        assert result["pass"] is expect_pass, rel
+        assert result["pointwise"]["violations"] == 0
+    # a region-local error is caught by the region check, not averaged away by the global one
+    masks = {"patch": np.arange(200) < 5}
+    bad = replay_arr.copy(); bad[:5] += 3e-11
+    result = replay.compare_owner_term("ctl", bad, saved, owner_volume=volume, archived_error=archived,
+                                       region_masks=masks, tier_b="auto", roundoff_scale_l2=scale, **loose)
+    assert not result["pass"] and result["roundoff_floor"]["violations"] == ["patch"]
+
+
+def test_real_variant_stays_on_the_ratio_gate_and_forced_floor_mode_is_explicit():
+    rng = np.random.default_rng(2)
+    volume = np.ones(100)
+    saved = rng.standard_normal((100, 2)) * 7.0
+    archived = 1e-3 * saved                        # discretization error: far above roundoff
+    good = saved + 1e-12 * rng.standard_normal(saved.shape)
+    real = replay.compare_owner_term("real", good, saved, owner_volume=volume, archived_error=archived,
+                                     tier_b="auto", roundoff_scale_l2=7.0)
+    assert real["tier_b_mode"] == "ratio" and real["pass"] and real["worst_ratio"] < 1e-3
+    bad = saved + 1e-2 * rng.standard_normal(saved.shape)
+    assert not replay.compare_owner_term("real", bad, saved, owner_volume=volume, archived_error=archived,
+                                         tier_b="auto", roundoff_scale_l2=7.0)["pass"]
+    forced = replay.compare_owner_term("real", good, saved, owner_volume=volume, archived_error=archived,
+                                       tier_b="roundoff_floor", roundoff_scale_l2=7.0)
+    assert forced["tier_b_mode"] == "roundoff_floor"      # an explicit list wins over the classification ...
+    assert forced["roundoff_floor"]["floor_l2"] > 1e-3    # ... and is then only as strict as its floor: keep it for exact zeros
+    with pytest.raises(ValueError):
+        replay.compare_owner_term("x", good, saved, owner_volume=volume, archived_error=archived, tier_b="auto")
+    with pytest.raises(ValueError):
+        replay.compare_owner_term("x", good, saved, owner_volume=volume, archived_error=archived, tier_b="bogus")
+    with pytest.raises(ValueError):
+        replay.roundoff_floor_decision(1.0, 1.0, 0.0)
+
+
+def test_roundoff_floor_decision_handles_exact_zero_and_unevaluable_archived_error():
+    exact = replay.roundoff_floor_decision(0.0, 0.0, 5.0)
+    assert exact["roundoff_level"] and exact["floor_l2"] == pytest.approx(replay.ULP_FACTOR * replay.EPS * 5.0)
+    assert not replay.roundoff_floor_decision(1e-3, None, 5.0)["roundoff_level"]
+    assert not replay.roundoff_floor_decision(1e-3, 1e-6, 5.0)["roundoff_level"]      # 2e-7 of scale > ROUNDOFF_REL
+
+
+def test_model_conditioning_floor_and_floor_cap_mode():
+    assert replay.model_conditioning_floor(10.0) == pytest.approx(replay.ULP_FACTOR * replay.EPS * 10.0)
+    assert replay.model_conditioning_floor(-2.0, ulp_factor=1.0) == pytest.approx(2.0 * replay.EPS)
+    saved = np.array([[1.0, 0.0], [1e-3, 5.0]])
+    cap = replay.pointwise_cap(saved, mode="floor", floor_abs=np.array([[1e-9, 1e-12]]))
+    assert cap.shape == saved.shape and np.all(cap[:, 0] == 1e-9) and np.all(cap[:, 1] == 1e-12)   # no zero rule
+    assert np.all(replay.pointwise_cap(saved, mode="floor", floor_abs=3e-6) == 3e-6)
+    with pytest.raises(ValueError):
+        replay.pointwise_cap(saved, mode="floor")
+    with pytest.raises(ValueError):
+        replay.pointwise_cap(saved, mode="floor", floor_abs=-1.0)
+
+
+def _cancellation_case(n=300, seed=0):
+    """A jump of near-equal side values: the term is ~1e-4 of the O(10) side values, and two implementations agree
+    to a few hundred ulp of the *side values* (~1e-13 absolute), i.e. ~1e-9 of the term itself."""
+    rng = np.random.default_rng(seed)
+    saved = 1e-4 * rng.standard_normal((n, 2))
+    replay_arr = saved + 200 * replay.EPS * 10.0 * rng.uniform(-1, 1, saved.shape)
+    return replay_arr, saved, 10.0
+
+
+def test_cancellation_kind_gates_on_the_conditioning_floor_not_the_entrywise_cap():
+    replay_arr, saved, side_scale = _cancellation_case()
+    entrywise = replay.compare_pointwise_only("jump", replay_arr, saved)
+    assert not entrywise["pass"] and entrywise["pointwise"]["violations"] > 0
+    model = replay.compare_pointwise_only("jump", replay_arr, saved, kind="cancellation", constituent_scale=side_scale)
+    assert model["pass"] and model["kind"] == "cancellation"
+    info = model["pointwise"]
+    assert info["mode"] == "floor" and info["floor_source"] == "model" and info["ulp_factor"] == replay.ULP_FACTOR
+    assert info["floor_abs_max"] == pytest.approx(replay.ULP_FACTOR * replay.EPS * side_scale)
+    assert info["max_abs_diff_cap"] >= 4.0 * info["max_abs_diff"]                          # margin at this size
+    measured = replay.compare_pointwise_only("jump", replay_arr, saved, kind="cancellation", floor_abs=1e-14)
+    assert not measured["pass"] and measured["pointwise"]["floor_source"] == "measured"
+    per_column = replay.compare_pointwise_only("jump", replay_arr, saved, kind="cancellation",
+                                               floor_abs=np.array([[1e-9, 1e-30]]))
+    assert per_column["pointwise"]["violations"] == int(np.count_nonzero(replay_arr[:, 1] != saved[:, 1]))
+
+
+def test_cancellation_kind_still_fails_a_genuine_error():
+    replay_arr, saved, side_scale = _cancellation_case()
+    colmax = np.max(np.abs(saved), axis=0, keepdims=True)
+    for rel in (1e-6, 1e-5):
+        bad = replay_arr + rel * colmax * np.random.default_rng(3).standard_normal(saved.shape)
+        result = replay.compare_pointwise_only("jump", bad, saved, kind="cancellation", constituent_scale=side_scale)
+        assert not result["pass"] and result["pointwise"]["violations"] > 0.5 * saved.size
+    one = replay_arr.copy(); one[7, 1] += 1e-6 * colmax[0, 1]
+    assert not replay.compare_pointwise_only("jump", one, saved, kind="cancellation",
+                                             constituent_scale=side_scale)["pass"]
+
+
+def test_cancellation_kind_on_owner_terms_keeps_the_ratio_gate():
+    replay_arr, saved, side_scale = _cancellation_case()
+    volume = np.ones(len(saved))
+    archived = 10.0 * saved
+    ok = replay.compare_owner_term("face", replay_arr, saved, owner_volume=volume, archived_error=archived,
+                                   kind="cancellation", constituent_scale=side_scale)
+    assert ok["pass"] and ok["tier_b_mode"] == "ratio" and ok["pointwise"]["mode"] == "floor"
+    wrong = replay.compare_owner_term("face", saved * 1.5, saved, owner_volume=volume, archived_error=archived,
+                                      kind="cancellation", constituent_scale=side_scale)
+    assert not wrong["pass"]                                                          # Tier B and the floor both fail
+    bad = replay_arr.copy(); bad[3, 0] += 1e-6 * np.max(np.abs(saved))
+    assert not replay.compare_owner_term("face", bad, saved, owner_volume=volume, archived_error=1e6 * saved,
+                                         kind="cancellation", constituent_scale=side_scale)["pass"]
+
+
+def test_cancellation_and_floor_arguments_are_validated():
+    saved = np.ones((3, 2)); volume = np.ones(3)
+    with pytest.raises(ValueError):                                                     # no floor at all
+        replay.compare_pointwise_only("x", saved, saved, kind="cancellation")
+    with pytest.raises(ValueError):                                                     # unknown kind
+        replay.compare_pointwise_only("x", saved, saved, kind="jump")
+    with pytest.raises(ValueError):                                                     # would silently drop the flat cap
+        replay.compare_owner_term("x", saved, saved, owner_volume=volume, archived_error=saved,
+                                  kind="cancellation", constituent_scale=1.0, cap_mode="flat")
+    with pytest.raises(ValueError):                                                     # a floor on a regular term
+        replay.compare_pointwise_only("x", saved, saved, floor_abs=1e-9)
+    ok = replay.compare_pointwise_only("x", saved, saved, cap_mode="floor", floor_abs=1e-9)   # explicit floor mode
+    assert ok["pass"] and ok["pointwise"]["mode"] == "floor"
+
+
+def test_summarize_variants_reports_roundoff_floor_variants_apart_from_the_ratio_verdict():
+    replay_arr, saved, archived, volume, scale = _control_case()
+    control = replay.compare_owner_term("v[ctl]", replay_arr, saved, owner_volume=volume, archived_error=archived,
+                                        cap_mode="flat", tier_b="auto", roundoff_scale_l2=scale)
+    real_saved = 7.0 * np.random.default_rng(4).standard_normal(saved.shape)
+    real = replay.compare_owner_term("v[real]", real_saved + 1e-12, real_saved, owner_volume=volume,
+                                     archived_error=1e-3 * real_saved, cap_mode="flat", tier_b="auto",
+                                     roundoff_scale_l2=7.0)
+    summary = replay._summarize_variants([control, real])
+    assert summary["pass"] and summary["worst_ratio"] == real["worst_ratio"]        # not the control's 0.1..0.3
+    assert summary["roundoff_floor_variants"] == ["v[ctl]"] and summary["worst_roundoff_floor_margin"] > 1.0
+    assert "roundoff_floor_variants" not in replay._summarize_variants([real])
+
+
+def test_write_report_marks_floor_variants_and_floor_capped_terms(tmp_path):
+    replay_arr, saved, archived, volume, scale = _control_case()
+    control = replay.compare_owner_term("v[ctl]", replay_arr, saved, owner_volume=volume, archived_error=archived,
+                                        cap_mode="flat", tier_b="auto", roundoff_scale_l2=scale)
+    jump = replay.compare_pointwise_only("jump", saved, saved, kind="cancellation", constituent_scale=10.0)
+    payload = {"n": 8, "generated_at": "2026-01-01T00:00:00+00:00", "artifact_root": "/x", "wall_seconds": 1.0,
+               "campaigns": {"c": {"status": "ok", "terms": {"raw": replay._summarize_variants([control]),
+                                                                "jump": jump}}}}
+    text = replay.write_report(payload, tmp_path).read_text()
+    assert "1 roundoff-floor variants" in text and "floor cap (model)" in text
+
+
 def test_write_report_names_the_actual_reduction_host(tmp_path):
     import platform
     payload = {"n": 8, "generated_at": "2026-01-01T00:00:00+00:00", "artifact_root": "/x", "wall_seconds": 1.0,

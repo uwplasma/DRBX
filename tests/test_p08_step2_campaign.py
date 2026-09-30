@@ -604,6 +604,60 @@ def test_replay_stage_selection_mode_needs_no_comparison(tmp_path, monkeypatch):
     assert not (tmp_path / "replay" / "N8" / "replay.json").exists()
 
 
+def test_step3_0_control_list_is_a_tripwire_on_the_roundoff_floor_classification():
+    variants = ("main", "control_constant_dirichlet", "control_constant_neumann", "main:D",
+                "control_constant_dirichlet:D", "control_constant_neumann:D")
+    controls = comparison._expected_roundoff_variants(variants, ("control_constant_dirichlet", "control_constant_neumann"))
+    assert controls == {"control_constant_dirichlet", "control_constant_neumann", "control_constant_dirichlet:D",
+                        "control_constant_neumann:D"}
+
+    def result(mode):
+        return {"tier_b_mode": mode, "pass": True}
+
+    good = [result("ratio" if v not in controls else "roundoff_floor") for v in variants]
+    comparison._check_roundoff_classification(good, variants, controls)
+    assert all(r["pass"] and "roundoff_classification_mismatch" not in r for r in good)
+    assert [r["expected_roundoff_control"] for r in good] == [v in controls for v in variants]
+    # a real variant that slipped onto the floor gate (a weakened gate), and a control that did not, both fail
+    weakened = [result("roundoff_floor") for _ in variants]
+    comparison._check_roundoff_classification(weakened, variants, controls)
+    assert [r["pass"] for r in weakened] == [v in controls for v in variants]
+    missing = [result("ratio") for _ in variants]
+    comparison._check_roundoff_classification(missing, variants, controls)
+    assert [r["pass"] for r in missing] == [v not in controls for v in variants]
+
+
+def test_step3_0_call_sites_pass_the_rules_only_for_the_named_terms():
+    """AST check of ``compare_operator_terms``: the P05 per-face jump, P05N ``face_N``/``face_D`` (cancellation) and
+    the P06N raw terms (roundoff floor) get the step 3.0 arguments; no other comparison does."""
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(comparison.compare_operator_terms)))
+    calls = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) in ("compare_owner_term", "compare_pointwise_only"):
+            label = ast.unparse(node.args[0])                        # the term name expression
+            calls[label] = {kw.arg: ast.unparse(kw.value) for kw in node.keywords}
+    new_args = {"kind", "constituent_scale", "floor_abs", "tier_b", "roundoff_scale_l2"}
+    with_rule = {label: sorted(new_args & set(kw)) for label, kw in calls.items() if new_args & set(kw)}
+    assert with_rule == {
+        "'p05.live_jump_vs_upwind'": ["constituent_scale", "kind"],
+        "'p05n.face_N'": ["constituent_scale", "kind"],
+        "'p05n.face_D'": ["constituent_scale", "kind"],
+        "f'p06n.raw_{label}[{name_}]'": ["roundoff_scale_l2", "tier_b"],
+    }
+    assert calls["'p05.live_jump_vs_upwind'"]["kind"] == "'cancellation'"
+    assert calls["'p05n.face_N'"]["kind"] == calls["'p05n.face_D'"]["kind"] == "'cancellation'"
+    assert calls["f'p06n.raw_{label}[{name_}]'"]["tier_b"] == "'auto'"
+    assert len(calls) == 13                                            # every comparison site was seen
+    # step 1 keeps the literal rules
+    reduce_source = inspect.getsource(ru.reduce_grid)
+    for token in ("kind=", "tier_b=", "roundoff_scale_l2", "constituent_scale", "floor_abs"):
+        assert token not in reduce_source, token
+
+
 def test_omitted_terms_are_exactly_the_host_only_references():
     assert set(comparison.OMITTED_TERMS) == {"p05n_frozen", "p05n_upwind", "p06n", "p07n"}
     for terms in comparison.OMITTED_TERMS.values():
