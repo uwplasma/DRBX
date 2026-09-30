@@ -39,7 +39,7 @@ from p_shared.inner_support import (  # noqa: E402
 # ---------------------------------------------------------------------------
 def test_inner_support_module():
     assert DEFAULT_INNER_SUPPORT == "fixed_radius"                    # C3 adopted 30 September 2026
-    assert INNER_SUPPORT_CHOICES == ("profile7", "last_aggregate", "any_aggregate", "fixed_radius") == INNER_SUPPORTS
+    assert INNER_SUPPORT_CHOICES == ("profile7", "last_aggregate", "any_aggregate", "fixed_radius", "last_aggregate_nearest28") == INNER_SUPPORTS
     assert check_inner_support("last_aggregate") == "last_aggregate"
     with pytest.raises(ValueError):
         check_inner_support("last")
@@ -219,7 +219,7 @@ def real():
     from p_shared.replay_support import build_environment
 
     out = {}
-    for name in ("default", "fixed_radius", "profile7", "last_aggregate"):
+    for name in ("default", "fixed_radius", "profile7", "last_aggregate", "last_aggregate_nearest28"):
         kwargs = {} if name == "default" else {"inner_support": name}
         env = build_environment(n=N32, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd",
                                 face_quadrature="q2", **kwargs)
@@ -311,3 +311,30 @@ def test_real_c1_redispatches_only_rows_anchored_at_or_before_the_last_ring(real
     n0, n1 = c0["built"]["neumann_index"], c1["built"]["neumann_index"]
     assert set(n0) == set(n1)
     np.testing.assert_array_equal(c0["built"]["geometry"].face_points, c1["built"]["geometry"].face_points)
+
+
+@needs_inputs
+def test_real_c2_changes_exactly_the_coupled_rows_including_p07(real):
+    """C2 (Q layout + nearest-28 donors) against C1 (same layout, P's ring pick): every coupled row, point rows and
+    P07 integrated rows alike, uses the nearest-28 donors (so differs from C1); every other row is bitwise C1's."""
+    c1, c2 = real["last_aggregate"], real["last_aggregate_nearest28"]
+    k1, k2 = c1["built"]["row_index"], c2["built"]["row_index"]
+    assert set(k1) == set(k2)
+    changed = {"point": 0, "R4": 0}
+    for key in k1:
+        a, b = k1[key], k2[key]
+        if isinstance(key, int):
+            identical = _same_integrated(a, b)
+            if a.family == 7:
+                assert b.family == 7 and not identical, key
+                changed["R4"] += 1
+            else:
+                assert identical, key
+            continue
+        identical = _same_point_rows(a, b)
+        if a.diagnostics.get("family") == "coupled_quartic":
+            assert b.diagnostics.get("family") == "coupled_quartic" and b.diagnostics.get("donor_policy") == "nearest28", key
+            changed["point"] += int(not identical)
+        else:
+            assert identical, key
+    assert changed["R4"] > 0 and changed["point"] > 0, changed

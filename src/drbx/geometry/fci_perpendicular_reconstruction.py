@@ -138,7 +138,11 @@ class PointFactors:
 #: inner donor-support rules of :class:`StructuredReconstruction`: the current ``"profile7"`` (coupled quartic
 #: only while some ring of the four-layer stencil has fewer than seven owners) and ``"last_aggregate"`` (C1: also
 #: coupled quartic through the last agglomerated ring)
-INNER_SUPPORTS = ("profile7", "last_aggregate", "any_aggregate", "fixed_radius")
+INNER_SUPPORTS = ("profile7", "last_aggregate", "any_aggregate", "fixed_radius", "last_aggregate_nearest28")
+#: C2 (``"last_aggregate_nearest28"``): Q's layout (C1: coupled through the last agglomerated ring), with Q's isotropic donor choice for the coupled quartic (the
+#: 28 nearest owner centroids per eta plane, Q's tie order and rank repair over the nearest 40)
+C2_DONORS = 28
+C2_POOL = 40
 #: C3 (``"fixed_radius"``): coupled quartic for stencils whose anchor-ring centre lies below this logical radius
 #: (the N48/N64 C1-vs-C0 per-ring crossing, work/p08_donor_support_c1_20260930)
 FIXED_SWITCH_U = 0.21
@@ -219,7 +223,7 @@ class StructuredReconstruction:
             return PointRows(z['donor_ids'],v,z['gradient_map'],z['boundary_conditioned'],z['trace_donor_points'],z['trace_target_points'],{'family':z['kind'],'max_residual':0.})
         layers=np.arange(i-2,i+2) if axis==0 else np.arange(i-1,i+3)
         rid=np.where(layers<0,-layers-1,layers)
-        if (np.min(self.profile[rid])<7 or (self.inner_support=="last_aggregate" and self.anchor_ring(axis,i,location)<=self.last)
+        if (np.min(self.profile[rid])<7 or (self.inner_support in ("last_aggregate","last_aggregate_nearest28") and self.anchor_ring(axis,i,location)<=self.last)
                 or (self.inner_support=="any_aggregate" and np.min(self.profile[rid])<n)
                 or (self.inner_support=="fixed_radius" and self.below_fixed_switch(axis,i,location))):
             return self._coupled(key,p,anchor,layers,rid,fixed_anchor)
@@ -318,7 +322,7 @@ class StructuredReconstruction:
             ids=r.nearest(t.centers[2],anchor[2],4,t.g.eta_period)
             ei=np.tile(ids,(len(p),1)); ev,ed=np.array([r.eta_rows(t.centers[2][ids],q[2],t.g.eta_period,t.g.deta) for q in p]).transpose(1,0,2)
         else:ei,ev,ed=r.eta_plane_rows(t,p)
-        columns={};worst=0.;minrank=15;maxlevel=0;maxextra=0
+        columns={};worst=0.;minrank=15;maxlevel=0;maxextra=0;fallbacks=0;repairs=0
         B,Dr,Dt=r.planar(p,center,scale,r.EXP4)
         for kk in np.unique(ei):
             v=np.sum(ev*(ei==kk),axis=1);d=np.sum(ed*(ei==kk),axis=1)
@@ -330,23 +334,69 @@ class StructuredReconstruction:
                 don=np.asarray(don,int)
                 A,U,root,C,ra,ru,_,_,res=r.fit(t,don,center,scale,target)
                 return don,A,U,root,C,ra,ru,res
-            for level in range(4):
-                lo=max(0,int(rid.min())-level);hi=min(n-1,int(rid.max())+level)
-                don,A,U,root,C,ra,ru,res=fit(lo,hi)
-                C3,_,_=r.pinv(A[:,:10],root);CU3,_,_=r.pinv(U[:,:10],root)
-                res3=max(r.resid(target[:,:10],C3,A[:,:10]),r.resid(target[:,:10],CU3,U[:,:10]))
-                if res3<=1e-9:break
-            else:raise RuntimeError(('unsupported point cubic',key,int(kk),res3))
-            for extra in range(3):
-                don,A,U,root,C,ra,ru,res=fit(max(0,lo-extra),min(n-1,hi+extra))
-                if res<=1e-9:break
-            else:raise RuntimeError(('unsupported point quartic',key,int(kk),res))
+            def ring_fit():
+                for level in range(4):
+                    lo=max(0,int(rid.min())-level);hi=min(n-1,int(rid.max())+level)
+                    don,A,U,root,C,ra,ru,res=fit(lo,hi)
+                    C3,_,_=r.pinv(A[:,:10],root);CU3,_,_=r.pinv(U[:,:10],root)
+                    res3=max(r.resid(target[:,:10],C3,A[:,:10]),r.resid(target[:,:10],CU3,U[:,:10]))
+                    if res3<=1e-9:break
+                else:raise RuntimeError(('unsupported point cubic',key,int(kk),res3))
+                for extra in range(3):
+                    don,A,U,root,C,ra,ru,res=fit(max(0,lo-extra),min(n-1,hi+extra))
+                    if res<=1e-9:break
+                else:raise RuntimeError(('unsupported point quartic',key,int(kk),res))
+                return don,A,U,root,C,ra,ru,res,level,extra
+            got=self._nearest28(kk,center,scale,target) if self.inner_support=="last_aggregate_nearest28" else None
+            if got is None:
+                if self.inner_support=="last_aggregate_nearest28":fallbacks+=1
+                don,A,U,root,C,ra,ru,res,level,extra=ring_fit()
+            else:
+                don,A,U,root,C,ra,ru,res,repaired=got;level=extra=0;repairs+=repaired
             block=(target@C).reshape(len(p),4,-1)
             for j,oid in enumerate(don):
                 if int(oid) not in columns:columns[int(oid)]=np.zeros((len(p),4))
                 columns[int(oid)]+=block[:,:,j]
             worst=max(worst,res);minrank=min(minrank,ra,ru);maxlevel=max(maxlevel,level);maxextra=max(maxextra,extra)
-        return self._pack(p,columns,{'family':'coupled_quartic','max_residual':worst,'min_rank':minrank,'cubic_expansion':maxlevel,'quartic_expansion':maxextra})
+        meta={'family':'coupled_quartic','max_residual':worst,'min_rank':minrank,'cubic_expansion':maxlevel,'quartic_expansion':maxextra}
+        if self.inner_support=="last_aggregate_nearest28":meta.update(donor_policy='nearest28',nearest28_repairs=repairs,nearest28_fallbacks=fallbacks)
+        return self._pack(p,columns,meta)
+
+    def _plane_pool(self,kk):
+        cache=self.__dict__.setdefault('_plane_pools',{})
+        if int(kk) not in cache:
+            n=self.t.n;cache[int(kk)]=np.unique(self.t.ro.reshape((n,)*3)[:,:,int(kk)])
+        return cache[int(kk)]
+
+    def _nearest28(self,kk,center,scale,target):
+        """C2 donors on eta plane ``kk``: the ``C2_DONORS`` owners whose centroids are nearest ``center`` (distance in
+        units of ``scale`` rounded to 12 digits, ties by owner id: Q's order). If that fit is not full rank or does not
+        reproduce the quartic, Q's rank repair (up to two best single swaps from the nearest ``C2_POOL`` improving the
+        weighted conditioning ratio). Returns ``None`` if still unsupported (the caller falls back to P's ring fit)."""
+        t=self.t;pool=self._plane_pool(kk)
+        delta=t.g.owner_centroid_xy[pool]-center
+        order=np.lexsort((pool,np.round(np.linalg.norm(delta/scale,axis=1),12)))
+        if len(order)<C2_DONORS:return None
+        def good(f):return f[4]==15 and f[5]==15 and f[8]<=1e-9
+        don=pool[order[:C2_DONORS]];f=r.fit(t,don,center,scale,target)
+        if good(f):return don,f[0],f[1],f[2],f[3],f[4],f[5],f[8],0
+        choices=order[:min(C2_POOL,len(order))];ids=pool[choices]
+        A,U,root=r.fit(t,ids,center,scale,np.eye(15))[:3]
+        def quality(sel):
+            sa=np.linalg.svd(root[sel,None]*A[sel],compute_uv=False);su=np.linalg.svd(root[sel,None]*U[sel],compute_uv=False)
+            return float(min(sa[-1]/sa[0],su[-1]/su[0]))
+        selected=list(range(C2_DONORS))
+        for _ in range(2):
+            best=quality(selected);bestset=None
+            for incoming in range(len(ids)):
+                if incoming in selected:continue
+                for outgoing in selected:
+                    cand=sorted([z for z in selected if z!=outgoing]+[incoming]);q=quality(cand)
+                    if round(q,14)>round(best,14):best=q;bestset=cand
+            if bestset is None:break
+            selected=bestset;don=ids[selected];f=r.fit(t,don,center,scale,target)
+            if good(f):return don,f[0],f[1],f[2],f[3],f[4],f[5],f[8],1
+        return None
 
     def side_rows(self,key,points):
         return tuple(row for row,_ in self._sides(key,points,False))
