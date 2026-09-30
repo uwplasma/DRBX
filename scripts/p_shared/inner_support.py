@@ -14,7 +14,7 @@ from __future__ import annotations
 # C3 adopted 30 September 2026 (user decision) after the C0/C1/C1b/C3 comparison (work/p08_donor_support_c1_20260930);
 # "profile7" reproduces the frozen step 1-3 oracles and campaigns and must be passed explicitly for that
 DEFAULT_INNER_SUPPORT = "fixed_radius"
-INNER_SUPPORT_CHOICES = ("profile7", "last_aggregate", "any_aggregate", "fixed_radius")
+INNER_SUPPORT_CHOICES = ("profile7", "last_aggregate", "any_aggregate", "fixed_radius", "last_aggregate_nearest28")
 
 
 def check_inner_support(inner_support: str) -> str:
