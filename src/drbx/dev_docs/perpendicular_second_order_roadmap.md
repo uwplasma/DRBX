@@ -2100,7 +2100,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 accepted; step 2a done and step 2b implemented and locally gated (29 September); G3 remote replay next. Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 accepted; step 2 closed (G3 accepted 30 September); step 3 is next. Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2172,7 +2172,17 @@ Steps:
        - `compare_to_oracle` with the JAX terms: 143/143 rows pass at every grid.
        - Policy decision: cancellation terms carry no fraction-of-scale bound. Their scale shrinks with refinement below input noise; at N64, P05N-frozen `face_D` has a floor of 7e-8 of its scale.
      - **G2:** eager and JIT are bitwise equal. JVP equals the linear action (P07; P06 q1 in the gradients) and agrees with finite differences for P05/P06 (≤ 5e-10).
-     - **Remaining:** G3, a remote full-grid JAX replay at N32/N48 against the oracles with Tier B and the corrected cap (campaign scaffolding plus handoff). MMS reference terms stay host-only (P05N `raw_R`, P06N `raw_R_*`, P07N `O_q3`).
+     - **G3, accepted 30 September (user decision):** full-grid JAX replay at N32 and N48 on Perlmutter (`scripts/p08_step2_global/`, commit `1ad24091`; [results](../../../../work/p08_step2b_g3_1ad24091_20260930T034152Z_d2297c/)). MMS reference terms stay host-only and were gated in step 1.
+       - P06-legacy, P07 and P07N pass every term. Every real-variant Tier-B ratio is ≤ 2.4e-8, against the 1e-3 tolerance.
+       - The literal step-1 criteria flag two structural effects, neither a defect:
+         - P06N raw terms show a ratio of 0.13 on the four constant-field control variants only. Their exact result is zero, so the archived error is roundoff (about 1e-12). The ten real variants are ≤ 5.6e-10.
+         - The entrywise pointwise cap flags the P05 per-face jumps and P05N `face_N`/`face_D` (cancellation terms): absolute differences 1e-19 to 4e-13, ≤ 1.9e-8 of the column scale. That is the same relative size as at the owner closure, 2–6× the one-ulp floor measured there, and it is not concentrated at small owners. Step 1 passed these entries only because its host replay repeated the frozen NumPy arithmetic.
+       - **Gate carry-forward:** do not reuse Tier B on control variants whose archived error is roundoff (give them an absolute floor), or the entrywise cap on cancellation terms (gate them on their conditioning floor).
+       - Infrastructure at full scale:
+         - 265,216 (N32) and 942,336 (N48) tensor-factored point-row sources, with 0 fallbacks.
+         - Face rows 1.25 / 3.19 GB (step 1: 8.4 GB at N32); whole artifact about 2.3 / 5.8 GB, of which Neumann rows are now the largest part (0.86 / 1.93 GB).
+         - Build 10 / 19 min; JAX replay 5.5 / 16 min at 5 / 15 GB peak; 56 min in total on one CPU node.
+   - **Step 2 closed, 30 September.**
 3. **Combined perpendicular RHS.** An opt-in verification path, not production.
    - Terms: bracket with live jump, centered vorticity bracket, curvature q1+q3, diffusion and polarization; parallel terms off.
    - The reference is the sum of the qualified per-term references.
@@ -2569,7 +2579,7 @@ revision, configuration, measured results, and unresolved failures.
 | P05N | Physical-normal Neumann brackets | Shared extraction/replay and bounded Neumann reconstruction admission | passed — user-accepted static qualification 28 September; recovered-trace wall contract | [Acceptance record](../../../../work/p05n_p06n_43250ccf_20260928T053254Z_c415a4cd/local_analysis/acceptance_decision.md) from `frozen_v1` (`05be9063`: centered 2.31–3.41, with jump 3.06–3.54; jump active only at n−2 and on η faces) and `upwind_v1` (`43250ccf`: rich pairs 5.17–5.87 pre-asymptotic, jump active and converging at about 3.5, b1×e3 regression reproduced exactly). O ≡ R. The wall-face and outer-two-layer jumps are zero (contract and row structure); this is not a physical wall-law qualification. Transition region lowest (about 3.0). Evolution, production integration and the rung wall law remain open. |
 | P06N | Physical-normal Neumann curvature | Shared extraction/replay and bounded Neumann reconstruction admission | passed — user-accepted static qualification 28 September; recovered-trace wall contract | [Acceptance record](../../../../work/p05n_p06n_43250ccf_20260928T053254Z_c415a4cd/local_analysis/acceptance_decision.md) for `43250ccf`, job 58995223: all 30 gated entries pass, including held-out (centered 4.38–6.15, U 4.47–6.12, pre-asymptotic). The q3 correction is active and converges at 4.2–5.4. φ enters only through the remainder (bitwise check). The all-Dirichlet rich case closes the P06 seam defect. The wall characteristic correction is zero by contract; not a physical wall-law qualification. Transition region lowest (2.2–2.6 on N48→N64). Evolution, production integration and the rung wall law remain open. |
 | P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | passed — user-accepted closure qualification 27 September; midpoint accuracy geometry-limited | [Acceptance record](../../../../work/p07n_field_derived_274e93e9_20260927T054625Z_72cfa1/local_analysis/acceptance_decision.md) for campaign `274e93e9`: N−O `2.24–3.85/2.25–3.73` on every field including held-out; wall-normal residual about 4th order; returned `global_order_pass=false` preserved; N−R ≈ O−R `1.55–1.74/1.72–1.83` limited by unresolved near-wall toroidal geometry (most plausibly coil ripple). The `5930b72c` failure is preserved. Inversion/gauge, energy, evolution and production integration remain open. |
-| P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | in progress — step 1 (host consolidation and row artifact) accepted 29 September; step 2 next; see the P08 execution plan | Include separately qualified Dirichlet and Neumann variants. Use the deduplicated periodic face census. Decide or reconcile the Neumann closure (P-path point rows vs production physical halos). Watch the RLP transition region. Reconstructed φ: production FGMRES inverting the qualified P07 operator (new `operator_form`); new preconditioners likely. |
+| P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | in progress — steps 1–2 (host consolidation, row artifact, JAX operators) accepted 29–30 September; step 3 next; see the P08 execution plan | Include separately qualified Dirichlet and Neumann variants. Use the deduplicated periodic face census. Decide or reconcile the Neumann closure (P-path point rows vs production physical halos). Watch the RLP transition region. Reconstructed φ: production FGMRES inverting the qualified P07 operator (new `operator_form`); new preconditioners likely. |
 | P09 | Evolved MMS and promotion | P08 | pending | — |
 
 
