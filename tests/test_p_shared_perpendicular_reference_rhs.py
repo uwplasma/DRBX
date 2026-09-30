@@ -319,7 +319,7 @@ def _closure(n: int):
         pytest.skip(f"HSX N{n} geometry/sidecar inputs are unavailable")
     if not _oracle_available(n):
         pytest.skip(f"the frozen N{n} oracle arrays are unavailable")
-    env = build_environment(n=n, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd")
+    env = build_environment(n=n, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3")
     owners = sorted(set(oc.select_owners(env.t, env.census).values()))
     return env, owners
 
@@ -353,7 +353,7 @@ def test_constructions_are_bitwise_the_host_assemble_owner_terms_R_terms_at_n32(
     import p06n_field_derived_global.core as p06n_core
 
     env, owners = _closure(32)
-    built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(SIDECAR, curvature="fd"))
+    built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(SIDECAR, curvature="fd", face_quadrature="q3"))
     campaigns = ("p05n_frozen", "p06n", "p07n")
     oracle = ru._load_oracle_owner_values(env, dict(DEFAULT_PATHS), campaigns)
     out = oc.assemble_owner_terms(env, built, campaigns, oracle)

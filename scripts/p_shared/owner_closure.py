@@ -738,7 +738,7 @@ def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, pat
         "row_counts": {"raw_ids": int(len(built["raw_ids"])), "face_row_indices": int(len(built["face_row_indices"])),
                       "p07_row_indices": int(len(built["p07_row_indices"]))},
     }
-    if face_quadrature != DEFAULT_FACE_QUADRATURE:
+    if face_quadrature != "q3":
         payload["face_quadrature"] = face_quadrature
     if not compare:
         payload["seconds"] = _time.time() - started

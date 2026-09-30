@@ -433,7 +433,7 @@ def run_g32(n: int, *, setup: Optional[Step3Setup] = None, campaigns: Sequence[s
                      and accounted == len(oracle_rows)),
         "seconds": time.perf_counter() - started, "setup_seconds": setup.seconds,
     }
-    if setup.face_quadrature != DEFAULT_FACE_QUADRATURE:
+    if setup.face_quadrature != "q3":
         report["face_quadrature"] = setup.face_quadrature
     _write(report, output_dir, f"N{n}_g32.json")
     return report
@@ -523,7 +523,7 @@ def run_g33(n: int, *, setup: Optional[Step3Setup] = None, variants: Sequence[st
         "owner_volume": [float(v) for v in volume], "results": report_variants, "max_rel_l2": worst,
         "seconds": time.perf_counter() - started, "setup_seconds": setup.seconds,
     }
-    if setup.face_quadrature != DEFAULT_FACE_QUADRATURE:
+    if setup.face_quadrature != "q3":
         report["face_quadrature"] = setup.face_quadrature
     _write(report, output_dir, f"N{n}_g33.json")
     return report
@@ -641,7 +641,7 @@ def main(argv=None) -> int:
     parser.add_argument("--orders-only", action="store_true", help="only combine the saved N*_g33.json files")
     args = parser.parse_args(argv)
     if args.output_dir is None:
-        if args.face_quadrature != DEFAULT_FACE_QUADRATURE:
+        if args.face_quadrature != "q3":
             suffix = "_q2" if args.curvature == "autodiff" else "_fd_q2"
             args.output_dir = str(GATES_DIR.with_name(GATES_DIR.name + suffix))
         else:

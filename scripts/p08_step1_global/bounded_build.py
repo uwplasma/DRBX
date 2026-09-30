@@ -187,7 +187,7 @@ def light_subset_requests(*, n: int, input_root: Path, sidecar_path: Path, censu
                                          owner_volume=t.vol, owner_centroid_xy=t.g.owner_centroid_xy,
                                          eta_period=t.g.eta_period, dr=t.g.dr, dtheta=t.g.dtheta, deta=t.g.deta)
     S = StructuredReconstruction(context)
-    provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False, curvature="fd")
+    provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False, curvature="fd", face_quadrature="q3")
     ref = provider.reference
     geometry = builder.build_geometry_arrays(provider, context, raw_ids=raw_ids,
                                              face_row_indices=face_row_indices, census=census)

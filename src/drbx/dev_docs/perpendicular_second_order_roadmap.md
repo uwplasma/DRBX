@@ -2238,7 +2238,10 @@ Steps:
      - Implementation: host q2 = frozen `face_chunk(order=2)` to 1e-14; JAX q2 = host q2 (29/29).
      - Combined RHS: G3.3 at q2 converges with fit 1.
      - Cost: the P06 face-apply time halves.
-     - Adoption is the user's decision.
+     - **Adopted 30 September 2026 (user decision): the default is `face_quadrature="q2"` for P05/P06, and P07 stays q3** (`p_shared.face_quadrature.DEFAULT_FACE_QUADRATURE`).
+       - The frozen step-1/step-2 runners, `replay_units`, `curvature_gates` and the frozen-reproduction tests pin `face_quadrature="q3"`.
+       - Explicit q3 policies and identities are exactly the historic ones.
+       - References are re-frozen once, after the bundle, through campaign A.
    - **Candidate, not adopted: q2 (2×2 Gauss) face quadrature.** The q3 face rule is part of the qualified operator action. The reconstruction (the moment functional) is independent of it: the nodes are only where the reconstruction and metric are evaluated to integrate the face flux. A one-point (midpoint) face rule has not been tested. The 25 September contract kept q3 faces by choice; what failed then was the P05 face/cell volume formulation. A midpoint rule is consistent with the second-order target but leaves no margin above the gate, and it samples near-wall coil ripple at a single phase. q2 is the tested reduction.
      - q2 has 4 nodes instead of 9. What that saves depends on the operator:
        - **P05 and P06 (nonlinear):** they need per-node rows at runtime, so both runtime face cost and per-node artifact rows drop by 2.25×.

@@ -1,7 +1,8 @@
 """The P05/P06 face-quadrature option (P08 operator-change bundle, item 2).
 
-``face_quadrature="q3"`` (default, ``DEFAULT_FACE_QUADRATURE``) integrates the P05 upwind jump and the P06
-characteristic side correction with 3x3 Gauss (nine nodes per face); ``"q2"`` uses 2x2 Gauss (four nodes).
+``face_quadrature="q3"`` integrates the P05 upwind jump and the P06
+characteristic side correction with 3x3 Gauss (nine nodes per face); ``"q2"`` (the default,
+``DEFAULT_FACE_QUADRATURE``) uses 2x2 Gauss (four nodes).
 P07 always uses q3.  ``"q3"`` is bitwise the historic behaviour everywhere (geometry arrays, saved schemas
 and identities, artifact policy, plans and operator outputs); the option is threaded like ``curvature``
 (``replay_support.build_environment`` -> ``owner_closure`` -> ``jax_replay`` / ``step3_gates`` /
@@ -9,7 +10,9 @@ and identities, artifact policy, plans and operator outputs); the option is thre
 """
 from __future__ import annotations
 
-DEFAULT_FACE_QUADRATURE = "q3"
+# adopted 30 September 2026 (user decision) after QA/QQ1-QQ4 (work/p08_q2_face_quadrature_20260930); "q3" reproduces
+# the frozen step 1-3 oracles and campaigns and must be passed explicitly for that
+DEFAULT_FACE_QUADRATURE = "q2"
 FACE_QUADRATURE_CHOICES = ("q3", "q2")
 _ORDER = {"q3": 3, "q2": 2}
 
