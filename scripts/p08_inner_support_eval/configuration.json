@@ -1,0 +1,24 @@
+{
+  "schema": "drbx.p08-inner-support-eval-v1",
+  "baseline_inner_support": "profile7",
+  "candidates": {
+    "C1": "last_aggregate",
+    "C2": "last_aggregate_nearest28",
+    "C3": "fixed_radius"
+  },
+  "grids": [32, 48, 64],
+  "per_ring": 12,
+  "curvature": "autodiff",
+  "face_quadrature": "q2",
+  "preflight": {"grid": 32, "per_ring": 1, "timeout_seconds": 900},
+  "bands": [[0.0, 0.06], [0.06, 0.12], [0.12, 0.21], [0.21, 0.27], [0.27, 0.33], [0.33, 0.40]],
+  "subprocess_env": {
+    "JAX_PLATFORMS": "cpu",
+    "JAX_ENABLE_X64": "true",
+    "OMP_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1"
+  },
+  "peak_rss_gib_n64": 6.0
+}
