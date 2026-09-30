@@ -116,7 +116,7 @@ def _is_wall(u: np.ndarray) -> np.ndarray:
 def _make_provider(sidecar, curvature: str, *, mode: Optional[str] = None, block: int = 256) -> ScriptsGeometryProvider:
     """A provider for ``curvature``; ``mode``/``block`` (autodiff only) pick the batching of the autodiff kernel
     (``None`` = the package default)."""
-    provider = ScriptsGeometryProvider.from_sidecar(str(sidecar), verify_hashes=False)
+    provider = ScriptsGeometryProvider.from_sidecar(str(sidecar), verify_hashes=False, curvature="fd")
     if curvature == "fd":
         return provider
     kwargs = {} if mode is None else {"mode": mode}
@@ -335,7 +335,7 @@ def run_qk4(n: int = 32, *, input_root=WORKSPACE, sidecar_path=DEFAULT_SIDECAR, 
     """QK4: geometry arrays of a bounded unit built with several geometry chunk sizes, compared bitwise per array
     against the first chunk size; the verdict for K is ``bitwise_K`` and, per config, the geometry-stage seconds."""
     started = time.perf_counter()
-    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path))
+    env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd")
     raw_keys, face_keys, n_wall_rows = _qk4_unit(env, raw_count, face_count)
     faces = env.ctx.faces
     raw_fields, face_fields = oc._RAW_GEOMETRY_FIELDS, oc._FACE_GEOMETRY_FIELDS

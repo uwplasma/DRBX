@@ -123,6 +123,7 @@ if str(SCRIPTS) not in sys.path:
 from p_shared import runner                                       # noqa: E402
 from p_shared import provider as p_shared_provider                 # noqa: E402
 from p_shared.curvature_reference import check_curvature           # noqa: E402
+from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 from p07_diffusion_global.numerics import quadrature as _p07_quadrature  # noqa: E402
 from perpendicular_structured.reconstruction import load_context   # noqa: E402
 from p07n_field_derived_global.fields import normal as _p07n_normal  # noqa: E402
@@ -214,21 +215,21 @@ def _sidecar_component_hashes(sidecar_path: Path) -> dict:
     return hashes
 
 
-#: extra sources pinned only for ``curvature="autodiff"`` builds (the default ``"fd"`` identity is unchanged)
+#: extra sources pinned only for ``curvature="autodiff"`` builds (the ``"fd"`` identity is unchanged)
 AUTODIFF_SOURCE_FILES = [
     "src/drbx/geometry/curvature_autodiff.py",
     "scripts/p_shared/curvature_reference.py",
 ]
 
 
-def build_policy(curvature: str = "fd") -> dict:
+def build_policy(curvature: str = DEFAULT_CURVATURE) -> dict:
     """``POLICY`` for ``curvature="fd"`` (exactly, so existing identities are unchanged); with
     ``"autodiff"`` the same policy plus ``curvature`` (distinct identity)."""
     check_curvature(curvature)
     return dict(POLICY) if curvature == "fd" else {**POLICY, "curvature": "autodiff"}
 
 
-def build_identity(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = "fd") -> dict:
+def build_identity(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = DEFAULT_CURVATURE) -> dict:
     component_hashes = {**_geometry_component_hashes(input_root, n), **_sidecar_component_hashes(sidecar_path)}
     sources = SOURCE_FILES + (AUTODIFF_SOURCE_FILES if curvature != "fd" else [])
     source_hashes = {rel: artifact_mod.hash_file(REPO / rel) for rel in sources}
@@ -262,7 +263,7 @@ def face_row_selection(census: FaceCensus) -> np.ndarray:
     return np.flatnonzero(~(census.collapsed_r0 | census.legacy_alias_slots))
 
 
-def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_dir: Path, curvature: str = "fd"):
+def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_dir: Path, curvature: str = DEFAULT_CURVATURE):
     """Load ``t``/build ``context``/``census``/``GeometryArrays`` once, all
     in this single process (no parallelism) -- the original, still-supported
     one-shot geometry build. Saves ``census.npz``/``geometry.npz`` under
@@ -299,7 +300,7 @@ GEOMETRY_STATE: dict = {}
 
 
 def _init_geometry_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict,
-                          curvature: str = "fd"):
+                          curvature: str = DEFAULT_CURVATURE):
     global GEOMETRY_STATE
     runner.require_cpu_backend()
     grid_dir = Path(output) / f"N{n}"
@@ -399,7 +400,7 @@ def _integrated_diagnostics_summary(integrated_rows) -> dict:
     return {"families": families}
 
 
-def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict, curvature: str = "fd"):
+def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict, curvature: str = DEFAULT_CURVATURE):
     global STATE
     runner.require_cpu_backend()
     grid_dir = Path(output) / f"N{n}"
@@ -755,12 +756,12 @@ def run_full_build(
     geometry_face_chunk_size: int = 4096,
     max_tasks_per_worker: int | None = None,
     max_units: int | None = None,
-    curvature: str = "fd",
+    curvature: str = DEFAULT_CURVATURE,
 ) -> dict:
     """Build the full N{n} row artifact and return the same dict written to
     ``<output>/N{n}/build_receipt.json``.
 
-    ``curvature`` (``"fd"``, the default, or ``"autodiff"``) selects the curvature ``K`` of the geometry
+    ``curvature`` (``"autodiff"``, the default, or ``"fd"``) selects the curvature ``K`` of the geometry
     arrays and of the reference used by the row builders (see ``p_shared.provider``); it is recorded in
     the build policy, so an autodiff build has a different identity from an fd build.
 
@@ -964,7 +965,7 @@ def parse_args(argv=None):
     p.add_argument("--geometry-face-chunk-size", type=int, default=4096)
     p.add_argument("--max-tasks-per-worker", type=int, default=None)
     p.add_argument("--max-units", type=int, default=None, help="for smoke-testing a partial build")
-    p.add_argument("--curvature", choices=("fd", "autodiff"), default="fd",
+    p.add_argument("--curvature", choices=("fd", "autodiff"), default=DEFAULT_CURVATURE,
                    help="curvature K of the geometry and reference (recorded in the build identity)")
     return p.parse_args(argv)
 

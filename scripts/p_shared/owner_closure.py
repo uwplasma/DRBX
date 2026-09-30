@@ -49,6 +49,7 @@ if str(_SCRIPTS) not in sys.path:
 
 from p_shared import selection as sel                              # noqa: E402
 from p_shared import provider as pshared_provider                  # noqa: E402
+from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 from p_shared import replay_units as ru                            # noqa: E402
 from p_shared.replay_support import (                              # noqa: E402
     Environment, build_environment, _load_p05_upwind,
@@ -158,7 +159,7 @@ def selection_fixture(t, census) -> dict:
     }
 
 
-def load_provider_for_env(sidecar_path, *, curvature: str = "fd") -> "pshared_provider.ScriptsGeometryProvider":
+def load_provider_for_env(sidecar_path, *, curvature: str = DEFAULT_CURVATURE) -> "pshared_provider.ScriptsGeometryProvider":
     """A ``ScriptsGeometryProvider`` built the same way ``build_environment``
     builds ``env.ref`` internally (``env.ref`` is only its ``.reference``
     attribute -- ``build_geometry_arrays`` below needs the provider itself,
@@ -683,7 +684,7 @@ def oracle_available(paths: dict, campaigns: tuple, n: int = 32) -> bool:
 
 
 def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, paths: dict, campaigns: tuple,
-                            compare: bool, curvature: str = "fd") -> dict:
+                            compare: bool, curvature: str = DEFAULT_CURVATURE) -> dict:
     """The full bounded owner-closure check (task report): build ``env``,
     select owners, build only their incident rows, run every campaign's own
     replay-unit arithmetic, and -- when ``compare`` -- diff against each

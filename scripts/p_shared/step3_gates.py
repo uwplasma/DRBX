@@ -69,6 +69,7 @@ from p_shared import jax_replay as jr                                           
 from p_shared import owner_closure as oc                                         # noqa: E402
 from p_shared import perpendicular_reference_rhs as prr                          # noqa: E402
 from p_shared import replay_units as ru                                          # noqa: E402
+from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 from p_shared.replay_support import (                                            # noqa: E402
     CAMPAIGN_FUNCS, DEFAULT_PATHS, DEFAULT_SIDECAR, owner_weighted_l2)
 
@@ -176,13 +177,13 @@ class Step3Setup:
     campaigns: tuple
     paths: dict
     seconds: float
-    curvature: str = "fd"
+    curvature: str = DEFAULT_CURVATURE
 
 
 def build_setup(n: int, campaigns: Sequence[str] = CAMPAIGNS, *, input_root=WORKSPACE, sidecar_path=DEFAULT_SIDECAR,
-                paths: Optional[dict] = None, curvature: str = "fd") -> Step3Setup:
+                paths: Optional[dict] = None, curvature: str = DEFAULT_CURVATURE) -> Step3Setup:
     """Build the owner-closure rows, the oracle inputs and the JAX closure of ``campaigns`` at grid ``n``.
-    ``curvature`` (``"fd"`` default | ``"autodiff"``) switches the operator geometry and the host references
+    ``curvature`` (``"autodiff"`` default | ``"fd"``) switches the operator geometry and the host references
     (``env.ref``, hence the G3.3 continuum reference) together."""
     started = time.perf_counter()
     campaigns = tuple(campaigns)
@@ -369,7 +370,7 @@ def _summarize_oracle(rows: list) -> dict:
 
 
 def run_g32(n: int, *, setup: Optional[Step3Setup] = None, campaigns: Sequence[str] = CAMPAIGNS,
-            output_dir=None, curvature: str = "fd") -> dict:
+            output_dir=None, curvature: str = DEFAULT_CURVATURE) -> dict:
     """Gate G3.2 at grid ``n`` (module docstring): JSON-able report; ``output_dir`` additionally writes
     ``N{n}_g32.json`` there.  ``curvature`` applies only when no ``setup`` is given (a setup carries its own)."""
     started = time.perf_counter()
@@ -462,7 +463,7 @@ def term_metrics(combined, reference, owner_volume, *, fallback_l2: Optional[flo
 
 
 def run_g33(n: int, *, setup: Optional[Step3Setup] = None, variants: Sequence[str] = G33_VARIANTS,
-            params: Optional[Mapping] = None, output_dir=None, curvature: str = "fd") -> dict:
+            params: Optional[Mapping] = None, output_dir=None, curvature: str = DEFAULT_CURVATURE) -> dict:
     """Gate G3.3 at grid ``n`` (module docstring): JSON-able report; ``output_dir`` additionally writes
     ``N{n}_g33.json`` there.  ``curvature`` applies only when no ``setup`` is given (a setup carries its own);
     with ``"autodiff"`` the operator and the continuum reference use autodiff K together."""
@@ -615,7 +616,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--grids", default="32")
     parser.add_argument("--gates", default="g32,g33")
-    parser.add_argument("--curvature", choices=("fd", "autodiff"), default="fd")
+    parser.add_argument("--curvature", choices=("fd", "autodiff"), default=DEFAULT_CURVATURE)
     parser.add_argument("--output-dir", default=None,
                         help="default: the saved-gates directory for fd; a sibling '<dir>_autodiff' for autodiff")
     parser.add_argument("--orders-only", action="store_true", help="only combine the saved N*_g33.json files")

@@ -38,6 +38,9 @@ from typing import Any
 import numpy as np
 
 from drbx.geometry.curvature_autodiff import DEFAULT_MODE
+# adopted 30 September 2026 after QK1-QK4 (work/p08_bundle_autodiff_curvature_20260930); "fd" reproduces the
+# frozen step 1-3 oracles and campaigns and must be passed explicitly for that
+DEFAULT_CURVATURE = "autodiff"
 
 _OWN = frozenset({"_wrapped", "_autodiff_k", "_autodiff_mode", "_metric"})
 
@@ -98,7 +101,7 @@ class AutodiffCurvatureReference:
         return f"AutodiffCurvatureReference({self._wrapped!r})"
 
 
-def wrap_reference(reference: Any, curvature: str = "fd") -> Any:
+def wrap_reference(reference: Any, curvature: str = DEFAULT_CURVATURE) -> Any:
     """``reference`` itself for ``curvature="fd"``, the autodiff wrapper for ``"autodiff"``."""
     check_curvature(curvature)
     if curvature == "fd":

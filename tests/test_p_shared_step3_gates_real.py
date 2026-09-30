@@ -53,7 +53,7 @@ def _reports(n: int) -> dict:
             pytest.skip(f"HSX N{n} geometry/sidecar inputs are unavailable")
         if not oc.oracle_available(dict(DEFAULT_PATHS), CAMPAIGNS, n=n):
             pytest.skip(f"the frozen campaigns' N{n} oracle arrays are unavailable")
-        setup = sg.build_setup(n, CAMPAIGNS)
+        setup = sg.build_setup(n, CAMPAIGNS, curvature="fd")
         _REPORTS[n] = {"g32": sg.run_g32(n, setup=setup, output_dir=REPORT_DIR),
                        "g33": sg.run_g33(n, setup=setup, output_dir=REPORT_DIR)}
         del setup

@@ -258,9 +258,12 @@ def test_wrap_reference_and_choice_validation():
 from p_shared import provider as ps_provider  # noqa: E402
 
 
-def test_provider_default_is_fd_and_plain_reference():
+def test_provider_default_is_autodiff_and_fd_is_the_plain_reference():
     ref = _FakeReference()
+    assert cr.DEFAULT_CURVATURE == "autodiff"
     prov = ps_provider.ScriptsGeometryProvider(ref)
+    assert prov.curvature == "autodiff" and isinstance(prov.reference, cr.AutodiffCurvatureReference)
+    prov = ps_provider.ScriptsGeometryProvider(ref, curvature="fd")
     assert prov.curvature == "fd" and prov.reference is ref
     with pytest.raises(ValueError):
         ps_provider.ScriptsGeometryProvider(ref, curvature="sideways")
@@ -286,7 +289,7 @@ def test_provider_fd_face_path_is_the_frozen_face_geometry():
     import p06_structured_global.numerics as p06numerics
 
     ref = _FakeReference()
-    prov = ps_provider.ScriptsGeometryProvider(ref)
+    prov = ps_provider.ScriptsGeometryProvider(ref, curvature="fd")
     q = np.array([[0.3, 0.2, 0.1], [0.5, 0.4, 0.5], [0.9, 0.1, 0.2]])      # interior nodes only
     got = prov.p06_face_curvature(q)
     want = p06numerics._face_geometry(ref, q)
@@ -298,7 +301,7 @@ def test_provider_fd_face_path_is_the_frozen_face_geometry():
 # ---------------------------------------------------------------------------
 # Option threading and identity.
 # ---------------------------------------------------------------------------
-def test_curvature_option_is_threaded_with_default_fd():
+def test_curvature_option_is_threaded_with_default_autodiff():
     from p_shared import build_artifact, jax_replay, owner_closure, perpendicular_reference_rhs, replay_support
     from p_shared import step3_gates
 
@@ -310,11 +313,11 @@ def test_curvature_option_is_threaded_with_default_fd():
                ps_provider.ScriptsGeometryProvider.from_sidecar, ps_provider.ScriptsGeometryProvider.__init__]
     for fn in targets:
         parameter = inspect.signature(fn).parameters["curvature"]
-        assert parameter.default == "fd", fn
+        assert parameter.default == "autodiff", fn
         assert parameter.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD), fn
-    assert replay_support.Environment.__dataclass_fields__["curvature"].default == "fd"
-    assert step3_gates.Step3Setup.__dataclass_fields__["curvature"].default == "fd"
-    assert perpendicular_reference_rhs.env_curvature(SimpleNamespace()) == "fd"
+    assert replay_support.Environment.__dataclass_fields__["curvature"].default == "autodiff"
+    assert step3_gates.Step3Setup.__dataclass_fields__["curvature"].default == "autodiff"
+    assert perpendicular_reference_rhs.env_curvature(SimpleNamespace()) == "fd"      # an unwrapped legacy env
     assert perpendicular_reference_rhs.env_curvature(SimpleNamespace(curvature="autodiff")) == "autodiff"
 
 
@@ -340,17 +343,19 @@ def test_build_policy_and_identity_distinguish_curvature(monkeypatch):
 
     monkeypatch.setattr(ba, "_geometry_component_hashes", lambda root, n: {"geometry": "g"})
     monkeypatch.setattr(ba, "_sidecar_component_hashes", lambda path: {"sidecar": "s"})
-    fd = ba.build_identity(n=32, input_root=Path("."), sidecar_path=Path("."))
-    fd_explicit = ba.build_identity(n=32, input_root=Path("."), sidecar_path=Path("."), curvature="fd")
+    default = ba.build_identity(n=32, input_root=Path("."), sidecar_path=Path("."))
+    fd = ba.build_identity(n=32, input_root=Path("."), sidecar_path=Path("."), curvature="fd")
     ad = ba.build_identity(n=32, input_root=Path("."), sidecar_path=Path("."), curvature="autodiff")
-    assert fd == fd_explicit and fd["policy"] == ba.POLICY
+    assert default == ad and fd["policy"] == ba.POLICY
     assert ad != fd and ad["policy"]["curvature"] == "autodiff"
     assert set(fd["source_hashes"]) == set(ba.SOURCE_FILES)
     assert set(ad["source_hashes"]) == set(ba.SOURCE_FILES) | set(ba.AUTODIFF_SOURCE_FILES)
     for rel in ba.AUTODIFF_SOURCE_FILES:
         assert (REPO / rel).is_file()
     assert ba.parse_args(["--n", "32", "--input-root", ".", "--sidecar", "s", "--output", "o",
-                          "--workers", "1"]).curvature == "fd"
+                          "--workers", "1"]).curvature == "autodiff"
+    assert ba.parse_args(["--n", "32", "--input-root", ".", "--sidecar", "s", "--output", "o", "--workers", "1",
+                          "--curvature", "fd"]).curvature == "fd"
     assert ba.parse_args(["--n", "32", "--input-root", ".", "--sidecar", "s", "--output", "o", "--workers", "1",
                           "--curvature", "autodiff"]).curvature == "autodiff"
 
