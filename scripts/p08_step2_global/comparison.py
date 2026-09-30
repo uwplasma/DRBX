@@ -9,6 +9,20 @@ corrections divided **once**), the same saved oracle arrays, region masks and ``
 same ``compare_owner_term`` / ``compare_pointwise_only`` calls (Tier-B ratio, corrected pointwise cap,
 the P05 ``cap_reference`` of the ``live_jump_vs_old_U_minus_A`` row).
 
+**Step 3.0 rules** (the two structural effects G3 exposed; the step-1 ``reduce_grid`` is unchanged and keeps
+the literal rules):
+
+* P06N ``raw_*`` terms use ``tier_b="auto"``: a variant whose archived error is roundoff-level relative to the
+  term's own magnitude (``archived_l2 <= ROUNDOFF_REL * max-over-variants owner-L2 of the saved term``) is gated by
+  the absolute roundoff floor instead of the Tier-B ratio. The rule is generic; the catalogue's constant-field
+  ``control_*`` variants (``p06n_core.CONTROL_CASES`` and their ``:D`` forms) are the expected set, and the
+  classification is cross-checked against that list (a mismatch either way fails the variant).
+* Cancellation terms use the conditioning-floor pointwise cap ``ULP_FACTOR * eps * constituent_scale`` instead of the
+  entrywise ``1e-11 * scale`` cap (no measured floor exists at full grid): P05 per-face ``live_jump_vs_upwind``
+  (constituent scale ``max |saved centered| * owner_volume``, the owner flux integrals whose face values the jump
+  differences) and P05N ``face_N`` / ``face_D`` (``max |saved raw_N|, |saved raw_D|``, the owner-level densities of
+  the same operator, over all columns). See ``p_shared.replay_support`` for the constants.
+
 **Scope.** Only operator terms are compared. The MMS reference terms (P05N ``raw_R``, P06N
 ``raw_R_material/remainder/total``, P07N ``global_O_q3``) are host-only, need the analytic fields at
 every raw cell / face node, and were already gated in step 1; they are omitted here (``OMITTED_TERMS``,
@@ -30,7 +44,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from p_shared.replay_support import (                                        # noqa: E402
-    _load_p05_upwind, _summarize_variants, compare_owner_term, compare_pointwise_only)
+    _load_p05_upwind, _summarize_variants, compare_owner_term, compare_pointwise_only, owner_weighted_l2)
 from p_shared.replay_units import OwnerAccumulator                            # noqa: E402
 
 __all__ = ["OMITTED_TERMS", "compare_operator_terms"]
@@ -52,6 +66,24 @@ def _acc(owners: int, pair) -> OwnerAccumulator:
     acc = OwnerAccumulator(owners, tuple(np.shape(values)[1:]))
     acc.add(uniq, values)
     return acc
+
+
+def _expected_roundoff_variants(variants, control_cases) -> frozenset:
+    """The catalogue's explicit list of exactly-zero (constant-field control) variants, ``x`` and ``x:D``."""
+    controls = set(control_cases)
+    return frozenset(name for name in variants if name.split(":")[0] in controls)
+
+
+def _check_roundoff_classification(per_variant: list, variants, controls: frozenset) -> None:
+    """The roundoff-floor rule is generic; the catalogue's control list is a tripwire on it. A variant classified
+    differently from the list fails (a real variant silently gated by the floor would weaken the gate; a control
+    with a non-roundoff archived error is not the state this rule was written for)."""
+    for result, name in zip(per_variant, variants):
+        is_floor = result["tier_b_mode"] == "roundoff_floor"
+        result["expected_roundoff_control"] = name in controls
+        if is_floor != (name in controls):
+            result["roundoff_classification_mismatch"] = True
+            result["pass"] = False
 
 
 def compare_operator_terms(*, env, out: dict, paths: dict, campaigns, n: int) -> dict:
@@ -94,8 +126,13 @@ def compare_operator_terms(*, env, out: dict, paths: dict, campaigns, n: int) ->
         limit = min(dense_replay.shape[0], saved_upwind.shape[0])
         populated = np.flatnonzero(np.all(np.isfinite(dense_replay[:limit]), axis=1)
                                    & np.all(np.isfinite(saved_upwind[:limit]), axis=1))
+        # cancellation term: the jump differences side values of the flux integrals whose owner sums are
+        # ``centered * owner_volume``; its roundoff is set by them, over all columns (a constant-field column has a
+        # tiny term but the same reconstruction noise), not by the jump (see the module docstring)
+        flux_scale = float(np.max(np.abs(saved_centered) * owner_volume[:, None]))
         terms["live_jump_vs_upwind"] = compare_pointwise_only(
-            "p05.live_jump_vs_upwind", dense_replay[:limit][populated], saved_upwind[:limit][populated])
+            "p05.live_jump_vs_upwind", dense_replay[:limit][populated], saved_upwind[:limit][populated],
+            kind="cancellation", constituent_scale=flux_scale)
         owner_live_jump = _acc(owners, faces["p05_live_jump_owner_num"]).total / t.vol[:, None]
         terms["live_jump_vs_old_U_minus_A"] = compare_owner_term(
             "p05.live_jump_vs_old_U_minus_A", owner_live_jump, saved_old_u_minus_a,
@@ -126,10 +163,15 @@ def compare_operator_terms(*, env, out: dict, paths: dict, campaigns, n: int) ->
                  for suf, saved in (("N", saved_raw_N), ("D", saved_raw_D))}
         replay_face_N = _acc(owners, faces[f"{name}_face_N"]).total / t.vol[:, None]
         replay_face_D = _acc(owners, faces[f"{name}_face_D"]).total / t.vol[:, None]
+        # cancellation terms (jumps of near-equal side values): conditioning-floor pointwise cap from the
+        # owner-level densities of the same operator (raw N / D), over all columns
+        side_scale = float(max(np.max(np.abs(saved_raw_N)), np.max(np.abs(saved_raw_D))))
         terms["face_N"] = compare_owner_term("p05n.face_N", replay_face_N, saved_face_N, owner_volume=t.vol,
-                                             archived_error=archived_error_raw, region_masks=region_masks_p06n)
+                                             archived_error=archived_error_raw, region_masks=region_masks_p06n,
+                                             kind="cancellation", constituent_scale=side_scale)
         terms["face_D"] = compare_owner_term("p05n.face_D", replay_face_D, saved_face_D, owner_volume=t.vol,
-                                             archived_error=archived_error_raw, region_masks=region_masks_p06n)
+                                             archived_error=archived_error_raw, region_masks=region_masks_p06n,
+                                             kind="cancellation", constituent_scale=side_scale)
         results[name] = {"campaign": f"p05n[{'p05n_catalogue.json' if name == 'p05n_frozen' else 'p05n_upwind_catalogue.json'}]",
                          "status": "ok", "terms": terms}
 
@@ -148,11 +190,18 @@ def compare_operator_terms(*, env, out: dict, paths: dict, campaigns, n: int) ->
                   for label in ("material", "remainder", "total")}
         archived_error = saved["total"] - saved["R_total"]
         results_terms = {}
+        # the constant-field control variants have an exactly-zero result: their archived error is roundoff and the
+        # Tier-B ratio would compare roundoff with roundoff. ``tier_b="auto"`` gates such a variant by the absolute
+        # roundoff floor; the scale is the term's own magnitude (largest owner-L2 over the variants).
+        controls = _expected_roundoff_variants(variants, p06n_core.CONTROL_CASES)
         for label in ("material", "remainder", "total"):
+            scale_l2 = max(owner_weighted_l2(saved[label][vi], t.vol) or 0.0 for vi in range(V))
             per_variant = [compare_owner_term(f"p06n.raw_{label}[{name_}]", replay[label][vi], saved[label][vi],
                                               owner_volume=t.vol, archived_error=archived_error[vi],
-                                              region_masks=region_masks_p06n, cap_mode="flat", cap_flat_abs=1e-9)
+                                              region_masks=region_masks_p06n, cap_mode="flat", cap_flat_abs=1e-9,
+                                              tier_b="auto", roundoff_scale_l2=scale_l2)
                            for vi, name_ in enumerate(variants)]
+            _check_roundoff_classification(per_variant, variants, controls)
             results_terms[f"raw_{label}"] = _summarize_variants(per_variant)
         # the frozen P06N oracle stores the correction undivided (see reduce_grid): compare the raw owner sum
         replay_correction = np.stack([_acc(owners, faces["p06n_faces_correction"][vi]).total for vi in range(V)])

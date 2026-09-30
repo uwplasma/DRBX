@@ -53,7 +53,7 @@ from drbx.stencils.operator_plan import PerpendicularPlan
 
 __all__ = [
     "TAU", "FLOOR", "EVOLUTION_VOLUME_FLOOR", "P06Action", "P06FaceNumerators", "P06RawNumerators",
-    "bc_columns", "p06_action", "p06_q1_raw_numerators", "p06_q1_state_numerators",
+    "bc_columns", "p06_action", "p06_action_from_state", "p06_q1_raw_numerators", "p06_q1_state_numerators",
     "p06_q3_face_numerators", "p06n_layout"]
 
 #: the campaign constants of ``scripts/p06_structured_global/numerics.py`` (``TAU``, ``FLOOR``)
@@ -191,12 +191,17 @@ def p06_q1_state_numerators(bmag, curvature_vector, evolution_weight, value, gra
         jnp.asarray(value), jnp.asarray(gradient), tau))
 
 
+def _q1_from_state(cells, cell_value, cell_gradient, groups, tau):
+    """Cell ``value (R, F)`` / ``gradient (R, 3, F)`` -> weighted material / remainder ``(V, R, 4)`` per group."""
+    value = jnp.moveaxis(cell_value[:, groups], 1, 0)                  # (V, R, 5)
+    gradient = jnp.moveaxis(cell_gradient[:, :, groups], 2, 0)         # (V, R, 3, 5)
+    return _q1_core(value, gradient, cells.B, cells.K, cells.evolution_weight, tau)
+
+
 @partial(jax.jit, static_argnames=("kinds",))
 def _p06_q1_raw(cells, fields, bc, groups, tau, *, kinds):
     state = cell_state(_Plan(cells=cells), fields, bc, kinds)
-    value = jnp.moveaxis(state.value[:, groups], 1, 0)                 # (V, R, 5)
-    gradient = jnp.moveaxis(state.gradient[:, :, groups], 2, 0)        # (V, R, 3, 5)
-    return _q1_core(value, gradient, cells.B, cells.K, cells.evolution_weight, tau)
+    return _q1_from_state(cells, state.value, state.gradient, groups, tau)
 
 
 def p06_q1_raw_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, groups=None, *,
@@ -230,13 +235,17 @@ def _q3_core(faces, common, lower, upper, tau, floor, multiplier):
     return lo_num * m, up_num * m, spectral, floor_hits, wall_fallback
 
 
+def _q3_from_state(faces, face_value, lower, upper, groups, tau, floor, multiplier):
+    """Face ``value`` / ``lower`` / ``upper`` ``(Fc, 9, F)`` -> q3 numerators and counters per group."""
+    def pick(x):                                                            # (Fc, 9, F) -> (V, Fc, 9, 4)
+        return jnp.moveaxis(x[..., groups[:, :4]], 2, 0)
+    return _q3_core(faces, pick(face_value), pick(lower), pick(upper), tau, floor, multiplier)
+
+
 @partial(jax.jit, static_argnames=("kinds",))
 def _p06_q3_faces(faces, fields, bc, groups, tau, floor, multiplier, *, kinds):
     state = face_state(_Plan(faces=faces), fields, bc, kinds, gradients=False)
-
-    def pick(x):                                                            # (Fc, 9, F) -> (V, Fc, 9, 4)
-        return jnp.moveaxis(x[..., groups[:, :4]], 2, 0)
-    return _q3_core(faces, pick(state.value), pick(state.lower), pick(state.upper), tau, floor, multiplier)
+    return _q3_from_state(faces, state.value, state.lower, state.upper, groups, tau, floor, multiplier)
 
 
 def _multiplier(plan_faces, face_multiplier):
@@ -267,20 +276,38 @@ def p06_q3_face_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, fi
 # Owner action
 # --------------------------------------------------------------------------
 
-@partial(jax.jit, static_argnames=("kinds",))
-def _p06_action(cells, faces, fields, bc, groups, tau, floor, multiplier, *, kinds):
+def _action_from_state_core(cells, faces, cell_value, cell_gradient, face_value, lower, upper, groups, tau, floor,
+                            multiplier):
+    """The owner arithmetic after the reconstruction: 7 arrays of :class:`P06Action` and the q3 counters."""
     n_owners = len(cells.evolution_volume)
-    mat_raw, rem_raw = _p06_q1_raw(cells, fields, bc, groups, tau, kinds=kinds)
+    mat_raw, rem_raw = _q1_from_state(cells, cell_value, cell_gradient, groups, tau)
     seg = lambda x: jax.vmap(lambda a: jax.ops.segment_sum(a, cells.raw_owner, num_segments=n_owners))(x)
     material_num, remainder_num = seg(mat_raw), seg(rem_raw)
-    lo_num, up_num, *_ = _p06_q3_faces(faces, fields, bc, groups, tau, floor, multiplier, kinds=kinds)
+    lo_num, up_num, spectral, floor_hits, wall_fallback = _q3_from_state(
+        faces, face_value, lower, upper, groups, tau, floor, multiplier)
     ones = jnp.ones((n_owners,), dtype=lo_num.dtype)
     correction_num = jax.vmap(lambda lo, up: scatter_p06_characteristic(
         lo, up, faces.lower_owner, faces.upper_owner, ones))(lo_num, up_num)
     ev = jnp.maximum(cells.evolution_volume, EVOLUTION_VOLUME_FLOOR)[:, None]
     material, remainder = material_num / ev, remainder_num / ev
-    return (material, remainder, material + remainder, correction_num / ev,
-            material_num, remainder_num, correction_num)
+    owner = (material, remainder, material + remainder, correction_num / ev,
+             material_num, remainder_num, correction_num)
+    return owner, (spectral, floor_hits, wall_fallback)
+
+
+@partial(jax.jit, static_argnames=("kinds",))
+def _p06_action(cells, faces, fields, bc, groups, tau, floor, multiplier, *, kinds):
+    cs = cell_state(_Plan(cells=cells), fields, bc, kinds)
+    fs = face_state(_Plan(faces=faces), fields, bc, kinds, gradients=False)
+    return _action_from_state_core(cells, faces, cs.value, cs.gradient, fs.value, fs.lower, fs.upper, groups, tau,
+                                   floor, multiplier)[0]
+
+
+@jax.jit
+def _p06_action_from_state(cells, faces, cell_value, cell_gradient, face_value, lower, upper, groups, tau, floor,
+                           multiplier):
+    return _action_from_state_core(cells, faces, cell_value, cell_gradient, face_value, lower, upper, groups, tau,
+                                   floor, multiplier)
 
 
 def p06_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, groups=None, *, tau=TAU,
@@ -305,3 +332,34 @@ def p06_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, g
     material, remainder, total, correction, mat_num, rem_num, corr_num = out
     return P06Action(material, remainder, total, correction, mat_num, rem_num, corr_num,
                      jnp.asarray(plan.cells.evolution_volume))
+
+
+def p06_action_from_state(plan: PerpendicularPlan, cell_value, cell_gradient, face_value, face_lower, face_upper,
+                          groups=None, *, tau=TAU, positivity_floor=FLOOR, face_multiplier=None,
+                          return_counters: bool = False):
+    """The operator arithmetic of :func:`p06_action` on an already-reconstructed state, for callers that share
+    one ``cell_state`` / ``face_state`` between operators (P08 step 3, the combined perpendicular RHS).
+
+    ``cell_value (R, F)`` / ``cell_gradient (R, 3, F)`` are ``cell_state(...)`` value and gradient, and
+    ``face_value`` / ``face_lower`` / ``face_upper`` ``(Fc, 9, F)`` the ``face_state(..., gradients=False)`` common
+    value and side values, all with the per-column kinds already applied; ``groups`` picks the five columns
+    of each state exactly as in :func:`p06_action`. Fed the states :func:`p06_action` reconstructs from the same
+    fields it returns the same arrays (it is the same arithmetic; bitwise on the tested plans). With
+    ``return_counters`` the result is ``(P06Action, (spectral_fallback, floor_hits, wall_fallback))``, the
+    per-state q3 counters of :class:`P06FaceNumerators`.
+    """
+    if plan.cells is None or plan.faces is None:
+        raise ValueError("p06_action_from_state needs a plan lowered with include cells and faces")
+    cell_value = jnp.asarray(cell_value)
+    g, squeeze = _groups_array(groups, cell_value.shape[1])
+    owner, counters = _p06_action_from_state(
+        plan.cells, plan.faces, cell_value, jnp.asarray(cell_gradient), jnp.asarray(face_value),
+        jnp.asarray(face_lower), jnp.asarray(face_upper), g, tau, positivity_floor,
+        _multiplier(plan.faces, face_multiplier))
+    if squeeze:
+        owner = tuple(x[0] for x in owner)
+        counters = tuple(x[0] for x in counters)
+    material, remainder, total, correction, mat_num, rem_num, corr_num = owner
+    action = P06Action(material, remainder, total, correction, mat_num, rem_num, corr_num,
+                       jnp.asarray(plan.cells.evolution_volume))
+    return (action, counters) if return_counters else action

@@ -164,9 +164,78 @@ def _column_reference(saved: np.ndarray) -> np.ndarray:
     return np.max(mag, axis=0, keepdims=True)
 
 
+# ---------------------------------------------------------------------------
+# Roundoff-level rules (P08 step 3.0; the two structural effects G3 exposed).
+#
+# 1. Tier B on a term whose archived error is roundoff. A variant whose exact
+#    operator result is zero (P06N's four constant-field controls) has an
+#    archived error that is itself roundoff (~1e-12), so the ratio
+#    diff_l2 / archived_l2 compares roundoff with roundoff (G3: 0.13). Such a
+#    term is gated by an absolute floor instead (see
+#    :func:`roundoff_floor_decision`).
+# 2. The entrywise cap on cancellation terms. The P05 per-face live jump and
+#    P05N ``face_N``/``face_D`` are jumps of near-equal side values, so their
+#    roundoff is set by the side values (the *constituents*), not by the
+#    jump. Their pointwise cap is an absolute conditioning floor
+#    (:func:`model_conditioning_floor`, or a measured floor from the caller).
+#
+# Every default is off: a call that passes none of the new arguments behaves
+# exactly as before.
+# ---------------------------------------------------------------------------
+#: float64 machine epsilon
+EPS = float(np.finfo(np.float64).eps)
+#: a term is "roundoff-level" when its archived error (owner-weighted L2) is at most this fraction of the
+#: caller-supplied constituent scale (owner-weighted L2 of the operator's own magnitude). G3 measured:
+#: the four P06N control variants sit at 1e-13 (archived error 7e-13 against a scale of 7.7), every real variant
+#: at >= 1.7e-3, so 1e-9 leaves 4 orders on one side and 6 on the other.
+ROUNDOFF_REL = 1e-9
+#: roundoff-floor gate: ``diff_l2 <= max(ROUNDOFF_FLOOR_FACTOR * archived_l2, ULP_FACTOR * EPS * scale_l2)``. The
+#: oracle's archived error *is* one roundoff realisation of the exact zero, the replay's difference from it is a
+#: second one, so the difference is a small multiple of it (G3 measured 0.13x; 10x is the design's floor
+#: multiple).
+ROUNDOFF_FLOOR_FACTOR = 10.0
+#: model conditioning floor: ``ULP_FACTOR * EPS * constituent_scale``. Absolute differences between two
+#: implementations of a cancellation term are the one-ulp input noise amplified by the reconstruction's
+#: conditioning (Lebesgue-type gain and division by small owner volumes). G3 measured (max abs diff over
+#: ``EPS * constituent_scale``): P05 per-face jump 2.3 (N32) / 4.3 (N48), P05N face_N/face_D 43..120 (N32) /
+#: 100..174 (N48), growing about 1.7x per N32 -> N48. 1000 leaves 5.7x on the worst row at N48.
+ULP_FACTOR = 1000.0
+
+KINDS = ("regular", "cancellation")
+
+
+def model_conditioning_floor(constituent_scale, *, ulp_factor: float = ULP_FACTOR):
+    """The documented model floor ``ulp_factor * EPS * |constituent_scale|`` (scalar or array; an array must
+    broadcast against the term). ``constituent_scale`` is the magnitude of what a cancellation term subtracts: the
+    side values whose jump it forms (P05N: max over all columns of ``|raw_N|`` and ``|raw_D|``, the owner-level
+    densities of the same operator; P05 per-face jump: max of ``|centered| * owner_volume``, the owner flux integrals
+    whose face values the jump differences). Use a scale over *all* columns, not per column: a constant-field column
+    has a tiny term and a tiny raw value, but its jump noise is set by the same reconstruction as every other column."""
+    return float(ulp_factor) * EPS * np.abs(np.asarray(constituent_scale, dtype=np.float64))
+
+
+def roundoff_floor_decision(global_diff_l2: Optional[float], global_archived_l2: Optional[float],
+                            scale_l2: float, *, roundoff_rel: float = ROUNDOFF_REL,
+                            floor_factor: float = ROUNDOFF_FLOOR_FACTOR, ulp_factor: float = ULP_FACTOR) -> dict:
+    """Decide whether a term is roundoff-level and, if so, its absolute L2 floor.
+
+    ``roundoff_level`` is ``archived_l2 <= roundoff_rel * scale_l2`` (an exactly-zero or empty archived error
+    counts; an unevaluable ``None`` does not). ``floor_l2 = max(floor_factor * archived_l2,
+    ulp_factor * EPS * scale_l2)``."""
+    scale_l2 = float(scale_l2)
+    if not (scale_l2 > 0.0):
+        raise ValueError("roundoff_scale_l2 must be positive")
+    roundoff_level = global_archived_l2 is not None and global_archived_l2 <= roundoff_rel * scale_l2
+    archived = 0.0 if global_archived_l2 is None else float(global_archived_l2)
+    floor_l2 = max(floor_factor * archived, ulp_factor * EPS * scale_l2)
+    return {"roundoff_level": bool(roundoff_level), "scale_l2": scale_l2, "roundoff_rel": roundoff_rel,
+            "archived_over_scale": None if global_archived_l2 is None else archived / scale_l2,
+            "floor_factor": floor_factor, "ulp_factor": ulp_factor, "floor_l2": float(floor_l2)}
+
+
 def pointwise_cap(saved: np.ndarray, *, mode: str = "scaled", scale_factor: float = 1e-11,
                   flat_abs: float = 1e-9, zero_atol: float = 1e-11, zero_threshold: float = 1e-11,
-                  cap_reference: Optional[np.ndarray] = None) -> np.ndarray:
+                  cap_reference: Optional[np.ndarray] = None, floor_abs=None) -> np.ndarray:
     """The per-entry absolute cap (design section 5 "Pointwise caps").
 
     ``mode="scaled"``: ``scale_factor * scale`` with ``scale =
@@ -182,8 +251,18 @@ def pointwise_cap(saved: np.ndarray, *, mode: str = "scaled", scale_factor: floa
     absolute cap (the "1e-9 absolute for P06 and P06N raw" rule, for the
     ~2e-10 cross-platform finite-difference curvature gap), with the same
     zero-target rule keyed on ``|saved|``; ``cap_reference`` is ignored.
+    ``mode="floor"``: the absolute conditioning floor ``floor_abs`` (scalar, or broadcastable to ``saved``, e.g.
+    per column) for cancellation terms; no dependence on ``|saved|`` and no zero-target rule (the floor is already
+    absolute). See :func:`model_conditioning_floor`.
     """
     saved = np.asarray(saved, dtype=np.float64)
+    if mode == "floor":
+        if floor_abs is None:
+            raise ValueError("pointwise cap mode 'floor' needs floor_abs")
+        floor = np.asarray(floor_abs, dtype=np.float64)
+        if not np.all(np.isfinite(floor)) or np.any(floor < 0.0):
+            raise ValueError("floor_abs must be finite and non-negative")
+        return np.broadcast_to(floor, saved.shape).astype(np.float64)
     if mode == "scaled":
         reference = _column_reference(saved) if cap_reference is None else np.abs(
             np.asarray(cap_reference, dtype=np.float64))
@@ -198,11 +277,50 @@ def pointwise_cap(saved: np.ndarray, *, mode: str = "scaled", scale_factor: floa
     return np.where(is_zero, zero_atol, general)
 
 
+def _resolve_cap(saved: np.ndarray, *, kind: str, cap_mode: str, cap_scale_factor: float, cap_flat_abs: float,
+                 cap_zero_atol: float, cap_reference: Optional[np.ndarray], floor_abs, constituent_scale,
+                 ulp_factor: float):
+    """``(mode, cap, info)`` for one pointwise check. ``info`` is merged into the result's ``pointwise`` dict.
+
+    ``kind="regular"`` (default) is the existing cap, unchanged (``cap_mode="floor"`` with ``floor_abs`` is also
+    accepted directly). ``kind="cancellation"`` forces the absolute conditioning floor: the caller's ``floor_abs``
+    (a measured floor; source ``"measured"``) or, when none is available, the model floor
+    ``ulp_factor * EPS * constituent_scale`` (source ``"model"``); with neither it raises rather than silently
+    falling back to the entrywise cap it exists to replace."""
+    if kind not in KINDS:
+        raise ValueError(f"unknown term kind {kind!r}; expected one of {KINDS}")
+    if kind == "cancellation":
+        if cap_mode not in ("scaled", "floor"):
+            raise ValueError("kind='cancellation' replaces the cap; do not also pass cap_mode=" + repr(cap_mode))
+        cap_mode = "floor"
+    elif cap_mode != "floor" and (floor_abs is not None or constituent_scale is not None):
+        raise ValueError("floor_abs/constituent_scale only apply to kind='cancellation' or cap_mode='floor'")
+    if cap_mode != "floor":
+        cap = pointwise_cap(saved, mode=cap_mode, scale_factor=cap_scale_factor, flat_abs=cap_flat_abs,
+                            zero_atol=cap_zero_atol, cap_reference=cap_reference)
+        return cap_mode, cap, {}
+    if floor_abs is not None:
+        source, floor = "measured", np.asarray(floor_abs, dtype=np.float64)
+    elif constituent_scale is not None:
+        source, floor = "model", model_conditioning_floor(constituent_scale, ulp_factor=ulp_factor)
+    else:
+        raise ValueError("a cancellation term needs floor_abs (measured) or constituent_scale (model floor)")
+    cap = pointwise_cap(saved, mode="floor", floor_abs=floor)
+    info = {"floor_source": source, "floor_abs_max": float(np.max(floor)) if floor.size else 0.0,
+            "floor_abs_min": float(np.min(floor)) if floor.size else 0.0}
+    if source == "model":
+        info["ulp_factor"] = float(ulp_factor)
+    return "floor", cap, info
+
+
 def compare_owner_term(name: str, replay: np.ndarray, saved: np.ndarray, *, owner_volume: np.ndarray,
                        archived_error: np.ndarray, region_masks: Optional[dict] = None,
                        rtol: float = 1e-3, cap_mode: str = "scaled", cap_scale_factor: float = 1e-11,
                        cap_flat_abs: float = 1e-9, cap_zero_atol: float = 1e-11,
-                       cap_reference: Optional[np.ndarray] = None) -> dict:
+                       cap_reference: Optional[np.ndarray] = None,
+                       tier_b: str = "ratio", roundoff_scale_l2: Optional[float] = None,
+                       kind: str = "regular", floor_abs=None, constituent_scale=None,
+                       ulp_factor: float = ULP_FACTOR) -> dict:
     """Design section 5, Tier B + pointwise caps, for one term/array.
 
     Returns a JSON-safe dict: ``ratios`` (global + per region), ``worst_ratio``,
@@ -211,7 +329,18 @@ def compare_owner_term(name: str, replay: np.ndarray, saved: np.ndarray, *, owne
     region) and never counts as a pass *or* a fail on its own. The pointwise
     cap scales with the term's column magnitude (``cap_reference``, default the
     per-column max of ``|saved|``; see :func:`pointwise_cap`).
-    """
+
+    **Tier B mode** (``tier_b_mode`` in the result). ``tier_b="ratio"`` (default): the ratio gate above.
+    ``tier_b="auto"``: when the term's archived error is roundoff-level relative to ``roundoff_scale_l2`` (the
+    owner-weighted L2 of the operator's own magnitude, supplied by the caller: ``archived_l2 <= ROUNDOFF_REL *
+    roundoff_scale_l2``) the ratio is not a meaningful test (roundoff over roundoff) and the term is gated by the
+    absolute floor of :func:`roundoff_floor_decision` instead (global and every region ``diff_l2 <=
+    floor_l2``); otherwise the ratio gate. ``tier_b="roundoff_floor"`` forces the floor gate (for a caller's explicit
+    list of exactly-zero variants). The ratios stay reported either way; in floor mode ``worst_ratio`` is ``None``
+    and the verdict is under ``roundoff_floor``.
+
+    **Term kind.** ``kind="cancellation"`` swaps the entrywise pointwise cap for an absolute conditioning floor
+    (``floor_abs`` measured, or the model floor from ``constituent_scale``; see :func:`_resolve_cap`)."""
     replay = np.asarray(replay, dtype=np.float64)
     saved = np.asarray(saved, dtype=np.float64)
     if replay.shape != saved.shape:
@@ -220,10 +349,15 @@ def compare_owner_term(name: str, replay: np.ndarray, saved: np.ndarray, *, owne
     archived_error = np.asarray(archived_error, dtype=np.float64)
     if archived_error.shape != saved.shape:
         raise ValueError(f"{name}: archived_error shape {archived_error.shape} != saved shape {saved.shape}")
+    if tier_b not in ("ratio", "auto", "roundoff_floor"):
+        raise ValueError(f"unknown tier_b {tier_b!r}")
+    if tier_b != "ratio" and roundoff_scale_l2 is None:
+        raise ValueError(f"tier_b={tier_b!r} needs roundoff_scale_l2")
 
     diff = replay - saved
-    ratios: dict = {"global": _safe_ratio(owner_weighted_l2(diff, owner_volume),
-                                         owner_weighted_l2(archived_error, owner_volume))}
+    global_diff_l2 = owner_weighted_l2(diff, owner_volume)
+    global_archived_l2 = owner_weighted_l2(archived_error, owner_volume)
+    ratios: dict = {"global": _safe_ratio(global_diff_l2, global_archived_l2)}
     region_detail: dict = {}
     for region, mask in (region_masks or {}).items():
         d_l2 = owner_weighted_l2(diff, owner_volume, mask)
@@ -231,15 +365,39 @@ def compare_owner_term(name: str, replay: np.ndarray, saved: np.ndarray, *, owne
         ratios[region] = _safe_ratio(d_l2, a_l2)
         region_detail[region] = {"diff_l2": d_l2, "archived_l2": a_l2, "owner_count": int(np.count_nonzero(mask))}
 
-    finite_ratios = [v for v in ratios.values() if v is not None]
-    worst_ratio = max(finite_ratios) if finite_ratios else None
-    worst_region = None
-    if worst_ratio is not None:
-        worst_region = next(k for k, v in ratios.items() if v == worst_ratio)
+    tier_b_mode = "ratio"
+    roundoff_floor = None
+    if tier_b != "ratio":
+        decision = roundoff_floor_decision(global_diff_l2, global_archived_l2, roundoff_scale_l2)
+        if tier_b == "roundoff_floor" or decision["roundoff_level"]:
+            tier_b_mode = "roundoff_floor"
+            floor_l2 = decision["floor_l2"]
+            checked = {"global": global_diff_l2}
+            checked.update({r: d["diff_l2"] for r, d in region_detail.items()})
+            over = [r for r, v in checked.items() if v is not None and v > floor_l2]
+            finite = [v for v in checked.values() if v is not None]
+            worst_diff = max(finite) if finite else 0.0
+            roundoff_floor = {**decision, "diff_l2": global_diff_l2, "archived_l2": global_archived_l2,
+                              "worst_diff_l2": worst_diff,
+                              "margin": None if worst_diff == 0.0 else float(floor_l2 / worst_diff),
+                              "violations": over, "pass": not over}
+
+    if tier_b_mode == "roundoff_floor":
+        worst_ratio, worst_region = None, None
+        tier_b_pass = roundoff_floor["pass"]
+    else:
+        finite_ratios = [v for v in ratios.values() if v is not None]
+        worst_ratio = max(finite_ratios) if finite_ratios else None
+        worst_region = None
+        if worst_ratio is not None:
+            worst_region = next(k for k, v in ratios.items() if v == worst_ratio)
+        tier_b_pass = worst_ratio is None or worst_ratio <= rtol
 
     abs_diff = np.abs(diff)
-    cap = pointwise_cap(saved, mode=cap_mode, scale_factor=cap_scale_factor,
-                        flat_abs=cap_flat_abs, zero_atol=cap_zero_atol, cap_reference=cap_reference)
+    resolved_mode, cap, cap_info = _resolve_cap(
+        saved, kind=kind, cap_mode=cap_mode, cap_scale_factor=cap_scale_factor, cap_flat_abs=cap_flat_abs,
+        cap_zero_atol=cap_zero_atol, cap_reference=cap_reference, floor_abs=floor_abs,
+        constituent_scale=constituent_scale, ulp_factor=ulp_factor)
     violation = abs_diff > cap
     n_violations = int(np.count_nonzero(violation))
     if abs_diff.size:
@@ -250,47 +408,57 @@ def compare_owner_term(name: str, replay: np.ndarray, saved: np.ndarray, *, owne
     else:
         worst_index, max_abs_diff, max_abs_diff_cap = None, 0.0, 0.0
 
-    passed = (worst_ratio is None or worst_ratio <= rtol) and n_violations == 0
+    passed = tier_b_pass and n_violations == 0
     return {
         "name": name,
         "shape": list(replay.shape),
+        "kind": kind,
+        "tier_b_mode": tier_b_mode,
         "ratio_tolerance": rtol,
         "ratios": ratios,
         "worst_ratio": worst_ratio,
         "worst_region": worst_region,
         "region_detail": region_detail,
-        "pointwise": {"mode": cap_mode, "violations": n_violations, "max_abs_diff": max_abs_diff,
-                     "max_abs_diff_cap": max_abs_diff_cap, "worst_index": worst_index},
+        "roundoff_floor": roundoff_floor,
+        "pointwise": {"mode": resolved_mode, "violations": n_violations, "max_abs_diff": max_abs_diff,
+                     "max_abs_diff_cap": max_abs_diff_cap, "worst_index": worst_index, **cap_info},
         "pass": bool(passed),
     }
 
 
 def compare_pointwise_only(name: str, replay: np.ndarray, saved: np.ndarray, *, cap_mode: str = "scaled",
                           cap_scale_factor: float = 1e-11, cap_flat_abs: float = 1e-9,
-                          cap_zero_atol: float = 1e-11, cap_reference: Optional[np.ndarray] = None) -> dict:
+                          cap_zero_atol: float = 1e-11, cap_reference: Optional[np.ndarray] = None,
+                          kind: str = "regular", floor_abs=None, constituent_scale=None,
+                          ulp_factor: float = ULP_FACTOR) -> dict:
     """A pointwise-cap-only check (no owner-volume/region concept), for
     per-face targets such as P05's saved ``upwind`` array. The cap scales
-    with the column magnitude (see :func:`pointwise_cap`)."""
+    with the column magnitude (see :func:`pointwise_cap`). ``kind="cancellation"``
+    (with ``floor_abs`` or ``constituent_scale``) uses the absolute conditioning floor
+    instead, as in :func:`compare_owner_term`."""
     replay = np.asarray(replay, dtype=np.float64)
     saved = np.asarray(saved, dtype=np.float64)
     if replay.shape != saved.shape:
         raise ValueError(f"{name}: replay shape {replay.shape} != saved shape {saved.shape}")
     diff = replay - saved
     abs_diff = np.abs(diff)
-    cap = pointwise_cap(saved, mode=cap_mode, scale_factor=cap_scale_factor,
-                        flat_abs=cap_flat_abs, zero_atol=cap_zero_atol, cap_reference=cap_reference)
+    resolved_mode, cap, cap_info = _resolve_cap(
+        saved, kind=kind, cap_mode=cap_mode, cap_scale_factor=cap_scale_factor, cap_flat_abs=cap_flat_abs,
+        cap_zero_atol=cap_zero_atol, cap_reference=cap_reference, floor_abs=floor_abs,
+        constituent_scale=constituent_scale, ulp_factor=ulp_factor)
     violation = abs_diff > cap
     n_violations = int(np.count_nonzero(violation))
     if abs_diff.size:
         worst_flat = int(np.argmax(abs_diff))
         worst_index = [int(x) for x in np.unravel_index(worst_flat, abs_diff.shape)]
         max_abs_diff = float(abs_diff.reshape(-1)[worst_flat])
+        max_abs_diff_cap = float(cap.reshape(-1)[worst_flat])
     else:
-        worst_index, max_abs_diff = None, 0.0
+        worst_index, max_abs_diff, max_abs_diff_cap = None, 0.0, 0.0
     return {
-        "name": name, "shape": list(replay.shape),
-        "pointwise": {"mode": cap_mode, "violations": n_violations, "max_abs_diff": max_abs_diff,
-                     "worst_index": worst_index},
+        "name": name, "shape": list(replay.shape), "kind": kind,
+        "pointwise": {"mode": resolved_mode, "violations": n_violations, "max_abs_diff": max_abs_diff,
+                     "max_abs_diff_cap": max_abs_diff_cap, "worst_index": worst_index, **cap_info},
         "pass": n_violations == 0,
     }
 
@@ -601,8 +769,16 @@ def _summarize_variants(results: list) -> dict:
     [14,owners,4]")."""
     worst_ratio = max((r["worst_ratio"] for r in results if r["worst_ratio"] is not None), default=None)
     total_violations = sum(r["pointwise"]["violations"] for r in results)
-    return {"variants": results, "worst_ratio": worst_ratio, "total_pointwise_violations": total_violations,
-           "pass": all(r["pass"] for r in results)}
+    summary = {"variants": results, "worst_ratio": worst_ratio, "total_pointwise_violations": total_violations,
+               "pass": all(r["pass"] for r in results)}
+    # roundoff-floor variants (``compare_owner_term(tier_b="auto"|"roundoff_floor")``) carry no ratio verdict:
+    # ``worst_ratio`` above is over the ratio-mode variants only; report the floor variants and their margin.
+    floor_variants = [r for r in results if r.get("tier_b_mode") == "roundoff_floor"]
+    if floor_variants:
+        margins = [r["roundoff_floor"]["margin"] for r in floor_variants if r["roundoff_floor"]["margin"] is not None]
+        summary["roundoff_floor_variants"] = [r["name"] for r in floor_variants]
+        summary["worst_roundoff_floor_margin"] = min(margins) if margins else None
+    return summary
 
 
 def _json_default(x):
@@ -664,10 +840,17 @@ def write_report(replay: dict, output_dir: Path) -> Path:
         lines.append("|---|---|---|---|---|")
         for term_name, term in result.get("terms", {}).items():
             if "variants" in term:
-                lines.append(f"| {term_name} | {_fmt(term['worst_ratio'])} | (per-variant) | "
+                where = "(per-variant)"
+                if term.get("roundoff_floor_variants"):
+                    where += (f"; {len(term['roundoff_floor_variants'])} roundoff-floor variants, "
+                              f"worst margin {_fmt(term.get('worst_roundoff_floor_margin'))}")
+                lines.append(f"| {term_name} | {_fmt(term['worst_ratio'])} | {where} | "
                             f"{term['total_pointwise_violations']} | {'PASS' if term['pass'] else 'FAIL'} |")
             else:
-                lines.append(f"| {term_name} | {_fmt(term.get('worst_ratio'))} | {term.get('worst_region')} | "
+                where = term.get("worst_region")
+                if term.get("pointwise", {}).get("mode") == "floor":
+                    where = f"{where}; floor cap ({term['pointwise'].get('floor_source')})"
+                lines.append(f"| {term_name} | {_fmt(term.get('worst_ratio'))} | {where} | "
                             f"{term['pointwise']['violations']} | {'PASS' if term['pass'] else 'FAIL'} |")
         lines.append("")
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -11,7 +11,9 @@ campaign's preflight function; and the full-grid comparison function against ``r
   A second call resumes from the checkpoints without recomputing.
 * ``test_campaign_preflight_grid_passes_at_n32``: ``campaign.preflight_grid`` (blocked path, all seven keys).
 * ``test_comparison_matches_reduce_grid``: ``comparison.compare_operator_terms`` equals ``replay_units.reduce_grid``
-  term by term (bitwise) on synthetic full-grid unit outputs built from the saved N32 oracle arrays.
+  term by term (bitwise) on synthetic full-grid unit outputs built from the saved N32 oracle arrays; for the terms
+  under the step 3.0 rules (``STEP3_0_TERMS``) the arithmetic (ratios, region norms) is bitwise equal and only the
+  verdict rule differs, which the test checks explicitly.
 
 Total ~3 min. Needs the HSX N32 geometry/sidecar and the frozen campaigns' N32 oracle arrays (skipped otherwise).
 """
@@ -274,6 +276,36 @@ def _synthetic_units(env, paths, rng):
     return {"cells": cells, "faces": faces, "p07": p07}
 
 
+#: terms whose comparison rule is the step 3.0 one in ``comparison`` (``reduce_grid`` keeps the literal step-1 rule)
+STEP3_0_TERMS = ({("p05", "live_jump_vs_upwind"), ("p06n", "raw_material"), ("p06n", "raw_remainder"),
+                  ("p06n", "raw_total")}
+                 | {(c, t) for c in ("p05n_frozen", "p05n_upwind") for t in ("face_N", "face_D")})
+_VERDICT_KEYS = {"pointwise", "pass", "kind", "tier_b_mode", "roundoff_floor", "worst_ratio", "worst_region",
+                 "total_pointwise_violations", "roundoff_floor_variants", "worst_roundoff_floor_margin",
+                 "expected_roundoff_control", "roundoff_classification_mismatch"}
+
+
+def _numbers_only(obj):
+    """Drop the verdict fields (rule-dependent) and keep the arithmetic (ratios, region diff/archived norms)."""
+    if isinstance(obj, dict):
+        return {k: _numbers_only(v) for k, v in obj.items() if k not in _VERDICT_KEYS}
+    if isinstance(obj, list):
+        return [_numbers_only(v) for v in obj]
+    return obj
+
+
+def _assert_step3_0_rule(name, term, ours, reference):
+    if name == "p06n":
+        for v_ours, v_ref in zip(ours["variants"], reference["variants"]):
+            assert v_ref["tier_b_mode"] == "ratio"
+            assert v_ours["tier_b_mode"] == ("roundoff_floor" if v_ours["expected_roundoff_control"] else "ratio")
+            assert not v_ours.get("roundoff_classification_mismatch")
+        assert sum(v["tier_b_mode"] == "roundoff_floor" for v in ours["variants"]) == 4      # the four controls
+    else:
+        assert ours["pointwise"]["mode"] == "floor" and ours["pointwise"]["floor_source"] == "model"
+        assert reference["pointwise"]["mode"] == "scaled"
+
+
 @needs_inputs
 def test_comparison_matches_reduce_grid(tmp_path):
     from p08_step2_global import comparison
@@ -313,7 +345,12 @@ def test_comparison_matches_reduce_grid(tmp_path):
         ref_terms = reference["campaigns"][name]["terms"]
         assert set(result["terms"]) == {t for t in ref_terms if t not in omitted.get(name, set())}, name
         for term, value in result["terms"].items():
-            assert norm(value) == norm(ref_terms[term]), (name, term)      # bitwise: same ratios, cap, violations
+            if (name, term) in STEP3_0_TERMS:
+                # the step 3.0 rules change the verdict rules only: same arithmetic (ratios, regions, diff norms)
+                assert norm(_numbers_only(value)) == norm(_numbers_only(ref_terms[term])), (name, term)
+                _assert_step3_0_rule(name, term, value, ref_terms[term])
+            else:
+                assert norm(value) == norm(ref_terms[term]), (name, term)      # bitwise: same ratios, cap, violations
             compared += 1
         if name == "p05":
             assert result["antisymmetry_max"] == reference["campaigns"]["p05"]["antisymmetry_max"]
