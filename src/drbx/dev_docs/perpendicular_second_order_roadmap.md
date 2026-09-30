@@ -2100,7 +2100,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K adopted 30 September, q2 face quadrature next. Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K and q2 (P05/P06) adopted 30 September, inner donor support (C1) under evaluation. Standalone campaign A dropped (user decision, 30 September): see step 4. Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2199,18 +2199,27 @@ Steps:
      - G3.4: eager and JIT are bitwise equal; JVP matches finite differences to 3e-10.
      - Sharing the reconstruction gives no measurable speedup at the closure size.
    - **Also 30 September:** the comparison core gained a roundoff-floor Tier B for control variants and conditioning-floor caps for cancellation terms (`replay_support.py`). Re-comparing G3 under them passes every term at N32/N48.
-3b. **Operator-change bundle, before campaign A (user decision, 29 September).** The step-6 candidates that change the qualified operator — autodiff curvature K, q2 face quadrature for P05/P06, and the transverse-reconstruction support at the coupled/ringwise switch — are settled here, after G3 and step 3, so the expensive campaigns run once on the final operator.
+3b. **Operator-change bundle, before the full-grid campaigns (user decision, 29 September).** The step-6 candidates that change the qualified operator — autodiff curvature K, q2 face quadrature for P05/P06, and the transverse-reconstruction support at the coupled/ringwise switch — are settled here, after G3 and step 3, so the expensive campaigns run once on the final operator.
    - For each candidate: the bounded checks listed in step 6, then a decision, then re-frozen references and re-qualification through the JAX owner closure.
    - G3 runs first, because afterwards the step-1 frozen oracles no longer describe the operator.
-4. **Campaign A, prescribed exact φ.**
-   - N32/N48/N64 on a frozen catalogue, with held-out fields, and Dirichlet and Neumann variants kept separate.
-   - The catalogue has rich fields (upwinding active) and low-degree fields (asymptotic rate).
-   - Report each term and the sum, with regional budgets that name the RLP transition region.
+4. **Full-grid artifact build and smoke check on the final bundle operator.** This replaces a standalone campaign A (user decision, 30 September 2026).
+   - **Why:** a prescribed-φ campaign on its own would be repeated anyway. Its unique value, separating forward-operator error from φ-solve error, comes from a prescribed-φ arm inside the step-5 campaign. The full perpendicular RHS (Vi/Ve, sheath and wall BCs) will need its own full-grid campaign later.
+   - **Remote:** build N32/N48/N64 artifacts on the final operator (autodiff K, q2 for P05/P06, the chosen inner support). Clean-export check first. Step 5 needs these artifacts anyway.
+   - **Smoke only, no MMS reductions:**
+     - build receipts, row and family statistics, and artifact bytes;
+     - JAX replay finite on every owner;
+     - host-vs-JAX agreement at sampled owners under the step 3.0 rules.
+   - **Accuracy before step 5:** provisional full-grid errors from bounded stratified global samples with the difference estimator, as for q2 (`work/p08_q2_face_quadrature_20260930/`).
 5. **Reconstructed φ — user decision, 28 September.** The solver must invert the same operator the forward RHS uses for the perpendicular Laplacian. Keep the production `LocalPerpLaplacianInverseSolver` machinery (matrix-free FGMRES, preconditioner, augmented-Neumann gauge), and add an `operator_form` that applies the qualified P07 action from the row artifact.
    - Sequence:
      1. Check that the new form's apply matches the P07 host action.
      2. Qualify the solve against a host direct sparse solve of the same operator at N32/N48. That solve is an oracle only; it separates the linear-solve error from the discretization error.
-     3. Repeat campaign A with the solved φ.
+     3. **Combined full-grid MMS campaign, remote: the first full-grid qualification of the bundle.**
+        - N32/N48/N64 on a frozen catalogue, with held-out fields, and Dirichlet and Neumann variants kept separate.
+        - Rich fields (upwinding active) and low-degree fields (asymptotic rate), plus Q's transverse-wave fields.
+        - Two arms in the same run: **prescribed exact φ** (the forward-operator control) and **solved φ**.
+        - Report each term and the sum, with regional budgets that name the RLP transition region.
+        - This re-freezes the references, replacing the frozen fd/q3/C0 step-1 oracles.
    - **Preconditioner development is expected.** `fci_polarization_coarse` was built for the production RLP operator, so its convergence on the P07 operator must be measured, and new preconditioners are likely needed.
    - All-Neumann φ must first establish that the operator's null space is exactly the constants before `solve_augmented_neumann` applies.
 6. **Remaining gates.**
@@ -2232,7 +2241,7 @@ Steps:
        - Geometry is bitwise chunk-independent (block mode) and about 2× faster.
        - N64 frozen-oracle rows: 20 of 126 move just past the oracles' 1e-5 equivalence clause, at 1.5e-5 to 4e-5. They are FD-baked.
        - The step-1/step-2 campaign runners, `replay_units` and the frozen-reproduction tests pin `curvature="fd"` explicitly.
-       - References are re-frozen once, after the whole bundle, through campaign A.
+       - References are re-frozen once, after the whole bundle, through the combined full-grid campaign (step 5.3).
    - **q2 for P05/P06 implemented as an option, 30 September 2026** (`face_quadrature="q2"`, default `"q3"`; P07 stays q3). [Design and gate results](../../../../work/p08_q2_face_quadrature_20260930/design.md):
      - Accuracy on a stratified global sample: the q2 N−R global L2 order is ≥ 3.5 for every P05N pair and P06N case × equation, against the 1.8 acceptance gate. The absolute error is 1.00–1.22× q3 at N64.
      - Implementation: host q2 = frozen `face_chunk(order=2)` to 1e-14; JAX q2 = host q2 (29/29).
@@ -2241,7 +2250,7 @@ Steps:
      - **Adopted 30 September 2026 (user decision): the default is `face_quadrature="q2"` for P05/P06, and P07 stays q3** (`p_shared.face_quadrature.DEFAULT_FACE_QUADRATURE`).
        - The frozen step-1/step-2 runners, `replay_units`, `curvature_gates` and the frozen-reproduction tests pin `face_quadrature="q3"`.
        - Explicit q3 policies and identities are exactly the historic ones.
-       - References are re-frozen once, after the bundle, through campaign A.
+       - References are re-frozen once, after the bundle, through the combined full-grid campaign (step 5.3).
    - **Candidate, not adopted: q2 (2×2 Gauss) face quadrature.** The q3 face rule is part of the qualified operator action. The reconstruction (the moment functional) is independent of it: the nodes are only where the reconstruction and metric are evaluated to integrate the face flux. A one-point (midpoint) face rule has not been tested. The 25 September contract kept q3 faces by choice; what failed then was the P05 face/cell volume formulation. A midpoint rule is consistent with the second-order target but leaves no margin above the gate, and it samples near-wall coil ripple at a single phase. q2 is the tested reduction.
      - q2 has 4 nodes instead of 9. What that saves depends on the operator:
        - **P05 and P06 (nonlinear):** they need per-node rows at runtime, so both runtime face cost and per-node artifact rows drop by 2.25×.
@@ -2259,7 +2268,10 @@ Steps:
        1. Test the P07 regular families at q2.
        2. Run a global (not wall-weighted) check.
        3. Re-qualify the affected operators against their frozen oracles. Since step 1 must replay the accepted campaigns, the step-1 artifact stays at q3.
-   - **Later check, not yet scheduled: transverse reconstruction at the coupled/ringwise switch.** This was found by the Q path and confirmed for P, 29 September. The [P audit](../../../../work/p_transverse_wave_audit_20260929/report.md) and its [follow-up](../../../../work/p_transverse_wave_audit_20260929/followup/report.md) are bounded: Q's 36 owners plus fresh phases and fixed-coordinate tracks, N32/N48/N64, run through P's own assemblies.
+   - **Inner donor support: candidate C1 under evaluation, 30 September 2026** ([design](../../../../work/p08_donor_support_c1_20260930/design.md)). User decision: evaluate C1 only against the current C0.
+     - C1 (`inner_support="last_aggregate"`) is Q's layout with P's own coupled quartic fit. The coupled fit is used through the last agglomerated ring, so the switch sits at a fixed radius (after ring 10/15/21).
+     - Tested with Q's 26-field catalogue and a short-wave (λ = 0.5, 0.25) response report. The default stays C0 (`"profile7"`) until a decision.
+   - **Background: transverse reconstruction at the coupled/ringwise switch.** This was found by the Q path and confirmed for P, 29 September. The [P audit](../../../../work/p_transverse_wave_audit_20260929/report.md) and its [follow-up](../../../../work/p_transverse_wave_audit_20260929/followup/report.md) are bounded: Q's 36 owners plus fresh phases and fixed-coordinate tracks, N32/N48/N64, run through P's own assemblies.
      - **Controls.** Fixed-wavelength transverse waves exp(i[2πx/λ + η]) and the y analogue, with λ = 2 and 4, in computational disk coordinates.
      - **Finding.**
        - The ringwise construction (ringwise angular with radial cubic) reproduces Cartesian cubics but not quartics.
