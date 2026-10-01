@@ -1,0 +1,14 @@
+{
+  "schema": "drbx.p08-step5-p07-export-v1",
+  "resolutions": [32, 48, 64],
+  "operator_options": {
+    "curvature": "autodiff",
+    "face_quadrature": "q2",
+    "inner_support": "fixed_radius"
+  },
+  "kinds": ["dirichlet", "neumann"],
+  "gate_relative_tolerance": 1e-11,
+  "gate_columns": 2,
+  "gate_seed": 0,
+  "note": "Computation only. Exports the P07 owner action of the step-4 full-grid row artifacts as scipy sparse matrices (drbx.native.fci_perpendicular_p07_sparse) and gates every export against p07_action on the full grid. The operator options are the step-4 final bundle, pinned here and checked against the artifact's build identity."
+}

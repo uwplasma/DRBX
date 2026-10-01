@@ -2203,7 +2203,17 @@ Steps:
    - For each candidate: the bounded checks listed in step 6, then a decision, then re-frozen references and re-qualification through the JAX owner closure.
    - G3 runs first, because afterwards the step-1 frozen oracles no longer describe the operator.
 4. **Full-grid artifact build and smoke check on the final bundle operator.** This replaces a standalone campaign A (user decision, 30 September 2026).
-   - **Status, 1 October 2026: campaign package ready, remote run pending.** `scripts/p08_step4_global/` builds N32/N48/N64 artifacts with the options pinned explicitly (autodiff, q2, fixed_radius). Its gates are a host-vs-JAX preflight on the 12-owner closure per grid and finite full-grid JAX replay terms. It reports artifact statistics, including the C3 coupled-row count. The operator change against the frozen step-1 oracles is reported for information only. The local N32 preflight passes: 29/29 policy rows, 3.1 GiB, 70 s.
+   - **Status: complete, 1 October 2026 (commit 53e068af, remote job 59158624).** `scripts/p08_step4_global/` built N32/N48/N64 artifacts with the options pinned explicitly (autodiff, q2, fixed_radius). Results: [local analysis](../../../../work/p08-step4-53e068af-20261001T134159Z-2a344d/local_analysis.md).
+     - Gates pass on every grid. Preflight: 29/29 host-vs-JAX policy rows. Smoke: 0 non-finite out of 10.8M / 36.4M / 85.7M term elements. Validate also passes.
+     - Artifacts are 1.77 / 4.94 / 11.0 GB, of which the P07 rows are 0.17 / 0.57 / 1.34 GB. There are 70,656 / 228,096 / 528,384 coupled-quartic point rows and no tensor-encoding fallbacks. The N64 full replay peaks at 41 GiB.
+     - Change against the frozen fd/q3/profile7 oracles (informational):
+       - P07: ≤ 8% of the archived error. P07N: unchanged (≤ 1e-5).
+       - P05/P05N raw terms change only in the C3 region, by 0.5–0.9×.
+       - The P05N face term changes by a constant factor of 2–3×, converging at the same order: the known q2 effect.
+       - P06 legacy changes by up to 1.55× in the C3 interface band (the documented exception).
+       - At rings 5–10, P06N error drops from about 5e-4 to about 1e-5 (C3).
+     - The one apparent regression, P06N at the N64 physical wall (ratio 2.34), is the frozen reference's finite-difference K. At 8 wall points (one per field period, stellarator-symmetric) FD K is off by 3e-4 at step 2e-4 and converges onto autodiff as the step shrinks. The old operator carried the same error and cancelled it ([check](../../../../work/p08_p06n_wall_n64_20261001/README.md)). It disappears at the step-5.3 re-freeze.
+     - **The FD-curvature option stays until that re-freeze.** The step-1/2 runners and the frozen-reproduction tests pin `curvature="fd"`. After 5.3 it can be retired from `p_shared` and the provider.
    - **Why:** a prescribed-φ campaign on its own would be repeated anyway. Its unique value, separating forward-operator error from φ-solve error, comes from a prescribed-φ arm inside the step-5 campaign. The full perpendicular RHS (Vi/Ve, sheath and wall BCs) will need its own full-grid campaign later.
    - **Remote:** build N32/N48/N64 artifacts on the final operator (autodiff K, q2 for P05/P06, the chosen inner support). Clean-export check first. Step 5 needs these artifacts anyway.
    - **Smoke only, no MMS reductions:**
@@ -2223,6 +2233,18 @@ Steps:
         - This re-freezes the references, replacing the frozen fd/q3/C0 step-1 oracles.
    - **Preconditioner development is expected.** `fci_polarization_coarse` was built for the production RLP operator, so its convergence on the P07 operator must be measured, and new preconditioners are likely needed.
    - All-Neumann φ must first establish that the operator's null space is exactly the constants before `solve_augmented_neumann` applies.
+   - **Decisions and preparation, 1 October 2026** ([design notes](../../../../work/p08_step5_phi_audits_20261001/design_notes.md); [wall-condition derivation and literature](https://claude.ai/artifact/N56XrXUwQoJ1vN9uR3UuHp)):
+     - **Bounded audit, N32.** P07 has no negative direction on any patch tested. A·1 is at roundoff. The operator is non-symmetric by 2–9% in the interior and up to 15% at a Dirichlet wall.
+     - **Neumann compatibility.** The logical wall is not a flux surface: |b·n̂| is 0.043 RMS at u = 1, with a maximum of 0.156. So under normal Neumann the left null vector is not the volume weights, and the augmented solve's λ is an O(1) inconsistency.
+     - **Prepare both inversions (user decision).**
+       - Dirichlet φ, as in GBS and GRILLIX, comes first.
+       - Normal-Neumann φ runs in report mode: check the null space, compare the left null vector ℓ with M·1, and report λ.
+       - The conormal and mixed conditions wait for the wall-model work.
+     - **Build remotely, solve locally (user decision).** P07 is exported as sparse `A u + B g` and solved locally. The production `LocalPerpLaplacianInverseSolver` integration follows when φ is wired into the simulation.
+       - `drbx.native.fci_perpendicular_p07_sparse` exports for both kinds. On the real N32 closure it equals `p07_action` to 3e-16 / 7e-16 relative.
+       - `drbx.native.fci_perpendicular_p07_solve` runs solvax FGMRES in the M-inner product, with a Jacobi or user-supplied preconditioner, plus a sparse-LU oracle.
+       - The remote export of the step-4 artifacts is `scripts/p08_step5_export/`.
+     - **Reference finite differences** ([check](../../../../work/p08_step5_reference_fd_check_20261001/README.md)). At the same 8 wall points, the reference's FD divergence ∂_i(J P⊥^{ij}) is off by 7e-5 at the default step. That is negligible for P07's errors, but the 5.3 re-freeze should compute it by autodiff, as for K.
 6. **Remaining gates.**
    - A bounded geometry/reference recheck on N64.
    - **Scoped change: autodiff curvature K (user decision, 28 September).** Compute K = (B/2J)∇×(b_cov/B) with `jax.jacfwd` through the JAX metric and B-field evaluators. These are the same interpolants the NumPy reference uses, and they agree to 4e-15. The frozen fourth-order finite difference it replaces uses step 2e-4, shrunk near u = 0 and u = 1, with a one-sided rule at the wall.
