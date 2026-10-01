@@ -1,0 +1,48 @@
+{
+  "identity": "0a16837968506693afdbc530216dc24911821cb8c7b4558589c870f833bbc659",
+  "n": 48,
+  "block": 73,
+  "owners": [
+    13065
+  ],
+  "raw_count": 1,
+  "total_seconds": 0.7080848140176386,
+  "prepare_seconds": 0.0,
+  "score_seconds": 0.46816601790487766,
+  "peak_rss_gib": 0.8352241516113281,
+  "trace_sha256": "a33c5c071ecc9bdd7af4d6082d8727ae52c54576427181a9c8f1b08091410739",
+  "choice_sha256": "4ca64ab4114f4359d5fe9b12635d3b8989425b7f7ab893db03d82c93837a0b58",
+  "finite": true,
+  "complete_owner_coverage": true,
+  "short_trace": {
+    "identity": "0a16837968506693afdbc530216dc24911821cb8c7b4558589c870f833bbc659",
+    "raw_hash": "0b8fdf054a5546628fd3a5a464eb6a92281ce7269dd4faeaaa96514c2d0d5008",
+    "sha256": "a5d80b31abd7097f64b5caf1b07fa6c2eb211d79c9ca5cf85f8cb75f1bcbe318",
+    "passed": true,
+    "steps": 64,
+    "backend": "cpu",
+    "crossings": 0,
+    "reentries": 0,
+    "seconds": 9.101630724035203,
+    "relative_path": "traces/N48/block_000073_0b8fdf054a55.npz"
+  },
+  "owner_gradient_l1": [
+    [
+      24.71455959109309,
+      24.71455959109309
+    ],
+    [
+      24.717599498624814,
+      24.717599498624814
+    ]
+  ],
+  "constant_error": 3.3250929760218467e-09,
+  "constant_error_by_span": [
+    3.5221635637908813e-10,
+    3.3250929760218467e-09
+  ],
+  "minimum_thermodynamic_slot": 0.8503393031119396,
+  "fallback_rows": 0,
+  "oracle_fallback_rows": 0,
+  "reference_sensitivity": 9.251654997655123e-12
+}

@@ -1,0 +1,15 @@
+PREFLIGHT 32 passed
+W1001 12:57:29.750645 1003419 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 12:57:29.750645 1003421 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 12:57:33.675868 1003421 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 12:57:33.730320 1003419 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 12:57:35.079259 1003421 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 12:57:35.440835 1003419 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+PREFLIGHT 48 passed
+W1001 12:57:56.137430 1003866 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 12:57:56.137430 1003864 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 12:58:00.973582 1003866 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 12:58:00.976241 1003864 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 12:58:02.421686 1003864 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 12:58:02.853339 1003866 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+PREFLIGHT 64 passed

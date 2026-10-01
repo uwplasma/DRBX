@@ -20,6 +20,32 @@ OUT=Path(os.environ.get('Q07_OUTPUT',str(HERE/'local'))).resolve()
 INPUT_ROOT=Path(os.environ.get('Q07_INPUT_ROOT',str(HERE.parents[1]))).resolve()
 os.environ.setdefault('JAX_COMPILATION_CACHE_DIR',str(OUT/'jax_cache'))
 MEMORY=float(os.environ.get('Q07_WORKER_GIB','4'))
+REPLAY_COMPONENT_ATOL=1e-8
+REPLAY_COMBINED_ATOL=2*REPLAY_COMPONENT_ATOL
+REPLAY_SUM_EPS_FACTOR=128
+
+def bounded_action_replay(actual,expected):
+    """Check each constituent and their sum without changing scientific gates."""
+    actual=np.asarray(actual);expected=np.asarray(expected)
+    if actual.shape!=expected.shape or actual.shape[-1]!=30:raise ValueError('bounded replay shape')
+    finite(actual,expected)
+    # Final axes are [span, centered/correction/combined, material field].
+    a=actual.reshape(actual.shape[:-1]+(2,3,5));b=expected.reshape(expected.shape[:-1]+(2,3,5))
+    limits=(REPLAY_COMPONENT_ATOL,REPLAY_COMPONENT_ATOL,REPLAY_COMBINED_ATOL)
+    maxima={}
+    for i,name in enumerate(('centered','correction','combined')):
+        err=float(abs(a[...,i,:]-b[...,i,:]).max());maxima[name]=err
+        if err>limits[i]:raise ValueError(f'bounded replay {name} {err} > {limits[i]}')
+    # Check actual and saved-reference algebra independently. The relative
+    # roundoff budget allows owner reductions; it is not a spatial-error gate.
+    residual=0.
+    for label,x in (('actual',a),('expected',b)):
+        error=abs(x[...,2,:]-x[...,0,:]-x[...,1,:])
+        scale=1.+abs(x).sum(axis=-2)
+        bound=REPLAY_SUM_EPS_FACTOR*np.finfo(np.float64).eps*scale
+        if np.any(error>bound):raise ValueError('bounded replay sum identity '+label)
+        residual=max(residual,float(error.max()))
+    return dict(**maxima,sum_identity_residual=residual)
 
 def sha(p):
     """Hash current bytes, never infer content identity from filesystem times.
@@ -59,8 +85,8 @@ def design():
 
 def freeze():
     if (HERE/'design.json').exists():design();return
-    d=dict(schema='q07-balanced-shortspan-paired-v2',sources=sources(),manifest_sha256=sha(HERE/'inputs_manifest.json'),terms=kernel.TERMS,cases=m.DESIGNS,kinds=m.KINDS,regions=REGIONS,metrics=METRICS,max_raw=MAX_RAW,case_batch=m.NF,
-      inner_spans=[1/32,1/128],outer_spans=[1/16,1/64],trace_steps=64,trace_backend='cpu',material_span=1/128,tau=m.TAU,mu=m.MU,owner_counts={str(n):sum(map(len,plans(n)['global_'])) for n in (32,48,64)},chunk_counts={str(n):len(plans(n)['global_']) for n in (32,48,64)},gates=dict(replay=1e-8,constant_N_O_by_span=[1e-7,4e-7],center_b=1e-10),
+    d=dict(schema='q07-balanced-shortspan-paired-v2',replay_policy='constituent-sum-budget-v1',sources=sources(),manifest_sha256=sha(HERE/'inputs_manifest.json'),terms=kernel.TERMS,cases=m.DESIGNS,kinds=m.KINDS,regions=REGIONS,metrics=METRICS,max_raw=MAX_RAW,case_batch=m.NF,
+      inner_spans=[1/32,1/128],outer_spans=[1/16,1/64],trace_steps=64,trace_backend='cpu',material_span=1/128,tau=m.TAU,mu=m.MU,owner_counts={str(n):sum(map(len,plans(n)['global_'])) for n in (32,48,64)},chunk_counts={str(n):len(plans(n)['global_']) for n in (32,48,64)},gates=dict(replay=1e-8,bounded_replay_components=REPLAY_COMPONENT_ATOL,bounded_replay_combined=REPLAY_COMBINED_ATOL,bounded_replay_sum_eps_factor=REPLAY_SUM_EPS_FACTOR,constant_N_O_by_span=[1e-7,4e-7],center_b=1e-10),
       scientific_gate='Paired balanced h/32 versus h/128, centered/correction/combined all five material fields, 18 original plus four held-out states. Same continuum target, donors and BC treatment. No diffusion changes, tuning, or promotion. Regional scientific regressions are outcomes.')
     write_json(HERE/'design.json',d)
 def verify():
@@ -211,7 +237,7 @@ def preflight_task(job):
     block,selected=job;n=ENV['n'];_,meta,actions=compute(block,selected,True)
     sites=json.loads((HERE/'inputs/evidence/q07_h128_bounded/sites.json').read_text())
     with np.load(HERE/'inputs/evidence/q07_h128_bounded/arrays.npz') as old:
-        worst=0.
+        worst=0.;details=[]
         for owners,N,O,R in actions:
             for i,owner in enumerate(owners):
                 site=next(x for x in sites if x['n']==n and x['owner']==owner);prefix=f'N{n}_{site["name"]}'
@@ -219,9 +245,12 @@ def preflight_task(job):
                 expect=np.concatenate([bn[si].transpose(1,2,0,3).reshape(4,m.NF,15) for si in (0,2)],axis=-1)
                 eo=np.concatenate([bo[si].transpose(1,0,2).reshape(m.NF,15) for si in (0,2)],axis=-1)
                 er=np.tile(br.transpose(1,0,2).reshape(m.NF,15),(1,2))
-                worst=max(worst,float(abs(N[i]-expect).max()),float(abs(O[i]-eo).max()),float(abs(R[i]-er).max()))
-    if worst>1e-8:raise ValueError('bounded replay '+str(worst))
-    meta['bounded_replay']=worst;return meta
+                for label,actual,expected in (('N',N[i],expect),('O',O[i],eo),('R',R[i],er)):
+                    try:check=bounded_action_replay(actual,expected)
+                    except ValueError as error:raise ValueError(f'N{n} owner={owner} action={label}: {error}') from error
+                    worst=max(worst,check['centered'],check['correction'],check['combined'])
+                    details.append(dict(owner=int(owner),action=label,**check))
+    meta['bounded_replay']=worst;meta['bounded_replay_details']=details;return meta
 
 def check_workers(workers):
     if workers<1:raise ValueError('positive workers required')

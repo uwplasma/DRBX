@@ -9,6 +9,35 @@ import analyze
 import numpy as np
 from drbx.native.q_parallel_material import material_from_slots
 class Checks(unittest.TestCase):
+ def test_bounded_replay_sum_budget(self):
+  a=np.zeros((4,c.m.NF,30));b=np.zeros_like(a)
+  for start in (0,15):
+   a[...,start:start+5]=.75e-8;a[...,start+5:start+10]=.75e-8;a[...,start+10:start+15]=1.5e-8
+  r=c.bounded_action_replay(a,b)
+  self.assertAlmostEqual(r['combined'],1.5e-8,delta=1e-20)
+ def test_bounded_replay_constituent_cannot_hide_by_cancellation(self):
+  a=np.zeros((c.m.NF,30));a[...,0]=1.25e-8;a[...,5]=-1.25e-8
+  with self.assertRaisesRegex(ValueError,'bounded replay centered'):c.bounded_action_replay(a,np.zeros_like(a))
+ def test_bounded_replay_sum_identity(self):
+  a=np.zeros((c.m.NF,30));a[...,29]=5e-9
+  with self.assertRaisesRegex(ValueError,'sum identity actual'):c.bounded_action_replay(a,np.zeros_like(a))
+  with self.assertRaisesRegex(ValueError,'sum identity expected'):c.bounded_action_replay(np.zeros_like(a),a)
+ def test_bounded_replay_rejects_nonfinite_and_shape(self):
+  a=np.zeros((c.m.NF,30));a[0,0]=np.nan
+  with self.assertRaisesRegex(ValueError,'nonfinite'):c.bounded_action_replay(a,np.zeros_like(a))
+  with self.assertRaisesRegex(ValueError,'shape'):c.bounded_action_replay(np.zeros(15),np.zeros(30))
+ def test_remote_n48_replay_evidence(self):
+  files=list((P/'verification/replay_recovery/remote_N48').glob('block_*.npz'))
+  self.assertEqual(len(files),10);worst=0.;compared=0
+  for path in files:
+   with np.load(path) as z:
+    for key in z.files:
+     if key.endswith('_expected'):continue
+     r=c.bounded_action_replay(z[key],z[key+'_expected'])
+     worst=max(worst,r['combined']);compared+=z[key].size
+  self.assertEqual(compared,55440)
+  self.assertGreater(worst,c.REPLAY_COMPONENT_ATOL)
+  self.assertLess(worst,c.REPLAY_COMBINED_ATOL)
  def test_constant_geometry_response(self):
   q=np.broadcast_to(c.m.BASE,(1,3,5,5)).copy();k=np.array([.2,-.7,.4]);L=np.array([[-2.,2.,x] for x in k]);beta=np.ones(3)
   a=c.kernel.action(q,np.zeros((1,3,3)),L,beta,.01)

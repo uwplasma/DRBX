@@ -1,0 +1,832 @@
+{
+  "identity": "0a16837968506693afdbc530216dc24911821cb8c7b4558589c870f833bbc659",
+  "diagnostic_only": true,
+  "original_gate": 1e-08,
+  "completed_blocks": [
+    0,
+    5,
+    33,
+    69,
+    73,
+    78,
+    127,
+    205,
+    210,
+    214
+  ],
+  "records": [
+    {
+      "action": "N",
+      "index": [
+        0,
+        16,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l0.35_a75_p0",
+      "bc_index": 0,
+      "absolute_error": 3.2775346880953293e-09,
+      "actual": -320.0823250350565,
+      "expected": -320.08232503833403,
+      "relative_to_target": 1.0239661586133511e-11,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 0,
+      "owner": 9,
+      "site": "core"
+    },
+    {
+      "action": "O",
+      "index": [
+        11,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l0.5_a30_p1",
+      "bc_index": null,
+      "absolute_error": 3.107913926214678e-11,
+      "actual": -81.29276175942334,
+      "expected": -81.29276175939226,
+      "relative_to_target": 3.823112733472364e-13,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 0,
+      "owner": 9,
+      "site": "core"
+    },
+    {
+      "action": "R",
+      "index": [
+        0,
+        0
+      ],
+      "term": "h32_centered_n",
+      "state": "constant",
+      "bc_index": null,
+      "absolute_error": 1.619122631107972e-11,
+      "actual": 0.001805903425710886,
+      "expected": 0.0018059034419021123,
+      "relative_to_target": 8.965720943543865e-09,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 0,
+      "owner": 9,
+      "site": "core"
+    },
+    {
+      "action": "N",
+      "index": [
+        0,
+        17,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l0.35_a75_p1",
+      "bc_index": 0,
+      "absolute_error": 4.390301455714507e-09,
+      "actual": 211.71804249245042,
+      "expected": 211.71804248806012,
+      "relative_to_target": 2.073654849686275e-11,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 5,
+      "owner": 57,
+      "site": "first_ring"
+    },
+    {
+      "action": "O",
+      "index": [
+        5,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l1.4_a75_p1",
+      "bc_index": null,
+      "absolute_error": 4.268940756446682e-11,
+      "actual": -116.68333279957412,
+      "expected": -116.68333279953143,
+      "relative_to_target": 3.658569440916608e-13,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 5,
+      "owner": 57,
+      "site": "first_ring"
+    },
+    {
+      "action": "R",
+      "index": [
+        16,
+        4
+      ],
+      "term": "h32_centered_Ve",
+      "state": "wave_l0.35_a75_p0",
+      "bc_index": null,
+      "absolute_error": 4.320099833421409e-12,
+      "actual": -297.49387639457757,
+      "expected": -297.4938763945819,
+      "relative_to_target": 1.4521642884814988e-14,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 5,
+      "owner": 57,
+      "site": "first_ring"
+    },
+    {
+      "action": "N",
+      "index": [
+        0,
+        18,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.7_a10.0",
+      "bc_index": 0,
+      "absolute_error": 6.890900294820312e-09,
+      "actual": 349.1111662443078,
+      "expected": 349.1111662374169,
+      "relative_to_target": 1.973841274997798e-11,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 33,
+      "owner": 2697,
+      "site": "inner"
+    },
+    {
+      "action": "O",
+      "index": [
+        10,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l0.5_a30_p0",
+      "bc_index": null,
+      "absolute_error": 1.3653789210366085e-10,
+      "actual": 360.77548452030965,
+      "expected": 360.7754845204462,
+      "relative_to_target": 3.784566800184641e-13,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 33,
+      "owner": 2697,
+      "site": "inner"
+    },
+    {
+      "action": "R",
+      "index": [
+        21,
+        0
+      ],
+      "term": "h32_centered_n",
+      "state": "heldout_l0.35_a110.0",
+      "bc_index": null,
+      "absolute_error": 5.048697571119476e-12,
+      "actual": 0.05690838343130126,
+      "expected": 0.05690838342625256,
+      "relative_to_target": 8.871623594196928e-11,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 33,
+      "owner": 2697,
+      "site": "inner"
+    },
+    {
+      "action": "N",
+      "index": [
+        0,
+        13,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l0.5_a75_p1",
+      "bc_index": 0,
+      "absolute_error": 4.539256082125576e-09,
+      "actual": -15.075494549312936,
+      "expected": -15.075494553852192,
+      "relative_to_target": 3.011016365606178e-10,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 69,
+      "owner": 11529,
+      "site": "last_aggregate"
+    },
+    {
+      "action": "O",
+      "index": [
+        20,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.35_a10.0",
+      "bc_index": null,
+      "absolute_error": 3.8886582842678763e-10,
+      "actual": 170.95852960194821,
+      "expected": 170.95852960233708,
+      "relative_to_target": 2.274620806176328e-12,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 69,
+      "owner": 11529,
+      "site": "last_aggregate"
+    },
+    {
+      "action": "R",
+      "index": [
+        16,
+        4
+      ],
+      "term": "h32_centered_Ve",
+      "state": "wave_l0.35_a75_p0",
+      "bc_index": null,
+      "absolute_error": 1.9895196601282805e-12,
+      "actual": -190.3436016412922,
+      "expected": -190.34360164129419,
+      "relative_to_target": 1.0452253939575888e-14,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 69,
+      "owner": 11529,
+      "site": "last_aggregate"
+    },
+    {
+      "action": "N",
+      "index": [
+        0,
+        13,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l0.5_a75_p1",
+      "bc_index": 0,
+      "absolute_error": 3.08095593481994e-09,
+      "actual": 110.37727363752592,
+      "expected": 110.37727363444496,
+      "relative_to_target": 2.7912955569310957e-11,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 73,
+      "owner": 13065,
+      "site": "transition1"
+    },
+    {
+      "action": "O",
+      "index": [
+        21,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.35_a110.0",
+      "bc_index": null,
+      "absolute_error": 6.710010325150506e-11,
+      "actual": 30.89318019298616,
+      "expected": 30.89318019305326,
+      "relative_to_target": 2.1720037507369797e-12,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 73,
+      "owner": 13065,
+      "site": "transition1"
+    },
+    {
+      "action": "R",
+      "index": [
+        20,
+        0
+      ],
+      "term": "h32_centered_n",
+      "state": "heldout_l0.35_a10.0",
+      "bc_index": null,
+      "absolute_error": 6.5990130027060445e-12,
+      "actual": -0.030682264836204932,
+      "expected": -0.03068226482960592,
+      "relative_to_target": 2.1507581136378588e-10,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 73,
+      "owner": 13065,
+      "site": "transition1"
+    },
+    {
+      "action": "N",
+      "index": [
+        0,
+        20,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.35_a10.0",
+      "bc_index": 0,
+      "absolute_error": 6.0600058304771665e-09,
+      "actual": 116.10273673903203,
+      "expected": 116.10273673297202,
+      "relative_to_target": 5.219520229238649e-11,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 78,
+      "owner": 15369,
+      "site": "transition2"
+    },
+    {
+      "action": "O",
+      "index": [
+        9,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l0.7_a75_p1",
+      "bc_index": null,
+      "absolute_error": 7.664624490644201e-10,
+      "actual": -126.09561850512095,
+      "expected": -126.09561850588742,
+      "relative_to_target": 6.078422534789612e-12,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 78,
+      "owner": 15369,
+      "site": "transition2"
+    },
+    {
+      "action": "R",
+      "index": [
+        20,
+        0
+      ],
+      "term": "h32_centered_n",
+      "state": "heldout_l0.35_a10.0",
+      "bc_index": null,
+      "absolute_error": 5.769631300500677e-12,
+      "actual": -0.013457900363984004,
+      "expected": -0.013457900369753636,
+      "relative_to_target": 4.2871704664033696e-10,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 78,
+      "owner": 15369,
+      "site": "transition2"
+    },
+    {
+      "action": "N",
+      "index": [
+        0,
+        19,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.7_a110.0",
+      "bc_index": 0,
+      "absolute_error": 1.5676420161980786e-09,
+      "actual": -126.21495170153106,
+      "expected": -126.2149517030987,
+      "relative_to_target": 1.242041449958889e-11,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 127,
+      "owner": 40521,
+      "site": "bulk"
+    },
+    {
+      "action": "O",
+      "index": [
+        19,
+        14
+      ],
+      "term": "h32_combined_Ve",
+      "state": "heldout_l0.7_a110.0",
+      "bc_index": null,
+      "absolute_error": 2.126796516677132e-10,
+      "actual": -126.14785503679258,
+      "expected": -126.1478550365799,
+      "relative_to_target": 1.6859553545800768e-12,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 127,
+      "owner": 40521,
+      "site": "bulk"
+    },
+    {
+      "action": "R",
+      "index": [
+        20,
+        4
+      ],
+      "term": "h32_centered_Ve",
+      "state": "heldout_l0.35_a10.0",
+      "bc_index": null,
+      "absolute_error": 3.126388037344441e-12,
+      "actual": 471.3200772306786,
+      "expected": 471.32007723067545,
+      "relative_to_target": 6.633258773345891e-15,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 127,
+      "owner": 40521,
+      "site": "bulk"
+    },
+    {
+      "action": "N",
+      "index": [
+        0,
+        3,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l1.4_a30_p1",
+      "bc_index": 0,
+      "absolute_error": 5.305167860569782e-09,
+      "actual": 175.87731791953075,
+      "expected": 175.87731792483592,
+      "relative_to_target": 3.0164025260136347e-11,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 205,
+      "owner": 80563,
+      "site": "hot_radial_minus"
+    },
+    {
+      "action": "O",
+      "index": [
+        19,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.7_a110.0",
+      "bc_index": null,
+      "absolute_error": 5.88347148777757e-10,
+      "actual": -27.81589050992474,
+      "expected": -27.815890510513086,
+      "relative_to_target": 2.115147629573066e-11,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 205,
+      "owner": 80563,
+      "site": "hot_radial_minus"
+    },
+    {
+      "action": "R",
+      "index": [
+        21,
+        4
+      ],
+      "term": "h32_centered_Ve",
+      "state": "heldout_l0.35_a110.0",
+      "bc_index": null,
+      "absolute_error": 3.291233952040784e-11,
+      "actual": -464.4287549036012,
+      "expected": -464.4287549035683,
+      "relative_to_target": 7.086628287527459e-14,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 205,
+      "owner": 80563,
+      "site": "hot_radial_minus"
+    },
+    {
+      "action": "N",
+      "index": [
+        0,
+        5,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l1.4_a75_p1",
+      "bc_index": 0,
+      "absolute_error": 3.1582487736159237e-09,
+      "actual": -177.77804243064824,
+      "expected": -177.7780424338065,
+      "relative_to_target": 1.7765122904825884e-11,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82819,
+      "site": "hot_theta_minus"
+    },
+    {
+      "action": "O",
+      "index": [
+        19,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.7_a110.0",
+      "bc_index": null,
+      "absolute_error": 1.0787175597215537e-09,
+      "actual": -248.97263796411337,
+      "expected": -248.9726379651921,
+      "relative_to_target": 4.332675142689234e-12,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82819,
+      "site": "hot_theta_minus"
+    },
+    {
+      "action": "R",
+      "index": [
+        17,
+        4
+      ],
+      "term": "h32_centered_Ve",
+      "state": "wave_l0.35_a75_p1",
+      "bc_index": null,
+      "absolute_error": 8.640199666842818e-12,
+      "actual": 2638.2047136750657,
+      "expected": 2638.2047136750743,
+      "relative_to_target": 3.2750300316182968e-15,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82819,
+      "site": "hot_theta_minus"
+    },
+    {
+      "action": "N",
+      "index": [
+        1,
+        17,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l0.35_a75_p1",
+      "bc_index": 1,
+      "absolute_error": 3.3512606023577973e-09,
+      "actual": 1941.9499249095627,
+      "expected": 1941.949924912914,
+      "relative_to_target": 1.7257193707031779e-12,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82866,
+      "site": "hot_eta_minus"
+    },
+    {
+      "action": "O",
+      "index": [
+        21,
+        24
+      ],
+      "term": "h128_correction_Ve",
+      "state": "heldout_l0.35_a110.0",
+      "bc_index": null,
+      "absolute_error": 1.285396233896563e-10,
+      "actual": 1.1579056476656635,
+      "expected": 1.1579056475371239,
+      "relative_to_target": 1.1101044689009098e-10,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82866,
+      "site": "hot_eta_minus"
+    },
+    {
+      "action": "R",
+      "index": [
+        20,
+        4
+      ],
+      "term": "h32_centered_Ve",
+      "state": "heldout_l0.35_a10.0",
+      "bc_index": null,
+      "absolute_error": 7.503331289626658e-12,
+      "actual": 1099.801225148899,
+      "expected": 1099.8012251489065,
+      "relative_to_target": 6.822443108854286e-15,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82866,
+      "site": "hot_eta_minus"
+    },
+    {
+      "action": "N",
+      "index": [
+        1,
+        15,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l0.35_a30_p1",
+      "bc_index": 1,
+      "absolute_error": 7.402377377729863e-09,
+      "actual": 1058.699086253273,
+      "expected": 1058.6990862606754,
+      "relative_to_target": 6.991955952163004e-12,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82867,
+      "site": "hotspot"
+    },
+    {
+      "action": "O",
+      "index": [
+        19,
+        24
+      ],
+      "term": "h128_correction_Ve",
+      "state": "heldout_l0.7_a110.0",
+      "bc_index": null,
+      "absolute_error": 4.919054052976435e-10,
+      "actual": -1.608252084537056,
+      "expected": -1.6082520840451506,
+      "relative_to_target": 3.058633719039742e-10,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82867,
+      "site": "hotspot"
+    },
+    {
+      "action": "R",
+      "index": [
+        16,
+        0
+      ],
+      "term": "h32_centered_n",
+      "state": "wave_l0.35_a75_p0",
+      "bc_index": null,
+      "absolute_error": 8.993777944610315e-12,
+      "actual": 0.029820512345658114,
+      "expected": 0.02982051235465189,
+      "relative_to_target": 3.015970295093645e-10,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82867,
+      "site": "hotspot"
+    },
+    {
+      "action": "N",
+      "index": [
+        3,
+        21,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.35_a110.0",
+      "bc_index": 3,
+      "absolute_error": 5.4030806495575234e-09,
+      "actual": 827.6308437315683,
+      "expected": 827.6308437369714,
+      "relative_to_target": 6.528370336176924e-12,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82868,
+      "site": "hot_eta_plus"
+    },
+    {
+      "action": "O",
+      "index": [
+        21,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.35_a110.0",
+      "bc_index": null,
+      "absolute_error": 6.497202775790356e-10,
+      "actual": 783.9237437502682,
+      "expected": 783.9237437496184,
+      "relative_to_target": 8.288054581321028e-13,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82868,
+      "site": "hot_eta_plus"
+    },
+    {
+      "action": "R",
+      "index": [
+        16,
+        4
+      ],
+      "term": "h32_centered_Ve",
+      "state": "wave_l0.35_a75_p0",
+      "bc_index": null,
+      "absolute_error": 1.8417267710901797e-11,
+      "actual": -1525.2466114735962,
+      "expected": -1525.2466114735778,
+      "relative_to_target": 1.2074944190899351e-14,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82868,
+      "site": "hot_eta_plus"
+    },
+    {
+      "action": "N",
+      "index": [
+        1,
+        18,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.7_a10.0",
+      "bc_index": 1,
+      "absolute_error": 1.0621988622006029e-08,
+      "actual": -1058.198220857768,
+      "expected": -1058.198220847146,
+      "relative_to_target": 1.0037806162159809e-11,
+      "exceeds_original_gate": true,
+      "n": 48,
+      "block": 210,
+      "owner": 82915,
+      "site": "hot_theta_plus"
+    },
+    {
+      "action": "O",
+      "index": [
+        21,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "heldout_l0.35_a110.0",
+      "bc_index": null,
+      "absolute_error": 1.5037358025438152e-09,
+      "actual": 562.1133752371413,
+      "expected": 562.1133752386451,
+      "relative_to_target": 2.6751468098502454e-12,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82915,
+      "site": "hot_theta_plus"
+    },
+    {
+      "action": "R",
+      "index": [
+        17,
+        0
+      ],
+      "term": "h32_centered_n",
+      "state": "wave_l0.35_a75_p1",
+      "bc_index": null,
+      "absolute_error": 2.111241736990621e-11,
+      "actual": 0.20645338970221405,
+      "expected": 0.20645338972332647,
+      "relative_to_target": 1.0226239151703689e-10,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 210,
+      "owner": 82915,
+      "site": "hot_theta_plus"
+    },
+    {
+      "action": "N",
+      "index": [
+        1,
+        15,
+        29
+      ],
+      "term": "h128_combined_Ve",
+      "state": "wave_l0.35_a30_p1",
+      "bc_index": 1,
+      "absolute_error": 6.798131835239474e-09,
+      "actual": 705.9542025661337,
+      "expected": 705.9542025729319,
+      "relative_to_target": 9.629706587853567e-12,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 214,
+      "owner": 85171,
+      "site": "outermost_wall"
+    },
+    {
+      "action": "O",
+      "index": [
+        21,
+        14
+      ],
+      "term": "h32_combined_Ve",
+      "state": "heldout_l0.35_a110.0",
+      "bc_index": null,
+      "absolute_error": 2.9979219107190147e-10,
+      "actual": -864.4266056403842,
+      "expected": -864.426605640684,
+      "relative_to_target": 3.468104626993816e-13,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 214,
+      "owner": 85171,
+      "site": "outermost_wall"
+    },
+    {
+      "action": "R",
+      "index": [
+        16,
+        4
+      ],
+      "term": "h32_centered_Ve",
+      "state": "wave_l0.35_a75_p0",
+      "bc_index": null,
+      "absolute_error": 1.1687006917782128e-10,
+      "actual": -400.7271526428969,
+      "expected": -400.72715264278,
+      "relative_to_target": 2.9164499686898604e-13,
+      "exceeds_original_gate": false,
+      "n": 48,
+      "block": 214,
+      "owner": 85171,
+      "site": "outermost_wall"
+    }
+  ],
+  "maximum": 1.0621988622006029e-08
+}

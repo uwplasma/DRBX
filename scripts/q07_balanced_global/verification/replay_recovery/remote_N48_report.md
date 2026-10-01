@@ -1,0 +1,9 @@
+# Remote N48 replay audit
+
+All 14 preflight owners and ten blocks are present. Saved expected arrays match the frozen bounded inputs exactly. All actual arrays are finite. Three scalar comparisons exceed the original absolute 1e-8 gate: all numerical h/128 combined Ve at owner 82915 (hot_theta_plus), uniform physical-normal Neumann case, state indices 6, 18 and 21.
+
+Maximum centered, correction and combined N discrepancies are 3.6311575968e-9, 7.3222164720e-9 and 1.0621988622e-8. For the worst combined entry, centered and correction signed differences are -3.6311575968e-9 and -6.9909696294e-9. Both constituent actions satisfy the original absolute tolerance; adding their discrepancies exceeds the same single-action tolerance. This supports cross-platform arithmetic variation, without isolating the exact backend instruction or trace/reconstruction contribution. No fresh-cache repeat or N64 diagnostic was supplied.
+
+Worst action: -1058.198220857768 versus -1058.198220847146, approximately 1.004e-11 relative replay difference. At this entry N-O=-2.9504982794, O-R=-0.01901654728 and N-R=-2.9695148267. Replay noise is negligible relative to scientific errors; this is not a new spatial-order failure.
+
+Recommended recovery policy: retain the 1e-8 absolute centered/correction replay checks and use their sum, 2e-8, as the combined-action replay budget, with an independent centered+correction=combined roundoff check. This follows the triangle inequality rather than tuning a threshold to this one measured maximum. Apply only through an explicit versioned gate revision and rerun all three preflights; N64 remains untested remotely. Keep scientific gates, constants, inputs and operator arithmetic unchanged. No gate revision, campaign source edit, commit or promotion was made in this audit.
