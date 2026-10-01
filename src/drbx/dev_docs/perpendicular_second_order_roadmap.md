@@ -2262,6 +2262,15 @@ Steps:
        - At N64 a solve takes 0.73 s cold at 1e-10. Warm starts take it to 0.31–0.59 s at 1e-8.
        - Over 100 solves this is 44× faster end to end than Jacobi, with 369 MB of factors.
        - Rejected on wall time: smoothed-aggregation AMG (its coarse operators densify), ILU (setup grows about 10× per refinement), Chebyshev, and block Gauss–Seidel across planes.
+   - **Step 5.3, static Dirichlet-φ combined campaign: package ready, 1 October 2026** (`scripts/p08_step5_combined/`, README). Remote run pending. It runs on the step-4 artifacts, so nothing is rebuilt.
+     - **Production φ solver:** `drbx.native.fci_perpendicular_phi_solver`, built from the plan, with `drbx.native.fci_perpendicular_plane_preconditioner`.
+     - **Reference divergence:** `drbx.geometry.curvature_autodiff.AutodiffPerpendicularGeometry` and `p_shared.curvature_reference.perpendicular_geometry(..., method="autodiff")`. It agrees with converged FD to 2e-10 per point. Artifact builds keep their FD divergence.
+     - **Catalogue:** the P06N variants with Dirichlet φ: `main_phi_dirichlet`, `heldout_phi_dirichlet`, `dirichlet_rich` and `control_constant_dirichlet`. Low-degree and transverse-wave controls move to the step-6 transverse-wave check.
+     - **Parameters:** ρ* = 0.05, τ = 1, D_f = 1e-2.
+     - **Arms:** prescribed φ̄, and solved φ. The solved arm solves P07_D ψ_h = Ō(ψ) for ψ = φ + τTi, using the exact wall trace of ψ and the exact cell-average flux Ō, then sets φ_h = ψ_h − τT̄i. The measurement uses rtol 1e-11; the production default is 1e-8.
+     - **Re-frozen references** (bracket, curvature, diffusion O_q3) are computed with autodiff K, and the midpoint reference of ψ with the autodiff divergence.
+     - **Gates:** a discrete-consistency solve must recover ψ̄ to ≤ 1e-8 relative, every solve must converge, and every term must be finite. The headline order is informational; the user decides acceptance.
+     - **Timing:** run it once the B-field evaluator timing is settled (see below).
    - **Magnetic-field evaluator (Q path finding, 1 October 2026; [Q roadmap](parallel_second_order_roadmap.md), "Q07 sharp geometry feature" and "Compact magnetic evaluator"; [qualification](../../../../work/compact_bfield_qualification_20261001/report.md)).**
      - **The finding.** The canonical MAKEGRID B evaluator's periodic cubic toroidal prefilter couples all toroidal planes. Sharp field structure from planes whose R,Z samples lie outside the wall (near the coils) therefore leaks into interior queries.
        - The spline's holdout B error reaches 0.044 T at most. Its div B is 4.2e-3 RMS and 0.12 T/m at most.

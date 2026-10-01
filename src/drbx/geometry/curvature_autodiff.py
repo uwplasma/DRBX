@@ -72,6 +72,9 @@ __all__ = [
     "autodiff_curvature",
     "curvature_divergence_identity",
     "covariant_over_B_parts",
+    "AutodiffPerpendicularGeometry",
+    "autodiff_perpendicular_geometry",
+    "perpendicular_flux_tensor_one",
 ]
 
 _FLOOR = 1.0e-30
@@ -203,3 +206,76 @@ def autodiff_curvature(jax_metric: Any, jax_bfield: Any, B0: float, *, mode: str
 def curvature_divergence_identity(jax_metric: Any, jax_bfield: Any, B0: float, points: Any) -> np.ndarray:
     """``d_i (|J| K^i / B)`` at ``points (Q, 3)`` by autodiff (zero up to roundoff)."""
     return AutodiffCurvature(jax_metric, jax_bfield, B0).divergence_identity(points)
+
+
+def perpendicular_flux_tensor_one(jax_metric: Any, jax_bfield: Any, B0: float) -> Callable:
+    """Return ``tensor(q) -> J (g^{ij} - b^i b^j)`` (``(3, 3)``) for one logical point ``q`` of shape ``(3,)``.
+
+    ``b`` is the contravariant unit vector (contravariant field from the Cartesian B and the logical Jacobian matrix,
+    as in :func:`covariant_over_B_parts`), ``g^{ij}`` the contravariant metric and ``J`` the *signed* Jacobian
+    (``metric.signed_J``), exactly as ``hsx_mms_continuum_reference._perpendicular_flux_tensor``.
+    """
+
+    B0 = float(B0)
+
+    def tensor(q):
+        m = jax_metric.evaluate(q[None], reject_nonpositive_J=False)
+        Bc = jax_bfield.evaluate_cartesian(m.position)
+        Bcontra = jnp.linalg.solve(m.jacobian_matrix, Bc[..., None])[..., 0] / B0
+        bmag = jnp.maximum(jnp.linalg.norm(Bc, axis=-1) / B0, _FLOOR)
+        bunit = Bcontra / bmag[..., None]
+        projector = m.g_contra - jnp.einsum("...i,...j->...ij", bunit, bunit)
+        return (m.J[..., None, None] * projector)[0]
+
+    return tensor
+
+
+class AutodiffPerpendicularGeometry:
+    """Jitted, vmapped autodiff of the perpendicular flux tensor ``T^{ij} = J (g^{ij} - b^i b^j)`` and its divergence.
+
+    ``__call__(points (Q, 3))`` returns ``(tensor (Q, 3, 3), divergence (Q, 3))`` with
+    ``divergence[j] = sum_i d_i T^{ij}`` (``jax.jacfwd`` of the per-point tensor; no step size), the quantities of
+    ``hsx_mms_continuum_reference._perpendicular_geometry``.  Batching (``mode``, ``block``, padding of the last
+    block by repeating its final point) is the one of :class:`AutodiffCurvature`: for a fixed ``block`` the result of
+    a point does not depend on the other points of the call or on the chunking of the caller.
+    """
+
+    def __init__(self, jax_metric: Any, jax_bfield: Any, B0: float, *, mode: str = DEFAULT_MODE,
+                 block: int = 256) -> None:
+        if mode not in ("sequential", "block"):
+            raise ValueError("mode must be 'sequential' or 'block'")
+        if int(block) < 1:
+            raise ValueError("block must be a positive integer")
+        self.B0 = float(B0)
+        self.mode = mode
+        self.block = int(block)
+        tensor_one = perpendicular_flux_tensor_one(jax_metric, jax_bfield, self.B0)
+        self._tensor_one = tensor_one
+
+        def geometry_one(q):
+            jac = jax.jacfwd(tensor_one)(q)               # jac[k, j, i] = d_i T^{kj}
+            tensor = tensor_one(q)
+            divergence = jnp.einsum("iji->j", jac)        # sum_i d_i T^{ij}
+            return jnp.concatenate([tensor.reshape(9), divergence])
+
+        lift = (lambda f: jax.jit(lambda q: jax.lax.map(f, q))) if mode == "sequential" else (lambda f: jax.jit(jax.vmap(f)))
+        self._geometry = lift(geometry_one)
+
+    def __call__(self, points: Any) -> tuple[np.ndarray, np.ndarray]:
+        """``(tensor (Q, 3, 3), divergence (Q, 3))`` float64 at ``points (Q, 3)``."""
+        q = AutodiffCurvature._as_points(points)
+        if len(q) == 0:
+            return np.zeros((0, 3, 3)), np.zeros((0, 3))
+        out = []
+        for start in range(0, len(q), self.block):
+            part = q[start:start + self.block]
+            padded = np.concatenate([part, np.repeat(part[-1:], self.block - len(part), axis=0)])
+            out.append(np.asarray(self._geometry(jnp.asarray(padded)))[:len(part)])
+        flat = np.concatenate(out, axis=0)
+        return flat[:, :9].reshape(-1, 3, 3), flat[:, 9:]
+
+
+def autodiff_perpendicular_geometry(jax_metric: Any, jax_bfield: Any, B0: float, *, mode: str = DEFAULT_MODE,
+                                    block: int = 256) -> AutodiffPerpendicularGeometry:
+    """Return the callable ``points (Q, 3) -> (tensor (Q, 3, 3), divergence (Q, 3))`` (float64), jitted and vmapped."""
+    return AutodiffPerpendicularGeometry(jax_metric, jax_bfield, B0, mode=mode, block=block)

@@ -1,0 +1,119 @@
+{
+  "schema": "drbx.p08-step5-combined-dirichlet-v1",
+  "roadmap_step": "P08 step 5.3: static Dirichlet-phi combined full-grid MMS",
+  "resolutions": [
+    32,
+    48,
+    64
+  ],
+  "operator_options": {
+    "curvature": "autodiff",
+    "face_quadrature": "q2",
+    "inner_support": "fixed_radius"
+  },
+  "params": {
+    "rho_star": 0.05,
+    "tau": 1.0,
+    "diffusion": {
+      "density": 0.01,
+      "Te": 0.01,
+      "Ti": 0.01,
+      "vorticity": 0.01
+    }
+  },
+  "phi_solve_boundary": "dirichlet",
+  "phi_solve_preconditioner": "block_jacobi_eta_plane",
+  "phi_solve_factor_dtype": "float32",
+  "phi_solve_rtol": 1e-11,
+  "phi_solve_rtol_production_default": 1e-08,
+  "phi_solve_restart": 50,
+  "phi_solve_max_restarts": 40,
+  "catalogue": "scripts/p06n_field_derived_global/p06n_catalogue.json",
+  "variants": {
+    "main_phi_dirichlet": {
+      "field_set": "main",
+      "constant": false,
+      "kinds": [
+        "neumann",
+        "neumann",
+        "neumann",
+        "dirichlet",
+        "dirichlet"
+      ]
+    },
+    "heldout_phi_dirichlet": {
+      "field_set": "heldout",
+      "constant": false,
+      "kinds": [
+        "neumann",
+        "neumann",
+        "neumann",
+        "dirichlet",
+        "dirichlet"
+      ]
+    },
+    "dirichlet_rich": {
+      "field_set": "main",
+      "constant": false,
+      "kinds": [
+        "dirichlet",
+        "dirichlet",
+        "dirichlet",
+        "dirichlet",
+        "dirichlet"
+      ]
+    },
+    "control_constant_dirichlet": {
+      "field_set": "constant",
+      "constant": true,
+      "kinds": [
+        "dirichlet",
+        "dirichlet",
+        "dirichlet",
+        "dirichlet",
+        "dirichlet"
+      ]
+    }
+  },
+  "field_sets": {
+    "main": {
+      "representative": "main_phi_dirichlet"
+    },
+    "heldout": {
+      "representative": "heldout_phi_dirichlet"
+    },
+    "constant": {
+      "representative": "control_constant_dirichlet"
+    }
+  },
+  "deferred": {
+    "neumann_phi_variants": [
+      "main_phi_neumann",
+      "heldout_phi_neumann",
+      "control_constant_neumann"
+    ],
+    "neumann_phi_reason": "User decision (1 October 2026): the Neumann-phi variants are deferred until after this step.",
+    "transverse_wave_controls": "Low-degree / transverse-wave controls belong to the step-6 transverse-wave check, not to this step."
+  },
+  "owner_chunk_size": 1024,
+  "boundary_batch": 8192,
+  "device_put_plan": true,
+  "consistency_tolerance": 1e-08,
+  "degenerate_fraction": 1e-08,
+  "order_criterion": {
+    "min_order": 1.8,
+    "term": "total",
+    "arms": [
+      "presc_vs_ref",
+      "solved_vs_ref"
+    ],
+    "informational": true
+  },
+  "preflight": {
+    "variant": "main_phi_dirichlet",
+    "sanity_relative_l2_max": 0.5,
+    "n_minus_o_relative_max": 0.1,
+    "arm_difference_relative_max": 1e-05
+  },
+  "note": "Static Dirichlet-phi combined MMS on the full grids. Two arms per frozen P06N variant: 'prescribed' feeds perpendicular_rhs the exact owner-averaged phi (frozen P06N owner values); 'solved' solves the P07 Dirichlet problem for psi = phi + tau Ti with the owner-averaged exact positive operator O(psi) as right-hand side and psi's exact wall trace (value + tangential gradient) as boundary data, then feeds phi_h = psi_h - tau Ti to perpendicular_rhs. omega is the catalogue's own independent field: the arms test the phi-solve-in-the-RHS pipeline; omega-phi consistency is a P09 time-evolution concern. References are re-frozen for the final operator (autodiff / q2 / fixed_radius): bracket = P05N raw_R, curvature = P06N evolution-weighted raw_R, diffusion = P07N O_q3 exact face flux, plus O(psi) and the autodiff-divergence midpoint reference of psi. There is no acceptance gate in the campaign: solver gates (consistency, convergence) and finiteness are recorded as pass/fail, the headline order criterion is informational, and the user decides acceptance. The phi solve uses rtol 1e-11 (the MEASUREMENT setting): the production default 1e-8 (PHI_RTOL_DEFAULT) leaves a linear-solve error of about 2e-8 relative on the real exports, which exceeds the phi-solve discretization error at N48/N64 (7e-9 / 2.4e-9 for the smoothest field) and would corrupt the measured orders. The linear-solve error of every variant is reported through the discrete-consistency gate (a) (threshold 1e-8 relative, M-weighted)."
+}
