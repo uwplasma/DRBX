@@ -1,0 +1,14 @@
+{
+  "source_bundle.tar.gz": {
+    "sha256": "2558b397ebbe68821c461787670557b9b3bc4d6ad387f7ba1cd9edf6d559e3f9",
+    "bytes": 1269105
+  },
+  "q07-balanced-inputs.tar.gz": {
+    "sha256": "ad1d24e85a3fa60a277dc30ca1921d3e606ba22e26d94a2e53c34ecab3eb9da7",
+    "bytes": 32160829
+  },
+  "q07-balanced-canonical.tar.gz": {
+    "sha256": "d72adf0ceb83c192c84f2ef425144206e5207df9e9d9df6d187db566f518d634",
+    "bytes": 5758269059
+  }
+}
