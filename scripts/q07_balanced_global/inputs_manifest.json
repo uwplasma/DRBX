@@ -1604,7 +1604,14 @@
     "inputs/patches/N48_span16.npz": "3b5bf9ceec2645ced122820ae65c5ab0e0790f48b797802ed69b98027f4cdf36",
     "inputs/patches/N48_span32.npz": "33f003335d5d4f5c321b54190cbd00021c3acdbd7fa3d23b2711e8d5aa5ee69d",
     "inputs/patches/N64_span16.npz": "e235ebc28041fb74e24613da861bd2f376e5b7a171dd1e05484adec615fdbb00",
-    "inputs/patches/N64_span32.npz": "17a7410e0af64cac311f7252ffd188dd20de4f1c4cec3458cde66b36815a3999"
+    "inputs/patches/N64_span32.npz": "17a7410e0af64cac311f7252ffd188dd20de4f1c4cec3458cde66b36815a3999",
+    "inputs/evidence/q07_h128_bounded/arrays.npz": "10dc37a597a9c345962e027b66471aea226fdd95c037d4ce9e5ab8f8701fb5e0",
+    "inputs/evidence/q07_h128_bounded/full_runtime_replay.json": "d30d05d34aa9c12940bfb3e486753c42a6e84bfa3fc719fad5e8ee3b303308a4",
+    "inputs/evidence/q07_h128_bounded/validation.json": "9a0ce575eaf2cb9fde829f45e2bff4376c4651df55dc851566b30c8e4e8e9c91",
+    "inputs/evidence/q07_h128_bounded/sites.json": "9fda5dd910ee58d18fecc7764f374c022a4be40a77c8cbcb27b9eb2f6858a826",
+    "inputs/evidence/q07_h128_bounded/completion.json": "9cb87c98a9028c17e0e8f3d1150c6d7811c5a0c8617ffa91bd6d997dee9b8cc8",
+    "inputs/evidence/q07_balanced_completed/totals.npz": "c44a70eae39191dc74bf0ddbfcea4bf431ea3ff499b931da842c6894bc6b0af2",
+    "inputs/evidence/q07_balanced_completed/completion.json": "a8416574f0b6437f55718979f610802d221bfde5e1fea2c248bc8a937120f19d"
   },
   "canonical": {
     "hsx_metric_d58d392545fd3917efeb83b6.npz": "216dbcfb343fa23dd7ac9e60da6592f5757c7f5e45c8d96a5b642c6419dc10a1",

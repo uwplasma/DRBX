@@ -3,6 +3,7 @@ import numpy as np
 import q07_density_bounded as c
 DESIGNS=[dict(name='constant'),dict(name='smooth')]
 DESIGNS += [dict(name=f'wave_l{lam}_a{angle:g}_p{phase}',wavelength=lam,angle=angle,phase=phase*np.pi/2) for lam in (1.4,.7,.5,.35) for angle in (30.,75.) for phase in (0,1)]
+DESIGNS += [dict(name=f'heldout_l{lam}_a{angle}',wavelength=lam,angle=angle,phase=np.pi/4) for lam in (.7,.35) for angle in (10.,110.)]
 NF=len(DESIGNS);BASE=np.array([1.,1.1,.9,.13,.08]);AMP=np.array([.10,.05,.05,.03,.04]);TAU=1.;MU=1836.
 KINDS=((('D',)*5,'D'),(('N',)*5,'N'),(('D','N','D','N','D'),'N'),(('N','D','N','D','N'),'D'))
 COMPONENTS=('self_advection','pressure','thermal','minus_mu_tau_GTi','matched_force','phi_force','plus_mu_tau_GTi','correction')

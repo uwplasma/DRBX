@@ -1,10 +1,10 @@
 {
-  "schema": "q07-balanced-paired-v1",
+  "schema": "q07-balanced-shortspan-paired-v2",
   "sources": {
-    "analyze.py": "899401dc14d86177ab5ade8ba346f3d31e99f5c1905d2dc0734a9ed0faee8a75",
-    "campaign.py": "6b227f52ebef0b4fb917d8a1f879b81fa25c5d959fed33754f3c1224d9a27e1a",
-    "fields.py": "a7200118e62bf67ccc22e0234f7ebb48b579c6b8e4a97a74a4829e9ec17f2a3e",
-    "kernel.py": "9a7089f5d1b2679a5eb2a22c41c3ae65f8701fa360ecb0162558978fdf4840d1",
+    "analyze.py": "b44ab625acfeef1247a0417beea77f5ae0b308f70a9c155bb1626bf75c07a8b7",
+    "campaign.py": "69d00938d17ea8736f07f390f1a971bed445c02a85ff2a798fd9a4760b0158f0",
+    "fields.py": "9229d14b4fe08c6862271ba251d806247c036e78e03a00d00979bfd8660b0908",
+    "kernel.py": "65572f1dbed4078c5419ffb68da6c19f52d1560d1e8a8b1e0bc7b02babe54707",
     "source/frozen_reference/analyze.py": "d1f99b2dc0fdb5483663a452a9dcea8de70500d214466811a946e27bb9ec87fc",
     "source/frozen_reference/frozen/__init__.py": "cd4f22128d3c25577eb05167b32aaab3c8dce8f0f5e64eee23517152cc17bc3d",
     "source/frozen_reference/frozen/campaign.py": "acd85581c9ca56e2dee69a7bfcd4abddbed83c35d54d95410b023fdf2e5b8f04",
@@ -208,28 +208,41 @@
     "source/src/drbx/validation/stellarator_fci_geometry_campaign.py": "579789c69d2341fcb599e71eee72a55d9a2c3983c67d27bc4d67b3101bb6ba7a",
     "source/src/drbx/validation/stellarator_fci_suite_campaign.py": "f7d456d06e1f96e116a56c8d423a178b8d5ba5be9e36f19f9ea9f26f98c76a44",
     "source/src/drbx/validation/stellarator_sheath_recycling_campaign.py": "d72bba4dea9fa7b75c316f3d675eea870327258cf2f5fd23441d69546e8e38cd",
-    "source/src/drbx/validation/vmec_extender_edge_field_campaign.py": "cb5c0f043b83e955e49c59302546ebaee18b2c035b56ded409cd9b12f2590082"
+    "source/src/drbx/validation/vmec_extender_edge_field_campaign.py": "cb5c0f043b83e955e49c59302546ebaee18b2c035b56ded409cd9b12f2590082",
+    "span_rows.py": "71ceb12225b38eee3cd9f72f9495ea3d416f884ca19fee42c54bfe65cb73caa4"
   },
-  "manifest_sha256": "fe2e1c527c68a38f6289de7cb13baa4f4913da778bbfd5f5646776301f2eeb74",
+  "manifest_sha256": "43f3c0dc5a9841354e77fd2e8f4252e981f1b12089d239c9e2b53eeeee113810",
   "terms": [
-    "original_centered_n",
-    "original_centered_Te",
-    "original_centered_Ti",
-    "original_correction_n",
-    "original_correction_Te",
-    "original_correction_Ti",
-    "original_combined_n",
-    "original_combined_Te",
-    "original_combined_Ti",
-    "balanced_centered_n",
-    "balanced_centered_Te",
-    "balanced_centered_Ti",
-    "balanced_correction_n",
-    "balanced_correction_Te",
-    "balanced_correction_Ti",
-    "balanced_combined_n",
-    "balanced_combined_Te",
-    "balanced_combined_Ti"
+    "h32_centered_n",
+    "h32_centered_Te",
+    "h32_centered_Ti",
+    "h32_centered_Vi",
+    "h32_centered_Ve",
+    "h32_correction_n",
+    "h32_correction_Te",
+    "h32_correction_Ti",
+    "h32_correction_Vi",
+    "h32_correction_Ve",
+    "h32_combined_n",
+    "h32_combined_Te",
+    "h32_combined_Ti",
+    "h32_combined_Vi",
+    "h32_combined_Ve",
+    "h128_centered_n",
+    "h128_centered_Te",
+    "h128_centered_Ti",
+    "h128_centered_Vi",
+    "h128_centered_Ve",
+    "h128_correction_n",
+    "h128_correction_Te",
+    "h128_correction_Ti",
+    "h128_correction_Vi",
+    "h128_correction_Ve",
+    "h128_combined_n",
+    "h128_combined_Te",
+    "h128_combined_Ti",
+    "h128_combined_Vi",
+    "h128_combined_Ve"
   ],
   "cases": [
     {
@@ -333,6 +346,30 @@
       "wavelength": 0.35,
       "angle": 75.0,
       "phase": 1.5707963267948966
+    },
+    {
+      "name": "heldout_l0.7_a10.0",
+      "wavelength": 0.7,
+      "angle": 10.0,
+      "phase": 0.7853981633974483
+    },
+    {
+      "name": "heldout_l0.7_a110.0",
+      "wavelength": 0.7,
+      "angle": 110.0,
+      "phase": 0.7853981633974483
+    },
+    {
+      "name": "heldout_l0.35_a10.0",
+      "wavelength": 0.35,
+      "angle": 10.0,
+      "phase": 0.7853981633974483
+    },
+    {
+      "name": "heldout_l0.35_a110.0",
+      "wavelength": 0.35,
+      "angle": 110.0,
+      "phase": 0.7853981633974483
     }
   ],
   "kinds": [
@@ -394,12 +431,18 @@
     "N-R"
   ],
   "max_raw": 128,
-  "case_batch": 3,
-  "spans": [
-    0.0625,
-    0.03125
+  "case_batch": 22,
+  "inner_spans": [
+    0.03125,
+    0.0078125
   ],
-  "material_span": 0.03125,
+  "outer_spans": [
+    0.0625,
+    0.015625
+  ],
+  "trace_steps": 64,
+  "trace_backend": "cpu",
+  "material_span": 0.0078125,
   "tau": 1.0,
   "mu": 1836.0,
   "owner_counts": {
@@ -414,8 +457,11 @@
   },
   "gates": {
     "replay": 1e-08,
-    "constant_N_O": 1e-07,
+    "constant_N_O_by_span": [
+      1e-07,
+      4e-07
+    ],
     "center_b": 1e-10
   },
-  "scientific_gate": "Paired centered/correction/combined density and temperature comparison, same continuum target. No tuning or production promotion. Velocity and diffusion unchanged and excluded. Regional scientific regressions are outcomes."
+  "scientific_gate": "Paired balanced h/32 versus h/128, centered/correction/combined all five material fields, 18 original plus four held-out states. Same continuum target, donors and BC treatment. No diffusion changes, tuning, or promotion. Regional scientific regressions are outcomes."
 }
