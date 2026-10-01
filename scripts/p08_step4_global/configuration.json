@@ -1,0 +1,14 @@
+{
+  "schema": "drbx.p08-step4-smoke-campaign-v1",
+  "inherits_configuration": "scripts/p08_step2_global/configuration.json (which inherits scripts/p08_step1_global/configuration.json)",
+  "resolutions": [32, 48, 64],
+  "allowed_resolutions": [32, 48, 64],
+  "operator_options": {
+    "curvature": "autodiff",
+    "face_quadrature": "q2",
+    "inner_support": "fixed_radius"
+  },
+  "acceptance_gate": "none",
+  "oracle_comparison_is_gate": false,
+  "note": "The final operator bundle (autodiff curvature, q2 P05/P06 faces, fixed_radius inner donor support) is pinned here and passed explicitly to every build, environment and closure call; no code default is relied on. Everything not listed here (campaign catalogue, chunk sizes, column_block / p06n_variant_block / boundary_batch blocking, wall_cache, tensor_encoding_required, Tier-B / pointwise-cap policy, oracle paths, the canonical sidecar) is inherited from step 2 and step 1 and hashed into the campaign identity through the merged configuration. There is no MMS acceptance gate: the frozen step-1 oracles describe the old fd/q3/profile7 operator, so their comparison is informational only (the Tier-B ratio is then the operator change relative to the archived spatial error). The gates are the preflight (host-vs-JAX policy rows on the bounded 12-owner closure) and the smoke check (every term array of the full-grid JAX replay is finite)."
+}

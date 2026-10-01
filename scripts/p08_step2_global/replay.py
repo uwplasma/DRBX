@@ -61,6 +61,8 @@ __all__ = ["SCHEMA", "load_artifact", "artifact_summary", "lower_plan", "evaluat
 
 SCHEMA = "drbx.p08-step2b-jax-replay.v1"
 STAGE_RECEIPT = "stage_receipt.json"
+#: the operator options of the step-2 (frozen-oracle) replay: finite-difference curvature, q3 faces, profile7 inner support
+DEFAULT_OPERATOR_OPTIONS = {"curvature": "fd", "face_quadrature": "q3", "inner_support": "profile7"}
 
 
 def _log(message: str) -> None:
@@ -274,12 +276,21 @@ def _stage_receipt_valid(output: Path, identity: dict) -> dict | None:
 
 def run_replay_stage(*, artifact_root, output, n: int, input_root, sidecar_path, paths: dict, campaigns,
                      campaign_identity: str, cfg: dict, selection: dict | None = None, compare: bool = True,
-                     return_out: bool = False, artifact_identity: dict | None = None, log=_log) -> dict:
+                     return_out: bool = False, artifact_identity: dict | None = None,
+                     operator_options: dict | None = None, log=_log) -> dict:
     """Run (or resume) the JAX replay of grid ``n``; see the module docstring.
 
     Returns the stage receipt (``receipts.json``); with ``return_out`` also ``"out"``, the merged host-format
-    terms. ``selection``/``compare=False`` is the bounded-test mode (no full-grid comparison)."""
+    terms. ``selection``/``compare=False`` is the bounded-test mode (no full-grid comparison).
+
+    ``operator_options`` (``curvature`` / ``face_quadrature`` / ``inner_support``) are the options of the
+    environment (``build_environment``); the default is :data:`DEFAULT_OPERATOR_OPTIONS`, the step-2 literals
+    (bitwise the historic behaviour). A caller replaying an artifact built with other options (the step-4 smoke
+    campaign) passes them explicitly; they must match the options the artifact was built with."""
     output = Path(output)
+    options = dict(DEFAULT_OPERATOR_OPTIONS if operator_options is None else operator_options)
+    if set(options) != set(DEFAULT_OPERATOR_OPTIONS):
+        raise ValueError(f"operator_options must have exactly the keys {sorted(DEFAULT_OPERATOR_OPTIONS)}")
     campaigns = tuple(campaigns)
     if compare and selection is not None:
         raise ValueError("the oracle comparison needs the full grid (selection must be None)")
@@ -297,7 +308,7 @@ def run_replay_stage(*, artifact_root, output, n: int, input_root, sidecar_path,
     runner.require_cpu_backend()
 
     with _phase(phases, "environment"):
-        env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature="fd", face_quadrature="q3", inner_support="profile7")
+        env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), **options)
         oracle = ru._load_oracle_owner_values(env, dict(paths), campaigns)
     log(f"N{n}: environment ready in {phases['environment']['seconds']:.1f} s")
 

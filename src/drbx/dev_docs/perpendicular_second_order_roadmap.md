@@ -2203,6 +2203,7 @@ Steps:
    - For each candidate: the bounded checks listed in step 6, then a decision, then re-frozen references and re-qualification through the JAX owner closure.
    - G3 runs first, because afterwards the step-1 frozen oracles no longer describe the operator.
 4. **Full-grid artifact build and smoke check on the final bundle operator.** This replaces a standalone campaign A (user decision, 30 September 2026).
+   - **Status, 1 October 2026: campaign package ready, remote run pending.** `scripts/p08_step4_global/` builds N32/N48/N64 artifacts with the options pinned explicitly (autodiff, q2, fixed_radius). Its gates are a host-vs-JAX preflight on the 12-owner closure per grid and finite full-grid JAX replay terms. It reports artifact statistics, including the C3 coupled-row count. The operator change against the frozen step-1 oracles is reported for information only. The local N32 preflight passes: 29/29 policy rows, 3.1 GiB, 70 s.
    - **Why:** a prescribed-φ campaign on its own would be repeated anyway. Its unique value, separating forward-operator error from φ-solve error, comes from a prescribed-φ arm inside the step-5 campaign. The full perpendicular RHS (Vi/Ve, sheath and wall BCs) will need its own full-grid campaign later.
    - **Remote:** build N32/N48/N64 artifacts on the final operator (autodiff K, q2 for P05/P06, the chosen inner support). Clean-export check first. Step 5 needs these artifacts anyway.
    - **Smoke only, no MMS reductions:**
