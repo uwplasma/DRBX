@@ -2245,6 +2245,36 @@ Steps:
        - `drbx.native.fci_perpendicular_p07_solve` runs solvax FGMRES in the M-inner product, with a Jacobi or user-supplied preconditioner, plus a sparse-LU oracle.
        - The remote export of the step-4 artifacts is `scripts/p08_step5_export/`.
      - **Reference finite differences** ([check](../../../../work/p08_step5_reference_fd_check_20261001/README.md)). At the same 8 wall points, the reference's FD divergence ∂_i(J P⊥^{ij}) is off by 7e-5 at the default step. That is negligible for P07's errors, but the 5.3 re-freeze should compute it by autodiff, as for K.
+   - **Local solver studies on the exported full-grid P07, 1 October 2026** ([notes](../../../../work/p08_step5_solver_studies_20261001/README.md)). Export: `work/p08-step5-export-2ff50718-20261001T165909Z-ebcbd2`. It reproduces `p07_action` to ≤ 1e-15 relative, and with the harness wall data it reproduces the frozen P07N D/N actions to ≤ 2e-11. Harness: `scripts/p08_step5_local/`.
+     - **Dirichlet φ.**
+       - Positive definite: generalized λ_min(sym MA) = 177 against λ_max = 2.1e6 at N32. 10.5% non-symmetric.
+       - Solving the frozen discrete action returns φ̄ to 7e-14 (direct) or 2e-10 (FGMRES).
+       - The solve's own discretization error (rhs = exact cell-average flux O_q3) converges at **order 3.9–4.0**: 4e-8 to 3e-6 relative at N32, 2e-9 to 2e-7 at N64.
+       - The headline error against the midpoint reference R is 1.2e-4 to 2.3e-4 at N64, at orders 1.5–2.1. It is entirely A⁻¹(R − O), the reference mismatch.
+     - **Normal-Neumann φ, report mode.** The kernel is exactly the constants, but there is a near-null cluster of toroidal-only modes.
+       - Eigenvalues are 0.002–0.09, several negative, against 177 for Dirichlet.
+       - The continuum normal-Neumann quadratic form is itself indefinite on toroidal modes. The bulk term is m²⟨J P⊥^{ηη}⟩, which is 7e-4 to 5e-2 because P⊥^{ηη} is 0.15% of g^{ηη}. The oblique wall term, −½∮f²∇_Γ·(b_n b_t), is ±3e-2 to 6e-2.
+       - Consequences: the left null vector is 81× away from the volume weights, and Neumann φ errors run from 1e-3 up to 100× the field.
+       - A conormal condition would remove only the wall term. Dirichlet removes both.
+       - **The Neumann branch is deferred until after static Dirichlet 5.3 (user decision).**
+     - **Linear solver (user decisions).** FGMRES right-preconditioned by **block-Jacobi over η planes**, with each plane block solved exactly by a JAX ring-block LDU in **float32**, **warm starts**, and **default rtol = 1e-8**. The matrix is applied as BCSR, which is 6.6× faster per matvec than BCOO.
+       - Iterations are 10 / 9 / 9 at N32 / N48 / N64, against Jacobi's 341 / 566 / 760.
+       - At N64 a solve takes 0.73 s cold at 1e-10. Warm starts take it to 0.31–0.59 s at 1e-8.
+       - Over 100 solves this is 44× faster end to end than Jacobi, with 369 MB of factors.
+       - Rejected on wall time: smoothed-aggregation AMG (its coarse operators densify), ILU (setup grows about 10× per refinement), Chebyshev, and block Gauss–Seidel across planes.
+   - **Magnetic-field evaluator (Q path finding, 1 October 2026; [Q roadmap](parallel_second_order_roadmap.md), "Q07 sharp geometry feature" and "Compact magnetic evaluator"; [qualification](../../../../work/compact_bfield_qualification_20261001/report.md)).**
+     - **The finding.** The canonical MAKEGRID B evaluator's periodic cubic toroidal prefilter couples all toroidal planes. Sharp field structure from planes whose R,Z samples lie outside the wall (near the coils) therefore leaks into interior queries.
+       - The spline's holdout B error reaches 0.044 T at most. Its div B is 4.2e-3 RMS and 0.12 T/m at most.
+       - It drove Q07's N48 density hotspot. The compact toroidal evaluator `compact_c3` (seven raw planes, septic Hermite, C3 in φ, unchanged R/Z cubic) reduces that hotspot by about 650×. It also improves div B to 8.8e-4 RMS and 0.011 T/m at most.
+       - `compact_c3` is experimental and uncommitted. Canonical geometry, the default and every frozen campaign are unchanged.
+     - **Effect on P so far.**
+       - Every P qualification is an MMS consistency check in which the operator and the reference share the same evaluator. So the operator decisions stand, because they were made on N−O, which is reconstruction error with B as a common coefficient: C3 inner support, q2, autodiff K, and the step-4 pass.
+       - What can move is O−R, which is coefficient variation inside a cell. P07N's O−R dominates its N−R, with orders 1.4–2.0, and could partly be this artifact. That is untested.
+       - The 8-point FD-K wall feature is ~0.3° from the nearest MAKEGRID toroidal plane, so it is presumably an R/Z-spline effect, which `compact_c3` keeps. That is not verified.
+     - **Plan.**
+       - Step-5 solver studies on the exported P07 continue. Conditioning, preconditioners and the null-space structure do not depend on ~0.2% B changes.
+       - **Step 5.3, and any step-4 artifact rebuild, waits for the evaluator decision.** Canonical adoption changes geometry identity, so the artifacts would be rebuilt and the references re-frozen once, on the final evaluator.
+       - Candidate P contribution: a bounded matched spline/`compact_c3` replay of P07N and P06N (N−O / O−R / N−R) at core, transition, bulk and wall owners, as the Q roadmap's next item asks.
 6. **Remaining gates.**
    - A bounded geometry/reference recheck on N64.
    - **Scoped change: autodiff curvature K (user decision, 28 September).** Compute K = (B/2J)∇×(b_cov/B) with `jax.jacfwd` through the JAX metric and B-field evaluators. These are the same interpolants the NumPy reference uses, and they agree to 4e-15. The frozen fourth-order finite difference it replaces uses step 2e-4, shrunk near u = 0 and u = 1, with a one-sided rule at the wall.
