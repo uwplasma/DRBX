@@ -24,6 +24,25 @@ class Checks(unittest.TestCase):
  def test_hash_ignores_atime_rejects_content(self):
   with tempfile.TemporaryDirectory() as td:
    p=Path(td)/'x';p.write_bytes(b'abc');first=c.sha(p);p.read_bytes();self.assertEqual(first,c.sha(p));p.write_bytes(b'abd');self.assertNotEqual(first,c.sha(p))
+ def test_hash_rewrite_with_identical_reported_metadata(self):
+  with tempfile.TemporaryDirectory() as td:
+   p=Path(td)/'same_size';p.write_bytes(b'abc');reported=p.stat()
+   # Deterministically reproduce the Perlmutter report, even on fine-clock FS.
+   with patch.object(Path,'stat',return_value=reported):
+    first=c.sha(p);p.write_bytes(b'abd');second=c.sha(p)
+   self.assertEqual(first,c.hashlib.sha256(b'abc').hexdigest())
+   self.assertEqual(second,c.hashlib.sha256(b'abd').hexdigest())
+   self.assertNotEqual(first,second)
+ def test_cached_then_corrupted_checkpoint_same_metadata(self):
+  with tempfile.TemporaryDirectory() as td,patch.object(c,'OUT',Path(td)),patch.object(c,'design',return_value={'test':1}):
+   st=c.empty_stats();st['owners']=np.array([0]);st['count'][0]=1;st['volume'][0]=1;p=Path(td)/'chunks/N32/block_000000.npz';c.save_arrays(p,st)
+   r=dict(identity=c.digest({'test':1}),sha256=c.sha(p),owners=[0],finite=True,complete_owner_coverage=True,constant_error=0.,minimum_thermodynamic_slot=1.);c.write_json(p.with_suffix('.json'),r)
+   reported=p.stat();original_stat=Path.stat
+   def frozen_stat(path,*args,**kwargs):
+    return reported if path==p else original_stat(path,*args,**kwargs)
+   with patch.object(Path,'stat',frozen_stat):
+    self.assertIsNotNone(c.checked_saved(32,0,[0]));data=bytearray(p.read_bytes());data[-1]^=1;p.write_bytes(data)
+    with self.assertRaisesRegex(ValueError,'chunk identity/coverage'):c.checked_saved(32,0,[0])
  def test_complete_owner_batching(self):
   from types import SimpleNamespace
   t=SimpleNamespace(starts=np.r_[0,np.cumsum([3,200,7,100,21])]);groups=list(c.groups(t,np.arange(5)))

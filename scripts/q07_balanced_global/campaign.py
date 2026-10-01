@@ -19,18 +19,22 @@ METRICS=('N-O','O-R','N-R');MAX_RAW=128;ENV=None;INIT_ERROR=None
 OUT=Path(os.environ.get('Q07_OUTPUT',str(HERE/'local'))).resolve()
 INPUT_ROOT=Path(os.environ.get('Q07_INPUT_ROOT',str(HERE.parents[1]))).resolve()
 os.environ.setdefault('JAX_COMPILATION_CACHE_DIR',str(OUT/'jax_cache'))
-MEMORY=float(os.environ.get('Q07_WORKER_GIB','3'));HASH_CACHE={}
+MEMORY=float(os.environ.get('Q07_WORKER_GIB','3'))
 
 def sha(p):
-    p=Path(p);s=p.stat();key=(str(p.resolve()),s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns)
-    if key not in HASH_CACHE:
-        h=hashlib.sha256()
-        with p.open('rb') as f:
-            for b in iter(lambda:f.read(4<<20),b''):h.update(b)
-        ss=p.stat()
-        if (ss.st_ino,ss.st_size,ss.st_mtime_ns,ss.st_ctime_ns)!=(s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns):raise ValueError('file changed during hash')
-        HASH_CACHE[key]=h.hexdigest()
-    return HASH_CACHE[key]
+    """Hash current bytes, never infer content identity from filesystem times.
+
+    Some cluster filesystems preserve every observed stat field across rapid
+    same-size rewrites. Metadata is only a best-effort concurrent-write guard,
+    not a valid cache key. Large canonical inputs are checked at verification
+    and worker initialization, not inside the numerical chunk loop.
+    """
+    p=Path(p);s=p.stat();h=hashlib.sha256()
+    with p.open('rb') as f:
+        for b in iter(lambda:f.read(4<<20),b''):h.update(b)
+    ss=p.stat()
+    if (ss.st_dev,ss.st_ino,ss.st_size,ss.st_mtime_ns,ss.st_ctime_ns)!=(s.st_dev,s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns):raise ValueError('file changed during hash')
+    return h.hexdigest()
 def digest(x):return hashlib.sha256(json.dumps(x,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 def write_json(p,x):
     p=Path(p);p.parent.mkdir(parents=True,exist_ok=True);tmp=p.with_suffix('.tmp');tmp.write_text(json.dumps(x,indent=2)+'\n');os.replace(tmp,p)
