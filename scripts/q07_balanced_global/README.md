@@ -97,3 +97,29 @@ the requested 30-minute limit. No local global run was launched. Peak pilot RSS
 was 1.27 GiB; compressed checkpoint projection about 0.11 GiB before caches and
 logs. See verification/ for machine-readable evidence. These are local pilot
 estimates, not remote timing guarantees.
+
+## Timestamp-independent checksum recovery
+
+The first Perlmutter attempt stopped before numerical preflight: a same-size
+rewrite retained the inode, size, mtime_ns and ctime_ns, causing the metadata-only
+SHA cache to return old content. This was a real integrity-cache defect, not a
+scientific failure or grounds for weakening the regression test.
+
+The runner now hashes current bytes on every checksum request. Stat information
+is only a best-effort concurrent-write check. Large canonical inputs are hashed
+at verification and worker initialization, not in the numerical chunk loop.
+The original seven tests remain, with two deterministic tests for identical-stat
+rewrites and corrupted same-size checkpoints. Numerical code, source bundle,
+input archive, canonical hashes and tolerances are unchanged. Only the runner's
+source digest changes the campaign identity to
+`117daaec352ad2817b3dc9a4c4db5b9f6ee939fb9c4fb1b98a3404fed646694b`.
+The preceding evidence retains its original identity; do not relabel it.
+Recovery evidence is in `verification/hash_recovery/`.
+
+For the reported preflight-only failure, retain the same remote RUN and existing
+immutable inputs. Export the new pinned campaign revision into a separate
+revision directory under RUN, keep the old source/logs/verification receipts,
+and use a new result/log subdirectory. Rerun verify, all nine tests, preflight,
+pilot and then the prescribed global stages. No scientific chunks existed, so
+there is no numerical checkpoint migration. If any chunks are discovered,
+stop rather than silently reusing them under the new identity.

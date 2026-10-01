@@ -1,0 +1,9 @@
+{
+  "old_function_reproduces_stale_digest": true,
+  "repaired_function_detects_same_metadata_rewrite": true,
+  "old_after": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  "new_after": "a52d159f262b2c6ddb724a61840befc36eb30c88877a4030b65cbe86298449c9",
+  "seconds_per_fresh_design_check": 0.027507389550009975,
+  "approx_two_source_checks_per_793_chunks_seconds": 43.62671982631582,
+  "identity": "117daaec352ad2817b3dc9a4c4db5b9f6ee939fb9c4fb1b98a3404fed646694b"
+}

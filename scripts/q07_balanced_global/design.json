@@ -2,7 +2,7 @@
   "schema": "q07-balanced-paired-v1",
   "sources": {
     "analyze.py": "899401dc14d86177ab5ade8ba346f3d31e99f5c1905d2dc0734a9ed0faee8a75",
-    "campaign.py": "7cc1545359ea718d198e2d5cfdb284ed7aed55f0789172f71bbfe662928bb780",
+    "campaign.py": "6b227f52ebef0b4fb917d8a1f879b81fa25c5d959fed33754f3c1224d9a27e1a",
     "fields.py": "a7200118e62bf67ccc22e0234f7ebb48b579c6b8e4a97a74a4829e9ec17f2a3e",
     "kernel.py": "9a7089f5d1b2679a5eb2a22c41c3ae65f8701fa360ecb0162558978fdf4840d1",
     "source/frozen_reference/analyze.py": "d1f99b2dc0fdb5483663a452a9dcea8de70500d214466811a946e27bb9ec87fc",

@@ -1,0 +1,12 @@
+{
+  "old_commit": "3f618689a7868a6d617f66bb58aa8ca5ebe90ddf",
+  "old_identity": "b8876cb731bcca21d3b148b231dbf0b244e4650377b220f0eca3e306c255c265",
+  "new_identity": "117daaec352ad2817b3dc9a4c4db5b9f6ee939fb9c4fb1b98a3404fed646694b",
+  "change": "Remove metadata-only SHA cache; hash current bytes on every check.",
+  "changed_numerical_sources": [],
+  "numerical_configuration_unchanged": true,
+  "input_manifest_unchanged": true,
+  "source_bundle_unchanged": true,
+  "scientific_chunks_exist": false,
+  "recovery": "Keep original evidence; new source revision and new result receipts, same immutable inputs. No receipt relabeling."
+}
