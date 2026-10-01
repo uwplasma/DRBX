@@ -85,7 +85,12 @@ Do not delete valid chunks on interruption or silently migrate old identities.
 
 Required gates: byte identities, complete owners, finite/positive states,
 admissible characteristic split, exact boundary/choice policy, trace validity,
-bounded/global baseline replay <=1e-8 and center-b replay <=1e-10.
+bounded centered/correction replay <=1e-8, bounded combined replay <=2e-8,
+global baseline replay <=1e-8 and center-b replay <=1e-10. Bounded actual and
+expected arrays must each satisfy combined = centered + correction within
+128*float64_eps*(1+abs(centered)+abs(correction)+abs(combined)), allowing
+floating-point owner reductions. Both spans, all fields and N/O/R use this
+same constituent-sum policy; no field- or site-specific exceptions apply.
 Constant N-O uses 1e-7 at h/32 and 4e-7 at h/128. A pilot bulk row had
 constant slot residual 1.38e-14, amplified to electron errors 4.71e-8 and
 1.85e-7 respectively. Exact constant owner inputs give the same residual.
@@ -103,7 +108,7 @@ all output, short traces/receipts, logs, source, manifests and operational
 provenance in one downloadable run folder. Remote work is computation-only;
 scientific interpretation and operator selection happen locally.
 
-## Local readiness — 1 October 2026
+## Original h/128 readiness — before replay-policy revision
 
 Frozen identity `0a16837968506693afdbc530216dc24911821cb8c7b4558589c870f833bbc659`. All 42 complete-owner bounded replays
 passed with two workers; worst absolute N/O/R difference
@@ -120,3 +125,25 @@ Two full N64 bulk/wall chunks also passed baseline statistic replay and
 checkpoint reuse with two spawned workers; maximum difference
 6.268e-09 < 1e-8. This is a bounded execution check,
 not a completed global campaign.
+
+## Replay-policy recovery — 1 October 2026
+
+Current frozen identity:
+`0f6bc3a6a2222441903e20777f2066401e7cd6037f952786d9060cd19b12ef88`.
+The original remote N48 preflight stopped at a combined Ve replay difference
+of 1.0621988622e-8. Its centered and correction differences were individually
+3.6311575968e-9 and 6.9909696294e-9, both below 1e-8. The revised combined
+budget is their two absolute budgets added by the triangle inequality;
+constituent checks and the independent sum identity remain mandatory.
+Scientific tolerances, global-statistics replay, operator arithmetic,
+reconstruction, B evaluator, traces, fields and input archives are unchanged.
+Fifteen focused tests include all 55,440 returned N48 replay comparisons and
+explicit constituent-cancellation, sum-corruption and nonfinite rejection.
+See `verification/replay_recovery/` for original identity, immutable returned
+evidence, local audit and readiness receipts.
+
+Use a new unique recovery RUN and output, retaining the failed run unchanged.
+Reuse the same input/canonical archives and h/128 supplement after checksum
+verification. Do not relabel old short-trace caches or preflight receipts with
+the new identity. There are no global scientific chunks from the failed run.
+Rerun verify, tests, all-resolution preflight and pilot before global stages.

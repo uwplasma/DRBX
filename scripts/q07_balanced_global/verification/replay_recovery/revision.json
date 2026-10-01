@@ -1,0 +1,14 @@
+{
+  "original_commit": "8605ccbd1e3737079060dd15c53b76c2cbc6298d",
+  "original_identity": "0a16837968506693afdbc530216dc24911821cb8c7b4558589c870f833bbc659",
+  "identity": "0f6bc3a6a2222441903e20777f2066401e7cd6037f952786d9060cd19b12ef88",
+  "changed_runtime_sources": [
+    "campaign.py"
+  ],
+  "unchanged_input_manifest": true,
+  "numerical_kernel_and_vendored_sources_unchanged": true,
+  "replay_policy": "constituent-sum-budget-v1",
+  "no_checkpoint_migration": true,
+  "remote_failed_before_scientific_chunks": true,
+  "tests": 15
+}

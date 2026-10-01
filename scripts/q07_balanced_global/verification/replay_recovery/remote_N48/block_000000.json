@@ -1,0 +1,48 @@
+{
+  "identity": "0a16837968506693afdbc530216dc24911821cb8c7b4558589c870f833bbc659",
+  "n": 48,
+  "block": 0,
+  "owners": [
+    9
+  ],
+  "raw_count": 48,
+  "total_seconds": 1.6389009410049766,
+  "prepare_seconds": 0.0,
+  "score_seconds": 1.3342326449928805,
+  "peak_rss_gib": 0.8215446472167969,
+  "trace_sha256": "426e90bbff348a992b8fc83bf2b50a55a11604c9c10070d62efdd26eb469bc79",
+  "choice_sha256": "6f7c4f73a5c28ccafb8dad39a9970badf236a68f9c71d59d1e99193baea5b80b",
+  "finite": true,
+  "complete_owner_coverage": true,
+  "short_trace": {
+    "identity": "0a16837968506693afdbc530216dc24911821cb8c7b4558589c870f833bbc659",
+    "raw_hash": "730bff71a326fc08e074a0d4b74c7d1a6ff71e68849738206eb276db1cd92d12",
+    "sha256": "87bb8fdc8782ce1d960d3e61ada91f8783b68eb695d3bed20683f7d8bf256e9c",
+    "passed": true,
+    "steps": 64,
+    "backend": "cpu",
+    "crossings": 0,
+    "reentries": 0,
+    "seconds": 8.528128014004324,
+    "relative_path": "traces/N48/block_000000_730bff71a326.npz"
+  },
+  "owner_gradient_l1": [
+    [
+      23.44425948833272,
+      23.44425948833272
+    ],
+    [
+      23.450006315555296,
+      23.450006315555296
+    ]
+  ],
+  "constant_error": 7.461436445989984e-10,
+  "constant_error_by_span": [
+    1.648169151963345e-10,
+    7.461436445989984e-10
+  ],
+  "minimum_thermodynamic_slot": 0.8501515760165379,
+  "fallback_rows": 0,
+  "oracle_fallback_rows": 0,
+  "reference_sensitivity": 1.9143973099475242e-09
+}
