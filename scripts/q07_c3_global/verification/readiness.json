@@ -1,0 +1,22 @@
+{
+  "identity": "ab607bf62cda21dd67935334da9fdea35c2ad0a0c529ff555006aa3a8ed83bc3",
+  "passed": true,
+  "preflight_sites": 46,
+  "max_bounded_replay": 9.61004062785542e-12,
+  "focused_tests": 15,
+  "portable_focused_tests": 15,
+  "portable_source_input_verified": true,
+  "two_worker_pilot_minutes": [
+    148.23981693784808,
+    227.3597254067721
+  ],
+  "peak_worker_rss_gib": 1.1212158203125,
+  "scope": "Local bounded readiness only; full-domain trace gate and full scoring run remotely.",
+  "full_N64_blocks": [
+    256,
+    511
+  ],
+  "full_N64_owners_checked": 1024,
+  "full_chunk_checkpoint_reuse": true,
+  "full_chunk_max_constant": 4.904253026499603e-08
+}
