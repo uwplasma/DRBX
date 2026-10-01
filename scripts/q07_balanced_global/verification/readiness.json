@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "identity": "b8876cb731bcca21d3b148b231dbf0b244e4650377b220f0eca3e306c255c265",
+  "preflight_owners": 33,
+  "max_bounded_replay": 5.869891378518233e-12,
+  "algebra_and_harness_tests": 7,
+  "parallel_workers": 2,
+  "parallel_replay_max": 0.0,
+  "relocated_source_and_input_verification": true,
+  "local_global_launched": false,
+  "decision": "Remote: local two-worker projection exceeds 30 minutes.",
+  "evidence": {
+    "relocation.log": "2b8204ea1653c5e88a28ce80438b72df9856c2c629c348a9e8c95d462e85325e",
+    "spawn_smoke.json": "cb74aaa94690bfd879f56cb758e5d6d60bc39a8e4107d203719fef8fcc0e747f",
+    "pilot.json": "4f7455aa98f3e0debfb401b224934bbad87b8cbdaf2618aff9803419be33e8ce",
+    "tests.log": "435d925026091f7aed66984fc57c5954214ba60111d9d3bec04ce0a8da920836",
+    "verification.json": "0ded1b08432316200a056417c612a5ada28f82b727d8e004d1d5004441dec753",
+    "test_campaign.py": "efc41f52dea9640fb048ee6e6c1bd2e5996213e2193349f00810628369f7fb16",
+    "relocation_verification.json": "0ded1b08432316200a056417c612a5ada28f82b727d8e004d1d5004441dec753",
+    "preflight.json": "5d80e6d997379831212c19a981f3b80a3957443a40c571a63b90ae7fd2a166ef"
+  }
+}
