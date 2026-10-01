@@ -2,9 +2,9 @@
   "schema": "q07-balanced-shortspan-paired-v2",
   "sources": {
     "analyze.py": "b44ab625acfeef1247a0417beea77f5ae0b308f70a9c155bb1626bf75c07a8b7",
-    "campaign.py": "69d00938d17ea8736f07f390f1a971bed445c02a85ff2a798fd9a4760b0158f0",
+    "campaign.py": "c55e01c475d56f7f2bd58564a6d86fa6d0f91a55609a5700e59daa1a4cc17600",
     "fields.py": "9229d14b4fe08c6862271ba251d806247c036e78e03a00d00979bfd8660b0908",
-    "kernel.py": "65572f1dbed4078c5419ffb68da6c19f52d1560d1e8a8b1e0bc7b02babe54707",
+    "kernel.py": "dd8187e46b546622860fc691c8648b75a3a61cbe4349f5049ca180933c238b3d",
     "source/frozen_reference/analyze.py": "d1f99b2dc0fdb5483663a452a9dcea8de70500d214466811a946e27bb9ec87fc",
     "source/frozen_reference/frozen/__init__.py": "cd4f22128d3c25577eb05167b32aaab3c8dce8f0f5e64eee23517152cc17bc3d",
     "source/frozen_reference/frozen/campaign.py": "acd85581c9ca56e2dee69a7bfcd4abddbed83c35d54d95410b023fdf2e5b8f04",
@@ -457,10 +457,7 @@
   },
   "gates": {
     "replay": 1e-08,
-    "constant_N_O_by_span": [
-      1e-07,
-      4e-07
-    ],
+    "constant_N_O": 1e-07,
     "center_b": 1e-10
   },
   "scientific_gate": "Paired balanced h/32 versus h/128, centered/correction/combined all five material fields, 18 original plus four held-out states. Same continuum target, donors and BC treatment. No diffusion changes, tuning, or promotion. Regional scientific regressions are outcomes."

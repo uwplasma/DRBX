@@ -1,0 +1,27 @@
+{
+  "identity": "0a16837968506693afdbc530216dc24911821cb8c7b4558589c870f833bbc659",
+  "preflight_sites": 42,
+  "preflight_workers": 2,
+  "max_bounded_replay": 1.2732925824820995e-11,
+  "tests": 10,
+  "relocated_verify": true,
+  "relocated_tests": true,
+  "source_bundle_unchanged": true,
+  "original_archive_unchanged": true,
+  "supplement_sha256": "e8f3162fa0db953b5769bb9d0094387f4920479a9dcb246c35e3d2b24c3bbea9",
+  "local_global_started": false,
+  "local_two_worker_minutes": [
+    130.74903052400367,
+    201.1235457860055
+  ],
+  "pilot_peak_rss_gib": 1.2011260986328125,
+  "output_projection_gib": 0.4620668012648821,
+  "constant_roundoff_gates": {
+    "h32": 1e-07,
+    "h128": 4e-07
+  },
+  "scientific_replay_gate": 1e-08,
+  "full_chunk_baseline_replay": 6.268194852054876e-09,
+  "full_chunk_peak_rss_gib": 1.23052978515625,
+  "full_chunk_smoke_passed": true
+}

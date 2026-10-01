@@ -1,0 +1,6 @@
+...W1001 09:59:05.510278  855376 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+.......
+----------------------------------------------------------------------
+Ran 10 tests in 2.082s
+
+OK

@@ -1,0 +1,44 @@
+W1001 09:54:21.154425  851184 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 09:54:21.154427  851186 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 09:54:25.363718  851186 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 09:54:25.372215  851184 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 09:54:28.246554  851184 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+W1001 09:54:30.720394  851186 pjrt_executable.cc:642] Assume version compatibility. PjRt-IFRT does not track XLA executable versions.
+multiprocessing.pool.RemoteTraceback:
+"""
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniforge/base/envs/drb/lib/python3.12/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+                    ^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniforge/base/envs/drb/lib/python3.12/multiprocessing/pool.py", line 48, in mapstar
+    return list(map(*args))
+           ^^^^^^^^^^^^^^^^
+  File "/Users/yxie/Desktop/HSX drbx/DRBX/scripts/q07_balanced_global/campaign.py", line 250, in pilot_task
+    owners=next(groups(ENV['t'],plans(64)['global_'][block]));s,meta,_=compute(block,owners);path=OUT/f'pilot/N64_{block}.npz';save_arrays(path,s);meta['bytes']=path.stat().st_size;return meta
+                                                                       ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yxie/Desktop/HSX drbx/DRBX/scripts/q07_balanced_global/campaign.py", line 163, in compute
+    N,O,R,meta=kernel.evaluate(t,batch,raw,ends,newends,e['choices'][raw],e['state'],e['phi'],geom,lambda p:e['ctx']['evaluator']._position_and_jacobian(p)[1]);score+=time.perf_counter()-st
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yxie/Desktop/HSX drbx/DRBX/scripts/q07_balanced_global/kernel.py", line 73, in evaluate
+    if constant>1e-7:raise ValueError('constant N-O gate '+str(constant))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: constant N-O gate 1.8489326576042973e-07
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/yxie/Desktop/HSX drbx/DRBX/scripts/q07_balanced_global/campaign.py", line 289, in <module>
+    main()
+  File "/Users/yxie/Desktop/HSX drbx/DRBX/scripts/q07_balanced_global/campaign.py", line 282, in main
+    elif a.command in ('preflight','pilot'):globals()[a.command](a.workers)
+                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yxie/Desktop/HSX drbx/DRBX/scripts/q07_balanced_global/campaign.py", line 258, in pilot
+    with mp.get_context('spawn').Pool(min(workers,4),initializer=worker_init,initargs=(64,)) as pool:samples=pool.map(pilot_task,(0,120,256,511))
+                                                                                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniforge/base/envs/drb/lib/python3.12/multiprocessing/pool.py", line 367, in map
+    return self._map_async(func, iterable, mapstar, chunksize).get()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniforge/base/envs/drb/lib/python3.12/multiprocessing/pool.py", line 774, in get
+    raise self._value
+ValueError: constant N-O gate 1.8489326576042973e-07

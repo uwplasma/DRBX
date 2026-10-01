@@ -1569,3 +1569,50 @@ The [original Phase A task](thread://01a0b561-d18d-78b1-b85f-bfe3d67efe49?hostId
 | Q07 | Transport and material blocks | Q06 | pending | Term-resolved HSX gates and diffusion-channel integration. |
 | Q08 | Frozen coupled parallel RHS | Q07 | pending | Six evolved equations, prescribed phi, all selected parallel terms. |
 | Q09 | Evolved MMS and promotion | Q08; P07 for reconstructed phi | pending | Both phi legs, solution gates, structural and execution qualification. |
+
+
+### Q07 paired h/128 global preparation — 1 October 2026
+
+The existing `scripts/q07_balanced_global` campaign now compares balanced h/32
+with balanced h/128; outer characteristic spans shorten consistently from h/16
+to h/64. It retains the previous frozen source bundle, canonical geometry,
+saved GPU RK4-64 baseline endpoints, geometry-only repair choices, polynomial
+basis, donor support and D/physical-normal N/mixed boundary machinery. Only the
+additional short endpoints are traced, with parallel CPU-batched RK4-64.
+
+Coverage is all complete N32/N48/N64 owners (793 chunks), all five material
+fields, centered/correction/combined terms, four boundary combinations and 22
+states: the original 18 plus four held-out waves. N-O/O-R/N-R, regional maxima,
+physical-volume norms, signed integrals and h/32 replay remain separate. No
+other parallel operator or production default changes. The source identity is
+`0a16837968506693afdbc530216dc24911821cb8c7b4558589c870f833bbc659`.
+
+The bounded evidence suggests a predominantly geometry-driven O-R improvement
+at the smooth hotspot: transverse trace motion accounts for 99.987–99.988% of
+the density/temperature dissipative contribution. This is variation of the
+manufactured field along the geometry-dependent path, not an improvement to its
+reconstruction. Attribution specifically to coil ripple rather than magnetic
+spline or coordinate-map structure remains unproved. Short-wave N-O limitations
+and possible cancellation-driven total-error regressions remain open.
+
+Readiness: 42 complete-owner preflight sites, all cases/BCs/spans, reproduced
+saved bounded N/O/R within 1.28e-11; relocated inputs/source verified and ten
+focused tests passed. The four-region N64 pilot projects 131–201 minutes with
+two local workers, above the local 30-minute target; use remote execution.
+Pilot peak RSS was 1.21 GiB. Preflight, pilot, tracing and global scoring are
+parallel; checkpoints support identical-identity resume. Reuse the old small
+input and canonical archives plus the new 1.6 MB supplement.
+
+The first pilot exposed a constant-only bulk electron residual 1.85e-7 at
+h/128 versus 4.71e-8 at h/32, from constant slot residuals <=1.38e-14. Supplying
+exact constant owner data gives the same result. Before global launch, the
+h/128 constant roundoff gate is explicitly scaled by inverse span to 4e-7;
+h/32 stays at 1e-7, scientific/baseline replay at 1e-8 and center-b at 1e-10.
+Arithmetic is unchanged. Preserve the original failed-pilot and audit evidence
+in `scripts/q07_balanced_global/verification/h128/`; this is not a convergence
+acceptance threshold. Scientific regressions must be reported without tuning.
+
+The global comparison is prepared, not scientifically qualified. Diffusion,
+vorticity, exterior ghosts, current–phi/SAT, conservation, evolution and
+production promotion are not closed by this campaign. See the campaign README
+and `verification/h128/` for the frozen contract and operational evidence.

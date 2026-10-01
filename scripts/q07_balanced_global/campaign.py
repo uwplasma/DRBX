@@ -13,13 +13,13 @@ import jax
 import fields as m
 import kernel
 from frozen import model
-from drbx.stencils.q_parallel import prepare_chunk,load_chunk,raw_members,sha256_array
+from drbx.stencils.q_parallel import raw_members,sha256_array
 REGIONS=('global','core','first_ring','inner','last_two_aggregate','transition','bulk','wall','outermost_wall')
 METRICS=('N-O','O-R','N-R');MAX_RAW=128;ENV=None;INIT_ERROR=None
 OUT=Path(os.environ.get('Q07_OUTPUT',str(HERE/'local'))).resolve()
 INPUT_ROOT=Path(os.environ.get('Q07_INPUT_ROOT',str(HERE.parents[1]))).resolve()
 os.environ.setdefault('JAX_COMPILATION_CACHE_DIR',str(OUT/'jax_cache'))
-MEMORY=float(os.environ.get('Q07_WORKER_GIB','3'))
+MEMORY=float(os.environ.get('Q07_WORKER_GIB','4'))
 
 def sha(p):
     """Hash current bytes, never infer content identity from filesystem times.
@@ -59,9 +59,9 @@ def design():
 
 def freeze():
     if (HERE/'design.json').exists():design();return
-    d=dict(schema='q07-balanced-paired-v1',sources=sources(),manifest_sha256=sha(HERE/'inputs_manifest.json'),terms=kernel.TERMS,cases=m.DESIGNS,kinds=m.KINDS,regions=REGIONS,metrics=METRICS,max_raw=MAX_RAW,case_batch=3,
-      spans=[1/16,1/32],material_span=1/32,tau=m.TAU,mu=m.MU,owner_counts={str(n):sum(map(len,plans(n)['global_'])) for n in (32,48,64)},chunk_counts={str(n):len(plans(n)['global_']) for n in (32,48,64)},gates=dict(replay=1e-8,constant_N_O=1e-7,center_b=1e-10),
-      scientific_gate='Paired centered/correction/combined density and temperature comparison, same continuum target. No tuning or production promotion. Velocity and diffusion unchanged and excluded. Regional scientific regressions are outcomes.')
+    d=dict(schema='q07-balanced-shortspan-paired-v2',sources=sources(),manifest_sha256=sha(HERE/'inputs_manifest.json'),terms=kernel.TERMS,cases=m.DESIGNS,kinds=m.KINDS,regions=REGIONS,metrics=METRICS,max_raw=MAX_RAW,case_batch=m.NF,
+      inner_spans=[1/32,1/128],outer_spans=[1/16,1/64],trace_steps=64,trace_backend='cpu',material_span=1/128,tau=m.TAU,mu=m.MU,owner_counts={str(n):sum(map(len,plans(n)['global_'])) for n in (32,48,64)},chunk_counts={str(n):len(plans(n)['global_']) for n in (32,48,64)},gates=dict(replay=1e-8,constant_N_O_by_span=[1e-7,4e-7],center_b=1e-10),
+      scientific_gate='Paired balanced h/32 versus h/128, centered/correction/combined all five material fields, 18 original plus four held-out states. Same continuum target, donors and BC treatment. No diffusion changes, tuning, or promotion. Regional scientific regressions are outcomes.')
     write_json(HERE/'design.json',d)
 def verify():
     OUT.mkdir(parents=True,exist_ok=True);d=design();mf=manifest()
@@ -117,6 +117,29 @@ def accumulate(s,owners,volume,radial,n,N,O,R):
             pos=abs(x).argmax(axis=0);mx=np.take_along_axis(abs(x),pos[None],axis=0)[0];improve=(mx>s['maximum'][ri,ei])|(s['max_owner'][ri,ei]<0)
             s['maximum'][ri,ei]=np.maximum(mx,s['maximum'][ri,ei]);s['max_owner'][ri,ei]=np.where(improve,owners[mask][pos],s['max_owner'][ri,ei])
 
+def short_traces(n,block,raw,points):
+    from frozen.trace import trace
+    import jax.numpy as jnp
+    key=sha256_array(raw);path=OUT/f'traces/N{n}/block_{block:06d}_{key[:12]}.npz';receipt=path.with_suffix('.json');identity=digest(design())
+    if receipt.exists():
+        r=json.loads(receipt.read_text())
+        if r['identity']!=identity or r['raw_hash']!=key or r['sha256']!=sha(path) or not r['passed'] or r['steps']!=64 or r['backend']!='cpu' or r['crossings'] or r['reentries']:raise ValueError('trace cache identity/hash')
+        with np.load(path) as z:
+            if not np.array_equal(z['raw'],raw) or not np.array_equal(z['points'],points):raise ValueError('trace cache coverage')
+            ends=z['ends'].copy()
+        if ends.shape!=(len(raw),4,3) or not np.isfinite(ends).all() or (ends[:,:,0]>1).any():raise ValueError('trace cache endpoint')
+        return ends,r
+    start=time.perf_counter();seeds=np.repeat(points,4,axis=0);dt=np.tile(np.array([-2,2,-1,1])*2*np.pi/n/256,len(raw));parts=[]
+    for st in range(0,len(seeds),256):
+        pp=seeds[st:st+256];dd=dt[st:st+256];count=len(pp);pp=np.pad(pp,((0,256-count),(0,0)),mode='edge');dd=np.pad(dd,(0,256-count),mode='edge')
+        out=trace(ENV['ctx']['tracer'],jnp.asarray(pp),jnp.asarray(dd),steps=64)
+        e,good,cross,reentry=[np.asarray(x)[:count] for x in out[:4]]
+        if not good.all() or cross.any() or reentry.any() or (e[:,0]>1).any():raise ValueError('unqualified short trace')
+        parts.append(e)
+    ends=np.concatenate(parts).reshape(-1,4,3);finite(ends);save_arrays(path,dict(raw=raw,points=points,ends=ends))
+    r=dict(identity=identity,raw_hash=key,sha256=sha(path),passed=True,steps=64,backend=jax.default_backend(),crossings=0,reentries=0,seconds=time.perf_counter()-start,relative_path=str(path.relative_to(OUT)))
+    write_json(receipt,r);return ends,r
+
 def compute(block,selected=None,return_actions=False):
     e=ENV;n=e['n'];t=e['t'];resources();start=time.perf_counter();owners=np.array(plans(n)['global_'][block])
     if selected is not None:
@@ -128,27 +151,23 @@ def compute(block,selected=None,return_actions=False):
         take=np.isin(t.ro[z['raw']],owners);rawall=z['raw'][take];endsall=z['ends'][take]
         if not z['valid'].reshape(-1,4)[take].all() or z['crossed'].reshape(-1,4)[take].any() or z['reentry'].reshape(-1,4)[take].any() or (endsall[:,:,0]>1).any():raise ValueError('unqualified wall crossing')
     if not np.array_equal(rawall,raw_members(t,owners)):raise ValueError('raw coverage')
+    short,trace_receipt=short_traces(n,block,rawall,t.pts[rawall])
     stats=empty_stats();details=[];actions=[];prep=score=0.
     for batch in groups(t,owners):
-        raw=raw_members(t,batch);ends=endsall[np.isin(rawall,raw)];cache={}
+        raw=raw_members(t,batch);take=np.isin(rawall,raw);ends=endsall[take];newends=short[take];cache={}
         def geom(p):
             key=sha256_array(p)
             if key not in cache:cache[key]=model.geom(e['ctx'],p)
             return cache[key]
-        st=time.perf_counter();qs=[]
-        for span in (1/16,1/32):
-            q=prepare_chunk(t,batch,ends,geom,lambda p:e['ctx']['evaluator']._position_and_jacobian(p)[1],span=span,source_identity=sha(path),geometry_identity=digest(manifest()['canonical']),raw=raw,frozen_choices=e['choices'][raw],choice_provenance=e['choice_source'])
-            if not np.array_equal(q.choice,e['choices'][raw]):raise ValueError('support choice changed')
-            qs.append(q)
-        prep+=time.perf_counter()-st;st=time.perf_counter()
-        N,O,R,meta=kernel.evaluate(*qs,e['state'],e['phi'],geom);score+=time.perf_counter()-st
+        st=time.perf_counter()
+        N,O,R,meta=kernel.evaluate(t,batch,raw,ends,newends,e['choices'][raw],e['state'],e['phi'],geom,lambda p:e['ctx']['evaluator']._position_and_jacobian(p)[1]);score+=time.perf_counter()-st
         radial=np.array([t.pts[raw_members(t,[o])[0],0]*n-.5 for o in batch]).round().astype(int)
         accumulate(stats,batch,t.vol[batch],radial,n,N,O,R);details.append(meta)
         if return_actions:actions.append((batch,N,O,R))
         resources()
     stats['owners']=owners
-    meta=dict(identity=e['identity'],n=n,block=block,owners=owners.tolist(),raw_count=len(rawall),total_seconds=time.perf_counter()-start,prepare_seconds=prep,score_seconds=score,peak_rss_gib=rss(),trace_sha256=sha(path),choice_sha256=sha256_array(e['choices'][rawall]),finite=True,complete_owner_coverage=True,
-      constant_error=max(x['constant_error'] for x in details),minimum_thermodynamic_slot=min(x['minimum_thermodynamic_slot'] for x in details),fallback_rows=sum(x['fallback_rows'] for x in details),oracle_fallback_rows=sum(x['oracle_fallback_rows'] for x in details),reference_sensitivity=max(x['reference_sensitivity'] for x in details))
+    meta=dict(identity=e['identity'],n=n,block=block,owners=owners.tolist(),raw_count=len(rawall),total_seconds=time.perf_counter()-start,prepare_seconds=prep,score_seconds=score,peak_rss_gib=rss(),trace_sha256=sha(path),choice_sha256=sha256_array(e['choices'][rawall]),finite=True,complete_owner_coverage=True,short_trace=trace_receipt,owner_gradient_l1=np.max([x['owner_gradient_l1'] for x in details],axis=0).tolist(),
+      constant_error=max(x['constant_error'] for x in details),constant_error_by_span=np.max([x['constant_error_by_span'] for x in details],axis=0).tolist(),minimum_thermodynamic_slot=min(x['minimum_thermodynamic_slot'] for x in details),fallback_rows=sum(x['fallback_rows'] for x in details),oracle_fallback_rows=sum(x['oracle_fallback_rows'] for x in details),reference_sensitivity=max(x['reference_sensitivity'] for x in details))
     finite(*stats.values());return stats,meta,actions
 
 def save_arrays(path,stats):
@@ -160,7 +179,8 @@ def checked_saved(n,block,owners):
     if not rp.exists():return None
     r=json.loads(rp.read_text())
     if r['identity']!=digest(design()) or sha(path)!=r['sha256'] or r['owners']!=list(map(int,owners)):raise ValueError('chunk identity/coverage')
-    if not r['finite'] or not r['complete_owner_coverage'] or r['constant_error']>1e-7 or r['minimum_thermodynamic_slot']<=0:raise ValueError('chunk gate')
+    if 'short_trace' in r and sha(OUT/r['short_trace']['relative_path'])!=r['short_trace']['sha256']:raise ValueError('short trace checksum')
+    if not r['finite'] or not r['complete_owner_coverage'] or np.any(np.asarray(r.get('constant_error_by_span',[r['constant_error']]*2))>np.array([1e-7,4e-7])) or r['minimum_thermodynamic_slot']<=0:raise ValueError('chunk gate')
     with np.load(path) as z:
         expected=empty_stats()
         if set(z.files)!=set(expected)|{'owners'} or not np.array_equal(z['owners'],owners):raise ValueError('chunk schema')
@@ -176,7 +196,7 @@ def task(block):
     if prior:return prior
     stats,meta,_=compute(block)
     if design()!=ENV['d']:raise ValueError('source changed mid-chunk')
-    p=OUT/f'chunks/N{n}/block_{block:06d}.npz';save_arrays(p,stats);meta.update(sha256=sha(p),bytes=p.stat().st_size);write_json(p.with_suffix('.json'),meta);jax.clear_caches();return meta
+    p=OUT/f'chunks/N{n}/block_{block:06d}.npz';save_arrays(p,stats);meta.update(sha256=sha(p),bytes=p.stat().st_size);write_json(p.with_suffix('.json'),meta);return meta
 
 def validate(n):
     d=design();seen=[];receipts=[]
@@ -186,31 +206,56 @@ def validate(n):
         seen+=r['owners'];receipts.append(r['sha256'])
     if sorted(seen)!=list(range(d['owner_counts'][str(n)])):raise ValueError('owner coverage')
     write_json(OUT/f'validation_N{n}.json',dict(identity=digest(d),n=n,owners=len(seen),chunks=receipts,passed=True))
-def preflight():
-    verify();checks=[];old=np.load(HERE/'inputs/evidence/q07_geometry_balanced_20260930/arrays.npz')
-    for n in (32,48,64):
-        init(n);owners=old[f'N{n}_matched_owners'];mapping={o:b for b,oo in enumerate(plans(n)['global_']) for o in oo}
-        for owner in owners:
-            _,meta,aa=compute(mapping[int(owner)],[owner],True);_,N,O,R=aa[0];oi=np.flatnonzero(owners==owner)[0]
-            baseline=old[f'N{n}_matched_N'];oracle=old[f'N{n}_matched_O'];ref=old[f'N{n}_matched_R']
-            expect=np.concatenate([x for mi in (0,1) for x in (baseline[mi,0,:,:,oi,:3],baseline[mi,1,:,:,oi,:3]-baseline[mi,0,:,:,oi,:3],baseline[mi,1,:,:,oi,:3])],axis=-1)
-            eo=np.concatenate([x for mi in (0,1) for x in (oracle[mi,0,:,oi,:3],oracle[mi,1,:,oi,:3]-oracle[mi,0,:,oi,:3],oracle[mi,1,:,oi,:3])],axis=-1)
-            er=np.concatenate([x for mi in (0,1) for x in (ref[:,oi,:3],ref[:,oi,:3]*0,ref[:,oi,:3])],axis=-1)
-            err=max(float(abs(N[0]-expect).max()),float(abs(O[0]-eo).max()),float(abs(R[0]-er).max()))
-            if err>1e-8:raise ValueError('bounded replay '+str(err))
-            meta['bounded_replay']=err;checks.append(meta)
-        for b in (0,len(plans(n)['global_'])//2):
-            _,meta,_=compute(b,[plans(n)['global_'][b][0]]);checks.append(meta)
-        print('PREFLIGHT',n,'passed',flush=True);jax.clear_caches()
-    write_json(OUT/'preflight.json',dict(identity=digest(design()),passed=True,checks=checks,max_bounded_replay=max(x.get('bounded_replay',0) for x in checks)))
+def preflight_task(job):
+    if INIT_ERROR:raise RuntimeError(INIT_ERROR)
+    block,selected=job;n=ENV['n'];_,meta,actions=compute(block,selected,True)
+    sites=json.loads((HERE/'inputs/evidence/q07_h128_bounded/sites.json').read_text())
+    with np.load(HERE/'inputs/evidence/q07_h128_bounded/arrays.npz') as old:
+        worst=0.
+        for owners,N,O,R in actions:
+            for i,owner in enumerate(owners):
+                site=next(x for x in sites if x['n']==n and x['owner']==owner);prefix=f'N{n}_{site["name"]}'
+                bn=old[prefix+'_N'];bo=old[prefix+'_O'];br=old[prefix+'_R']
+                expect=np.concatenate([bn[si].transpose(1,2,0,3).reshape(4,m.NF,15) for si in (0,2)],axis=-1)
+                eo=np.concatenate([bo[si].transpose(1,0,2).reshape(m.NF,15) for si in (0,2)],axis=-1)
+                er=np.tile(br.transpose(1,0,2).reshape(m.NF,15),(1,2))
+                worst=max(worst,float(abs(N[i]-expect).max()),float(abs(O[i]-eo).max()),float(abs(R[i]-er).max()))
+    if worst>1e-8:raise ValueError('bounded replay '+str(worst))
+    meta['bounded_replay']=worst;return meta
 
-def pilot():
+def check_workers(workers):
+    if workers<1:raise ValueError('positive workers required')
+    available=len(os.sched_getaffinity(0)) if hasattr(os,'sched_getaffinity') else os.cpu_count()
+    if workers>available:raise ValueError('workers exceed CPU affinity')
+    budget=float(os.environ.get('Q07_TOTAL_MEMORY_GIB',str(workers*MEMORY+2)))
+    if workers*MEMORY+2>budget:raise ValueError('workers exceed declared host-memory budget')
+
+def preflight(workers):
+    check_workers(workers);verify();checks=[]
+    sites=json.loads((HERE/'inputs/evidence/q07_h128_bounded/sites.json').read_text())
+    with (OUT/'run.lock').open('a+') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        for n in (32,48,64):
+            mapping={o:b for b,oo in enumerate(plans(n)['global_']) for o in oo};jobs={}
+            for site in sites:
+                if site['n']==n:jobs.setdefault(mapping[site['owner']],[]).append(site['owner'])
+            jobs=[(b,sorted(owners)) for b,owners in jobs.items()]
+            with mp.get_context('spawn').Pool(min(workers,len(jobs)),initializer=worker_init,initargs=(n,),maxtasksperchild=24) as pool:
+                checks.extend(pool.map(preflight_task,jobs))
+            print('PREFLIGHT',n,'passed',flush=True)
+        write_json(OUT/'preflight.json',dict(identity=digest(design()),passed=True,sites=len(sites),workers=workers,checks=checks,max_bounded_replay=max(x['bounded_replay'] for x in checks)))
+
+def pilot_task(block):
+    if INIT_ERROR:raise RuntimeError(INIT_ERROR)
+    owners=next(groups(ENV['t'],plans(64)['global_'][block]));s,meta,_=compute(block,owners);path=OUT/f'pilot/N64_{block}.npz';save_arrays(path,s);meta['bytes']=path.stat().st_size;return meta
+
+def pilot(workers):
     gate=json.loads((OUT/'preflight.json').read_text());d=design()
     if not gate['passed'] or gate['identity']!=digest(d):raise ValueError('preflight required')
-    init(64);samples=[]
-    for b in (0,120,256,511):
-        owners=next(groups(ENV['t'],plans(64)['global_'][b]));s,meta,_=compute(b,owners)
-        path=OUT/f'pilot/N64_{b}.npz';save_arrays(path,s);meta['bytes']=path.stat().st_size;samples.append(meta);print('PILOT',b,json.dumps(meta),flush=True)
+    check_workers(workers)
+    with (OUT/'run.lock').open('a+') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        with mp.get_context('spawn').Pool(min(workers,4),initializer=worker_init,initargs=(64,)) as pool:samples=pool.map(pilot_task,(0,120,256,511))
     rates={name:samples[i]['total_seconds']/samples[i]['raw_count'] for name,i in [('core',0),('inner',1),('outer',2),('wall',3)]};serial=0
     for n in (32,48,64):
         last=plans(n)['last_aggregate'];serial+=(rates['core']+rates['inner']*last+rates['outer']*(n-last-3)+rates['wall']*2)*n*n
@@ -218,11 +263,7 @@ def pilot():
 
 def run(n,workers):
     d=design()
-    if workers<1:raise ValueError('positive workers required')
-    available=len(os.sched_getaffinity(0)) if hasattr(os,'sched_getaffinity') else os.cpu_count()
-    if workers>available:raise ValueError('workers exceed CPU affinity')
-    budget=float(os.environ.get('Q07_TOTAL_MEMORY_GIB',str(workers*MEMORY+2)))
-    if workers*MEMORY+2>budget:raise ValueError('workers exceed declared host-memory budget')
+    check_workers(workers)
     for name in ('preflight','pilot'):
         g=json.loads((OUT/f'{name}.json').read_text())
         if not g['passed'] or g['identity']!=digest(d):raise ValueError(name+' required')
@@ -235,9 +276,10 @@ def run(n,workers):
 def main():
     p=argparse.ArgumentParser();p.add_argument('command',choices=('freeze','verify','preflight','pilot','run','validate','analyze','validate-completion'));p.add_argument('--n',type=int,choices=(32,48,64));p.add_argument('--workers',type=int);a=p.parse_args()
     if a.command in ('run','validate') and a.n is None:p.error('--n required')
-    if a.command=='run' and a.workers is None:p.error('--workers required')
+    if a.command in ('run','preflight','pilot') and a.workers is None:p.error('--workers required')
     OUT.mkdir(parents=True,exist_ok=True)
     if a.command=='run':run(a.n,a.workers)
+    elif a.command in ('preflight','pilot'):globals()[a.command](a.workers)
     elif a.command=='validate':validate(a.n)
     elif a.command in ('analyze','validate-completion'):
         import analyze;analyze.main(validate_only=a.command=='validate-completion')

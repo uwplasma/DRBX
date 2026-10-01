@@ -1,42 +1,62 @@
-# Paired geometry-consistent Q07 material campaign
+# Paired h/32–h/128 geometry-consistent Q07 material campaign
 
-Compare the frozen original tube with
-`D_bal(F) = D_old(F) + [div(b) - D_old(1)] F_center`.
-This enforces the prepared geometry's constant-response identity while retaining
-nonzero div(B), original h/32 caps, h/16 outer characteristic samples,
-selective repair choices, and D/physical-normal N/mixed wall reconstruction.
+Compare the **balanced** tube at total inner cap separation h/32 and h/128,
+with outer characteristic separations h/16 and h/64 respectively, h=2*pi/N.
+Both use `D_bal(F) = D_old(F) + [div(b) - D_old(1)] F_center`.
+Neither assumes div(B)=0. Delta in the five-point stencil is half the inner
+separation: offsets (-2,-1,0,1,2)*delta. Shortening scales both derivative legs.
 
-All complete owners at N32/N48/N64, 18 matched MMS states, four boundary
-combinations, and nine regions. Eighteen outputs are the two formulations' three
-actions (centered/correction/combined), each for n/Te/Ti. The characteristic
-correction is evaluated once and shared exactly. Vi/Ve, vorticity and diffusion
-are unchanged and excluded. This is a comparison, not production promotion.
-No field-line tracing, field-dependent donor selection or numerical tuning.
+All complete owners at N32/N48/N64; 22 states (the previous 18 plus four held-out
+waves at wavelengths 0.7/0.35 and orientations 10/110 degrees); four D/physical-
+normal N/mixed boundary combinations; nine regions. Thirty outputs cover each
+span's centered/correction/combined n, Te, Ti, Vi and Ve actions. Diffusion,
+vorticity, current–phi/SAT, evolution and production promotion are outside scope.
+
+## Reuse and reference contract
+
+The source bundle, canonical geometry, original GPU RK4-64 h/32+h/16 endpoints,
+frozen gradient-repair choices, polynomial degrees, eta support and all donor
+policies are unchanged. `span_rows.py` calls the same frozen low-level builders
+at all ten query points together. It does not relabel prepared-operator metadata.
+Only the additional h/128+h/64 endpoints need tracing: CPU-batched RK4 with 64
+steps, in the same parallel worker pool, saved with checksums and identities.
+No exterior endpoint, crossing or re-entry is accepted; exterior ghosts remain
+unqualified. New traces are not interpolations of the old endpoints.
+
+N uses reconstructed slot values; O uses exact manufactured values at the same
+slots and the same tube/correction algebra; R is the unchanged continuum material
+reference. Every raw member contributes to the complete-owner physical-volume
+projection. N-O/O-R/N-R stay separate. h/128 is a candidate, not a default.
+The prior bounded improvement mostly followed geometry-dependent transverse
+motion along the actual traced field. This is not proof of a coil-ripple-only
+cause and does not remove the reconstruction limitation of short-wave controls.
 
 ## Frozen runtime and inputs
 
-The checked-in `source_bundle.tar.gz` contains the exact research runtime,
-including dependencies not yet extracted into committed shared infrastructure.
-Always use this snapshot, not an installed DRBX checkout. `design.json` pins
-every runtime source and `inputs_manifest.json` pins all data by relative path.
-The bundle's repository baseline was 078633ce8a44e7490dc4514b6adbbc5903eeef81;
-the campaign commit and source hashes identify the actual executable snapshot.
+Extract checked-in `source_bundle.tar.gz` into this directory. Use this frozen
+runtime, not the installed DRBX library. `design.json` pins runtime sources;
+`inputs_manifest.json` pins all input bytes. Hashes are always computed from
+bytes, never cached using timestamps (the prior remote integrity bug stays fixed).
 
-Extract `source_bundle.tar.gz` into this campaign directory before importing
-Python. Extract the supplied `q07-balanced-inputs.tar.gz` into the same directory
-(produces `inputs/`). Set `Q07_INPUT_ROOT` to an immutable data root containing
-the eight canonical paths in the manifest. The separate supplied canonical
-archive contains those exact files if unavailable remotely; never regenerate.
+Extract the unchanged `q07-balanced-inputs.tar.gz` here, then the new
+`q07-h128-supplement.tar.gz`. The supplement adds independent bounded evidence and
+completed balanced baseline totals; it does not replace the old trace data.
+Set `Q07_INPUT_ROOT` to the immutable root containing all eight canonical files.
+The unchanged `q07-balanced-canonical.tar.gz` supplies them if missing; do not
+regenerate or substitute geometry. Set `Q07_OUTPUT` to a **new** result directory.
+Prior scientific chunks have a different identity and cannot be reused.
 
-Set `Q07_OUTPUT` to a new campaign result directory. Set both
-`JAX_COMPILATION_CACHE_DIR` and `DRBX_CACHE_DIR` under that campaign folder.
-Use Python 3.12, CPU JAX x64, single-threaded BLAS. Tested with NumPy 2.4.6,
-SciPy 1.17.1, JAX/JAXLIB 0.9.2, netCDF4 1.7.3, h5py 3.16.0, pydantic 2.13.4.
+Use Python 3.12, CPU JAX/JAXLIB 0.9.2, x64, single-threaded BLAS. Dependencies in
+the prior campaign environment remain applicable. Put JAX_COMPILATION_CACHE_DIR,
+DRBX_CACHE_DIR and logs beneath the new run folder. Choose Q07_WORKERS from actual
+CPU affinity and memory on the allocation, with Q07_WORKER_GIB (default 4 GiB)
+and Q07_TOTAL_MEMORY_GIB (usable host budget; includes 2 GiB parent reserve).
 
-```
+```sh
 python campaign.py verify
-python campaign.py preflight
-python campaign.py pilot
+python verification/test_campaign.py
+python campaign.py preflight --workers "$Q07_WORKERS"
+python campaign.py pilot --workers "$Q07_WORKERS"
 python campaign.py run --n 32 --workers "$Q07_WORKERS"
 python campaign.py run --n 48 --workers "$Q07_WORKERS"
 python campaign.py run --n 64 --workers "$Q07_WORKERS"
@@ -44,82 +64,59 @@ python campaign.py analyze
 python campaign.py validate-completion
 ```
 
-Do not run `freeze` remotely: the design is already frozen. Each invocation
-checks it. `verify` hashes every supplied trace, frozen choice array, baseline,
-and canonical geometry/magnetic file. Preflight reproduces 27 saved matched
-owners' independent original/balanced N/O/R actions, and six core/bulk owners.
-The local test suite separately checks row algebra, constants, owner batching,
-volume reductions, checkpoint corruption and independent completion reduction.
+Do not run `freeze` remotely. Parallel preflight checks all 42 bounded owners,
+all 22 states, four BCs, five fields and both spans against independent saved
+N/O/R actions. Ten focused tests cover constants, complete-owner batching,
+volume reductions, exact trace offsets, trace/checkpoint corruption, identical-
+stat rewrites and independent completion reduction. The four-region N64 pilot
+includes fresh short tracing and row construction; its local projection is not
+a remote timing guarantee. See verification/h128/ for readiness evidence.
 
-## Parallelism, resources and recovery
+## Execution, safeguards and recovery
 
-The runner uses node-local spawn processes with dynamic chunk scheduling;
-793 independently resumable complete-owner chunks. It does not use multiple
-nodes. Choose CPU workers from actual allocated CPU affinity and host memory.
-`Q07_WORKER_GIB` defaults to 3 GiB; set `Q07_TOTAL_MEMORY_GIB` to the usable host
-memory budget (the runner reserves an additional 2 GiB for the parent). Maintain
-at least 3 GiB free disk. Local execution is limited to two workers for the
-pilot projection; the remote runner permits an allocation-appropriate count.
-Workers recycle after 24 chunks. Avoid concurrent writers to the same output;
-`run.lock` prevents them. Repeat the same `run` command on interruption: only
-complete payloads with matching identity, checksum, coverage and gates are reused.
+Node-local spawn processes dynamically schedule 793 resumable chunks. Preflight
+and pilot also use spawned workers. Workers recycle after 24 chunks; compiled
+fixed-size material and trace kernels are reused between chunks. There is no
+multi-node distribution and no GPU kernel requirement. Use a GPU allocation
+with CPU computation as selected by the remote setup skill. Keep at least 3 GiB
+free disk. A lock prevents concurrent writers. Resume identical commands into
+the same output directory; verified complete chunks and short traces are reused.
+Do not delete valid chunks on interruption or silently migrate old identities.
 
-No row cache survived the prior campaign: reconstruction rows are rebuilt from
-saved GPU64 endpoints and frozen support choices. Geometry calls shared between
-spans are cached within each batch. No new trajectories are integrated. Unchanged
-velocity/diffusion calculation and expensive diffusion references are omitted.
-The output contains aggregate norms and maximum owner IDs, not all owner actions.
+Required gates: byte identities, complete owners, finite/positive states,
+admissible characteristic split, exact boundary/choice policy, trace validity,
+bounded/global baseline replay <=1e-8 and center-b replay <=1e-10.
+Constant N-O uses 1e-7 at h/32 and 4e-7 at h/128. A pilot bulk row had
+constant slot residual 1.38e-14, amplified to electron errors 4.71e-8 and
+1.85e-7 respectively. Exact constant owner inputs give the same residual.
+The new h/128-only roundoff allowance scales with inverse span; it changes no
+operator arithmetic or scientific replay gate. The initial failed pilot and
+audit are preserved in verification/h128/. Scientific regional/order regressions are
+results, not reasons to tune, stop early or change the policy.
 
-Replay tolerances remain 1e-8; constant N-O stiff-row tolerance 1e-7; the
-previously authorized center-b reference guard is 1e-10. No numerical tolerance
-has been relaxed. Initial canonical/source and finite/positive-state gates,
-complete-owner coverage, frozen choices and trace crossing checks are mandatory.
-Scientific order regressions do not halt or authorize changes.
+Analysis verifies h/32 scalar statistics against the completed balanced campaign
+and h/32 velocity statistics against the previous all-five campaign (original
+18 states only). It produces totals.npz, analysis.json, orders.csv, report.md,
+original_global_replay.json, analysis_receipt.json and completion.json. Completion
+independently reduces all saved chunks and verifies artifact checksums. Preserve
+all output, short traces/receipts, logs, source, manifests and operational
+provenance in one downloadable run folder. Remote work is computation-only;
+scientific interpretation and operator selection happen locally.
 
-The deterministic analysis produces `totals.npz`, `analysis.json`, `orders.csv`,
-`report.md`, `original_global_replay.json`, and `completion.json`. N-O/O-R/N-R
-physical-volume RMS, relative RMS, maxima/owners, signed integrals and orders
-remain separate, as do smooth/short-wave cases and boundary types. Original
-results are independently compared against the prior complete global campaign;
-completion independently reduces all chunks again and verifies artifact hashes.
-Return the whole campaign output folder and operational receipt for local
-scientific interpretation. Conservation/current-phi/SAT, evolution and
-production qualification remain open.
+## Local readiness — 1 October 2026
 
-## Local readiness evidence
+Frozen identity `0a16837968506693afdbc530216dc24911821cb8c7b4558589c870f833bbc659`. All 42 complete-owner bounded replays
+passed with two workers; worst absolute N/O/R difference
+`1.273e-11`. Relocated extraction of the unchanged source
+and input archives plus the supplement passed byte verification and ten tests.
+The four-region N64 pilot projects **131–201 minutes on two local workers**,
+so execution is handed off remotely. Peak worker RSS was 1.21 GiB; statistical
+checkpoint projection 0.46 GiB excludes traces, caches, source and logs.
+No local full global campaign was launched. Remote timings must come from its
+own allocation and pilot. Prior verification files outside `verification/h128/`
+are historical evidence for the preceding campaign, with their original identities.
 
-Final preflight: 33 owners, maximum independent bounded N/O/R replay difference
-5.87e-12. Seven tests passed, including independent full reduction and corruption
-rejection. Two spawned workers matched serial actions exactly. Relocated archive
-extraction verified all input/source hashes and passed the same seven tests.
-The N64 regional pilot projects 102–158 minutes with two local workers, above
-the requested 30-minute limit. No local global run was launched. Peak pilot RSS
-was 1.27 GiB; compressed checkpoint projection about 0.11 GiB before caches and
-logs. See verification/ for machine-readable evidence. These are local pilot
-estimates, not remote timing guarantees.
-
-## Timestamp-independent checksum recovery
-
-The first Perlmutter attempt stopped before numerical preflight: a same-size
-rewrite retained the inode, size, mtime_ns and ctime_ns, causing the metadata-only
-SHA cache to return old content. This was a real integrity-cache defect, not a
-scientific failure or grounds for weakening the regression test.
-
-The runner now hashes current bytes on every checksum request. Stat information
-is only a best-effort concurrent-write check. Large canonical inputs are hashed
-at verification and worker initialization, not in the numerical chunk loop.
-The original seven tests remain, with two deterministic tests for identical-stat
-rewrites and corrupted same-size checkpoints. Numerical code, source bundle,
-input archive, canonical hashes and tolerances are unchanged. Only the runner's
-source digest changes the campaign identity to
-`117daaec352ad2817b3dc9a4c4db5b9f6ee939fb9c4fb1b98a3404fed646694b`.
-The preceding evidence retains its original identity; do not relabel it.
-Recovery evidence is in `verification/hash_recovery/`.
-
-For the reported preflight-only failure, retain the same remote RUN and existing
-immutable inputs. Export the new pinned campaign revision into a separate
-revision directory under RUN, keep the old source/logs/verification receipts,
-and use a new result/log subdirectory. Rerun verify, all nine tests, preflight,
-pilot and then the prescribed global stages. No scientific chunks existed, so
-there is no numerical checkpoint migration. If any chunks are discovered,
-stop rather than silently reusing them under the new identity.
+Two full N64 bulk/wall chunks also passed baseline statistic replay and
+checkpoint reuse with two spawned workers; maximum difference
+6.268e-09 < 1e-8. This is a bounded execution check,
+not a completed global campaign.
