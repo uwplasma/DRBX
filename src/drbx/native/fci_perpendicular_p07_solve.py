@@ -15,6 +15,9 @@ production convention), with an optional Jacobi (diagonal) or user-supplied prec
 * ``solve_p07_dirichlet`` is jit-compatible (``config`` and ``preconditioner`` static; use
   ``solve_p07_dirichlet_jit``). The reported residual is recomputed independently of the solver as
   ``||rhs_eff - A x||_M``.
+* ``solve_p07_dirichlet_with`` is the same solve with the preconditioner given as ``apply(prec_data, r)`` where
+  ``prec_data`` (a pytree of arrays, e.g. a ``PlanePreconditioner``) is a jit *argument*, not a compile-time
+  constant (``apply`` and ``config`` static; use ``solve_p07_dirichlet_with_jit``).
 * ``direct_solve_p07`` is the host (SuperLU) oracle for tests and tolerance studies.
 """
 from __future__ import annotations
@@ -32,7 +35,8 @@ from solvax.krylov import gmres
 
 __all__ = [
     "P07LinearSystem", "P07SolveConfig", "direct_solve_p07", "p07_linear_system",
-    "solve_p07_dirichlet", "solve_p07_dirichlet_jit"]
+    "solve_p07_dirichlet", "solve_p07_dirichlet_jit", "solve_p07_dirichlet_with",
+    "solve_p07_dirichlet_with_jit"]
 
 _PRECONDITIONERS = ("none", "jacobi")
 
@@ -138,6 +142,29 @@ def solve_p07_dirichlet(
 
 solve_p07_dirichlet_jit = jax.jit(
     solve_p07_dirichlet, static_argnames=("config", "preconditioner"))
+
+
+def solve_p07_dirichlet_with(
+    system: P07LinearSystem,
+    rhs: jnp.ndarray,
+    prec_data: Any,
+    *,
+    apply: Callable[[Any, jnp.ndarray], jnp.ndarray],
+    boundary_term: jnp.ndarray | None = None,
+    x0: jnp.ndarray | None = None,
+    config: P07SolveConfig = P07SolveConfig(),
+) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+    """:func:`solve_p07_dirichlet` with the preconditioner ``r -> apply(prec_data, r)``.
+
+    ``prec_data`` is a pytree of arrays (a jit argument of :data:`solve_p07_dirichlet_with_jit`, so large factor
+    arrays are not embedded in the compiled program); ``apply`` and ``config`` are static. Same ``info`` dict.
+    """
+    return solve_p07_dirichlet(
+        system, rhs, boundary_term=boundary_term, config=config, x0=x0,
+        preconditioner=lambda r: apply(prec_data, r))
+
+
+solve_p07_dirichlet_with_jit = jax.jit(solve_p07_dirichlet_with, static_argnames=("apply", "config"))
 
 
 def direct_solve_p07(op: Any, rhs: np.ndarray, bc: Any = None) -> np.ndarray:

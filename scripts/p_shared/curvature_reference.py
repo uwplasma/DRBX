@@ -42,7 +42,7 @@ from drbx.geometry.curvature_autodiff import DEFAULT_MODE
 # frozen step 1-3 oracles and campaigns and must be passed explicitly for that
 DEFAULT_CURVATURE = "autodiff"
 
-_OWN = frozenset({"_wrapped", "_autodiff_k", "_autodiff_mode", "_metric"})
+_OWN = frozenset({"_wrapped", "_autodiff_k", "_autodiff_perp", "_autodiff_mode", "_metric"})
 
 
 class AutodiffCurvatureReference:
@@ -53,6 +53,7 @@ class AutodiffCurvatureReference:
             reference = reference.wrapped
         object.__setattr__(self, "_wrapped", reference)
         object.__setattr__(self, "_autodiff_k", None)
+        object.__setattr__(self, "_autodiff_perp", None)
         object.__setattr__(self, "_autodiff_mode", (str(mode), int(block)))
 
     # -- delegation -----------------------------------------------------
@@ -62,7 +63,7 @@ class AutodiffCurvatureReference:
         return self._wrapped
 
     def __getattr__(self, name: str) -> Any:            # only reached when normal lookup fails
-        if name in ("_wrapped", "_autodiff_k", "_autodiff_mode"):
+        if name in ("_wrapped", "_autodiff_k", "_autodiff_perp", "_autodiff_mode"):
             raise AttributeError(name)
         return getattr(self._wrapped, name)
 
@@ -97,6 +98,29 @@ class AutodiffCurvatureReference:
     def _curvature(self, q: np.ndarray) -> np.ndarray:
         return self.autodiff()(np.asarray(q, dtype=np.float64))
 
+    def autodiff_perpendicular(self):
+        """The :class:`drbx.geometry.curvature_autodiff.AutodiffPerpendicularGeometry` of this reference (cached)."""
+        if self._autodiff_perp is None:
+            from drbx.geometry.curvature_autodiff import autodiff_perpendicular_geometry
+            from drbx.geometry.jax_bfield_evaluator import JaxComponentSplineBFieldEvaluator
+            from drbx.geometry.jax_metric_evaluator import JaxMetricEvaluator
+
+            ref = self._wrapped
+            jax_metric = JaxMetricEvaluator.from_metric_evaluator(ref.metric_evaluator)
+            jax_bfield = JaxComponentSplineBFieldEvaluator.from_evaluator(ref.bfield_evaluator)
+            mode, block = self._autodiff_mode
+            object.__setattr__(self, "_autodiff_perp", autodiff_perpendicular_geometry(
+                jax_metric, jax_bfield, float(ref.B0), mode=mode, block=block))
+        return self._autodiff_perp
+
+    def perpendicular_geometry_autodiff(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """``(tensor (Q, 3, 3), divergence (Q, 3))`` of ``J (g^ij - b^i b^j)`` by autodiff.
+
+        Deliberately separate from ``_perpendicular_geometry`` (which stays the delegated finite-difference one, so
+        artifact builds keep their FD ``p07_raw_divergence``).
+        """
+        return self.autodiff_perpendicular()(np.asarray(points, dtype=np.float64))
+
     def __repr__(self) -> str:
         return f"AutodiffCurvatureReference({self._wrapped!r})"
 
@@ -112,6 +136,25 @@ def wrap_reference(reference: Any, curvature: str = DEFAULT_CURVATURE) -> Any:
 
 
 CURVATURE_CHOICES = ("fd", "autodiff")
+
+
+PERPENDICULAR_GEOMETRY_METHODS = ("fd", "autodiff")
+
+
+def perpendicular_geometry(reference: Any, points: np.ndarray, method: str = "fd"):
+    """``(tensor, divergence)`` of the perpendicular flux tensor ``J (g^ij - b^i b^j)``.
+
+    ``method="fd"`` is the reference's own ``_perpendicular_geometry`` (plain or wrapped reference); ``"autodiff"``
+    uses :meth:`AutodiffCurvatureReference.perpendicular_geometry_autodiff` (a plain reference is wrapped first).
+    """
+    if method not in PERPENDICULAR_GEOMETRY_METHODS:
+        raise ValueError(f"method must be one of {PERPENDICULAR_GEOMETRY_METHODS}, got {method!r}")
+    points = np.asarray(points, dtype=np.float64)
+    if method == "fd":
+        return reference._perpendicular_geometry(points)
+    if not isinstance(reference, AutodiffCurvatureReference):
+        reference = AutodiffCurvatureReference(reference)
+    return reference.perpendicular_geometry_autodiff(points)
 
 
 def face_geometry(reference: Any, points: np.ndarray):
