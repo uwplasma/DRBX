@@ -43,39 +43,7 @@ _FACTOR_DTYPES = {"float64": np.float64, "float32": np.float32}
 # ---------------------------------------------------------------------------
 # owner ring / plane / angular key
 # ---------------------------------------------------------------------------
-def owner_layout(raw_to_owner: np.ndarray, n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """``(owner_ring, owner_plane, owner_theta)`` of every owner from ``raw_to_owner`` (raw cell ``(i n + j) n + k``).
-
-    ``ring = i`` and ``plane = k`` (both must be shared by all raw cells of an owner, else ``ValueError``); ``theta`` is
-    the smallest raw theta index ``j`` of the owner, an angular key whose order within one ring and plane is the angular
-    order.  ``raw_to_owner`` has shape ``(n^3,)`` (``-1`` marks raw cells without an owner); the owners are
-    ``0 .. max(raw_to_owner)`` and each must own at least one raw cell.
-    """
-    n = int(n)
-    raw = np.asarray(raw_to_owner).reshape(-1)
-    if raw.shape != (n ** 3,):
-        raise ValueError(f"raw_to_owner must have shape ({n ** 3},), got {raw.shape}")
-    raw = raw.astype(np.int64, copy=False)
-    valid = raw >= 0
-    if not valid.any():
-        raise ValueError("raw_to_owner has no valid entry")
-    n_owners = int(raw.max()) + 1
-    cell = np.arange(n ** 3, dtype=np.int64)
-    ii, jj, kk = cell // n ** 2, (cell // n) % n, cell % n
-    owners = raw[valid]
-    ring = np.full(n_owners, -1, dtype=np.int64)
-    plane = np.full(n_owners, -1, dtype=np.int64)
-    ring[owners] = ii[valid]
-    plane[owners] = kk[valid]
-    if np.any(ring < 0):
-        raise ValueError("some owners have no raw cell in raw_to_owner")
-    if not np.array_equal(ring[owners], ii[valid]):
-        raise ValueError("raw cells of one owner do not share the same ring")
-    if not np.array_equal(plane[owners], kk[valid]):
-        raise ValueError("raw cells of one owner do not share the same eta plane")
-    theta = np.full(n_owners, n, dtype=np.int64)
-    np.minimum.at(theta, owners, jj[valid])
-    return ring, plane, theta
+from .owner_plane_layout import owner_layout
 
 
 # ---------------------------------------------------------------------------

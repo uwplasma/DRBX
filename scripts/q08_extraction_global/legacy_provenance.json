@@ -1,0 +1,29 @@
+{
+  "baseline": "b174648470952001cdc03e98d292639a12eec71f",
+  "files": {
+    "src/drbx/native/q_parallel_characteristic.py": "5fca46c8c607c3a02bca6f4073fac39626be728bf4ddfbc5bf90785a6305fca6",
+    "src/drbx/native/q_parallel_current_phi.py": "5cc21b394c31a213b5cc3668b78f1bb0c6fcfeee6f8f3c48c79aac03b7bb7c07",
+    "src/drbx/native/q_parallel_material.py": "e6b6db4b152cf7ed4e6be94c664c3dc57b1990628f29932431e85c7a2068d49c",
+    "src/drbx/native/q_parallel_gradient.py": "aa4f0aec45b95da58b0b1461ad9ae3024701214fddeb42fb31d7da91ce4a16b2",
+    "src/drbx/native/q_parallel_rhs.py": "9a75ab2e6c05f33ae846fe477face8890a3650375134df8d673fa08b9eb79dac",
+    "src/drbx/native/q_parallel_vorticity.py": "61332b8da02d0433dfaa34078b4464384926cf1a2f04bb3c65ca4908697f58e3",
+    "src/drbx/native/q_parallel_divergence.py": "40ea5df1ce417b8d0d2a2b70af1d750c0e48f7c2952a566ec34cde5d1aa00ee5",
+    "src/drbx/native/q_traced_gradient.py": "5d1677c9185d1902c5b90a61f6bf2ec626fc7bbbf3a3699ab4d916727cd53427",
+    "src/drbx/native/q_parallel_channels.py": "91f8493130ccf0702713220af74b7a0553145050c8246a4ec6b2325591ee8711",
+    "src/drbx/native/q_parallel_transport.py": "b8785e1c11d2f49343270f0bd85a1752fb7927c0f91ef26abbba5a8cd008e37d",
+    "src/drbx/native/q_parallel.py": "7c7d5daa5c826dd094535d98f36b58127ea0444c019e1a22587fb3598050349a",
+    "src/drbx/stencils/q_parallel_material.py": "deef4b271687047a2c0cb7df6c2c245ea5ed6ff984ba035ed1f40b0bd1d42f98",
+    "src/drbx/stencils/q_parallel_wall.py": "8898664bb474c8d5078ce8c04e07068f8fea9ec389589ed07401f78959949c8a",
+    "src/drbx/stencils/q_parallel_primitives.py": "180e50d0dcce0e976f0bb18d6402ccdb794c3506d28577c2da53ecec1cb3051d",
+    "src/drbx/stencils/q_parallel_gradient.py": "b331c48950793e8204f6c49774f2c7982ee4894ac6ec2f5c10f94765133034a7",
+    "src/drbx/stencils/q_parallel_support.py": "a1bbeb5bc820f5cde1f32aa7368dea5d5c748cffa899b71961e3e75f2eea9609",
+    "src/drbx/stencils/q_parallel_rhs.py": "f1f535a0e2575c5c1742d230e62583d80f729a3b10a6116386f36b179a39a657",
+    "src/drbx/stencils/q_parallel_divergence.py": "db5a4d9d63e494d8ed6363eb0c6404edd341452569a54f52f9ca0ffb42db6209",
+    "src/drbx/stencils/q_traced_gradient.py": "8d19bbc4ab443ce2647e83b965f3be58d514daec15688f5eb83bcdf2676e5bbc",
+    "src/drbx/stencils/q_parallel_channels.py": "ffda22bc24128b07416b4e6354270dd356048e0ba8ce74f8286ca0eb3fc4b693",
+    "src/drbx/stencils/q_parallel_transport.py": "7e7363cde17396cfc01196a9249e639e40c2f7118242e4427a7416843056693a",
+    "src/drbx/stencils/q_parallel.py": "d4803257c8c5bd9621b425bfb7c8d1b67a3ff83a653b954938b8fd89830abf40",
+    "src/drbx/native/fci_parallel_production_flux.py": "e99b63577ced87c9b1bdb5ab92ed9f66ae3d908b87dd3e26165151fccb723abe",
+    "src/drbx/native/characteristic_wall_residual.py": "aef576c954d51f2b18e6f94ba7bfde6a1fede73b38c0f3d6663f690e6150f946"
+  }
+}
