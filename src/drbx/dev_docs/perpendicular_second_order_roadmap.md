@@ -2104,7 +2104,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K, q2 (P05/P06) and inner donor support C3 adopted 30 September and locked 1 October after the remote C1/C2/C3 campaign; the bundle is complete and final. Standalone campaign A dropped (user decision, 30 September): see step 4. Step 4 complete (1 October). Step 5 complete (2 October): φ solver chosen and the 5.3 combined campaign passed; φ is Dirichlet only, with Neumann-type φ in P10. Open: step 6 (transverse-wave check, matched single-device/η-sharded execution, N64 geometry/reference recheck), a one-time artifact rebuild and reference re-freeze if the B-field evaluator changes, and step 7. Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K, q2 (P05/P06) and inner donor support C3 adopted 30 September and locked 1 October after the remote C1/C2/C3 campaign; the bundle is complete and final. Standalone campaign A dropped (user decision, 30 September): see step 4. **P08 passed (user decision, 2 October 2026); see step 7.** Step 4 complete (1 October). Step 5 complete (2 October): φ solver chosen and the 5.3 combined campaign passed; φ is Dirichlet only, with Neumann-type φ in P10. Open: step 6 (transverse-wave check, matched single-device/η-sharded execution, N64 geometry/reference recheck), a one-time artifact rebuild and reference re-freeze if the B-field evaluator changes, and step 7. Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2452,7 +2452,7 @@ Steps:
        - The ψ solves take identical iteration counts, with ‖Δψ‖_M/‖ψ‖_M ≤ 3e-16.
        - Timing in that run was not a scaling measurement (forced host devices). One single-device RHS evaluation took 41 s at N64, a P09 performance item.
 7. **Acceptance record and roadmap update.**
-   - **P08 acceptance record: draft, 2 October 2026; awaiting the user's acceptance.**
+   - **P08 acceptance record: P08 passed (user decision, 2 October 2026).** The core-band limitation stays under investigation and is re-evaluated with its report.
      - **Final operator:**
        - P05/P05N bracket, P06/P06N curvature and P07/P07N diffusion/polarization on the row artifact;
        - autodiff K, q2 faces for P05/P06 (P07 at q3), inner support C3 (`fixed_radius`);
