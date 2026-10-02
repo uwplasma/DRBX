@@ -192,6 +192,8 @@ class FacePlan:
     K: np.ndarray                       # (Fc, Qf, 3)
     owner_volume: np.ndarray            # (n_owners,)
     has_missing_side: bool              # any face lacks a side row (static: fallback gather is skipped otherwise)
+    wall_faces: np.ndarray | None = None  # (Wn,) int32, ascending face indices of ``wall`` (static size under jit);
+    #                                       sharded plans pad it with the out-of-range index ``Fc`` (a no-op entry)
 
     @property
     def nodes(self) -> int:
@@ -507,6 +509,7 @@ def lower_perpendicular_plan(*, grid: LoaderGrid, census: FaceCensus, geometry: 
         axis = census.axis[face_rows]
         p07_id = census.p07_id[face_rows]
         collapsed = census.collapsed_r0[face_rows]
+        wall = (axis == 0) & (census.i[face_rows] == n)
         faces = (fplan, n2, n3, fallback_points, missing, dict(
             common_value_slot=common.astype(np.int32), common_gradient_slot=common_g.astype(np.int32),
             lower_slot=np.maximum(lower, 0).astype(np.int32), upper_slot=np.maximum(upper, 0).astype(np.int32),
@@ -516,7 +519,7 @@ def lower_perpendicular_plan(*, grid: LoaderGrid, census: FaceCensus, geometry: 
             census_row=face_rows, p07_id=p07_id.astype(np.int64), axis=axis.astype(np.int32),
             lower_owner=census.owner_lo[face_rows].astype(np.int32),
             upper_owner=census.owner_hi[face_rows].astype(np.int32),
-            wall=(axis == 0) & (census.i[face_rows] == n), collapsed=collapsed,
+            wall=wall, wall_faces=np.flatnonzero(wall).astype(np.int32), collapsed=collapsed,
             p07_valid=(p07_id != NO_ID) & ~collapsed, face_multiplier=np.ones(Fc),
             h=np.asarray(geometry.p05_face_h), jac=np.abs(np.asarray(geometry.p05_face_jacobian)),
             weight=np.asarray(geometry.p06_face_weight), J=np.asarray(geometry.p06_face_J),

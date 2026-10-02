@@ -193,3 +193,14 @@ def test_synthetic_sharded_rhs_equals_single_device(synthetic, kinds):
     for name in ("floor_hits", "spectral_fallback"):
         assert sum(entry["Sz1"]["diagnostics"][name]) == single[name]
         assert sum(entry["Sz4"]["diagnostics"][name]) >= single[name]
+    # the wall solve restricted to the (padded) wall faces is bitwise the solve on every face, on one device and sharded
+    assert entry["wall_faces_bitwise_single"]
+    assert all(entry[f"Sz{sz}"]["wall_faces_bitwise"] for sz in (1, 2, 4))
+
+
+def test_synthetic_sharded_uneven_wall_faces_are_padded_and_bitwise_inert(synthetic):
+    uneven = synthetic["uneven_wall"]
+    assert len(set(uneven["wall_counts"])) > 1 and uneven["padded_entries"] > 0   # unequal wall counts: padded no-op entries
+    assert uneven["wall_faces_shape"][1] == max(uneven["wall_counts"])
+    assert uneven["bitwise_vs_all_faces"]
+    assert uneven["max_rel_vs_single"] <= 1e-12
