@@ -2405,7 +2405,19 @@ Steps:
        - nearest-28 gives the lowest pooled error but keeps one coarse-interval rebound;
        - neither dominates ringwise uniformly. At the first singleton (N64, y, λ = 2), ringwise gives 1.2e-5, nearest-40 gives 1.1e-4 and nearest-28 gives 3.7e-5.
        - This is not adopted for P. It would change the qualified reconstruction and require re-qualifying P05–P07 against their oracles.
-     - **Planned checks** (bounded first, then campaign-level if a change is proposed):
+     - **Status, 2 October 2026:**
+       - Planned check 2 was done by the C1/C2/C3 remote campaign (C3 locked).
+       - Planned check 1 was done at full grid by `scripts/p08_step6_global/` ([local analysis](../../../../work/p08-step6-global-b1746484-20261002T191943Z-11690/local_analysis.md)).
+     - **Full-grid transverse-wave result:**
+       - **Fields:** the transverse field set has Q waves for n, Te and Ti (1 + 0.5 × wave), and degree-4 harmonics × B(u²) at the switch for ω and φ.
+       - **Gates and headline criterion:** both pass.
+       - **Global orders:** switch-localized content converges at about third order globally (total N−R at N64 is 4e-3 to 7e-3, orders 2.9–3.4), against about fifth order for the catalogue. φ_h is at orders 4.9 / 3.4.
+       - **Bands:** the weakness is confined to the documented C3 exceptions.
+         - u 0.12–0.21: ω total orders 1.3 / 1.6; ψ N−O orders 2.5 / 1.0.
+         - u < 0.06: ω total orders 1.6 / 1.3.
+       - Bands u ≥ 0.21 converge at 2.7 or better. No new defect appeared.
+       - Acceptance, or a new inner-support candidate, is the user's decision.
+     - **Planned checks** (historical):
        1. Add a transverse-wave MMS control with order-one degree-≥4 Cartesian content at the switch radius. Score it per layer and at fixed coordinates across the switch, reporting the transverse and η parts separately, alongside the global gates.
        2. Evaluate the Q support candidates in P's own assemblies at the same owners. Priority is P07 N−O/N−R at switch_plus1, and the first-singleton regression.
        3. Only then decide on a P support or switch-policy change, then re-qualify and re-freeze the row artifact.
@@ -2426,7 +2438,11 @@ Steps:
        - The inner product is a `psum`; solvax routes every reduction through it.
        - The per-plane preconditioner factors are slices of the global ones.
        - **Local result** on the N32/N48 exports: the same 10 (smooth) or 12 (white-noise) iterations at every Sz, with ‖Δφ‖_M/‖φ‖_M ≤ 3e-15.
-     - **Remaining:** the full-grid matched RHS and φ solve at N32/N48/N64 on the `compact_c3` artifacts, single device against Sz ∈ {2, 4, 8} (remote).
+     - **Full-grid matched check: passed, 2 October 2026** (`scripts/p08_step6_global/`, commit b1746484, job 59221294; [local analysis](../../../../work/p08-step6-global-b1746484-20261002T191943Z-11690/local_analysis.md)).
+       - Run on the `compact_c3` artifacts at N32/N48/N64, single device against Sz = 2, 4, 8.
+       - The RHS is **bitwise equal** for `main_phi_dirichlet` and `transverse_dirichlet`, every field and term.
+       - The ψ solves take identical iteration counts, with ‖Δψ‖_M/‖ψ‖_M ≤ 3e-16.
+       - Timing in that run was not a scaling measurement (forced host devices). One single-device RHS evaluation took 41 s at N64, a P09 performance item.
 7. **Acceptance record and roadmap update.**
 
 Pending decisions:
