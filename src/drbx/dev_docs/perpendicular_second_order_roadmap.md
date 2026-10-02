@@ -2100,7 +2100,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K, q2 (P05/P06) and inner donor support C3 adopted 30 September and locked 1 October after the remote C1/C2/C3 campaign; the bundle is complete and final. Standalone campaign A dropped (user decision, 30 September): see step 4. Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K, q2 (P05/P06) and inner donor support C3 adopted 30 September and locked 1 October after the remote C1/C2/C3 campaign; the bundle is complete and final. Standalone campaign A dropped (user decision, 30 September): see step 4. Step 4 complete (1 October). Step 5 complete (2 October): φ solver chosen and the 5.3 combined campaign passed; φ is Dirichlet only, with Neumann-type φ in P10. Open: step 6 (transverse-wave check, matched single-device/η-sharded execution, N64 geometry/reference recheck), a one-time artifact rebuild and reference re-freeze if the B-field evaluator changes, and step 7. Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2212,8 +2212,10 @@ Steps:
        - The P05N face term changes by a constant factor of 2–3×, converging at the same order: the known q2 effect.
        - P06 legacy changes by up to 1.55× in the C3 interface band (the documented exception).
        - At rings 5–10, P06N error drops from about 5e-4 to about 1e-5 (C3).
-     - The one apparent regression, P06N at the N64 physical wall (ratio 2.34), is the frozen reference's finite-difference K. At 8 wall points (one per field period, stellarator-symmetric) FD K is off by 3e-4 at step 2e-4 and converges onto autodiff as the step shrinks. The old operator carried the same error and cancelled it ([check](../../../../work/p08_p06n_wall_n64_20261001/README.md)). It disappears at the step-5.3 re-freeze.
-     - **The FD-curvature option stays until that re-freeze.** The step-1/2 runners and the frozen-reproduction tests pin `curvature="fd"`. After 5.3 it can be retired from `p_shared` and the provider.
+     - The one apparent regression, P06N at the N64 physical wall (ratio 2.34), is the frozen reference's finite-difference K. At 8 wall points (one per field period, stellarator-symmetric) FD K is off by 3e-4 at step 2e-4 and converges onto autodiff as the step shrinks. The old operator carried the same error and cancelled it ([check](../../../../work/p08_p06n_wall_n64_20261001/README.md)). Resolved by the step-5.3 re-freeze: the references now use autodiff K as well.
+     - **The FD-curvature option is kept.** New campaigns use autodiff K, and so do the 5.3 references. Removing FD would break:
+       - replay of the accepted campaigns: the step-1/2 runners, `replay_units`, `curvature_gates` and the frozen-reproduction tests all pin `curvature="fd"`;
+       - artifact builds, which still compute the perpendicular divergence by FD.
    - **Why:** a prescribed-φ campaign on its own would be repeated anyway. Its unique value, separating forward-operator error from φ-solve error, comes from a prescribed-φ arm inside the step-5 campaign. The full perpendicular RHS (Vi/Ve, sheath and wall BCs) will need its own full-grid campaign later.
    - **Remote:** build N32/N48/N64 artifacts on the final operator (autodiff K, q2 for P05/P06, the chosen inner support). Clean-export check first. Step 5 needs these artifacts anyway.
    - **Smoke only, no MMS reductions:**
@@ -2286,7 +2288,7 @@ Steps:
      - **Arms:** prescribed φ̄, and solved φ. The solved arm solves P07_D ψ_h = Ō(ψ) for ψ = φ + τTi, using the exact wall trace of ψ and the exact cell-average flux Ō, then sets φ_h = ψ_h − τT̄i. The measurement uses rtol 1e-11; the production default is 1e-8.
      - **Re-frozen references** (bracket, curvature, diffusion O_q3) are computed with autodiff K, and the midpoint reference of ψ with the autodiff divergence.
      - **Gates:** a discrete-consistency solve must recover ψ̄ to ≤ 1e-8 relative, every solve must converge, and every term must be finite. The headline order is informational; the user decides acceptance.
-     - **Timing:** run it once the B-field evaluator timing is settled (see below).
+     - **Timing:** 5.3 ran on the current canonical evaluator. An evaluator change triggers one rebuild and re-freeze (see below).
    - **Magnetic-field evaluator (Q path finding, 1 October 2026; [Q roadmap](parallel_second_order_roadmap.md), "Q07 sharp geometry feature" and "Compact magnetic evaluator"; [qualification](../../../../work/compact_bfield_qualification_20261001/report.md)).**
      - **The finding.** The canonical MAKEGRID B evaluator's periodic cubic toroidal prefilter couples all toroidal planes. Sharp field structure from planes whose R,Z samples lie outside the wall (near the coils) therefore leaks into interior queries.
        - The spline's holdout B error reaches 0.044 T at most. Its div B is 4.2e-3 RMS and 0.12 T/m at most.
@@ -2298,10 +2300,10 @@ Steps:
        - The 8-point FD-K wall feature is ~0.3° from the nearest MAKEGRID toroidal plane, so it is presumably an R/Z-spline effect, which `compact_c3` keeps. That is not verified.
      - **Plan.**
        - Step-5 solver studies on the exported P07 continue. Conditioning, preconditioners and the null-space structure do not depend on ~0.2% B changes.
-       - **Step 5.3, and any step-4 artifact rebuild, waits for the evaluator decision.** Canonical adoption changes geometry identity, so the artifacts would be rebuilt and the references re-frozen once, on the final evaluator.
+       - **Step 5.3 ran on the current canonical evaluator (2 October).** If `compact_c3`, or another evaluator, becomes canonical, the geometry identity changes. Then rebuild the step-4 artifacts and re-run the 5.3 campaign once on the final evaluator to re-freeze the references. Fold this into the final P08 acceptance campaign. The decision is pending on the Q path.
        - Candidate P contribution: a bounded matched spline/`compact_c3` replay of P07N and P06N (N−O / O−R / N−R) at core, transition, bulk and wall owners, as the Q roadmap's next item asks.
 6. **Remaining gates.**
-   - A bounded geometry/reference recheck on N64.
+   - A bounded geometry/reference recheck on N64. Candidate evidence (not yet accepted): the [N64 P06N wall check](../../../../work/p08_p06n_wall_n64_20261001/README.md) and the [reference FD check](../../../../work/p08_step5_reference_fd_check_20261001/README.md).
    - **Scoped change: autodiff curvature K (user decision, 28 September).** Compute K = (B/2J)∇×(b_cov/B) with `jax.jacfwd` through the JAX metric and B-field evaluators. These are the same interpolants the NumPy reference uses, and they agree to 4e-15. The frozen fourth-order finite difference it replaces uses step 2e-4, shrunk near u = 0 and u = 1, with a one-sided rule at the wall.
      - [Comparison](../../../../work/p08_autodiff_curvature_20260928/) on N32 raw midpoints and face nodes:
        - median relative difference 3e-11, 99th percentile ~1e-7, max 1.5e-5;
@@ -2325,27 +2327,10 @@ Steps:
      - Implementation: host q2 = frozen `face_chunk(order=2)` to 1e-14; JAX q2 = host q2 (29/29).
      - Combined RHS: G3.3 at q2 converges with fit 1.
      - Cost: the P06 face-apply time halves.
-     - **Adopted 30 September 2026 (user decision): the default is `face_quadrature="q2"` for P05/P06, and P07 stays q3** (`p_shared.face_quadrature.DEFAULT_FACE_QUADRATURE`).
+     - **Adopted 30 September 2026 (user decision): the default is `face_quadrature="q2"` for P05/P06, and P07 stays q3** (`p_shared.face_quadrature.DEFAULT_FACE_QUADRATURE`). Earlier bounded wall-weighted evidence: [28 September report](../../../../work/p08_face_quadrature_q2_20260928/report.md).
        - The frozen step-1/step-2 runners, `replay_units`, `curvature_gates` and the frozen-reproduction tests pin `face_quadrature="q3"`.
        - Explicit q3 policies and identities are exactly the historic ones.
        - References are re-frozen once, after the bundle, through the combined full-grid campaign (step 5.3).
-   - **Candidate, not adopted: q2 (2×2 Gauss) face quadrature.** The q3 face rule is part of the qualified operator action. The reconstruction (the moment functional) is independent of it: the nodes are only where the reconstruction and metric are evaluated to integrate the face flux. A one-point (midpoint) face rule has not been tested. The 25 September contract kept q3 faces by choice; what failed then was the P05 face/cell volume formulation. A midpoint rule is consistent with the second-order target but leaves no margin above the gate, and it samples near-wall coil ripple at a single phase. q2 is the tested reduction.
-     - q2 has 4 nodes instead of 9. What that saves depends on the operator:
-       - **P05 and P06 (nonlinear):** they need per-node rows at runtime, so both runtime face cost and per-node artifact rows drop by 2.25×.
-       - **P07 (linear):** it is precontracted into one integrated row per face, so q2 saves build time only.
-     - Recommendation, not a decision: keep P07 at q3. Consider q2 for P05/P06 only.
-     - [Bounded evidence](../../../../work/p08_face_quadrature_q2_20260928/report.md), 28 September: 57 wall-weighted owners per grid (48 wall-adjacent), all incident faces, N32/N48/N64. The q3 recompute reproduces the archived outputs.
-       - The q2 − q3 delta converges at 2.3–8, and it stays below half of the archived q3 N−R error at those owners.
-       - The low-degree P05N regression pair (b1×e3), the asymptotic indicator: the delta converges at about 3, the same order as the error, at a flat 44% of it. q2 changes the constant, not the order.
-       - Rich fields: the delta decays at about 3 against an error decaying at about 5 (pre-asymptotic), so its share rises to 0.25 at N64.
-       - The constant field stays exact.
-     - Coverage:
-       - P05N covers the upwind jump and P06N the characteristic correction; these are the only face-quadrature terms in those operators.
-       - P07N covers only the boundary families 1/2/4. The regular families 0/3/5/6/7, which are most P07 faces, are untested, because `prepare_integrated_face_rows` hard-codes 9 nodes.
-     - Before adoption:
-       1. Test the P07 regular families at q2.
-       2. Run a global (not wall-weighted) check.
-       3. Re-qualify the affected operators against their frozen oracles. Since step 1 must replay the accepted campaigns, the step-1 artifact stays at q3.
    - **Inner donor support: C3 locked, 1 October 2026** ([design](../../../../work/p08_donor_support_c1_20260930/design.md)). User decision: evaluate C1 only against the current C0.
      - C1 (`inner_support="last_aggregate"`) is Q's layout with P's own coupled quartic fit. The coupled fit is used through the last agglomerated ring, so the switch sits at a fixed radius (after ring 10/15/21).
      - Tested with Q's 26-field catalogue and a short-wave (λ = 0.5, 0.25) response report. The default stays C0 (`"profile7"`) until a decision.
@@ -2389,7 +2374,7 @@ Steps:
 
 Pending decisions:
 - **Neumann closure in the harness.** Proposed: the qualified P-path point rows. Reconciling them with production's physical halos belongs to P09 integration.
-- **The combined catalogue**, frozen before evaluation.
+- **The combined catalogue**, frozen before evaluation. Resolved for step 5.3: `scripts/p08_step5_combined/configuration.json`.
 
 Carry-forwards:
 - the production wall model (deferred to full RHS wiring, user decision 30 September).
