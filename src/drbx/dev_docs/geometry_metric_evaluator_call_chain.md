@@ -154,3 +154,41 @@ Additional toroidal invariants:
   covers wall alignment, initialization, and eta projection.
 - [`tests/test_simulate_hsx_blob_toroidal_geometry.py`](../../../tests/test_simulate_hsx_blob_toroidal_geometry.py)
   covers the driver topology contract.
+
+## Experimental compact toroidal magnetic interpolation
+
+`bfield_evaluator_from_makegrid(..., toroidal_method="compact_c2")` selects
+an opt-in six-plane toroidal Hermite interpolant. `compact_c3` selects an
+eight-plane alternative. The default remains `spline`; neither compact path
+is wired into the canonical geometry producer or production driver defaults.
+Both require `method="cubic"` and `extrapolate=False`.
+
+For a native interval `[phi_i, phi_{i+1}]`, C2 constructs a quintic from the
+values and first/second derivative estimates at both endpoints. Each nodal
+jet uses the same centered five-plane polynomial differentiation formula in
+both adjacent intervals. The combined support is `i-2,...,i+3`. C3 uses
+first through third derivatives from seven-plane nodal formulas, a septic
+interval polynomial, and support `i-3,...,i+4`. The plane indices wrap across
+the field-period seam. No toroidal prefilter is applied; preparation filters
+each plane only in R/Z, retaining the previous reflected cubic R/Z behavior.
+C2/C3 refer to **toroidal** derivative continuity; the full tensor interpolant
+retains C2 continuity in R/Z. These linear interpolants reproduce native
+samples, but do not enforce `div B = 0` or monotonicity.
+
+The host evaluator and `JaxComponentSplineBFieldEvaluator` use the same
+compact weight contract. The JAX state stores the toroidal method as static
+PyTree metadata, so compilation distinguishes the coefficient interpretation.
+Any external persisted geometry/cache identity must also include this option
+before using it outside an explicit diagnostic. Canonical traces generated
+with a different evaluator cannot silently be reused as this evaluator's
+traces. Plasma reconstruction and toroidal magnetic interpolation are
+separate operations.
+
+Verification is in `tests/test_compact_toroidal_bfield.py`: shared jets,
+periodicity, source locality, native-plane/RZ parity, smooth refinement,
+MAKEGRID current conventions, and JAX value/derivative agreement. These
+algebraic tests do not establish physical HSX field accuracy between samples.
+The compact candidates require real-HSX qualification before default adoption.
+Hermite interpolation and differentiation of local interpolating polynomials
+are standard constructions; see [NIST DLMF interpolation](https://dlmf.nist.gov/3.3.vi)
+and [numerical differentiation](https://dlmf.nist.gov/3.4.i).

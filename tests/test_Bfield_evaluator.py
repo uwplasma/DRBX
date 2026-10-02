@@ -405,3 +405,15 @@ def _cli_main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_cli_main())
+
+
+@pytest.mark.parametrize('mode', ['compact_c2', 'compact_c3'])
+def test_makegrid_loader_preserves_current_semantics(tmp_path, mode):
+    from drbx.geometry.Bfield_evaluator import bfield_evaluator_from_makegrid
+    path = tmp_path/'field.nc'
+    reference = _write_synthetic(path, mgrid_mode='R')
+    h = bfield_evaluator_from_makegrid(path, toroidal_method=mode)
+    grid = np.stack(np.meshgrid(h.phi,h.Z,h.R,indexing='ij'),axis=-1)[...,[2,0,1]]
+    assert h.toroidal_method == mode
+    np.testing.assert_allclose(h.evaluate_cylindrical(grid), _expected_field(reference),atol=5e-13)
+    np.testing.assert_array_equal(h.currents, [1.,1.])

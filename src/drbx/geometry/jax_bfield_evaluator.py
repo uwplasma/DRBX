@@ -53,6 +53,7 @@ class JaxComponentSplineBFieldEvaluator:
     dZ: float
     pad: int
     method: str = "cubic"
+    toroidal_method: str = "spline"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "R", _as_x64(self.R))
@@ -68,6 +69,11 @@ class JaxComponentSplineBFieldEvaluator:
             raise ValueError("coefficients must contain three field components")
         if self.method not in {"linear", "cubic"}:
             raise ValueError("method must be 'linear' or 'cubic'")
+        if self.toroidal_method not in {"spline", "compact_c2", "compact_c3"}:
+            raise ValueError("unknown toroidal_method")
+        if self.toroidal_method != "spline":
+            if self.method != "cubic" or self.phi.size < 2 * int(self.toroidal_method[-1]) + 2:
+                raise ValueError("compact toroidal support requires cubic R/Z and enough planes")
         if self.pad != (1 if self.method == "linear" else 4):
             raise ValueError("pad is inconsistent with interpolation method")
         if self.R.ndim != 1 or self.phi.ndim != 1 or self.Z.ndim != 1:
@@ -94,12 +100,13 @@ class JaxComponentSplineBFieldEvaluator:
             float(self.dZ),
             int(self.pad),
             self.method,
+            self.toroidal_method,
         )
         return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        nfp, period, dR, dphi, dZ, pad, method = aux_data
+        nfp, period, dR, dphi, dZ, pad, method, toroidal_method = aux_data
         # Keep reconstruction valid for abstract placeholders used by
         # ``jit.lower``; validation already occurred at producer conversion.
         instance = object.__new__(cls)
@@ -108,8 +115,8 @@ class JaxComponentSplineBFieldEvaluator:
         object.__setattr__(instance, "coefficients", tuple(children[3:6]))
         object.__setattr__(instance, "currents", children[6])
         for name, value in zip(
-            ("nfp", "period", "dR", "dphi", "dZ", "pad", "method"),
-            (nfp, period, dR, dphi, dZ, pad, method),
+            ("nfp", "period", "dR", "dphi", "dZ", "pad", "method", "toroidal_method"),
+            (nfp, period, dR, dphi, dZ, pad, method, toroidal_method),
         ):
             object.__setattr__(instance, name, value)
         return instance
@@ -151,6 +158,7 @@ class JaxComponentSplineBFieldEvaluator:
             dZ=evaluator._dZ,
             pad=evaluator._pad,
             method=evaluator.method,
+            toroidal_method=evaluator.toroidal_method,
         )
 
     # A more discoverable spelling for callers that use the source class name.
@@ -165,6 +173,12 @@ class JaxComponentSplineBFieldEvaluator:
     def _interpolate(self, coordinates: jax.Array) -> jax.Array:
         """Interpolate flattened ``(phi, Z, R)`` coordinates pointwise."""
 
+        if self.toroidal_method != "spline":
+            from .compact_toroidal import interpolate_compact
+
+            return interpolate_compact(
+                coordinates, self.coefficients, int(self.toroidal_method[-1]), jnp
+            )
         order = 1 if self.method == "linear" else 3
         if order == 1:
             offsets = jnp.arange(2, dtype=jnp.int32)

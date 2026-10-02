@@ -96,6 +96,11 @@ class ComponentSplineBFieldEvaluator(BFieldEvaluator):
         tensor-product cubic evaluator, avoiding the prohibitively large
         global coefficient solve of ``RegularGridInterpolator(method="cubic")``
         for production MAKEGRID files.
+    toroidal_method:
+        "spline" retains the periodic cubic prefilter (default). Experimental
+        "compact_c2"/"compact_c3" use six/eight raw toroidal planes and shared
+        Hermite jets, with C2/C3 toroidal continuity. R/Z remain cubic splines;
+        neither option enforces div B = 0. No canonical/default change implied.
     extrapolate:
         If false, queries outside the R/Z source box raise ``ValueError``.
         Toroidal angles are always wrapped periodically.
@@ -112,6 +117,7 @@ class ComponentSplineBFieldEvaluator(BFieldEvaluator):
         currents: Any = None,
         method: str = "cubic",
         extrapolate: bool = False,
+        toroidal_method: str = "spline",
     ) -> None:
         self._R = _axis(R, "R")
         self._phi = _axis(phi, "phi")
@@ -122,6 +128,14 @@ class ComponentSplineBFieldEvaluator(BFieldEvaluator):
             raise ValueError("nfp must be a positive integer")
         if method not in {"linear", "cubic"}:
             raise ValueError("method must be 'linear' or 'cubic'")
+
+        if toroidal_method not in {"spline", "compact_c2", "compact_c3"}:
+            raise ValueError("unknown toroidal_method")
+        if toroidal_method != "spline" and (method != "cubic" or extrapolate):
+            raise ValueError("compact toroidal interpolation requires cubic R/Z and no extrapolation")
+        if toroidal_method != "spline" and len(self._phi) < 2 * int(toroidal_method[-1]) + 2:
+            raise ValueError("insufficient toroidal planes for compact support")
+        self._toroidal_method = toroidal_method
 
         minimum = 2 if method == "linear" else 4
         if min(len(self._R), len(self._phi), len(self._Z)) < minimum:
@@ -223,9 +237,10 @@ class ComponentSplineBFieldEvaluator(BFieldEvaluator):
                     mode="reflect",
                 )
                 if method == "cubic":
-                    padded = spline_filter1d(
-                        padded, order=3, axis=0, mode="grid-wrap"
-                    )
+                    if toroidal_method == "spline":
+                        padded = spline_filter1d(
+                            padded, order=3, axis=0, mode="grid-wrap"
+                        )
                     padded = spline_filter1d(
                         padded, order=3, axis=1, mode="mirror"
                     )
@@ -258,6 +273,10 @@ class ComponentSplineBFieldEvaluator(BFieldEvaluator):
     @property
     def currents(self) -> np.ndarray:
         return self._currents.copy()
+
+    @property
+    def toroidal_method(self) -> str:
+        return self._toroidal_method
 
     @property
     def method(self) -> str:
@@ -296,6 +315,13 @@ class ComponentSplineBFieldEvaluator(BFieldEvaluator):
                     (query[:, 0] - self._R[0]) / self._dR + self._pad,
                 )
             )
+            if self._toroidal_method != "spline":
+                from .compact_toroidal import interpolate_compact
+
+                result = interpolate_compact(
+                    coordinates.T, self._coefficients, int(self._toroidal_method[-1])
+                )
+                return result.reshape(leading_shape + (3,))
             order = 1 if self._method == "linear" else 3
             result = np.column_stack(
                 [
@@ -335,6 +361,7 @@ def bfield_evaluator_from_makegrid(
     currents: Any = None,
     method: str = "cubic",
     extrapolate: bool = False,
+    toroidal_method: str = "spline",
 ) -> BFieldEvaluator:
     """Construct a component-spline evaluator from a MAKEGRID NetCDF file.
 
@@ -439,6 +466,7 @@ def bfield_evaluator_from_makegrid(
         currents=current_array,
         method=method,
         extrapolate=extrapolate,
+        toroidal_method=toroidal_method,
     )
 
 
