@@ -209,8 +209,21 @@ def test_compatibility_exports_and_literal_legacy_arithmetic():
     _equal(shared.resid(np.eye(3), np.eye(3), matrix), legacy.residual(np.eye(3), np.eye(3), matrix))
 
 
+def _toy_context(n=8):
+    """Portable P compatibility fixture, independent of uncommitted P tests."""
+    from drbx.geometry.fci_perpendicular_reconstruction import PointRowContext
+    faces = (np.linspace(0, 1, n+1), np.linspace(0, 2*np.pi, n+1), np.linspace(0, 2*np.pi, n+1))
+    centers = tuple((x[:-1]+x[1:])/2 for x in faces)
+    ijk = np.array(np.unravel_index(np.arange(n**3), (n, n, n))).T
+    points = np.column_stack([centers[a][ijk[:, a]] for a in range(3)])
+    centroids = np.column_stack((points[:, 0]*np.cos(points[:, 1]), points[:, 0]*np.sin(points[:, 1])))
+    return PointRowContext.from_arrays(faces=faces, centers=centers,
+        raw_to_owner=np.arange(n**3), raw_volume=np.ones(n**3),
+        owner_volume=np.ones(n**3), owner_centroid_xy=centroids,
+        eta_period=2*np.pi, dr=1/n, dtheta=2*np.pi/n, deta=2*np.pi/n)
+
+
 def test_complete_owner_fit_and_four_plane_helper():
-    from tests.test_fci_perpendicular_point_rows import _toy_context
     t = _toy_context()
     ro = np.arange(t.n**3)//2
     rv = 1.+np.arange(t.n**3)%3
@@ -232,7 +245,6 @@ def test_complete_owner_fit_and_four_plane_helper():
 
 @pytest.mark.parametrize('key', [(0,0,7), (4,0,7), (6,0,7), (7,0,0)])
 def test_p_rows_legacy_replay_including_wall_and_eta_wrap(monkeypatch, key):
-    from tests.test_fci_perpendicular_point_rows import _toy_context
     from drbx.geometry import fci_perpendicular_reconstruction as builder
     t = _toy_context()
     point = t.pts[np.ravel_multi_index(key, (8,8,8))].copy()

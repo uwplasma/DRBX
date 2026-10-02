@@ -4499,3 +4499,12 @@ Preparation of this campaign does not mean its global or A100 gate has run.
 The evaluator remains opt-in, dense execution remains selected, and no
 production selector is promoted. Remaining physical/static transfer gates,
 span/eta support selection and Q09 evolution retain their existing scope.
+
+Local release preflight for the Q08 campaign passed at N32/N48/N64: all 31
+arrays are bitwise equal and all legacy/extracted output-leaf discrepancies
+are zero for the bounded samples. Independent saved actions pass the frozen
+budget. Twenty campaign tests and eleven operational gate tests pass; actual
+A100/full-grid execution remains pending. On the user's cleanup request,
+40.1 GiB of older bulk artifacts were retired while preserving current C3
+P/Q and Q08 inputs plus lean historical records. Retirement inventories and
+per-directory markers are in `work/workspace_cleanup_20261002/`.
