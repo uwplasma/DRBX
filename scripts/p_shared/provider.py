@@ -57,6 +57,10 @@ Face-quadrature option.  ``face_node_weight(faces, keys, order=3)`` is the q3 de
 nodes of the P05/P06 option (``p_shared.face_quadrature``).  The provider's ``face_quadrature`` attribute only
 records the declared rule (checked against the environment's); P07 always asks for ``order=3``.
 
+B-field toroidal option.  ``bfield_toroidal="spline"`` (the default) leaves the frozen reference's B evaluator untouched;
+``"compact_c3"`` replaces ``reference.bfield_evaluator`` by the compact-C3 toroidal evaluator right after the frozen
+reference is built (``p_shared.bfield``; the hash-pinned reference builder itself is not edited).
+
 Do not put this package's own directory first on ``sys.path`` -- it has no
 stdlib-shadowing modules today, but per the P-path convention (see
 ``p06n_field_derived_global/campaign.py``'s module docstring) always import
@@ -80,6 +84,7 @@ from p07_diffusion_global.numerics import quadrature as _quadrature  # noqa: E40
 from perpendicular_structured.reference_geometry import curvature_geometry as _curvature_geometry  # noqa: E402
 import p06_structured_global.numerics as _p06numerics  # noqa: E402
 
+from p_shared.bfield import DEFAULT_BFIELD_TOROIDAL, apply_bfield_toroidal, check_bfield_toroidal  # noqa: E402
 from p_shared.curvature_reference import check_curvature as _check_curvature  # noqa: E402
 from p_shared.curvature_reference import wrap_reference as _wrap_reference  # noqa: E402
 from p_shared.curvature_reference import face_geometry as _face_geometry_for  # noqa: E402
@@ -99,18 +104,28 @@ class ScriptsGeometryProvider:
     """
 
     def __init__(self, reference: Any, *, curvature: str = DEFAULT_CURVATURE,
-                 face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> None:
+                 face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+                 bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> None:
         self._curvature_choice = _check_curvature(curvature)
         self._face_quadrature = _check_face_quadrature(face_quadrature)
+        self._bfield_toroidal = check_bfield_toroidal(bfield_toroidal)
+        found = getattr(getattr(reference, "bfield_evaluator", None), "toroidal_method", "spline")
+        if found != bfield_toroidal:
+            raise ValueError(f"bfield_toroidal {bfield_toroidal!r} does not match the reference evaluator's "
+                             f"toroidal_method {found!r} (build it via ScriptsGeometryProvider.from_sidecar)")
         self._reference = _wrap_reference(reference, curvature)
 
     @classmethod
     def from_sidecar(cls, sidecar, *, verify_hashes: bool = False, curvature: str = DEFAULT_CURVATURE,
-                     face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> "ScriptsGeometryProvider":
+                     face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+                     bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> "ScriptsGeometryProvider":
         """Build the frozen reference exactly as every accepted campaign
-        does, via ``p07_diffusion_global.numerics.reference``, then wrap it."""
-        return cls(_refnum.reference(sidecar, verify_hashes=verify_hashes), curvature=curvature,
-                   face_quadrature=face_quadrature)
+        does, via ``p07_diffusion_global.numerics.reference``, apply the ``bfield_toroidal`` option
+        (``p_shared.bfield``; ``"spline"`` changes nothing), then wrap it."""
+        reference = apply_bfield_toroidal(_refnum.reference(sidecar, verify_hashes=verify_hashes), sidecar,
+                                          bfield_toroidal)
+        return cls(reference, curvature=curvature, face_quadrature=face_quadrature,
+                   bfield_toroidal=bfield_toroidal)
 
     @property
     def reference(self) -> Any:
@@ -127,6 +142,11 @@ class ScriptsGeometryProvider:
         (checked against ``Environment.face_quadrature`` by ``owner_closure.build_owner_rows``).
         ``face_node_weight`` takes its ``order`` explicitly, so this attribute selects nothing itself."""
         return self._face_quadrature
+
+    @property
+    def bfield_toroidal(self) -> str:
+        """``"spline"`` (frozen B evaluator) or ``"compact_c3"`` (compact-C3 toroidal interpolation of B)."""
+        return self._bfield_toroidal
 
     # -- P05 -----------------------------------------------------------
     def p05_metric(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

@@ -51,6 +51,7 @@ from p_shared import selection as sel                              # noqa: E402
 from p_shared import provider as pshared_provider                  # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE, face_order as _face_order  # noqa: E402
+from p_shared.bfield import DEFAULT_BFIELD_TOROIDAL  # noqa: E402
 from p_shared.inner_support import DEFAULT_INNER_SUPPORT  # noqa: E402
 from p_shared import replay_units as ru                            # noqa: E402
 from p_shared.replay_support import (                              # noqa: E402
@@ -162,16 +163,18 @@ def selection_fixture(t, census) -> dict:
 
 
 def load_provider_for_env(sidecar_path, *, curvature: str = DEFAULT_CURVATURE,
-                          face_quadrature: str = DEFAULT_FACE_QUADRATURE) -> "pshared_provider.ScriptsGeometryProvider":
+                          face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+                          bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> "pshared_provider.ScriptsGeometryProvider":
     """A ``ScriptsGeometryProvider`` built the same way ``build_environment``
     builds ``env.ref`` internally (``env.ref`` is only its ``.reference``
     attribute -- ``build_geometry_arrays`` below needs the provider itself,
     for its ``.face_points``/``.p06_face_weight``/``.p07_face_tensor``
-    methods).  ``curvature`` and ``face_quadrature`` must match the environment's
-    (``build_environment(..., curvature=..., face_quadrature=...)``)."""
+    methods).  ``curvature``, ``face_quadrature`` and ``bfield_toroidal`` must match the environment's
+    (``build_environment(..., curvature=..., face_quadrature=..., bfield_toroidal=...)``)."""
     return pshared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False,
                                                                  curvature=curvature,
-                                                                 face_quadrature=face_quadrature)
+                                                                 face_quadrature=face_quadrature,
+                                                                 bfield_toroidal=bfield_toroidal)
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +271,7 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
     ``env.curvature`` (one flag switches the operator geometry and the reference together); a mismatch raises.
     The same holds for ``face_quadrature`` (``"q3"`` default, or ``"q2"``: the P05/P06 face nodes, R2/R3 rows
     and geometry; the P07 R4 rows stay q3): ``provider.face_quadrature`` must equal ``env.face_quadrature``.
+    Likewise ``provider.bfield_toroidal`` (``"spline"`` default, or ``"compact_c3"``) must equal ``env.bfield_toroidal``.
     """
     if provider is not None and getattr(provider, "curvature", "fd") != getattr(env, "curvature", "fd"):
         raise ValueError(f"provider curvature {provider.curvature!r} does not match environment curvature "
@@ -276,6 +280,10 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
     if provider is not None and getattr(provider, "face_quadrature", DEFAULT_FACE_QUADRATURE) != env_face_quadrature:
         raise ValueError(f"provider face_quadrature {provider.face_quadrature!r} does not match environment "
                          f"face_quadrature {env_face_quadrature!r}")
+    env_bfield_toroidal = getattr(env, "bfield_toroidal", DEFAULT_BFIELD_TOROIDAL)
+    if provider is not None and getattr(provider, "bfield_toroidal", DEFAULT_BFIELD_TOROIDAL) != env_bfield_toroidal:
+        raise ValueError(f"provider bfield_toroidal {provider.bfield_toroidal!r} does not match environment "
+                         f"bfield_toroidal {env_bfield_toroidal!r}")
     face_order = _face_order(env_face_quadrature)
     env_inner_support = getattr(env, "inner_support", DEFAULT_INNER_SUPPORT)
     t = env.t
@@ -333,6 +341,7 @@ def build_owner_rows(env: Environment, owners, *, provider=None) -> dict:
         "p07_row_indices": p07_row_indices, "row_index": row_index, "neumann_index": neumann_index,
         "geometry": geometry, "curvature": getattr(provider, "curvature", "fd"),
         "face_quadrature": env_face_quadrature, "inner_support": env_inner_support,
+        "bfield_toroidal": env_bfield_toroidal,
     }
 
 
@@ -716,7 +725,8 @@ def oracle_available(paths: dict, campaigns: tuple, n: int = 32) -> bool:
 def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, paths: dict, campaigns: tuple,
                             compare: bool, curvature: str = DEFAULT_CURVATURE,
                             face_quadrature: str = DEFAULT_FACE_QUADRATURE,
-                            inner_support: str = DEFAULT_INNER_SUPPORT) -> dict:
+                            inner_support: str = DEFAULT_INNER_SUPPORT,
+                            bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> dict:
     """The full bounded owner-closure check (task report): build ``env``,
     select owners, build only their incident rows, run every campaign's own
     replay-unit arithmetic, and -- when ``compare`` -- diff against each
@@ -729,13 +739,15 @@ def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, pat
 
     started = _time.time()
     env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature,
-                            face_quadrature=face_quadrature, inner_support=inner_support)
+                            face_quadrature=face_quadrature, inner_support=inner_support,
+                            bfield_toroidal=bfield_toroidal)
     t = env.t; census = env.census
 
     fixture = selection_fixture(t, census)
     unique_owners = fixture["owners"]
 
-    provider = load_provider_for_env(sidecar_path, curvature=curvature, face_quadrature=face_quadrature)
+    provider = load_provider_for_env(sidecar_path, curvature=curvature, face_quadrature=face_quadrature,
+                                     bfield_toroidal=bfield_toroidal)
     built = build_owner_rows(env, unique_owners, provider=provider)
     payload = {
         "n": n, "curvature": curvature, "selection": fixture,
@@ -746,6 +758,8 @@ def run_owner_closure_check(*, n: int, input_root: Path, sidecar_path: Path, pat
         payload["face_quadrature"] = face_quadrature
     if inner_support != "profile7":
         payload["inner_support"] = inner_support
+    if bfield_toroidal != "spline":
+        payload["bfield_toroidal"] = bfield_toroidal
     if not compare:
         payload["seconds"] = _time.time() - started
         return payload

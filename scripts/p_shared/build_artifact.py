@@ -122,6 +122,8 @@ if str(SCRIPTS) not in sys.path:
 
 from p_shared import runner                                       # noqa: E402
 from p_shared import provider as p_shared_provider                 # noqa: E402
+from p_shared.bfield import (                        # noqa: E402
+    BFIELD_TOROIDAL_CHOICES, DEFAULT_BFIELD_TOROIDAL, check_bfield_toroidal)
 from p_shared.curvature_reference import check_curvature           # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 from p_shared.face_quadrature import (               # noqa: E402
@@ -240,32 +242,47 @@ INNER_SUPPORT_SOURCE_FILES = [
 ]
 
 
+#: extra sources pinned only for ``bfield_toroidal != "spline"`` builds (the ``"spline"`` identity is unchanged)
+BFIELD_SOURCE_FILES = [
+    "scripts/p_shared/bfield.py",
+    "src/drbx/geometry/Bfield_evaluator.py",
+    "src/drbx/geometry/compact_toroidal.py",
+    "src/drbx/geometry/jax_bfield_evaluator.py",
+]
+
+
 def build_policy(curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFAULT_FACE_QUADRATURE,
-                 inner_support: str = DEFAULT_INNER_SUPPORT) -> dict:
+                 inner_support: str = DEFAULT_INNER_SUPPORT, bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> dict:
     """``POLICY`` for ``curvature="fd"`` and ``face_quadrature="q3"`` (exactly, so existing identities are
     unchanged); with ``"autodiff"`` the same policy plus ``curvature`` (distinct identity); with ``"q2"`` the
     P05/P06 face rule is recorded as ``quadrature = {"raw": "q1", "face": "q2", "p07_face": "q3"}``."""
     check_curvature(curvature)
     check_face_quadrature(face_quadrature)
     check_inner_support(inner_support)
+    check_bfield_toroidal(bfield_toroidal)
     policy = dict(POLICY) if curvature == "fd" else {**POLICY, "curvature": "autodiff"}
     if face_quadrature != "q3":
         policy["quadrature"] = {"raw": "q1", "face": face_quadrature, "p07_face": "q3"}
     if inner_support != "profile7":        # the literal, not the default: the default may move, the frozen identity may not
         policy["inner_support"] = inner_support
+    if bfield_toroidal != "spline":        # likewise the literal: the frozen spline identity must not move
+        policy["bfield_toroidal"] = bfield_toroidal
     return policy
 
 
 def build_identity(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = DEFAULT_CURVATURE,
                    face_quadrature: str = DEFAULT_FACE_QUADRATURE,
-                   inner_support: str = DEFAULT_INNER_SUPPORT) -> dict:
+                   inner_support: str = DEFAULT_INNER_SUPPORT,
+                   bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> dict:
     component_hashes = {**_geometry_component_hashes(input_root, n), **_sidecar_component_hashes(sidecar_path)}
     sources = (SOURCE_FILES + (AUTODIFF_SOURCE_FILES if curvature != "fd" else [])
                + (Q2_SOURCE_FILES if face_quadrature != "q3" else [])
-               + (INNER_SUPPORT_SOURCE_FILES if inner_support != "profile7" else []))
+               + (INNER_SUPPORT_SOURCE_FILES if inner_support != "profile7" else [])
+               + (BFIELD_SOURCE_FILES if bfield_toroidal != "spline" else []))
     source_hashes = {rel: artifact_mod.hash_file(REPO / rel) for rel in sources}
     return artifact_mod.build_identity(component_hashes=component_hashes, source_hashes=source_hashes,
-                                       policy=build_policy(curvature, face_quadrature, inner_support))
+                                       policy=build_policy(curvature, face_quadrature, inner_support,
+                                                                           bfield_toroidal))
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +312,8 @@ def face_row_selection(census: FaceCensus) -> np.ndarray:
 
 
 def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_dir: Path, curvature: str = DEFAULT_CURVATURE,
-                        face_quadrature: str = DEFAULT_FACE_QUADRATURE):
+                        face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+                        bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL):
     """Load ``t``/build ``context``/``census``/``GeometryArrays`` once, all
     in this single process (no parallelism) -- the original, still-supported
     one-shot geometry build. Saves ``census.npz``/``geometry.npz`` under
@@ -315,7 +333,8 @@ def build_geometry_only(*, n: int, input_root: Path, sidecar_path: Path, grid_di
     face_row_indices = face_row_selection(census)
     provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(str(sidecar_path), verify_hashes=False,
                                                                      curvature=curvature,
-                                                                     face_quadrature=face_quadrature)
+                                                                     face_quadrature=face_quadrature,
+                                                                     bfield_toroidal=bfield_toroidal)
     extra = {} if face_quadrature == "q3" else {"face_order": _face_order(face_quadrature)}
     geometry = builder.build_geometry_arrays(provider, context, raw_ids=np.arange(n ** 3, dtype=np.int64),
                                              face_row_indices=face_row_indices, census=census, **extra)
@@ -334,7 +353,8 @@ GEOMETRY_STATE: dict = {}
 
 
 def _init_geometry_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict,
-                          curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFAULT_FACE_QUADRATURE):
+                          curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFAULT_FACE_QUADRATURE,
+                          bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL):
     global GEOMETRY_STATE
     runner.require_cpu_backend()
     grid_dir = Path(output) / f"N{n}"
@@ -342,7 +362,8 @@ def _init_geometry_worker(input_root: str, sidecar_path: str, output: str, n: in
     census = FaceCensus.load(grid_dir / "census.npz")
     provider = p_shared_provider.ScriptsGeometryProvider.from_sidecar(sidecar_path, verify_hashes=False,
                                                                      curvature=curvature,
-                                                                     face_quadrature=face_quadrature)
+                                                                     face_quadrature=face_quadrature,
+                                                                     bfield_toroidal=bfield_toroidal)
     GEOMETRY_STATE = {
         "faces": t.faces, "census": census, "provider": provider,
         "face_row_indices": face_row_selection(census), "n": n,
@@ -441,7 +462,7 @@ def _integrated_diagnostics_summary(integrated_rows) -> dict:
 
 
 def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict, curvature: str = DEFAULT_CURVATURE,
-                 inner_support: str = DEFAULT_INNER_SUPPORT):
+                 inner_support: str = DEFAULT_INNER_SUPPORT, bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL):
     global STATE
     runner.require_cpu_backend()
     grid_dir = Path(output) / f"N{n}"
@@ -452,7 +473,8 @@ def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identi
     census = FaceCensus.load(grid_dir / "census.npz")
     geometry = GeometryArrays.load(grid_dir / "geometry.npz")
     ref = p_shared_provider.ScriptsGeometryProvider.from_sidecar(sidecar_path, verify_hashes=False,
-                                                                 curvature=curvature).reference
+                                                                 curvature=curvature,
+                                                                 bfield_toroidal=bfield_toroidal).reference
     normal_coefficients = _normal_coefficients_fn(ref)
 
     face_row_indices = face_row_selection(census)
@@ -804,6 +826,7 @@ def run_full_build(
     curvature: str = DEFAULT_CURVATURE,
     face_quadrature: str = DEFAULT_FACE_QUADRATURE,
     inner_support: str = DEFAULT_INNER_SUPPORT,
+    bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL,
 ) -> dict:
     """Build the full N{n} row artifact and return the same dict written to
     ``<output>/N{n}/build_receipt.json``.
@@ -815,6 +838,10 @@ def run_full_build(
     ``face_quadrature`` (``"q3"``, the default, or ``"q2"``) is the P05/P06 face-node rule: q2 builds R2/R3 rows
     and the face geometry at 2x2 Gauss (four nodes per face); P07 (R4) stays q3. It is recorded in the build
     policy (``quadrature.face``), so a q2 build has a distinct identity; ``"q3"`` is bitwise the historic build.
+
+    ``bfield_toroidal`` (``"spline"``, the default, or ``"compact_c3"``) is the toroidal interpolation of the B
+    evaluator behind the geometry and the reference (see ``p_shared.bfield``); recorded in the build policy (and the
+    pinned sources) only when not ``"spline"``, so a spline build is bitwise the historic one.
 
     ``workers`` is the requested process-pool size for every stage; if both
     ``memory_budget_gib`` and ``worker_memory_gib`` are given, the effective
@@ -844,6 +871,7 @@ def run_full_build(
     check_curvature(curvature)
     check_face_quadrature(face_quadrature)
     check_inner_support(inner_support)
+    check_bfield_toroidal(bfield_toroidal)
     face_order = _face_order(face_quadrature)
     input_root = Path(input_root).resolve()
     sidecar_path = Path(sidecar_path).resolve()
@@ -854,7 +882,8 @@ def run_full_build(
 
     with runner.lock(output):
         identity = build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path, curvature=curvature,
-                                  face_quadrature=face_quadrature, inner_support=inner_support)
+                                  face_quadrature=face_quadrature, inner_support=inner_support,
+                                  bfield_toroidal=bfield_toroidal)
         identity_path = grid_dir / "build_identity.json"
         if identity_path.exists():
             saved = json.loads(identity_path.read_text())
@@ -919,8 +948,8 @@ def run_full_build(
 
         initargs = (str(input_root), str(sidecar_path), str(output), n, identity, curvature)
         # always explicit: a worker must never fall back to a (changed) module default
-        geometry_initargs = initargs + (face_quadrature,)
-        row_initargs = initargs + (inner_support,)
+        geometry_initargs = initargs + (face_quadrature, bfield_toroidal)
+        row_initargs = initargs + (inner_support, bfield_toroidal)
         summaries = {}
 
         geometry_complete = geometry_path.exists()
@@ -1029,6 +1058,9 @@ def parse_args(argv=None):
     p.add_argument("--inner-support", choices=INNER_SUPPORT_CHOICES, default=DEFAULT_INNER_SUPPORT,
                    help="inner donor support of the P05/P06/P07 rows: profile7 (C0) or last_aggregate (C1); "
                         "recorded in the build identity when not profile7")
+    p.add_argument("--bfield-toroidal", choices=BFIELD_TOROIDAL_CHOICES, default=DEFAULT_BFIELD_TOROIDAL,
+                   help="toroidal interpolation of the B evaluator: spline (frozen) or compact_c3 "
+                        "(recorded in the build identity when not spline)")
     p.add_argument("--face-quadrature", choices=FACE_QUADRATURE_CHOICES, default=DEFAULT_FACE_QUADRATURE,
                    help="P05/P06 face-node rule: q3 (9 nodes) or q2 (4 nodes); P07 stays q3 "
                         "(recorded in the build identity)")
@@ -1044,7 +1076,8 @@ def main(argv=None) -> dict:
         cell_chunk_size=args.cell_chunk_size, face_chunk_size=args.face_chunk_size, p07_chunk_size=args.p07_chunk_size,
         geometry_raw_chunk_size=args.geometry_raw_chunk_size, geometry_face_chunk_size=args.geometry_face_chunk_size,
         max_tasks_per_worker=args.max_tasks_per_worker, max_units=args.max_units, curvature=args.curvature,
-        face_quadrature=args.face_quadrature, inner_support=args.inner_support)
+        face_quadrature=args.face_quadrature, inner_support=args.inner_support,
+        bfield_toroidal=args.bfield_toroidal)
 
 
 if __name__ == "__main__":

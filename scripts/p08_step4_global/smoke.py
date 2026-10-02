@@ -232,9 +232,11 @@ def check_artifact_options(identity: dict, options: dict) -> None:
     policy = identity.get("policy", {})
     seen = {"curvature": policy.get("curvature", "fd"),
             "face_quadrature": policy.get("quadrature", {}).get("face", "q3"),
-            "inner_support": policy.get("inner_support", "profile7")}
-    if seen != dict(options):
-        raise ValueError(f"the artifact was built with operator options {seen}, not the pinned {dict(options)}")
+            "inner_support": policy.get("inner_support", "profile7"),
+            "bfield_toroidal": policy.get("bfield_toroidal", "spline")}
+    pinned = {"bfield_toroidal": "spline", **dict(options)}       # the pinned three-key configurations are spline
+    if seen != pinned:
+        raise ValueError(f"the artifact was built with operator options {seen}, not the pinned {pinned}")
 
 
 def _tree_bytes(path: Path) -> int:

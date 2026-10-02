@@ -2296,12 +2296,49 @@ Steps:
        - `compact_c3` is experimental and uncommitted. Canonical geometry, the default and every frozen campaign are unchanged.
      - **Effect on P so far.**
        - Every P qualification is an MMS consistency check in which the operator and the reference share the same evaluator. So the operator decisions stand, because they were made on N−O, which is reconstruction error with B as a common coefficient: C3 inner support, q2, autodiff K, and the step-4 pass.
-       - What can move is O−R, which is coefficient variation inside a cell. P07N's O−R dominates its N−R, with orders 1.4–2.0, and could partly be this artifact. That is untested.
+       - What can move is O−R, which is coefficient variation inside a cell. P07N's O−R dominates its N−R, with orders 1.4–2.0. The bounded `compact_c3` comparison below found it unchanged, so it is not this artifact.
        - The 8-point FD-K wall feature is ~0.3° from the nearest MAKEGRID toroidal plane, so it is presumably an R/Z-spline effect, which `compact_c3` keeps. That is not verified.
      - **Plan.**
        - Step-5 solver studies on the exported P07 continue. Conditioning, preconditioners and the null-space structure do not depend on ~0.2% B changes.
        - **Step 5.3 ran on the current canonical evaluator (2 October).** If `compact_c3`, or another evaluator, becomes canonical, the geometry identity changes. Then rebuild the step-4 artifacts and re-run the 5.3 campaign once on the final evaluator to re-freeze the references. Fold this into the final P08 acceptance campaign. The decision is pending on the Q path.
        - Candidate P contribution: a bounded matched spline/`compact_c3` replay of P07N and P06N (N−O / O−R / N−R) at core, transition, bulk and wall owners, as the Q roadmap's next item asks.
+     - **`compact_c3` is the P baseline (user decision, 2 October 2026).** Q adopted it in commit 8dadf696. P treats Q's evidence as motivation, not qualification; P's own evidence is the bounded comparison below.
+       - Naming: "C3" alone means the inner donor support (`inner_support="fixed_radius"`). The magnetic evaluator is always written `compact_c3`.
+       - Every new P campaign pins `bfield_toroidal="compact_c3"` explicitly. The code default stays `"spline"` for now, because these packages pass only three options and rely on it:
+         - the frozen step-1/2 runners and the frozen-reproduction tests;
+         - the completed step-4, step-5 export and 5.3 packages, which would otherwise mix a `compact_c3` environment with spline artifacts.
+         - Flipping the default needs those call sites pinned to `"spline"` first. That is deferred to P09 integration.
+       - **Option:** `bfield_toroidal` = `"spline"` (default, frozen) | `"compact_c3"` (`scripts/p_shared/bfield.py`), threaded like `inner_support`.
+         - The frozen reference builder (`hsx_mms_continuum_reference.py`) and `p07_diffusion_global/numerics.py` are hash-pinned by frozen manifests, so they are not edited.
+         - Instead, `p_shared` replaces `reference.bfield_evaluator` after the reference is built and before the provider wraps it. The JAX evaluator for autodiff K and the P07 divergence is derived from it.
+       - **What depends on B in P:**
+         - b, |B|, h, K and the P07 tensor and its divergence;
+         - therefore the artifacts' geometry and rows, and the MMS references.
+         - P reads no field-line traces.
+       - **Regeneration:**
+         - The step-4 artifacts and 5.3 references are rebuilt on `compact_c3`. The spline ones stay labelled spline and are never relabelled.
+         - The coordinate map (the `MetricEvaluator` checkpoint) is kept as an independent coordinate input. It was fitted with the spline field, which is recorded in provenance. MMS consistency does not depend on it.
+         - The grazing-angle map and the Jarvis wall diagnostic are regenerated through `build_environment(..., bfield_toroidal=...)`.
+       - **Provenance:** a non-spline build records `policy.bfield_toroidal` and hashes the B-evaluator sources (`Bfield_evaluator.py`, `compact_toroidal.py`, `jax_bfield_evaluator.py`, `p_shared/bfield.py`). The MAKEGRID file and its currents (via the sidecar) are already hashed. `check_artifact_options` treats a missing key as spline.
+       - **Bounded comparison:** `scripts/p08_bfield_eval/`. For both evaluators on identical owners at N32/N48/N64, it reports:
+         - N−R per term, plus N−O, O−R and N−R for diffusion;
+         - Dirichlet and physical-normal Neumann variants;
+         - six regions × {on-plane, mid-plane} MAKEGRID knot classes;
+         - the coefficient change between evaluators.
+         - **Result, 2 October 2026** ([report](../../../../work/p08_bfield_eval_20261002/report.md)): 66–72 owners per grid, none dropped, 2 min and < 5 GiB per run.
+           - `compact_c3`/spline error ratios are 0.975–1.012 over every variant, field, term, comparison, region and knot class at N32/N48/N64 (2,976 entries). Observed orders are identical. There are no flags.
+           - So `compact_c3` costs no MMS accuracy, and it does not shrink the P07 O−R gap either. That gap is about 0.1–0.2 relative in the outer two layers and is unchanged, so it is not the toroidal-prefilter artifact.
+           - Coefficient change (RMS/max relative):
+             - B: 1e-5 / 2e-4;
+             - P07 tensor: 3e-6 / 4e-5;
+             - P07 divergence: 2e-4 / 4e-3;
+             - K at raw midpoints: 1e-3 / 2e-2;
+             - K at wall faces: 1–4% RMS, up to 0.25–0.53 max.
+           - MMS cannot say which B is more physical, since operator and reference share it. That evidence is Q's (holdout error and div B).
+           - **Limits:**
+             - The owner sample is redrawn per grid, so the orders are noisy; the `compact_c3`/spline ratio is the robust statistic.
+             - A cell spans several MAKEGRID planes (90 per field period) even at N64, so the knot classes barely separate.
+       - **Then remote:** the step-4 rebuild and the 5.3 re-run on `compact_c3`, as the one re-freeze.
 6. **Remaining gates.**
    - A bounded geometry/reference recheck on N64. Candidate evidence (not yet accepted): the [N64 P06N wall check](../../../../work/p08_p06n_wall_n64_20261001/README.md) and the [reference FD check](../../../../work/p08_step5_reference_fd_check_20261001/README.md).
    - **Scoped change: autodiff curvature K (user decision, 28 September).** Compute K = (B/2J)∇×(b_cov/B) with `jax.jacfwd` through the JAX metric and B-field evaluators. These are the same interpolants the NumPy reference uses, and they agree to 4e-15. The frozen fourth-order finite difference it replaces uses step 2e-4, shrunk near u = 0 and u = 1, with a one-sided rule at the wall.
