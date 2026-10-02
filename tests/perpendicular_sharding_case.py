@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -27,8 +28,8 @@ from jax.sharding import NamedSharding, PartitionSpec as P                      
 from drbx.native.fci_perpendicular_reconstruction_state import boundary_data_from_callables       # noqa: E402
 from drbx.native.fci_perpendicular_rhs import FIELDS, PerpendicularParams, perpendicular_rhs  # noqa: E402
 from drbx.native.fci_perpendicular_sharding import (                                              # noqa: E402
-    exchange_plane_halo, make_plane_mesh, plane_major_permutation, shard_boundary_data, shard_perpendicular_plan,
-    sharded_perpendicular_rhs, to_plane_major)
+    ShardedPerpendicularPlan, exchange_plane_halo, make_plane_mesh, plane_major_permutation, shard_boundary_data,
+    shard_perpendicular_plan, sharded_perpendicular_rhs, to_plane_major)
 
 N = 12
 RHO, TAU = 0.05, 1.0
@@ -89,6 +90,21 @@ def _coverage(plan, sharded, raw_to_owner, n_shards) -> dict:
             "local_rows": sharded.local_rows}
 
 
+def _same_bits(a, b) -> bool:
+    """Bitwise equality of two ``PerpendicularTerms`` (totals, per-term arrays, diagnostics; NaNs equal)."""
+    pairs = [(a.total[f], b.total[f]) for f in FIELDS] + [(a.terms[f][t], b.terms[f][t]) for f in FIELDS for t in TERMS]
+    pairs += [(a.diagnostics[k], b.diagnostics[k]) for k in a.diagnostics]
+    return all(np.array_equal(np.asarray(x), np.asarray(y), equal_nan=True) for x, y in pairs)
+
+
+def _without_wall_faces(plan):
+    """The plan (global or sharded) with ``faces.wall_faces = None``: the P06 wall solve on every face."""
+    if isinstance(plan, ShardedPerpendicularPlan):
+        return ShardedPerpendicularPlan(_without_wall_faces(plan.plan), plan.dirichlet_ids, plan.neumann_ids, plan.n,
+                                        plan.m, plan.n_shards, plan.halo, plan.layout)
+    return replace(plan, faces=replace(plan.faces, wall_faces=None))
+
+
 def run_synthetic(shard_counts=(1, 2, 4), seed=0, kinds=("dirichlet", "mixed")) -> dict:
     from tests.perpendicular_synthetic import Boundary, lower_world, make_world
     raw_to_owner = plane_structured_owners()
@@ -107,7 +123,8 @@ def run_synthetic(shard_counts=(1, 2, 4), seed=0, kinds=("dirichlet", "mixed")) 
     state_pm = {k: jnp.asarray(to_plane_major(v, inverse)) for k, v in state.items()}
     phi_pm = jnp.asarray(to_plane_major(phi, inverse))
     sharded = {sz: shard_perpendicular_plan(plan, raw_to_owner, N, sz) for sz in shard_counts}
-    out = {"coverage": {str(sz): _coverage(plan, sharded[sz], raw_to_owner, sz) for sz in shard_counts}}
+    out = {}
+    out["coverage"] = {str(sz): _coverage(plan, sharded[sz], raw_to_owner, sz) for sz in shard_counts}
     try:
         shard_perpendicular_plan(plan, raw_to_owner, N, 2, halo=2)
         out["halo2_error"] = None
@@ -134,8 +151,42 @@ def run_synthetic(shard_counts=(1, 2, 4), seed=0, kinds=("dirichlet", "mixed")) 
             entry[f"Sz{sz}"] = {"max_rel": max(worst.values()), "worst": max(worst, key=worst.get),
                                 "diagnostics": {k: np.asarray(v).tolist() for k, v in res.diagnostics.items()}}
         entry["single_diagnostics"] = {k: float(v) for k, v in ref.diagnostics.items()}
+        # the wall solve restricted to the (padded, per-shard) wall faces is bitwise the solve on every face
+        entry["wall_faces_bitwise_single"] = _same_bits(
+            ref, perpendicular_rhs(_without_wall_faces(plan), state, phi, bc, kind_list, params))
+        for sz in shard_counts:
+            sp = sharded[sz]
+            args = (state_pm, phi_pm, shard_boundary_data(bc, sp), kind_list, params, make_plane_mesh(sz))
+            entry[f"Sz{sz}"]["wall_faces_bitwise"] = _same_bits(
+                sharded_perpendicular_rhs(sp, *args), sharded_perpendicular_rhs(_without_wall_faces(sp), *args))
         out[kind] = entry
+    out["uneven_wall"] = _uneven_wall(plan, raw_to_owner, state, phi, bc, params, state_pm, phi_pm, perm,
+                                      shard_counts[-1])
     return out
+
+
+def _uneven_wall(plan, raw_to_owner, state, phi, bc, params, state_pm, phi_pm, perm, sz) -> dict:
+    """Wall faces dropped from the first shard(s) only, so the per-shard wall counts differ and ``wall_faces`` is padded."""
+    wall = np.asarray(plan.faces.wall).copy()
+    pm, _inverse, m = plane_major_permutation(raw_to_owner, N)
+    owner = np.maximum(np.asarray(plan.faces.lower_owner), np.asarray(plan.faces.upper_owner))
+    wall &= (pm[owner] // m) // (N // sz) != 0                      # no wall face on shard 0 (nor on its halo copies)
+    uneven = replace(plan, faces=replace(plan.faces, wall=wall, wall_faces=np.flatnonzero(wall).astype(np.int32)))
+    sp = shard_perpendicular_plan(uneven, raw_to_owner, N, sz)
+    faces = sp.plan.faces
+    counts = np.asarray(faces.wall).sum(axis=1)
+    kinds = ("dirichlet", "neumann", "dirichlet", "neumann", "dirichlet")
+    args = (state_pm, phi_pm, shard_boundary_data(bc, sp), kinds, params, make_plane_mesh(sz))
+    res = sharded_perpendicular_rhs(sp, *args)
+    ref = perpendicular_rhs(uneven, state, phi, bc, kinds, params)
+    worst = max(float(np.max(np.abs(np.asarray(ref.total[f])[np.isfinite(np.asarray(ref.total[f]))]
+                                    - np.asarray(res.total[f])[perm][np.isfinite(np.asarray(ref.total[f]))]))
+                      / max(np.max(np.abs(np.asarray(ref.total[f])[np.isfinite(np.asarray(ref.total[f]))])), 1e-300))
+                for f in FIELDS)
+    return {"wall_counts": counts.tolist(), "wall_faces_shape": list(faces.wall_faces.shape),
+            "padded_entries": int((np.asarray(faces.wall_faces) >= faces.wall.shape[1]).sum()),
+            "bitwise_vs_all_faces": _same_bits(res, sharded_perpendicular_rhs(_without_wall_faces(sp), *args)),
+            "max_rel_vs_single": worst}
 
 
 def main(argv=None) -> int:

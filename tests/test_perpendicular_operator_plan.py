@@ -105,6 +105,8 @@ def test_plan_boundary_tables_and_index_maps(world, plan):
     assert np.array_equal(f.census_row, world.face_rows)
     assert not f.collapsed.any() and np.all(f.face_multiplier == 1.0)
     np.testing.assert_array_equal(f.wall, (census.axis[world.face_rows] == 0) & (census.i[world.face_rows] == world.n))
+    np.testing.assert_array_equal(f.wall_faces, np.flatnonzero(f.wall))
+    assert f.wall_faces.dtype == np.int32 and f.wall.any()
     np.testing.assert_array_equal(f.upper_present, census.raw_hi[world.face_rows] >= 0)
     np.testing.assert_array_equal(f.p07_valid, census.p07_id[world.face_rows] >= 0)
     assert f.has_missing_side and not f.upper_present.all() and f.lower_present.all()

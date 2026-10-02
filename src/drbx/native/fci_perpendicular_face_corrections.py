@@ -132,13 +132,22 @@ def _p06_absolute_action(matrix, jump):
 
 def p06_characteristic_face_correction(common_state, lower_state, upper_state,
                                        bmag, normal, quadrature_weight, wall_mask,
-                                       collapsed_mask, *, tau=1.0, positivity_floor=1e-12):
+                                       collapsed_mask, *, tau=1.0, positivity_floor=1e-12,
+                                       wall_faces=None):
     """Return distinct lower/upper q3 P06 fluctuation numerators and counters.
 
     ``normal`` is ``J*K_axis/B**2``.  At physical upper radial walls the
     campaign replaces the exterior with its characteristic wall solve.  The
     returned counters distinguish its thermodynamic floor occurrence from
     the absolute-matrix spectral fallback.
+
+    ``wall_faces`` (optional ``(Wn,)`` int array, ``flatnonzero(wall_mask)`` in
+    any order, optionally padded with the out-of-range index ``len(wall_mask)``)
+    restricts the wall characteristic solve to the wall faces: it is gathered
+    there and written back where ``wall_mask`` selects it, so the result is
+    bitwise that of ``wall_faces=None`` (the solve on every face, masked by
+    ``wall_mask``) at a fraction of the cost.  The two must describe the same
+    faces; padded entries are ignored.
     """
     central = jnp.asarray(common_state)
     lower = jnp.asarray(lower_state)
@@ -155,12 +164,26 @@ def p06_characteristic_face_correction(common_state, lower_state, upper_state,
     central = jnp.where(collapsed[:, None, None], safe, central)
     lower = jnp.where(collapsed[:, None, None], safe, lower)
     upper = jnp.where(collapsed[:, None, None], safe, upper)
-    exterior, working, wall_fallback = _curvature_bc_characteristic_wall_states(
-        central, central, B, tau, normal, interior_on_right=False,
-        positivity_floor=positivity_floor)
-    lower = jnp.where(wall[:, None, None], central, lower)
-    upper = jnp.where(wall[:, None, None], exterior, upper)
-    central = jnp.where(wall[:, None, None], working, central)
+    if wall_faces is None:
+        exterior, working, wall_fallback = _curvature_bc_characteristic_wall_states(
+            central, central, B, tau, normal, interior_on_right=False,
+            positivity_floor=positivity_floor)
+        lower = jnp.where(wall[:, None, None], central, lower)
+        upper = jnp.where(wall[:, None, None], exterior, upper)
+        central = jnp.where(wall[:, None, None], working, central)
+        wall_fallback_count = jnp.sum(wall_fallback & wall[:, None])
+    else:
+        idx = jnp.asarray(wall_faces, dtype=jnp.int32)
+        # Padded entries (idx == Fc) gather a clipped real face and are dropped by the scatters and the count.
+        take = lambda a: jnp.take(a, idx, axis=0, mode="clip")
+        central_wall = take(central)
+        exterior, working, wall_fallback = _curvature_bc_characteristic_wall_states(
+            central_wall, central_wall, take(B), tau, take(normal), interior_on_right=False,
+            positivity_floor=positivity_floor)
+        lower = jnp.where(wall[:, None, None], central, lower)
+        upper = upper.at[idx].set(exterior, mode="drop")
+        central = central.at[idx].set(working, mode="drop")
+        wall_fallback_count = jnp.sum(wall_fallback & (idx < wall.shape[0])[:, None])
     matrix = -normal[..., None, None]*curvature_principal_matrix(
         central[..., 0], central[..., 1], central[..., 2], B, tau)
     jump = upper-lower
@@ -173,7 +196,7 @@ def p06_characteristic_face_correction(common_state, lower_state, upper_state,
     return (lower_numerator, upper_numerator,
             jnp.sum(spectral_fallback & ~collapsed[:, None]),
             jnp.sum((central[..., :3] <= positivity_floor) & ~collapsed[:, None, None]),
-            jnp.sum(wall_fallback & wall[:, None]))
+            wall_fallback_count)
 
 
 def scatter_p06_characteristic(lower_numerator, upper_numerator,

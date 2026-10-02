@@ -227,9 +227,12 @@ def _q3_core(faces, common, lower, upper, tau, floor, multiplier):
     K_axis = jnp.take_along_axis(faces.K, axis[:, None, None], axis=-1)[..., 0]
     normal = faces.J * K_axis / jnp.maximum(faces.B * faces.B, 1e-30)      # J K_axis / B^2, as the host
 
+    wall_faces = getattr(faces, "wall_faces", None)       # the wall solve runs on the wall faces only
+
     def one(c, lo, up):
         return p06_characteristic_face_correction(c, lo, up, faces.B, normal, faces.weight, faces.wall,
-                                                  faces.collapsed, tau=tau, positivity_floor=floor)
+                                                  faces.collapsed, tau=tau, positivity_floor=floor,
+                                                  wall_faces=wall_faces)
     lo_num, up_num, spectral, floor_hits, wall_fallback = jax.vmap(one)(common, lower, upper)
     m = multiplier[None, :, None]
     return lo_num * m, up_num * m, spectral, floor_hits, wall_fallback

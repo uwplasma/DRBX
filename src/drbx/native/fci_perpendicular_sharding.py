@@ -33,7 +33,9 @@ shard, stacked along a leading shard axis:
 * all shards are padded to identical shapes and batch structure. Padded cells and faces copy a real entity's geometry
   but carry zero volume / weight and the trash owner; padded faces are flagged ``collapsed`` (so the P06 counters skip
   them) and ``p07_valid = False`` (so P05 does not jump over them); padded source rows write unused dummy slots;
-  padded Neumann / integrated-row targets are out of range (``.at[].set`` drops them).
+  padded Neumann / integrated-row targets are out of range (``.at[].set`` drops them), as are the padded entries of
+  ``FacePlan.wall_faces`` (local wall-face indices, padded with the out-of-range face index; the P06 wall solve gathers
+  clipped and scatters / counts only the in-range entries).
 
 Tensor-encoded sources keep their grid-global eta tables: their per-apply theta tables are still built for all ``n``
 planes (planes outside the window gather the trash row), so a sharded apply does not yet reduce that cost.
@@ -361,7 +363,8 @@ def _local_faces(f: FacePlan, sh: _Shard) -> tuple[FacePlan, np.ndarray]:
         fallback_query=take(f.fallback_query), common_neumann=common_neumann, common_neumann_target=common_target,
         side_neumann=side_neumann, side_neumann_target=side_target, census_row=take(f.census_row),
         p07_id=take(f.p07_id), axis=take(f.axis), lower_owner=sh.side_map(take(f.lower_owner)),
-        upper_owner=sh.side_map(take(f.upper_owner)), wall=take(f.wall), collapsed=take(f.collapsed),
+        upper_owner=sh.side_map(take(f.upper_owner)), wall=take(f.wall),
+        wall_faces=np.flatnonzero(take(f.wall)).astype(np.int32), collapsed=take(f.collapsed),
         p07_valid=take(f.p07_valid), face_multiplier=take(f.face_multiplier), h=take(f.h), jac=take(f.jac),
         weight=take(f.weight), J=take(f.J), B=take(f.B), K=take(f.K), owner_volume=sh.vector(f.owner_volume),
         has_missing_side=f.has_missing_side), loc
@@ -572,6 +575,7 @@ def _pad_faces(faces: Sequence[FacePlan], trash: int, n_queries: int) -> list:
     rs = _neumann_count([f.side_neumann for f in faces])
     common = _pad_neumann([f.common_neumann for f in faces], rc, trash)
     side = _pad_neumann([f.side_neumann for f in faces], rs, trash)
+    nw = max(len(f.wall_faces) for f in faces)
     out = []
     for f, rows, cn, sn in zip(faces, payloads, common, side):
         first = lambda a: _pad_like_first(a, fc)
@@ -584,7 +588,8 @@ def _pad_faces(faces: Sequence[FacePlan], trash: int, n_queries: int) -> list:
             common_neumann_target=_pad(f.common_neumann_target, rc, fc * Qf), side_neumann=sn,
             side_neumann_target=_pad(f.side_neumann_target, rs, fc * Qf), census_row=_pad(f.census_row, fc, -1),
             p07_id=_pad(f.p07_id, fc, -1), axis=first(f.axis), lower_owner=_pad(f.lower_owner, fc, trash),
-            upper_owner=_pad(f.upper_owner, fc, trash), wall=_pad(f.wall, fc, False), collapsed=_pad(f.collapsed, fc, True),
+            upper_owner=_pad(f.upper_owner, fc, trash), wall=_pad(f.wall, fc, False),
+            wall_faces=_pad(f.wall_faces, nw, fc), collapsed=_pad(f.collapsed, fc, True),
             p07_valid=_pad(f.p07_valid, fc, False), face_multiplier=_pad(f.face_multiplier, fc, 1.0), h=first(f.h),
             jac=first(f.jac), weight=first(f.weight), J=first(f.J), B=first(f.B), K=first(f.K)))
     return out
