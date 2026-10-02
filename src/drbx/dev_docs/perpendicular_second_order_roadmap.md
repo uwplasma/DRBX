@@ -2452,6 +2452,43 @@ Steps:
        - The ψ solves take identical iteration counts, with ‖Δψ‖_M/‖ψ‖_M ≤ 3e-16.
        - Timing in that run was not a scaling measurement (forced host devices). One single-device RHS evaluation took 41 s at N64, a P09 performance item.
 7. **Acceptance record and roadmap update.**
+   - **P08 acceptance record: draft, 2 October 2026; awaiting the user's acceptance.**
+     - **Final operator:**
+       - P05/P05N bracket, P06/P06N curvature and P07/P07N diffusion/polarization on the row artifact;
+       - autodiff K, q2 faces for P05/P06 (P07 at q3), inner support C3 (`fixed_radius`);
+       - B evaluator `compact_c3` (pinned explicitly; the code default stays `spline` until P09).
+     - **φ:** Dirichlet only (Neumann-type φ is in P10). Solved by FGMRES with block-Jacobi over η planes, float32 plane LDU factors, warm starts, production rtol 1e-8.
+     - **Gate, part by part:**
+       - **Certified operator contributions and the combined residual:** the `compact_c3` re-freeze (`scripts/p08_step5_compact_c3/`, commit 6c4de657, job 59207210, identity 2eeecb16…).
+         - Every solver and finiteness gate passes. The global total order is ≥ 4.3 in every variant, field and arm (criterion 1.8), and the lowest regional order is 4.08.
+         - The results reproduce the spline 5.3 run within 0.4%. The 5.3 run was passed on 2 October.
+       - **Qualified references:** re-frozen on the final operator in that campaign (autodiff K and divergence). The step-4 N64 wall anomaly is resolved; the N64 geometry/reference recheck is closed.
+       - **Matched sharding:** bitwise RHS and identical φ solves at N32/N48/N64 for Sz = 2, 4, 8 (`scripts/p08_step6_global/`, commit b1746484, job 59221294).
+       - **Source:** satisfied by the qualified references.
+       - **φ diagnostics:**
+         - prescribed and solved arms in 5.3 and in the re-freeze;
+         - φ_h error 1.4e-5 at order 4.8 (main);
+         - ψ solve: 10–11 iterations, consistency error ≤ 4e-11.
+       - **Error budgets:** term-resolved and regional (P06N regions and u-bands) in the campaign summaries.
+     - **Step 6:**
+       - autodiff K, q2 and C3 adopted;
+       - `compact_c3` adopted after a bounded comparison (operator errors change < 2.5%) and the re-freeze;
+       - transverse-wave check accepted, with the core-band limitation;
+       - sharding passed.
+     - **Documented limitations:**
+       1. Core bands u < 0.06 and 0.12–0.21 (inside the coupled-quartic region): fine transverse structure converges at about first order on N48→N64. The error is about 1e-2 relative at N64 for stressed fields, and it does not spread outward through the φ solve. **Under investigation** ([investigation](../../../../work/p08_core_convergence_20261002/)); re-evaluate with its report.
+       2. Near-wall P07 O−R (face flux against midpoint reference) is about 3e-2 at order about 1.7–2.0. It comes from under-resolved near-wall coefficient structure (coil ripple), not from the reconstruction.
+       3. Generic fields with degree-≥4 content converge at about third order (the cubic in-plane and η reconstruction). Catalogue fields show about fifth order because they lie near the exactness space.
+       4. The MAKEGRID field and the fitted coordinate map are not certified against a finer independent source (non-blocking).
+     - **Carry-forwards to P09:**
+       - time-dependent source/boundary pairing;
+       - reconciling the P-path Neumann point rows with production's physical halos;
+       - the production wall model (P10 route A first);
+       - flipping the code default to `compact_c3` after pinning the frozen call sites to spline;
+       - sharded `raw_pairs` / `jump_mask` / `face_multiplier` overrides, and per-shard tensor θ tables;
+       - RHS performance: one single-device evaluation takes about 41 s at N64 on CPU;
+       - Vi/Ve terms (deferred);
+       - the core-convergence follow-up.
 
 Pending decisions:
 - **Neumann closure in the harness: closed for P08 (user decision, 2 October 2026).** P08 uses the qualified P-path point rows. Reconciling them with production's physical halos is a P09 integration item.
