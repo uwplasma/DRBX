@@ -93,6 +93,7 @@ from p_shared import replay_units as ru                                         
 from p_shared.replay_support import CAMPAIGN_FUNCS, Environment, build_environment      # noqa: E402
 from p_shared.curvature_reference import DEFAULT_CURVATURE  # noqa: E402
 from p_shared.face_quadrature import DEFAULT_FACE_QUADRATURE, FACE_QUADRATURE_CHOICES  # noqa: E402
+from p_shared.bfield import BFIELD_TOROIDAL_CHOICES, DEFAULT_BFIELD_TOROIDAL  # noqa: E402
 from p_shared.inner_support import DEFAULT_INNER_SUPPORT, INNER_SUPPORT_CHOICES  # noqa: E402
 
 __all__ = [
@@ -428,6 +429,10 @@ class JaxOwnerClosure:
         if built is not None and built.get("inner_support", self.inner_support) != self.inner_support:
             raise ValueError(f"owner rows were built with inner_support {built['inner_support']!r} but the "
                              f"environment uses {self.inner_support!r}")
+        self.bfield_toroidal = getattr(env, "bfield_toroidal", DEFAULT_BFIELD_TOROIDAL)
+        if built is not None and built.get("bfield_toroidal", self.bfield_toroidal) != self.bfield_toroidal:
+            raise ValueError(f"owner rows were built with bfield_toroidal {built['bfield_toroidal']!r} but the "
+                             f"environment uses {self.bfield_toroidal!r}")
         self.boundary_progress = boundary_progress
         self.campaigns = tuple(campaigns)
         unknown = set(self.campaigns) - set(CAMPAIGN_FUNCS)
@@ -832,7 +837,8 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
                                 column_block: Optional[int] = None, variant_block: Optional[int] = None,
                                 boundary_batch: Optional[int] = None, curvature: str = DEFAULT_CURVATURE,
                                 face_quadrature: str = DEFAULT_FACE_QUADRATURE,
-                                inner_support: str = DEFAULT_INNER_SUPPORT) -> dict:
+                                inner_support: str = DEFAULT_INNER_SUPPORT,
+                                bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> dict:
     """The G1 check at grid ``n`` (mirrors ``owner_closure.run_owner_closure_check``): build the owner rows once,
     run the host ``assemble_owner_terms`` and the JAX assembly on them, and return
 
@@ -850,7 +856,9 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
     values, so the oracle rows may move by the operator change.
 
     ``face_quadrature`` (``"q3"`` default, or ``"q2"``) is the P05/P06 face-node rule of the owner rows, the plan
-    and the host references (P07 stays q3); it is recorded in the payload only when it is not ``"q3"``."""
+    and the host references (P07 stays q3); it is recorded in the payload only when it is not ``"q3"``.
+    ``bfield_toroidal`` (``"spline"`` default, or ``"compact_c3"``) is the toroidal interpolation of the B evaluator
+    (``p_shared.bfield``); recorded only when it is not ``"spline"``."""
     campaigns = tuple(campaigns)
     wall_started = time.perf_counter()
     marks: dict = {}
@@ -860,7 +868,8 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
 
     started = time.perf_counter()
     env = build_environment(n=n, input_root=Path(input_root), sidecar_path=Path(sidecar_path), curvature=curvature,
-                            face_quadrature=face_quadrature, inner_support=inner_support)
+                            face_quadrature=face_quadrature, inner_support=inner_support,
+                            bfield_toroidal=bfield_toroidal)
     mark("environment", started)
     t = env.t
     fixture = oc.selection_fixture(t, env.census)
@@ -868,7 +877,7 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
 
     started = time.perf_counter()
     built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(
-        sidecar_path, curvature=curvature, face_quadrature=face_quadrature))
+        sidecar_path, curvature=curvature, face_quadrature=face_quadrature, bfield_toroidal=bfield_toroidal))
     mark("build_owner_rows", started)
     oracle = ru._load_oracle_owner_values(env, dict(paths), campaigns)
 
@@ -931,6 +940,8 @@ def run_jax_owner_closure_check(*, n: int, input_root, sidecar_path, paths: dict
         payload["face_quadrature"] = face_quadrature
     if inner_support != "profile7":
         payload["inner_support"] = inner_support
+    if bfield_toroidal != "spline":
+        payload["bfield_toroidal"] = bfield_toroidal
     if output is not None:
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -979,13 +990,15 @@ def main(argv=None) -> int:
                         help="P05/P06 face-node rule (P07 stays q3)")
     parser.add_argument("--inner-support", choices=INNER_SUPPORT_CHOICES, default=DEFAULT_INNER_SUPPORT,
                         help="inner donor support of the P05/P06/P07 rows (C0 profile7, C1 last_aggregate)")
+    parser.add_argument("--bfield-toroidal", choices=BFIELD_TOROIDAL_CHOICES, default=DEFAULT_BFIELD_TOROIDAL,
+                        help="toroidal interpolation of the B evaluator (spline = frozen, compact_c3)")
     parser.add_argument("--output", default=None)
     args = parser.parse_args(argv)
     payload = run_jax_owner_closure_check(
         n=args.n, input_root=args.input_root, sidecar_path=args.sidecar, paths=dict(DEFAULT_PATHS),
         campaigns=tuple(args.campaigns.split(",")), wall_cache=args.wall_cache, output=args.output,
         curvature=args.curvature, face_quadrature=args.face_quadrature,
-        inner_support=args.inner_support)
+        inner_support=args.inner_support, bfield_toroidal=args.bfield_toroidal)
     _print_summary(payload)
     return 0 if (payload["all_diff_pass"] and payload["oracle_jax_all_pass"] and not payload["uniq_mismatches"]) else 1
 
