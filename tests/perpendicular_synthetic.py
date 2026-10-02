@@ -51,15 +51,35 @@ def _neumann_row(rng, n_owners, wall_pool):
                             0.1 * rng.normal(size=28), 0.1 * rng.normal(size=(3, 28)), 1.0, 0.0)
 
 
-def make_world(*, seed: int = 0, n: int = N, owners=None) -> SimpleNamespace:
+def make_world(*, seed: int = 0, n: int = N, owners=None, raw_to_owner=None) -> SimpleNamespace:
     """The full synthetic grid, or (``owners``) the bounded closure of those owners.
+
+    ``raw_to_owner`` (default: three consecutive raw ids per owner) replaces the aggregation. With it every row's
+    donors are drawn from the eta planes within two planes of its entity's owner planes (the reach of the real rows),
+    so the world can be eta-sharded (``drbx.native.fci_perpendicular_sharding``).
 
     Returns a namespace with ``n, census, grid, geometry, raw_volume, owner_volume, n_owners, raw_ids,
     face_rows, p07_rows, row_index, neumann_index`` (``build_owner_rows`` format).
     """
     rng = np.random.default_rng(seed)
-    ro = np.arange(n ** 3) // 3
+    ro = np.arange(n ** 3) // 3 if raw_to_owner is None else np.asarray(raw_to_owner)
     n_owners = int(ro.max()) + 1
+    owner_plane = np.zeros(n_owners, dtype=np.int64)
+    owner_plane[ro] = np.arange(n ** 3) % n
+    near_cache = {}
+
+    def near(planes):
+        """Owners within two eta planes of ``planes`` (all owners without ``raw_to_owner``)."""
+        if raw_to_owner is None:
+            return n_owners
+        key = frozenset(int(k) for k in planes)
+        if key not in near_cache:
+            allowed = {(k + d) % n for k in key for d in range(-2, 3)}
+            near_cache[key] = np.flatnonzero(np.isin(owner_plane, sorted(allowed)))
+        return near_cache[key]
+
+    def face_planes(ridx):
+        return [owner_plane[o] for o in (census.owner_lo[ridx], census.owner_hi[ridx]) if o >= 0]
     census = FaceCensus.build(n, ro)
     raw_volume = rng.uniform(0.5, 1.5, size=n ** 3)
     owner_volume = np.bincount(ro, weights=raw_volume)
@@ -81,27 +101,28 @@ def make_world(*, seed: int = 0, n: int = N, owners=None) -> SimpleNamespace:
     row_index, neumann_index = {}, {}
     for raw in raw_ids:
         conditioned = rng.random() < 0.3
-        row_index[("R1", int(raw))] = _point_row(rng, n_owners, 1, conditioned, donor_pool,
-                                                 rng.integers(5, 25))
+        pool = near([raw % n])
+        row_index[("R1", int(raw))] = _point_row(rng, pool, 1, conditioned, donor_pool, rng.integers(5, 25))
         if conditioned:
-            neumann_index[("R1", int(raw), 0)] = _neumann_row(rng, n_owners, wall_pool)
+            neumann_index[("R1", int(raw), 0)] = _neumann_row(rng, pool, wall_pool)
     for ridx in face_rows:
         conditioned = rng.random() < 0.3
-        row_index[("R2", int(ridx))] = _point_row(rng, n_owners, 9, conditioned, donor_pool, rng.integers(5, 25))
+        pool = near(face_planes(ridx))
+        row_index[("R2", int(ridx))] = _point_row(rng, pool, 9, conditioned, donor_pool, rng.integers(5, 25))
         if conditioned:
             for q in range(9):
-                neumann_index[("R2", int(ridx), q)] = _neumann_row(rng, n_owners, wall_pool)
+                neumann_index[("R2", int(ridx), q)] = _neumann_row(rng, pool, wall_pool)
         any_side = False
         for side, raw_side in enumerate((census.raw_lo[ridx], census.raw_hi[ridx])):
             if raw_side < 0:
                 continue
             side_conditioned = rng.random() < 0.3
             any_side |= side_conditioned
-            row_index[("R3", int(ridx) * 2 + side)] = _point_row(rng, n_owners, 9, side_conditioned, donor_pool,
+            row_index[("R3", int(ridx) * 2 + side)] = _point_row(rng, pool, 9, side_conditioned, donor_pool,
                                                                  rng.integers(5, 25))
         if any_side:
             for q in range(9):
-                neumann_index[("R3", int(ridx), q)] = _neumann_row(rng, n_owners, wall_pool)
+                neumann_index[("R3", int(ridx), q)] = _neumann_row(rng, pool, wall_pool)
     for ridx in p07_rows:
         pid, family = int(census.p07_id[ridx]), int(census.family[ridx])
         target = rng.uniform(size=(9, 3))
@@ -110,13 +131,13 @@ def make_world(*, seed: int = 0, n: int = N, owners=None) -> SimpleNamespace:
                                     np.empty(0), np.empty((0, 2)), family)
         else:
             d = int(rng.integers(5, 30))
-            donors = np.sort(rng.choice(n_owners, size=d, replace=False)).astype(np.int64)
+            donors = np.sort(rng.choice(near(face_planes(ridx)), size=d, replace=False)).astype(np.int64)
             weights = 0.3 * rng.normal(size=d)
             if family in (1, 2, 4):
                 row = IntegratedFaceRow(donors, weights, True, _points(rng, donor_pool, d), target, -weights,
                                         0.3 * rng.normal(size=(9, 2)), family)
                 for q in range(9):
-                    neumann_index[("R4", pid, q)] = _neumann_row(rng, n_owners, wall_pool)
+                    neumann_index[("R4", pid, q)] = _neumann_row(rng, near(face_planes(ridx)), wall_pool)
             else:
                 row = IntegratedFaceRow(donors, weights, False, np.empty((0, 3)), target, np.empty(0),
                                         np.empty((0, 2)), family)

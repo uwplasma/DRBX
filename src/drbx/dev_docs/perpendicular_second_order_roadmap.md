@@ -2406,7 +2406,24 @@ Steps:
        1. Add a transverse-wave MMS control with order-one degree-≥4 Cartesian content at the switch radius. Score it per layer and at fixed coordinates across the switch, reporting the transverse and η parts separately, alongside the global gates.
        2. Evaluate the Q support candidates in P's own assemblies at the same owners. Priority is P07 N−O/N−R at switch_plus1, and the first-singleton regression.
        3. Only then decide on a P support or switch-policy change, then re-qualify and re-freeze the row artifact.
-   - Matched single-device and η-sharded execution. This needs a sharded owner-value gather in the application layer, and is the largest new engineering item.
+   - **Matched single-device and η-sharded execution: implemented, local checks pass (2 October 2026; [design](../../../../work/p08_step6_sharding_20261002/design.md)).** Full-grid matched check pending (remote).
+     - **Layout:**
+       - Every owner lies in a single η plane, and every plane has the same owner count: 793 / 1,792 / 3,161 at N32/N48/N64.
+       - Owners are relabelled plane-major. Each device owns a contiguous block of planes, and halos come from two ring `ppermute` calls.
+     - **RHS** (`drbx.native.fci_perpendicular_sharding`):
+       - Each shard gets a local `PerpendicularPlan` over its planes plus a halo of **3** planes. The halo is 3, not 2: a face on a block boundary is computed on both shards, and its side rows reach 3 planes past the block. The lowering checks the donor reach and raises if it is exceeded.
+       - The unchanged `perpendicular_rhs` runs inside `shard_map`.
+       - **Local result:** sharded equals single-device **bitwise** for Sz = 1, 2, 4. This holds on a synthetic plan and on a real N32 closure with targets on every η plane (`compact_c3`, Dirichlet and Neumann variants).
+       - **Limits:**
+         - `raw_pairs`, `jump_mask` and `face_multiplier` overrides are not yet supported.
+         - Tensor-source θ tables are still built for all η planes.
+         - P06 diagnostic counters are per shard.
+     - **φ solve** (`drbx.native.fci_perpendicular_phi_sharding`):
+       - Halo of 2 planes. The P07 matrix couples −2..+2 planes, measured.
+       - The inner product is a `psum`; solvax routes every reduction through it.
+       - The per-plane preconditioner factors are slices of the global ones.
+       - **Local result** on the N32/N48 exports: the same 10 (smooth) or 12 (white-noise) iterations at every Sz, with ‖Δφ‖_M/‖φ‖_M ≤ 3e-15.
+     - **Remaining:** the full-grid matched RHS and φ solve at N32/N48/N64 on the `compact_c3` artifacts, single device against Sz ∈ {2, 4, 8} (remote).
 7. **Acceptance record and roadmap update.**
 
 Pending decisions:
