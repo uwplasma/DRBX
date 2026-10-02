@@ -2338,7 +2338,10 @@ Steps:
            - **Limits:**
              - The owner sample is redrawn per grid, so the orders are noisy; the `compact_c3`/spline ratio is the robust statistic.
              - A cell spans several MAKEGRID planes (90 per field period) even at N64, so the knot classes barely separate.
-       - **Then remote:** the step-4 rebuild and the 5.3 re-run on `compact_c3`, as the one re-freeze.
+       - **Re-freeze on `compact_c3`: complete, 2 October 2026** (`scripts/p08_step5_compact_c3/`, commit 6c4de657, job 59207210; [local analysis](../../../../work/p08-step5-compact-c3-6c4de657-20261002T150857Z-27485/local_analysis.md)).
+         - The N32/N48/N64 artifacts were rebuilt on `compact_c3` and the 5.3 stages re-run. Every gate passes and the headline criterion passes.
+         - Every row agrees with the spline 5.3 run within a factor 0.997–1.004 (orders within 0.02). Total-term N−R at N64 is 1.4e-5 to 1.2e-4, at orders 4.3–5.9. φ_h is at orders 4.8 / 4.2. The lowest regional order is 4.08.
+         - The references in that folder are the re-frozen references of the final P08 operator. The artifacts stay on Perlmutter scratch (`summary/artifacts.json`). Acceptance is the user's decision.
 6. **Remaining gates.**
    - A bounded geometry/reference recheck on N64. Candidate evidence (not yet accepted): the [N64 P06N wall check](../../../../work/p08_p06n_wall_n64_20261001/README.md) and the [reference FD check](../../../../work/p08_step5_reference_fd_check_20261001/README.md).
    - **Scoped change: autodiff curvature K (user decision, 28 September).** Compute K = (B/2J)∇×(b_cov/B) with `jax.jacfwd` through the JAX metric and B-field evaluators. These are the same interpolants the NumPy reference uses, and they agree to 4e-15. The frozen fourth-order finite difference it replaces uses step 2e-4, shrunk near u = 0 and u = 1, with a one-sided rule at the wall.
