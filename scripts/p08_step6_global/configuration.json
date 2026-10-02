@@ -1,0 +1,227 @@
+{
+  "schema": "drbx.p08-step6-global-v1",
+  "roadmap_step": "P08 step 6: transverse-wave check of the combined perpendicular RHS (prescribed-phi and solved-phi arms) and the Dirichlet psi solve on the compact_c3 re-freeze artifacts, full grids N32/N48/N64, no rebuild",
+  "resolutions": [
+    32,
+    48,
+    64
+  ],
+  "operator_options": {
+    "curvature": "autodiff",
+    "face_quadrature": "q2",
+    "inner_support": "fixed_radius",
+    "bfield_toroidal": "compact_c3"
+  },
+  "refreeze": {
+    "campaign": "p08_step5_compact_c3",
+    "schema": "drbx.p08-step5-compact-c3-v1",
+    "reads": [
+      "provenance/inputs.json",
+      "validation.json",
+      "localized_sidecar.json",
+      "summary/step5_combined_summary.json",
+      "artifact/N{n}/"
+    ],
+    "note": "The completed re-freeze campaign folder (--refreeze-campaign). Its artifacts are read only; this campaign never rebuilds a row artifact. The artifact identities recorded in its provenance/inputs.json are checked against the build identities on disk and hashed into this campaign's identity."
+  },
+  "params": {
+    "rho_star": 0.05,
+    "tau": 1.0,
+    "diffusion": {
+      "density": 0.01,
+      "Te": 0.01,
+      "Ti": 0.01,
+      "vorticity": 0.01
+    }
+  },
+  "phi_solve_boundary": "dirichlet",
+  "phi_solve_preconditioner": "block_jacobi_eta_plane",
+  "phi_solve_factor_dtype": "float32",
+  "phi_solve_rtol": 1e-11,
+  "phi_solve_rtol_production_default": 1e-08,
+  "phi_solve_restart": 50,
+  "phi_solve_max_restarts": 40,
+  "fields": {
+    "n": {
+      "kind": "wave",
+      "direction_deg": 0.0,
+      "wavelength": 2.0,
+      "part": "re",
+      "offset": 1.0,
+      "amplitude": 0.5
+    },
+    "Te": {
+      "kind": "wave",
+      "direction_deg": 60.0,
+      "wavelength": 2.0,
+      "part": "im",
+      "offset": 1.0,
+      "amplitude": 0.5
+    },
+    "Ti": {
+      "kind": "wave",
+      "direction_deg": 120.0,
+      "wavelength": 4.0,
+      "part": "re",
+      "offset": 1.0,
+      "amplitude": 0.5
+    },
+    "omega": {
+      "kind": "switch_harmonic",
+      "harmonic": "cos4",
+      "u_s": 0.21,
+      "w2": 0.06,
+      "eta_phase": 0.0
+    },
+    "phi_switch": {
+      "kind": "sum",
+      "terms": [
+        {
+          "coef": 1.0,
+          "field": {
+            "kind": "switch_harmonic",
+            "harmonic": "sin4",
+            "u_s": 0.21,
+            "w2": 0.06,
+            "eta_phase": 0.3
+          }
+        },
+        {
+          "coef": 0.5,
+          "field": {
+            "kind": "wave",
+            "direction_deg": 30.0,
+            "wavelength": 2.0,
+            "part": "re"
+          }
+        }
+      ]
+    },
+    "phi_wave": {
+      "kind": "wave",
+      "direction_deg": 150.0,
+      "wavelength": 2.0,
+      "part": "re"
+    }
+  },
+  "field_sets": {
+    "transverse": {
+      "fields": [
+        "n",
+        "Te",
+        "Ti",
+        "omega",
+        "phi_switch"
+      ]
+    },
+    "transverse_phi_wave": {
+      "fields": [
+        "n",
+        "Te",
+        "Ti",
+        "omega",
+        "phi_wave"
+      ]
+    }
+  },
+  "fields_note": "Real, O(1), smooth (including at the axis) functions of (u, theta, eta); x = u cos(theta), y = u sin(theta), eta enters as (2 pi / eta_period) eta. 'wave': offset + amplitude * {cos|sin}(2 pi x_a / lambda + eta + eta_phase) with x_a = x cos(a) + y sin(a) ('re' = real, 'im' = imaginary part of exp(i(...))). 'switch_harmonic': B(x^2 + y^2) P4(x, y) / u_s^4 cos(eta + eta_phase), B(s) = exp(-((s - u_s^2)/w2)^2), P4 = x^4 - 6 x^2 y^2 + y^4 (cos4) or 4 (x^3 y - x y^3) (sin4). Field set 'transverse': n = 1 + 0.5 Re wave(0 deg, lambda 2), Te = 1 + 0.5 Im wave(60 deg, lambda 2), Ti = 1 + 0.5 Re wave(120 deg, lambda 4), omega = switch cos4, phi = switch sin4 (eta phase 0.3) + 0.5 Re wave(30 deg, lambda 2). Field set 'transverse_phi_wave': the same n, Te, Ti, omega with phi = Re wave(150 deg, lambda 2). DEVIATION FROM THE BRIEF: n, Te, Ti carry the offset 1 and amplitude 0.5 instead of being the zero-mean waves themselves: the production curvature matrix divides by n (n_safe = max(n, 1e-30)), so a zero-mean wave density makes the Te, Ti and omega curvature references ~1e30 (verified in the bounded preflight); the catalogue fields are 1 + small as well. The transverse (lambda 2 / 4) wave content is unchanged, only its amplitude is 0.5.",
+  "variants": {
+    "transverse_dirichlet": {
+      "field_set": "transverse",
+      "constant": false,
+      "kinds": [
+        "dirichlet",
+        "dirichlet",
+        "dirichlet",
+        "dirichlet",
+        "dirichlet"
+      ]
+    },
+    "transverse_phi_wave_dirichlet": {
+      "field_set": "transverse_phi_wave",
+      "constant": false,
+      "kinds": [
+        "dirichlet",
+        "dirichlet",
+        "dirichlet",
+        "dirichlet",
+        "dirichlet"
+      ]
+    }
+  },
+  "u_band_edges": [
+    0.0,
+    0.06,
+    0.12,
+    0.21,
+    0.27,
+    0.4,
+    1.0
+  ],
+  "u_band_note": "Owner ring-centre u bands [lo, hi) (the last one closed at 1.0), added to the P06N region masks of 5.3 in N{n}/context.npz so the 5.3 reduction reduces them unchanged. 0.21 is the u at which the P reconstruction switches from the coupled Cartesian quartic to the ringwise fit (inner support fixed_radius).",
+  "comparison": {
+    "catalogue_variants": [
+      "main_phi_dirichlet",
+      "dirichlet_rich"
+    ],
+    "source": "summary/step5_combined_summary.json of the re-freeze campaign"
+  },
+  "owner_chunk_size": 1024,
+  "boundary_batch": 8192,
+  "device_put_plan": true,
+  "consistency_tolerance": 1e-08,
+  "degenerate_fraction": 1e-08,
+  "order_criterion": {
+    "min_order": 1.8,
+    "term": "total",
+    "arms": [
+      "presc_vs_ref",
+      "solved_vs_ref"
+    ],
+    "informational": true
+  },
+  "stages": [
+    "owner_values",
+    "references",
+    "jax",
+    "reduce",
+    "sharding"
+  ],
+  "sharding": {
+    "schema": "drbx.p08-step6-sharding-config.v1",
+    "shard_counts": [2, 4, 8],
+    "min_block_planes": 3,
+    "devices": 8,
+    "max_shards": null,
+    "plan_halo": 3,
+    "phi_halo": 2,
+    "transverse_variant": "transverse_dirichlet",
+    "catalogue_variant": "main_phi_dirichlet",
+    "catalogue_kinds": ["neumann", "neumann", "neumann", "dirichlet", "dirichlet"],
+    "rhs_arm": "prescribed_phi",
+    "rhs_gate": 1e-12,
+    "phi_iteration_tolerance": 1,
+    "phi_solution_rtol_factor": 10.0,
+    "note": "Subprocess with devices forced host devices (XLA_FLAGS set before JAX is imported). Shard counts: those of shard_counts dividing n with a block of at least min_block_planes planes (max_shards, or --sharding-max-shards, caps the list; a capped run that passes is recorded as pending). RHS gate: max|sharded - single| / max|single| over all owners <= rhs_gate for every field and term (poisson_bracket, curvature, perpendicular_diffusion, total). phi gate: iterations differ by <= phi_iteration_tolerance and ||psi_sharded - psi_single||_M <= phi_solution_rtol_factor * phi_solve_rtol * ||psi_single||_M, both converged; cold start; the psi right-hand side is the reference O(psi) for the transverse variant and the discrete A psi_bar + B g for the catalogue variant (this campaign has no catalogue references)."
+  },
+  "preflight": {
+    "grid": 32,
+    "fd_step": 1e-05,
+    "random_points": 64,
+    "seed": 20261002,
+    "hessian_fd_relative_max": 1e-06,
+    "gradient_fd_relative_max": 1e-07,
+    "owner_average_tolerance": 1e-13,
+    "oracle_owner_values_tolerance": 1e-13,
+    "axis_u": [
+      0.0,
+      1e-12,
+      1e-09,
+      1e-06,
+      0.001
+    ],
+    "axis_value_tolerance": 1e-08,
+    "production_formula_max_rel": 1e-08
+  },
+  "note": "ONE campaign, per grid 32 -> 48 -> 64: owner_values (pooled) -> references (pooled) -> jax (one process) -> reduce -> [sharding hook]. Same scientific contract as the step-5.3 / re-freeze campaign (parameters, phi solve with the block-Jacobi eta-plane preconditioner and float32 factors, rtol 1e-11 measurement setting, solver gates, degenerate-reference rule, informational order criterion; the user decides acceptance); only the manufactured fields change. Owner averages are computed exactly like the frozen P06N owner_values (raw-volume-weighted average of the field at the raw-cell midpoints)."
+}
