@@ -23,6 +23,12 @@ solver capabilities. Detailed run evidence belongs in linked research artifacts.
 |---|---|
 | [Second-order perpendicular RLP operators](perpendicular_second_order_roadmap.md) | P00–P09 global operator and elliptic/MMS solution certification, with regional diagnostics; authoritative task progress ledger |
 | [Second-order parallel RLP operators](parallel_second_order_roadmap.md) | Q00–Q09 HSX diffusion certification, shared interface structure, and coupled parallel operator/solution MMS; authoritative task progress ledger |
+| [Parallel FCI/direct architecture comparison](parallel_fci_direct_design_comparison.md) | Reopened Q design choice; traced FCI strongly preferred, direct reconstruction retained as an alternative and benchmark |
+| [FCI return basis and support candidate](q_fci_geometry_aware_return_design.md) | Research design contract for geometry-aware cubic-potential face returns, adequate traced-leg support, and the next bounded verification; not production-certified |
+| [Q05a direct-cubic extraction assignment](q05a_direct_cubic_extraction_assignment.md) | Authorized bounded package extraction and local-action replay contract; not full Q04/Q05 promotion |
+| [Q06 gradient/divergence assignment](q06_gradient_divergence_assignment.md) | Authorized bounded real-HSX `G`, conservative `D`, product-identity, and composition certification contract |
+| [Current traced Q06 contract](q06_traced_gradient_divergence_contract.md) and [direct-gradient assignment](q06_direct_gradient_assignment.md) | Frozen traced midpoint/cap `G` semantics and initial bounded implementation scope; older integrated-face Q06 plans are historical for this path |
+| [Q08 shared reconstruction extraction plan](q08_shared_extraction_plan.md) | Implemented paired preparation, compact bank/runtime and shared owner-plane utilities; bounded replay/resource evidence, with full-grid/GPU and remaining Q08 gates open |
 
 Both roadmaps require real HSX geometry from the first numerical audit.
 Idealized fixtures remain algebra/bookkeeping controls, not evidence of HSX

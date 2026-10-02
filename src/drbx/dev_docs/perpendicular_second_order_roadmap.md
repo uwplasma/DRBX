@@ -2424,7 +2424,7 @@ Steps:
          - u 0.12–0.21: ω total orders 1.3 / 1.6; ψ N−O orders 2.5 / 1.0.
          - u < 0.06: ω total orders 1.6 / 1.3.
        - Bands u ≥ 0.21 converge at 2.7 or better. No new defect appeared.
-       - **Accepted (user decision, 2 October 2026)**, with the core-band limitation marked **under investigation** ([investigation](../../../../work/p08_core_convergence_20261002/)). Re-evaluate when its report finishes.
+       - **Accepted (user decision, 2 October 2026)** with the core-band limitation. Mechanism: see the step-7 record and the [report](../../../../work/p08_core_convergence_20261002/report.md).
      - **Planned checks** (historical):
        1. Add a transverse-wave MMS control with order-one degree-≥4 Cartesian content at the switch radius. Score it per layer and at fixed coordinates across the switch, reporting the transverse and η parts separately, alongside the global gates.
        2. Evaluate the Q support candidates in P's own assemblies at the same owners. Priority is P07 N−O/N−R at switch_plus1, and the first-singleton regression.
@@ -2476,7 +2476,13 @@ Steps:
        - transverse-wave check accepted, with the core-band limitation;
        - sharding passed.
      - **Documented limitations:**
-       1. Core bands u < 0.06 and 0.12–0.21 (inside the coupled-quartic region): fine transverse structure converges at about first order on N48→N64. The error is about 1e-2 relative at N64 for stressed fields, and it does not spread outward through the φ solve. **Under investigation** ([investigation](../../../../work/p08_core_convergence_20261002/)); re-evaluate with its report.
+       1. Core bands u < 0.06 and 0.12–0.21 (inside the coupled-quartic region): fine transverse structure converges at about first order on N48→N64. The error is about 1e-2 relative at N64 for stressed fields, and it does not spread outward through the φ solve. **Investigated, 2 October 2026** ([report](../../../../work/p08_core_convergence_20261002/report.md)); re-evaluation with the user pending.
+          - **u < 0.06 is mostly a measurement effect.** At a fixed ring index, N32→64 converges at order about 4. N48 has a different near-axis agglomeration (1, 3, 6, 6 owners against 1, 4, 4, 8), so 32→48 and 48→64 orders straddle two stencil families. The 2–4-ring band and its reference also change with N.
+          - **u 0.12–0.21 is a real stencil limit.**
+            - The 4-ring × 7-owner coupled-quartic donor arc becomes long and thin as N grows: its error constant drifts upward with N, its conditioning grows with N, P07 face errors don't cancel, and the ring after each owner-count doubling doesn't converge.
+            - Basis, metric and η handling are ruled out.
+            - Wider radial support (6–8 rings) restores about third order (32→64), but costs about 8× in the 0.21–0.27 interface band unless the transition is also changed.
+          - The campaign's ω total in these bands is dominated by the P05 bracket, which shows the same mechanisms.
        2. Near-wall P07 O−R (face flux against midpoint reference) is about 3e-2 at order about 1.7–2.0. It comes from under-resolved near-wall coefficient structure (coil ripple), not from the reconstruction.
        3. Generic fields with degree-≥4 content converge at about third order (the cubic in-plane and η reconstruction). Catalogue fields show about fifth order because they lie near the exactness space.
        4. The MAKEGRID field and the fitted coordinate map are not certified against a finer independent source (non-blocking).

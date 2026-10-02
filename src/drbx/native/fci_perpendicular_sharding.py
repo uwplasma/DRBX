@@ -84,64 +84,8 @@ DEFAULT_HALO = 3
 # Plane-major relabelling
 # --------------------------------------------------------------------------
 
-class PlaneLayout(NamedTuple):
-    """``perm[old] = new``, ``inverse[new] = old`` and the owners per plane ``m``."""
-
-    perm: np.ndarray
-    inverse: np.ndarray
-    m: int
-
-
-def plane_major_permutation(raw_to_owner, n: int) -> tuple[np.ndarray, np.ndarray, int]:
-    """``(perm, inverse, m)``: ``new = plane * m + rank of old among the owners of its plane`` (ordered by old id).
-
-    Raises ``ValueError`` unless every owner is single-ring and single-plane (``owner_layout``) and all planes hold
-    the same number of owners. ``perm[old] = new`` and ``inverse[new] = old`` are int64 arrays."""
-    _ring, plane, _theta = owner_layout(raw_to_owner, n)
-    counts = np.bincount(plane, minlength=int(n))
-    if len(counts) != int(n) or counts.min() != counts.max() or counts[0] == 0:
-        raise ValueError(f"the eta planes must hold equally many owners, got counts {sorted(set(counts.tolist()))}")
-    m = int(counts[0])
-    inverse = np.lexsort((np.arange(len(plane)), plane)).astype(np.int64)
-    perm = np.empty_like(inverse)
-    perm[inverse] = np.arange(len(inverse), dtype=np.int64)
-    return perm, inverse, m
-
-
-def to_plane_major(values, inverse):
-    """Owner array (leading axis old ids) -> plane-major order: ``out[new] = values[inverse[new]]``."""
-    return values[inverse]
-
-
-def from_plane_major(values, perm):
-    """Plane-major owner array -> old owner order: ``out[old] = values[perm[old]]``."""
-    return values[perm]
-
-
-# --------------------------------------------------------------------------
-# Halo exchange and mesh
-# --------------------------------------------------------------------------
-
-def exchange_plane_halo(owned, halo: int, axis_name: str, n_shards: int):
-    """``(p, m, F...)`` owned planes -> ``(p + 2 halo, m, F...)``: ``[lower halo | owned | upper halo]`` on the
-    periodic ring of ``n_shards`` shards (call inside ``shard_map`` over ``axis_name``).
-
-    The upper ``halo`` planes go to shard ``s + 1`` (its lower halo) and the lower ones to shard ``s - 1`` (its upper
-    halo), by two ``lax.ppermute`` calls (needs ``p >= halo``). With one shard the halos are a local periodic wrap
-    without collectives (any ``p``)."""
-    halo = int(halo)
-    p = owned.shape[0]
-    if halo < 0:
-        raise ValueError("halo must be non-negative")
-    if halo == 0:
-        return owned
-    if int(n_shards) == 1:
-        return owned[np.arange(-halo, p + halo) % p]
-    if p < halo:
-        raise ValueError(f"the halo ({halo}) is wider than the owned block ({p} planes)")
-    lower = lax.ppermute(owned[p - halo:], axis_name, [(s, (s + 1) % n_shards) for s in range(n_shards)])
-    upper = lax.ppermute(owned[:halo], axis_name, [(s, (s - 1) % n_shards) for s in range(n_shards)])
-    return jnp.concatenate([lower, owned, upper], axis=0)
+from .owner_plane_layout import (
+    PlaneLayout, plane_major_permutation, to_plane_major, from_plane_major, exchange_plane_halo)
 
 
 def make_plane_mesh(n_shards: int) -> Mesh:
