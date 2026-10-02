@@ -2256,13 +2256,29 @@ Steps:
        - The continuum normal-Neumann quadratic form is itself indefinite on toroidal modes. The bulk term is m²⟨J P⊥^{ηη}⟩, which is 7e-4 to 5e-2 because P⊥^{ηη} is 0.15% of g^{ηη}. The oblique wall term, −½∮f²∇_Γ·(b_n b_t), is ±3e-2 to 6e-2.
        - Consequences: the left null vector is 81× away from the volume weights, and Neumann φ errors run from 1e-3 up to 100× the field.
        - A conormal condition would remove only the wall term. Dirichlet removes both.
-       - **The Neumann branch is deferred until after static Dirichlet 5.3 (user decision).**
+       - **φ wall condition: Dirichlet only through P08 and P09 (user decision, 2 October 2026).** Every Neumann-type φ condition is deferred to [P10](#p10--φ-wall-model-bookkeeping-for-future-physics-work-not-a-gate), which is bookkeeping, not a gate:
+         - normal Neumann (Loizu's magnetic-presheath-entrance condition);
+         - conormal Neumann (the polarization-current condition);
+         - a mixed Dirichlet/Neumann condition chosen by grazing angle.
+       - **Open issues recorded in P10** ([grazing-angle map](../../../../work/p08_wall_grazing_angle_20261002/)):
+         - Normal Neumann's compatibility condition is weighted by ℓ, not the volume weights, so λ is spurious.
+         - Every Neumann form leaves the constant potential level free.
+         - The toroidal near-null modes remain.
+         - The Bohm sign flips across b_n = 0, so the data are discontinuous at tangency curves.
+         - The form that differentiates along b degenerates at tangency.
+         - The theory does not hold below the critical angle: 10% of the wall is below 0.3° and 33% below 1°.
+         - A mixed condition with a sharp switch is singular at the junctions (the Zaremba problem).
      - **Linear solver (user decisions).** FGMRES right-preconditioned by **block-Jacobi over η planes**, with each plane block solved exactly by a JAX ring-block LDU in **float32**, **warm starts**, and **default rtol = 1e-8**. The matrix is applied as BCSR, which is 6.6× faster per matvec than BCOO.
        - Iterations are 10 / 9 / 9 at N32 / N48 / N64, against Jacobi's 341 / 566 / 760.
        - At N64 a solve takes 0.73 s cold at 1e-10. Warm starts take it to 0.31–0.59 s at 1e-8.
        - Over 100 solves this is 44× faster end to end than Jacobi, with 369 MB of factors.
        - Rejected on wall time: smoothed-aggregation AMG (its coarse operators densify), ILU (setup grows about 10× per refinement), Chebyshev, and block Gauss–Seidel across planes.
-   - **Step 5.3, static Dirichlet-φ combined campaign: package ready, 1 October 2026** (`scripts/p08_step5_combined/`, README). Remote run pending. It runs on the step-4 artifacts, so nothing is rebuilt.
+   - **Step 5.3, static Dirichlet-φ combined campaign: complete, 2 October 2026** (`scripts/p08_step5_combined/`, commit f4de626e, remote job 59177170; [local analysis](../../../../work/p08-step5-combined-f4de626e-20261001T231445Z-a13f6c/local_analysis.md)). It ran on the step-4 artifacts, so nothing was rebuilt.
+     - **Results.** All solver gates pass at N32/N48/N64: the consistency error is ≤ 4e-11, and the ψ solve takes 10–11 iterations at rtol 1e-11.
+       - The informational headline order criterion passes for every variant, field and arm. The total-term N−R at N64 is 2e-5 to 1.2e-4, at orders 4.3–5.9.
+       - The lowest regional order is 4.1.
+       - The solved arm differs from the prescribed arm by 2–3.5e-5 relative at N64, and the error of φ_h is 1–1.4e-5 relative at order about 4.5. Solving φ inside the RHS costs no accuracy or order.
+       - The re-frozen references for the final operator are in the campaign folder. **Passed (user decision, 2 October 2026).**
      - **Production φ solver:** `drbx.native.fci_perpendicular_phi_solver`, built from the plan, with `drbx.native.fci_perpendicular_plane_preconditioner`.
      - **Reference divergence:** `drbx.geometry.curvature_autodiff.AutodiffPerpendicularGeometry` and `p_shared.curvature_reference.perpendicular_geometry(..., method="autodiff")`. It agrees with converged FD to 2e-10 per point. Artifact builds keep their FD divergence.
      - **Catalogue:** the P06N variants with Dirichlet φ: `main_phi_dirichlet`, `heldout_phi_dirichlet`, `dirichlet_rich` and `control_constant_dirichlet`. Low-degree and transverse-wave controls move to the step-6 transverse-wave check.
@@ -2379,6 +2395,14 @@ Carry-forwards:
 - the production wall model (deferred to full RHS wiring, user decision 30 September).
   - Under the P-path operators a wall model becomes a provider of per-field kinds and `BoundaryData` on the plan's tables.
   - `no-flow` and `simple-conducting-sheath` map directly. `simplified-gbs-mpe` needs a Robin density condition, the augmented-Neumann φ solve and a derived ω.
+  - **φ (user decision, 2 October 2026):** Dirichlet with a sheath-informed wall value (P10 route A).
+    - The first form is insulating: φ_w = ΛTe, with j∥ = 0 (as in GRILLIX).
+    - The optional form carries current: φ_w = (Te/e)[Λ − w(α) ln(1 − j∥/(e n c_s))], where w(α) switches the sheath current on smoothly across the critical-angle band.
+    - The φ solver already accepts any per-point Dirichlet data. The wall model must supply the ψ = φ + τTi trace value and its tangential (θ, η) gradient at the plan's Dirichlet points.
+    - j∥ is lagged by one step, or Picard-iterated with warm-started solves, and clipped below ion saturation.
+    - Before relying on the current-carrying form, check:
+      - the stability of the lagged sheath coupling;
+      - the mapping between the Dirichlet points and the parallel wall-intersection points.
   - The CLI-default `legacy-velocity-trace` is to be removed then. Its legacy "neumann" velocity condition stores the owner velocity as the Neumann value.
 - the deduplicated periodic census;
 - the recovered-trace wall contract (not a wall law);
@@ -2400,6 +2424,7 @@ regional second-order gate is imposed. P09 independently checks solutions.
 - Include diffusion-only evolution, bracket/curvature evolution, and the coupled
   perpendicular system.
 - Recheck phi reconstruction and source/boundary pairing.
+- φ uses the Dirichlet wall condition with manufactured, time-dependent trace data. The solver accepts any per-point data, so the sheath-informed values of P10 need no solver change. Neumann-type φ conditions are out of scope.
 - Add compact regression tests for the discovered failure mechanisms; keep
   expensive convergence campaigns as reproducible research artifacts.
 - Verify JIT, JVP/gradient behavior on the smooth path, sharding agreement, and
@@ -2423,6 +2448,66 @@ configuration manifests, machine-readable errors/orders, plots, regional
 diagnostics, and passing regression evidence, together with the consolidated
 shared implementation and final model/MMS integration record.
 
+### P10 — φ wall model (bookkeeping for future physics work, not a gate)
+
+**Status:** this records the physics options for the φ wall condition so they are not lost.
+- It is **not** part of the P operator/MMS roadmap.
+- It has no acceptance gate.
+- P05–P09, and roadmap completion, do not depend on it.
+- The P path qualifies Dirichlet φ with manufactured wall data only.
+
+**Inputs:**
+- the presheath-theory literature review, `work/presheath_literature_review_20261002/report.md` (in progress, 2 October 2026);
+- the [HSX grazing-angle map](../../../../work/p08_wall_grazing_angle_20261002/): wall area is 10% below 0.3°, 23% at 0.3–1°, 51% at 1–3° and 16% above 3°. b·n̂ changes sign on the wall, so tangency curves exist;
+- P09, for anything that uses time-dependent wall data.
+
+**Common background:**
+- The sheath current–voltage law is j∥ = e n c_s[1 − exp(Λ − eφ/Te)], with Λ = ½ ln(mi/(2π me)).
+- The inversion is for ψ = φ + τTi, so wall data are ψ traces and, for Dirichlet, their tangential gradients.
+- An elliptic problem takes one scalar condition per wall point. Prescribing the normal derivative and the tangential variation separately over-determines it.
+
+**Route A — sheath-informed Dirichlet everywhere (current production choice).**
+- A1, insulating: φ_w = ΛTe with j∥ = 0 (as in GRILLIX).
+- A2, current-carrying: φ_w = (Te/e)[Λ − w(α) ln(1 − j∥/(e n c_s))], with w(α) switching the sheath current on smoothly across the critical-angle band.
+- A2 captures sheath current closure. Neither form has the Bohm (ion-acceleration) constraint of the magnetic presheath entrance.
+- The solver is ready. Still needed:
+  - a wall-model provider of ψ traces and their tangential gradients;
+  - Te and Ti wall traces;
+  - j∥ at the wall from the parallel solver;
+  - the mapping between the Dirichlet points and the parallel wall-intersection points;
+  - a stability check of the lagged j∥ coupling (or Picard iteration);
+  - clipping below ion saturation;
+  - the choice of w(α).
+
+**Route B — mixed Dirichlet + MPE Neumann by grazing angle (as in GBS).**
+- Use route A's value where α < α_c. Where α ≥ α_c, use Loizu's normal condition, ∂_nψ = ∓(mi c_s/e)√(1+Ti/Te) ∂_n v∥i + τ∂_nTi, with the Bohm sign set by sign(b_n). Blend smoothly (Robin) across the transition.
+- The Dirichlet part fixes the potential level and removes the compatibility condition. The tangency curves and the Bohm sign flip lie inside the Dirichlet band.
+- A presheath condition that keeps tangential terms, ∂_nψ + c·∇_Γψ = g, fits the same slot if one is derived.
+- Still needed:
+  - a continuum coercivity check of the oblique wall term on the MPE part;
+  - per-face condition kinds and an oblique condition kind in the export, i.e. per-face constraint vectors in the reconstruction;
+  - an N32 nonsingularity and near-null-mode check;
+  - an MMS order campaign including an α_c sweep;
+  - Robin blend weights, which are a modelling choice with no derivation yet;
+  - MPE data ∂_n v∥i, plus the companion n, Te and ω conditions;
+  - an estimate of the error from the 1-D presheath assumption.
+
+**Route C — conormal Neumann everywhere plus a potential-level equation (research).**
+- The condition is ν·∇ψ = g_ν (ν = P⊥n̂), the polarization charge that has crossed the wall. It is well-posed at tangency.
+- Compatibility is charge conservation. It holds automatically only if one wall-current model feeds both the vorticity evolution and the inversion.
+- A gauge makes the solve unique, but the physical level of φ (which the sheath law needs) requires a global equation, such as net wall current balance, or a Dirichlet anchor.
+- Still needed:
+  - a presheath model that gives the conormal flux with tangential gradients (none known yet);
+  - deflation of the toroidal near-null modes (bulk eigenvalues about 7e-4 to 5e-2 against about 2e6);
+  - a study of how data errors are amplified.
+
+**Excluded:**
+- normal Neumann on the whole wall: λ is spurious, the level is free, the data are discontinuous at tangency curves, and the theory does not hold below the critical angle;
+- the derivative-along-b form (degenerate at tangency);
+- a sharp Dirichlet/Neumann switch (singular at the junctions; the Zaremba problem).
+
+**Decision record:** none yet. Revisit after the literature review, and record any evidence here.
+
 ### Tracking and future-task rules
 
 - P02/P03 may run independently after P01. P05/P06/P07 may become separate
@@ -2439,7 +2524,7 @@ shared implementation and final model/MMS integration record.
   reuse; retain the historical evidence unchanged.
 - Preserve failed candidates and their measured failure mechanisms in research
   artifacts, keeping current-behavior documentation free of experiment history.
-- The roadmap is complete only when P09 passes; no conservation identity,
+- The roadmap is complete only when P09 passes (P10 is bookkeeping and not required); no conservation identity,
   interpolation test, frozen residual slope, or elliptic solution result alone
   substitutes for the agreed global operator-plus-solution contract.
 
