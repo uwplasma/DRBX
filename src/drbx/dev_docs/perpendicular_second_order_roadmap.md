@@ -92,6 +92,10 @@ Only the original MAKEGRID was found in the bounded local inventory; independent
 finer-source validation therefore awaits a matching upstream input. Same-file
 interpolant comparisons remain diagnostics and cannot replace that validation.
 The fitted coordinate map has not been independently certified by these tests.
+**Status (2 October 2026):**
+- The P08 N64 recheck is closed: autodiff K and the autodiff reference divergence removed the finite-difference derivative errors, and `compact_c3` replaced the nonlocal toroidal spline.
+- Independent finer-source certification remains open and non-blocking.
+
 If no improved input becomes available, retain the uncertainty explicitly;
 simulation refinement alone is not independent geometry certification, but the
 missing input does not block P08/P09 integration and evolution work.
@@ -2343,7 +2347,11 @@ Steps:
          - Every row agrees with the spline 5.3 run within a factor 0.997–1.004 (orders within 0.02). Total-term N−R at N64 is 1.4e-5 to 1.2e-4, at orders 4.3–5.9. φ_h is at orders 4.8 / 4.2. The lowest regional order is 4.08.
          - The references in that folder are the re-frozen references of the final P08 operator. The artifacts stay on Perlmutter scratch (`summary/artifacts.json`). **Passed (user decision, 2 October 2026).**
 6. **Remaining gates.**
-   - A bounded geometry/reference recheck on N64. Candidate evidence (not yet accepted): the [N64 P06N wall check](../../../../work/p08_p06n_wall_n64_20261001/README.md) and the [reference FD check](../../../../work/p08_step5_reference_fd_check_20261001/README.md).
+   - **Bounded geometry/reference recheck on N64: closed (user decision, 2 October 2026).** Evidence:
+     - The one N64 anomaly (P06N wall ratio 2.34) was finite-difference K error in the old reference ([N64 P06N wall check](../../../../work/p08_p06n_wall_n64_20261001/README.md)). Autodiff K removed it.
+     - The reference's finite-difference divergence was off by 7e-5 ([reference FD check](../../../../work/p08_step5_reference_fd_check_20261001/README.md)). The references now use autodiff K and the autodiff divergence.
+     - The `compact_c3` comparison and re-freeze show no N64 anomaly.
+     - **Still open and non-blocking:** certification of the MAKEGRID field and the fitted coordinate map against a finer independent source (see "Magnetic-field derivative/reference resolution follow-up").
    - **Scoped change: autodiff curvature K (user decision, 28 September).** Compute K = (B/2J)∇×(b_cov/B) with `jax.jacfwd` through the JAX metric and B-field evaluators. These are the same interpolants the NumPy reference uses, and they agree to 4e-15. The frozen fourth-order finite difference it replaces uses step 2e-4, shrunk near u = 0 and u = 1, with a one-sided rule at the wall.
      - [Comparison](../../../../work/p08_autodiff_curvature_20260928/) on N32 raw midpoints and face nodes:
        - median relative difference 3e-11, 99th percentile ~1e-7, max 1.5e-5;
@@ -2416,7 +2424,7 @@ Steps:
          - u 0.12–0.21: ω total orders 1.3 / 1.6; ψ N−O orders 2.5 / 1.0.
          - u < 0.06: ω total orders 1.6 / 1.3.
        - Bands u ≥ 0.21 converge at 2.7 or better. No new defect appeared.
-       - Acceptance, or a new inner-support candidate, is the user's decision.
+       - **Accepted (user decision, 2 October 2026)**, with the core-band limitation marked **under investigation** ([investigation](../../../../work/p08_core_convergence_20261002/)). Re-evaluate when its report finishes.
      - **Planned checks** (historical):
        1. Add a transverse-wave MMS control with order-one degree-≥4 Cartesian content at the switch radius. Score it per layer and at fixed coordinates across the switch, reporting the transverse and η parts separately, alongside the global gates.
        2. Evaluate the Q support candidates in P's own assemblies at the same owners. Priority is P07 N−O/N−R at switch_plus1, and the first-singleton regression.
@@ -2446,7 +2454,7 @@ Steps:
 7. **Acceptance record and roadmap update.**
 
 Pending decisions:
-- **Neumann closure in the harness.** Proposed: the qualified P-path point rows. Reconciling them with production's physical halos belongs to P09 integration.
+- **Neumann closure in the harness: closed for P08 (user decision, 2 October 2026).** P08 uses the qualified P-path point rows. Reconciling them with production's physical halos is a P09 integration item.
 - **The combined catalogue**, frozen before evaluation. Resolved for step 5.3: `scripts/p08_step5_combined/configuration.json`.
 
 Carry-forwards:
@@ -2469,7 +2477,8 @@ Carry-forwards:
 
 **Gate:** the certified operator contributions and the combined perpendicular
 residual meet the global operator-order criterion, with qualified references
-and matched sharding/source/phi diagnostics. Keep term-resolved and regional
+and matched sharding/source/phi diagnostics ("source" is satisfied by the qualified re-frozen references, user decision
+2 October 2026; time-dependent source/boundary pairing is P09). Keep term-resolved and regional
 error budgets so a summed residual cannot hide a failing operator. No separate
 regional second-order gate is imposed. P09 independently checks solutions.
 
