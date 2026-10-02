@@ -82,7 +82,11 @@ python campaign.py validate-completion
 ```
 
 Capture each exit status; stop at a nonzero exit. The examples are command
-contracts, not a shell supervisor. Run only one node and one controller per
+contracts. `run_all.py` is the supplied single-controller stage supervisor;
+use `--through pilot` for the measured resource check, then `--through complete`
+to resume and finish. It accepts `--run`, `--input-root`, `--workers`,
+`--worker-gib` and `--host-gib`, captures every stage log and exit status, and
+stops at the first failed gate. Run only one node and one controller per
 RUN. GPU stage requires four visible A100 devices and separately executes
 one-device and four-device paths. CPU topology emulation is only a local unit
 test; it cannot satisfy the remote completion gate.
@@ -109,3 +113,8 @@ All-owner replay, actual one/four-GPU equivalence and synchronized warm RHS
 measurements are distinct from physical timestep stability, live sheath/SAT,
 exterior crossings, C3 diffusion-transfer qualification and span selection.
 Those roadmap gates remain open. The C3 evaluator stays opt-in.
+
+The CPU merge audit explicitly uses the nonconstant smooth state before each
+span/BC GPU matrix. Constant and all wave controls remain in the full matrix.
+Local preparation used Python 3.12, NumPy 2.4.6, SciPy 1.17.1, netCDF4 1.7.3
+and JAX/JAXLIB 0.9.2; the remote CUDA-enabled JAX build must retain float64.

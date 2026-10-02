@@ -391,7 +391,9 @@ def run_resolution(run,n,identity,host_memory_gib,*,test_cpu=False,cases=None,
     if not jax.config.jax_enable_x64:raise RuntimeError('Q08 replay requires JAX_ENABLE_X64=true')
     if isinstance(warm_repeats,bool) or not isinstance(warm_repeats,int) or warm_repeats<1:raise ValueError('positive warm sample count required')
     if cases is not None and not test_cpu:raise ValueError('actual GPU replay cannot restrict the22-state matrix')
-    cases=tuple(range(22)) if cases is None else tuple(cases)
+    # Smooth nonconstant case first makes the mandatory merge audit exercise
+    # donor/projection ordering; constants are still replayed in the matrix.
+    cases=(1,0,*range(2,22)) if cases is None else tuple(cases)
     if not cases or len(set(cases))!=len(cases) or any(isinstance(c,bool) or not isinstance(c,int) or c<0 or c>=22 for c in cases):raise ValueError('invalid test case subset')
     if len(api.KINDS)!=4:raise ValueError('four inherited boundary combinations required')
     devices,inventory=device_inventory(test_cpu)
@@ -525,7 +527,7 @@ def validate_resolution(run,n,identity):
     for name in audits:
         if summary.get('audit_hashes',{}).get(name)!=sha256_file(run/name) or not _valid_record(run/name,summary['resolution_identity'],no,nr):raise ValueError('CPU merge audit content mismatch')
         a=json.loads((run/name).read_text())
-        if a.get('merged_identity')!=summary['merged_identity']:raise ValueError('CPU merge audit bank mismatch')
+        if a.get('merged_identity')!=summary['merged_identity'] or a.get('case')!=1:raise ValueError('CPU merge audit bank/nonconstant case mismatch')
         audit_units.add((a['span'],a['kind']))
     if audit_units!={(s,k) for s in (1/16,1/32) for k in range(4)}:raise ValueError('CPU merge audit units mismatch')
     for name,receipt in summary['inputs'].items():

@@ -1,0 +1,35 @@
+{
+  "campaign_identity": "ff1bff86e4af5045b84856d16550f0f45edcbe03b83fc83cc5584557af4c8722",
+  "date": "2026-10-02",
+  "operational_tests": 11,
+  "campaign_tests": 20,
+  "package_clean_export": {
+    "passed_before_fixture_fix": 126,
+    "fixture_import_failures_fixed_and_retested": 5
+  },
+  "preflight_passed": true,
+  "preflight_receipt_sha256": "21a43817d13dd8bc169e2a1f31b14b8c91c9f1d19b778066db713207ef7b8433",
+  "peak_rss_gib": 1.62188720703125,
+  "grids": [
+    {
+      "n": 32,
+      "all_arrays_bitwise": true,
+      "all_leaf_legacy_max_scaled": 0.0,
+      "persisted_action_max_scaled": 5.548705363776698e-09
+    },
+    {
+      "n": 48,
+      "all_arrays_bitwise": true,
+      "all_leaf_legacy_max_scaled": 0.0,
+      "persisted_action_max_scaled": 1.8040674887183184e-08
+    },
+    {
+      "n": 64,
+      "all_arrays_bitwise": true,
+      "all_leaf_legacy_max_scaled": 0.0,
+      "persisted_action_max_scaled": 4.0242509244031414e-08
+    }
+  ],
+  "actual_gpu_tested": false,
+  "full_hsx_grid_executed_locally": false
+}
