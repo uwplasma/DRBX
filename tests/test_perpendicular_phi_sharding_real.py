@@ -42,7 +42,8 @@ def _run(n: int, shards) -> dict:
 @pytest.mark.parametrize("n, shards", CASES)
 def test_sharded_phi_solve_equals_single_device_on_the_real_export(n, shards):
     if not (EXPORT / f"N{n}" / "p07_dirichlet.npz").is_file() or not (EXPORT / f"N{n}" / "owner_map.npz").is_file():
-        pytest.skip(f"the N{n} P07 export is unavailable")
+        pytest.skip(f"the local N{n} P07 export (p07_dirichlet.npz / owner_map.npz under {EXPORT.name}) was removed "
+                    "from the workspace and is not recomputable here")
     report = _run(n, shards)
     assert report["devices"] == 4
     single = report["single"]

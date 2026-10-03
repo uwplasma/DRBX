@@ -8,6 +8,11 @@ owner with the host replay's ``assemble_owner_terms`` output for the P06 terms (
 ``p06legacy_faces_correction``), restricted to the closure owners as ``compare_to_oracle`` does (the
 q1 evolution volume is complete only for owners whose raw cells are all in the closure), and through
 ``compare_to_oracle`` against the frozen oracles with the JAX terms substituted (host ``R_*`` kept).
+
+The frozen oracle files were removed from the workspace. The P06N owner values are recomputed on the fly with the frozen
+routine (``tests/p06n_owner_values_live.py``); the P06-legacy owner values and the frozen oracle *terms* (the
+``compare_to_oracle`` rows) cannot be, so the legacy tests and ``test_jax_terms_pass_compare_to_oracle`` skip when their
+saved files are absent.
 """
 from __future__ import annotations
 
@@ -29,6 +34,7 @@ GEOMETRY = WORKSPACE / "geometry_artifacts/rlp_convergence_32_48_64_20260917"
 SIDECAR = WORKSPACE / "work/p07n_extraction_hotspot_audit_20260926/localized_sidecar.json"
 N = 32
 CAMPAIGNS = ("p06n", "p06_legacy")
+CAMPAIGNS_P06N = ("p06n",)
 REPORT: dict = {}
 #: max |JAX - host| over the closure's owners relative to the term's scale (max |host|)
 TOL = 1e-11
@@ -39,11 +45,20 @@ _have = ((GEOMETRY / f"{N}x{N}x{N}" / "base_geometry.npz").is_file() and SIDECAR
 needs_inputs = pytest.mark.skipif(not _have, reason="HSX N32 geometry/sidecar inputs are unavailable")
 
 
+def _require_frozen_oracle(*campaign_files):
+    """Skip unless every saved oracle file ``(path key, relative name)`` exists (the frozen files were removed)."""
+    from p_shared.replay_support import DEFAULT_PATHS
+    missing = [str(Path(DEFAULT_PATHS[key]) / name) for key, name in campaign_files
+               if not (Path(DEFAULT_PATHS[key]) / name).is_file()]
+    if missing:
+        pytest.skip(f"the frozen oracle file(s) were removed from the workspace and cannot be recomputed: {missing[:2]}")
+
+
 @pytest.fixture(scope="module")
 def closure():
     from p_shared import owner_closure as oc
-    from p_shared import replay_units as ru
     from p_shared.replay_support import DEFAULT_PATHS, build_environment
+    from tests import p06n_owner_values_live as live
     from drbx.stencils.loader import LoaderGrid
     from drbx.stencils.operator_plan import lower_perpendicular_plan_from_rows
 
@@ -51,15 +66,15 @@ def closure():
     owners = sorted(set(oc.select_owners(env.t, env.census).values()))
     built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(SIDECAR, curvature="fd", face_quadrature="q3"))
     paths = dict(DEFAULT_PATHS)
-    oracle = ru._load_oracle_owner_values(env, paths, CAMPAIGNS)
-    host = oc.assemble_owner_terms(env, built, CAMPAIGNS, oracle)
+    oracle = live.load_oracle_owner_values(env, paths, CAMPAIGNS_P06N)      # P06N owner averages computed on the fly
+    host = oc.assemble_owner_terms(env, built, CAMPAIGNS_P06N, oracle)
     t = env.t
     grid = LoaderGrid.from_arrays(n=N, raw_to_owner=t.ro, eta_centers=t.centers[2])
     plan = lower_perpendicular_plan_from_rows(
         built["row_index"], built["neumann_index"], grid=grid, census=env.census, geometry=built["geometry"],
         raw_volume=t.rv, owner_volume=t.vol, raw_ids=built["raw_ids"], face_rows=built["face_row_indices"],
         p07_rows=built["p07_row_indices"])
-    return dict(env=env, oc=oc, ru=ru, paths=paths, oracle=oracle, host=host, built=built, plan=plan,
+    return dict(env=env, oc=oc, paths=paths, oracle=oracle, host=host, built=built, plan=plan,
                 owners=np.asarray(owners, dtype=np.int64))
 
 
@@ -97,15 +112,27 @@ def p06n(closure):
 
 
 @pytest.fixture(scope="module")
-def legacy(closure):
-    """JAX P06-legacy terms for the five legacy fields (all Dirichlet, seam multiplier)."""
-    from p_shared.campaign_fields import P06LegacyAdapter, legacy_seam_multiplier
+def legacy_multiplier(closure):
+    """The P06-legacy seam face multiplier of the closure's faces (census only; needs no legacy oracle)."""
+    from p_shared.campaign_fields import legacy_seam_multiplier
+    env, plan = closure["env"], closure["plan"]
+    return legacy_seam_multiplier(env.census.keys()[plan.faces.census_row])
+
+
+@pytest.fixture(scope="module")
+def legacy(closure, legacy_multiplier):
+    """JAX P06-legacy terms for the five legacy fields (all Dirichlet, seam multiplier). Skips when the saved P06-legacy
+    owner values (``prepare.npz``) were removed: they are not recomputable here."""
+    _require_frozen_oracle(("p06_legacy", f"N{N}.prepare.npz"))
+    from p_shared import replay_units as ru
+    from p_shared.campaign_fields import P06LegacyAdapter
     from drbx.native.fci_perpendicular_p06_operator import p06_action
     from drbx.native.fci_perpendicular_reconstruction_state import boundary_data_from_callables
 
     env, plan = closure["env"], closure["plan"]
-    adapter = P06LegacyAdapter(env.ref, closure["oracle"]["p06_legacy"]["owner_values"])
-    multiplier = legacy_seam_multiplier(env.census.keys()[plan.faces.census_row])
+    legacy_oracle = ru._load_oracle_owner_values(env, closure["paths"], ("p06_legacy",))
+    adapter = P06LegacyAdapter(env.ref, legacy_oracle["p06_legacy"]["owner_values"])
+    multiplier = legacy_multiplier
     out = {}
     for name, field in adapter:
         bc = boundary_data_from_callables(plan, field.dirichlet)
@@ -115,11 +142,11 @@ def legacy(closure):
 
 
 @needs_inputs
-def test_plan_of_the_real_closure_has_wall_and_seam_faces(closure, legacy):
+def test_plan_of_the_real_closure_has_wall_and_seam_faces(closure, legacy_multiplier):
     plan, env = closure["plan"], closure["env"]
     f = plan.faces
     assert f.wall.any() and f.has_missing_side and plan.cells.conditioned.any() and f.common_conditioned.any()
-    assert legacy["multiplier"].max() == 2.0                                   # the closure contains legacy seam faces
+    assert legacy_multiplier.max() == 2.0                                   # the closure contains legacy seam faces
     # the plan's evolution volume is the host's, at every closure owner (raw cells complete for these owners)
     host_ev = _dense(closure, closure["host"]["cells"]["q1_evolution_volume"])
     ev = np.asarray(plan.cells.evolution_volume)[closure["owners"]]
@@ -203,7 +230,10 @@ def test_p06_legacy_terms_match_host_replay(closure, legacy):
 
 @needs_inputs
 def test_jax_terms_pass_compare_to_oracle(closure, p06n, legacy):
-    """``compare_to_oracle`` with the JAX P06 terms substituted (host ``R_*`` terms kept), every row."""
+    """``compare_to_oracle`` with the JAX P06 terms substituted (host ``R_*`` terms kept), every row. Compares against the
+    frozen oracle *terms* (P06N ``raw``/``faces``, P06-legacy ``prepare``), which were removed: skips without them."""
+    _require_frozen_oracle(("p05n_p06n_upwind", f"p06n/N{N}.raw.npz"), ("p05n_p06n_upwind", f"p06n/N{N}.faces.npz"),
+                           ("p06_legacy", f"N{N}.prepare.npz"))
     env, host, oc = closure["env"], closure["host"], closure["oc"]
     n_total = len(env.t.vol)
     uniq = np.arange(n_total)
@@ -245,7 +275,7 @@ def test_jax_terms_pass_compare_to_oracle(closure, p06n, legacy):
 
 
 @needs_inputs
-def test_real_plan_eager_equals_jit(closure, p06n, legacy):
+def test_real_plan_eager_equals_jit(closure, p06n):
     from drbx.native.fci_perpendicular_p06_operator import bc_columns, p06_action
 
     plan, ov = closure["plan"], p06n["fields"]

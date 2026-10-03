@@ -374,13 +374,14 @@ def test_references_module_and_build_setup_option_exist():
 @pytest.mark.slow
 def test_real_smoke_n32_spline_one_owner_per_cell(tmp_path):
     pytest.importorskip("jax")
-    from p_shared.replay_support import DEFAULT_PATHS, DEFAULT_SIDECAR
-    needed = [Path(DEFAULT_SIDECAR), DEFAULT_PATHS["p05n_p06n_upwind"] / "p06n" / "N32.owner_values.npz",
-              WORKSPACE / "geometry_artifacts/rlp_convergence_32_48_64_20260917"]
+    from p_shared.replay_support import DEFAULT_SIDECAR
+    needed = [Path(DEFAULT_SIDECAR), WORKSPACE / "geometry_artifacts/rlp_convergence_32_48_64_20260917"]
     if not all(p.exists() for p in needed):
         pytest.skip("HSX inputs not available")
     from p08_bfield_eval import run
-    results = run.run(32, "spline", tmp_path, per_cell=1)
+    from tests import p06n_owner_values_live as live
+    with live.patched():                      # the frozen P06N owner_values file was removed: computed on the fly
+        results = run.run(32, "spline", tmp_path, per_cell=1)
     folder = tmp_path / "N32_spline"
     assert (folder / "results.json").is_file() and (folder / "arrays.npz").is_file()
     assert results["sample"]["n_owners"] + len(results["dropped_owners"]["owners"]) == results["sample"]["n_owners_drawn"] == 12
