@@ -146,14 +146,22 @@ C2_POOL = 40
 #: C3 (``"fixed_radius"``): coupled quartic for stencils whose anchor-ring centre lies below this logical radius
 #: (the N48/N64 C1-vs-C0 per-ring crossing, work/p08_donor_support_c1_20260930)
 FIXED_SWITCH_U = 0.21
+#: cell-row stencil of :class:`StructuredReconstruction`: ``"biased"`` (the historic rows: radial layers ``i-1..i+2`` and
+#: eta planes ``k-2..k+1`` about cell ``(i, j, k)``, so the cell-centre derivatives are third-order *biased*) or
+#: ``"symmetric"`` (each unconditioned singleton/ringwise cell row A averaged with its mirror B, radial layers
+#: ``i-2..i+1`` and eta planes reflected about ``k``: ``1/2 (A + B)``, the fourth-order centred derivative)
+CELL_STENCILS = ("biased", "symmetric")
 
 
 class StructuredReconstruction:
-    def __init__(self, t, *, inner_support="profile7"):
+    def __init__(self, t, *, inner_support="profile7", cell_stencil="biased"):
         if inner_support not in INNER_SUPPORTS:
             raise ValueError(f"inner_support must be one of {INNER_SUPPORTS}, got {inner_support!r}")
+        if cell_stencil not in CELL_STENCILS:
+            raise ValueError(f"cell_stencil must be one of {CELL_STENCILS}, got {cell_stencil!r}")
         self.t = t
         self.inner_support = inner_support
+        self.cell_stencil = cell_stencil
         self.rings = {}
         self.fits = {}
         self.profile = np.array([len(np.unique(t.ro.reshape((t.n,)*3)[i,:,0])) for i in range(t.n)])
@@ -198,7 +206,8 @@ class StructuredReconstruction:
 
     def rows_with_factors(self, key, points, location='face', *, fixed_anchor=False):
         """``(rows(...), PointFactors or None)``: the same ``PointRows`` bit for bit, plus the factors
-        actually used (``None`` outside the unconditioned singleton/ringwise/centered_radial families)."""
+        actually used (``None`` outside the unconditioned singleton/ringwise/centered_radial families, and for the
+        merged ``cell_stencil="symmetric"`` cell rows, which are not one tensor factorization)."""
         cap=[]
         row=self._rows(key,points,location,fixed_anchor,cap)
         return row,(cap[0] if cap else None)
@@ -227,9 +236,44 @@ class StructuredReconstruction:
                 or (self.inner_support=="any_aggregate" and np.min(self.profile[rid])<n)
                 or (self.inner_support=="fixed_radius" and self.below_fixed_switch(axis,i,location))):
             return self._coupled(key,p,anchor,layers,rid,fixed_anchor)
-        if np.all(self.profile[rid]==n):
+        family='singleton' if np.all(self.profile[rid]==n) else 'tensor'
+        if self.cell_stencil=="symmetric" and location=='cell' and not fixed_anchor and self.mirror_available(i):
+            return self._symmetric_cell(key,p,anchor,layers,family)
+        if family=='singleton':
             return self._singleton(p,anchor,layers,rid,fixed_anchor,cap)
         return self._tensor(p,anchor,layers,rid,fixed_anchor,cap)
+
+    def mirror_available(self, i):
+        """``cell_stencil="symmetric"``: the mirror layers ``i-2..i+1`` of cell ring ``i`` all hold at least seven owners
+        (else the row stays the biased A, since the ringwise fit needs seven donors per ring)."""
+        mirror=np.arange(int(i)-2,int(i)+2)
+        return bool(np.min(self.profile[np.where(mirror<0,-mirror-1,mirror)])>=7)
+
+    def _symmetric_cell(self,key,p,anchor,layers,family):
+        """``cell_stencil="symmetric"``: ``1/2 (A + B)`` for an unconditioned singleton/ringwise cell row at the cell
+        centre. A is the biased row (radial layers ``i-1..i+2``, eta planes ``k-2..k+1``); B is its mirror (layers
+        ``i-2..i+1``, eta planes reflected about the cell's plane ``k``), built by the same ``family`` builder (a
+        singleton A takes the ringwise B if B reaches an agglomerated ring). The average is the fourth-order centred
+        derivative, (1,-8,0,8,-1)/12 on layers ``i-2..i+2``. No factors are captured: the merged row is not one tensor
+        factorization. Side rows (``fixed_anchor``) are anchored on the face, not the cell centre, and are not mirrored."""
+        n=self.t.n;i=int(key[0]);kc=int(key[2])%n
+        build={'singleton':self._singleton,'tensor':self._tensor}[family]
+        a=build(p,anchor,layers,np.where(layers<0,-layers-1,layers),False)
+        mirror=np.arange(i-2,i+2);rid=np.where(mirror<0,-mirror-1,mirror)
+        if family=='singleton' and not np.all(self.profile[rid]==n):build=self._tensor
+        return self._average_rows(a,build(p,anchor,mirror,rid,False,None,kc),p)
+
+    @staticmethod
+    def _average_rows(a,b,p):
+        """``1/2 (a + b)`` over the union of the donors; A's family, with ``cell_stencil='symmetric'`` and B's family."""
+        ids=np.union1d(a.donor_ids,b.donor_ids);value=np.zeros((len(p),len(ids)));gradient=np.zeros((len(p),3,len(ids)))
+        for row in (a,b):
+            pos=np.searchsorted(ids,row.donor_ids);value[:,pos]+=row.value;gradient[:,:,pos]+=row.gradient
+        meta=dict(a.diagnostics);meta['max_residual']=max(a.diagnostics['max_residual'],b.diagnostics['max_residual'])
+        if 'min_rank' in a.diagnostics or 'min_rank' in b.diagnostics:
+            meta['min_rank']=min(x.diagnostics.get('min_rank',7) for x in (a,b))
+        meta.update(cell_stencil='symmetric',mirror_family=b.diagnostics['family'])
+        return PointRows(ids,0.5*value,0.5*gradient,False,np.empty((0,3)),p.copy(),meta)
 
     def stencil_min_profile(self, axis, i, location='face'):
         """Smallest ring owner count over the four radial layers of the stencil ``_rows`` would use (layers
@@ -254,13 +298,15 @@ class StructuredReconstruction:
         a=np.stack([columns[k] for k in ids],axis=-1)
         return PointRows(ids,a[:,0],a[:,1:],False,np.empty((0,3)),p.copy(),diagnostics)
 
-    def _singleton(self,p,anchor,layers,rid,fixed_anchor,cap=None):
+    def _singleton(self,p,anchor,layers,rid,fixed_anchor,cap=None,eta_mirror_plane=None):
         t=self.t;n=t.n;L,D=r.rows((layers+.5)/n,p[:,0]);allids=[];blocks=[];fac=[]
         for q,point in enumerate(p):
             ta=anchor[1] if fixed_anchor else point[1]
             ea=anchor[2] if fixed_anchor else point[2]
             ti=self._nearest(1,float(ta));tv,td=self._basis(1,tuple(ti),float(point[1]))
-            ei=self._nearest(2,float(ea));ev,ed=self._basis(2,tuple(ei),float(point[2]))
+            ei=self._nearest(2,float(ea))
+            if eta_mirror_plane is not None:ei=(2*int(eta_mirror_plane)-ei)%n
+            ev,ed=self._basis(2,tuple(ei),float(point[2]))
             theta=(ti[None,:]+np.where(layers<0,n//2,0)[:,None])%n
             raw=(rid[:,None,None]*n+theta[:,None,:])*n+ei[None,:,None]
             allids.append(t.ro[raw].ravel())
@@ -277,13 +323,14 @@ class StructuredReconstruction:
             cap.append(PointFactors('singleton',n,np.array(layers),f[3],f[4],f[5],np.stack((L,D),axis=1),f[0],f[1],f[2],f[6]))
         return PointRows(ids,a[:,0],a[:,1:],False,np.empty((0,3)),p.copy(),{'family':'singleton','max_residual':0.})
 
-    def _tensor(self,p,anchor,layers,rid,fixed_anchor,cap=None):
+    def _tensor(self,p,anchor,layers,rid,fixed_anchor,cap=None,eta_mirror_plane=None):
         t=self.t; n=t.n
         L,D=r.rows((layers+.5)/n,p[:,0]); columns={}; worst=0.; rank=7
         if cap is not None:fac=dict(ei=[],ev=[],ed=[],own=np.zeros((len(p),4,4,7),int),rv=np.zeros((len(p),4,4,7)),rd=np.zeros((len(p),4,4,7)))
         for q,point in enumerate(p):
             ea=anchor[2] if fixed_anchor else point[2]
             ei=r.nearest(t.centers[2],ea,4,t.g.eta_period)
+            if eta_mirror_plane is not None:ei=(2*int(eta_mirror_plane)-ei)%n
             ev,ed=r.eta_rows(t.centers[2][ei],point[2],t.g.eta_period,t.g.deta)
             if cap is not None:fac['ei'].append(ei);fac['ev'].append(ev);fac['ed'].append(ed)
             for l,rr in enumerate(rid):
