@@ -137,6 +137,7 @@ from p_shared.replay_support import (                                   # noqa: 
     Environment, NeumannSource, build_environment,
     compare_owner_term, compare_pointwise_only, owner_weighted_l2,
     _face_weight_for_key, _load_p05_upwind, _p05n_evaluate, _tables_trace_all,  # noqa: F401 (re-exported)
+    P05_PREFIX_JUMP_RECORD_SIGN,
     _summarize_variants, write_report, _json_default,
 )
 
@@ -1692,8 +1693,9 @@ def reduce_grid(*, output: Path, artifact_root: Path, n: int, input_root: Path, 
         populated = np.flatnonzero(np.all(np.isfinite(dense_replay[:limit]), axis=1)
                                    & np.all(np.isfinite(saved_upwind[:limit]), axis=1))
         terms["live_jump_vs_upwind"] = compare_pointwise_only(
-            "p05.live_jump_vs_upwind", dense_replay[:limit][populated], saved_upwind[:limit][populated])
-        owner_live_jump = p05_owner_num.total / t.vol[:, None]
+            "p05.live_jump_vs_upwind", P05_PREFIX_JUMP_RECORD_SIGN * dense_replay[:limit][populated],
+            saved_upwind[:limit][populated])
+        owner_live_jump = P05_PREFIX_JUMP_RECORD_SIGN * p05_owner_num.total / t.vol[:, None]
         terms["live_jump_vs_old_U_minus_A"] = compare_owner_term(
             "p05.live_jump_vs_old_U_minus_A", owner_live_jump, saved_old_u_minus_a,
             owner_volume=owner_volume, archived_error=archived_error, region_masks=masks,
@@ -1723,8 +1725,8 @@ def reduce_grid(*, output: Path, artifact_root: Path, n: int, input_root: Path, 
                                              region_masks=region_masks_p06n)
             for suf, saved in (("N", saved_raw_N), ("D", saved_raw_D), ("R", saved_raw_R))
         }
-        replay_face_N = p05n_face_acc[name]["N"].total / t.vol[:, None]
-        replay_face_D = p05n_face_acc[name]["D"].total / t.vol[:, None]
+        replay_face_N = P05_PREFIX_JUMP_RECORD_SIGN * p05n_face_acc[name]["N"].total / t.vol[:, None]
+        replay_face_D = P05_PREFIX_JUMP_RECORD_SIGN * p05n_face_acc[name]["D"].total / t.vol[:, None]
         terms["face_N"] = compare_owner_term("p05n.face_N", replay_face_N, saved_face_N, owner_volume=t.vol,
                                              archived_error=archived_error_raw, region_masks=region_masks_p06n)
         terms["face_D"] = compare_owner_term("p05n.face_D", replay_face_D, saved_face_D, owner_volume=t.vol,

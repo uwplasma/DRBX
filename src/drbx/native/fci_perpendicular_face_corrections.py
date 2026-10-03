@@ -27,6 +27,12 @@ def p05_scalar_face_jump(common_gradient, lower_value, upper_value, h_covariant_
     ``common_gradient`` is ``(faces, q, 3, fields)``; side values are
     ``(faces, q, fields)``.  Wall exterior values must be supplied from the
     prescribed Dirichlet trace by the caller.
+
+    The face value is ``+1/2 sum_q w |U_generator| (upper - lower)_transported``.  With the lower-plus /
+    upper-minus scatter of :func:`scatter_p05_jump`, each owner relaxes toward its neighbour (the dissipative
+    upwind orientation): for piecewise-constant traces ``sum_o g_o scatter_o = -1/2 sum_f sum_q w |U|
+    (g_up - g_lo)^2 <= 0``.  The sign was corrected on 2026-10-03; before that the prefactor was ``-1/2`` and the
+    term was anti-dissipative (records saved earlier carry the opposite jump sign).
     """
     gradient = jnp.asarray(common_gradient)
     lower = jnp.asarray(lower_value); upper = jnp.asarray(upper_value)
@@ -41,12 +47,15 @@ def p05_scalar_face_jump(common_gradient, lower_value, upper_value, h_covariant_
     speed = jnp.take_along_axis(velocity, axis[:, None, None, None], axis=-1)[..., 0]
     jump = upper-lower
     generator = pairs[:, 0]; transported = pairs[:, 1]
-    return -.5*jnp.einsum('fq,fqp->fp', weight,
+    return .5*jnp.einsum('fq,fqp->fp', weight,
                           jnp.abs(speed[..., generator])*jump[..., transported])
 
 
 def scatter_p05_jump(face_jump, lower_owner, upper_owner, owner_volume):
-    """P05 owner correction: lower plus, upper minus, stored-volume division."""
+    """P05 owner correction: lower plus, upper minus, stored-volume division.
+
+    Paired with the ``+1/2`` face jump of :func:`p05_scalar_face_jump` this is the dissipative upwind orientation.
+    """
     jump = jnp.asarray(face_jump)
     lo = jnp.asarray(lower_owner); hi = jnp.asarray(upper_owner)
     out = jnp.zeros((len(owner_volume), jump.shape[-1]), dtype=jump.dtype)

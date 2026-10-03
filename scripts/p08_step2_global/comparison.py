@@ -44,7 +44,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from p_shared.replay_support import (                                        # noqa: E402
-    _load_p05_upwind, _summarize_variants, compare_owner_term, compare_pointwise_only, owner_weighted_l2)
+    _load_p05_upwind, P05_PREFIX_JUMP_RECORD_SIGN, _summarize_variants, compare_owner_term, compare_pointwise_only, owner_weighted_l2)
 from p_shared.replay_units import OwnerAccumulator                            # noqa: E402
 
 __all__ = ["OMITTED_TERMS", "compare_operator_terms"]
@@ -119,7 +119,7 @@ def compare_operator_terms(*, env, out: dict, paths: dict, campaigns, n: int) ->
                                                 region_masks=masks)}
         saved_upwind = _load_p05_upwind(paths["p05_upwind_chunks"], n)
         ids = np.asarray(faces["p05_live_jump_p07ids"], dtype=np.int64)
-        values = np.asarray(faces["p05_live_jump_values"])
+        values = P05_PREFIX_JUMP_RECORD_SIGN * np.asarray(faces["p05_live_jump_values"])
         max_pid = int(ids.max()) if len(ids) else -1
         dense_replay = np.full((max_pid + 1, saved_upwind.shape[1]), np.nan)
         dense_replay[ids] = values
@@ -133,7 +133,7 @@ def compare_operator_terms(*, env, out: dict, paths: dict, campaigns, n: int) ->
         terms["live_jump_vs_upwind"] = compare_pointwise_only(
             "p05.live_jump_vs_upwind", dense_replay[:limit][populated], saved_upwind[:limit][populated],
             kind="cancellation", constituent_scale=flux_scale)
-        owner_live_jump = _acc(owners, faces["p05_live_jump_owner_num"]).total / t.vol[:, None]
+        owner_live_jump = P05_PREFIX_JUMP_RECORD_SIGN * _acc(owners, faces["p05_live_jump_owner_num"]).total / t.vol[:, None]
         terms["live_jump_vs_old_U_minus_A"] = compare_owner_term(
             "p05.live_jump_vs_old_U_minus_A", owner_live_jump, saved_old_u_minus_a,
             owner_volume=owner_volume, archived_error=archived_error, region_masks=masks,
@@ -161,8 +161,8 @@ def compare_operator_terms(*, env, out: dict, paths: dict, campaigns, n: int) ->
                                                   archived_error=archived_error_raw,
                                                   region_masks=region_masks_p06n)
                  for suf, saved in (("N", saved_raw_N), ("D", saved_raw_D))}
-        replay_face_N = _acc(owners, faces[f"{name}_face_N"]).total / t.vol[:, None]
-        replay_face_D = _acc(owners, faces[f"{name}_face_D"]).total / t.vol[:, None]
+        replay_face_N = P05_PREFIX_JUMP_RECORD_SIGN * _acc(owners, faces[f"{name}_face_N"]).total / t.vol[:, None]
+        replay_face_D = P05_PREFIX_JUMP_RECORD_SIGN * _acc(owners, faces[f"{name}_face_D"]).total / t.vol[:, None]
         # cancellation terms (jumps of near-equal side values): conditioning-floor pointwise cap from the
         # owner-level densities of the same operator (raw N / D), over all columns
         side_scale = float(max(np.max(np.abs(saved_raw_N)), np.max(np.abs(saved_raw_D))))
