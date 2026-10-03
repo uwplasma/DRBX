@@ -171,8 +171,13 @@ def test_p06_wall_face_restricted_solve_jvp_is_bitwise_the_full_jvp():
     central,lower,upper,B,normal,weight,wall,collapsed=_wall_case(seed=2)
     wall_faces=np.flatnonzero(wall).astype(np.int32)
     tangent=np.random.default_rng(5).normal(size=central.shape)*.01
-    def jvp(wf):
-        fn=lambda c:p06_characteristic_face_correction(c,lower,upper,B,normal,weight,wall,collapsed,wall_faces=wf)[:2]
+    def jvp(wf,method):
+        fn=lambda c:p06_characteristic_face_correction(c,lower,upper,B,normal,weight,wall,collapsed,wall_faces=wf,
+                                                       absolute_method=method)[:2]
         return jax.jit(lambda c,t:jax.jvp(fn,(c,),(t,)))(jnp.asarray(central),jnp.asarray(tangent))
-    for a,b in zip(jax.tree_util.tree_leaves(jvp(None)),jax.tree_util.tree_leaves(jvp(wall_faces))):
+    # bitwise with the campaign's 4x4 action; the closed-form default differs only by XLA fusion rounding
+    for a,b in zip(jax.tree_util.tree_leaves(jvp(None,"lapack4")),jax.tree_util.tree_leaves(jvp(wall_faces,"lapack4"))):
         assert _bit_equal(a,b)
+    for a,b in zip(jax.tree_util.tree_leaves(jvp(None,"closed_form")),jax.tree_util.tree_leaves(jvp(wall_faces,"closed_form"))):
+        a,b=np.asarray(a),np.asarray(b)
+        assert np.nanmax(np.abs(a-b))<=1e-14*max(np.nanmax(np.abs(a)),1e-300)

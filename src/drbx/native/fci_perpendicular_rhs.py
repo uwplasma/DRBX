@@ -74,7 +74,7 @@ class PerpendicularParams:
     ``rho_star`` divides the bracket only, ``tau`` enters the curvature only, ``diffusion`` maps a field name to
     its ``D_perp`` (needed for every field when ``diffusion`` is requested), ``positivity_floor`` is the P06 q3
     thermodynamic floor. ``absolute_method`` is the static (not differentiable, part of the jit key) evaluation of the
-    P06 q3 absolute-matrix action: ``"lapack4"`` (default, the campaign's 4x4 ``eig``), ``"block_lapack"`` or
+    P06 q3 absolute-matrix action: ``"lapack4"`` (the campaign's 4x4 ``eig``; pin it to reproduce frozen campaigns bitwise), ``"block_lapack"`` or
     ``"closed_form"`` (see ``fci_perpendicular_face_corrections.ABSOLUTE_METHODS``). Being part of ``params`` it
     reaches the sharded RHS as well.
     """
@@ -83,7 +83,7 @@ class PerpendicularParams:
     tau: object = TAU
     diffusion: Mapping = dataclasses.field(default_factory=dict)
     positivity_floor: object = FLOOR
-    absolute_method: str = dataclasses.field(default="lapack4", metadata=dict(static=True))
+    absolute_method: str = dataclasses.field(default="closed_form", metadata=dict(static=True))
 
 
 class PerpendicularTerms(NamedTuple):

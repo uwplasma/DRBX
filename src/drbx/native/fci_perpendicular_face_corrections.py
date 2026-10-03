@@ -14,9 +14,9 @@ from drbx.native.fci_curvature_production_flux import curvature_principal_matrix
 from drbx.native.fci_operators import _curvature_bc_characteristic_wall_states
 
 #: Evaluations of the P06 absolute-matrix action ``|M| jump``:
-#: ``"lapack4"`` (default) the 4x4 ``eig`` / ``inv`` / ``cond`` of the campaign; ``"block_lapack"`` the same
+#: ``"lapack4"`` the 4x4 ``eig`` / ``inv`` / ``cond`` of the campaign; ``"block_lapack"`` the same
 #: spectral action on the 3x3 ``(n, Te, Ti)`` block alone (the omega column of the principal matrix is zero);
-#: ``"closed_form"`` the same block from the one real root of a cubic and its Sylvester projector, with no LAPACK.
+#: ``"closed_form"`` (default) the same block from the one real root of a cubic and its Sylvester projector, with no LAPACK.
 ABSOLUTE_METHODS = ("lapack4", "block_lapack", "closed_form")
 
 
@@ -342,7 +342,7 @@ def _absolute_action_closed_form(n, te, ti, b, tau, scale, matrix, jump, floor):
 def p06_characteristic_face_correction(common_state, lower_state, upper_state,
                                        bmag, normal, quadrature_weight, wall_mask,
                                        collapsed_mask, *, tau=1.0, positivity_floor=1e-12,
-                                       wall_faces=None, absolute_method="lapack4"):
+                                       wall_faces=None, absolute_method="closed_form"):
     """Return distinct lower/upper q3 P06 fluctuation numerators and counters.
 
     ``normal`` is ``J*K_axis/B**2``.  At physical upper radial walls the
@@ -359,7 +359,7 @@ def p06_characteristic_face_correction(common_state, lower_state, upper_state,
     faces; padded entries are ignored.
 
     ``absolute_method`` (static, one of :data:`ABSOLUTE_METHODS`) selects how ``|M| jump`` is evaluated:
-    ``"lapack4"`` (default, the campaign's 4x4 ``eig``), ``"block_lapack"`` or ``"closed_form"`` (see the
+    ``"lapack4"`` (the campaign's 4x4 ``eig``; pin it to reproduce frozen campaigns bitwise), ``"block_lapack"`` or ``"closed_form"`` (see the
     comments above ``_absolute_block_primal`` and ``_curvature_negative_root``).  The spectral-fallback counter
     counts the nodes on the Frobenius fallback: for ``"lapack4"`` / ``"block_lapack"`` those failing the real-spectrum /
     eigenvector-condition test, for ``"closed_form"`` the non-physical ones (``n`` or ``Te`` not above

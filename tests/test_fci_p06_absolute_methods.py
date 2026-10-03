@@ -240,10 +240,10 @@ def test_real_hsx_face_rows_for_every_method(method):
     assert int(spectral) == int(positivity) == 0
 
 
-def test_default_method_is_bitwise_the_4x4_action():
+def test_default_method_is_bitwise_the_closed_form_and_the_4x4_helper_is_untouched():
     _, args = _hsx_args(32, state=1)
     default = p06_characteristic_face_correction(*args)
-    explicit = p06_characteristic_face_correction(*args, absolute_method='lapack4')
+    explicit = p06_characteristic_face_correction(*args, absolute_method='closed_form')
     for x, y in zip(default, explicit):
         assert np.array_equal(np.asarray(x), np.asarray(y))
     # the 4x4 helper is untouched by the selector
