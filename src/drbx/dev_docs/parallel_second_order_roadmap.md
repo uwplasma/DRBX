@@ -4570,3 +4570,47 @@ replay matrix and six timing variants. Its frozen overlay isolates this
 change from concurrent P/production edits. Full Q08, larger-grid performance,
 production selection and evolved physics remain open; do not resume the
 large slow audit until this performance comparison returns.
+
+### Q08 polynomial split A100 profile passed — 3 October 2026
+
+The returned [profile analysis](../../../../work/q08-poly-characteristic-profile-f4821f02-20261003T051443Z/local_report.md)
+passes the pinned completion/hash validator with candidate identity
+`10ce76b4096cccfb7dd5dc6aacafbee15853685fe0ed2c5b4b421c7a96f6f849`.
+On the complete N32 grid, one-A100 synchronized full-RHS median falls from
+17.896 s to 3.750 ms (4,772x); isolated characteristic splitting falls from
+17.977 s to 1.833 ms (9,808x). Candidate one/four-shard medians are
+3.918/2.174 ms. Compiled candidate code has device LU/GEMM but no general
+eigensolver or host callback. No numerical CPU offload is introduced.
+
+All twelve smooth/constant/held-out-wave x D/N/mixed direct replays pass the
+unchanged component gate: maximum full-RHS difference 9.095e-13, maximum
+budget fraction 1.585e-5, identical validity flags. Centered/diffusion/current
+leaves are exactly equal. Smooth all-D one/four-shard replay each differs
+by at most 1.833e-9 (0.1809 of the budget). This profile covers h/16 diffusion
+and N32 only; it does not close the full 22-state, both-span, three-grid gate
+or promote the polynomial production default. Whole-process peaks are
+4.30 GiB host and 4.32 GiB GPU0 live allocations (8.06 GiB allocator pool),
+including baseline/candidate compilation and execution.
+
+Evidence supports continuing the full-grid qualification with the polynomial
+candidate. First revise and pin the GPU-stage identity and explicitly select
+the method; the unchanged old runner still selects eig. Reuse validated CPU
+banks and input receipts without relabeling their identities, preserve old
+partial GPU records, and store revised GPU outputs separately. Host
+manufactured-boundary setup is now the avoidable audit cost: 13.64 s/state
+at N32, redundantly called across two spans and four BC patterns. Reuse one
+state's boundary arrays across these combinations with bounded memory,
+retaining full correctness coverage. Larger-grid memory/timing remain to
+be measured. The global campaign was not resumed by this analysis.
+
+The continuation is packaged in
+[`scripts/q08_polynomial_global`](../../../../DRBX/scripts/q08_polynomial_global/README.md).
+It independently revalidates the original CPU receipts without rewriting them,
+and retains the original CPU eig action as the comparison reference. Candidate
+one/four-A100 calls explicitly select polynomial, with compiler checks excluding
+general eigensolvers and host callbacks. The complete 352-record matrix per
+grid and seven warm repeats remain. Boundary reuse caches exact wall rows and
+bitwise-uniform nonwall templates under a declared memory bound, rather than
+retaining 22 dense states. New results have their own frozen identity/output
+folder; old partial eig timing records are not reused as polynomial records.
+N32 completes and validates first, then checked resume continues N48/N64.
