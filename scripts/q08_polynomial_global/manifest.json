@@ -1,0 +1,44 @@
+{
+  "schema": "q08-polynomial-global-v1",
+  "baseline_identity": "ff1bff86e4af5045b84856d16550f0f45edcbe03b83fc83cc5584557af4c8722",
+  "profile_identity": "10ce76b4096cccfb7dd5dc6aacafbee15853685fe0ed2c5b4b421c7a96f6f849",
+  "method": "polynomial",
+  "default_unchanged": true,
+  "n": [
+    32,
+    48,
+    64
+  ],
+  "cases": 22,
+  "kinds": 4,
+  "diffusion_spans": [
+    0.0625,
+    0.03125
+  ],
+  "material_span": 0.03125,
+  "material_outer_span": 0.0625,
+  "devices": [
+    1,
+    4
+  ],
+  "repeats": 7,
+  "atol": 1e-08,
+  "rtol": 1e-11,
+  "new_tracing": false,
+  "new_preparation": false,
+  "files": {
+    "README.md": "4bc0726f9fa26291a61f391fe1b09d43b8ec1fc6413550311231c83cbc62f116",
+    "boundary_cache.py": "5412f33fbdce07fbdc3c8d88090971fa518e67179eddaf3cf3ab8541e3075cae",
+    "campaign.py": "43dc9066ca9c63ec588243f20d6cc9c5711140579006b181e0ff141810dd693d",
+    "cpu_validation.py": "e105cd613e4a3e39dc6bcb826651d67f6bed0c1fe5879d413bd7d02e46a011d1",
+    "freeze.py": "27895f3a1f2b5cc527d4d4666bfe58cfe922773237fa439c18a3ebbf1baf04df",
+    "gpu_stage.py": "56c2146dc4e9d93f6b8599eb99c8f429b04254b37de0698eca8c07bda60bc360",
+    "overlay/q_characteristic_polynomial.py": "38f56a5047fe26b106b79d46f8d24a77349bb378d0c809a01801031bdf9faa45",
+    "overlay/q_parallel_characteristic.py": "6612b8fd5e721b6e1d5d694157920580957955eb6969d349642bfae794d0e580",
+    "overlay/q_parallel_material.py": "3b0957650e22dee815a2ca8aa283ed4da2866091f8efcaf10ccdab43cff8c2da",
+    "overlay/q_plan.py": "dd5c79901d104b4e2b96239ba54ff931a0b62af650c90422c882c380e128c840",
+    "overlay/q_sharding.py": "fb835821731d8a46f929c282aa6d90390d560dd9bd95555a28a93637a523fd58",
+    "run_all.py": "e54e1b604d4bbcf7ebd1588f73d4a02d305ed763a4c31443b239f6fc326975b8",
+    "verification/test_campaign.py": "4c751ccd9384bb84d55b43654dd5896c592bd2bd6282eb4007ea9d76916679bb"
+  }
+}
