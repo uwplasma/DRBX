@@ -2495,6 +2495,17 @@ Steps:
        - RHS performance: one single-device evaluation takes about 41 s at N64 on CPU;
        - Vi/Ve terms (deferred);
        - the core-convergence follow-up.
+     - **Deferred candidate: the "Γ-switch" quartic/ringwise rule** ([study](../../../../work/p08_quartic_rule_20261002/report.md), 2 October 2026; user decision: deferred).
+       - **What it changes:** the coupled 4×7 quartic is used for stencils with anchor ring a ≤ a*, where a* is the largest non-full-stencil anchor with m_min < 7 or Γ(a) = A4(m_min)·(a+½)³·N² > 7.6e4.
+         - A4(m) is ringwise's measured cos 4θ aliasing error on an m-owner ring, roughly ∝ m⁻⁶.
+         - The rule uses only the logical owner layout, so it is geometry-independent. The switch lands just after an owner-count doubling (u* ≈ 0.17–0.18 at N32–64, about 0.09 at N ≥ 192).
+       - **Effect at N32–64:**
+         - one ring per grid changes; everything else is bitwise unchanged;
+         - the 0.21–0.27 interface band improves about 2×;
+         - the slow 0.12–0.21 P07 order is not fixed: those rows are still 4×7.
+       - **Effect at large N** (synthetic, to N256): coupled conditioning and the error constant stay bounded, whereas C3 grows ∝ N and ends up 50× worse at the interface.
+       - **Adopt** when the next re-freeze happens anyway, or before going beyond N64. That means a new `inner_support` option threaded like C3, a C3-vs-new remote campaign, and a re-freeze of the changed rows.
+       - **Not recommended:** deeper blocks (6×5). They fix the P07 order in 0.12–0.21, but make the R1/R2 gradients and a P05 proxy 1.4–4.5× worse; a real P05 check would be needed first.
 
 Pending decisions:
 - **Neumann closure in the harness: closed for P08 (user decision, 2 October 2026).** P08 uses the qualified P-path point rows. Reconciling them with production's physical halos is a P09 integration item.
