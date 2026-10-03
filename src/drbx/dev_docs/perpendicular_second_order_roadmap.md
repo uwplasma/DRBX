@@ -2636,6 +2636,17 @@ shared implementation and final model/MMS integration record.
 - the derivative-along-b form (degenerate at tangency);
 - a sharp Dirichlet/Neumann switch (singular at the junctions; the Zaremba problem).
 
+**State-dependent wall data (recorded 3 October 2026; needed by routes A and B, and by any sheath condition on n, Te or Ti).**
+- **What exists:** `BoundaryData` (Dirichlet values and tangential gradients at `dirichlet_points`, g_N at `neumann_points`) is an input to every RHS call and to the φ solve. The plan stores only where the data sit and how rows weight them. A caller may compute the data from the current state inside the traced RHS, and JAX then differentiates through it. Every P campaign so far used prescribed MMS data, so this is untested.
+- **Missing 1, interior traces at the boundary point tables:** a row family giving a field's value and wall-tangential gradient at `dirichlet_points` / `neumann_points`, built from the same reconstruction, including that field's own wall condition. Face rows give values only at face quadrature nodes, and the Neumann rows take g_N as an input. This is lowering work, not new numerics.
+- **Missing 2, self-referential data:**
+  - **Cross-field data are explicit.** For example, φ_w = ΛTe_w, with Te under its own Neumann condition: reconstruct the Te trace first, then form φ's data. Route A needs only missing 1.
+  - **Data depending on the same field are implicit**, for example sheath heat transmission (∂ₙTe depends on Te_w), which is Robin-type. Options:
+    - **Linear Robin:** a new row kind folded in exactly at lowering.
+    - **Nonlinear:** a per-point Newton solve on the trace, which is cheap because the trace is affine in the data.
+    - **Lagging** from the previous stage: costs time accuracy and needs a stability check.
+- **Not a characteristic solve.** All wall data enter through the reconstruction. Weak characteristic imposition of a value-type thermodynamic wall condition is a separate design option: the q3 wall solve with genuinely different interior and target states, done in closed form from the P06 eigenstructure. It would apply only if a time-integration stability check shows wall-driven growth.
+
 **Decision record:** none yet. Revisit after the literature review, and record any evidence here.
 
 ### Tracking and future-task rules
