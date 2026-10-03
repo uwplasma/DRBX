@@ -32,7 +32,8 @@ def stage_material_transport(runtime, *, device=None):
                    outer=stage_parallel_divergence(runtime.outer, device=device), **arrays)
 
 
-def material_from_slots(stencil, phi_slots, magnetic_L, b_eta, eta_step, *, tau, mu):
+def material_from_slots(stencil, phi_slots, magnetic_L, b_eta, eta_step, *, tau, mu,
+                        characteristic_method="eig"):
     """Raw action from (...,5 eta slots,5 fields) and (...,3) phi slots.
 
     Material slots are (-2,-1,0,1,2)*eta_step. Phi slots are (-1,1,0).
@@ -70,7 +71,8 @@ def material_from_slots(stencil, phi_slots, magnetic_L, b_eta, eta_step, *, tau,
     ), axis=-1)
     force = jnp.zeros_like(material).at[..., 4].set(mu*(G(phi)+tau*gti))
     centered = material + force
-    result = eta_characteristic_correction(q, b_eta, eta_step, tau=tau, mu=mu)
+    result = eta_characteristic_correction(q, b_eta, eta_step, tau=tau, mu=mu,
+                                         characteristic_method=characteristic_method)
     finite = result.inputs_finite & jnp.all(jnp.isfinite(phi), axis=-1)
     finite &= jnp.all(jnp.isfinite(material+force+result.correction), axis=-1)
     return MaterialAction(material, force, centered, result.correction,

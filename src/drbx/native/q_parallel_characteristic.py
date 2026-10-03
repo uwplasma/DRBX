@@ -16,7 +16,8 @@ class CharacteristicCorrection(NamedTuple):
     inputs_finite: object
 
 
-def eta_characteristic_correction(stencil, b_eta, eta_step, *, tau, mu):
+def eta_characteristic_correction(stencil, b_eta, eta_step, *, tau, mu,
+                                  characteristic_method="eig"):
     """Return the upwind-minus-centered material RHS at raw traced centers.
 
     ``stencil`` has shape (..., 5 slots, 5 fields), with eta offsets
@@ -34,6 +35,9 @@ def eta_characteristic_correction(stencil, b_eta, eta_step, *, tau, mu):
     Inadmissible eigensystems use the existing explicit Rusanov fallback and
     return a false flag. Positivity/finite flags are diagnostics, not clipping.
     Callers must audit these flags; this is not a positivity-preserving update.
+
+    Static ``characteristic_method='polynomial'`` selects the opt-in native
+    quartic-root candidate; the accepted generic ``eig`` remains the default.
     """
     import jax.numpy as jnp
     q = jnp.asarray(stencil, dtype=jnp.float64)
@@ -49,7 +53,13 @@ def eta_characteristic_correction(stencil, b_eta, eta_step, *, tau, mu):
     forward = (4*(p-center) - (pp-center))/(2*step[..., None])
     centered = (p-m)/(2*step[..., None])
     matrix = parallel_matrix_from_state(center, tau, mu)
-    plus, minus, _, _, valid = parallel_characteristic_split(matrix, normal=normal)
+    if characteristic_method == "eig":
+        plus, minus, _, _, valid = parallel_characteristic_split(matrix, normal=normal)
+    elif characteristic_method == "polynomial":
+        from .q_characteristic_polynomial import polynomial_characteristic_split
+        plus, minus, _, _, valid = polynomial_characteristic_split(center, tau, mu, normal)
+    else:
+        raise ValueError('characteristic_method must be eig or polynomial')
     correction = -jnp.einsum('...ij,...j->...i', plus, backward-centered)
     correction -= jnp.einsum('...ij,...j->...i', minus, forward-centered)
     positive = jnp.all(q[..., :3] > 0, axis=(-2, -1))
