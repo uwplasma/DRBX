@@ -1,0 +1,41 @@
+{
+  "scope": "bounded saved-C3 implementation replay; no GPU timing or new convergence gate",
+  "records": 24,
+  "states": 22,
+  "boundary_patterns": 4,
+  "diffusion_spans": [
+    0.0625,
+    0.03125
+  ],
+  "grids": [
+    {
+      "n": 32,
+      "owners": 7,
+      "raw": 46
+    },
+    {
+      "n": 48,
+      "owners": 7,
+      "raw": 72
+    },
+    {
+      "n": 64,
+      "owners": 7,
+      "raw": 88
+    }
+  ],
+  "max_abs": 2.2737367544323206e-13,
+  "max_scaled": 1.0094102491698136e-05,
+  "all_flags_equal_and_true": true,
+  "candidate_tests": 24,
+  "harness_tests": 3,
+  "inputs": {
+    "bank_N32.npz": "eeb07418d642f70ed74b86e4c1dac3bd22f571a6ea38bc784aa869359c010f30",
+    "c3_fixtures/N32_inputs.npz": "aa2226923497d2af12aa79b21847c93518d9ffbc8f1dad5eac09a012804419a6",
+    "bank_N48.npz": "8e7d1e495baf1dc59100282bdea9f0cc3d7fb4bbd33300fb937fc4000fb73547",
+    "c3_fixtures/N48_inputs.npz": "00a9fe82b578b3500befe3b1a56b94e6dc053464616de39687a1ee5706ca2bb2",
+    "bank_N64.npz": "e52ba3f3ed937f05c025828d4b340d0383536b8cb91834c99ea5b26e16574553",
+    "c3_fixtures/N64_inputs.npz": "44f6030d023e1da395552b0d4f5905741ae1493baefbadbe303c3a586ece3f34"
+  },
+  "replay_sha256": "efdccb847758e7b72b531b9cf1eaea17859a13da94cd68a8184ca9dfd4b23d0a"
+}

@@ -4508,3 +4508,65 @@ A100/full-grid execution remains pending. On the user's cleanup request,
 40.1 GiB of older bulk artifacts were retired while preserving current C3
 P/Q and Q08 inputs plus lean historical records. Retirement inventories and
 per-directory markers are in `work/workspace_cleanup_20261002/`.
+
+### Q08 A100 component bottleneck audit — 3 October 2026
+
+The returned [component profile and local analysis](../../../../work/q08-component-profile-ff1bff86-20261003T024800Z/local_report.md)
+identify the general nonsymmetric 5x5 characteristic eigensolve as the dominant
+GPU cost. For one full N32 smooth all-Dirichlet case, synchronized warm medians
+are 0.192 s CPU versus 18.066 s A100 for eig alone, and 0.469 s versus 18.005 s
+for the full six-field RHS. Reconstruction takes 1.51 ms on A100, and the
+centered/diffusion/current subset takes 2.19 ms. Four GPUs reduce full RHS to
+4.542 s (3.94x relative to one shard); sharding is not the leading bottleneck.
+Saved HLO and the profiler trace identify `cusolver_geev_ffi`; the pinned
+JAX 0.9.2 implementation invokes the general solver separately for each small
+matrix, with repeated kernels and solver-internal transfers.
+
+Full CPU/GPU and one/four-shard action replay pass the unchanged
+`1e-8 + 1e-11*abs(expected)` gate; maximum direct difference is 1.835e-9.
+Eigen residuals are approximately 1e-15. All 153 returned files were verified
+against their archive members. This single-case profile does not close the
+full Q08 matrix or resource gate. The report records incomplete CUPTI buffers,
+a repaired split-container validation harness, and the isolated split's unit
+normal (full RHS comparisons use actual geometry).
+
+The profile motivates replacing the general eigensolver while preserving the
+characteristic matrix, spectral split and stopped-gradient contract. The
+user subsequently ruled out CPU offload; the device-native candidate below
+is the selected investigation. No donor, degree, span or physical upwind
+policy change follows from this performance evidence.
+
+### Q08 device-native characteristic candidate — 3 October 2026
+
+Following the P06 closed-form implementation and the user's explicit choice
+to keep numerical computation on GPUs, the next candidate replaces Q's
+generic nonsymmetric eigensolve with its exact characteristic polynomial.
+The five-field symbol has one exact root Vi and a quartic in lambda−Ve.
+Scaled derivative-cubic bracketing, 64 fixed batched bisections, algebraic
+eigenvectors and a small device LU inverse produce the sign projectors. The
+existing live-matrix/stopped-projector AD convention and device-side
+Frobenius/Rusanov fallback are retained. The candidate has no general eig
+call or host callback; the CPU-LAPACK proposal above is superseded by the
+user's GPU-only requirement.
+
+`characteristic_method="polynomial"` is opt-in in the compact QPlan and its
+sharded RHS; the accepted `"eig"` remains the default. Candidate validity
+adds physical-domain and residual checks, so extreme-state equivalence is
+not assumed. Unit controls cover reversed/zero normals, equal flow speeds,
+zero Ti/tau, nonhyperbolic states, a singular alternative eigenvector formula,
+conditioning, JVP/VJP and one/four-device mechanics including empty shards.
+
+The [bounded saved-C3 replay](../../../../work/q08_polynomial_20261003/c3_replay.json)
+covers 22 states, four BC patterns, both diffusion spans and seven stratified
+owners per N32/N48/N64. All output leaves pass the unchanged
+`1e-8 + 1e-11*abs(expected)` budget; largest absolute difference is 2.274e-13,
+largest budget fraction 1.010e-5, with identical valid flags. These are
+implementation replays, not new global orders or GPU speed measurements.
+
+The [bounded A100 benchmark](../../../../DRBX/scripts/q08_polynomial_profile/README.md)
+reuses the original complete N32 CPU banks without new tracing/preparation.
+Both numerical baseline and candidate run on GPUs, with a fixed 12-case
+replay matrix and six timing variants. Its frozen overlay isolates this
+change from concurrent P/production edits. Full Q08, larger-grid performance,
+production selection and evolved physics remain open; do not resume the
+large slow audit until this performance comparison returns.
