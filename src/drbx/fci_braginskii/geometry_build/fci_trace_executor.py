@@ -321,9 +321,13 @@ class FciTraceExecutor:
         if self._dynamic_evaluator:
             if self._device_evaluator is None:
                 # The MAKEGRID spline state is large.  Replicate it once per
-                # executor, not once per trajectory chunk.
-                self._device_evaluator = jax.device_put(
-                    self.field_evaluator, self._replicated_sharding
+                # executor, not once per trajectory chunk.  Place leaf by leaf:
+                # device_put on the whole pytree rebuilds it from placeholder
+                # leaves on older JAX (0.6), which breaks classes whose
+                # __init__ coerces their fields to arrays.
+                self._device_evaluator = jax.tree.map(
+                    lambda leaf: jax.device_put(leaf, self._replicated_sharding),
+                    self.field_evaluator,
                 )
             arguments = (
                 self._bounds_device,
