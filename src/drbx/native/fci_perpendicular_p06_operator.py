@@ -36,7 +36,7 @@ on the eigensystem): use ``jax.jvp``. The q1 numerators are linear in the gradie
 (``p06_q1_state_numerators``). The q3 JVP is valid away from eigenvalue crossings and sign changes
 (``fci_perpendicular_face_corrections._absolute_matrix_action_jvp``).
 
-``absolute_method`` (static, default ``"lapack4"``) switches that eigensystem for the faster ``"block_lapack"`` /
+``absolute_method`` (static, default ``"closed_form"``; ``"lapack4"`` reproduces the frozen campaigns bitwise) switches that eigensystem for the faster ``"block_lapack"`` /
 ``"closed_form"`` evaluations of the same ``|M| jump`` (``ABSOLUTE_METHODS``); the default is bitwise unchanged.
 """
 from __future__ import annotations
@@ -225,7 +225,7 @@ def p06_q1_raw_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, fie
 # q3: face numerators
 # --------------------------------------------------------------------------
 
-def _q3_core(faces, common, lower, upper, tau, floor, multiplier, absolute_method="lapack4"):
+def _q3_core(faces, common, lower, upper, tau, floor, multiplier, absolute_method="closed_form"):
     """States ``(V, Fc, Qf, 4)`` -> ``(lower, upper (V, Fc, 4), spectral, floor, wall counters (V,))``."""
     axis = faces.axis.astype(jnp.int32)
     K_axis = jnp.take_along_axis(faces.K, axis[:, None, None], axis=-1)[..., 0]
@@ -242,7 +242,7 @@ def _q3_core(faces, common, lower, upper, tau, floor, multiplier, absolute_metho
     return lo_num * m, up_num * m, spectral, floor_hits, wall_fallback
 
 
-def _q3_from_state(faces, face_value, lower, upper, groups, tau, floor, multiplier, absolute_method="lapack4"):
+def _q3_from_state(faces, face_value, lower, upper, groups, tau, floor, multiplier, absolute_method="closed_form"):
     """Face ``value`` / ``lower`` / ``upper`` ``(Fc, Qf, F)`` -> q3 numerators and counters per group."""
     def pick(x):                                                            # (Fc, Qf, F) -> (V, Fc, Qf, 4)
         return jnp.moveaxis(x[..., groups[:, :4]], 2, 0)
@@ -250,7 +250,7 @@ def _q3_from_state(faces, face_value, lower, upper, groups, tau, floor, multipli
 
 
 @partial(jax.jit, static_argnames=("kinds", "absolute_method"))
-def _p06_q3_faces(faces, fields, bc, groups, tau, floor, multiplier, *, kinds, absolute_method="lapack4"):
+def _p06_q3_faces(faces, fields, bc, groups, tau, floor, multiplier, *, kinds, absolute_method="closed_form"):
     state = face_state(_Plan(faces=faces), fields, bc, kinds, gradients=False)
     return _q3_from_state(faces, state.value, state.lower, state.upper, groups, tau, floor, multiplier,
                           absolute_method)
@@ -267,7 +267,7 @@ def _multiplier(plan_faces, face_multiplier):
 
 def p06_q3_face_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, groups=None, *,
                            tau=TAU, positivity_floor=FLOOR, face_multiplier=None,
-                           absolute_method="lapack4") -> P06FaceNumerators:
+                           absolute_method="closed_form") -> P06FaceNumerators:
     """q3 lower/upper numerators per face, ``(V, Fc, 4)`` in ``plan.faces.census_row`` order, times
     ``face_multiplier`` (default ``plan.faces.face_multiplier``, ones; the harness sets 2 on the legacy seam
     faces), plus per-state counters. These are the host's ``corr_lo`` / ``corr_hi`` per face."""
@@ -286,7 +286,7 @@ def p06_q3_face_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, fi
 # --------------------------------------------------------------------------
 
 def _action_from_state_core(cells, faces, cell_value, cell_gradient, face_value, lower, upper, groups, tau, floor,
-                            multiplier, absolute_method="lapack4"):
+                            multiplier, absolute_method="closed_form"):
     """The owner arithmetic after the reconstruction: 7 arrays of :class:`P06Action` and the q3 counters."""
     n_owners = len(cells.evolution_volume)
     mat_raw, rem_raw = _q1_from_state(cells, cell_value, cell_gradient, groups, tau)
@@ -305,7 +305,7 @@ def _action_from_state_core(cells, faces, cell_value, cell_gradient, face_value,
 
 
 @partial(jax.jit, static_argnames=("kinds", "absolute_method"))
-def _p06_action(cells, faces, fields, bc, groups, tau, floor, multiplier, *, kinds, absolute_method="lapack4"):
+def _p06_action(cells, faces, fields, bc, groups, tau, floor, multiplier, *, kinds, absolute_method="closed_form"):
     cs = cell_state(_Plan(cells=cells), fields, bc, kinds)
     fs = face_state(_Plan(faces=faces), fields, bc, kinds, gradients=False)
     return _action_from_state_core(cells, faces, cs.value, cs.gradient, fs.value, fs.lower, fs.upper, groups, tau,
@@ -314,13 +314,13 @@ def _p06_action(cells, faces, fields, bc, groups, tau, floor, multiplier, *, kin
 
 @partial(jax.jit, static_argnames=("absolute_method",))
 def _p06_action_from_state(cells, faces, cell_value, cell_gradient, face_value, lower, upper, groups, tau, floor,
-                           multiplier, absolute_method="lapack4"):
+                           multiplier, absolute_method="closed_form"):
     return _action_from_state_core(cells, faces, cell_value, cell_gradient, face_value, lower, upper, groups, tau,
                                    floor, multiplier, absolute_method)
 
 
 def p06_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, groups=None, *, tau=TAU,
-               positivity_floor=FLOOR, face_multiplier=None, absolute_method="lapack4") -> P06Action:
+               positivity_floor=FLOOR, face_multiplier=None, absolute_method="closed_form") -> P06Action:
     """P06 owner terms of ``fields`` ``(n_owners, F)``; see the module docstring.
 
     ``groups`` ``(V, 5)`` selects the five columns of each state (``None``: ``F == 5``, no ``V`` axis in
@@ -329,7 +329,7 @@ def p06_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, g
     the q3 numerators before the scatter (2 on P06-legacy's duplicated seam faces). Needs a plan lowered
     with ``cells`` and ``faces``. ``bc`` at the plan's point tables, columns matching ``fields``.
 
-    ``absolute_method`` (static; default ``"lapack4"``, bitwise the campaign's 4x4 ``eig``) selects the evaluation of the
+    ``absolute_method`` (static; default ``"closed_form"``; ``"lapack4"`` is bitwise the campaign's 4x4 ``eig``) selects the evaluation of the
     q3 absolute-matrix action: ``"block_lapack"`` (3x3 block ``eig``) or ``"closed_form"`` (cubic root and Sylvester
     projector, no LAPACK); see :func:`drbx.native.fci_perpendicular_face_corrections.p06_characteristic_face_correction`.
     """
@@ -350,7 +350,7 @@ def p06_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, g
 
 def p06_action_from_state(plan: PerpendicularPlan, cell_value, cell_gradient, face_value, face_lower, face_upper,
                           groups=None, *, tau=TAU, positivity_floor=FLOOR, face_multiplier=None,
-                          return_counters: bool = False, absolute_method="lapack4"):
+                          return_counters: bool = False, absolute_method="closed_form"):
     """The operator arithmetic of :func:`p06_action` on an already-reconstructed state, for callers that share
     one ``cell_state`` / ``face_state`` between operators (P08 step 3, the combined perpendicular RHS).
 
