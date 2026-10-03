@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 from typing import Callable
 
 import jax
@@ -398,6 +397,24 @@ def _spmd_all_finite(
     )
 
 
+def gmres_cycle_budget(restart: int, maxiter: int) -> tuple[int, int, int]:
+    """Split ``maxiter`` into full GMRES(``restart``) cycles plus a remainder.
+
+    Returns ``(restart, full_cycles, tail_restart)`` with
+    ``restart * full_cycles + tail_restart == maxiter``; the requested cycle
+    length is kept (capped at ``maxiter``) instead of being reduced to a
+    common divisor of the budget.
+    """
+
+    if restart < 1 or maxiter < 1:
+        raise ValueError(
+            f"GMRES restart and maxiter must be positive, got {restart} and {maxiter}"
+        )
+    restart = min(restart, maxiter)
+    full_cycles, tail_restart = divmod(maxiter, restart)
+    return restart, full_cycles, tail_restart
+
+
 def solvax_gmres_solve(
     apply_A: Callable[[jnp.ndarray], jnp.ndarray],
     rhs_owned: jnp.ndarray,
@@ -470,13 +487,9 @@ def solvax_gmres_solve(
         rhs, geometry, domain, active_mask, volume_weights
     )
 
-    maxiter = int(config.maxiter)
-    requested_restart = min(int(config.restart), maxiter)
-    # SOLVAX limits work by complete restart cycles.  Use the requested cycle
-    # size when it divides maxiter; otherwise reduce it to the largest exact
-    # common cycle size so the configured maximum iteration count is honored.
-    restart = math.gcd(requested_restart, maxiter)
-    max_restarts = maxiter // restart
+    restart, max_restarts, tail_restart = gmres_cycle_budget(
+        int(config.restart), int(config.maxiter)
+    )
     dtype = rhs.dtype
 
     rhs_l2 = _spmd_norm(rhs, geometry, domain, active_mask, volume_weights)
@@ -520,18 +533,43 @@ def solvax_gmres_solve(
                 active_mask,
             )
 
-    result = solvax_gmres(
-        masked_apply_A,
-        rhs,
-        x0=guess,
-        precond=effective_preconditioner,
-        inner_product=global_inner_product,
-        restart=restart,
-        rtol=float(config.tol),
-        atol=float(config.atol),
-        max_restarts=max_restarts,
-    )
-    phi = _mask_inactive_owned(result.x, active_mask)
+    def budgeted_gmres(
+        target: jnp.ndarray, x0: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        # Full GMRES(restart) cycles, then one shorter cycle for the remainder
+        # of the iteration budget; the second call returns immediately when
+        # the first one has already converged.
+        result = solvax_gmres(
+            masked_apply_A,
+            target,
+            x0=x0,
+            precond=effective_preconditioner,
+            inner_product=global_inner_product,
+            restart=restart,
+            rtol=float(config.tol),
+            atol=float(config.atol),
+            max_restarts=max_restarts,
+        )
+        x = result.x
+        iterations = jnp.asarray(result.iterations, dtype=jnp.int32)
+        if tail_restart:
+            tail = solvax_gmres(
+                masked_apply_A,
+                target,
+                x0=x,
+                precond=effective_preconditioner,
+                inner_product=global_inner_product,
+                restart=tail_restart,
+                rtol=float(config.tol),
+                atol=float(config.atol),
+                max_restarts=1,
+            )
+            x = tail.x
+            iterations = iterations + jnp.asarray(tail.iterations, dtype=jnp.int32)
+        return x, iterations
+
+    result_x, result_iterations = budgeted_gmres(rhs, guess)
+    phi = _mask_inactive_owned(result_x, active_mask)
     if config.project_mean_zero:
         phi = _spmd_remove_weighted_mean(
             phi, geometry, domain, active_mask, volume_weights
@@ -543,7 +581,7 @@ def solvax_gmres_solve(
         active_mask,
         volume_weights,
     )
-    total_iterations = jnp.asarray(result.iterations, dtype=jnp.int32)
+    total_iterations = result_iterations
 
     # A long flexible Arnoldi cycle can report a small projected residual
     # while the independently recomputed physical residual remains above the
@@ -565,19 +603,11 @@ def solvax_gmres_solve(
         ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
             current_phi, current_residual_norm = operand
             correction_rhs = rhs - masked_apply_A(current_phi)
-            correction_result = solvax_gmres(
-                masked_apply_A,
-                correction_rhs,
-                x0=jnp.zeros_like(current_phi),
-                precond=effective_preconditioner,
-                inner_product=global_inner_product,
-                restart=restart,
-                rtol=float(config.tol),
-                atol=float(config.atol),
-                max_restarts=max_restarts,
+            correction_x, correction_iterations = budgeted_gmres(
+                correction_rhs, jnp.zeros_like(current_phi)
             )
             candidate = _mask_inactive_owned(
-                current_phi + correction_result.x,
+                current_phi + correction_x,
                 active_mask,
             )
             if config.project_mean_zero:
@@ -607,7 +637,7 @@ def solvax_gmres_solve(
             return (
                 accepted_phi,
                 accepted_residual,
-                jnp.asarray(correction_result.iterations, dtype=jnp.int32),
+                correction_iterations,
             )
 
         def skip(
