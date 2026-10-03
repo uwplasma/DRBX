@@ -71,26 +71,29 @@ def _face_matrices(p07, n_owners: int):
     """Dirichlet face-flux matrices ``(F_A, F_val, F_tan)`` of shapes ``(Fp, n)``, ``(Fp, Qd)``, ``(Fp, 2 Qd)``."""
     rows = p07.rows
     fp, qd = int(rows.face_count), int(rows.boundary_query_count)
-    seen = np.concatenate([np.asarray(b.face_ids, dtype=np.int64).ravel() for b in rows.batches] or [np.empty(0, np.int64)])
+    # chunk-padding faces carry the out-of-range id ``fp`` and zero weights: they are dropped
+    real = [np.asarray(b.face_ids, dtype=np.int64) < fp for b in rows.batches]
+    seen = np.concatenate([np.asarray(b.face_ids, dtype=np.int64)[r] for b, r in zip(rows.batches, real)]
+                          or [np.empty(0, np.int64)])
     if len(np.unique(seen)) != len(seen):
         raise ValueError("P07 batches overlap in faces: the sparse export assumes disjoint batches")
     ra, ca, va = [], [], []
     rv, cv, vv = [], [], []
     rt, ct, vt = [], [], []
-    for b in rows.batches:
-        face = np.asarray(b.face_ids, dtype=np.int64)
-        donors = np.asarray(b.donor_ids, dtype=np.int64)
-        w = np.asarray(b.weights, dtype=np.float64)
+    for b, r in zip(rows.batches, real):
+        face = np.asarray(b.face_ids, dtype=np.int64)[r]
+        donors = np.asarray(b.donor_ids, dtype=np.int64)[r]
+        w = np.asarray(b.weights, dtype=np.float64)[r]
         d = donors.shape[1]
         ra.append(np.repeat(face, d)); ca.append(donors.ravel()); va.append(w.ravel())
-        if not qd:
+        if not qd or b.boundary_donor_ids is None:         # no boundary arrays: a bucket without conditioned faces
             continue
-        cond = np.asarray(b.conditioned, dtype=bool)
+        cond = np.asarray(b.conditioned, dtype=bool)[r]
         if cond.any():
-            bd = np.asarray(b.boundary_donor_ids, dtype=np.int64)[cond]
+            bd = np.asarray(b.boundary_donor_ids, dtype=np.int64)[r][cond]
             rv.append(np.repeat(face[cond], d)); cv.append(bd.ravel()); vv.append(-w[cond].ravel())
-        tid = np.asarray(b.tangential_ids, dtype=np.int64)               # (f, Q)
-        tw = np.asarray(b.tangential_weights, dtype=np.float64)          # (f, Q, 2)
+        tid = np.asarray(b.tangential_ids, dtype=np.int64)[r]            # (f, Q)
+        tw = np.asarray(b.tangential_weights, dtype=np.float64)[r]       # (f, Q, 2)
         q = tid.shape[1]
         for a in range(2):
             rt.append(np.repeat(face, q)); ct.append((2 * tid + a).ravel()); vt.append(tw[..., a].ravel())

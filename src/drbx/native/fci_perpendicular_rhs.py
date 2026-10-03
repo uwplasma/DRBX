@@ -188,11 +188,16 @@ def _rhs(plan, state, phi, bc, params, jump_mask, face_multiplier, *, columns, f
         out["curvature"] = q1[:, pick] + correction[:, pick]
         diagnostics.update(spectral_fallback=spectral[0], floor_hits=floor_hits[0], wall_fallback=wall_fallback[0])
     if "diffusion" in terms:
-        # P07 runs on every column of the state and the field block is sliced from its output. The integrated-row
-        # sums cancel strongly (a changed summation order moves owner values by ~1e-13 relative), and XLA reorders
-        # them when the operand is a strided slice (or a column ``take`` of the boundary data) whose layout was
-        # chosen for the other consumers; fed the whole array it reproduces the standalone ``p07_action`` bitwise.
-        action = p07_action(plan, jax.lax.optimization_barrier(stacked), bc, kinds)[:, :nf]
+        # P07 reads only the field block (the first ``nf`` columns; the curvature extras, raw-pair columns and phi are
+        # never used), so for the four-field layout it runs on those four columns. The integrated-row sums cancel
+        # strongly (a changed summation order moves owner values by ~1e-13 relative), and the contraction kernel XLA
+        # picks depends on the column count: four columns are bitwise equal to the leading four of any wider call
+        # (checked for 5..8 columns, Dirichlet and Neumann kinds), whereas 1 to 3 columns are not (the last column
+        # of an odd-width call and the narrow Neumann kernels round differently). Every other field subset therefore
+        # keeps the full width, and the whole array enters through a barrier: XLA also reorders the sums when the
+        # operand is a strided slice whose layout was chosen for the other consumers.
+        action = p07_action(plan, jax.lax.optimization_barrier(stacked), bc, kinds,
+                            columns=nf if nf == len(FIELDS) else None)[:, :nf]
         d = jnp.stack([jnp.asarray(params.diffusion[f]) for f in fields])
         out["diffusion"] = -d[None, :] * action
     total = None

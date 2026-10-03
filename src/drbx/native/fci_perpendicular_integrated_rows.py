@@ -4,19 +4,29 @@ import json
 import os
 from pathlib import Path
 from typing import NamedTuple
+import jax
 import jax.numpy as jnp
 import numpy as np
 from drbx.geometry.fci_perpendicular_integrated_rows import IntegratedFaceRow
 from drbx.native.fci_perpendicular_point_rows import BoundaryArrays
 
 
+#: faces per ``lax.map`` step of the donor contraction. A plan lowering pads every larger bucket to a multiple of
+#: this (:func:`pad_integrated_batch`); a bucket that is not a multiple is applied in one piece.
+FACE_CHUNK = 1024
+
+
 class IntegratedFaceBatch(NamedTuple):
+    """One (family, conditioned, donor width) bucket. ``boundary_donor_ids``, ``tangential_ids`` and
+    ``tangential_weights`` are ``None`` (an empty pytree node) in a bucket without conditioned faces, so the
+    boundary lift is skipped statically; a plan lowering drops them (``operator_plan``). Faces ``face_ids >=
+    face_count`` are padding: their rows are applied but their flux is dropped."""
     face_ids: np.ndarray
     donor_ids: np.ndarray
     weights: np.ndarray
-    boundary_donor_ids: np.ndarray
-    tangential_ids: np.ndarray
-    tangential_weights: np.ndarray
+    boundary_donor_ids: np.ndarray | None
+    tangential_ids: np.ndarray | None
+    tangential_weights: np.ndarray | None
     conditioned: np.ndarray
 
 
@@ -130,9 +140,37 @@ def lower_integrated_face_rows(context,rows: tuple[IntegratedFaceRow,...],endpoi
     return IntegratedFacePlan(payload,np.asarray(queries).reshape(-1,3),tuple(eta_offsets),tuple(summary))
 
 
+def padded_face_count(count: int, chunk: int | None = None) -> int:
+    """Bucket size after padding for the chunked contraction: buckets of at most ``chunk`` (default
+    :data:`FACE_CHUNK`) faces are not padded."""
+    chunk = FACE_CHUNK if chunk is None else int(chunk)
+    return int(count) if count <= chunk else -(-int(count) // chunk) * chunk
+
+
+def pad_integrated_batch(batch: IntegratedFaceBatch, face_count: int, chunk: int | None = None) -> IntegratedFaceBatch:
+    """``batch`` padded to a multiple of ``chunk`` (default :data:`FACE_CHUNK`) faces (when larger) with no-op faces.
+
+    A padded face has the out-of-range id ``face_count`` (its flux is dropped by the scatter), donor 0, zero
+    weights and no boundary lift."""
+    count = len(batch.face_ids)
+    size = padded_face_count(count, chunk)
+    if size == count:
+        return batch
+
+    def pad(a, fill=0):
+        return None if a is None else np.concatenate([a, np.full((size - count,) + a.shape[1:], fill, dtype=a.dtype)])
+
+    return IntegratedFaceBatch(pad(batch.face_ids, face_count), pad(batch.donor_ids), pad(batch.weights),
+                               pad(batch.boundary_donor_ids), pad(batch.tangential_ids),
+                               pad(batch.tangential_weights), pad(batch.conditioned, False))
+
+
 def apply_integrated_face_rows(payload: IntegratedFacePayload,owner_fields,
                                boundary: BoundaryArrays | None=None):
-    """Return one shared, oriented integrated flux per selected physical face."""
+    """Return one shared, oriented integrated flux per selected physical face.
+
+    Buckets that carry boundary arrays get the Dirichlet lift; buckets of a multiple of :data:`FACE_CHUNK` faces
+    are contracted ``FACE_CHUNK`` faces at a time (``lax.map``, same arithmetic per face)."""
     field=jnp.asarray(owner_fields)
     if field.ndim!=2:raise ValueError('owner_fields must have shape (owners, fields)')
     if payload.boundary_query_count:
@@ -146,11 +184,21 @@ def apply_integrated_face_rows(payload: IntegratedFacePayload,owner_fields,
         bg=jnp.zeros((1,2,field.shape[1]),dtype=field.dtype)
     flux=jnp.zeros((payload.face_count,field.shape[1]),dtype=field.dtype)
     for batch in payload.batches:
-        donors=field[batch.donor_ids]
-        donors=donors-jnp.where(batch.conditioned[:,None,None],bv[batch.boundary_donor_ids],0)
-        values=jnp.einsum('fd,fdk->fk',batch.weights,donors)
-        values+=jnp.einsum('fqa,fqak->fk',batch.tangential_weights,bg[batch.tangential_ids])
-        flux=flux.at[batch.face_ids].set(values)
+        lift=batch.boundary_donor_ids is not None
+        arrays=(batch.donor_ids,batch.weights)
+        if lift:arrays+=(batch.conditioned,batch.boundary_donor_ids,batch.tangential_ids,batch.tangential_weights)
+        def rows(a,lift=lift):
+            donors=field[a[0]]
+            if lift:donors=donors-jnp.where(a[2][:,None,None],bv[a[3]],0)
+            values=jnp.einsum('fd,fdk->fk',a[1],donors)
+            if lift:values+=jnp.einsum('fqa,fqak->fk',a[5],bg[a[4]])
+            return values
+        count=batch.face_ids.shape[0]
+        if count>FACE_CHUNK and count%FACE_CHUNK==0:
+            blocks=tuple(jnp.reshape(a,(count//FACE_CHUNK,FACE_CHUNK)+a.shape[1:]) for a in arrays)
+            values=jax.lax.map(rows,blocks).reshape(count,field.shape[1])
+        else:values=rows(arrays)
+        flux=flux.at[batch.face_ids].set(values,mode='drop')
     return flux
 
 

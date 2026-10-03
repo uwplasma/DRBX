@@ -55,7 +55,7 @@ import jax
 import numpy as np
 
 from drbx.geometry.fci_perpendicular_integrated_rows import contract_face_tensor
-from drbx.native.fci_perpendicular_integrated_rows import IntegratedFaceBatch
+from drbx.native.fci_perpendicular_integrated_rows import IntegratedFaceBatch, pad_integrated_batch
 from drbx.native.fci_perpendicular_neumann_rows import NeumannPayload
 from drbx.native.fci_perpendicular_source_rows import SourceRowPayload
 from drbx.stencils import artifact as art
@@ -92,14 +92,18 @@ class NeumannRows:
 
     ``boundary_ids`` index the plan's global ``neumann_points``; rows are in the order documented
     by the owning sub-plan (``cells.neumann_cell`` etc.).
+
+    The lowering stores only what the operators read: the P07 rows (``p07.neumann``) contract gradients only,
+    so their value weights are ``None``; the R3 side rows (``faces.side_neumann``) are read for values only, so
+    their gradient weights are ``None``. ``apply_neumann_point_rows`` returns ``None`` for the missing part.
     """
 
     donor_ids: np.ndarray                   # (R, W) int32
-    value_weights: np.ndarray               # (R, W)
-    gradient_weights: np.ndarray            # (R, 3, W)
+    value_weights: np.ndarray | None        # (R, W)
+    gradient_weights: np.ndarray | None     # (R, 3, W)
     boundary_ids: np.ndarray                # (R, 28) int32
-    boundary_value_weights: np.ndarray      # (R, 28)
-    boundary_gradient_weights: np.ndarray   # (R, 3, 28)
+    boundary_value_weights: np.ndarray | None       # (R, 28)
+    boundary_gradient_weights: np.ndarray | None    # (R, 3, 28)
 
     def payload(self, boundary_query_count: int) -> NeumannPayload:
         return NeumannPayload(self.donor_ids, self.value_weights, self.gradient_weights, self.boundary_ids,
@@ -110,7 +114,12 @@ class NeumannRows:
 @dataclass(frozen=True)
 class IntegratedRows:
     """``IntegratedFacePayload`` with static counts as meta fields (a NamedTuple with int fields would
-    turn its counts into traced leaves under ``jax.jit``)."""
+    turn its counts into traced leaves under ``jax.jit``).
+
+    Plan lowering (:func:`_remap_integrated`) drops the boundary arrays of buckets without conditioned faces
+    (``None`` fields: a static flag, the lift is skipped) and pads buckets larger than
+    ``FACE_CHUNK`` faces with no-op faces of id ``face_count`` (the chunked contraction); consumers of ``batches``
+    must ignore faces ``>= face_count``."""
 
     batches: tuple[IntegratedFaceBatch, ...]
     lower_owner: np.ndarray                 # (Fp,) int32, -1: none
@@ -296,13 +305,17 @@ def _check_ascending_unique(values: np.ndarray, what: str) -> np.ndarray:
     return values
 
 
-def _neumann_rows(nplan: NeumannRowPlan, order: np.ndarray | None, remap: np.ndarray) -> NeumannRows:
+def _neumann_rows(nplan: NeumannRowPlan, order: np.ndarray | None, remap: np.ndarray, *,
+                  values: bool = True, gradients: bool = True) -> NeumannRows:
+    """Plan rows of a loader Neumann plan; ``values`` / ``gradients`` False store ``None`` for the weights
+    the operators never read (see :class:`NeumannRows`)."""
     p = nplan.payload
     take = (lambda a: a) if order is None else (lambda a: a[order])
     ids = take(p.boundary_ids)
-    return NeumannRows(take(p.donor_ids), take(p.value_weights), take(p.gradient_weights),
-                       remap[ids].astype(np.int32), take(p.boundary_value_weights),
-                       take(p.boundary_gradient_weights))
+    return NeumannRows(take(p.donor_ids), take(p.value_weights) if values else None,
+                       take(p.gradient_weights) if gradients else None,
+                       remap[ids].astype(np.int32), take(p.boundary_value_weights) if values else None,
+                       take(p.boundary_gradient_weights) if gradients else None)
 
 
 def _global_table(parts: Sequence[np.ndarray]):
@@ -325,14 +338,19 @@ def _remap_source_payload(payload: SourceRowPayload, remap: np.ndarray, count: i
 
 
 def _remap_integrated(rows_plan, remap: np.ndarray, count: int) -> IntegratedRows:
+    """Integrated rows with the global boundary ids; buckets without conditioned faces lose their (never read)
+    boundary arrays, and buckets larger than ``FACE_CHUNK`` are padded to a multiple of it."""
     payload = rows_plan.payload
-    if len(remap):
-        batches = tuple(b._replace(boundary_donor_ids=remap[b.boundary_donor_ids],
-                                   tangential_ids=remap[b.tangential_ids]) for b in payload.batches)
-    else:
-        batches = payload.batches
-    return IntegratedRows(batches, payload.lower_owner.astype(np.int32), payload.upper_owner.astype(np.int32),
-                          int(count), int(payload.face_count))
+    face_count = int(payload.face_count)
+    batches = []
+    for b in payload.batches:
+        if np.any(b.conditioned):
+            b = b._replace(boundary_donor_ids=remap[b.boundary_donor_ids], tangential_ids=remap[b.tangential_ids])
+        else:
+            b = b._replace(boundary_donor_ids=None, tangential_ids=None, tangential_weights=None)
+        batches.append(pad_integrated_batch(b, face_count))
+    return IntegratedRows(tuple(batches), payload.lower_owner.astype(np.int32), payload.upper_owner.astype(np.int32),
+                          int(count), face_count)
 
 
 def _row_counts_ok(rows_of_entity: np.ndarray, expected: np.ndarray, size: int, what: str) -> None:
@@ -622,13 +640,13 @@ def lower_perpendicular_plan(*, grid: LoaderGrid, census: FaceCensus, geometry: 
         face_plan = FacePlan(
             rows=_remap_source_payload(fplan.payload, d_remap["faces"], Qd), fallback_query=fallback_query,
             common_neumann=None if n2 is None else _neumann_rows(n2, None, n_remap["faces_common"]),
-            side_neumann=None if n3 is None else _neumann_rows(n3, None, n_remap["faces_side"]),
+            side_neumann=None if n3 is None else _neumann_rows(n3, None, n_remap["faces_side"], gradients=False),
             has_missing_side=bool(missing.any()), **fields)
     if p07 is not None:
         iplan, pn, perm, fields = p07
         p07_plan = P07Plan(
             rows=_remap_integrated(iplan, d_remap["p07"], Qd),
-            neumann=None if pn is None else _neumann_rows(pn, perm, n_remap["p07"]), **fields)
+            neumann=None if pn is None else _neumann_rows(pn, perm, n_remap["p07"], values=False), **fields)
     return PerpendicularPlan(cell_plan, face_plan, p07_plan, dirichlet_points, neumann_points, int(n))
 
 

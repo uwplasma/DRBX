@@ -267,6 +267,7 @@ def test_block_processing_matches_single_block(name, cases, monkeypatch):
         monkeypatch.setattr(kernel, "ANGULAR_BLOCK_ELEMENTS", 16 * 3 * 5)        # 5 targets per block
         monkeypatch.setattr(kernel, "COMBO_BLOCK_ELEMENTS", 7 * 4 * 3 * 3)       # 3 theta combos per block
         monkeypatch.setattr(kernel, "RING_BLOCK_ELEMENTS", 16 * 3 * 5)
+        monkeypatch.setattr(kernel, "SINGLE_BLOCK_BYTES", 0)                       # always block
         blocked = kernel.apply_tensor_batch(tables, batch, fields)
         monkeypatch.undo()
         assert full[0].shape == (len(batch.value_slots), 3)
@@ -274,6 +275,32 @@ def test_block_processing_matches_single_block(name, cases, monkeypatch):
         for a, b in zip(full, blocked):
             if a is not None:
                 np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=0, atol=1e-14 * np.abs(np.asarray(a)).max())
+
+
+@pytest.mark.parametrize("name", ("identity", "ring"))
+def test_single_vectorized_block_is_bitwise_the_chunked_blocks(name, cases, monkeypatch):
+    """Under the memory cap a whole call is one vectorized piece (no ``lax.map``); jitted, the chunked path gives the
+    same bits (op by op, eager, the two shapes may round differently)."""
+    case = cases[name]
+    plan = lower_point_chunks([case["item"]], grid=case["grid"])
+    fields = jnp.asarray(_fields(case["context"], 3))
+    tables = plan.payload.tensor_tables
+    assert kernel.SINGLE_BLOCK_BYTES >= 512 << 20                          # the default cap
+    for batch in plan.payload.tensor_batches[::2]:
+        def run():
+            fn = jax.jit(lambda f: kernel.apply_tensor_batch(tables, batch, f))
+            return fn(fields), fn.lower(fields).as_text()
+        monkeypatch.setattr(kernel, "ANGULAR_BLOCK_ELEMENTS", 16 * 3 * 5)
+        monkeypatch.setattr(kernel, "COMBO_BLOCK_ELEMENTS", 7 * 4 * 3 * 3)
+        monkeypatch.setattr(kernel, "RING_BLOCK_ELEMENTS", 16 * 3 * 5)
+        single, single_text = run()                                         # default cap: one piece
+        monkeypatch.setattr(kernel, "SINGLE_BLOCK_BYTES", 0)                # force the blocks of 5 targets / 3 combos
+        blocked, blocked_text = run()
+        monkeypatch.undo()
+        assert "stablehlo.while" not in single_text and "stablehlo.while" in blocked_text
+        for a, b in zip(single, blocked):
+            if a is not None:
+                np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
 
 
 def test_selection_by_request_variant_and_entity(cases):

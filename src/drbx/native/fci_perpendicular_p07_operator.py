@@ -16,6 +16,14 @@ Dirichlet lift at conditioned faces); P07N is ``"neumann"`` for every field, and
 ``"dirichlet"``. The action is affine in ``fields`` and, for a fixed ``BoundaryData``, linear in
 ``bc`` too; with ``bc`` zero it is the linear part (JVP = apply of the tangent with zero data).
 
+``columns`` (optional, static) restricts the call to the first ``columns`` columns of ``fields`` / ``bc`` /
+``field_kinds`` (the output then has that many columns); the combined RHS passes the four field columns so that the
+rows do not run on the ``phi`` column. The restricted columns are materialized contiguously
+(``optimization_barrier``). The result is bitwise equal to the leading columns of the full-width call only for some
+widths (the contraction kernel XLA selects depends on the column count: measured on the N32 plan, 4 columns equal the
+leading four of any 5..8-column call, 2 columns equal those of a 3-column call, a single column or two Neumann columns
+against a wider call do not); anything else agrees to rounding.
+
 The body is a single jitted computation with static ``field_kinds``: an eager call and a call inside an
 outer ``jax.jit`` agree bitwise.
 """
@@ -38,7 +46,18 @@ from drbx.stencils.operator_plan import PerpendicularPlan
 __all__ = ["p07_action", "p07_face_flux"]
 
 
-def _face_flux_core(p07, fields, bc, kinds):
+def _first_columns(fields, bc, kinds, columns):
+    """The first ``columns`` columns of ``fields`` (contiguous), ``bc`` and ``kinds``."""
+    if columns is None or columns == fields.shape[1]:
+        return fields, bc, kinds
+    cut = lambda a: None if a is None else a[..., :columns]
+    return (jax.lax.optimization_barrier(fields[:, :columns]),
+            BoundaryData(cut(bc.dirichlet_value), cut(bc.dirichlet_tangential), cut(bc.neumann_normal)),
+            kinds[:columns])
+
+
+def _face_flux_core(p07, fields, bc, kinds, columns=None):
+    fields, bc, kinds = _first_columns(fields, bc, kinds, columns)
     rows = p07.rows
     barr = None
     if rows.boundary_query_count:
@@ -59,26 +78,41 @@ def _face_flux_core(p07, fields, bc, kinds):
     return jnp.where((p07.family != 0)[:, None], flux, 0.0)
 
 
-@partial(jax.jit, static_argnames=("kinds",))
-def _p07_face_flux(p07, fields, bc, *, kinds):
-    return _face_flux_core(p07, fields, bc, kinds)
+@partial(jax.jit, static_argnames=("kinds", "columns"))
+def _p07_face_flux(p07, fields, bc, *, kinds, columns):
+    return _face_flux_core(p07, fields, bc, kinds, columns)
 
 
-@partial(jax.jit, static_argnames=("kinds",))
-def _p07_action(p07, fields, bc, *, kinds):
-    flux = _face_flux_core(p07, fields, bc, kinds)
+@partial(jax.jit, static_argnames=("kinds", "columns"))
+def _p07_action(p07, fields, bc, *, kinds, columns):
+    flux = _face_flux_core(p07, fields, bc, kinds, columns)
     payload = SimpleNamespace(lower_owner=p07.rows.lower_owner, upper_owner=p07.rows.upper_owner,
                               owner_volume=p07.owner_volume)
     return scatter_integrated_face_flux(payload, flux)
 
 
-def p07_face_flux(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds):
-    """Oriented integrated flux ``(Fp, F)`` of every P07 face of ``plan.p07`` (before the owner scatter)."""
-    fields = jnp.asarray(fields)
-    return _p07_face_flux(plan.p07, fields, bc, kinds=normalize_kinds(field_kinds, fields.shape[1]))
+def _columns(columns, n_fields: int):
+    if columns is None:
+        return None
+    columns = int(columns)
+    if not 1 <= columns <= n_fields:
+        raise ValueError(f"columns must be in 1..{n_fields}, got {columns}")
+    return None if columns == n_fields else columns
 
 
-def p07_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds):
-    """P07 owner action ``(n_owners, F)`` of ``fields`` ``(n_owners, F)``; see the module docstring."""
+def p07_face_flux(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, columns=None):
+    """Oriented integrated flux ``(Fp, F)`` of every P07 face of ``plan.p07`` (before the owner scatter).
+
+    ``columns``: compute only the first ``columns`` columns (output ``(Fp, columns)``)."""
     fields = jnp.asarray(fields)
-    return _p07_action(plan.p07, fields, bc, kinds=normalize_kinds(field_kinds, fields.shape[1]))
+    return _p07_face_flux(plan.p07, fields, bc, kinds=normalize_kinds(field_kinds, fields.shape[1]),
+                          columns=_columns(columns, fields.shape[1]))
+
+
+def p07_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, columns=None):
+    """P07 owner action ``(n_owners, F)`` of ``fields`` ``(n_owners, F)``; see the module docstring.
+
+    ``columns``: compute only the first ``columns`` columns (output ``(n_owners, columns)``)."""
+    fields = jnp.asarray(fields)
+    return _p07_action(plan.p07, fields, bc, kinds=normalize_kinds(field_kinds, fields.shape[1]),
+                       columns=_columns(columns, fields.shape[1]))
