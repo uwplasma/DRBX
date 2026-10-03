@@ -46,7 +46,9 @@ per apply** (``prepare_fields``) and each target only gathers its 4 x 4 results:
 
 Each per-apply table is built in blocks of combos / entries (``lax.map``) and targets are processed
 in blocks (``lax.map``), so the transients stay bounded: ``(targets, 16, F)`` per block, ``(combos, 7,
-n, F)`` per combo block, plus the two persistent ``(NC, n, F)`` tables. The result agrees with the
+n, F)`` per combo block, plus the two persistent ``(NC, n, F)`` tables. A call whose whole gathered block
+stays under :data:`SINGLE_BLOCK_BYTES` is applied in one vectorized piece instead (no loop; bitwise the same
+values, fewer passes); ``SINGLE_BLOCK_BYTES = 0`` always blocks with the sizes below. The result agrees with the
 expanded CSR rows to rounding (the summation order differs).
 """
 from __future__ import annotations
@@ -65,6 +67,9 @@ RING_BLOCK_ELEMENTS = 1 << 16
 #: gathered donor elements (combos x 7 x n x fields) per block of combos of the theta tables
 COMBO_BLOCK_ELEMENTS = 1 << 20
 DONOR_BLOCK = 112
+#: a whole call (all targets of a batch, or all combos of the theta tables) is applied without ``lax.map`` when its
+#: gathered block (elements x 8 bytes: ``targets x 16 x F`` resp. ``combos x 7 x n x F``) is at most this many bytes
+SINGLE_BLOCK_BYTES = 512 << 20
 
 
 @dataclass(frozen=True)
@@ -151,13 +156,16 @@ class TensorFieldContext(NamedTuple):
     ring_derivative: object
 
 
-def _blocked(function, arrays, size):
+def _blocked(function, arrays, size, row_bytes=None):
     """``function`` over ``arrays`` (leading axis ``total``) in blocks of ``size`` rows (``lax.map``), rows in order.
 
     ``function`` maps a block of rows to a tuple of arrays (or ``None`` entries) with one row per input row.
-    One block is applied directly; otherwise the last block is padded with repeated rows (dropped again).
+    One block is applied directly (also whenever ``total * row_bytes <= SINGLE_BLOCK_BYTES``); otherwise the last
+    block is padded with repeated rows (dropped again).
     """
     total = arrays[0].shape[0]
+    if row_bytes is not None and total * row_bytes <= SINGLE_BLOCK_BYTES:
+        size = total
     size = int(max(1, min(total, size)))
     if size >= total:
         return function(arrays)
@@ -186,7 +194,7 @@ def _theta_tables(tables: TensorTables, fields, gradients):
                       if gradients else None)
         return value, derivative
 
-    return _blocked(block, (key,), COMBO_BLOCK_ELEMENTS // (7 * n * max(nf, 1)))
+    return _blocked(block, (key,), COMBO_BLOCK_ELEMENTS // (7 * n * max(nf, 1)), 8 * 7 * n * max(nf, 1))
 
 
 def prepare_fields(tables: TensorTables, batches, fields, *, values: bool = True,
@@ -267,4 +275,4 @@ def apply_tensor_batch(tables: TensorTables, batch: TensorRowBatch, fields, *,
 
     limit = RING_BLOCK_ELEMENTS if ringwise else ANGULAR_BLOCK_ELEMENTS
     return _blocked(lambda chunk: _block_apply(tables, static, context, chunk, values=values, gradients=want_gradient),
-                    arrays, limit // (16 * max(nf, 1)))
+                    arrays, limit // (16 * max(nf, 1)), 8 * 16 * max(nf, 1))

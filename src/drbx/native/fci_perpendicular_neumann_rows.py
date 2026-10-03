@@ -5,12 +5,14 @@ import numpy as np
 
 
 class NeumannPayload(NamedTuple):
+    """``value_weights`` / ``boundary_value_weights`` (``gradient_weights`` / ``boundary_gradient_weights``) are
+    ``None`` in a plan whose operators never read the values (gradients) of these rows."""
     donor_ids: np.ndarray
-    value_weights: np.ndarray
-    gradient_weights: np.ndarray
+    value_weights: np.ndarray | None
+    gradient_weights: np.ndarray | None
     boundary_ids: np.ndarray
-    boundary_value_weights: np.ndarray
-    boundary_gradient_weights: np.ndarray
+    boundary_value_weights: np.ndarray | None
+    boundary_gradient_weights: np.ndarray | None
     boundary_query_count: int
 
 
@@ -39,17 +41,20 @@ def lower_neumann_point_rows(rows):
 
 
 def apply_neumann_point_rows(payload: NeumannPayload, owner_fields, normal_derivative):
-    """Apply coherent value/gradient rows to fields and prescribed g_N."""
+    """Apply coherent value/gradient rows to fields and prescribed g_N (``None`` for a part the payload does not store)."""
     field=jnp.asarray(owner_fields)
     g=jnp.asarray(normal_derivative)
     if field.ndim!=2 or g.ndim!=2 or g.shape[1]!=field.shape[1]:
         raise ValueError("Neumann owner or boundary array shape mismatch")
     sampled=field[payload.donor_ids]
     bv=g[payload.boundary_ids]
-    value=jnp.einsum('rd,rdf->rf',payload.value_weights,sampled)
-    value+=jnp.einsum('rq,rqf->rf',payload.boundary_value_weights,bv)
-    gradient=jnp.einsum('rad,rdf->raf',payload.gradient_weights,sampled)
-    gradient+=jnp.einsum('raq,rqf->raf',payload.boundary_gradient_weights,bv)
+    value=gradient=None
+    if payload.value_weights is not None:
+        value=jnp.einsum('rd,rdf->rf',payload.value_weights,sampled)
+        value+=jnp.einsum('rq,rqf->rf',payload.boundary_value_weights,bv)
+    if payload.gradient_weights is not None:
+        gradient=jnp.einsum('rad,rdf->raf',payload.gradient_weights,sampled)
+        gradient+=jnp.einsum('raq,rqf->raf',payload.boundary_gradient_weights,bv)
     return value,gradient
 
 

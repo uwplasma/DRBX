@@ -33,7 +33,8 @@ shard, stacked along a leading shard axis:
 * all shards are padded to identical shapes and batch structure. Padded cells and faces copy a real entity's geometry
   but carry zero volume / weight and the trash owner; padded faces are flagged ``collapsed`` (so the P06 counters skip
   them) and ``p07_valid = False`` (so P05 does not jump over them); padded source rows write unused dummy slots;
-  padded Neumann / integrated-row targets are out of range (``.at[].set`` drops them), as are the padded entries of
+  padded Neumann / integrated-row targets are out of range (``.at[].set`` drops them; the integrated-row buckets are
+  also padded to a multiple of ``FACE_CHUNK`` faces for the chunked contraction), as are the padded entries of
   ``FacePlan.wall_faces`` (local wall-face indices, padded with the out-of-range face index; the P06 wall solve gathers
   clipped and scatters / counts only the in-range entries).
 
@@ -59,7 +60,7 @@ import numpy as np
 from jax import lax
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
-from drbx.native.fci_perpendicular_integrated_rows import IntegratedFaceBatch
+from drbx.native.fci_perpendicular_integrated_rows import IntegratedFaceBatch, padded_face_count
 from drbx.native.fci_perpendicular_plane_preconditioner import owner_layout
 from drbx.native.fci_perpendicular_reconstruction_state import BoundaryData
 from drbx.native.fci_perpendicular_rhs import (
@@ -292,9 +293,14 @@ def _local_neumann(rows: Optional[NeumannRows], keep, sh: _Shard, what: str) -> 
     if rows is None:
         return None
     k = np.asarray(keep, dtype=np.int64)
-    nonzero = (rows.value_weights[k] != 0) | (rows.gradient_weights[k] != 0).any(axis=1)
-    return NeumannRows(sh.donors(rows.donor_ids[k], nonzero, what), rows.value_weights[k], rows.gradient_weights[k],
-                       rows.boundary_ids[k], rows.boundary_value_weights[k], rows.boundary_gradient_weights[k])
+    take = lambda a: None if a is None else a[k]
+    nonzero = np.zeros(rows.donor_ids[k].shape, dtype=bool)          # a weight array the plan does not store is unread
+    if rows.value_weights is not None:
+        nonzero |= rows.value_weights[k] != 0
+    if rows.gradient_weights is not None:
+        nonzero |= (rows.gradient_weights[k] != 0).any(axis=1)
+    return NeumannRows(sh.donors(rows.donor_ids[k], nonzero, what), take(rows.value_weights), take(rows.gradient_weights),
+                       rows.boundary_ids[k], take(rows.boundary_value_weights), take(rows.boundary_gradient_weights))
 
 
 def _local_cells(c: CellPlan, sh: _Shard) -> CellPlan:
@@ -384,11 +390,13 @@ def _local_p07(p: P07Plan, sh: _Shard, face_loc: Optional[np.ndarray]) -> P07Pla
     loc = np.full(len(p.p07_id), -1, dtype=np.int64)
     loc[kp] = np.arange(len(kp))
     batches = []
+    loc_ext = np.append(loc, -1)                    # chunk-padding faces (id = face count) belong to no shard
     for b in p.rows.batches:
-        k = np.flatnonzero(loc[b.face_ids] >= 0)
+        k = np.flatnonzero(loc_ext[b.face_ids] >= 0)
+        take = lambda a: None if a is None else a[k]
         batches.append(IntegratedFaceBatch(
             loc[b.face_ids[k]].astype(b.face_ids.dtype), sh.donors(b.donor_ids[k], b.weights[k] != 0, "P07 rows"),
-            b.weights[k], b.boundary_donor_ids[k], b.tangential_ids[k], b.tangential_weights[k], b.conditioned[k]))
+            b.weights[k], take(b.boundary_donor_ids), take(b.tangential_ids), take(b.tangential_weights), b.conditioned[k]))
     rows = IntegratedRows(tuple(batches), sh.side_map(np.asarray(p.rows.lower_owner)[kp]),
                           sh.side_map(np.asarray(p.rows.upper_owner)[kp]), p.rows.boundary_query_count, len(kp))
     neumann, neumann_face, integrand = None, p.neumann_face[:0], p.integrand[:0]
@@ -421,7 +429,8 @@ def _visit_dirichlet(plan: PerpendicularPlan, fn) -> PerpendicularPlan:
     if faces is not None:
         faces = replace(faces, rows=payload(faces.rows), fallback_query=fn(faces.fallback_query))
     if p07 is not None:
-        batches = tuple(b._replace(boundary_donor_ids=fn(b.boundary_donor_ids), tangential_ids=fn(b.tangential_ids))
+        batches = tuple(b if b.boundary_donor_ids is None else
+                        b._replace(boundary_donor_ids=fn(b.boundary_donor_ids), tangential_ids=fn(b.tangential_ids))
                         for b in p07.rows.batches)
         p07 = replace(p07, rows=replace(p07.rows, batches=batches))
     return replace(plan, cells=cells, faces=faces, p07=p07)
@@ -489,9 +498,10 @@ def _pad_like_first(a, count: int):
 def _pad_neumann(rows: Sequence[Optional[NeumannRows]], count: int, trash: int) -> list:
     if rows[0] is None:
         return [None] * len(rows)
-    return [NeumannRows(_pad(r.donor_ids, count, trash), _pad(r.value_weights, count), _pad(r.gradient_weights, count),
-                        _pad(r.boundary_ids, count), _pad(r.boundary_value_weights, count),
-                        _pad(r.boundary_gradient_weights, count)) for r in rows]
+    pad = lambda a: None if a is None else _pad(a, count)
+    return [NeumannRows(_pad(r.donor_ids, count, trash), pad(r.value_weights), pad(r.gradient_weights),
+                        _pad(r.boundary_ids, count), pad(r.boundary_value_weights), pad(r.boundary_gradient_weights))
+            for r in rows]
 
 
 def _neumann_count(rows) -> int:
@@ -598,7 +608,7 @@ def _pad_faces(faces: Sequence[FacePlan], trash: int, n_queries: int) -> list:
 def _pad_p07(p07s: Sequence[P07Plan], trash: int, n_queries: int) -> list:
     fp = max(len(p.p07_id) for p in p07s)
     nb = len(p07s[0].rows.batches)
-    smax = [max(len(p.rows.batches[i].face_ids) for p in p07s) for i in range(nb)]
+    smax = [padded_face_count(max(len(p.rows.batches[i].face_ids) for p in p07s)) for i in range(nb)]  # chunk multiples
     fn = max(len(p.neumann_face) for p in p07s)
     neumann = _pad_neumann([p.neumann for p in p07s], 9 * fn, trash)
     out = []
@@ -608,9 +618,10 @@ def _pad_p07(p07s: Sequence[P07Plan], trash: int, n_queries: int) -> list:
             if smax[i] == 0:
                 continue
             s = smax[i]
+            pad = lambda a: None if a is None else _pad(a, s)
             batches.append(IntegratedFaceBatch(
-                _pad(b.face_ids, s, fp), _pad(b.donor_ids, s, trash), _pad(b.weights, s), _pad(b.boundary_donor_ids, s),
-                _pad(b.tangential_ids, s), _pad(b.tangential_weights, s), _pad(b.conditioned, s, False)))
+                _pad(b.face_ids, s, fp), _pad(b.donor_ids, s, trash), _pad(b.weights, s), pad(b.boundary_donor_ids),
+                pad(b.tangential_ids), pad(b.tangential_weights), _pad(b.conditioned, s, False)))
         lower, upper = _pad(p.rows.lower_owner, fp, trash), _pad(p.rows.upper_owner, fp, trash)
         out.append(replace(
             p, rows=IntegratedRows(tuple(batches), lower, upper, n_queries, fp), conditioned=_pad(p.conditioned, fp, False),
