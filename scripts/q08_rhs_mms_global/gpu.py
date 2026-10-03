@@ -5,18 +5,18 @@ import time
 import numpy as np
 import jax
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
-from campaign import BASE_ID, read, write, sha, require
+from scripts.q08_rhs_mms_global.campaign import BASE_ID, read, write, sha, require
 from scripts.q08_extraction_global import gpu as oldgpu, common as c
 from scripts.q08_extraction_global.common import atomic_npz
 from scripts.q08_extraction_global.gpu import _place_plan, _sync
 from boundary_cache import CachedAPI
 from boundary_values import catalogue_replay
 from gpu_stage import compiler_guard, memory_snapshot
-from science import TERMS, SPANS, numerical, reduce_case
+from scripts.q08_rhs_mms_global.science import TERMS, SPANS, numerical, reduce_case
 
 
 def load_references(run, old, n, identity):
-    from references import validate
+    from scripts.q08_rhs_mms_global.references import validate
     receipt = require(run, f'references_N{n}', identity)
     # Validate shapes and coverage independently before creating merge scratch.
     checked = validate(run, old, identity, n)

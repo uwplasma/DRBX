@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import time
 import numpy as np
-from campaign import load, read, write, sha, BASE_ID
+from scripts.q08_rhs_mms_global.campaign import load, read, write, sha, BASE_ID
 
 ENV = None
 
@@ -42,7 +42,7 @@ def one(index):
     from drbx.stencils.q_artifact import load_q_bank
     from scripts.q08_extraction_global.common import atomic_npz
     from scripts.q08_extraction_global.gpu import peak_rss_gib
-    from science import oracle, continuum, TERMS
+    from scripts.q08_rhs_mms_global.science import oracle, continuum, TERMS
     e = ENV; n = e['n']; old = e['old']/'cpu'/f'N{n}'/f'chunk_{index:06d}'
     dest = e['run']/'references'/f'N{n}'/f'chunk_{index:06d}.npz'
     old_receipt = sha(old/'stats.json')
@@ -77,7 +77,7 @@ def one(index):
 
 
 def validate(run, old, identity, n):
-    from science import TERMS
+    from scripts.q08_rhs_mms_global.science import TERMS
     plan = read(old/'inputs/plan.json')[str(n)]
     records = []; files = {}; owners = []
     for i, oo in enumerate(plan['chunks']):
