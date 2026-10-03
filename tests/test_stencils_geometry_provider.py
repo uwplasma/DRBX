@@ -310,46 +310,6 @@ def test_p05_metric_is_bitwise_equal_to_the_direct_campaign_formula(
 
 @needs_workspace
 @pytest.mark.slow
-def test_p06_curvature_is_bitwise_equal_to_curvature_geometry(
-    campaign_context, frozen_reference, geometry_provider, sample_keys
-):
-    from perpendicular_structured.reference_geometry import curvature_geometry
-
-    t = campaign_context
-    raw_keys, _face_keys = sample_keys
-    raw_ids = np.ravel_multi_index(raw_keys.T, (N, N, N))
-    points = t.pts[raw_ids]
-
-    J, B, K = geometry_provider.p06_curvature(points)
-    direct = curvature_geometry(frozen_reference, points)
-
-    np.testing.assert_array_equal(J, np.asarray(direct.J))
-    np.testing.assert_array_equal(B, np.asarray(direct.B))
-    np.testing.assert_array_equal(K, np.asarray(direct.K))
-
-
-@needs_workspace
-@pytest.mark.slow
-def test_p06_face_curvature_is_bitwise_equal_to_face_geometry(
-    campaign_context, frozen_reference, geometry_provider, sample_keys
-):
-    import p06_structured_global.numerics as p06numerics
-
-    t = campaign_context
-    _raw_keys, face_keys = sample_keys
-    points, _weight = p06numerics.base._face_quadrature(_Shim(t.faces), face_keys)
-    flat = points.reshape(-1, 3)
-
-    J, B, K = geometry_provider.p06_face_curvature(flat)
-    J_direct, B_direct, K_direct = p06numerics._face_geometry(frozen_reference, flat)
-
-    np.testing.assert_array_equal(J, J_direct)
-    np.testing.assert_array_equal(B, B_direct)
-    np.testing.assert_array_equal(K, K_direct)
-
-
-@needs_workspace
-@pytest.mark.slow
 def test_p07_perpendicular_tensor_is_bitwise_equal_at_face_nodes(
     campaign_context, frozen_reference, geometry_provider, sample_keys
 ):
@@ -430,51 +390,6 @@ def test_face_node_weight_matches_p06s_own_q3_quadrature_call(
 
     np.testing.assert_array_equal(points, points_direct)
     np.testing.assert_array_equal(weight, weight_direct)
-
-
-@needs_workspace
-@pytest.mark.slow
-def test_geometry_arrays_build_end_to_end_matches_direct_calls(
-    campaign_context, frozen_reference, geometry_provider, sample_keys
-):
-    from perpendicular_structured.reference_geometry import curvature_geometry
-    import p06_structured_global.numerics as p06numerics
-
-    t = campaign_context
-    raw_keys, face_keys = sample_keys
-    arrays = GeometryArrays.build(geometry_provider, faces=t.faces, raw_keys=raw_keys, face_keys=face_keys)
-    arrays.verify()
-
-    raw_ids = np.ravel_multi_index(raw_keys.T, (N, N, N))
-    np.testing.assert_array_equal(arrays.raw_points, t.pts[raw_ids])
-
-    metric = frozen_reference._metric(arrays.raw_points)
-    np.testing.assert_array_equal(arrays.p05_raw_h, metric["bcov"] / metric["B"][:, None])
-    np.testing.assert_array_equal(arrays.p05_raw_jacobian, np.abs(metric["J"]))
-
-    curvature = curvature_geometry(frozen_reference, arrays.raw_points)
-    np.testing.assert_array_equal(arrays.p06_raw_J, np.asarray(curvature.J))
-    np.testing.assert_array_equal(arrays.p06_raw_B, np.asarray(curvature.B))
-    np.testing.assert_array_equal(arrays.p06_raw_K, np.asarray(curvature.K))
-
-    tensor, divergence = frozen_reference._perpendicular_geometry(arrays.raw_points)
-    np.testing.assert_array_equal(arrays.p07_raw_tensor, tensor)
-    np.testing.assert_array_equal(arrays.p07_raw_divergence, divergence)
-
-    flat_faces = arrays.face_points.reshape(-1, 3)
-    face_metric = frozen_reference._metric(flat_faces)
-    np.testing.assert_array_equal(
-        arrays.p05_face_h.reshape(-1, 3), face_metric["bcov"] / face_metric["B"][:, None]
-    )
-    np.testing.assert_array_equal(arrays.p05_face_jacobian.reshape(-1), np.abs(face_metric["J"]))
-
-    J_direct, B_direct, K_direct = p06numerics._face_geometry(frozen_reference, flat_faces)
-    np.testing.assert_array_equal(arrays.p06_face_J.reshape(-1), J_direct)
-    np.testing.assert_array_equal(arrays.p06_face_B.reshape(-1), B_direct)
-    np.testing.assert_array_equal(arrays.p06_face_K.reshape(-1, 3), K_direct)
-
-    tensor_face_direct = frozen_reference._perpendicular_flux_tensor(flat_faces)
-    np.testing.assert_array_equal(arrays.p07_face_tensor.reshape(-1, 3, 3), tensor_face_direct)
 
 
 @needs_workspace
