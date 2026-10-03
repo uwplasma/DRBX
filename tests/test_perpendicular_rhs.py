@@ -334,3 +334,29 @@ def test_input_errors(plan, state, phi, bc5, params):
 
 def lower_world_p07_only():
     return lower_world(_admissible(make_world(owners=OWNERS)), include=("p07",))
+
+
+@pytest.mark.parametrize("method", ("block_lapack", "closed_form"))
+def test_absolute_method_selector_reaches_the_curvature_and_keeps_the_default_bitwise(
+        plan, state, phi, bc5, params, rhs, owner_fields, method):
+    explicit = perpendicular_rhs(plan, state, phi, bc5, KINDS, dataclasses.replace(params, absolute_method="lapack4"))
+    for f in FIELDS:
+        assert np.array_equal(np.asarray(rhs.total[f]), np.asarray(explicit.total[f]), equal_nan=True)
+    other = perpendicular_rhs(plan, state, phi, bc5, KINDS, dataclasses.replace(params, absolute_method=method))
+    for f in FIELDS:
+        assert _max_diff(other.total[f], rhs.total[f]) <= 1e-12 * _scale(rhs.total[f])
+        assert _max_diff(other.detail[f]["curvature_correction"], rhs.detail[f]["curvature_correction"]) \
+            <= 1e-12 * max(_scale(rhs.detail[f]["curvature_correction"]), 1e-300)
+    assert int(other.diagnostics["spectral_fallback"]) == int(rhs.diagnostics["spectral_fallback"]) == 0
+    # the operator functions take the same static option
+    kinds = tuple(KINDS[c] for c in (*FIELDS, PHI))
+    a = p06_action(plan, owner_fields[:, :5], bc5, kinds)
+    b = p06_action(plan, owner_fields[:, :5], bc5, kinds, absolute_method=method)
+    assert _max_diff(b.correction, a.correction) <= 1e-12 * _scale(a.correction)
+    assert np.array_equal(np.asarray(a.correction), np.asarray(p06_action(plan, owner_fields[:, :5], bc5, kinds,
+                                                                          absolute_method="lapack4").correction))
+
+
+def test_absolute_method_is_validated(plan, state, phi, bc5, params):
+    with pytest.raises(ValueError, match="absolute_method"):
+        perpendicular_rhs(plan, state, phi, bc5, KINDS, dataclasses.replace(params, absolute_method="svd"))

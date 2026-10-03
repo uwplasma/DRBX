@@ -44,6 +44,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from drbx.native.fci_perpendicular_face_corrections import _validated_absolute_method
 from drbx.native.fci_perpendicular_p05_operator import P05Terms, p05_terms_from_state
 from drbx.native.fci_perpendicular_p06_operator import (
     FLOOR, TAU, _action_from_state_core, bc_columns)
@@ -72,13 +73,17 @@ class PerpendicularParams:
 
     ``rho_star`` divides the bracket only, ``tau`` enters the curvature only, ``diffusion`` maps a field name to
     its ``D_perp`` (needed for every field when ``diffusion`` is requested), ``positivity_floor`` is the P06 q3
-    thermodynamic floor.
+    thermodynamic floor. ``absolute_method`` is the static (not differentiable, part of the jit key) evaluation of the
+    P06 q3 absolute-matrix action: ``"lapack4"`` (default, the campaign's 4x4 ``eig``), ``"block_lapack"`` or
+    ``"closed_form"`` (see ``fci_perpendicular_face_corrections.ABSOLUTE_METHODS``). Being part of ``params`` it
+    reaches the sharded RHS as well.
     """
 
     rho_star: object = 1.0
     tau: object = TAU
     diffusion: Mapping = dataclasses.field(default_factory=dict)
     positivity_floor: object = FLOOR
+    absolute_method: str = dataclasses.field(default="lapack4", metadata=dict(static=True))
 
 
 class PerpendicularTerms(NamedTuple):
@@ -173,7 +178,7 @@ def _rhs(plan, state, phi, bc, params, jump_mask, face_multiplier, *, columns, f
         groups = jnp.asarray([[col[f] for f in FIELDS] + [col[PHI]]], dtype=jnp.int32)
         owner, (spectral, floor_hits, wall_fallback) = _action_from_state_core(
             plan.cells, plan.faces, cs.value, cs.gradient, fs.value, fs.lower, fs.upper, groups, params.tau,
-            params.positivity_floor, face_multiplier)
+            params.positivity_floor, face_multiplier, params.absolute_method)
         material, remainder, q1, correction = (x[0] for x in owner[:4])
         pick = np.asarray([_CURVATURE_INDEX[f] for f in fields])
         out["curvature_material"] = material[:, pick]
@@ -212,6 +217,7 @@ def perpendicular_rhs(plan: PerpendicularPlan, state: Mapping[str, object], phi,
     The plan needs ``cells`` and ``faces`` for the bracket / curvature / ``raw_pairs`` and ``p07`` for the diffusion.
     """
     fields, terms, pairs = _validate(fields, terms, raw_pairs)
+    _validated_absolute_method(params.absolute_method)
     columns = perpendicular_columns(fields, terms, pairs)
     missing = [c for c in columns[:-1] if c not in state]
     if missing:
