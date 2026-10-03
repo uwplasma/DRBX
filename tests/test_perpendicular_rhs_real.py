@@ -49,13 +49,13 @@ def setup():
     from drbx.native.fci_perpendicular_rhs import FIELDS, PHI, PerpendicularParams
     from p_shared import jax_replay as jr
     from p_shared import owner_closure as oc
-    from p_shared import replay_units as ru
     from p_shared.replay_support import DEFAULT_PATHS, build_environment
+    from tests import p06n_owner_values_live as live
 
     env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3", inner_support="profile7")
     owners = np.asarray(sorted(set(oc.select_owners(env.t, env.census).values())), dtype=np.int64)
     built = oc.build_owner_rows(env, owners.tolist(), provider=oc.load_provider_for_env(SIDECAR, curvature="fd", face_quadrature="q3"))
-    oracle = ru._load_oracle_owner_values(env, dict(DEFAULT_PATHS), CAMPAIGNS)
+    oracle = live.load_oracle_owner_values(env, dict(DEFAULT_PATHS), CAMPAIGNS)     # P06N owner averages on the fly
     closure = jr.JaxOwnerClosure(env, built, CAMPAIGNS, oracle)
     adapter = closure.adapters["p06n"]
     variant = next(v for v in adapter.variant_names if v.startswith("main_"))

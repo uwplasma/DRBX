@@ -38,6 +38,15 @@ _have = ((GEOMETRY / f"{N}x{N}x{N}" / "base_geometry.npz").is_file() and SIDECAR
 needs_inputs = pytest.mark.skipif(not _have, reason="HSX N32 geometry/sidecar inputs are unavailable")
 
 
+def _require_saved_oracles(paths, *files):
+    """Skip unless every saved owner-value oracle file (``path key``, ``*parts``) exists: the frozen P05 / P05N files were
+    removed from the workspace and are not recomputable here (only the P06N average is, see ``p06n_owner_values_live``)."""
+    missing = [str(Path(paths[key]).joinpath(*parts)) for key, *parts in files
+               if not Path(paths[key]).joinpath(*parts).is_file()]
+    if missing:
+        pytest.skip(f"the frozen P05/P05N oracle file(s) were removed from the workspace: {missing[:2]}")
+
+
 @pytest.fixture(scope="module")
 def closure():
     from p_shared import owner_closure as oc
@@ -50,6 +59,8 @@ def closure():
     owners = sorted(set(oc.select_owners(env.t, env.census).values()))
     built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(SIDECAR, curvature="fd", face_quadrature="q3"))
     paths = dict(DEFAULT_PATHS)
+    _require_saved_oracles(paths, ("p05", "reuse_inputs", f"N{N}.reuse.npz"), ("p05n_frozen", f"N{N}.owner_values.npz"),
+                           ("p05n_p06n_upwind", "p05n_upwind", f"N{N}.owner_values.npz"))
     oracle = ru._load_oracle_owner_values(env, paths, CAMPAIGNS)
     host = oc.assemble_owner_terms(env, built, CAMPAIGNS, oracle)
     t = env.t

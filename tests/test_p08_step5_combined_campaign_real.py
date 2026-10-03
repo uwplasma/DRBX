@@ -12,7 +12,8 @@ data wiring with the **final operator options** on the N32 owner closure (12 own
   relative difference of 2), and the prescribed arm (``perpendicular_rhs`` with the frozen ``phi_bar``) is within the
   step-3 G3.3 accuracy of the re-frozen references.
 
-Needs the HSX N32 geometry / sidecar and the frozen P06N N32 oracle arrays (skipped otherwise). A few minutes.
+Needs the HSX N32 geometry / sidecar (skipped otherwise); the P06N owner averages are recomputed on the fly with the frozen
+routine (``tests/p06n_owner_values_live.py``) as the saved oracle file was removed. A few minutes.
 """
 from __future__ import annotations
 
@@ -53,12 +54,10 @@ def world():
     from p_shared import jax_replay as jr
     from p_shared import owner_closure as oc
     from p_shared import perpendicular_reference_rhs as prr
-    from p_shared import replay_units as ru
     from p_shared.replay_support import build_environment
     from p08_step5_combined import campaign, references
+    from tests import p06n_owner_values_live as live
 
-    if not oc.oracle_available(_paths(), CAMPAIGNS, n=N):
-        pytest.skip("the frozen P06N N32 oracle arrays are unavailable")
     cfg = campaign.config()
     env = build_environment(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR, **FINAL)
     owners = np.asarray(sorted(set(oc.select_owners(env.t, env.census).values())), dtype=np.int64)
@@ -66,7 +65,7 @@ def world():
     ref = references.reference_chunk(env, owners, states=states, params=cfg["params"])
     built = oc.build_owner_rows(env, owners.tolist(), provider=oc.load_provider_for_env(
         SIDECAR, curvature=FINAL["curvature"], face_quadrature=FINAL["face_quadrature"]))
-    oracle = ru._load_oracle_owner_values(env, _paths(), CAMPAIGNS)
+    oracle = live.load_oracle_owner_values(env, _paths(), CAMPAIGNS)       # P06N owner averages on the fly
     closure = jr.JaxOwnerClosure(env, built, CAMPAIGNS, oracle)
     return dict(cfg=cfg, env=env, owners=owners, ref=ref, closure=closure, oracle=oracle, prr=prr)
 

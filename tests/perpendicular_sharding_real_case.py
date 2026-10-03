@@ -60,11 +60,13 @@ def closure_owners(raw_to_owner, per_plane: int = 2) -> list[int]:
 def run(shard_counts=(1, 2, 4), per_plane: int = 2) -> dict:
     from perpendicular_structured.reconstruction import load_context
     from p_shared import step3_gates
+    from tests import p06n_owner_values_live as live
 
     started = time.perf_counter()
     raw_to_owner = load_context(N, str(WORKSPACE)).ro
     owners = closure_owners(raw_to_owner, per_plane)
-    setup = step3_gates.build_setup(N, ("p06n",), owners=owners, **OPTIONS)
+    with live.patched():                      # the frozen P06N owner_values file was removed: computed on the fly
+        setup = step3_gates.build_setup(N, ("p06n",), owners=owners, **OPTIONS)
     closure, plan = setup.closure, setup.closure.plan
     adapter = closure.adapters["p06n"]
     perm, inverse, m = plane_major_permutation(raw_to_owner, N)

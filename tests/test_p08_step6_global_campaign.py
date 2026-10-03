@@ -517,20 +517,35 @@ def test_read_refreeze_refuses_other_options_identities_and_incomplete_campaigns
         campaign.read_refreeze(root, grids=[32], metadata_only=True)
 
 
-@pytest.mark.skipif(not LOCAL_REFREEZE.is_dir(), reason="the local stripped re-freeze folder is unavailable")
-def test_the_local_stripped_refreeze_folder_is_read_by_identity_and_provenance():
-    rf = campaign.read_refreeze(LOCAL_REFREEZE, grids=list(GRIDS), metadata_only=True)
-    inputs = json.loads((LOCAL_REFREEZE / "provenance" / "inputs.json").read_text())
+#: the small metadata files of the real local re-freeze folder that the stripped fixture copies (no rows, geometry,
+#: census, plan or build receipt: the test never depends on whether ``work/`` still holds the bulk artifact)
+_REFREEZE_METADATA = ("provenance/inputs.json", "validation.json", "localized_sidecar.json",
+                      "summary/step5_combined_summary.json",
+                      *(f"artifact/N{n}/{name}" for n in GRIDS for name in ("build_identity.json", "manifest.json")))
+
+
+@pytest.mark.skipif(not all((LOCAL_REFREEZE / name).is_file() for name in _REFREEZE_METADATA),
+                    reason="the local re-freeze folder's metadata files are unavailable")
+def test_the_local_stripped_refreeze_folder_is_read_by_identity_and_provenance(tmp_path):
+    import shutil
+    stripped = tmp_path / "stripped_refreeze"                    # own stripped copy: only the small metadata files
+    for name in _REFREEZE_METADATA:
+        (stripped / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(LOCAL_REFREEZE / name, stripped / name)
+    assert not list(stripped.glob("artifact/N*/geometry.npz")) and not list(stripped.glob("artifact/N*/rows"))
+    rf = campaign.read_refreeze(stripped, grids=list(GRIDS), metadata_only=True)
+    inputs = json.loads((stripped / "provenance" / "inputs.json").read_text())
     assert rf["identity"] == inputs["identity"] and rf["grids_pass"] is True
     for n in GRIDS:
         rec = rf["grids"][str(n)]
         assert rec["artifact_identity_sha256"] == inputs["grids"][str(n)]["artifact_identity_sha256"]
         assert rec["artifact_identity_sha256"] == runner.digest(
-            json.loads((LOCAL_REFREEZE / "artifact" / f"N{n}" / "build_identity.json").read_text()))
-        assert rec["artifact_dir"] == str((LOCAL_REFREEZE / "artifact" / f"N{n}").resolve())
+            json.loads((stripped / "artifact" / f"N{n}" / "build_identity.json").read_text()))
+        assert rec["artifact_dir"] == str((stripped / "artifact" / f"N{n}").resolve())
+        assert rec["checked_on_disk"] is True and rec["files_checked"] is False
     with pytest.raises(ValueError, match="missing artifact file"):                  # no rows / geometry in the stripped copy
-        campaign.read_refreeze(LOCAL_REFREEZE, grids=[32])
-    catalogue = analysis.read_catalogue_summary(LOCAL_REFREEZE, rf["identity"])
+        campaign.read_refreeze(stripped, grids=[32])
+    catalogue = analysis.read_catalogue_summary(stripped, rf["identity"])
     key = reduction.row_key("main_phi_dirichlet", "presc_vs_ref", "density", "total", "global")
     assert catalogue["orders"][key]["n"] == [32, 48, 64]
     assert reduction.row_key("dirichlet_rich", "solved_vs_ref", "Te", "total", "global") in catalogue["orders"]

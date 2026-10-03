@@ -6,8 +6,8 @@ evaluator) is lowered into a ``PerpendicularPlan`` by the step-3 gate machinery.
 devices ``perpendicular_rhs`` on the plan (single device) is compared with ``sharded_perpendicular_rhs`` over 1, 2 and 4
 shards for the P06N variants ``main_phi_dirichlet`` and ``main_phi_neumann``: every term of every field at the closure's
 target owners agrees to 1e-12 of the single-device maximum (the gate of the design; only the summation order of the
-scatter-adds may differ). Needs the HSX N32 geometry / sidecar and the frozen p06n N32 oracle (skipped otherwise);
-about a minute.
+scatter-adds may differ). Needs the HSX N32 geometry / sidecar (skipped otherwise); the P06N owner values are recomputed on the fly with the frozen
+routine (``tests/p06n_owner_values_live.py``) as the saved oracle file was removed; about a minute.
 """
 from __future__ import annotations
 
@@ -38,10 +38,6 @@ needs_inputs = pytest.mark.skipif(not _have, reason="HSX N32 geometry/sidecar in
 
 @needs_inputs
 def test_sharded_rhs_equals_single_device_on_the_real_closure_covering_every_plane():
-    from p_shared import owner_closure as oc
-    from p_shared.replay_support import DEFAULT_PATHS
-    if not oc.oracle_available(dict(DEFAULT_PATHS), ("p06n",), n=N):
-        pytest.skip("the frozen p06n N32 oracle arrays are unavailable")
     env = dict(os.environ)
     env["XLA_FLAGS"] = f"{env.get('XLA_FLAGS', '')} --xla_force_host_platform_device_count=4".strip()
     env["JAX_PLATFORMS"] = "cpu"
