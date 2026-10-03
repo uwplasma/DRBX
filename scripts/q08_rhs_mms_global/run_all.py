@@ -6,7 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-from campaign import HERE, check_source, bind, write
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.q08_rhs_mms_global.campaign import HERE, check_source, bind, write
 
 
 def main():

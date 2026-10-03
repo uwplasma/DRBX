@@ -112,6 +112,23 @@ processes ended; valid chunks/cases are reused with content hashes. Never
 relabel old results. Replay limit 1e-8+1e-11*abs(expected), constant N-O limit
 1e-7; no remote relaxation, repair, method change or promotion.
 
+### Pilot import recovery
+
+The initial publication at `19136040` passed portable tests, input verification
+and CPU/GPU bounded replay, but its pilot stopped before computing a reference
+chunk. Loading the polynomial overlay placed its unrelated `campaign.py` ahead
+of this controller on the module search path. Tests had preloaded the MMS
+controller under that bare name, masking the command-line failure.
+
+MMS modules now use the explicit `scripts.q08_rhs_mms_global` package namespace.
+The portable suite includes a cold-interpreter and spawn-worker regression with
+the conflicting older controller deliberately present. This repair changes
+module routing only; scientific formulas, inputs and all gates are unchanged.
+Its manifest identity is new. Preserve the failed RUN and start a separate RUN
+with this pinned source, reusing the same immutable baseline and implementation
+inputs. Re-execute the prescribed gates; do not copy or relabel old preflight
+receipts. There are no scientific chunks from that failed pilot to migrate.
+
 ## Return
 
 `completion.json`, `analysis.json`, `totals.npz`, `orders.csv`, `report.md`,

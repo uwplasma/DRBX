@@ -4753,3 +4753,13 @@ CPU reference workers are pinned before JAX initialization with a 4 GiB cap.
 The previous seven repeats, one-GPU scaling matrix and full literal CPU N
 sweeps are omitted because those engineering gates already passed. Full Q08,
 span/support selection, production promotion and Q09 evolution remain open.
+
+The initial remote launch at `19136040` passed input verification and actual
+CUDA bounded replay on N32/N48/N64, then stopped before the pilot produced any
+reference chunks. This was an import collision between the MMS controller and
+the older polynomial campaign, not a numerical failure. Explicit MMS package
+imports replace the ambiguous bare names; the regression suite exercises a
+cold controller and spawned worker with the conflicting module present.
+Recovery uses a new source identity and separate RUN, retaining the same
+immutable banks and implementation receipts and repeating the prescribed
+gates. No formulas, tolerances, support, traces or qualification claims change.
