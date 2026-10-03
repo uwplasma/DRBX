@@ -35,8 +35,8 @@ shard, stacked along a leading shard axis:
   them) and ``p07_valid = False`` (so P05 does not jump over them); padded source rows write unused dummy slots;
   padded Neumann / integrated-row targets are out of range (``.at[].set`` drops them; the integrated-row buckets are
   also padded to a multiple of ``FACE_CHUNK`` faces for the chunked contraction), as are the padded entries of
-  ``FacePlan.wall_faces`` (local wall-face indices, padded with the out-of-range face index; the P06 wall solve gathers
-  clipped and scatters / counts only the in-range entries).
+  ``FacePlan.wall_faces`` (local wall-face indices, padded with the out-of-range face index; the ``lapack4`` P06 wall solve
+  gathers clipped and scatters / counts only the in-range entries; the other methods ignore them).
 
 Tensor-encoded sources keep their grid-global eta tables: their per-apply theta tables are still built for all ``n``
 planes (planes outside the window gather the trash row), so a sharded apply does not yet reduce that cost.

@@ -226,5 +226,6 @@ def test_synthetic_sharded_closed_form_rhs_equals_its_single_device_rhs(syntheti
     assert entry["wall_faces_bitwise_single"]
     assert all(entry[f"Sz{sz}"]["wall_faces_bitwise"] for sz in (1, 2, 4))
     assert synthetic_closed_form["uneven_wall"]["max_rel_vs_single"] <= 1e-12
-    # same non-finite wall ring as the default method (the random wall states are non-physical there)
-    assert entry["nan_owners"] == synthetic[kinds]["nan_owners"]
+    # the random wall states are non-physical: the default ``lapack4`` wall solve turns them into a non-finite wall ring,
+    # the identity wall treatment of ``closed_form`` only counts them (Frobenius fallback, finite)
+    assert synthetic[kinds]["nan_owners"] > 0 and entry["nan_owners"] == 0

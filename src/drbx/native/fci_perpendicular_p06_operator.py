@@ -231,7 +231,7 @@ def _q3_core(faces, common, lower, upper, tau, floor, multiplier, absolute_metho
     K_axis = jnp.take_along_axis(faces.K, axis[:, None, None], axis=-1)[..., 0]
     normal = faces.J * K_axis / jnp.maximum(faces.B * faces.B, 1e-30)      # J K_axis / B^2, as the host
 
-    wall_faces = getattr(faces, "wall_faces", None)       # the wall solve runs on the wall faces only
+    wall_faces = getattr(faces, "wall_faces", None)       # "lapack4" wall solve only (other methods: identity)
 
     def one(c, lo, up):
         return p06_characteristic_face_correction(c, lo, up, faces.B, normal, faces.weight, faces.wall,

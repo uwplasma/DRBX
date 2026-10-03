@@ -13,9 +13,10 @@ import pytest
 from pathlib import Path
 
 from drbx.native.fci_curvature_production_flux import curvature_principal_matrix
+from drbx.native.fci_operators import _curvature_bc_characteristic_wall_states
 from drbx.native.fci_perpendicular_face_corrections import (
     ABSOLUTE_METHODS, _absolute_action_closed_form, _curvature_negative_root, _p06_absolute_action,
-    _p06_absolute_action_block, p06_characteristic_face_correction)
+    _p06_absolute_action_block, _wall_identity_fallback, p06_characteristic_face_correction)
 
 DATA = Path(__file__).parent/'data/p_shared_face_rows'
 FLOOR = 1e-12
@@ -275,3 +276,62 @@ def test_methods_agree_with_the_4x4_action_through_the_face_correction(method):
         cc, lower, upper, B, normal, weight, wall, collapsed, absolute_method=m)[:2], (c,), (t,))[1])(central, tangent)
     for x, y in zip(jvp('lapack4'), jvp(method)):
         np.testing.assert_allclose(np.asarray(y), np.asarray(x), rtol=0, atol=1e-8*np.max(np.abs(np.asarray(x))))
+
+
+def _wall_case(seed, faces=9, nodes=7):
+    """Random physical face states with wall (1, 3, 4, 7), collapsed (0, 4) and tangent (``normal = 0``, 3, 5) faces."""
+    rng = np.random.default_rng(seed)
+    central = np.concatenate([.2+rng.random((faces, nodes, 3)), .1*rng.normal(size=(faces, nodes, 1))], axis=-1)
+    lower, upper = central*(1+.05*rng.normal(size=central.shape)), central*(1+.05*rng.normal(size=central.shape))
+    B = 1.+.4*rng.random((faces, nodes)); normal = .2*rng.normal(size=(faces, nodes)); weight = rng.random((faces, nodes))/nodes
+    normal[[3, 5]] = 0.
+    wall = np.zeros(faces, bool); wall[[1, 3, 4, 7]] = True
+    collapsed = np.zeros(faces, bool); collapsed[[0, 4]] = True
+    return central, lower, upper, B, normal, weight, wall, collapsed
+
+
+def _legacy_wall_solve(central, lower, upper, B, normal, weight, wall, collapsed, method, tau=1.0, floor=FLOOR):
+    """The face correction with the pre-identity wall characteristic solve: the solve, then the same downstream path."""
+    central, lower, upper = (jnp.where(jnp.asarray(collapsed)[:, None, None], jnp.array((1., 1., 1., 0.)), jnp.asarray(x))
+                             for x in (central, lower, upper))
+    exterior, working, fallback = _curvature_bc_characteristic_wall_states(
+        central, central, jnp.asarray(B), tau, jnp.asarray(normal), interior_on_right=False, positivity_floor=floor)
+    w = jnp.asarray(wall)
+    out = p06_characteristic_face_correction(
+        jnp.where(w[:, None, None], working, central), jnp.where(w[:, None, None], central, lower),
+        jnp.where(w[:, None, None], exterior, upper), B, normal, weight, jnp.zeros_like(w), collapsed, tau=tau,
+        positivity_floor=floor, absolute_method=method)
+    return (*out[:4], jnp.sum(fallback & w[:, None]))
+
+
+@pytest.mark.parametrize('method', ('block_lapack', 'closed_form'))
+@pytest.mark.parametrize('seed', (0, 1))
+def test_wall_identity_is_bitwise_the_wall_characteristic_solve(method, seed):
+    args = _wall_case(seed)
+    # jitted on both sides (the eager and jitted paths differ by fusion rounding, independent of the wall treatment)
+    new = jax.jit(lambda *a: p06_characteristic_face_correction(*a, absolute_method=method))(*args)
+    wall_faces = np.flatnonzero(args[6]).astype(np.int32)
+    with_faces = jax.jit(lambda *a: p06_characteristic_face_correction(
+        *a, wall_faces=wall_faces, absolute_method=method))(*args)
+    old = jax.jit(lambda *a: _legacy_wall_solve(*a, method))(*args)
+    for x, y, z in zip(new, old, with_faces):
+        assert np.array_equal(np.asarray(x), np.asarray(y)) and np.array_equal(np.asarray(x), np.asarray(z))
+    assert int(new[4]) == 0 and np.isfinite(np.asarray(new[0])).all()
+
+
+@pytest.mark.parametrize('method', ('block_lapack', 'closed_form'))
+def test_non_physical_wall_nodes_are_counted_in_the_wall_fallback(method):
+    central, lower, upper, B, normal, weight, wall, collapsed = _wall_case(2)
+    central = central.copy()
+    central[1, 0, 0] = FLOOR; central[3, 1, 1] = FLOOR/2; central[7, 2, 2] = -.1; central[7, 3, 3] = np.nan   # n, Te, Ti, omega
+    central[2, 0, 0] = FLOOR                                  # not a wall face
+    central[4, 1, 1] = FLOOR                                  # a wall face, but collapsed: the safe state replaces it
+    args = (central, lower, upper, B, normal, weight, wall, collapsed)
+    out = p06_characteristic_face_correction(*args, absolute_method=method)
+    assert int(out[4]) == 4
+    np.testing.assert_array_equal(np.asarray(_wall_identity_fallback(
+        jnp.asarray(central), jnp.asarray(B), jnp.asarray(normal), 1.0, FLOOR)).sum(axis=1), [0, 1, 1, 1, 1, 0, 0, 2, 0])
+    # the legacy solve counts the same nodes, finite non-physical or not (all four also fail its trace test)
+    assert int(_legacy_wall_solve(*args, method)[4]) == 4
+    # a non-finite state propagates NaN into the numerators of its face; physical wall faces stay finite
+    assert not np.isfinite(np.asarray(out[1])[7]).all() and np.isfinite(np.asarray(out[1])[1]).all()
