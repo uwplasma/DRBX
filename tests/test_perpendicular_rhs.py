@@ -4,7 +4,7 @@ The bounded closure of the shared synthetic world (``tests.perpendicular_synthet
 rows incl. conditioned rows, Neumann rows, a wall face with a missing side) is made thermodynamically admissible
 (positive convex value weights, positive fields and trace) as in ``test_perpendicular_p06_operator``. G3.1: the
 combined terms equal the separate operator calls (``p05_terms`` with pairs ``(phi, g)`` scaled by ``1/rho_star``,
-``p06_action`` total + correction, ``-D * p07_action``, P07 being the positive operator -div(P_perp grad f)); G3.4: eager == jit bitwise, JVP vs central finite difference.
+``p06_action`` total + correction, ``-D * p07_action``, P07 being the positive operator -div(P_perp grad f)); G3.4: eager == jit (to roundoff), JVP vs central finite difference.
 Owner arrays are compared at the closure owners (the owners whose raw cells are all in the bounded world; the
 others carry a partial q1 evolution volume).
 """
@@ -230,6 +230,41 @@ def test_raw_pairs_reach_arbitrary_pairs_of_the_shared_state(plan, state, phi, b
     np.testing.assert_allclose(np.asarray(only.raw_pairs.centered_owner), np.asarray(ref2.centered_owner), atol=1e-14)
 
 
+@pytest.mark.parametrize("kinds", [tuple(KINDS[c] for c in (*FIELDS, PHI)), (N,) * 5, (D,) * 5, (D, N, N, D, N)])
+@pytest.mark.parametrize("value_columns, gradient_columns", [
+    ((0, 1, 2, 3), (4,)), ((0, 1, 2, 3), None), ((4, 1), (1, 4)), ((3, 0, 1), (0, 2, 3)), ((2,), (2,)), ((0, 1, 3), ())])
+def test_pruned_face_state_equals_the_full_state_columns(plan, owner_fields, bc5, kinds, value_columns,
+                                                          gradient_columns):
+    """``face_state(value_columns=, gradient_columns=)`` holds the full call's columns, in the order given (roundoff:
+    the contraction kernels depend on the column count)."""
+    f = jnp.asarray(owner_fields[:, :5])
+    full = face_state(plan, f, bc5, kinds)
+    gradients = gradient_columns != ()
+    pruned = face_state(plan, f, bc5, kinds, gradients=gradients, value_columns=value_columns,
+                        gradient_columns=gradient_columns if gradients else None)
+    vcols = list(value_columns)
+    gcols = list(range(5)) if gradient_columns is None else list(gradient_columns)
+    for name in ("value", "lower", "upper"):
+        a, b = np.asarray(getattr(pruned, name)), np.asarray(getattr(full, name))[..., vcols]
+        assert a.shape == b.shape
+        assert np.max(np.abs(a - b)) <= 1e-14 * np.max(np.abs(b))
+    if gradients:
+        a, b = np.asarray(pruned.gradient), np.asarray(full.gradient)[..., gcols]
+        assert a.shape == b.shape
+        assert np.max(np.abs(a - b)) <= 1e-14 * np.max(np.abs(b))
+    else:
+        assert pruned.gradient is None
+
+
+def test_pruned_face_state_validates_columns(plan, owner_fields, bc5):
+    f = jnp.asarray(owner_fields[:, :5])
+    kinds = tuple(KINDS[c] for c in (*FIELDS, PHI))
+    for kw in (dict(value_columns=()), dict(value_columns=(5,)), dict(gradient_columns=(-1,)),
+               dict(gradients=False, gradient_columns=(0,))):
+        with pytest.raises(ValueError):
+            face_state(plan, f, bc5, kinds, **kw)
+
+
 def test_params_scale_the_terms_they_own(plan, state, phi, bc5, params, rhs):
     half = perpendicular_rhs(plan, state, phi, bc5, KINDS, dataclasses.replace(params, rho_star=2 * RHO))
     doubled = perpendicular_rhs(plan, state, phi, bc5, KINDS, dataclasses.replace(
@@ -264,7 +299,7 @@ def test_p06_from_state_equals_p06_action_bitwise(plan, owner_fields, bc5, separ
         np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
 
 
-def test_g34_eager_equals_jit_bitwise(plan, state, phi, bc5, params, rhs):
+def test_g34_eager_equals_jit(plan, state, phi, bc5, params, rhs):
     def call(p, s, ph, b, prm):
         return perpendicular_rhs(p, s, ph, b, KINDS, prm, raw_pairs=[("density", "Te")])
 
@@ -273,7 +308,11 @@ def test_g34_eager_equals_jit_bitwise(plan, state, phi, bc5, params, rhs):
     la, lb = jax.tree_util.tree_leaves(eager), jax.tree_util.tree_leaves(jitted)
     assert len(la) == len(lb) > 20
     for a, b in zip(la, lb):
-        np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
+        # Roundoff, not bitwise, since the face state is pruned to the columns P05 / P06 read (P09 fix 1): with a
+        # second generator column (the extra pair) XLA fuses the pruned face producers into the P05 jump
+        # differently in a standalone call and inside an outer jit (observed: <= 1 ulp of the bracket jump).
+        a, b = np.asarray(a), np.asarray(b)
+        np.testing.assert_allclose(a, b, rtol=0, atol=1e-14 * max(float(np.max(np.abs(b))), 1e-300))
     for f in FIELDS:                                                # the extra pair does not change the columns
         assert _max_diff(eager.terms[f]["poisson_bracket"], rhs.terms[f]["poisson_bracket"], slice(None)) <= 1e-14
 

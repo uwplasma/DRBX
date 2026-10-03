@@ -239,18 +239,106 @@ def _face_pair(faces, fields, bc, *, need_neumann, gradients):
     return _face_pair_core(faces, fields, bc, need_neumann, gradients)
 
 
-@partial(jax.jit, static_argnames=("kinds", "gradients"))
-def _face_state(faces, fields, bc, *, kinds, gradients):
-    need = NEUMANN in kinds
-    d, n = _face_pair_core(faces, fields, bc, need, gradients)
-    if not need:
-        return d
-    if DIRICHLET not in kinds:
-        return n
-    m = _mask(kinds)
-    return FaceState(jnp.where(m, n.value, d.value),
-                     None if d.gradient is None else jnp.where(m, n.gradient, d.gradient),
-                     jnp.where(m, n.lower, d.lower), jnp.where(m, n.upper, d.upper))
+def _pick_columns(x, cols: tuple[int, ...]):
+    """``x[..., cols]`` as a slice when ``cols`` is a contiguous run (``None`` and the identity pass through)."""
+    if x is None or cols == tuple(range(x.shape[-1])):
+        return x
+    if cols == tuple(range(cols[0], cols[0] + len(cols))):
+        return x[..., cols[0]:cols[0] + len(cols)]
+    return x[..., np.asarray(cols, dtype=np.int32)]
+
+
+def _pick_boundary(bc: BoundaryData, cols: tuple[int, ...]) -> BoundaryData:
+    return BoundaryData(*(_pick_columns(None if x is None else jnp.asarray(x), cols) for x in bc))
+
+
+def _set_columns(x, rows, positions: tuple[int, ...], values):
+    """``x.at[rows, ..., positions].set(values)`` (``rows=None``: all leading entries) in place, one slice
+    write per contiguous run of the static, ascending ``positions``; ``values`` has ``len(positions)`` columns."""
+    k = 0
+    while k < len(positions):
+        j = k
+        while j + 1 < len(positions) and positions[j + 1] == positions[j] + 1:
+            j += 1
+        index = (..., slice(positions[k], positions[j] + 1))
+        x = x.at[index if rows is None else (rows,) + index].set(values[..., k:j + 1])
+        k = j + 1
+    return x
+
+
+def _neumann_positions(kinds: tuple[str, ...], cols: tuple[int, ...]) -> tuple[int, ...]:
+    """Positions within ``cols`` of the Neumann-kind columns."""
+    return tuple(i for i, c in enumerate(cols) if kinds[c] == NEUMANN)
+
+
+def _face_columns_core(faces, fields, bc, kinds, value_columns, gradient_columns):
+    """The pruned per-face reconstruction: values (common row, lower, upper) of ``value_columns`` and the common-row
+    gradient of ``gradient_columns`` (static tuples of column indices; the outputs follow their order).
+
+    Dirichlet rows run for the requested parts only (values and gradients in separate passes when the column sets
+    differ). The Neumann rows are applied to the Neumann-kind columns of each part only (value-only for the values,
+    gradient-only for the gradient) and overwrite the Dirichlet state in place, so no per-kind select is needed.
+    """
+    Fc, nq = faces.common_value_slot.shape
+    nv, ng = len(value_columns), len(gradient_columns)
+    f_v, bc_v = _pick_columns(fields, value_columns), _pick_boundary(bc, value_columns)
+    one_pass = bool(ng) and gradient_columns == value_columns
+    if one_pass:
+        v, g = apply_source_rows(faces.rows, f_v, _dirichlet_arrays(bc_v, faces.rows.n_boundary_queries > 0),
+                                 values=True, gradients=True)
+    else:
+        v, _ = apply_source_rows(faces.rows, f_v, _dirichlet_arrays(bc_v, faces.rows.n_boundary_queries > 0),
+                                 values=True, gradients=False)
+        g = None
+        if ng:
+            f_g, bc_g = _pick_columns(fields, gradient_columns), _pick_boundary(bc, gradient_columns)
+            _, g = apply_source_rows(faces.rows, f_g, _dirichlet_arrays(bc_g, faces.rows.n_boundary_queries > 0),
+                                     values=False, gradients=True)
+    cv = v[faces.common_value_slot]
+    cg = g[faces.common_gradient_slot] if ng else None
+    lv, uv = v[faces.lower_slot], v[faces.upper_slot]
+    lp, up = faces.lower_present[:, None, None], faces.upper_present[:, None, None]
+    if faces.has_missing_side:
+        if bc.dirichlet_value is None:
+            raise ValueError("faces without a side row need BoundaryData.dirichlet_value (the side fallback)")
+        fb = bc_v.dirichlet_value[faces.fallback_query]
+        lower, upper = jnp.where(lp, lv, fb), jnp.where(up, uv, fb)
+    else:
+        lower, upper = lv, uv
+    pos_v = _neumann_positions(kinds, value_columns)
+    pos_g = _neumann_positions(kinds, gradient_columns)
+    if not pos_v and not pos_g:
+        return FaceState(cv, cg, lower, upper)
+    data = _neumann_data(bc)
+
+    def neumann(rows, cols, **part):
+        return apply_neumann_point_rows(rows.payload(0), _pick_columns(fields, cols), _pick_columns(data, cols),
+                                        **part)
+
+    if faces.common_neumann is not None:
+        target = faces.common_neumann_target
+        if pos_v:
+            nvv, _ = neumann(faces.common_neumann, tuple(value_columns[i] for i in pos_v), gradients=False)
+            cv = _set_columns(cv.reshape(Fc * nq, nv), target, pos_v, nvv).reshape(Fc, nq, nv)
+        if pos_g:
+            _, ngg = neumann(faces.common_neumann, tuple(gradient_columns[i] for i in pos_g), values=False)
+            cg = _set_columns(cg.reshape(Fc * nq, 3, ng), target, pos_g, ngg).reshape(Fc, nq, 3, ng)
+    if pos_v:
+        own_l, own_u = _pick_columns(lv, pos_v), _pick_columns(uv, pos_v)
+        if faces.side_neumann is not None:
+            sv, _ = neumann(faces.side_neumann, tuple(value_columns[i] for i in pos_v), gradients=False)
+            wall_value = jnp.zeros((Fc * nq, len(pos_v)), dtype=sv.dtype).at[faces.side_neumann_target].set(sv)
+            wall_value = wall_value.reshape(Fc, nq, len(pos_v))
+            own_l = jnp.where(faces.lower_conditioned[:, None, None], wall_value, own_l)
+            own_u = jnp.where(faces.upper_conditioned[:, None, None], wall_value, own_u)
+        lower = _set_columns(lower, None, pos_v, jnp.where(lp, own_l, own_u))
+        upper = _set_columns(upper, None, pos_v, jnp.where(up, own_u, own_l))
+    return FaceState(cv, cg, lower, upper)
+
+
+@partial(jax.jit, static_argnames=("kinds", "value_columns", "gradient_columns"))
+def _face_state(faces, fields, bc, *, kinds, value_columns, gradient_columns):
+    return _face_columns_core(faces, fields, bc, kinds, value_columns, gradient_columns)
 
 
 def face_state_pair(plan: PerpendicularPlan, fields, bc: BoundaryData, *,
@@ -264,14 +352,37 @@ def face_state_pair(plan: PerpendicularPlan, fields, bc: BoundaryData, *,
     return _face_pair(plan.faces, jnp.asarray(fields), bc, need_neumann=True, gradients=gradients)
 
 
+def _column_tuple(columns, n_fields: int, name: str, allow_empty: bool = False) -> tuple[int, ...]:
+    cols = tuple(int(c) for c in columns)
+    if (not cols and not allow_empty) or any(not 0 <= c < n_fields for c in cols):
+        raise ValueError(f"{name} must be {'' if allow_empty else 'non-empty '}column indices in [0, {n_fields}), got {tuple(columns)}")
+    return cols
+
+
 def face_state(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, *,
-               gradients: bool = True) -> FaceState:
+               gradients: bool = True, value_columns=None, gradient_columns=None) -> FaceState:
     """Per-face q3 reconstruction in ``plan.faces.census_row`` order.
 
     ``value (Fc, Qf, F)`` / ``gradient (Fc, Qf, 3, F)`` at the common row's nodes and the ``lower`` /
     ``upper`` side values ``(Fc, Qf, F)``, per field column by ``field_kinds`` (see the module docstring
     for the missing-side rules). ``gradients=False`` skips the gradient outputs (P06 needs values only).
+
+    ``value_columns`` / ``gradient_columns`` (static sequences of column indices; ``None`` is every column) prune
+    the work to the columns a caller reads: ``value`` / ``lower`` / ``upper`` then hold only ``value_columns``
+    and ``gradient`` only ``gradient_columns``, in the order given (the last axis is the position in that
+    tuple). The Neumann rows are applied to the Neumann-kind columns of each part only, value-only for the
+    values and gradient-only for the gradient. A column's entries equal the full call's up to roundoff (the
+    contraction kernels depend on the column count). ``gradient_columns`` needs ``gradients=True``.
     """
     fields = jnp.asarray(fields)
-    kinds = normalize_kinds(field_kinds, fields.shape[1])
-    return _face_state(plan.faces, fields, bc, kinds=kinds, gradients=gradients)
+    nf = fields.shape[1]
+    kinds = normalize_kinds(field_kinds, nf)
+    vcols = tuple(range(nf)) if value_columns is None else _column_tuple(value_columns, nf, "value_columns")
+    if not gradients:
+        if gradient_columns is not None:
+            raise ValueError("gradient_columns needs gradients=True")
+        gcols = ()
+    else:
+        gcols = tuple(range(nf)) if gradient_columns is None else _column_tuple(gradient_columns, nf,
+                                                                                 "gradient_columns")
+    return _face_state(plan.faces, fields, bc, kinds=kinds, value_columns=vcols, gradient_columns=gcols)

@@ -132,7 +132,7 @@ def test_g31_combined_equals_the_separate_operator_calls(setup, rhs):
 
 
 @needs_inputs
-def test_g34_real_plan_eager_equals_jit_bitwise(setup, rhs):
+def test_g34_real_plan_eager_equals_jit(setup, rhs):
     from drbx.native.fci_perpendicular_rhs import perpendicular_rhs
     s = setup
     kinds = s["kinds"]
@@ -141,9 +141,15 @@ def test_g34_real_plan_eager_equals_jit_bitwise(setup, rhs):
     eager = perpendicular_rhs(s["plan"], s["state"], s["phi"], s["bc"], kinds, s["params"], raw_pairs=[("density", "Te")])
     la, lb = jax.tree_util.tree_leaves(eager), jax.tree_util.tree_leaves(jitted)
     assert len(la) == len(lb)
+    worst = 0.0
     for a, b in zip(la, lb):
-        np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
-    REPORT["eager_equals_jit_bitwise"] = True
+        # Roundoff, not bitwise, since the face state is pruned to the columns P05 / P06 read (P09 fix 1): XLA fuses
+        # the pruned face producers into the P05 jump differently standalone and inside an outer jit (<= 1 ulp).
+        a, b = np.asarray(a), np.asarray(b)
+        scale = max(float(np.max(np.abs(b))), 1e-300)
+        worst = max(worst, float(np.max(np.abs(a - b))) / scale)
+        np.testing.assert_allclose(a, b, rtol=0, atol=1e-14 * scale)
+    REPORT["eager_equals_jit_max_rel_diff"] = worst
 
 
 @needs_inputs
