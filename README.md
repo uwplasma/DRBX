@@ -55,6 +55,8 @@ git clone https://github.com/uwplasma/drbx && cd drbx && pip install -e .
 Runtime dependencies are `jax`, `scipy`, `matplotlib`, `netCDF4`, `rich`,
 `pillow`, and [`solvax`](https://github.com/uwplasma/SOLVAX). Python 3.10-3.12.
 
+For ESSOS field imports, install `drbx[essos]` (Python 3.10+).
+
 ## Quick start
 
 Run a simulation from a TOML deck, or inspect one without running it:
