@@ -135,7 +135,7 @@ from perpendicular_structured.reconstruction import load_context   # noqa: E402
 from p07n_field_derived_global.fields import normal as _p07n_normal  # noqa: E402
 
 from drbx.geometry.fci_perpendicular_reconstruction import (        # noqa: E402
-    PointRowContext, StructuredReconstruction)
+    CELL_STENCILS, PointRowContext, StructuredReconstruction)
 from drbx.stencils.census import FaceCensus          # noqa: E402
 from drbx.stencils.geometry_arrays import (            # noqa: E402
     GeometryArrays, SCHEMA as GEOMETRY_SCHEMA,
@@ -204,6 +204,12 @@ SOURCE_FILES = [
 # ---------------------------------------------------------------------------
 # Identity.
 # ---------------------------------------------------------------------------
+def check_cell_stencil(cell_stencil: str) -> str:
+    if cell_stencil not in CELL_STENCILS:
+        raise ValueError(f"cell_stencil must be one of {CELL_STENCILS}, got {cell_stencil!r}")
+    return cell_stencil
+
+
 def _geometry_component_hashes(input_root: Path, n: int) -> dict:
     geometry_dir = Path(input_root) / GEOMETRY_SUBDIR / f"{n}x{n}x{n}"
     hashes = {}
@@ -252,7 +258,8 @@ BFIELD_SOURCE_FILES = [
 
 
 def build_policy(curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFAULT_FACE_QUADRATURE,
-                 inner_support: str = DEFAULT_INNER_SUPPORT, bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> dict:
+                 inner_support: str = DEFAULT_INNER_SUPPORT, bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL,
+                 cell_stencil: str = "biased") -> dict:
     """``POLICY`` for ``curvature="fd"`` and ``face_quadrature="q3"`` (exactly, so existing identities are
     unchanged); with ``"autodiff"`` the same policy plus ``curvature`` (distinct identity); with ``"q2"`` the
     P05/P06 face rule is recorded as ``quadrature = {"raw": "q1", "face": "q2", "p07_face": "q3"}``."""
@@ -260,6 +267,7 @@ def build_policy(curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFA
     check_face_quadrature(face_quadrature)
     check_inner_support(inner_support)
     check_bfield_toroidal(bfield_toroidal)
+    check_cell_stencil(cell_stencil)
     policy = dict(POLICY) if curvature == "fd" else {**POLICY, "curvature": "autodiff"}
     if face_quadrature != "q3":
         policy["quadrature"] = {"raw": "q1", "face": face_quadrature, "p07_face": "q3"}
@@ -267,13 +275,16 @@ def build_policy(curvature: str = DEFAULT_CURVATURE, face_quadrature: str = DEFA
         policy["inner_support"] = inner_support
     if bfield_toroidal != "spline":        # likewise the literal: the frozen spline identity must not move
         policy["bfield_toroidal"] = bfield_toroidal
+    if cell_stencil != "biased":           # likewise the literal: the frozen biased identity must not move
+        policy["cell_stencil"] = cell_stencil
     return policy
 
 
 def build_identity(*, n: int, input_root: Path, sidecar_path: Path, curvature: str = DEFAULT_CURVATURE,
                    face_quadrature: str = DEFAULT_FACE_QUADRATURE,
                    inner_support: str = DEFAULT_INNER_SUPPORT,
-                   bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> dict:
+                   bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL,
+                   cell_stencil: str = "biased") -> dict:
     component_hashes = {**_geometry_component_hashes(input_root, n), **_sidecar_component_hashes(sidecar_path)}
     sources = (SOURCE_FILES + (AUTODIFF_SOURCE_FILES if curvature != "fd" else [])
                + (Q2_SOURCE_FILES if face_quadrature != "q3" else [])
@@ -282,7 +293,7 @@ def build_identity(*, n: int, input_root: Path, sidecar_path: Path, curvature: s
     source_hashes = {rel: artifact_mod.hash_file(REPO / rel) for rel in sources}
     return artifact_mod.build_identity(component_hashes=component_hashes, source_hashes=source_hashes,
                                        policy=build_policy(curvature, face_quadrature, inner_support,
-                                                                           bfield_toroidal))
+                                                                           bfield_toroidal, cell_stencil))
 
 
 # ---------------------------------------------------------------------------
@@ -462,14 +473,15 @@ def _integrated_diagnostics_summary(integrated_rows) -> dict:
 
 
 def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identity: dict, curvature: str = DEFAULT_CURVATURE,
-                 inner_support: str = DEFAULT_INNER_SUPPORT, bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL):
+                 inner_support: str = DEFAULT_INNER_SUPPORT, bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL,
+                 cell_stencil: str = "biased"):
     global STATE
     runner.require_cpu_backend()
     grid_dir = Path(output) / f"N{n}"
     t = load_context(n, str(input_root))
     context = _make_context(t)
-    S = (StructuredReconstruction(context) if inner_support == "profile7"
-         else StructuredReconstruction(context, inner_support=inner_support))
+    S = (StructuredReconstruction(context) if inner_support == "profile7" and cell_stencil == "biased"
+         else StructuredReconstruction(context, inner_support=inner_support, cell_stencil=cell_stencil))
     census = FaceCensus.load(grid_dir / "census.npz")
     geometry = GeometryArrays.load(grid_dir / "geometry.npz")
     ref = p_shared_provider.ScriptsGeometryProvider.from_sidecar(sidecar_path, verify_hashes=False,
@@ -496,7 +508,7 @@ def _init_worker(input_root: str, sidecar_path: str, output: str, n: int, identi
         "normal_coefficients": normal_coefficients, "patch_cache": {},
         "face_row_indices": face_row_indices, "p07_row_indices": p07_row_indices,
         "p07_to_face_pos": p07_to_face_pos, "output": Path(output), "identity": identity,
-        "inner_support": inner_support,
+        "inner_support": inner_support, "cell_stencil": cell_stencil,
     }
 
 
@@ -827,6 +839,7 @@ def run_full_build(
     face_quadrature: str = DEFAULT_FACE_QUADRATURE,
     inner_support: str = DEFAULT_INNER_SUPPORT,
     bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL,
+    cell_stencil: str = "biased",
 ) -> dict:
     """Build the full N{n} row artifact and return the same dict written to
     ``<output>/N{n}/build_receipt.json``.
@@ -842,6 +855,11 @@ def run_full_build(
     ``bfield_toroidal`` (``"spline"``, the default, or ``"compact_c3"``) is the toroidal interpolation of the B
     evaluator behind the geometry and the reference (see ``p_shared.bfield``); recorded in the build policy (and the
     pinned sources) only when not ``"spline"``, so a spline build is bitwise the historic one.
+
+    ``cell_stencil`` (``"biased"``, the default, or ``"symmetric"``) is the R1 cell-row stencil of the structured
+    reconstruction (the fourth-order centred ``1/2 (A + B)`` cell rows); recorded in the build policy only when not
+    ``"biased"``, so a biased build is bitwise the historic one. Symmetric cell rows are stored as CSR (they are not
+    one tensor factorization).
 
     ``workers`` is the requested process-pool size for every stage; if both
     ``memory_budget_gib`` and ``worker_memory_gib`` are given, the effective
@@ -872,6 +890,7 @@ def run_full_build(
     check_face_quadrature(face_quadrature)
     check_inner_support(inner_support)
     check_bfield_toroidal(bfield_toroidal)
+    check_cell_stencil(cell_stencil)
     face_order = _face_order(face_quadrature)
     input_root = Path(input_root).resolve()
     sidecar_path = Path(sidecar_path).resolve()
@@ -883,7 +902,7 @@ def run_full_build(
     with runner.lock(output):
         identity = build_identity(n=n, input_root=input_root, sidecar_path=sidecar_path, curvature=curvature,
                                   face_quadrature=face_quadrature, inner_support=inner_support,
-                                  bfield_toroidal=bfield_toroidal)
+                                  bfield_toroidal=bfield_toroidal, cell_stencil=cell_stencil)
         identity_path = grid_dir / "build_identity.json"
         if identity_path.exists():
             saved = json.loads(identity_path.read_text())
@@ -949,7 +968,7 @@ def run_full_build(
         initargs = (str(input_root), str(sidecar_path), str(output), n, identity, curvature)
         # always explicit: a worker must never fall back to a (changed) module default
         geometry_initargs = initargs + (face_quadrature, bfield_toroidal)
-        row_initargs = initargs + (inner_support, bfield_toroidal)
+        row_initargs = initargs + (inner_support, bfield_toroidal, cell_stencil)
         summaries = {}
 
         geometry_complete = geometry_path.exists()
@@ -1061,6 +1080,9 @@ def parse_args(argv=None):
     p.add_argument("--bfield-toroidal", choices=BFIELD_TOROIDAL_CHOICES, default=DEFAULT_BFIELD_TOROIDAL,
                    help="toroidal interpolation of the B evaluator: spline (frozen) or compact_c3 "
                         "(recorded in the build identity when not spline)")
+    p.add_argument("--cell-stencil", choices=CELL_STENCILS, default="biased",
+                   help="R1 cell-row stencil: biased (frozen) or symmetric (fourth-order centred 1/2 (A + B)); "
+                        "recorded in the build identity when not biased")
     p.add_argument("--face-quadrature", choices=FACE_QUADRATURE_CHOICES, default=DEFAULT_FACE_QUADRATURE,
                    help="P05/P06 face-node rule: q3 (9 nodes) or q2 (4 nodes); P07 stays q3 "
                         "(recorded in the build identity)")
@@ -1077,7 +1099,7 @@ def main(argv=None) -> dict:
         geometry_raw_chunk_size=args.geometry_raw_chunk_size, geometry_face_chunk_size=args.geometry_face_chunk_size,
         max_tasks_per_worker=args.max_tasks_per_worker, max_units=args.max_units, curvature=args.curvature,
         face_quadrature=args.face_quadrature, inner_support=args.inner_support,
-        bfield_toroidal=args.bfield_toroidal)
+        bfield_toroidal=args.bfield_toroidal, cell_stencil=args.cell_stencil)
 
 
 if __name__ == "__main__":
