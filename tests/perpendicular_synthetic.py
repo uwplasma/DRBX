@@ -163,12 +163,13 @@ def make_world(*, seed: int = 0, n: int = N, owners=None, raw_to_owner=None) -> 
                            p07_rows=p07_rows, row_index=row_index, neumann_index=neumann_index)
 
 
-def lower_world(world, include=("cells", "faces", "p07")):
+def lower_world(world, include=("cells", "faces", "p07"), neumann_layout="face_union", common_neumann_gradients=True):
     from drbx.stencils.operator_plan import lower_perpendicular_plan_from_rows
     return lower_perpendicular_plan_from_rows(
         world.row_index, world.neumann_index, grid=world.grid, census=world.census, geometry=world.geometry,
         raw_volume=world.raw_volume, owner_volume=world.owner_volume, raw_ids=world.raw_ids,
-        face_rows=world.face_rows, p07_rows=world.p07_rows, include=include)
+        face_rows=world.face_rows, p07_rows=world.p07_rows, include=include, neumann_layout=neumann_layout,
+        common_neumann_gradients=common_neumann_gradients)
 
 
 class Boundary:

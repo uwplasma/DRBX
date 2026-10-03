@@ -29,7 +29,7 @@ import numpy as np
 import scipy.sparse as sp
 
 from drbx.native.fci_perpendicular_reconstruction_state import BoundaryData
-from drbx.stencils.operator_plan import PerpendicularPlan
+from drbx.stencils.operator_plan import IntegratedNeumannRows, PerpendicularPlan
 
 __all__ = ["KINDS", "P07SparseOperator", "export_p07_sparse", "boundary_source", "apply_p07_sparse",
            "save_p07_sparse", "load_p07_sparse"]
@@ -107,6 +107,13 @@ def _neumann_matrices(p07, n_owners: int, qn: int):
     """Neumann restoration rows ``(N_A (Fn, n), N_nn (Fn, Qn))`` of the faces ``p07.neumann_face``."""
     nr = p07.neumann
     fn = len(p07.neumann_face)
+    if isinstance(nr, IntegratedNeumannRows):          # per-face union layout: already contracted with the integrand
+        face = np.repeat(np.arange(fn, dtype=np.int64), nr.donor_ids.shape[1])
+        bface = np.repeat(np.arange(fn, dtype=np.int64), nr.boundary_ids.shape[1])
+        return (_csr(face, np.asarray(nr.donor_ids, dtype=np.int64).ravel(),
+                     np.asarray(nr.weights, dtype=np.float64).ravel(), (fn, n_owners)),
+                _csr(bface, np.asarray(nr.boundary_ids, dtype=np.int64).ravel(),
+                     np.asarray(nr.boundary_weights, dtype=np.float64).ravel(), (fn, qn)))
     integrand = np.asarray(p07.integrand, dtype=np.float64)                  # (Fn, 9, 3)
     if integrand.shape != (fn, 9, 3) or len(nr.donor_ids) != 9 * fn:
         raise ValueError("P07 Neumann rows and integrand disagree")

@@ -105,11 +105,12 @@ def _without_wall_faces(plan):
     return replace(plan, faces=replace(plan.faces, wall_faces=None))
 
 
-def run_synthetic(shard_counts=(1, 2, 4), seed=0, kinds=("dirichlet", "mixed"), absolute_method="lapack4") -> dict:
+def run_synthetic(shard_counts=(1, 2, 4), seed=0, kinds=("dirichlet", "mixed"), absolute_method="lapack4",
+                  neumann_layout="face_union") -> dict:
     from tests.perpendicular_synthetic import Boundary, lower_world, make_world
     raw_to_owner = plane_structured_owners()
     world = make_world(seed=seed, n=N, raw_to_owner=raw_to_owner)
-    plan = lower_world(world)
+    plan = lower_world(world, neumann_layout=neumann_layout)
     state, phi = _synthetic_inputs(plan, world)
     boundary = Boundary(n_fields=5)
 
@@ -194,8 +195,12 @@ def main(argv=None) -> int:
     parser.add_argument("mode", choices=("halo", "synthetic"))
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--absolute-method", default="lapack4")
+    parser.add_argument("--neumann-layout", default="face_union")
+    parser.add_argument("--kinds", default="dirichlet,mixed")
     args = parser.parse_args(argv)
-    result = run_halo() if args.mode == "halo" else run_synthetic(seed=args.seed, absolute_method=args.absolute_method)
+    result = (run_halo() if args.mode == "halo" else
+              run_synthetic(seed=args.seed, absolute_method=args.absolute_method, neumann_layout=args.neumann_layout,
+                            kinds=tuple(args.kinds.split(","))))
     result["devices"] = len(jax.devices())
     print(json.dumps(result))
     return 0

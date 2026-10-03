@@ -50,7 +50,7 @@ shard).
 """
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import fields as dc_fields, replace
 from functools import partial
 from typing import Mapping, NamedTuple, Optional, Sequence
 
@@ -69,7 +69,8 @@ from drbx.native.fci_perpendicular_rhs import (
 from drbx.native.fci_perpendicular_source_rows import SourceRowBatch, SourceRowPayload
 from drbx.native.fci_perpendicular_tensor_rows import TensorRowBatch
 from drbx.stencils.operator_plan import (
-    CellPlan, FacePlan, IntegratedRows, NeumannRows, P07Plan, PerpendicularPlan)
+    CellPlan, FacePlan, IntegratedNeumannRows, IntegratedRows, NeumannFaceRows, NeumannRows, P07Plan,
+    PerpendicularPlan)
 
 __all__ = [
     "AXIS", "DEFAULT_HALO", "PlaneLayout", "ShardedPerpendicularPlan", "exchange_plane_halo", "from_plane_major",
@@ -288,19 +289,25 @@ def _slots(table, slots, what: str) -> np.ndarray:
     return out.astype(np.int32)
 
 
-def _local_neumann(rows: Optional[NeumannRows], keep, sh: _Shard, what: str) -> Optional[NeumannRows]:
-    """Rows ``keep`` (indices) of a Neumann row set, donors localized, boundary ids still global."""
+#: the Neumann row sets: per row (``NeumannRows``) or per face (union layouts); the leading axis is rows or faces
+_NEUMANN_LAYOUTS = (NeumannRows, NeumannFaceRows, IntegratedNeumannRows)
+_NEUMANN_DONOR_WEIGHTS = ("value_weights", "gradient_weights", "weights")
+
+
+def _local_neumann(rows, keep, sh: _Shard, what: str):
+    """Entries ``keep`` (indices along the leading axis: rows, or faces of a union layout) of a Neumann row set, donors
+    localized, boundary ids still global."""
     if rows is None:
         return None
     k = np.asarray(keep, dtype=np.int64)
-    take = lambda a: None if a is None else a[k]
-    nonzero = np.zeros(rows.donor_ids[k].shape, dtype=bool)          # a weight array the plan does not store is unread
-    if rows.value_weights is not None:
-        nonzero |= rows.value_weights[k] != 0
-    if rows.gradient_weights is not None:
-        nonzero |= (rows.gradient_weights[k] != 0).any(axis=1)
-    return NeumannRows(sh.donors(rows.donor_ids[k], nonzero, what), take(rows.value_weights), take(rows.gradient_weights),
-                       rows.boundary_ids[k], take(rows.boundary_value_weights), take(rows.boundary_gradient_weights))
+    out = {f.name: None if getattr(rows, f.name) is None else getattr(rows, f.name)[k] for f in dc_fields(rows)}
+    nonzero = np.zeros(out["donor_ids"].shape, dtype=bool)           # a weight array the plan does not store is unread
+    for name in _NEUMANN_DONOR_WEIGHTS:
+        if out.get(name) is not None:
+            w = out[name]
+            nonzero |= (w != 0).reshape(w.shape[0], -1, w.shape[-1]).any(axis=1)
+    out["donor_ids"] = sh.donors(out["donor_ids"], nonzero, what)
+    return type(rows)(**out)
 
 
 def _local_cells(c: CellPlan, sh: _Shard) -> CellPlan:
@@ -353,9 +360,14 @@ def _local_faces(f: FacePlan, sh: _Shard) -> tuple[FacePlan, np.ndarray]:
     def neumann(rows_, target):
         if rows_ is None:
             return None, target[:0]
-        kr = np.flatnonzero(loc[target // Qf] >= 0)
-        return (_local_neumann(rows_, kr, sh, "faces Neumann rows"),
-                (loc[target[kr] // Qf] * Qf + target[kr] % Qf).astype(np.int32))
+        if isinstance(rows_, NeumannFaceRows):          # union layout: one entry per face, ``Qf`` consecutive targets
+            kf_ = np.flatnonzero(loc[target[::Qf] // Qf] >= 0)
+            kr = (kf_[:, None] * Qf + np.arange(Qf)[None, :]).ravel()
+            local = _local_neumann(rows_, kf_, sh, "faces Neumann rows")
+        else:
+            kr = np.flatnonzero(loc[target // Qf] >= 0)
+            local = _local_neumann(rows_, kr, sh, "faces Neumann rows")
+        return local, (loc[target[kr] // Qf] * Qf + target[kr] % Qf).astype(np.int32)
 
     common_neumann, common_target = neumann(f.common_neumann, f.common_neumann_target)
     side_neumann, side_target = neumann(f.side_neumann, f.side_neumann_target)
@@ -402,7 +414,8 @@ def _local_p07(p: P07Plan, sh: _Shard, face_loc: Optional[np.ndarray]) -> P07Pla
     neumann, neumann_face, integrand = None, p.neumann_face[:0], p.integrand[:0]
     if p.neumann is not None:
         kn = np.flatnonzero(loc[p.neumann_face] >= 0)
-        neumann = _local_neumann(p.neumann, (kn[:, None] * 9 + np.arange(9)[None, :]).ravel(), sh, "P07 Neumann rows")
+        keep = kn if isinstance(p.neumann, IntegratedNeumannRows) else (kn[:, None] * 9 + np.arange(9)[None, :]).ravel()
+        neumann = _local_neumann(p.neumann, keep, sh, "P07 Neumann rows")
         neumann_face = loc[p.neumann_face[kn]].astype(np.int32)
         integrand = p.integrand[kn]
     face_index = np.asarray(p.face_index)[kp]
@@ -495,16 +508,18 @@ def _pad_like_first(a, count: int):
     return np.concatenate([a, np.repeat(a[:1], count - len(a), axis=0)]) if count > len(a) else a
 
 
-def _pad_neumann(rows: Sequence[Optional[NeumannRows]], count: int, trash: int) -> list:
+def _pad_neumann(rows: Sequence, count: int, trash: int) -> list:
+    """The Neumann row sets padded to ``count`` leading entries (rows, or faces of a union layout) with no-op ones: donors
+    in the trash row, zero weights."""
     if rows[0] is None:
         return [None] * len(rows)
-    pad = lambda a: None if a is None else _pad(a, count)
-    return [NeumannRows(_pad(r.donor_ids, count, trash), pad(r.value_weights), pad(r.gradient_weights),
-                        _pad(r.boundary_ids, count), pad(r.boundary_value_weights), pad(r.boundary_gradient_weights))
+    return [type(r)(**{f.name: None if getattr(r, f.name) is None else
+                       _pad(getattr(r, f.name), count, trash if f.name == "donor_ids" else 0) for f in dc_fields(r)})
             for r in rows]
 
 
 def _neumann_count(rows) -> int:
+    """Rows (faces, for a union layout) of the largest Neumann row set."""
     return max((0 if r is None else len(r.donor_ids)) for r in rows)
 
 
@@ -583,6 +598,9 @@ def _pad_faces(faces: Sequence[FacePlan], trash: int, n_queries: int) -> list:
     payloads = _pad_payloads([f.rows for f in faces], trash, n_queries)
     rc = _neumann_count([f.common_neumann for f in faces])
     rs = _neumann_count([f.side_neumann for f in faces])
+    # the targets are per row: a union layout holds ``Qf`` consecutive rows (nodes) per entry
+    tc = rc * Qf if isinstance(faces[0].common_neumann, NeumannFaceRows) else rc
+    ts = rs * Qf if isinstance(faces[0].side_neumann, NeumannFaceRows) else rs
     common = _pad_neumann([f.common_neumann for f in faces], rc, trash)
     side = _pad_neumann([f.side_neumann for f in faces], rs, trash)
     nw = max(len(f.wall_faces) for f in faces)
@@ -595,8 +613,8 @@ def _pad_faces(faces: Sequence[FacePlan], trash: int, n_queries: int) -> list:
             upper_present=first(f.upper_present), common_conditioned=_pad(f.common_conditioned, fc, False),
             lower_conditioned=_pad(f.lower_conditioned, fc, False), upper_conditioned=_pad(f.upper_conditioned, fc, False),
             fallback_query=first(f.fallback_query), common_neumann=cn,
-            common_neumann_target=_pad(f.common_neumann_target, rc, fc * Qf), side_neumann=sn,
-            side_neumann_target=_pad(f.side_neumann_target, rs, fc * Qf), census_row=_pad(f.census_row, fc, -1),
+            common_neumann_target=_pad(f.common_neumann_target, tc, fc * Qf), side_neumann=sn,
+            side_neumann_target=_pad(f.side_neumann_target, ts, fc * Qf), census_row=_pad(f.census_row, fc, -1),
             p07_id=_pad(f.p07_id, fc, -1), axis=first(f.axis), lower_owner=_pad(f.lower_owner, fc, trash),
             upper_owner=_pad(f.upper_owner, fc, trash), wall=_pad(f.wall, fc, False),
             wall_faces=_pad(f.wall_faces, nw, fc), collapsed=_pad(f.collapsed, fc, True),
@@ -610,7 +628,8 @@ def _pad_p07(p07s: Sequence[P07Plan], trash: int, n_queries: int) -> list:
     nb = len(p07s[0].rows.batches)
     smax = [padded_face_count(max(len(p.rows.batches[i].face_ids) for p in p07s)) for i in range(nb)]  # chunk multiples
     fn = max(len(p.neumann_face) for p in p07s)
-    neumann = _pad_neumann([p.neumann for p in p07s], 9 * fn, trash)
+    neumann = _pad_neumann([p.neumann for p in p07s], fn if isinstance(p07s[0].neumann, IntegratedNeumannRows) else 9 * fn,
+                           trash)
     out = []
     for p, nr in zip(p07s, neumann):
         batches = []

@@ -211,6 +211,13 @@ def test_synthetic_sharded_uneven_wall_faces_are_padded_and_bitwise_inert(synthe
     assert uneven["max_rel_vs_single"] <= 1e-12
 
 
+def test_synthetic_sharded_rhs_equals_single_device_in_the_per_row_neumann_layout():
+    """The reference ``neumann_layout="rows"`` plans localize and pad (per-row targets) as the default per-face union."""
+    entry = _subprocess("synthetic", "--neumann-layout", "rows", "--kinds", "mixed")["mixed"]
+    for sz in (1, 2, 4):
+        assert entry[f"Sz{sz}"]["max_rel"] <= 1e-12, (sz, entry[f"Sz{sz}"])
+
+
 @pytest.mark.parametrize("kinds", ("dirichlet", "mixed"))
 def test_synthetic_sharded_closed_form_rhs_equals_its_single_device_rhs(synthetic_closed_form, synthetic, kinds):
     entry = synthetic_closed_form[kinds]

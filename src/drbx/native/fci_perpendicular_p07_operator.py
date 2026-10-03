@@ -9,7 +9,9 @@ carries zero flux):
 * unconditioned faces: the integrated rows (``apply_integrated_face_rows``);
 * conditioned faces (families 1, 2, 4): Dirichlet fields use the Dirichlet lift of the integrated row
   (``value_loading``, ``tangential_loading``); Neumann fields use the Neumann restoration
-  ``sum_q integrand[q] . gradient_N[q]`` (``apply_neumann_integrated_face_rows``).
+  ``sum_q integrand[q] . gradient_N[q]`` (``apply_neumann_integrated_face_rows``). The default plan stores these rows
+  as one donor union per face with the integrand folded into the weights (``IntegratedNeumannRows``); the per-row layout
+  (``lower_perpendicular_plan(neumann_layout="rows")``) agrees to rounding.
 
 Plain P07 is ``field_kinds = "dirichlet"`` for every field (replay fix 2: the frozen campaign's own
 Dirichlet lift at conditioned faces); P07N is ``"neumann"`` for every field, and its D variant
