@@ -10,6 +10,12 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
+# File execution and multiprocessing spawn must resolve this campaign by its
+# package name, independently of the older controllers loaded below.
+sys.path.insert(0, str(REPO))
+from scripts import q08_rhs_mms_global as _package
+if Path(_package.__file__).resolve() != HERE / '__init__.py':
+    raise ValueError('wrong scientific campaign package import')
 POLY = HERE.with_name('q08_polynomial_global')
 BASE_ID = 'ff1bff86e4af5045b84856d16550f0f45edcbe03b83fc83cc5584557af4c8722'
 POLY_ID = '1a953c60d7352b2a74e6a737d7c2be7dcca9ee194808db3154e5f840d4a9b087'
@@ -141,12 +147,12 @@ def main():
                     if result.get('test_only') or result.get('gpu') != (a.stage == 'preflight-gpu'):
                         raise ValueError('preflight backend mismatch')
                 else:
-                    from preflight import bounded
+                    from scripts.q08_rhs_mms_global.preflight import bounded
                     result = bounded(run, old, identity, verified['canonical_root'], gpu=a.stage == 'preflight-gpu')
             elif a.stage in ('pilot', 'references'):
                 require(run, 'preflight', identity); require(run, 'preflight_gpu', identity)
                 baseline.check_inputs(old, Path(verified['canonical_root']))
-                from references import run_references
+                from scripts.q08_rhs_mms_global.references import run_references
                 result = run_references(run, old, source, identity, verified['canonical_root'],
                                         a.n or 32, a.workers, a.host_gib, pilot=a.stage == 'pilot')
             elif a.stage == 'gpu':
@@ -157,10 +163,10 @@ def main():
                 for name, h in data['files'].items():
                     if sha(old/'data'/f'N{a.n}'/name) != h:
                         raise ValueError('owner input content changed: '+name)
-                from gpu import run_grid
+                from scripts.q08_rhs_mms_global.gpu import run_grid
                 result = run_grid(run, old, identity, a.n, a.host_gib)
             else:
-                from analyze import analyze, completion
+                from scripts.q08_rhs_mms_global.analyze import analyze, completion
                 result = (analyze if a.stage == 'analyze' else completion)(run, identity)
         if check_source()[0] != identity or baseline.digest(baseline.design()) != BASE_ID:
             raise ValueError('source changed during stage')
