@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,12 @@ from drbx.fci_braginskii.geometry_build.Bfield_evaluator import (
 from drbx.fci_braginskii.geometry_build.ScalarPotential_evaluator import (
     ScalarPotentialEvaluator,
     scalar_potential_evaluator_from_bfield,
+)
+
+# The plotting helpers in this file render with plotly, an optional test-only
+# dependency installed in one CI lane; the numerical tests do not need it.
+requires_plotly = pytest.mark.skipif(
+    importlib.util.find_spec("plotly") is None, reason="plotly is not installed"
 )
 
 
@@ -694,6 +701,7 @@ def _load_flare_vessel_geometry(
     return vessel_mask, reference_axis
 
 
+@requires_plotly
 def test_constant_eta_plot_smoke(analytic_fit, tmp_path):
     _, evaluator = analytic_fit
     output = tmp_path / "constant_eta_planes.html"

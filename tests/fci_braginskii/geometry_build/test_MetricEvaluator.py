@@ -1,5 +1,6 @@
 import argparse
 import importlib
+import importlib.util
 import os
 from pathlib import Path
 
@@ -23,6 +24,12 @@ from drbx.fci_braginskii.geometry_build.fci_geometry import (
 from drbx.fci_braginskii.geometry_build.solve_MMPDE import MMPDEResult
 from drbx.fci_braginskii.geometry_build.ScalarPotential_evaluator import scalar_potential_evaluator_from_bfield
 from drbx.fci_braginskii.geometry_build.WallEvaluator import WallEvaluator
+
+# The plotting helpers in this file render with plotly, an optional test-only
+# dependency installed in one CI lane; the numerical tests do not need it.
+requires_plotly = pytest.mark.skipif(
+    importlib.util.find_spec("plotly") is None, reason="plotly is not installed"
+)
 
 
 def analytic_map(u, v, eta):
@@ -1855,6 +1862,7 @@ def plot_angular_agglomeration(
     return figure
 
 
+@requires_plotly
 def test_constant_eta_mesh_plot_smoke_and_alignment(tmp_path):
     u = np.linspace(0.0, 1.0, 7)
     v = np.linspace(0.0, 1.0, 6)
@@ -1903,6 +1911,7 @@ def test_constant_eta_mesh_plot_smoke_and_alignment(tmp_path):
             assert np.max(np.abs(residual[finite, 0])) < 1.0e-10
 
 
+@requires_plotly
 def test_constant_eta_mesh_plot_does_not_pass_nan_separators_to_eta_evaluator(tmp_path):
     u = np.linspace(0.0, 1.0, 4)
     v = np.linspace(0.0, 1.0, 3)
@@ -1925,6 +1934,7 @@ def test_constant_eta_mesh_plot_does_not_pass_nan_separators_to_eta_evaluator(tm
     )
 
 
+@requires_plotly
 def test_constant_eta_mesh_plot_overlays_wall(tmp_path):
     evaluator = build_metric_evaluator(
         SyntheticEtaEvaluator(),
@@ -1951,6 +1961,7 @@ def test_constant_eta_mesh_plot_overlays_wall(tmp_path):
     assert all(len(trace.x) == 40 for trace in wall_traces)
 
 
+@requires_plotly
 def test_constant_eta_mesh_plot_closes_toroidal_theta_seam(tmp_path):
     evaluator = make_axis_regular_toroidal_evaluator()
     output = tmp_path / "toroidal_mesh.html"
@@ -1977,6 +1988,7 @@ def test_constant_eta_mesh_plot_closes_toroidal_theta_seam(tmp_path):
     ) == 2
 
 
+@requires_plotly
 def test_constant_eta_mesh_comparison_routes_pre_and_post_samples_to_two_scenes(tmp_path):
     u = np.linspace(0.0, 1.0, 6)
     v = np.linspace(0.0, 1.0, 5)
@@ -2091,6 +2103,7 @@ def test_epsilon_plane_rejects_negative_signed_jacobian():
         compute_epsilon_plane_diagnostic(inverted, CylindricalToroidalField())
 
 
+@requires_plotly
 def test_epsilon_plane_plot_smoke_and_derived_filename(tmp_path):
     evaluator = make_cylindrical_evaluator()
     output = tmp_path / "hsx_QHS.html"
@@ -2115,6 +2128,7 @@ def test_epsilon_plane_plot_smoke_and_derived_filename(tmp_path):
     assert "angle" in surfaces[0].hovertemplate
 
 
+@requires_plotly
 def test_epsilon_plane_plot_closes_toroidal_theta_seam(tmp_path):
     evaluator = make_axis_regular_toroidal_evaluator()
     output = tmp_path / "toroidal_epsilon.html"
@@ -2137,6 +2151,7 @@ def test_epsilon_plane_plot_closes_toroidal_theta_seam(tmp_path):
         )
 
 
+@requires_plotly
 def test_epsilon_plane_plot_uses_global_p95_without_clipping_surface_values(tmp_path):
     evaluator = make_cylindrical_evaluator()
 
@@ -2172,6 +2187,7 @@ def test_epsilon_plane_plot_uses_global_p95_without_clipping_surface_values(tmp_
     assert np.max(hover_values) > expected_cmax
 
 
+@requires_plotly
 def test_angular_agglomeration_plot_uses_fitted_shape_and_one_eta_plane(tmp_path):
     evaluator = make_axis_regular_toroidal_evaluator()
     output = tmp_path / "angular_agglomeration.html"
@@ -2193,6 +2209,7 @@ def test_angular_agglomeration_plot_uses_fitted_shape_and_one_eta_plane(tmp_path
     assert all(np.asarray(trace.x).shape == (2, 9) for trace in surfaces)
 
 
+@requires_plotly
 def test_angular_agglomeration_plot_rejects_square_topology(tmp_path):
     with pytest.raises(ValueError, match="requires toroidal topology"):
         plot_angular_agglomeration(

@@ -110,7 +110,10 @@ class FieldState:
         return (self.coefficients,), None
     @classmethod
     def tree_unflatten(cls, _aux, children):
-        return cls(children[0])
+        # Do not run __init__: JAX may unflatten with placeholder leaves.
+        obj = object.__new__(cls)
+        obj.coefficients = children[0]
+        return obj
     def __call__(self, q):
         bx = self.coefficients[0] + self.coefficients[1]*q[:,0]
         by = self.coefficients[2] + self.coefficients[3]*q[:,1]
