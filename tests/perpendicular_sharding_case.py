@@ -105,7 +105,7 @@ def _without_wall_faces(plan):
     return replace(plan, faces=replace(plan.faces, wall_faces=None))
 
 
-def run_synthetic(shard_counts=(1, 2, 4), seed=0, kinds=("dirichlet", "mixed")) -> dict:
+def run_synthetic(shard_counts=(1, 2, 4), seed=0, kinds=("dirichlet", "mixed"), absolute_method="lapack4") -> dict:
     from tests.perpendicular_synthetic import Boundary, lower_world, make_world
     raw_to_owner = plane_structured_owners()
     world = make_world(seed=seed, n=N, raw_to_owner=raw_to_owner)
@@ -118,7 +118,7 @@ def run_synthetic(shard_counts=(1, 2, 4), seed=0, kinds=("dirichlet", "mixed")) 
         return 1.5 + 0.4 * value, 0.4 * gradient
 
     bc = boundary_data_from_callables(plan, dirichlet, boundary.normal)
-    params = PerpendicularParams(rho_star=RHO, tau=TAU, diffusion=dict(DIFFUSION))
+    params = PerpendicularParams(rho_star=RHO, tau=TAU, diffusion=dict(DIFFUSION), absolute_method=absolute_method)
     perm, inverse, m = plane_major_permutation(raw_to_owner, N)
     state_pm = {k: jnp.asarray(to_plane_major(v, inverse)) for k, v in state.items()}
     phi_pm = jnp.asarray(to_plane_major(phi, inverse))
@@ -193,8 +193,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=("halo", "synthetic"))
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--absolute-method", default="lapack4")
     args = parser.parse_args(argv)
-    result = run_halo() if args.mode == "halo" else run_synthetic(seed=args.seed)
+    result = run_halo() if args.mode == "halo" else run_synthetic(seed=args.seed, absolute_method=args.absolute_method)
     result["devices"] = len(jax.devices())
     print(json.dumps(result))
     return 0

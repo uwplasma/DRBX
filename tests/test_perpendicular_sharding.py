@@ -166,6 +166,11 @@ def synthetic():
     return _subprocess("synthetic")
 
 
+@pytest.fixture(scope="module")
+def synthetic_closed_form():
+    return _subprocess("synthetic", "--absolute-method", "closed_form")
+
+
 def test_synthetic_sharded_plan_covers_every_entity(synthetic):
     assert synthetic["devices"] == 4
     for sz, cov in synthetic["coverage"].items():
@@ -204,3 +209,15 @@ def test_synthetic_sharded_uneven_wall_faces_are_padded_and_bitwise_inert(synthe
     assert uneven["wall_faces_shape"][1] == max(uneven["wall_counts"])
     assert uneven["bitwise_vs_all_faces"]
     assert uneven["max_rel_vs_single"] <= 1e-12
+
+
+@pytest.mark.parametrize("kinds", ("dirichlet", "mixed"))
+def test_synthetic_sharded_closed_form_rhs_equals_its_single_device_rhs(synthetic_closed_form, synthetic, kinds):
+    entry = synthetic_closed_form[kinds]
+    for sz in (1, 2, 4):
+        assert entry[f"Sz{sz}"]["max_rel"] <= 1e-12, (kinds, sz, entry[f"Sz{sz}"])
+    assert entry["wall_faces_bitwise_single"]
+    assert all(entry[f"Sz{sz}"]["wall_faces_bitwise"] for sz in (1, 2, 4))
+    assert synthetic_closed_form["uneven_wall"]["max_rel_vs_single"] <= 1e-12
+    # same non-finite wall ring as the default method (the random wall states are non-physical there)
+    assert entry["nan_owners"] == synthetic[kinds]["nan_owners"]
