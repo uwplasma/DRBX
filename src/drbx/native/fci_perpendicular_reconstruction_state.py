@@ -195,6 +195,12 @@ def cell_state(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, *
 # Faces
 # --------------------------------------------------------------------------
 
+def _need_common_gradients(faces) -> None:
+    if faces.common_neumann.gradient_weights is None:
+        raise ValueError("the plan was lowered with common_neumann_gradients=False: it has no gradient of a Neumann "
+                         "column at the common face nodes")
+
+
 def _face_pair_core(faces, fields, bc, need_neumann: bool, gradients: bool):
     Fc, nq = faces.common_value_slot.shape
     nf = fields.shape[1]
@@ -216,6 +222,8 @@ def _face_pair_core(faces, fields, bc, need_neumann: bool, gradients: bool):
         return dirichlet, dirichlet
     data = _neumann_data(bc)
     cvn, cgn = cv, cg
+    if gradients and faces.common_neumann is not None:
+        _need_common_gradients(faces)
     if faces.common_neumann is not None:
         nv, ng = apply_neumann_point_rows(faces.common_neumann.payload(0), fields, data)
         target = faces.common_neumann_target
@@ -321,6 +329,7 @@ def _face_columns_core(faces, fields, bc, kinds, value_columns, gradient_columns
             nvv, _ = neumann(faces.common_neumann, tuple(value_columns[i] for i in pos_v), gradients=False)
             cv = _set_columns(cv.reshape(Fc * nq, nv), target, pos_v, nvv).reshape(Fc, nq, nv)
         if pos_g:
+            _need_common_gradients(faces)
             _, ngg = neumann(faces.common_neumann, tuple(gradient_columns[i] for i in pos_g), values=False)
             cg = _set_columns(cg.reshape(Fc * nq, 3, ng), target, pos_g, ngg).reshape(Fc, nq, 3, ng)
     if pos_v:

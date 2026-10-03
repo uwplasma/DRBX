@@ -30,7 +30,7 @@ from drbx.native.fci_perpendicular_p07_sparse import apply_p07_sparse, export_p0
 from drbx.native.fci_perpendicular_point_rows import BoundaryArrays
 from drbx.native.fci_perpendicular_reconstruction_state import boundary_data_from_callables
 from drbx.native.fci_perpendicular_sharding import shard_perpendicular_plan
-from drbx.stencils.operator_plan import plan_nbytes
+from drbx.stencils.operator_plan import IntegratedNeumannRows, NeumannFaceRows, NeumannRows, plan_nbytes
 from tests import perpendicular_sharding_case as sharding_case
 from tests.perpendicular_synthetic import NF, Boundary, lower_world, make_world
 
@@ -177,16 +177,24 @@ def test_p07_columns_are_the_leading_columns_of_the_full_call(plan, fields, bc):
 # Plan fields that no operator reads
 # --------------------------------------------------------------------------
 
-def test_never_read_weight_arrays_are_absent_from_the_plan(plan):
+def test_never_read_weight_arrays_are_absent_from_the_plan(plan, world):
     p07n, side, common, cells = plan.p07.neumann, plan.faces.side_neumann, plan.faces.common_neumann, plan.cells.neumann
-    assert p07n.value_weights is None and p07n.boundary_value_weights is None          # P07 contracts gradients only
-    assert p07n.gradient_weights is not None and p07n.boundary_gradient_weights is not None
+    # default per-face union layout: P07's gradient weights are contracted with the integrand (no value weights at all)
+    assert isinstance(p07n, IntegratedNeumannRows) and isinstance(side, NeumannFaceRows)
+    assert isinstance(common, NeumannFaceRows) and isinstance(cells, NeumannRows)
+    assert len(jax.tree_util.tree_leaves(p07n)) == 4
     assert side.gradient_weights is None and side.boundary_gradient_weights is None    # R3 side rows: values only
     assert side.value_weights is not None and side.boundary_value_weights is not None
     for rows in (common, cells):                                                       # kept (value and gradient)
         assert all(a is not None for a in jax.tree_util.tree_leaves(rows)) and len(jax.tree_util.tree_leaves(rows)) == 6
-    payload = p07n.payload(0)
-    assert payload.value_weights is None
+    # reference per-row layout
+    rows_plan = lower_world(world, neumann_layout="rows")
+    p07n, side = rows_plan.p07.neumann, rows_plan.faces.side_neumann
+    assert p07n.value_weights is None and p07n.boundary_value_weights is None          # P07 contracts gradients only
+    assert p07n.gradient_weights is not None and p07n.boundary_gradient_weights is not None
+    assert side.gradient_weights is None and side.boundary_gradient_weights is None
+    assert side.value_weights is not None and side.boundary_value_weights is not None
+    assert p07n.payload(0).value_weights is None
     assert plan_nbytes(plan) == sum(np.asarray(a).nbytes for a in jax.tree_util.tree_leaves(plan))
 
 
@@ -199,7 +207,7 @@ def test_sharded_plan_keeps_the_dropped_fields_dropped_and_pads_chunk_multiples(
         plan = lower_world(world)
         sharded = shard_perpendicular_plan(plan, raw_to_owner, n, 2)
     stacked = sharded.plan.p07
-    assert stacked.neumann.value_weights is None and sharded.plan.faces.side_neumann.gradient_weights is None
+    assert isinstance(stacked.neumann, IntegratedNeumannRows) and sharded.plan.faces.side_neumann.gradient_weights is None
     for g, b in zip(plan.p07.rows.batches, stacked.rows.batches):
         assert (g.boundary_donor_ids is None) == (b.boundary_donor_ids is None)
         size = b.face_ids.shape[1]
