@@ -3213,6 +3213,24 @@ format assumes four eta planes and its wall lowerer 28 nodes; Q needs five and
 35, so those formats require explicit adapters/extensions. No numerical-policy,
 default, production or span-selection change is authorized by this extraction.
 
+**Full-grid representation and actual-GPU replay subgate passed, 3 October
+2026.** The [returned Q08 review](../../../../work/q08-verification-v2-149644b9-Apdb1a/local_report.md)
+validates all 1,056 records on N32/N48/N64, all 22 states, four D/N/mixed
+patterns, both diffusion spans and one/four A100 execution. Shared extraction
+now has full-domain implementation replay and measured device-resource
+evidence. Numerical span/eta-support selection, the remaining static scientific
+coverage, final coupled-RHS freeze and evolution remain open. The polynomial
+split remains opt-in; this pass does not change production defaults. See the
+returned-campaign entry below for timing and the host-memory estimate caveat.
+
+**Next scientific scope selected, 3 October 2026.** The user selected global
+static N-O-R qualification of the current six-field RHS before the pending
+span/eta-support comparison. The campaign at
+[`scripts/q08_rhs_mms_global`](../../../scripts/q08_rhs_mms_global/README.md)
+reuses the completed C3 banks, RK4-64 endpoints and polynomial GPU implementation.
+It preserves material h/32, outer h/16 and both diffusion spans. This does not
+settle the final span/support choice or close Q08.
+
 #### Q08 traced-span selection before freezing the coupled RHS
 
 **Required step — added by user decision, 30 September 2026; pending.**
@@ -3422,7 +3440,7 @@ The [original Phase A task](thread://01a0b561-d18d-78b1-b85f-bfe3d67efe49?hostId
 | Q05 | Shared traced preparation/application | Accepted traced-static preparation exception | closed by user acceptance | [Corrected extraction and second review](../../../../work/q05_traced_extraction_20260929/review_v2/report.md): 36 focused + 30 curated checks; 42 site/span replays and two full N64 chunks; max discrepancy 4.467e-10 < 1e-8. User closes Q05 on this evidence; complete-domain action replay remains unperformed and is waived as a Q06 prerequisite. No production promotion or Q04 structural/evolved pass. |
 | Q06 | Certify parallel gradient/divergence pairs | Q05 closed by user acceptance | closed by user acceptance; scoped static qualification | [Contract](q06_traced_gradient_divergence_contract.md), [global traced G](../../../../work/q06_traced_gradient_global_20260930/parent_review.md), [global tube D](../../../../work/q06_tube_global_20260929/parent_review.md), [structural audit](../../../../work/q06_structural_boundary_audit_20260930/report.md). Exact adjointness and owner-weighted conservation do not hold. [Smooth bulk balance](../../../../work/q06_resolved_conservation_20260930/parent_review.md) improves for all eight fields; N64 imbalance/activity 0.004–0.115%. User closes Q06 on 30 September with unchanged operators and documented approximate-balance/non-adjointness exceptions; no evolved or production pass. Continuum N-R/local maximum limits retained. Exterior ghosts unexercised; D(G f) diffusion unnecessary for closure and deferred. |
 | Q07 | Transport and material blocks | Q06 closed with exceptions | five-field static material qualified; bounded prescribed-boundary six-field assembly passed; full closure pending | [Contract](q07_transport_contract.md), [C3 h/32 global review](../../../../work/q07_c3_global_review_20261001/report.md), [six-field assembly](../../../../work/q07_six_field_assembly_20261002/report.md). User accepts the five material fields with documented exceptions. Six-field owner-state assembly replays material, current/phi, vorticity and constant diffusion channels, including D/N/mixed BCs. Keep C3, RK4-64, h/32 material inner and h/16 outer separation, balanced material tube and frozen donors; diffusion spans remain explicit. Next: Q08 engineering consolidation/pilot and remaining C3 static coverage for current/phi, vorticity and diffusion transfer. General basis/enrichment searches are deferred. Physical sheath/SAT, exterior crossings, evolution and production remain open. |
-| Q08 | Traced-span selection, frozen coupled parallel RHS and performance audit | Q07; engineering audit may proceed alongside remaining Q07 coverage | in progress: bounded shared extraction implemented and reviewed; full-grid/GPU and remaining scientific gates open | [Shared extraction plan](q08_shared_extraction_plan.md), [implementation review](../../../../work/q08_implementation_20261002/report.md). Paired preparation, compact bank/runtime, exact outer-factor capture and shared owner-plane utilities preserve accepted Q actions. Keep P/Q numerical policies distinct. Next complete full-grid representation/resource replay and real GPU measurements. Select suitable h/d and eta support separately before final RHS freeze; h/32 traced G remains provisional. Six evolved equations, prescribed phi, all selected parallel terms; static, performance and resource-feasibility gates remain open. |
+| Q08 | Traced-span selection, frozen coupled parallel RHS and performance audit | Q07; engineering audit may proceed alongside remaining Q07 coverage | in progress: full-grid extraction and one/four-A100 replay passed; span/support, remaining scientific coverage and final RHS gates open | [Shared extraction plan](q08_shared_extraction_plan.md), [implementation review](../../../../work/q08_implementation_20261002/report.md), [returned GPU review](../../../../work/q08-verification-v2-149644b9-Apdb1a/local_report.md). All 1,056 static implementation replays pass; N64 warmed full RHS is 34.74/10.30 ms on one/four A100s. Preserve separate P/Q numerical policies. Calibrate the underestimated host-memory guard before tighter allocations. Next select suitable h/d and eta support and finish remaining static term coverage before final RHS freeze; h/32 traced G remains provisional. Production defaults and time-dependent qualification are unchanged. |
 | Q09 | Evolved MMS and promotion | Q08; P07 for reconstructed phi | pending | Both phi legs, solution gates, structural and execution qualification; confirm Q08 span choices in evolution before production defaults. |
 | Q traced-return research | Frozen selective-repair traced diffusion | Completed layered/balanced/selective campaigns and interface audit | static reconstruction accuracy accepted with documented exceptions; operator frozen | [Frozen contract](q_traced_diffusion_frozen_contract.md), [global result](../../../../work/q_fci_selective_global_20260929/report.md), [interface audit](../../../../work/q_fci_repair_interface_audit_20260929/report.md). Whole-inner nonconstant RMS order>2 for both intervals/spans; localized join/coarse-envelope and O-R limitations retained. Current implementation choice is selective gradient repair, not always-balanced28. Q05 extraction closed by user acceptance on reviewed bounded evidence; Q06 static traced G/D closed with exceptions; next Q07 bounded density-flux block. Production defaults and broader Q04 certification remain unchanged. Earlier projected-return failures remain historical evidence. |
 
@@ -4650,3 +4668,88 @@ also reproduces every output leaf bitwise on the saved C3 N32 smooth-state
 patch for all four BC combinations and both diffusion spans, with one lowering
 and four retained eager actions per span. Actual A100/full-grid speedup of the
 revised verification harness remains to be measured.
+
+### Q08 optimized full-grid GPU replay passed — 3 October 2026
+
+The [returned campaign analysis](../../../../work/q08-verification-v2-149644b9-Apdb1a/local_report.md)
+and [independent local reduction](../../../../work/q08-verification-v2-149644b9-Apdb1a/local_analysis.json)
+pass at commit `149644b9bda68a137f24a325b8550aa5eebf16d9`, identity
+`1a953c60d7352b2a74e6a737d7c2be7dcca9ee194808db3154e5f840d4a9b087`.
+All 1,187 completion-file hashes and the committed source match. Local checks
+independently reduce the complete record/leaf/shape/timing matrix, 24 literal
+CPU merge audits and 48 compiler proofs. Large immutable baseline inputs remain
+remote; their source/input and full coverage checks are attested by the pinned
+remote validators, rather than numerically rerun locally.
+
+Coverage is 313,696 owners / 405,504 raw cells over N32/N48/N64, 22 states,
+four D/N/mixed patterns, both diffusion spans and one/four actual A100s:
+1,056 records and 7,392 synchronized warm calls. All required Boolean flags
+match and are valid; sampled full-catalogue BC data replay bitwise. Maximum
+floating replay differences are 2.503e-9 / 6.270e-9 / 6.368e-9, using
+0.233 / 0.627 / 0.627 of the unchanged component budget. Diffusion is within
+1.092e-12; literal merged/chunk audits use at most 0.00614 of the budget.
+These are implementation differences, not new N-O/O-R/N-R convergence norms.
+The polynomial candidate has CUDA LU/GEMM/triangular-solve targets and no
+general eigensolver, CPU LAPACK or host callback.
+
+Median warmed full-RHS calls are 4.67 / 13.92 / 34.74 ms on one A100 and
+2.29 / 4.94 / 10.30 ms on four, with matched speedups 2.05 / 2.88 / 3.37x.
+These are synchronized calls with plans/input arrays already on device, not
+P+Q integrator steps or live sheath updates. GPU stages take 6.14 / 16.90 /
+38.34 min; the numerical Slurm step completes in 63:03. N32 improves from the
+earlier reported 708 s to 368.6 s with unchanged coverage. The new ledger does
+not double-count shared BC/reference work. At N64, eager literal chunk audits
+take 1,085 s and merged CPU references 684 s (77.6% combined), while all 2,464
+warm GPU calls take 54.6 s (2.39%). Remaining verification cost is mainly the
+independent CPU audit; it is not production RHS work.
+
+Measured host-process peaks are 8.72 / 19.66 / 49.55 GiB, versus preflight
+estimates 4.22 / 14.26 / 34.90 GiB. The estimate excludes external runtime
+overhead and must not be used as a total-process bound on tighter allocations;
+calibration/headroom is a remaining engineering follow-up. Actual usage stays
+within the 224.4 GiB budget (Slurm whole-step MaxRSS about 53.9 GiB). At N64,
+GPU0 peaks at 7.01 GiB live / 8.50 GiB pool and the other GPUs at 3.38 / 4.13
+GiB each. These peaks include setup and sequential one/four-device variants,
+not isolated production-only storage; compressed BC cache is 1.46 GiB.
+
+Record the full-domain representation and actual-GPU implementation replay
+subgate as passed and retain the polynomial implementation as the working Q08
+candidate. Continue with the predeclared bounded span/eta-support comparison
+and remaining static coupled-term evidence before final RHS freeze. Full Q08,
+production-default selection, evolved stability/timestep feasibility and the
+documented physical-wall/exterior-crossing limitations remain open. No new
+tracing, numerical tuning, source promotion or production change occurred in
+this analysis.
+
+### Q08 six-field global static MMS preparation — 3 October 2026
+
+The next campaign reuses the completed extraction inputs and GPU replay receipts
+without retracing, rebuilding rows or rerunning the old performance matrix.
+All 22 states, four D/N/mixed patterns, N32/N48/N64 and complete owners remain.
+The 31 independently scored outputs include six-field centered, correction,
+diffusion and combined actions, primitive-product current, omega advection and
+current drive, phi force, electron material, Ti compensation and generalized
+force. Candidate N runs on four A100s with the unchanged polynomial split.
+Independent O/R references are computed once per chunk on a bounded CPU pool
+and reused across BC patterns. A steady S=-R source is added in the same GPU
+assembly call and its residual is checked against N-R. No evolved MMS or full
+physical-sheath/SAT claim is added.
+
+R retains the previous raw-center target and physical-volume owner projection.
+The three fourth-order coordinate-flux reference steps are retained, including
+per-term sensitivity. O/R are not integrated volume references and the first
+step remains the target; no favorable step is selected after seeing errors.
+Global/regional RMS, relative RMS, maxima with owner IDs, signed integrals and
+both refinement orders are returned for local scientific interpretation.
+Scientific rebounds do not trigger tuning or abort the computation.
+
+Local replay of 21 complete actual-HSX owners, all states/BCs/spans reproduces
+persisted O/R within 1.71e-13/1.42e-13 and polynomial N within 4.26e-11. These
+are bounded implementation checks, not new convergence evidence. A separate
+spawn-worker/checkpoint test and four forced-CPU-device sharding test reproduce
+source addition to 6.94e-18; actual CUDA preflight is mandatory remotely. The
+host merge guard now includes three times the old estimate plus 8 GiB, and
+CPU reference workers are pinned before JAX initialization with a 4 GiB cap.
+The previous seven repeats, one-GPU scaling matrix and full literal CPU N
+sweeps are omitted because those engineering gates already passed. Full Q08,
+span/support selection, production promotion and Q09 evolution remain open.
