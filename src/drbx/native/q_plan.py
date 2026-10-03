@@ -123,8 +123,12 @@ def _diffusion(plan,x,bc,kinds,gathered,coefficients):
 
 
 def apply_q_plan(plan,state,inner_boundary,outer_boundary,phi,phi_boundary,
-                 coefficients,*,kinds,phi_kind,tau,mu):
-    """Preserve SixFieldAction outputs; six-field material state is real only."""
+                 coefficients,*,kinds,phi_kind,tau,mu,characteristic_method="eig"):
+    """Preserve SixFieldAction outputs; six-field material state is real only.
+
+    Static ``characteristic_method`` defaults to the accepted ``eig`` path.
+    ``polynomial`` is an opt-in device-native implementation candidate.
+    """
     x=jnp.asarray(state)
     if x.ndim<2 or x.shape[-2]!=6 or x.dtype.kind!='f':
         raise ValueError('real (...,6,n_owner) state required')
@@ -144,7 +148,8 @@ def apply_q_plan(plan,state,inner_boundary,outer_boundary,phi,phi_boundary,
     ps=_scalar(plan,powner[...,None,:],pb,pb,(phi_kind,),fetched[...,6:,:,:],slots=(1,3,2)).value[...,0,:,:]
     # value is (...,field,raw,slot); material consumes (...,raw,slot,field).
     stencil=jnp.moveaxis(slots.value[...,:5,:,:],-3,-1)
-    material=material_from_slots(stencil,ps,plan.magnetic_L,plan.b_eta,plan.eta_step,tau=tau,mu=mu)
+    material=material_from_slots(stencil,ps,plan.magnetic_L,plan.b_eta,plan.eta_step,
+                                tau=tau,mu=mu,characteristic_method=characteristic_method)
     homogeneous=jnp.moveaxis(slots.homogeneous[...,:5,:,jnp.array([1,3,2])],-3,-1)
     inner=jnp.moveaxis(slots.value[...,:5,:,jnp.array([1,3,2])],-3,-1)
     def current_div(v):

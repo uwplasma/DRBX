@@ -1,0 +1,34 @@
+{
+  "schema": "q08-polynomial-profile-v1",
+  "default_unchanged": true,
+  "backend": "gpu",
+  "cases": [
+    1,
+    0,
+    21
+  ],
+  "kinds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "n": 32,
+  "diffusion_span": 0.0625,
+  "material_span": 0.03125,
+  "atol": 1e-08,
+  "rtol": 1e-11,
+  "repeats": 3,
+  "devices": [
+    1,
+    4
+  ],
+  "files": {
+    "overlay/q_characteristic_polynomial.py": "38f56a5047fe26b106b79d46f8d24a77349bb378d0c809a01801031bdf9faa45",
+    "overlay/q_parallel_characteristic.py": "6612b8fd5e721b6e1d5d694157920580957955eb6969d349642bfae794d0e580",
+    "overlay/q_parallel_material.py": "3b0957650e22dee815a2ca8aa283ed4da2866091f8efcaf10ccdab43cff8c2da",
+    "overlay/q_plan.py": "dd5c79901d104b4e2b96239ba54ff931a0b62af650c90422c882c380e128c840",
+    "overlay/q_sharding.py": "fb835821731d8a46f929c282aa6d90390d560dd9bd95555a28a93637a523fd58",
+    "profile.py": "9a3d1ae405ee80aafbff3eb09ad5d03df1ecf2221a2b9835f30b63bb7431c5be"
+  }
+}
