@@ -2,7 +2,7 @@
 from pathlib import Path
 import time
 import numpy as np
-from campaign import write
+from scripts.q08_rhs_mms_global.campaign import write
 
 
 def bounded(run, old, identity, canonical, *, gpu=False, test_cpu=False):
@@ -13,7 +13,7 @@ def bounded(run, old, identity, canonical, *, gpu=False, test_cpu=False):
     from drbx.stencils.q_plan import lower_q_plan
     from drbx.native.q_plan import apply_q_plan
     from drbx.native.q_parallel import QBoundaryData
-    from science import oracle, continuum, numerical
+    from scripts.q08_rhs_mms_global.science import oracle, continuum, numerical
     from gpu_stage import compiler_guard
     if gpu:
         from scripts.q08_extraction_global.gpu import device_inventory

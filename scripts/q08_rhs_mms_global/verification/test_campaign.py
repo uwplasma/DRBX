@@ -2,6 +2,7 @@
 import argparse
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -9,19 +10,27 @@ from unittest.mock import patch
 import numpy as np
 
 HERE=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(HERE))
-from campaign import load,sha,write,read,require,check_source,bind
+sys.path.insert(0,str(HERE.parents[1]))
+from scripts.q08_rhs_mms_global.campaign import load,sha,write,read,require,check_source,bind
 p=argparse.ArgumentParser(add_help=False)
 p.add_argument('--baseline-source',type=Path,default=HERE.with_name('q08_extraction_global'))
 p.add_argument('--run',type=Path,default=Path(tempfile.gettempdir())/'q08-mms-portable-tests')
 a, remaining=p.parse_known_args()
 load(a.baseline_source,a.run)
-from science import reduce_case,pack,TERMS,SPANS
-from references import valid
-from gpu import record_valid
+from scripts.q08_rhs_mms_global.science import reduce_case,pack,TERMS,SPANS
+from scripts.q08_rhs_mms_global.references import valid
+from scripts.q08_rhs_mms_global.gpu import record_valid
 
 
 class CampaignTests(unittest.TestCase):
+    def test_cold_controller_and_spawn_ignore_bare_campaign_collision(self):
+        with tempfile.TemporaryDirectory() as folder:
+            result = subprocess.run([sys.executable, str(HERE/'verification/import_probe.py'),
+                '--baseline-source', str(a.baseline_source.resolve()), '--run', folder],
+                capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('"spawned_worker": true', result.stdout)
+
     def test_hash_is_content_based(self):
         with tempfile.TemporaryDirectory() as folder:
             p=Path(folder)/'x';p.write_bytes(b'abc');s=p.stat();h=sha(p)
@@ -101,7 +110,7 @@ class CampaignTests(unittest.TestCase):
             with self.assertRaises(ValueError):record_valid(p,'a',32,1/32,2,6)
 
     def test_report_recovers_order_two_and_marks_zero_reference(self):
-        import analyze as module
+        from scripts.q08_rhs_mms_global import analyze as module
         shape=(3,2,4,22,9,3,len(TERMS))
         rms=np.broadcast_to((1/np.array([32.,48.,64.])**2).reshape(3,1,1,1,1,1,1),shape)
         volume=np.ones(shape[:-2])

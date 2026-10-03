@@ -3,13 +3,13 @@ import csv
 import io
 from pathlib import Path
 import numpy as np
-from campaign import NS, read, write, sha, require
-from science import SPANS, TERMS, REGIONS, METRICS
+from scripts.q08_rhs_mms_global.campaign import NS, read, write, sha, require
+from scripts.q08_rhs_mms_global.science import SPANS, TERMS, REGIONS, METRICS
 from scripts.q08_extraction_global import common as c
 
 
 def collect(run, identity):
-    from gpu import validate_grid
+    from scripts.q08_rhs_mms_global.gpu import validate_grid
     grids = []
     all_stats = {}
     for n in NS:
