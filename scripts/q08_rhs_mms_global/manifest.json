@@ -1,0 +1,52 @@
+{
+  "schema": "q08-six-field-static-mms-v1",
+  "baseline_identity": "ff1bff86e4af5045b84856d16550f0f45edcbe03b83fc83cc5584557af4c8722",
+  "implementation_identity": "1a953c60d7352b2a74e6a737d7c2be7dcca9ee194808db3154e5f840d4a9b087",
+  "n": [
+    32,
+    48,
+    64
+  ],
+  "cases": 22,
+  "kinds": 4,
+  "diffusion_spans": [
+    0.0625,
+    0.03125
+  ],
+  "material_span": 0.03125,
+  "outer_span": 0.0625,
+  "actual_gpu_devices": 4,
+  "reference_steps": [
+    0.0001,
+    5e-05,
+    2.5e-05
+  ],
+  "method": "polynomial",
+  "new_tracing": false,
+  "new_preparation": false,
+  "new_references": true,
+  "fields": [
+    "n",
+    "Te",
+    "Ti",
+    "Vi",
+    "Ve",
+    "omega"
+  ],
+  "outputs": 31,
+  "replay_atol": 1e-08,
+  "replay_rtol": 1e-11,
+  "constant_atol": 1e-07,
+  "files": {
+    "README.md": "c259d0b2c9d55d27d97e7ba74cd882def32d9c7ad2eb2dc1b08ffeb793892540",
+    "analyze.py": "e3e916ed639759e56c6e287abe382b8c5282ae4d7c1ebb4d96bf5c3804904ca3",
+    "campaign.py": "cb348fba3e7dff180d8bf79684b7cf6407e217c78ad71b0e7e18b001d1dcfd14",
+    "freeze.py": "ccbb4b3131f239fd24b690dea955445519b6e2450670220c538de8c5e6cc4c97",
+    "gpu.py": "9304578a1b6cdfd39e212bc8f53fc55f93b9f048bcfa5bfc7bfcdda54c2c4164",
+    "preflight.py": "be90773bf32ccab9095a5d9cfd6505a9442f8ed5b64e532f4b44b675a1fc61da",
+    "references.py": "e385ca8518cee16f34197fd7dee18957dfadb567dcfff21b93467caaa2572c4e",
+    "run_all.py": "17dd89a25039f1109c39400d3a3a5ddd83780ec4ee8b1c9dc5a1e0ccbdb7bafc",
+    "science.py": "4e1e4cafb70c8187dade9ec917db6d75556710fd4d4194e4e5b6f212fe15fd3a",
+    "verification/test_campaign.py": "8a6d65519d6c47ae6f4e2c0cde9c2ae442b0a763e48a9023b9d2d205a2168b75"
+  }
+}
