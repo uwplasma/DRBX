@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""Generate a resumable HSX FCI simulation-geometry artifact.
+
+This command only constructs geometry.  It never launches a simulation run.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+import sys
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+_drbx_source_override = os.environ.get("DRBX_SOURCE_ROOT")
+DRBX_SRC = (
+    Path(_drbx_source_override).expanduser().resolve()
+    if _drbx_source_override
+    else SCRIPT_DIR / "src"
+)
+if not DRBX_SRC.is_dir() or not (DRBX_SRC / "drbx").is_dir():
+    source_origin = "DRBX_SOURCE_ROOT" if _drbx_source_override else "default"
+    raise RuntimeError(
+        f"{source_origin} DRBX source root must be a src directory containing "
+        f"a drbx package, got {DRBX_SRC}"
+    )
+if str(DRBX_SRC) not in sys.path:
+    sys.path.insert(0, str(DRBX_SRC))
+
+from drbx.fci_braginskii.geometry_build.hsx_simulation_geometry import (
+    HsxSimulationGeometryConfig,
+    build_hsx_simulation_geometry,
+)
+
+
+def _parser() -> argparse.ArgumentParser:
+    root = Path(__file__).resolve().parent
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--resolution", nargs=3, type=int, required=True, metavar=("NU", "NTHETA", "NETA"), help="Toroidal cell counts.")
+    parser.add_argument("--output", type=Path, required=True, help="Output geometry artifact path.")
+    parser.add_argument(
+        "--makegrid",
+        type=Path,
+        default=root / "artifacts" / "inputs" / "hsx" / "mgrid_res2p5cm_180pln.nc",
+        help=(
+            "Path to the HSX MAKEGRID vacuum-field file. Not distributed with "
+            "the repository; see docs/fci_braginskii_hsx_backend.md."
+        ),
+    )
+    parser.add_argument(
+        "--vessel",
+        type=Path,
+        default=root / "artifacts" / "inputs" / "hsx" / "vessel_hsx_flare.txt",
+        help=(
+            "Path to the HSX vessel/wall boundary file. Not distributed with "
+            "the repository; see docs/fci_braginskii_hsx_backend.md."
+        ),
+    )
+    parser.add_argument("--makegrid-currents", type=lambda value: tuple(float(part) for part in value.split(",")), default=None)
+    parser.add_argument("--fit-sample-shape", nargs=3, type=int, default=(8, 9, 8), metavar=("NR", "NPHI", "NZ"))
+    parser.add_argument("--radial-degree", type=int, default=3)
+    parser.add_argument("--vertical-degree", type=int, default=3)
+    parser.add_argument("--toroidal-modes", type=int, default=2)
+    parser.add_argument("--metric-spline-degree", type=int, default=1)
+    parser.add_argument("--mmpde-iterations", type=int, default=0)
+    parser.add_argument("--metric-mesh-shape", nargs=3, type=int, required=True, metavar=("NU", "NTHETA", "NETA_PERIOD"))
+    parser.add_argument("--metric-radial-degree", type=int, default=17)
+    parser.add_argument("--metric-poloidal-modes", type=int, default=15)
+    parser.add_argument("--metric-toroidal-modes", type=int, default=16)
+    parser.add_argument("--eta-projection-iterations", type=int, default=0)
+    parser.add_argument("--axis-core-radius", type=float, default=0.03)
+    parser.add_argument("--reference-magnetic-field", type=float, default=None)
+    parser.add_argument("--include-curvature-edge-one-form", action="store_true")
+    parser.add_argument("--metric-cache-dir", type=Path, default=None)
+    parser.add_argument("--map-cache", type=Path, default=None, help="Optional independent FCI map cache/checkpoint path.")
+    parser.add_argument("--status", type=Path, default=None, help="Resumable status JSON path.")
+    parser.add_argument("--log", type=Path, default=None, help="Append-only producer log path.")
+    parser.add_argument("--rebuild-metric-cache", action="store_true")
+    parser.add_argument(
+        "--trace-backend",
+        choices=("jax", "numpy"),
+        default="jax",
+        help="Producer tracing backend. JAX is compiled and batch-sharded; NumPy is the reference fallback.",
+    )
+    parser.add_argument(
+        "--trace-batch-size",
+        type=int,
+        default=2048,
+        help="Fixed compiled trajectory batch size (rounded up across selected devices).",
+    )
+    parser.add_argument(
+        "--trace-device-count",
+        type=int,
+        default=None,
+        help="Number of local JAX devices used to shard trajectory batches; default uses all local devices.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    config = HsxSimulationGeometryConfig(
+        makegrid_path=args.makegrid,
+        vessel_path=args.vessel,
+        resolution=tuple(args.resolution),
+        fit_sample_shape=tuple(args.fit_sample_shape),
+        radial_degree=args.radial_degree,
+        vertical_degree=args.vertical_degree,
+        toroidal_modes=args.toroidal_modes,
+        metric_spline_degree=args.metric_spline_degree,
+        mmpde_iterations=args.mmpde_iterations,
+        metric_mesh_shape=tuple(args.metric_mesh_shape),
+        metric_radial_degree=args.metric_radial_degree,
+        metric_poloidal_modes=args.metric_poloidal_modes,
+        metric_toroidal_modes=args.metric_toroidal_modes,
+        eta_projection_iterations=args.eta_projection_iterations,
+        axis_core_radius=args.axis_core_radius,
+        reference_magnetic_field=args.reference_magnetic_field,
+        makegrid_currents=args.makegrid_currents,
+        metric_cache_dir=args.metric_cache_dir,
+        map_cache_path=args.map_cache,
+        output=args.output,
+        rebuild_metric_cache=args.rebuild_metric_cache,
+        include_curvature_edge_one_form=args.include_curvature_edge_one_form,
+        trace_backend=args.trace_backend,
+        trace_batch_size=args.trace_batch_size,
+        trace_device_count=args.trace_device_count,
+    )
+    build_hsx_simulation_geometry(config, status_path=args.status, log_path=args.log)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
