@@ -38,6 +38,7 @@ GEOMETRY = WORKSPACE / "geometry_artifacts/rlp_convergence_32_48_64_20260917"
 SIDECAR = WORKSPACE / "work/p07n_extraction_hotspot_audit_20260926/localized_sidecar.json"
 N = 32
 CAMPAIGNS = ("p05", "p05n_frozen", "p05n_upwind", "p06n", "p06_legacy", "p07", "p07n")
+P05_PREFIX_JUMP_RECORD_SIGN = -1.0  # records saved before the 2026-10-03 P05 jump sign correction
 
 pytestmark = pytest.mark.slow
 
@@ -241,17 +242,17 @@ def _synthetic_units(env, paths, rng):
         cells["p05_centered"] = pair(z["centered"], vol)
     cells["p05_antisymmetry_max"] = 3e-15
     with np.load(paths["p05"] / "reuse_inputs" / f"N{n}.reuse.npz", allow_pickle=False) as z:
-        faces["p05_live_jump_owner_num"] = pair(z["old_U_minus_A"], vol)
+        faces["p05_live_jump_owner_num"] = pair(P05_PREFIX_JUMP_RECORD_SIGN * z["old_U_minus_A"], vol)
     upwind = _load_p05_upwind(paths["p05_upwind_chunks"], n)
     faces["p05_live_jump_p07ids"] = np.arange(len(upwind), dtype=np.int64)
-    faces["p05_live_jump_values"] = upwind * (1.0 + 1e-9 * rng.normal(size=upwind.shape))
+    faces["p05_live_jump_values"] = P05_PREFIX_JUMP_RECORD_SIGN * upwind * (1.0 + 1e-9 * rng.normal(size=upwind.shape))
     for name, root in (("p05n_frozen", paths["p05n_frozen"]), ("p05n_upwind", paths["p05n_p06n_upwind"] / "p05n_upwind")):
         with np.load(root / f"N{n}.raw.npz", allow_pickle=False) as z:
             for suf in ("N", "D", "R"):
                 cells[f"{name}_raw_{suf}"] = pair(z[suf], vol)
         with np.load(root / f"N{n}.faces.npz", allow_pickle=False) as z:
             for suf in ("N", "D"):
-                faces[f"{name}_face_{suf}"] = pair(z[suf], vol)
+                faces[f"{name}_face_{suf}"] = pair(P05_PREFIX_JUMP_RECORD_SIGN * z[suf], vol)
     root = paths["p05n_p06n_upwind"] / "p06n"
     with np.load(root / f"N{n}.raw.npz", allow_pickle=False) as z:
         for label in ("material", "remainder", "total", "R_material", "R_remainder", "R_total"):

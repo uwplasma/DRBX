@@ -55,7 +55,7 @@ from p_shared.bfield import DEFAULT_BFIELD_TOROIDAL  # noqa: E402
 from p_shared.inner_support import DEFAULT_INNER_SUPPORT  # noqa: E402
 from p_shared import replay_units as ru                            # noqa: E402
 from p_shared.replay_support import (                              # noqa: E402
-    Environment, build_environment, _load_p05_upwind,
+    Environment, build_environment, _load_p05_upwind, P05_PREFIX_JUMP_RECORD_SIGN,
 )
 from drbx.stencils import builder as stencil_builder                # noqa: E402
 
@@ -566,7 +566,8 @@ def compare_to_oracle(env: Environment, out: dict, unique_owners, paths: dict, c
 
         with np.load(paths["p05"] / "reuse_inputs" / f"N{n}.reuse.npz", allow_pickle=False) as z:
             saved_old_u_minus_a = z["old_U_minus_A"][owner_arr]
-        replay_live_jump = dense(out["faces"]["p05_live_jump_owner_num"]) / t.vol[owner_arr, None]
+        replay_live_jump = (P05_PREFIX_JUMP_RECORD_SIGN * dense(out["faces"]["p05_live_jump_owner_num"])
+                            / t.vol[owner_arr, None])
         rows.append(_row("P05", "live_jump_vs_old_U_minus_A", replay_live_jump, saved_old_u_minus_a,
                          archived_error_p05))
 
@@ -576,7 +577,7 @@ def compare_to_oracle(env: Environment, out: dict, unique_owners, paths: dict, c
         vals = np.asarray(out["faces"]["p05_live_jump_values"])
         if len(p07ids):
             keep = p07ids < saved_upwind.shape[0]
-            diff = vals[keep] - saved_upwind[p07ids[keep]]
+            diff = P05_PREFIX_JUMP_RECORD_SIGN * vals[keep] - saved_upwind[p07ids[keep]]
             max_abs = float(np.max(np.abs(diff))) if diff.size else 0.0
             rows.append({"campaign": "P05", "term": "live_jump_vs_upwind (pointwise)", "max_abs": max_abs,
                         "max_rel": None, "ratio_to_oracle_NR": None, "pass": max_abs <= ABS_FALLBACK_TOLERANCE,
@@ -595,7 +596,8 @@ def compare_to_oracle(env: Environment, out: dict, unique_owners, paths: dict, c
             replay = dense(out["cells"][f"{name}_raw_{suffix}"]) / t.vol[owner_arr, None]
             rows.append(_row(name, f"raw_{suffix}", replay, saved, archived_error_raw))
         for suffix, saved in (("N", saved_face_N), ("D", saved_face_D)):
-            replay = dense(out["faces"][f"{name}_face_{suffix}"]) / t.vol[owner_arr, None]
+            replay = (P05_PREFIX_JUMP_RECORD_SIGN * dense(out["faces"][f"{name}_face_{suffix}"])
+                      / t.vol[owner_arr, None])
             rows.append(_row(name, f"face_{suffix}", replay, saved, archived_error_raw))
 
     if "p06n" in campaigns and "q1_evolution_volume" in out.get("cells", {}):

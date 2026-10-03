@@ -12,6 +12,7 @@ from drbx.native.fci_perpendicular_face_corrections import (
 )
 
 DATA=Path(__file__).parent/'data/p_shared_face_rows'
+P05_PREFIX_JUMP_RECORD_SIGN=-1.0  # records saved before the 2026-10-03 P05 jump sign correction
 
 
 @pytest.mark.parametrize('n',(32,48,64))
@@ -48,13 +49,14 @@ def test_p05_real_hsx_complete_owner_jump_and_decomposition(n):
     fn=jax.jit(lambda side:p05_scalar_face_jump(a['common_gradient'],a['lower_value'],side,
         a['h_covariant_over_b'],a['quadrature_weight'],a['face_axis'],a['pairs']))
     face=np.asarray(fn(a['upper_value']))
-    np.testing.assert_allclose(face,a['expected_active_jump'],rtol=0,atol=2e-9)
+    np.testing.assert_allclose(P05_PREFIX_JUMP_RECORD_SIGN*face,a['expected_active_jump'],rtol=0,atol=2e-9)
     full=np.zeros((len(a['lower_owner']),len(a['pairs'])))
     full[a['active_positions']]=face
     owner=np.asarray(scatter_p05_jump(full,a['lower_owner'],a['upper_owner'],a['owner_volume']))
     selection=a['selected_owner_positions']
-    np.testing.assert_allclose(owner[selection],a['expected_owner_jump'],rtol=0,atol=2e-9)
-    np.testing.assert_allclose(a['centered']+owner[selection],a['accepted'],rtol=0,atol=2e-9)
+    np.testing.assert_allclose(P05_PREFIX_JUMP_RECORD_SIGN*owner[selection],a['expected_owner_jump'],rtol=0,atol=2e-9)
+    # accepted = centered + (old-sign owner jump); the live owner jump has the opposite sign.
+    np.testing.assert_allclose(a['centered']+P05_PREFIX_JUMP_RECORD_SIGN*owner[selection],a['accepted'],rtol=0,atol=2e-9)
 
 
 def test_p05_scalar_jump_orientation_and_changed_state():
@@ -64,12 +66,12 @@ def test_p05_scalar_jump_orientation_and_changed_state():
     weight=np.ones((1,9))/9
     fn=jax.jit(lambda side:p05_scalar_face_jump(gradient,lower,side,h,weight,np.array([0]),np.array([[0,1]])))
     flux=np.asarray(fn(upper))
-    np.testing.assert_allclose(flux,[[-1.]],rtol=0,atol=1e-14)
+    np.testing.assert_allclose(flux,[[1.]],rtol=0,atol=1e-14)
     owners=np.asarray(scatter_p05_jump(flux,np.array([0]),np.array([1]),np.array([2.,4.])))
-    np.testing.assert_allclose(owners,[[-.5],[.25]],rtol=0,atol=1e-14)
+    np.testing.assert_allclose(owners,[[.5],[-.25]],rtol=0,atol=1e-14)
     tangent=np.ones_like(upper);tangent[:,:,1]=3.
     _,derivative=jax.jvp(fn,(jnp.asarray(upper),),(jnp.asarray(tangent),))
-    np.testing.assert_allclose(np.asarray(derivative),[[-1.5]],rtol=0,atol=1e-14)
+    np.testing.assert_allclose(np.asarray(derivative),[[1.5]],rtol=0,atol=1e-14)
     np.testing.assert_allclose(np.asarray(fn(upper+0.1*tangent)),flux+0.1*np.asarray(derivative),rtol=0,atol=1e-14)
     move=jax.jit(lambda g:p05_scalar_face_jump(g,lower,upper,h,weight,np.array([0]),np.array([[0,1]])))
     direction=np.zeros_like(gradient);direction[:,:,1,0]=.1
@@ -77,6 +79,27 @@ def test_p05_scalar_jump_orientation_and_changed_state():
     eps=1e-5
     finite=(move(gradient+eps*direction)-move(gradient-eps*direction))/(2*eps)
     np.testing.assert_allclose(derivative,finite,rtol=1e-7,atol=1e-10)
+
+
+def test_p05_jump_is_dissipative_energy_identity():
+    # 1-D chain: 6 owners, 5 interior faces, piecewise-constant traces (lower = lower owner value, upper = upper owner value).
+    rng=np.random.default_rng(20261003)
+    n_owner,n_face,nq=6,5,4
+    g=rng.standard_normal(n_owner)
+    speed=rng.standard_normal((n_face,nq))          # both signs
+    weight=rng.uniform(.2,1.,(n_face,nq))           # positive
+    lo=np.arange(n_face);hi=lo+1
+    # velocity_axis0 = h_z * dg/dy for h=(0,0,1), gradient=(0,gy,0): see the orientation test
+    gradient=np.zeros((n_face,nq,3,1));gradient[:,:,1,0]=speed
+    h=np.zeros((n_face,nq,3));h[:,:,2]=1.
+    lower=np.broadcast_to(g[lo][:,None,None],(n_face,nq,1)).copy()
+    upper=np.broadcast_to(g[hi][:,None,None],(n_face,nq,1)).copy()
+    face=p05_scalar_face_jump(gradient,lower,upper,h,weight,np.zeros(n_face,dtype=int),np.array([[0,0]]))
+    rhs=np.asarray(scatter_p05_jump(face,lo,hi,np.ones(n_owner)))
+    energy=float(np.sum(g*rhs[:,0]))
+    expected=-.5*float(np.sum(weight*np.abs(speed)*(g[hi]-g[lo])[:,None]**2))
+    np.testing.assert_allclose(energy,expected,rtol=0,atol=1e-13)
+    assert energy<0
 
 
 def test_p06_midpoint_material_remainder_closure():

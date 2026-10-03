@@ -207,6 +207,9 @@ ULP_FACTOR = 1000.0
 
 KINDS = ("regular", "cancellation")
 
+#: Multiply a live P05 jump-derived quantity by this before comparing it with a stored record.
+P05_PREFIX_JUMP_RECORD_SIGN = -1.0  # records saved before the 2026-10-03 P05 jump sign correction
+
 
 def model_conditioning_floor(constituent_scale, *, ulp_factor: float = ULP_FACTOR):
     """The documented model floor ``ulp_factor * EPS * |constituent_scale|`` (scalar or array; an array must
