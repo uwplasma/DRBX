@@ -44,7 +44,7 @@ def test_pyproject_dependencies_are_unpinned() -> None:
     )
     for name, items in optional_dependencies.items():
         if name == "essos":
-            assert items == ["essos>=0.19.3"]
+            assert items == ["essos>=0.19.4"]
         else:
             assert all(not _has_version_specifier(item) for item in items)
 
