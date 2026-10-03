@@ -4614,3 +4614,39 @@ bitwise-uniform nonwall templates under a declared memory bound, rather than
 retaining 22 dense states. New results have their own frozen identity/output
 folder; old partial eig timing records are not reused as polynomial records.
 N32 completes and validates first, then checked resume continues N48/N64.
+
+### Q08 verification overhead optimization — 3 October 2026
+
+The reported N32 polynomial GPU matrix took 708 s, while its 2,464 warm
+operator calls took only 8.4 s. This is verification/setup overhead, not a
+measured integrator timestep. The harness now evaluates only the requested
+manufactured state in bounded wall batches and builds compact wall data
+directly, preserving exact nonwall padding. Validated literal chunk host plans
+are reused across the four BC combinations; every eager CPU eig action and all
+eight independent merge audits remain. Compiler proofs are read/hashed once
+per validation invocation and hardware inventory once at preflight; per-record
+allocator measurements remain. Exclusive timing now accounts for merge,
+reference/audit work, output comparison, proof inspection, I/O and cleanup;
+shared CPU/BC timings are counted once per one/four-device pair.
+
+[Bounded boundary audit](../../../../work/q08_verification_optimization_20261003/boundary_audit.json):
+all 22 states on the saved C3 N32/N48/N64 banks replay bitwise, including
+physical-normal data, tangential data, affine omega padding and cached restore.
+Median cold-cache BC speedups were 5.55/4.30/3.73x on these local patches under
+load. These are not full-grid or A100 campaign speedups. A runtime bitwise gate
+also compares all 22 states against the old producer on distributed actual wall
+queries before new GPU work. The complete 352-record matrix, seven warm repeats,
+operator arithmetic and replay tolerances are unchanged. No running remote
+source/checkpoint is edited or relabeled; deployment requires the new frozen
+verification identity in its own output namespace. This optimization does not
+close full Q08 or promote the production default.
+
+Validation: 17 focused pytest checks and 8 portable checks pass. The four-host-
+device orchestration/resume test passed in 97.12 s on isolated retry; its first
+attempt completed all 16 replay records in 281.39 s but exceeded the 300 s
+subprocess deadline during the additional resume check. No gate/deadline was
+changed. The [literal reference audit](../../../../work/q08_verification_optimization_20261003/literal_audit.json)
+also reproduces every output leaf bitwise on the saved C3 N32 smooth-state
+patch for all four BC combinations and both diffusion spans, with one lowering
+and four retained eager actions per span. Actual A100/full-grid speedup of the
+revised verification harness remains to be measured.

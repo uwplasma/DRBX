@@ -138,9 +138,20 @@ def analyze(run, baseline_run, identity):
         lines.append(f"| {grid['n']} | {len(records)} | "
                      f"{max(r['metrics']['max_scaled_error'] for r in records):.6g} | "
                      f"{grid['host_peak_rss_gib']:.4f} | {grid['boundary_cache']['producer_calls']} |")
+    lines += ['', 'Exclusive timings for each grid’s most recent invocation (seconds).',
+              'Resumed invocations cover only their remaining work; final summary writes',
+              'and independent completion validation are outside these ledgers.', '',
+              '| N | phase | seconds |', '|---|---|---:|']
+    for grid in result['gpu']:
+        for phase, seconds in grid['invocation_timing']['phases_seconds'].items():
+            lines.append(f"| {grid['n']} | {phase} | {seconds:.3f} |")
     lines += ['', 'Detailed setup, reference, compilation, transfer, warm timing and memory',
               'receipts remain in gpu/N*/records. Existing CPU banks are external immutable',
-              'inputs with original identities; the old RUN was not modified.']
+              'inputs with original identities; the old RUN was not modified.', '',
+              '`record_timing_totals` deduplicates boundary preparation and CPU reference',
+              'times shared by one/four-GPU records. It is not a complete wall-clock total;',
+              'use the exclusive invocation ledger for that. Seven warm repeats and all',
+              'eight independent CPU chunk audits are retained.']
     (run / 'report.md').write_text('\n'.join(lines) + '\n')
     return result
 

@@ -27,9 +27,31 @@ source. Do not freeze or edit source/manifests remotely.
   templates. All22 full-grid and smooth literal-chunk entries are bounded by
   an explicit cache budget included in host preflight. No new fitting or BC law.
   Only one dense state's boundary arrays are used at a time.
+- The optimized producer evaluates only the requested state, in batches of
+  at most 128 wall rows. It builds compact wall data directly; nonwall zeros
+  and the original affine omega offset are filled when restoring dense input.
+  All 22 states are checked bitwise against the original producer on up to
+  eight distributed actual wall rows before GPU work, including normal data
+  and nonwall padding. No field formula, wall law or replay tolerance changes.
+- The eight literal CPU eig audits remain eager and independent of the merged
+  candidate. Their host plans are lowered once per chunk/span and reused across
+  the four BC combinations. Plans reference the checked NumPy bank arrays;
+  this does not cache full-grid reference outputs or move candidate work to CPU.
 - Candidate compiler targets exclude general eigensolvers and host callbacks.
   Compilation, transfer, CPU reference, boundary preparation, seven synchronized
   warm calls and host/device memory are recorded separately.
+- Hardware/driver inventory runs once at preflight; allocator memory is still
+  sampled per record. Each compiler proof is read, hashed and inspected once
+  per validation invocation, with a fresh check on restart/completion.
+- An exclusive wall-clock ledger includes merge, hashing/provenance, BCs,
+  references, chunk audits, output comparison, compiler inspection, I/O and
+  cleanup. Separate record totals count the shared CPU/BC work once for each
+  one/four-GPU pair. Seven warm repeats and all 352 records remain required.
+
+This verification optimization has its own frozen source identity. It does
+not edit or resume the already-running `0107dd5d` campaign in place. Existing
+records must retain their original identity; a new deployment uses a separate
+RUN unless an explicit, separately validated migration is provided.
 
 Read-only verification independently re-reduces every CPU chunk receipt and
 coverage gate, checks all bank/data payload hashes and original canonical

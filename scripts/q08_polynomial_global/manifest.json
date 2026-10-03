@@ -3,6 +3,7 @@
   "baseline_identity": "ff1bff86e4af5045b84856d16550f0f45edcbe03b83fc83cc5584557af4c8722",
   "profile_identity": "10ce76b4096cccfb7dd5dc6aacafbee15853685fe0ed2c5b4b421c7a96f6f849",
   "method": "polynomial",
+  "verification_revision": 2,
   "default_unchanged": true,
   "n": [
     32,
@@ -27,18 +28,21 @@
   "new_tracing": false,
   "new_preparation": false,
   "files": {
-    "README.md": "4bc0726f9fa26291a61f391fe1b09d43b8ec1fc6413550311231c83cbc62f116",
-    "boundary_cache.py": "5412f33fbdce07fbdc3c8d88090971fa518e67179eddaf3cf3ab8541e3075cae",
-    "campaign.py": "43dc9066ca9c63ec588243f20d6cc9c5711140579006b181e0ff141810dd693d",
+    "README.md": "f2fe7f2a39aa3927765424983a3c4bde923451160e0271f27081abcb3cbafac4",
+    "boundary_cache.py": "2398fe2c05fce4c6558d9df281c747b0b5de79b69e1329780fb0633651e30f2b",
+    "boundary_values.py": "606fe9061f462c33b7f8d19fd545b0c73585a7e3fa3f7d1deba6a83803f15c61",
+    "campaign.py": "b2f2a1da539a5d888fcdcbaab451073dfe2edecdaf1f13024b8e004a4ac1ea4b",
     "cpu_validation.py": "e105cd613e4a3e39dc6bcb826651d67f6bed0c1fe5879d413bd7d02e46a011d1",
-    "freeze.py": "27895f3a1f2b5cc527d4d4666bfe58cfe922773237fa439c18a3ebbf1baf04df",
-    "gpu_stage.py": "56c2146dc4e9d93f6b8599eb99c8f429b04254b37de0698eca8c07bda60bc360",
+    "freeze.py": "a84ae12fddace638d5b8492c26151390c3a8e255ef5bdfed447fa4320f1cbe1f",
+    "gpu_stage.py": "b9b7c250ccb54b6b4bf7e7a99f86642e335aa5495f6699ff3be6c3a9f47a511f",
+    "literal_reference.py": "963d8a21b8c513491e58173f9d0b795097e3eef3eea63012a587d9bffffb248f",
     "overlay/q_characteristic_polynomial.py": "38f56a5047fe26b106b79d46f8d24a77349bb378d0c809a01801031bdf9faa45",
     "overlay/q_parallel_characteristic.py": "6612b8fd5e721b6e1d5d694157920580957955eb6969d349642bfae794d0e580",
     "overlay/q_parallel_material.py": "3b0957650e22dee815a2ca8aa283ed4da2866091f8efcaf10ccdab43cff8c2da",
     "overlay/q_plan.py": "dd5c79901d104b4e2b96239ba54ff931a0b62af650c90422c882c380e128c840",
     "overlay/q_sharding.py": "fb835821731d8a46f929c282aa6d90390d560dd9bd95555a28a93637a523fd58",
     "run_all.py": "e54e1b604d4bbcf7ebd1588f73d4a02d305ed763a4c31443b239f6fc326975b8",
+    "timing.py": "4876edc8364f0c92598fdb6a2ea415e648024dbec7eb34c4fcbf7febc0e34263",
     "verification/test_campaign.py": "4c751ccd9384bb84d55b43654dd5896c592bd2bd6282eb4007ea9d76916679bb"
   }
 }

@@ -3,9 +3,24 @@ import time
 import numpy as np
 
 
+def restore(wall, groups):
+    result = []
+    for cls, arrays in groups:
+        values = []
+        for shape, axis, template, rows in arrays:
+            a = np.empty(shape, dtype=rows.dtype)
+            view = np.moveaxis(a, axis, 0)
+            view[:] = template
+            view[wall] = rows
+            values.append(a)
+        result.append(cls(*values))
+    return tuple(result)
+
+
 class BoundaryCache:
-    def __init__(self, producer, max_bytes=0):
+    def __init__(self, producer, max_bytes=0, *, compact_producer=None):
         self.producer = producer
+        self.compact_producer = compact_producer
         self.max_bytes = max_bytes
         self.entries = {}
         self.bytes = 0
@@ -17,27 +32,32 @@ class BoundaryCache:
         if key in self.entries:
             start = time.perf_counter()
             nr, wall, groups = self.entries[key]
-            result = []
-            for cls, arrays in groups:
-                values = []
-                for shape, axis, template, rows in arrays:
-                    a = np.empty(shape, dtype=rows.dtype)
-                    view = np.moveaxis(a, axis, 0)
-                    view[:] = template
-                    view[wall] = rows
-                    values.append(a)
-                result.append(cls(*values))
+            result = restore(wall, groups)
             self.hits += 1
             self.restore_seconds += time.perf_counter() - start
-            return tuple(result)
+            return result
 
         start = time.perf_counter()
-        result = self.producer(bank, case)
-        self.producer_seconds += time.perf_counter() - start
         nr = len(bank.raw)
         wall = np.asarray(bank.wall_index, dtype=np.int64).copy()
         if len(np.unique(wall)) != len(wall) or np.any((wall < 0) | (wall >= nr)):
             raise ValueError('invalid wall rows in BC cache')
+        if self.compact_producer is not None:
+            groups = self.compact_producer(bank, case)
+            size = wall.nbytes + sum(template.nbytes + rows.nbytes
+                for _, arrays in groups for _, _, template, rows in arrays)
+            if self.max_bytes and self.bytes + size > self.max_bytes:
+                raise MemoryError('exact boundary cache exceeds declared memory budget')
+            self.entries[key] = (nr, wall, groups)
+            self.bytes += size
+            self.misses += 1
+            self.producer_seconds += time.perf_counter() - start
+            start = time.perf_counter()
+            result = restore(wall, groups)
+            self.restore_seconds += time.perf_counter() - start
+            return result
+        result = self.producer(bank, case)
+        self.producer_seconds += time.perf_counter() - start
         nonwall = np.setdiff1d(np.arange(nr), wall)
         groups = []
         size = wall.nbytes
@@ -77,9 +97,15 @@ class BoundaryCache:
 
 
 class CachedAPI:
-    def __init__(self, api):
+    def __init__(self, api, *, optimize=False):
         self.api = api
-        self.cache = BoundaryCache(api.boundaries)
+        if optimize:
+            from boundary_values import compact_boundaries
+            from functools import partial
+            self.cache = BoundaryCache(api.boundaries,
+                compact_producer=partial(compact_boundaries, common=api))
+        else:
+            self.cache = BoundaryCache(api.boundaries)
 
     def boundaries(self, bank, case):
         return self.cache(bank, case)
