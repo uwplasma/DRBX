@@ -2506,6 +2506,15 @@ Steps:
        - **Effect at large N** (synthetic, to N256): coupled conditioning and the error constant stay bounded, whereas C3 grows ∝ N and ends up 50× worse at the interface.
        - **Adopt** when the next re-freeze happens anyway, or before going beyond N64. That means a new `inner_support` option threaded like C3, a C3-vs-new remote campaign, and a re-freeze of the changed rows.
        - **Not recommended:** deeper blocks (6×5). They fix the P07 order in 0.12–0.21, but make the R1/R2 gradients and a P05 proxy 1.4–4.5× worse; a real P05 check would be needed first.
+     - **Core-reconstruction design study: scheduled after the P09.0 RHS performance batch C (user decision, 3 October 2026).**
+       - **Root cause** ([doubling study](../../../../work/p08_doubling_rootcause_20261002/report.md), synthetic):
+         - **Primarily, owner aspect against a fixed 4-ring stencil.** The 4×7 quartic patch is about 7·aspect/4 times longer than it is deep. Its arc straightens as coverage shrinks, so it starves of radial information; the face-flux error constant is fitted as ∝ aspect^1.9·N^1.7, and the effect is present even without jumps.
+         - **Secondarily, the ring after each owner-count doubling.** Its two radial faces use donor patches from rings with different owner counts, so the face-flux errors do not cancel. This defect dominates beyond N128.
+       - **Study:** a geometry-adaptive rule, set per stencil:
+         - (i) quartic or ringwise, by Γ;
+         - (ii) the quartic's patch depth and width from owner aspect, arc angle or conditioning (deeper only where the patch is thin and straight; uniformly deeper hurts gradients);
+         - (iii) face-consistent patches for owners at a doubling.
+       - **Scoring:** fixed u, 32→64 pairs, synthetic to N256, and a real P05/P06 check (about 2.5 GiB).
 
 Pending decisions:
 - **Neumann closure in the harness: closed for P08 (user decision, 2 October 2026).** P08 uses the qualified P-path point rows. Reconciling them with production's physical halos is a P09 integration item.
