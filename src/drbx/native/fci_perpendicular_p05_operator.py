@@ -104,12 +104,14 @@ def _select_boundary_columns(bc: BoundaryData, columns) -> BoundaryData:
                         None if bc.neumann_normal is None else jnp.asarray(bc.neumann_normal)[..., cols])
 
 
-def _from_state_core(cells, faces, gradient, common_gradient, lower, upper, mask, pairs) -> P05Terms:
+def _from_state_core(cells, faces, gradient, common_gradient, lower, upper, mask, pairs,
+                     face_pairs=None) -> P05Terms:
     ones = jnp.ones_like(cells.owner_volume)
     raw_action, antisymmetry = pair_actions(cells.h, cells.jac, gradient, pairs)
     # dividing by one is exact: the projection returns the raw numerator
     centered_num = project_raw_to_owners(raw_action, cells.raw_volume, cells.raw_owner, ones)
-    jump = p05_scalar_face_jump(common_gradient, lower, upper, faces.h, faces.weight, faces.axis, pairs)
+    jump = p05_scalar_face_jump(common_gradient, lower, upper, faces.h, faces.weight, faces.axis,
+                                pairs if face_pairs is None else face_pairs)
     jump = jnp.where(mask[:, None], jump, 0.0)
     jump_num = scatter_p05_jump(jump, faces.lower_owner, faces.upper_owner, jnp.ones_like(faces.owner_volume))
     return P05Terms(centered_num / cells.owner_volume[:, None], jump_num / faces.owner_volume[:, None],
@@ -123,9 +125,9 @@ def _p05_core(cells, faces, fields, bc, mask, kinds, pairs) -> P05Terms:
     return _from_state_core(cells, faces, cs.gradient, fs.gradient, fs.lower, fs.upper, mask, pairs)
 
 
-@partial(jax.jit, static_argnames=("pairs",))
-def _p05_from_state(cells, faces, gradient, common_gradient, lower, upper, mask, *, pairs):
-    return _from_state_core(cells, faces, gradient, common_gradient, lower, upper, mask, pairs)
+@partial(jax.jit, static_argnames=("pairs", "face_pairs"))
+def _p05_from_state(cells, faces, gradient, common_gradient, lower, upper, mask, *, pairs, face_pairs):
+    return _from_state_core(cells, faces, gradient, common_gradient, lower, upper, mask, pairs, face_pairs)
 
 
 @partial(jax.jit, static_argnames=("kinds", "pairs"))
@@ -177,18 +179,30 @@ def p05_terms(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, pa
 
 
 def p05_terms_from_state(plan: PerpendicularPlan, gradient, common_gradient, lower, upper,
-                         pairs: Sequence[tuple[int, int]], *, jump_mask=None) -> P05Terms:
+                         pairs: Sequence[tuple[int, int]], *, jump_mask=None,
+                         face_pairs: Sequence[tuple[int, int]] | None = None) -> P05Terms:
     """The operator arithmetic on an already-reconstructed state (what :func:`p05_terms` does after the
     reconstruction), for callers that share the state between operators or substitute another one.
 
     ``gradient`` ``(R, 3, F)`` (``cell_state(...).gradient``), ``common_gradient`` ``(Fc, Qf, 3, F)`` and the side
     values ``lower`` / ``upper`` ``(Fc, Qf, F)`` (``face_state``), ``pairs`` indexing the last axis. For P05N pass
     the role-selected arrays and ``n_pair_index + d_pair_index`` and split the pair axis at ``P``.
+
+    ``face_pairs`` (same length as ``pairs``): the pairs as positions in a pruned face state, ``(generator, transported)``
+    indexing the last axis of ``common_gradient`` and of ``lower`` / ``upper`` respectively (the two may hold different
+    column sets, see ``face_state(value_columns=, gradient_columns=)``); the cell part still uses ``pairs``.
     """
     cells, faces = _need_parts(plan)
     gradient = jnp.asarray(gradient)
-    return _p05_from_state(cells, faces, gradient, jnp.asarray(common_gradient), jnp.asarray(lower),
-                           jnp.asarray(upper), _mask(faces, jump_mask), pairs=_static_pairs(pairs, gradient.shape[2]))
+    common_gradient, lower, upper = jnp.asarray(common_gradient), jnp.asarray(lower), jnp.asarray(upper)
+    pairs = _static_pairs(pairs, gradient.shape[2])
+    if face_pairs is not None:
+        face_pairs = tuple((int(a), int(b)) for a, b in face_pairs)
+        if (len(face_pairs) != len(pairs) or any(not 0 <= a < common_gradient.shape[-1] for a, _ in face_pairs)
+                or any(not 0 <= b < lower.shape[-1] for _, b in face_pairs)):
+            raise ValueError("face_pairs must match pairs and index the face gradient / value columns")
+    return _p05_from_state(cells, faces, gradient, common_gradient, lower, upper, _mask(faces, jump_mask), pairs=pairs,
+                           face_pairs=face_pairs)
 
 
 def p05_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, pairs: Sequence[tuple[int, int]], *,

@@ -24,8 +24,9 @@ one :class:`BoundaryData` whose trailing axis follows that column order (``bc_co
 one). A physical field a campaign reconstructs both ways is therefore fed as two named columns. Vi and Ve are out
 of scope: ``fields`` must be a subset of ``FIELDS`` (curvature exists only for these four).
 
-One ``cell_state`` and one ``face_state`` over all columns feed P05 (``p05_terms_from_state``) and P06
-(``p06_action_from_state``); P07 uses its own integrated rows on the field columns. The whole call is one jitted
+One ``cell_state`` and one ``face_state`` feed P05 (``p05_terms_from_state``) and P06 (``_action_from_state_core``); the
+face state is pruned to the columns the operators read (values of the transported / evolved fields, the gradient of
+the bracket's generator columns only); P07 uses its own integrated rows on the field columns. The whole call is one jitted
 computation with static names / terms / kinds and the plan as an argument, so an eager call and a call inside an
 outer ``jax.jit`` agree bitwise. The result is differentiable in ``state``, ``phi``, ``bc`` and ``params`` away from
 the branch points of the operators (P06 q3 eigenvalue crossings, P05 advection-speed sign changes).
@@ -160,11 +161,22 @@ def _rhs(plan, state, phi, bc, params, jump_mask, face_multiplier, *, columns, f
     diagnostics: dict = {}
 
     if need_bracket or need_curv or pairs:
+        index = ([(col[PHI], col[f]) for f in fields] * need_bracket + [(col[a], col[b]) for a, b in pairs]
+                 if need_bracket or pairs else [])
+        # The face state is pruned to what its consumers read: P05's jump reads the common-row gradient of the
+        # generator columns and the side values of the transported columns; P06's q3 reads the common-row value and
+        # the side values of the four evolved fields. Everything else (e.g. phi's face value, the gradient of the
+        # evolved fields) is never used.
+        gcols = tuple(sorted({a for a, _ in index}))
+        vcols = tuple(sorted({b for _, b in index} | ({col[f] for f in FIELDS} if need_curv else set())))
         cs = cell_state(plan, stacked, bc, kinds, values=need_curv, gradients=True)
-        fs = face_state(plan, stacked, bc, kinds, gradients=need_bracket or bool(pairs))
+        fs = face_state(plan, stacked, bc, kinds, gradients=bool(gcols), value_columns=vcols,
+                        gradient_columns=gcols or None)
     if need_bracket or pairs:
-        index = [(col[PHI], col[f]) for f in fields] * need_bracket + [(col[a], col[b]) for a, b in pairs]
-        t = p05_terms_from_state(plan, cs.gradient, fs.gradient, fs.lower, fs.upper, index, jump_mask=jump_mask)
+        vpos = {c: i for i, c in enumerate(vcols)}
+        face_index = [(gcols.index(a), vpos[b]) for a, b in index]
+        t = p05_terms_from_state(plan, cs.gradient, fs.gradient, fs.lower, fs.upper, index, jump_mask=jump_mask,
+                                 face_pairs=face_index)
         if need_bracket:
             out["bracket_centered"] = t.centered_owner[:, :nf] / params.rho_star
             out["bracket_jump"] = t.jump_owner[:, :nf] / params.rho_star
@@ -176,9 +188,10 @@ def _rhs(plan, state, phi, bc, params, jump_mask, face_multiplier, *, columns, f
                                         t.jump_numerator[:, k:], t.face_jump[:, k:], t.antisymmetry)
     if need_curv:
         groups = jnp.asarray([[col[f] for f in FIELDS] + [col[PHI]]], dtype=jnp.int32)
+        face_groups = jnp.asarray([[vcols.index(col[f]) for f in FIELDS] + [0]], dtype=jnp.int32)
         owner, (spectral, floor_hits, wall_fallback) = _action_from_state_core(
             plan.cells, plan.faces, cs.value, cs.gradient, fs.value, fs.lower, fs.upper, groups, params.tau,
-            params.positivity_floor, face_multiplier, params.absolute_method)
+            params.positivity_floor, face_multiplier, params.absolute_method, face_groups=face_groups)
         material, remainder, q1, correction = (x[0] for x in owner[:4])
         pick = np.asarray([_CURVATURE_INDEX[f] for f in fields])
         out["curvature_material"] = material[:, pick]

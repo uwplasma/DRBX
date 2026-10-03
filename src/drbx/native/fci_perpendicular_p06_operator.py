@@ -286,14 +286,18 @@ def p06_q3_face_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, fi
 # --------------------------------------------------------------------------
 
 def _action_from_state_core(cells, faces, cell_value, cell_gradient, face_value, lower, upper, groups, tau, floor,
-                            multiplier, absolute_method="closed_form"):
-    """The owner arithmetic after the reconstruction: 7 arrays of :class:`P06Action` and the q3 counters."""
+                            multiplier, absolute_method="closed_form", face_groups=None):
+    """The owner arithmetic after the reconstruction: 7 arrays of :class:`P06Action` and the q3 counters.
+
+    ``face_groups``: the groups as columns of a pruned face state (``face_state(value_columns=...)``); only its
+    first four columns (the evolved fields) are read. Default: ``groups``."""
     n_owners = len(cells.evolution_volume)
     mat_raw, rem_raw = _q1_from_state(cells, cell_value, cell_gradient, groups, tau)
     seg = lambda x: jax.vmap(lambda a: jax.ops.segment_sum(a, cells.raw_owner, num_segments=n_owners))(x)
     material_num, remainder_num = seg(mat_raw), seg(rem_raw)
     lo_num, up_num, spectral, floor_hits, wall_fallback = _q3_from_state(
-        faces, face_value, lower, upper, groups, tau, floor, multiplier, absolute_method)
+        faces, face_value, lower, upper, groups if face_groups is None else face_groups, tau, floor, multiplier,
+        absolute_method)
     ones = jnp.ones((n_owners,), dtype=lo_num.dtype)
     correction_num = jax.vmap(lambda lo, up: scatter_p06_characteristic(
         lo, up, faces.lower_owner, faces.upper_owner, ones))(lo_num, up_num)

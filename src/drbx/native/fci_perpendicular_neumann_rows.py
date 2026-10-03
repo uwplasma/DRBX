@@ -40,8 +40,10 @@ def lower_neumann_point_rows(rows):
     return payload,np.asarray(queries,dtype=np.float64).reshape(-1,3)
 
 
-def apply_neumann_point_rows(payload: NeumannPayload, owner_fields, normal_derivative):
-    """Apply coherent value/gradient rows to fields and prescribed g_N (``None`` for a part the payload does not store)."""
+def apply_neumann_point_rows(payload: NeumannPayload, owner_fields, normal_derivative, *, values=True,
+                             gradients=True):
+    """Apply coherent value/gradient rows to fields and prescribed g_N (``None`` for a part the payload does not store
+    or that ``values`` / ``gradients`` switch off)."""
     field=jnp.asarray(owner_fields)
     g=jnp.asarray(normal_derivative)
     if field.ndim!=2 or g.ndim!=2 or g.shape[1]!=field.shape[1]:
@@ -49,10 +51,10 @@ def apply_neumann_point_rows(payload: NeumannPayload, owner_fields, normal_deriv
     sampled=field[payload.donor_ids]
     bv=g[payload.boundary_ids]
     value=gradient=None
-    if payload.value_weights is not None:
+    if values and payload.value_weights is not None:
         value=jnp.einsum('rd,rdf->rf',payload.value_weights,sampled)
         value+=jnp.einsum('rq,rqf->rf',payload.boundary_value_weights,bv)
-    if payload.gradient_weights is not None:
+    if gradients and payload.gradient_weights is not None:
         gradient=jnp.einsum('rad,rdf->raf',payload.gradient_weights,sampled)
         gradient+=jnp.einsum('raq,rqf->raf',payload.boundary_gradient_weights,bv)
     return value,gradient
