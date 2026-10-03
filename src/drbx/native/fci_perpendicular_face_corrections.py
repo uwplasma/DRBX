@@ -339,6 +339,18 @@ def _absolute_action_closed_form(n, te, ti, b, tau, scale, matrix, jump, floor):
     return jnp.where(valid[..., None], spectral, fallback), ~valid
 
 
+def _wall_identity_fallback(central, bmag, normal, tau, floor):
+    """``(Fc, Qf)`` non-physical flag of the wall nodes (``n, Te, Ti`` not above ``floor``, or a non-finite input).
+
+    The wall solve of P06 passes the same state as ``interior`` and ``boundary_trace`` (P's wall conditions enter through
+    the face reconstruction), so its incoming-mode residual is exactly 0 and the exterior / working states are the
+    state itself: the solve is the identity wherever it is valid, and only its fallback flag survives.
+    """
+    ok = (jnp.all(jnp.isfinite(central), axis=-1) & jnp.isfinite(bmag) & jnp.isfinite(normal) & jnp.isfinite(tau)
+          & jnp.all(central[..., :3] > floor, axis=-1))
+    return ~ok
+
+
 def p06_characteristic_face_correction(common_state, lower_state, upper_state,
                                        bmag, normal, quadrature_weight, wall_mask,
                                        collapsed_mask, *, tau=1.0, positivity_floor=1e-12,
@@ -352,18 +364,23 @@ def p06_characteristic_face_correction(common_state, lower_state, upper_state,
 
     ``wall_faces`` (optional ``(Wn,)`` int array, ``flatnonzero(wall_mask)`` in
     any order, optionally padded with the out-of-range index ``len(wall_mask)``)
-    restricts the wall characteristic solve to the wall faces: it is gathered
+    restricts the ``"lapack4"`` wall characteristic solve to the wall faces: it is gathered
     there and written back where ``wall_mask`` selects it, so the result is
     bitwise that of ``wall_faces=None`` (the solve on every face, masked by
     ``wall_mask``) at a fraction of the cost.  The two must describe the same
-    faces; padded entries are ignored.
+    faces; padded entries are ignored.  The other methods do not solve at the wall (below) and ignore it.
 
     ``absolute_method`` (static, one of :data:`ABSOLUTE_METHODS`) selects how ``|M| jump`` is evaluated:
-    ``"lapack4"`` (the campaign's 4x4 ``eig``; pin it to reproduce frozen campaigns bitwise), ``"block_lapack"`` or ``"closed_form"`` (see the
+    ``"lapack4"`` (the campaign's 4x4 ``eig``; pin it to reproduce frozen campaigns bitwise, wall solve and counters
+    included), ``"block_lapack"`` or ``"closed_form"`` (see the
     comments above ``_absolute_block_primal`` and ``_curvature_negative_root``).  The spectral-fallback counter
     counts the nodes on the Frobenius fallback: for ``"lapack4"`` / ``"block_lapack"`` those failing the real-spectrum /
     eigenvector-condition test, for ``"closed_form"`` the non-physical ones (``n`` or ``Te`` not above
-    ``positivity_floor``, ``Ti < 0``, ``tau < 0``, non-finite).
+    ``positivity_floor``, ``Ti < 0``, ``tau < 0``, non-finite).  ``"block_lapack"`` / ``"closed_form"`` replace the wall
+    characteristic solve by its exact result, the identity (``lower = upper = central`` at wall faces, jump 0; see
+    :func:`_wall_identity_fallback`), and count as wall fallback the non-physical wall nodes (``n``, ``Te`` or ``Ti`` not
+    above ``positivity_floor``, non-finite inputs).  They differ from the solve only at finite non-physical nodes, which
+    the solve may turn into NaN (complex spectrum, ill-conditioned eigenvectors, e.g. ``Ti -> 0``) and the identity only counts.
     """
     _validated_absolute_method(absolute_method)
     central = jnp.asarray(common_state)
@@ -381,7 +398,12 @@ def p06_characteristic_face_correction(common_state, lower_state, upper_state,
     central = jnp.where(collapsed[:, None, None], safe, central)
     lower = jnp.where(collapsed[:, None, None], safe, lower)
     upper = jnp.where(collapsed[:, None, None], safe, upper)
-    if wall_faces is None:
+    if absolute_method != "lapack4":
+        # The wall solve is the identity (see _wall_identity_fallback): no eig / inverse / least squares.
+        lower = jnp.where(wall[:, None, None], central, lower)
+        upper = jnp.where(wall[:, None, None], central, upper)
+        wall_fallback_count = jnp.sum(_wall_identity_fallback(central, B, normal, tau, positivity_floor) & wall[:, None])
+    elif wall_faces is None:
         exterior, working, wall_fallback = _curvature_bc_characteristic_wall_states(
             central, central, B, tau, normal, interior_on_right=False,
             positivity_floor=positivity_floor)
