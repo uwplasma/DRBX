@@ -445,42 +445,6 @@ def _local_side_samples(
     return [values[h : h + nx, h : h + ny, base + step * i] for i in range(sample_count)]
 
 
-def _local_coordinate_side_values_from_array(
-    values: jnp.ndarray,
-    geometry: LocalFciGeometry3D,
-    layout: HaloLayout3D,
-    *,
-    name: str,
-) -> LocalCoordinateSideValues3D:
-    values = _as_float64_array(values, name)
-    if values.shape != layout.cell_halo_shape:
-        raise ValueError(f"{name} must have shape {layout.cell_halo_shape}, got {values.shape}")
-    if geometry.layout != layout:
-        raise ValueError("geometry and layout must share the same HaloLayout3D")
-    nx, ny, nz = layout.owned_shape
-    h = layout.halo_width
-    return LocalCoordinateSideValues3D(
-        x=LocalCoordinateSideValues1D(
-            lower=values[h - 1 : h, h : h + ny, h : h + nz][0],
-            upper=values[h + nx : h + nx + 1, h : h + ny, h : h + nz][0],
-            mask_lower=jnp.ones((ny, nz), dtype=bool),
-            mask_upper=jnp.ones((ny, nz), dtype=bool),
-        ),
-        y=LocalCoordinateSideValues1D(
-            lower=values[h : h + nx, h - 1 : h, h : h + nz][:, 0, :],
-            upper=values[h : h + nx, h + ny : h + ny + 1, h : h + nz][:, 0, :],
-            mask_lower=jnp.ones((nx, nz), dtype=bool),
-            mask_upper=jnp.ones((nx, nz), dtype=bool),
-        ),
-        z=LocalCoordinateSideValues1D(
-            lower=values[h : h + nx, h : h + ny, h - 1 : h][:, :, 0],
-            upper=values[h : h + nx, h : h + ny, h + nz : h + nz + 1][:, :, 0],
-            mask_lower=jnp.ones((nx, ny), dtype=bool),
-            mask_upper=jnp.ones((nx, ny), dtype=bool),
-        ),
-    )
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):

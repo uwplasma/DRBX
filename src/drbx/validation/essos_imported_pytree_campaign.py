@@ -13,6 +13,7 @@ import numpy as np
 
 from ..geometry import EssosImportedFciGeometry, build_essos_imported_fci_geometry
 from ..native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_drb_rhs
+from .stellarator_drb_pytree_campaign import _clip_state
 
 
 @dataclass(frozen=True)
@@ -384,20 +385,6 @@ def _build_imported_objective(
 
 def _add_scaled_state(state: FciDrbState, rhs: FciDrbState, scale: float) -> FciDrbState:
     return jax.tree_util.tree_map(lambda value, increment: value + float(scale) * increment, state, rhs)
-
-
-def _clip_state(state: FciDrbState) -> FciDrbState:
-    return FciDrbState(
-        ion_density=jnp.maximum(state.ion_density, 1.0e-6),
-        electron_density=jnp.maximum(state.electron_density, 1.0e-6),
-        neutral_density=jnp.maximum(state.neutral_density, 1.0e-8),
-        ion_pressure=jnp.maximum(state.ion_pressure, 1.0e-8),
-        electron_pressure=jnp.maximum(state.electron_pressure, 1.0e-8),
-        neutral_pressure=jnp.maximum(state.neutral_pressure, 1.0e-10),
-        ion_momentum=state.ion_momentum,
-        neutral_momentum=state.neutral_momentum,
-        vorticity=state.vorticity,
-    )
 
 
 def _block_until_ready(value: object) -> None:

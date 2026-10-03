@@ -2194,17 +2194,6 @@ def _dirichlet_lift_correction_cut_wall_bc(cut_wall_bc: CutWallBC3D | None) -> C
     )
 
 
-def _perp_laplacian_from_field_and_bc(
-    field: jnp.ndarray,
-    geometry: FciGeometry3D,
-    *,
-    bc: FciBoundaryCondition,
-    b_floor: float = 1.0e-30,
-    jacobian_floor: float = 1.0e-30,
-) -> jnp.ndarray:
-    raise NotImplementedError("legacy axis-level boundary conditions have been removed")
-
-
 def _axis_index_nd(axis: int, index: int, ndim: int) -> tuple[object, ...]:
     slices: list[object] = [slice(None)] * ndim
     slices[axis] = index
@@ -2263,18 +2252,6 @@ def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) 
     )
 
 
-def _bc_periodic_axes(bc) -> tuple[bool, bool, bool]:
-    raise NotImplementedError("legacy axis-level boundary conditions have been removed")
-
-
-def _bc_axis_spec(bc, axis: int, *, periodic_axes: tuple[bool, bool, bool]) -> object | None:
-    raise NotImplementedError("legacy axis-level boundary conditions have been removed")
-
-
-def _homogeneous_axis_bc(axis_bc: object | None) -> object | None:
-    raise NotImplementedError("legacy axis-level boundary conditions have been removed")
-
-
 def _homogeneous_bc(bc: FciBoundaryCondition) -> FciBoundaryCondition:
     raise NotImplementedError("legacy axis-level boundary conditions have been removed")
 
@@ -2295,106 +2272,6 @@ def _broadcast_axis_boundary_value(value, *, axis: int, field_shape: tuple[int, 
 
 def _set_axis_plane(field: jnp.ndarray, *, axis: int, index: int, value: jnp.ndarray) -> jnp.ndarray:
     return field.at[_axis_index_nd(axis, index, field.ndim)].set(value)
-
-
-def _apply_dirichlet_constraints(
-    field: jnp.ndarray,
-    *,
-    axis_bcs: tuple[object | None, object | None, object | None],
-    periodic_axes: tuple[bool, bool, bool],
-) -> jnp.ndarray:
-    constrained = jnp.asarray(field, dtype=jnp.float64)
-    for axis, axis_bc in enumerate(axis_bcs):
-        if periodic_axes[axis] or axis_bc is None:
-            continue
-        if _bc_kind(axis_bc) != "dirichlet":
-            continue
-        constrained = _set_axis_plane(
-            constrained,
-            axis=axis,
-            index=0,
-            value=_broadcast_axis_boundary_value(axis_bc.lower_value, axis=axis, field_shape=constrained.shape),
-        )
-        constrained = _set_axis_plane(
-            constrained,
-            axis=axis,
-            index=-1,
-            value=_broadcast_axis_boundary_value(axis_bc.upper_value, axis=axis, field_shape=constrained.shape),
-        )
-    return constrained
-
-
-def _zero_dirichlet_boundary_residual(
-    field: jnp.ndarray,
-    *,
-    axis_bcs: tuple[object | None, object | None, object | None],
-    periodic_axes: tuple[bool, bool, bool],
-) -> jnp.ndarray:
-    residual = jnp.asarray(field, dtype=jnp.float64)
-    for axis, axis_bc in enumerate(axis_bcs):
-        if periodic_axes[axis] or axis_bc is None or _bc_kind(axis_bc) != "dirichlet":
-            continue
-        residual = _set_axis_plane(residual, axis=axis, index=0, value=jnp.zeros_like(residual[_axis_index_nd(axis, 0, residual.ndim)]))
-        residual = _set_axis_plane(residual, axis=axis, index=-1, value=jnp.zeros_like(residual[_axis_index_nd(axis, -1, residual.ndim)]))
-    return residual
-
-
-def _dirichlet_boundary_flux(
-    values: jnp.ndarray,
-    geometry: FciGeometry3D,
-    *,
-    axis: int,
-    side: str,
-    periodic_axes: tuple[bool, bool, bool],
-    b_floor: float = 1.0e-30,
-) -> jnp.ndarray:
-    field = jnp.asarray(values, dtype=jnp.float64)
-    if axis == 0:
-        metric = geometry.face_metric.x
-        bfield = geometry.face_bfield.x
-    elif axis == 1:
-        metric = geometry.face_metric.y
-        bfield = geometry.face_bfield.y
-    else:
-        metric = geometry.face_metric.z
-        bfield = geometry.face_bfield.z
-
-    b_unit = jnp.asarray(bfield.b_contra, dtype=jnp.float64)
-    projector = jnp.asarray(metric.g_contra, dtype=jnp.float64) - jnp.einsum("...i,...j->...ij", b_unit, b_unit)
-
-    dfdx = _first_derivative_3d(field, geometry.spacing.dx, axis=0, periodic=periodic_axes[0])
-    dfdy = _first_derivative_3d(field, geometry.spacing.dy, axis=1, periodic=periodic_axes[1])
-    dfdz = _first_derivative_3d(field, geometry.spacing.dz, axis=2, periodic=periodic_axes[2])
-    grad_components = [dfdx, dfdy, dfdz]
-
-    if side == "lower":
-        if field.shape[axis] < 3:
-            raise ValueError("dirichlet boundary flux requires at least 3 points along the selected axis")
-        normal_boundary = (
-            -3.0 * field[_axis_index_nd(axis, 0, field.ndim)]
-            + 4.0 * field[_axis_index_nd(axis, 1, field.ndim)]
-            - field[_axis_index_nd(axis, 2, field.ndim)]
-        ) / (2.0 * jnp.asarray(geometry.spacing.dx if axis == 0 else geometry.spacing.dy if axis == 1 else geometry.spacing.dz, dtype=jnp.float64)[_axis_index_nd(axis, 0, field.ndim)])
-        boundary_components = [component[_axis_index_nd(axis, 0, field.ndim)] for component in grad_components]
-        j_boundary = jnp.asarray(metric.J, dtype=jnp.float64)[_axis_index_nd(axis, 0, field.ndim)]
-        projector_row = projector[_axis_index_nd(axis, 0, field.ndim)][..., axis, :]
-    elif side == "upper":
-        if field.shape[axis] < 3:
-            raise ValueError("dirichlet boundary flux requires at least 3 points along the selected axis")
-        normal_boundary = (
-            3.0 * field[_axis_index_nd(axis, -1, field.ndim)]
-            - 4.0 * field[_axis_index_nd(axis, -2, field.ndim)]
-            + field[_axis_index_nd(axis, -3, field.ndim)]
-        ) / (2.0 * jnp.asarray(geometry.spacing.dx if axis == 0 else geometry.spacing.dy if axis == 1 else geometry.spacing.dz, dtype=jnp.float64)[_axis_index_nd(axis, -1, field.ndim)])
-        boundary_components = [component[_axis_index_nd(axis, -1, field.ndim)] for component in grad_components]
-        j_boundary = jnp.asarray(metric.J, dtype=jnp.float64)[_axis_index_nd(axis, -1, field.ndim)]
-        projector_row = projector[_axis_index_nd(axis, -1, field.ndim)][..., axis, :]
-    else:
-        raise ValueError("side must be 'lower' or 'upper'")
-
-    boundary_components[axis] = normal_boundary
-    grad_boundary = jnp.stack(boundary_components, axis=-1)
-    return j_boundary * jnp.einsum("...j,...j->...", projector_row, grad_boundary)
 
 
 def _cell_volume_weights(geometry: FciGeometry3D) -> jnp.ndarray:
