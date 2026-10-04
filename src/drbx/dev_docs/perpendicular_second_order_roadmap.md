@@ -3098,7 +3098,7 @@ revision, configuration, measured results, and unresolved failures.
 
 ### P07 portable global campaign preparation — 2026-09-23
 
-The [P07 global campaign contract](p07_global_qualification_campaign.md) now
+The P07 global campaign contract (`p07_global_qualification_campaign.md`, removed; see commit `72acda02`) now
 provides a frozen, node-local parallel CPU 32³/48³/64³ qualification runner.
 Clean-checkout replay matches the prior bounded actions to `1.53e-13`,
 serial/parallel N32 preflight arrays agree exactly, and complete-owner
