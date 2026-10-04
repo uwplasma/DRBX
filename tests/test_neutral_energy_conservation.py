@@ -125,3 +125,28 @@ def test_detachment_cx_damping_independent_of_ion_density() -> None:
         damping = (float(momentum[mid] / new.ion_momentum[mid]) - 1.0) / dt
         rec = float(dsm.rate_coefficient("d", "rec", temperature * norm.Tnorm, n_i * norm.Nnorm)) * rate_scale * n_i
         np.testing.assert_allclose(damping - rec, expected_cx, rtol=2e-3)
+
+
+def _isolated_target_state(nz, *, temperature, mach):
+    params = dsm.DetachmentSolParameters(
+        upstream_density=1.0, upstream_power=0.0, conduction_coefficient=0.0, neutral_diffusion=0.0,
+    )
+    density = jnp.ones(nz)
+    pressure = 2.0 * density * temperature
+    cs = float(jnp.sqrt(pressure[0] / (params.ion_mass * density[0])))
+    momentum = params.ion_mass * density * mach * cs
+    return params, dsm.DetachmentSolState(density, momentum, pressure, jnp.zeros(nz)), cs
+
+
+def test_detachment_target_heat_loss_is_gamma_n_t_v_once() -> None:
+    # Uniform supersonic outflow, no sources: interior fluxes cancel, so the
+    # thermal-energy loss over one small step is the total target heat flux
+    # gamma n T v_t, with the advected enthalpy counted once.
+    nz, dt, temperature, mach = 32, 1.0e-6, 1.0, 1.3
+    params, state, cs = _isolated_target_state(nz, temperature=temperature, mach=mach)
+    new = dsm.detachment_sol_step(state, params, dt)
+    dz = 1.0 / nz
+    loss = -float(jnp.sum(1.5 * (new.plasma_pressure - state.plasma_pressure)) * dz / dt)
+    expected = params.sheath_transmission * 1.0 * temperature * mach * cs
+    np.testing.assert_allclose(loss, expected, rtol=1e-3)
+
