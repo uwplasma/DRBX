@@ -2690,6 +2690,8 @@ regional second-order gate is imposed. P10 independently checks solutions.
     - Inside the operator there is no raw-cell restriction or prolongation. The only transfers are the Fourier ones at level faces.
     - This amends "Retain the RLP owner unknowns" for the P path.
   - **Gates use the H-weighted L2 norm against exact nodal values** (user, 4 October 2026). This amends the locked MMS observation contract for the P path. C3 numbers are historical and compared only like-for-like.
+  - **Wall inflow data (D7 a)** (user, 4 October 2026). Every advected field gets the inflow SAT at the wall, including Neumann-kind fields. The inflow trace is the manufactured trace in MMS and an extrapolated trace in production; diffusion carries the Neumann SAT.
+  - **Layout family across N32/48/64:** decided by the M1 layout prototype (user, 4 October 2026).
   - **Open, to be decided with the SBP Laplacian design (step 4):**
     - narrow vs wide second derivatives for P07/φ, and whether φ uses the bracket's gradient;
     - how P06/P07 act on the nodal state.
