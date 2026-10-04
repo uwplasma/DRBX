@@ -639,7 +639,7 @@ def reduce_validate(input_root,output,identity):
     for variant,name in enumerate(config()["candidates"]):
         orders[name]={};gate=True
         for pair in primary:
-            rms=[summary[str(n)]["global"][name]["per_case"][config()["cases"][pair]]["rms"] for n in config()["resolutions"]]
+            rms=[summary[str(n)]["global"][name]["global"]["per_case"][config()["cases"][pair]]["rms"] for n in config()["resolutions"]]
             values=orders_from_rms(np.asarray(rms)[:,None],config()["resolutions"])[:,0]
             order_values=[float(x) if np.isfinite(x) else None for x in values]
             passed=all(x is not None and x>=config()["global_minimum_order"] for x in order_values)
