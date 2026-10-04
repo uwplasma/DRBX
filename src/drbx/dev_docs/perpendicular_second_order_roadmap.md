@@ -2679,8 +2679,12 @@ regional second-order gate is imposed. P10 independently checks solutions.
   - When two fields are coupled linearly, a non-adjoint discrete pair can make the coupled linear system grow, even if each operator passes the gate on its own field. This is the ring-3 problem spread across two fields.
   - |U_n|-weighted upwinding does not necessarily cover it, and it vanishes on stagnation lines in any case.
   - **Interchange pair (P path):** C(p) in the vorticity equation against C(φ) in the pressure equations, linearized about the background profiles. In an energy-consistent model, ∫φ C(p) = −∫p C(φ). Step 3 should extend its audit to the H-symmetric part of this two-field operator, not only each operator on its own field.
-  - **Parallel sound-wave pair (Q path):** ∇∥p in the momentum equation against ∇∥·v∥ in the pressure equation. GRILLIX's support operators enforce this adjointness. Flag it to Q's owners.
-  - **Open:** whether DRBX's continuum model is energy-consistent in this sense, with every transfer paired, is not yet checked. That comes first, because a discrete pairing can only mirror a continuum one.
+  - **Parallel pairs (Q path; corrected 4 October 2026).** There is no direct ∇∥p ↔ ∇∥·V∥ pair in this model: the pressure equations contain D∥Ve and D∥j, not D∥Vi, and the Vi force pairs only up to the single-fluid term L_M = O(me/mi). The pairs that exist are:
+    - the current pair: D∥(j) in the vorticity equation against G∥(ψ) in Ve. The code already builds it as a weighted negative adjoint (`fci_support_pair.py`). The same D∥(j) should also feed the (2T/3n) terms in Te and Ti, which currently use different boundary traces.
+    - the electron pressure pairs: D∥(nVe) ↔ G(n), D∥(Ve) in Te ↔ G(Te), and D∥(Ve) in Ti ↔ the μτ G(Ti) column.
+
+    Flag these to Q's owners.
+  - **Answered (4 October 2026):** the continuum model is energy-consistent only at τ = 0 (with ρ* = 1, uniform B, and m_e/m_i neglected). At τ > 0 the polarization variable φ + τTi breaks the linear pairing and causes growth in the actual code. See "Model change" below. Until that change lands, the step-3 two-field audit gates at τ = 0, and at τ > 0 it compares against the continuum defect (2τ, 2τ²) rather than zero.
 - **Why exact exchange everywhere is not the goal.**
   - **Neutrals:** ionization, recombination and charge exchange move energy through local source terms. The coupled plasma–neutral system does not conserve a simple quadratic energy for a discretization to mirror.
   - **Sheath:** sheath losses are physical sinks.
@@ -2691,6 +2695,51 @@ regional second-order gate is imposed. P10 independently checks solutions.
   - **Product aliasing on coarse rings (round 2 does not target this).** Products such as V·ω on a 16-node ring fold harmonics m ≥ 8 back onto lower ones. Interfaces do not change how products are formed within a ring. The W1 check found that this amplifies grid-scale content on the 16-node rings by about 2000× compared with full rings.
   - **Not fixable by either:** harmonics with m ≥ N_coarse/2 are lost at the interface. This is a resolution limit; layout rule L1 (θ spacing ≤ α·Δu) keeps it small.
   - **Candidate fix, not adopted:** product dealiasing, forming products on a 3/2-padded θ grid and truncating back. It is cheap to implement but adds runtime. Decide after round 2 reports, based on whether the transition-band error and the W1 defect remain large once the interfaces are in place. If it is adopted, re-run the W1 check on the round-2 operator with and without it.
+
+**Model change: hot-ion polarization variable ψ = φ + τp_i (decided 4 October 2026).** This changes the model equations, not the discretization. It fixes a continuum defect that no SBP operator can remove.
+- **The change.**
+  - Boussinesq polarization: ω = ∇⊥²(φ + τTi) becomes ω = ∇⊥²(φ + τp_i), with p_i = nTi in normalized units (n₀ = 1).
+  - The same ψ is used everywhere ψ appears:
+    - the curvature remainder in the n, Te and Ti rows;
+    - the composite parallel gradient G(φ + τTi) in the Ve equation;
+    - the μτ column of the production parallel flux matrix.
+  - It is still Boussinesq: the φ solve stays a constant-coefficient Laplacian, and only its right-hand side changes, from τ∇⊥²Ti to τ∇⊥²p_i.
+- **Why: the continuum model.**
+  - The Ti form drops τñ from the polarization while the curvature and parallel terms keep it. The linearized pairs then mismatch: n–Te by 2τ, n–Ti by 2τ², n–Ve by τ.
+  - With these terms there is no quadratic energy. About a uniform, gradient-free background, the model has growing modes with growth ∝ |k| at τ > 0: 0.148|k| at τ = 1 and large k⊥², 0.009|k| at τ = 0.1. Without dissipation the system is ill-posed.
+  - With ψ = φ + τ(ñ + T̃i), every curvature pair is symmetric and the growth is zero. The only defect left is the single-fluid ion term, O(me/mi).
+- **Why: the code.**
+  - Dense Jacobian of the actual RHS: 4×32×32 slab, uniform background, ρ* = 1, φ solve included, three parallel paths.
+  - Largest growth rate:
+    - τ = 0: about 0 on every path (≤ 2e-4).
+    - τ = 0.1: about 0.005–0.018.
+    - τ = 1: about 0.5–0.8.
+  - It is linear in k at low k, matching the hand model (0.148, 0.290, 0.413 against 0.149, 0.299, 0.448).
+  - The default perpendicular diffusion (1e-5) barely changes it.
+  - Patching ψ in the polarization and curvature removes the growth on the coordinate and fci-legacy paths. On the production characteristic path it leaves 0.09 (upwind) or 0.19 (centred) at τ = 1. Not diagnosed; the likely cause is that the patch does not reach the μτ column inside the characteristic parallel flux.
+- **Why: the literature.**
+  - The Ti form comes from the GBS stellarator papers (Coelho et al. 2022, [doi:10.1088/1741-4326/ac6ad2](https://doi.org/10.1088/1741-4326/ac6ad2); 2024), which cite the cold-ion Ricci et al. 2012 for the Boussinesq step. The sign audit above used the same normalized form (arXiv:2508.04881).
+  - The energy-consistent forms all keep p_i:
+    - Scott 2007 ([doi:10.1063/1.2783993](https://doi.org/10.1063/1.2783993)): W = φ + τ(ñ + T̃i);
+    - Hermes-3 (Dudson et al. 2026, [doi:10.1088/1741-4326/ae3627](https://doi.org/10.1088/1741-4326/ae3627)): Boussinesq with p_i/n₀, and a proven energy theorem;
+    - the non-Boussinesq GBS (Halpern et al. 2016; Giacomin et al. 2022) and GRILLIX.
+- **Where it lands.**
+  - P07: the polarization right-hand side, and the φ solve's inputs. The P07 operator itself is unchanged.
+  - P06: the ψ in the curvature remainder.
+  - Production `native/fci_drb_EB_rhs.py`: the polarization (about lines 5568–5572 and 5650–5692) and the curvature ψ (about lines 2234, 2321, 2326 and 2360–2368).
+  - Q path: the composite G(ψ) (`fci_drb_EB_rhs.py` about 510–549) and the μτ column (`fci_parallel_production_flux.py` about 400–417). Flag these to Q's owners. The change needs both paths to agree.
+- **Sequencing.**
+  - Make the change before the P10.1 evolved-MMS harness is built, so the manufactured sources are written once, for the final model.
+  - The operators P05–P07 are unchanged, so their static gates stand. The MMS manufactured fields and sources change.
+- **Acceptance.**
+  1. The uniform-background slab Jacobian shows no τ-driven growth beyond the τ = 0 baseline, on every parallel path including the production characteristic one.
+  2. The symbolic pairing check with the F₂ weights passes (`work/p09_continuum_energy_20261004/scripts/lin10.py`, `lin9.py`).
+  3. `docs/physics_models.md` states the polarization form and cites its sources.
+- **Companion defects (same audit; separate decisions, not part of this change).**
+  - Semi-Boussinesq B²/n factor: the vorticity sources carry a local B²/n, but the polarization operator has no n/B². Hermes-3 moved a B² factor to restore energy conservation.
+  - ρ*: it multiplies only the bracket, not the explicit compression terms, so particle conservation holds only at ρ* = 1. The MMS lane uses 1; the blob driver takes `--rho_star`.
+  - Ohmic heating: νj² is absent from Te. García Herreros et al. 2026 (arXiv:2609.17425) found that restoring it raised transport and brought the target heat flux closer to experiment.
+- **Evidence:** [continuum energy report](../../../../work/p09_continuum_energy_20261004/report.md), [literature table](../../../../work/p09_continuum_energy_20261004/literature.md), Jacobian logs in `work/p09_continuum_energy_20261004/jacobian/`.
 
 **Cross-cutting.**
 - **SBP fixes the spatial operators, not the time step.** Neutral operators have imaginary eigenvalues, and classical RK4 needs |λ|dt ≲ 2.8 there.
