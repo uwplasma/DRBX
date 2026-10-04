@@ -2672,7 +2672,11 @@ regional second-order gate is imposed. P10 independently checks solutions.
   - put the seam outside steep regions: K ≥ 9, where a p = 6 core is too coarse;
   - or avoid a radial closure at the seam, for example a single radial block running down to a small inner core.
 - **Decided (user, 4 October 2026): the seam behaviour is accepted.**
-  - The closure rows at block boundaries stay degree 2, so steep structure crossing a block boundary converges locally at 2nd order. Global order is unaffected.
+  - The closure rows at block boundaries stay degree 2, so steep structure crossing a block boundary converges locally at 2nd order.
+  - Asymptotically, global order is unaffected. At gate resolutions it depends on the layout family across N32/48/64 (see the [integration plan](../../../../work/p09_integration_design_20261004/plan.md), finding 4):
+    - the rule-generated K is 5 / 11 / 5;
+    - N64 adds a level face at u ≈ 0.34;
+    - on the testbed, the all-regions order for 32→64 is 0.8 for n and 0 for ω.
   - Regional orders remain diagnostic, as in the P10 gate.
   - Revisit the layout levers above only if re-qualifying the bracket against the P05 static gates fails on the seam.
 
