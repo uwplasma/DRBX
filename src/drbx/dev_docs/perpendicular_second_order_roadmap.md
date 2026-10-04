@@ -2671,6 +2671,10 @@ regional second-order gate is imposed. P10 independently checks solutions.
 - **Remaining levers (layout or design decisions, not trace fixes):**
   - put the seam outside steep regions: K ≥ 9, where a p = 6 core is too coarse;
   - or avoid a radial closure at the seam, for example a single radial block running down to a small inner core.
+- **Decided (user, 4 October 2026): the seam behaviour is accepted.**
+  - The closure rows at block boundaries stay degree 2, so steep structure crossing a block boundary converges locally at 2nd order. Global order is unaffected.
+  - Regional orders remain diagnostic, as in the P10 gate.
+  - Revisit the layout levers above only if re-qualifying the bracket against the P05 static gates fails on the seam.
 
 **Step 2 — Decide on and integrate the bracket (after step 1; user decision).**
 - **Decided (user, 4 October 2026):**
