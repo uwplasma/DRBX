@@ -2712,6 +2712,21 @@ regional second-order gate is imposed. P10 independently checks solutions.
   2. re-freeze the P08 references of the changed terms;
   3. P10.1 then runs on the new bracket.
 
+**Integration milestones (adopted 4 October 2026; [integration plan](../../../../work/p09_integration_design_20261004/plan.md)).** These move the opt-in P stack from C3 owner averages to the nodal SBP layout. The production RHS (`fci_drb_EB_rhs.py`) keeps its own operators until P10 integrates the P stack.
+
+| Milestone | Content | Gate |
+|---|---|---|
+| M0 | Decisions and contract amendments (Step 2 above) | User sign-off; done except items deferred to the Laplacian study |
+| M1 | Layout-family prototype at HSX N32/48/64 (fixed core radius, few or no level faces) | Projected P05 order ≥ 1.8 on both intervals; abscissa = max ½c; time step reported |
+| M2 | Package infrastructure independent of the seam: nodal layout and plan, nodal metric gather, node-plane sharding, ring-level operators, SAT boundary data, H norms, audit tools | SBP identities, Parseval, transfer transposes; single-device vs η-sharded agreement |
+| M3 | JAX P05 SBP bracket with dissipation and D5c | Equivalence with the prototype to round-off; energy identity; ω = max ½c; Cayley evidence with dissipation; P05/P05N static gates at 32/48/64 in H; insensitivity over c_κ = 0.1–1; P08 bracket re-freeze |
+| M4 | Step-3 audit of today's P06/P07/φ and the interchange pair | Report, after τp_i stage 1 |
+| Laplacian study | Prototype of the SBP perpendicular Laplacian on nodes (Step 4 design); settles narrow vs wide and how P06/P07 act on nodes | User decision |
+| M5 | P07 and φ on nodes (Step 4), CG | P07/P07N, φ elliptic controls, H-symmetry and definiteness, P08 re-freeze |
+| M6 | P06 on nodes (Step 5), coordinated with the τp_i re-split | P06/P06N, H-antisymmetry up to ∇·K, W2 interchange audit, P08 re-freeze |
+| M7 | Q interface: nodal index space and shared H (Q-owned; P-only with an explicit transfer until then) | Q's gates |
+| M8 | P10 on the nodal stack | P10 gate |
+
 **Step 3 — Audit the other operators (cheap; N32, local).**
 - **Check:** the largest eigenvalue of the H-symmetric part of P06 curvature, P07 diffusion/polarization and the φ operator. A positive value marks a source of numerical energy.
 - **Prior result:** the first diagnosis bounded P06's symmetric part (q1 + q3) at λ_max = +5.9e3, at the wall rings (i = 29–31). That is an energy bound, not a proven mode.
