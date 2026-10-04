@@ -13,7 +13,7 @@ import numpy as np
 ARRAYS = ('wall_value', 'slot_value', 'slot_tangent', 'wall_normal')
 
 
-def difference_summary(actual, expected, wall, multiplier):
+def difference_summary(actual, expected, wall, multiplier=32, *, atol=None, rtol=None):
     actual, expected = np.asarray(actual), np.asarray(expected)
     if (actual.shape != expected.shape or actual.ndim not in (3, 4) or
             actual.shape[0] != 1 or actual.dtype != np.float64 or expected.dtype != np.float64):
@@ -27,7 +27,7 @@ def difference_summary(actual, expected, wall, multiplier):
     nonwall = np.ones(actual.shape[1], dtype=bool); nonwall[wall] = False
     error = abs(actual-expected)
     scale = np.maximum(1., abs(expected))
-    budget = multiplier*np.finfo(np.float64).eps*scale
+    budget = (multiplier*np.finfo(np.float64).eps*scale if atol is None else atol+rtol*abs(expected))
     fractions = error/budget
     ix = tuple(int(v) for v in np.unravel_index(np.argmax(fractions), fractions.shape))
     return dict(max_abs=float(error.max()), max_budget_fraction=float(fractions[ix]),
@@ -104,6 +104,11 @@ def main():
     import jax
     if jax.default_backend() != 'cpu':
         raise ValueError('boundary diagnostic must use CPU')
+    # Support both the preserved 32-epsilon campaign and its audited successor.
+    if hasattr(replay, 'BOUNDARY_FIXTURE_ATOL'):
+        comparison = dict(atol=replay.BOUNDARY_FIXTURE_ATOL,rtol=replay.BOUNDARY_FIXTURE_RTOL)
+    else:
+        comparison = dict(multiplier=replay.BOUNDARY_EPS_MULTIPLIER)
     tick = time.perf_counter(); records = []; provenance = {}
     for n in (32, 48, 64):
         files = [inputs/'bounded'/f'N{n}_h{d}.npz' for d in (16, 32)]
@@ -134,7 +139,7 @@ def main():
                          ('original_saved', original[ai], saved[ai][case]),
                          ('compact_original', compact[ai], original[ai]))
                 for label, actual, expected in pairs:
-                    stats = difference_summary(actual, expected, bank.wall_index, replay.BOUNDARY_EPS_MULTIPLIER)
+                    stats = difference_summary(actual, expected, bank.wall_index, **comparison)
                     stats['worst']['context'] = query_context(bank, case, ai, stats['worst']['index'], c, optimized_fields)
                     record[label] = stats
                 records.append(record)
@@ -153,7 +158,7 @@ def main():
         script_sha256=control.sha(Path(__file__)), input_hashes=provenance,
         campaign_source=str(source), baseline_source=str(baseline), inputs=str(inputs),
         python=sys.version, numpy=np.__version__, backend=jax.default_backend(),
-        eps_multiplier=replay.BOUNDARY_EPS_MULTIPLIER, seconds=time.perf_counter()-tick,
+        fixture_comparison=comparison, seconds=time.perf_counter()-tick,
         arrays_checked=len(records), failed_arrays=sum(not r['current_gate']['passed'] for r in records),
         lossless_Ti_slice_exact=True, worst=worst,
         scope='Boundary producer/fixture diagnostic only; no N/O/R actions or changed gates')

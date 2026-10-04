@@ -21,7 +21,8 @@ from scripts.q08_rhs_mms_global.campaign import read, write, sha, check_source, 
 SCI_ID = 'e8303a1a3b93580ebfabd2e0c68b50dc4e8f9f9d90057840e9f38fb7cf389652'
 COUNTS = {32:25376, 48:86016, 64:202304}
 LAST = {32:10, 48:15, 64:21}
-BOUNDARY_EPS_MULTIPLIER = 32
+BOUNDARY_FIXTURE_ATOL = 1e-12
+BOUNDARY_FIXTURE_RTOL = 1e-13
 
 
 def checked_path(root, name):
@@ -95,6 +96,17 @@ def scalar_boundary(bank, case):
     return restore(bank.wall_index, [(cls,sliced)])[0]
 
 
+def check_same_platform_boundary(actual, expected):
+    """The optimized and original live producers must still agree bitwise."""
+    actual, expected = np.asarray(actual), np.asarray(expected)
+    if (actual.shape != expected.shape or actual.dtype != np.float64 or
+            expected.dtype != np.float64 or not np.isfinite(actual).all() or
+            not np.isfinite(expected).all()):
+        raise ValueError('same-platform boundary layout/float64/finite mismatch')
+    np.testing.assert_array_equal(actual.view(np.uint64), expected.view(np.uint64),
+                                  err_msg='same-platform boundary producers differ')
+
+
 def check_boundary_fixture(actual, expected, wall_index):
     """Compare recomputed float64 wall data with a saved cross-platform fixture.
 
@@ -117,11 +129,14 @@ def check_boundary_fixture(actual, expected, wall_index):
     np.testing.assert_array_equal(actual[:,nonwall],expected[:,nonwall],
                                   err_msg='boundary nonwall padding changed')
     error = abs(actual[:,wall]-expected[:,wall])
-    budget = (BOUNDARY_EPS_MULTIPLIER*np.finfo(np.float64).eps *
-              np.maximum(1.,abs(expected[:,wall])))
+    budget = BOUNDARY_FIXTURE_ATOL + BOUNDARY_FIXTURE_RTOL*abs(expected[:,wall])
     fraction = float(np.max(error/budget,initial=0.))
     if fraction > 1:
-        raise ValueError(f'boundary fixture roundoff budget exceeded: {fraction}')
+        ix = list(np.unravel_index(np.argmax(error/budget),error.shape))
+        ix[1] = int(wall[ix[1]]); ix = tuple(int(i) for i in ix)
+        raise ValueError(f'boundary fixture roundoff budget exceeded: {fraction}; '
+                         f'index={ix}, actual={actual[ix]:.17g}, expected={expected[ix]:.17g}, '
+                         f'max_abs={float(error.max()):.17g}')
     return dict(max_abs=float(np.max(error,initial=0.)), max_budget_fraction=fraction,
                 rounded_entries=int(np.count_nonzero(error)))
 
@@ -160,8 +175,14 @@ def preflight(output, inputs, *, gpu=False):
                 bc = tuple(QBoundaryData(*(data[f'{name}_bc_{i}'][case] for i in range(4)))
                            for name in ('inner','outer','phi'))
                 sb = scalar_boundary(bank,case)
+                live_original = c.boundaries(bank,case)[0]
                 for index,(a,b) in enumerate(zip(sb,bc[0])):
-                    check = check_boundary_fixture(a,b[2:3],bank.wall_index)
+                    try:
+                        check_same_platform_boundary(a,live_original[index][2:3])
+                        check = check_boundary_fixture(a,b[2:3],bank.wall_index)
+                    except (AssertionError,ValueError) as exc:
+                        raise ValueError(f'boundary verification N{n} kind={kind} '
+                                         f'case={case} array={index}: {exc}') from exc
                     for key in ('max_abs','max_budget_fraction'):
                         boundary_checks[index][key] = max(boundary_checks[index][key],check[key])
                     boundary_checks[index]['rounded_entries'] += check['rounded_entries']
@@ -178,8 +199,8 @@ def preflight(output, inputs, *, gpu=False):
         jax.clear_caches()
     result = dict(passed=True,test_only=not gpu,gpu=gpu,identity=check_source()[0],records=records,
                   device=str(jax.devices()[0]),
-                  boundary_fixture_policy=dict(eps_multiplier=BOUNDARY_EPS_MULTIPLIER,
-                      scale='max(1,abs(expected))',dtype='float64',nonwall_exact=True),
+                  boundary_fixture_policy=dict(atol=BOUNDARY_FIXTURE_ATOL,rtol=BOUNDARY_FIXTURE_RTOL,
+                      dtype='float64',nonwall_exact=True,same_platform_bitwise=True),
                   scope='bounded scalar diagnostic/full RHS equivalence; not global qualification')
     write(output/('bounded_gpu_preflight.json' if gpu else 'bounded_preflight.json'),result)
     return result

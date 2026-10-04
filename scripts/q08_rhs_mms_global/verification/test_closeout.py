@@ -9,7 +9,7 @@ import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
 from scripts.q08_rhs_mms_global.resources import host_guard,GIB
 from scripts.q08_rhs_mms_global.ti_replay import (reduce_scalar,references,checked_path,analyze,
-    check_boundary_fixture,BOUNDARY_EPS_MULTIPLIER,SCI_ID,LAST)
+    check_boundary_fixture,check_same_platform_boundary,BOUNDARY_FIXTURE_ATOL,BOUNDARY_FIXTURE_RTOL,SCI_ID,LAST)
 from scripts.q08_rhs_mms_global.campaign import write,sha,read
 
 
@@ -47,8 +47,25 @@ class CloseoutTests(unittest.TestCase):
     def test_boundary_roundoff_policy_matches_frozen_manifest(self):
         manifest=read(Path(__file__).resolve().parents[1]/'manifest.json')
         self.assertEqual(manifest['ti_boundary_fixture_roundoff'],dict(
-            eps_multiplier=BOUNDARY_EPS_MULTIPLIER,scale='max(1,abs(expected))',
-            dtype='float64',nonwall_exact=True))
+            atol=BOUNDARY_FIXTURE_ATOL,rtol=BOUNDARY_FIXTURE_RTOL,
+            dtype='float64',nonwall_exact=True,same_platform_bitwise=True))
+
+    def test_audited_remote_worst_normal_value_passes_fixture_gate(self):
+        expected=np.zeros((1,2,1));actual=expected.copy()
+        expected[0,1,0]=-0.8559914628299974
+        actual[0,1,0]=-0.8559914628299645
+        result=check_boundary_fixture(actual,expected,np.array([1]))
+        self.assertEqual(result['max_abs'],3.2862601528904634e-14)
+        self.assertLess(result['max_budget_fraction'],.031)
+
+    def test_live_producer_check_remains_bitwise(self):
+        expected=np.array([[[.5]]])
+        check_same_platform_boundary(expected.copy(),expected)
+        changed=np.nextafter(expected,np.inf)
+        self.assertLess(abs(changed-expected).max(),BOUNDARY_FIXTURE_ATOL)
+        with self.assertRaises(AssertionError):check_same_platform_boundary(changed,expected)
+        with self.assertRaises(ValueError):check_same_platform_boundary(expected.astype(np.float32),expected)
+        with self.assertRaises(ValueError):check_same_platform_boundary(np.full_like(expected,np.nan),expected)
 
     def test_guard_accepts_calibrated_budget_and_rejects_old_budget(self):
         e={'estimated_host_peak_upper_bytes':35*GIB}

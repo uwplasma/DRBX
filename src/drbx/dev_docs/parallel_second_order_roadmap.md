@@ -40,16 +40,22 @@ its references corrected globally; full-grid N replay still requires the
 immutable banks on Perlmutter. Q08 remains open pending that result. The six assembled RHS equations and
 full-grid CPU/GPU replay already have their documented evidence and exceptions.
 
-The first focused Ti remote replay stopped before GPU execution on an overly
-strict boundary-fixture equality check: four entries differed by at most
-1.39e-17. The repaired preflight admits only active-wall float64 roundoff,
-`32*eps*max(1,abs(expected))`, and records the observed discrepancy. Layout,
-precision, finiteness and nonwall padding remain strict; numerical actions,
-the final operator replay tolerance and scientific scoring are unchanged.
-All 25 focused tests and the 22-state D/N bounded replay pass locally, with
-scalar/full-RHS disagreement at most 5.69e-14. Preserve the failed run and use
-a new source/output identity for recovery with the same immutable datasets.
-GPU and corrected global Ti qualification are still pending.
+The focused Ti remote replay stopped before GPU execution on overly strict
+cross-platform boundary-fixture checks, first exact equality and then a
+32-epsilon budget. The returned audit verifies all 264 optimized/original live
+arrays are bitwise equal; eight physical-normal derivative arrays exceed the
+old fixture budget, with maximum discrepancy 3.29e-14. A one-ULP manufactured
+wave phase shift reproduces the worst discrepancy. Substituting the returned
+BC arrays in the unchanged bounded operator changes its action by at most
+6.70e-11, below 0.4% of the original operator-action replay budget.
+
+The user-approved recovery uses fixture `atol=1e-12, rtol=1e-13`, independently
+requiring optimized/original live producers to agree bitwise on the same
+machine. Layout, precision, finiteness and nonwall padding remain strict.
+Numerical actions, the operator-action gate and scientific scoring are
+unchanged. Preserve failed runs and use a new source/output identity with the
+same immutable datasets. GPU and corrected global Ti qualification remain
+pending. [Independent returned-array audit](../../../../work/q08_ti_boundary_remote_20261004/analysis.json).
 
 ### FCI traced parallel gradient: global N-O gate passed — 30 September 2026
 
