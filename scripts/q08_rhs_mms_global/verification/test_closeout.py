@@ -8,11 +8,48 @@ import numpy as np
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
 from scripts.q08_rhs_mms_global.resources import host_guard,GIB
-from scripts.q08_rhs_mms_global.ti_replay import reduce_scalar,references,checked_path,analyze,SCI_ID,LAST
+from scripts.q08_rhs_mms_global.ti_replay import (reduce_scalar,references,checked_path,analyze,
+    check_boundary_fixture,BOUNDARY_EPS_MULTIPLIER,SCI_ID,LAST)
 from scripts.q08_rhs_mms_global.campaign import write,sha,read
 
 
 class CloseoutTests(unittest.TestCase):
+    def test_boundary_fixture_accepts_reported_remote_roundoff_and_records_it(self):
+        expected=np.zeros((1,46,35))
+        actual=expected.copy()
+        expected[0,44:46,30]=0.02529665862220193
+        actual[0,44:46,30]=0.025296658622201915
+        expected[0,44:46,31]=0.1180991363900236
+        actual[0,44:46,31]=0.11809913639002359
+        result=check_boundary_fixture(actual,expected,np.array([44,45]))
+        self.assertEqual(result['rounded_entries'],4)
+        self.assertEqual(result['max_abs'],1.3877787807814457e-17)
+        self.assertLess(result['max_budget_fraction'],1.)
+        self.assertEqual(check_boundary_fixture(expected,expected,np.array([44,45]))['max_abs'],0.)
+
+    def test_boundary_fixture_rejects_meaningful_errors_and_padding_changes(self):
+        expected=np.zeros((1,3,2));expected[:,1]=[.025,.118]
+        wall=np.array([1])
+        for changed in (expected+np.array([[[0.,0.],[1e-10,0.],[0.,0.]]]),
+                        -expected,expected[:,:,::-1]):
+            with self.assertRaises(ValueError):check_boundary_fixture(changed,expected,wall)
+        changed=expected.copy();changed[0,0,0]=np.finfo(float).eps
+        with self.assertRaises(AssertionError):check_boundary_fixture(changed,expected,wall)
+
+    def test_boundary_fixture_rejects_nonfinite_layout_and_precision(self):
+        expected=np.zeros((1,3,2));wall=np.array([1])
+        for bad in (expected.astype(np.float32),expected[:,:,:1],expected[0],
+                    np.full_like(expected,np.nan),np.full_like(expected,np.inf)):
+            with self.assertRaises(ValueError):check_boundary_fixture(bad,expected,wall)
+        for bad_wall in (np.array([1,1]),np.array([-1]),np.array([3]),np.array([1.])):
+            with self.assertRaises(ValueError):check_boundary_fixture(expected,expected,bad_wall)
+
+    def test_boundary_roundoff_policy_matches_frozen_manifest(self):
+        manifest=read(Path(__file__).resolve().parents[1]/'manifest.json')
+        self.assertEqual(manifest['ti_boundary_fixture_roundoff'],dict(
+            eps_multiplier=BOUNDARY_EPS_MULTIPLIER,scale='max(1,abs(expected))',
+            dtype='float64',nonwall_exact=True))
+
     def test_guard_accepts_calibrated_budget_and_rejects_old_budget(self):
         e={'estimated_host_peak_upper_bytes':35*GIB}
         with self.assertRaises(MemoryError):host_guard(e,50)
