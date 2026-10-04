@@ -56,7 +56,7 @@ class DetachmentSolParameters:
     upstream_power: float = 6.0              # normalized upstream power source
     power_width: float = 0.2                 # parallel width of the power source
     conduction_coefficient: float = 2.0      # Spitzer kappa0 (normalized)
-    sheath_transmission: float = 7.0         # gamma (Te + Ti)
+    sheath_transmission: float = 7.0         # total gamma (Te + Ti), enthalpy included
     neutral_diffusion: float = 8.0
     recycling_fraction: float = 0.95
     ion_mass: float = 2.0
@@ -83,6 +83,13 @@ def _temperature(density, pressure, params):
 
 def _sound_speed(density, pressure, params):
     return jnp.sqrt(jnp.maximum(pressure / (params.ion_mass * jnp.maximum(density, params.density_floor)), 0.0))
+
+
+def _target_velocity(density, momentum, pressure, params):
+    """Outflow velocity at the target, ``max(u, c_s)`` (Bohm condition)."""
+
+    velocity = momentum[-1] / (params.ion_mass * jnp.maximum(density[-1], params.density_floor))
+    return jnp.maximum(velocity, _sound_speed(density, pressure, params)[-1])
 
 
 def _hyperbolic_rhs(density, momentum, pressure, params):
@@ -184,10 +191,13 @@ def detachment_sol_step(state, params, dt):
     loss_rate = (2.0 / 3.0) * jnp.maximum(energy_loss, 0.0) / jnp.maximum(pressure, pressure_floor)
     pressure = pressure / (1.0 + dt * loss_rate)
 
-    # Bohm sheath heat sink at the target (semi-implicit).
-    sound_speed = _sound_speed(density, pressure, params)
+    # Bohm sheath heat sink at the target (semi-implicit). The total target
+    # heat flux is gamma n T v_t; the boundary advective flux already removes
+    # the enthalpy 5 n T v_t (5/2 T per species), so only the remainder is
+    # applied here (as in hermes-3 sheath_boundary_simple).
+    target_velocity = _target_velocity(density, momentum, pressure, params)
     sheath_rate = jnp.zeros(nz).at[-1].set(
-        (2.0 / 3.0) * params.sheath_transmission * density[-1] * sound_speed[-1] * _temperature(density, pressure, params)[-1] / dz / jnp.maximum(pressure[-1], pressure_floor)
+        (2.0 / 3.0) * jnp.maximum(params.sheath_transmission - 5.0, 0.0) * density[-1] * target_velocity * _temperature(density, pressure, params)[-1] / dz / jnp.maximum(pressure[-1], pressure_floor)
     )
     pressure = pressure / (1.0 + dt * sheath_rate)
 
