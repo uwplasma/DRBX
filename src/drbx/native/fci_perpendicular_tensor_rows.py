@@ -11,9 +11,9 @@ Runtime layout (all arrays, registered pytrees with static ints/strings):
 - ``TensorTables``: grid-global 1-D factor tables (deduplicated by exact bit pattern across
   chunks) plus ``raw_to_owner`` (``n**3`` int32), the compact lookup singleton /
   centered_radial owners are derived from;
-- ``TensorRowBatch``: the targets of one (family, has_gradient) group, a few small integers
-  per target (table rows, and for ringwise a 4x4 block of ring-table rows) and the output
-  slots. Owner ids are never stored per target:
+- ``TensorRowBatch``: the targets of one (family, has_gradient, paired) group, a few small integers
+  per target (table rows, and for ringwise a 4x4 block of ring-table rows; twice for a paired target)
+  and the output slots. Owner ids are never stored per target:
 
   - singleton / centered_radial: ``raw = (rid[l]*n + (theta[j] + shift[l]) % n)*n + eta[e]``
     (``rid = l`` or ``-l-1`` and ``shift = n//2`` for a negative layer ``l``), owner
@@ -30,6 +30,12 @@ Contraction (sum factorization, per target and field, ``G[l, e, j]`` the donor b
 so value, d/dr, d/dtheta and d/deta share two theta contractions (tv, td) and their eta
 contractions. ``dr_divisor`` is ``h = 1/n`` for ``centered_radial`` (``boundary_map`` divides its
 ``D`` by ``h``) and ``1`` otherwise.
+
+A *paired* target is the row ``1/2 (A + B)`` of two such factorizations (a ``cell_stencil="symmetric"`` cell row:
+the biased row A and its mirror B, ``drbx.stencils.tensor_rows``). Its batch carries, beside the index arrays of A, a
+:class:`TensorMirror` with those of B; both parts are contracted exactly as above (two 4 x 4 gathers instead of one,
+from the same per-apply tables) and the target's output is ``0.5 * (A + B)``. A paired batch is of one family: both
+parts of a pair are singleton or both ringwise.
 
 The first stage ``A_w`` does not depend on the target beyond a small key, so it is computed **once
 per apply** (``prepare_fields``) and each target only gathers its 4 x 4 results:
@@ -102,12 +108,32 @@ jax.tree_util.register_dataclass(
 
 
 @dataclass(frozen=True)
+class TensorMirror:
+    """The mirror part B of a paired batch: the index arrays of the second factorization of every target.
+
+    Same layout (and index widths) as the batch's own index arrays, which are part A: ``t_ring`` for a ringwise
+    batch, ``layer_id`` and ``t_theta`` for the others; the tables are the plan's, shared with A."""
+
+    t_eta: np.ndarray               # (T,) eta-table row
+    t_radial: np.ndarray            # (T,) radial-table row
+    layer_id: np.ndarray | None     # (T,) layers-table row (not ringwise)
+    t_theta: np.ndarray | None      # (T,) theta-table row (not ringwise)
+    t_ring: np.ndarray | None       # (T, 4, 4) ring-table rows (ringwise)
+
+
+jax.tree_util.register_dataclass(
+    TensorMirror, data_fields=["t_eta", "t_radial", "layer_id", "t_theta", "t_ring"], meta_fields=[])
+
+
+@dataclass(frozen=True)
 class TensorRowBatch:
-    """Targets of one (family, has_gradient) group; per-target arrays have ``T`` rows.
+    """Targets of one (family, has_gradient, paired) group; per-target arrays have ``T`` rows.
 
     ``ringwise`` batches carry ``t_ring`` (T, 4, 4) and no ``layer_id``/``t_theta``; the other
     families carry ``layer_id`` and ``t_theta`` and no ``t_ring``. Index arrays are integers of
     any width (indices into the tables); ``value_slots``/``gradient_slots`` are int32 output rows.
+    A paired batch (``mirror`` is not ``None``) holds symmetric cell rows ``1/2 (A + B)``: the index arrays above
+    are part A, ``mirror`` those of part B (the module docstring).
     """
 
     family: str                     # static: "singleton" | "ringwise" | "centered_radial"
@@ -119,11 +145,19 @@ class TensorRowBatch:
     layer_id: np.ndarray | None     # (T,) layers-table row (not ringwise)
     t_theta: np.ndarray | None      # (T,) theta-table row (not ringwise)
     t_ring: np.ndarray | None       # (T, 4, 4) ring-table rows (ringwise)
+    mirror: TensorMirror | None = None      # part B of every target (paired batches only)
+
+    def index_arrays(self) -> tuple:
+        """The per-target index arrays that the tables are read with: A's, then B's of a paired batch (each
+        ``(t_eta, t_radial, t_ring)`` for a ringwise batch, ``(t_eta, t_radial, layer_id, t_theta)`` otherwise)."""
+        def part(x):
+            return (x.t_eta, x.t_radial) + ((x.t_ring,) if self.t_ring is not None else (x.layer_id, x.t_theta))
+        return part(self) + (() if self.mirror is None else part(self.mirror))
 
 
 jax.tree_util.register_dataclass(
     TensorRowBatch,
-    data_fields=["value_slots", "gradient_slots", "t_eta", "t_radial", "layer_id", "t_theta", "t_ring"],
+    data_fields=["value_slots", "gradient_slots", "t_eta", "t_radial", "layer_id", "t_theta", "t_ring", "mirror"],
     meta_fields=["family", "dr_divisor"])
 
 
@@ -251,13 +285,25 @@ def _block_apply(tables: TensorTables, static, context, arrays, *, values, gradi
     return out_value, out_gradient
 
 
+def _block_apply_pair(tables: TensorTables, static, context, arrays, *, values, gradients):
+    """:func:`_block_apply` of a block of paired targets: ``0.5 * (A + B)``. ``arrays`` are the index arrays of A
+    followed by those of B (the same layout twice); both parts are evaluated in one pass over the stacked block."""
+    half = len(arrays) // 2
+    both = tuple(jnp.concatenate([a, b]) for a, b in zip(arrays[:half], arrays[half:]))
+    out_value, out_gradient = _block_apply(tables, static, context, both, values=values, gradients=gradients)
+    m = arrays[0].shape[0]
+    mean = lambda x: None if x is None else 0.5 * (x[:m] + x[m:])
+    return mean(out_value), mean(out_gradient)
+
+
 def apply_tensor_batch(tables: TensorTables, batch: TensorRowBatch, fields, *,
                        values: bool = True, gradients: bool = True,
                        context: TensorFieldContext | None = None):
     """``(value (T, F) or None, gradient (T, 3, F) or None)`` of every target of ``batch``.
 
     Row ``t`` belongs to the target with ``batch.value_slots[t]`` (and ``gradient_slots[t]``);
-    the gradient is ``None`` unless requested and the batch stores gradients. ``context`` is the
+    the gradient is ``None`` unless requested and the batch stores gradients. A paired batch (``batch.mirror``)
+    gives ``0.5 * (A + B)`` of its two parts. ``context`` is the
     result of :func:`prepare_fields` for the batches of the call (built here for this batch if
     omitted). Traceable; the jitted entry point is ``apply_source_rows``.
     """
@@ -268,11 +314,14 @@ def apply_tensor_batch(tables: TensorTables, batch: TensorRowBatch, fields, *,
     if context is None:
         context = prepare_fields(tables, (batch,), fields, values=values, gradients=gradients)
     ringwise = batch.t_ring is not None
+    paired = batch.mirror is not None
     total = batch.value_slots.shape[0]
     nf = fields.shape[1]
     static = (ringwise, float(batch.dr_divisor))
-    arrays = (batch.t_eta, batch.t_radial) + ((batch.t_ring,) if ringwise else (batch.layer_id, batch.t_theta))
+    arrays = batch.index_arrays()
+    apply = _block_apply_pair if paired else _block_apply
+    entries = (32 if paired else 16) * max(nf, 1)                       # gathered elements per target
 
     limit = RING_BLOCK_ELEMENTS if ringwise else ANGULAR_BLOCK_ELEMENTS
-    return _blocked(lambda chunk: _block_apply(tables, static, context, chunk, values=values, gradients=want_gradient),
-                    arrays, limit // (16 * max(nf, 1)), 8 * 16 * max(nf, 1))
+    return _blocked(lambda chunk: apply(tables, static, context, chunk, values=values, gradients=want_gradient),
+                    arrays, limit // entries, 8 * entries)

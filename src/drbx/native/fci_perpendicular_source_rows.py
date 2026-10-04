@@ -50,7 +50,8 @@ class SourceRowPayload:
     ``batches`` are the CSR-encoded sources (dense per-source coefficient blocks).
     ``tensor_batches`` (with their grid-global ``tensor_tables``) are the tensor-encoded,
     unconditioned sources, applied without materializing weights
-    (``drbx.native.fci_perpendicular_tensor_rows``). Both write disjoint rows of the same
+    (``drbx.native.fci_perpendicular_tensor_rows``; a paired batch applies the mean ``1/2 (A + B)`` of two
+    factorizations, a symmetric cell row). Both write disjoint rows of the same
     output arrays, so a mixed plan is one ``apply_source_rows`` call.
     """
 

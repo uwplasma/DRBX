@@ -59,7 +59,7 @@ import numpy as np
 from drbx.geometry.fci_perpendicular_reconstruction import PairedFactors, PointRows
 from drbx.geometry.fci_perpendicular_neumann_trace import NeumannPointRows
 from drbx.geometry.fci_perpendicular_integrated_rows import IntegratedFaceRow
-from .tensor_rows import TensorRows, expand_tensor_rows, merge_paired_expansion, verified_tensor_rows
+from .tensor_rows import TensorRows, expand_tensor_rows, merge_paired_expansion, pair_part_of, verified_tensor_rows
 
 SCHEMA = "drbx.p-row-artifact.v3"
 #: The previous schema: per-target point chunks and dense P07 side arrays. It is
@@ -851,13 +851,10 @@ def _select_tensor_sources(chunk, factors, stats, *, family_names, src_condition
 
 def _tensor_rows(arrays, encoding, counts, src_has_gradient) -> TensorRows:
     """The chunk's ``TensorRows`` from its ``tr_*`` members: one source per ``ENCODING_TENSOR`` source and two (A
-    then B) per ``ENCODING_PAIRED`` source, in chunk order (a source's code is the number of sources it occupies)."""
-    rows = TensorRows.from_arrays(arrays, has_gradient=np.repeat(src_has_gradient, encoding),
-                                  target_counts=np.repeat(counts, encoding))
-    a = (np.cumsum(encoding) - encoding)[encoding == ENCODING_PAIRED]
-    if len(a) and np.any(rows.family[a] != rows.family[a + 1]):
-        raise ValueError("corrupted v3 point-row chunk: the two parts of a paired source differ in family")
-    return rows
+    then B, marked in ``pair_part``) per ``ENCODING_PAIRED`` source, in chunk order (a source's code is the number
+    of sources it occupies)."""
+    return TensorRows.from_arrays(arrays, has_gradient=np.repeat(src_has_gradient, encoding),
+                                  target_counts=np.repeat(counts, encoding), pair_part=pair_part_of(encoding[encoding > 0]))
 
 
 def _merge_tensor_sources(arrays, encoding, codes, counts, src_has_gradient, src_width, src_donor, value, gradient):
@@ -866,11 +863,10 @@ def _merge_tensor_sources(arrays, encoding, codes, counts, src_has_gradient, src
     tensor source with another code stays as stored (no donors)."""
     expand = np.isin(encoding, codes)
     tensor = _tensor_rows(arrays, encoding, counts, src_has_gradient)
-    multiplicity = encoding[expand]
     if not np.array_equal(expand, encoding > 0):                 # only some of the tensor sources: their rows
-        tensor = tensor.take_sources(_flat_index((np.cumsum(encoding) - encoding)[expand], multiplicity))
-    expansion = merge_paired_expansion(expand_tensor_rows(tensor), np.repeat(counts[expand], multiplicity),
-                                       np.repeat(src_has_gradient[expand], multiplicity), multiplicity)
+        tensor = tensor.take_sources(_flat_index((np.cumsum(encoding) - encoding)[expand], encoding[expand]))
+    expansion = merge_paired_expansion(expand_tensor_rows(tensor), np.diff(tensor.target_ptr), tensor.has_gradient,
+                                       tensor.multiplicity)
     width = src_width.copy()
     width[expand] = np.diff(expansion.donor_ptr)
     ptr = _ptr_from_counts(width)
@@ -1076,18 +1072,21 @@ def decode_chunk(group: str, data: bytes):
     return from_arrays(arrays)
 
 
-def decode_chunk_factored(group: str, data: bytes):
-    """``(chunk, tensor_rows, is_tensor)`` of a point chunk *without* expanding its single tensor sources.
+def decode_chunk_factored(group: str, data: bytes, *, expand_pairs: bool = False):
+    """``(chunk, tensor_rows, is_tensor)`` of a point chunk *without* expanding its tensor sources.
 
     ``chunk`` is the stored view: every tag, ``source_ptr``, ``quad_node`` and ``target_point`` as in
-    ``decode_chunk``, but a tensor source (``src_encoding`` 1) has zero donors and stores no value or gradient (the
-    CSR arrays hold the other sources only). ``tensor_rows`` (a ``drbx.stencils.tensor_rows.TensorRows``, ``None``
-    if the chunk has no such source) holds those sources in chunk order; ``is_tensor`` is the per-source mask.
-    Expanding them (``expand_tensor_rows``) and interleaving gives exactly ``decode_chunk``'s chunk.
+    ``decode_chunk``, but a tensor source has zero donors and stores no value or gradient (the CSR arrays hold the
+    other sources only). ``tensor_rows`` (a ``drbx.stencils.tensor_rows.TensorRows``, ``None`` if the chunk has no
+    tensor source) holds those sources in chunk order; ``is_tensor`` is the per-source mask. Expanding them
+    (``expand_tensor_rows``) and interleaving gives exactly ``decode_chunk``'s chunk.
 
-    A paired source (``src_encoding`` 2, a ``cell_stencil="symmetric"`` cell row stored as its two parts) is not
-    exposed as factors here: it is expanded and merged, so it is an ordinary CSR source of ``chunk`` (donors, value
-    and gradient as in ``decode_chunk``) and ``is_tensor`` is False for it."""
+    A paired source (``src_encoding`` 2, a ``cell_stencil="symmetric"`` cell row ``1/2 (A + B)``) is a tensor source of
+    two consecutive ``tensor_rows`` sources, A then B (``tensor_rows.pair_part`` marks them; the logical sources are
+    ``tensor_rows.logical_sources``), and ``is_tensor`` is True for it. ``expand_pairs=True`` instead gives the view of
+    the first storage stage: a pair is expanded and merged, so it is an ordinary CSR source of ``chunk`` (donors, value and
+    gradient as in ``decode_chunk``), ``is_tensor`` is False for it and ``tensor_rows`` holds the single tensor sources
+    only (for consumers that cannot apply a pair)."""
     if group not in ("cells", "faces"):
         raise ValueError("only point chunks (cells, faces) carry tensor sources")
     with np.load(io.BytesIO(data), allow_pickle=False) as source:
@@ -1096,13 +1095,14 @@ def decode_chunk_factored(group: str, data: bytes):
         return _arrays_to_point_chunk_v2(arrays), None, np.zeros(len(arrays["source_ptr"]) - 1, dtype=bool)
     encoding = (np.asarray(arrays["src_encoding"], dtype=np.int64) if "src_encoding" in arrays
                 else np.zeros(len(arrays["source_ptr"]) - 1, dtype=np.int64))
-    chunk = _arrays_to_point_chunk_v3(arrays, codes=(ENCODING_PAIRED,))
-    is_tensor = encoding == ENCODING_TENSOR
+    paired = bool((encoding == ENCODING_PAIRED).any())
+    chunk = _arrays_to_point_chunk_v3(arrays, expand=expand_pairs and paired, codes=(ENCODING_PAIRED,))
+    is_tensor = encoding == ENCODING_TENSOR if expand_pairs else encoding > 0
     tensor = None
     if is_tensor.any():
         counts = np.diff(np.asarray(arrays["source_ptr"], dtype=np.int64))
         tensor = _tensor_rows(arrays, encoding, counts, np.asarray(arrays["src_has_gradient"], dtype=bool))
-        if (encoding == ENCODING_PAIRED).any():                   # only the single sources' rows
+        if expand_pairs and paired:                                # only the single sources' rows
             tensor = tensor.take_sources((np.cumsum(encoding) - encoding)[is_tensor])
     return chunk, tensor, is_tensor
 

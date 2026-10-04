@@ -43,7 +43,9 @@ shard, stacked along a leading shard axis:
   entries carry the out-of-range cell index (the scatter drops them), weight 0 and the trash owner.
 
 Tensor-encoded sources keep their grid-global eta tables: their per-apply theta tables are still built for all ``n``
-planes (planes outside the window gather the trash row), so a sharded apply does not yet reduce that cost.
+planes (planes outside the window gather the trash row), so a sharded apply does not yet reduce that cost. A paired
+tensor batch (symmetric cell rows ``1/2 (A + B)``, :class:`TensorMirror`) is kept, localized and padded with the index
+arrays of both parts, and its window check covers the eta planes (singleton) or ring entries (ringwise) of both.
 
 Diagnostics of :func:`sharded_perpendicular_rhs` are returned *per shard* (arrays of shape ``(Sz,)``, not reduced): the
 P06 counters count a block-boundary face on both shards, ``antisymmetry`` is a per-shard maximum.
@@ -71,7 +73,7 @@ from drbx.native.fci_perpendicular_rhs import (
     FIELDS, PerpendicularParams, PerpendicularTerms, _TERM_ORDER, _check_wall_transport, _kinds, _validate,
     perpendicular_columns, perpendicular_rhs)
 from drbx.native.fci_perpendicular_source_rows import SourceRowBatch, SourceRowPayload
-from drbx.native.fci_perpendicular_tensor_rows import TensorRowBatch
+from drbx.native.fci_perpendicular_tensor_rows import TensorMirror, TensorRowBatch
 from drbx.stencils.operator_plan import (
     CellPlan, FacePlan, IntegratedNeumannRows, IntegratedRows, NeumannFaceRows, NeumannRows, P07Plan,
     PerpendicularPlan)
@@ -264,19 +266,24 @@ def _select_sources(payload: SourceRowPayload, need_v, need_g, sh: _Shard, what:
         if b.gradient_slots is not None:
             keep |= need_g[b.gradient_slots]
         k = np.flatnonzero(keep)
-        if b.t_ring is None:
-            bad = ~sh.window_plane[tables.eta_index[b.t_eta[k]]]
-        else:
-            entry = b.t_ring[k]
-            bad = ring_nz[entry] & (sh.donor_map[tables.ring_owner[entry]] == sh.trash)
-        if bad.any():
+
+        def outside(part):                  # part A (the batch itself) or part B (``mirror``) reads beyond the window
+            if b.t_ring is None:
+                return (~sh.window_plane[tables.eta_index[part.t_eta[k]]]).any()
+            entry = part.t_ring[k]
+            return (ring_nz[entry] & (sh.donor_map[tables.ring_owner[entry]] == sh.trash)).any()
+
+        if outside(b) or (b.mirror is not None and outside(b.mirror)):
             raise ValueError(f"{what} tensor rows: shard {sh.s} has targets reading eta planes outside the extended "
                              f"window of halo {sh.ctx.halo}")
         take = lambda a: None if a is None else a[k]
+        mirror = None if b.mirror is None else TensorMirror(
+            take(b.mirror.t_eta), take(b.mirror.t_radial), take(b.mirror.layer_id), take(b.mirror.t_theta),
+            take(b.mirror.t_ring))
         tensor.append(TensorRowBatch(
             b.family, b.dr_divisor, assign(b.value_slots[k], vmap, 0),
             None if b.gradient_slots is None else assign(b.gradient_slots[k], gmap, 1), take(b.t_eta),
-            take(b.t_radial), take(b.layer_id), take(b.t_theta), take(b.t_ring)))
+            take(b.t_radial), take(b.layer_id), take(b.t_theta), take(b.t_ring), mirror))
     if tables is not None:
         raw = np.asarray(tables.raw_to_owner).astype(np.int64)
         tables = replace(
@@ -581,10 +588,13 @@ def _pad_payloads(payloads: Sequence[SourceRowPayload], trash: int, n_queries: i
                 continue
             k = tmax[i] - len(b.value_slots)
             pad = lambda a: None if a is None else _pad(a, tmax[i])
+            mirror = None if b.mirror is None else TensorMirror(
+                pad(b.mirror.t_eta), pad(b.mirror.t_radial), pad(b.mirror.layer_id), pad(b.mirror.t_theta),
+                pad(b.mirror.t_ring))
             tensor.append(TensorRowBatch(
                 b.family, b.dr_divisor, np.concatenate([b.value_slots, dummy(k, (k,), 0)]),
                 None if b.gradient_slots is None else np.concatenate([b.gradient_slots, dummy(k, (k,), 1)]),
-                pad(b.t_eta), pad(b.t_radial), pad(b.layer_id), pad(b.t_theta), pad(b.t_ring)))
+                pad(b.t_eta), pad(b.t_radial), pad(b.layer_id), pad(b.t_theta), pad(b.t_ring), mirror))
         out.append(SourceRowPayload(tuple(batches), n_targets, n_gradient, n_queries, tuple(tensor), p.tensor_tables))
     return out
 

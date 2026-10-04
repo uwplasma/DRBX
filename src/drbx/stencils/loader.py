@@ -43,7 +43,9 @@ factored decode of a chunk (``drbx.stencils.artifact.decode_chunk_factored`` giv
 buckets unchanged; the tensor sources are never expanded: their per-chunk factor tables
 are merged into grid-global tables (deduplicated by exact bit pattern) and their targets
 become ``TensorRowBatch`` es (a few table indices per target), numbered in the same
-output slots as the CSR sources of the chunk.
+output slots as the CSR sources of the chunk. A paired source (a ``cell_stencil="symmetric"`` cell row ``1/2 (A + B)``:
+two consecutive ``TensorRows`` sources, ``TensorRows.pair_part``) becomes a target of a *paired* batch, which carries
+the index arrays of B as a ``TensorMirror`` beside those of A; the kernel contracts both from the same tables.
 """
 from __future__ import annotations
 
@@ -61,7 +63,7 @@ from drbx.native.fci_perpendicular_neumann_rows import NeumannPayload
 from drbx.native.fci_perpendicular_source_rows import (
     SourceRowBatch, SourceRowPayload)
 from drbx.native.fci_perpendicular_tensor_rows import (
-    DONOR_BLOCK, TensorRowBatch, TensorTables, tensor_nbytes)
+    DONOR_BLOCK, TensorMirror, TensorRowBatch, TensorTables, tensor_nbytes)
 from drbx.stencils.artifact import (
     BC_VARIANTS, REQUEST_KINDS, SUPPORTED_SCHEMAS, IntegratedRowChunk, NeumannRowChunk,
     PointRowChunk, _json_safe, decode_chunk_factored, hash_bytes)
@@ -460,7 +462,8 @@ class FactoredChunk(NamedTuple):
     """A point chunk as ``decode_chunk_factored`` returns it: tensor sources are not expanded.
 
     ``chunk`` stores zero donors and no value/gradient for the sources flagged in ``is_tensor``
-    (per chunk source); ``tensor_rows`` holds their factors in chunk order.
+    (per chunk source); ``tensor_rows`` holds their factors in chunk order: one row per tensor source, two (A then B,
+    ``tensor_rows.pair_part``) for a paired one, so ``tensor_rows.logical_sources`` are the rows of the flagged sources.
     """
 
     chunk: PointRowChunk
@@ -492,8 +495,9 @@ def lower_point_chunks(chunks: Iterable, *, grid: LoaderGrid,
     ``(family, conditioned, has_gradient, nodes, width)`` with the donor width rounded up to a
     multiple of 16. Tensor sources (unconditioned singleton, ringwise, centered_radial) are
     never expanded: their targets go to ``SourceRowPayload.tensor_batches`` (one batch per
-    (family, has_gradient)) over grid-global factor tables, see
-    ``drbx.native.fci_perpendicular_tensor_rows``. Targets are numbered in output order:
+    (family, has_gradient, paired)) over grid-global factor tables, see
+    ``drbx.native.fci_perpendicular_tensor_rows``; a paired source's targets go to a paired batch, which stores the
+    index arrays of both parts, and its eta offsets are those of the union of their donors. Targets are numbered in output order:
     selected sources in chunk order (CSR and tensor alike), targets in stored order.
     ``select`` restricts requests, BC variants and entity ids before slots are assigned.
     Raises if a chunk violates the source invariants (shared donor list, donor query, tags and
@@ -533,9 +537,14 @@ def lower_point_chunks(chunks: Iterable, *, grid: LoaderGrid,
             nonempty = np.diff(np.asarray(chunk.source_ptr, dtype=np.int64)) > 0
             if np.any(is_tensor & ~nonempty):
                 raise ValueError("point-row chunk: a tensor source has no targets")
+            tensor_rows.check_pairs()
+            first_row = tensor_rows.logical_sources            # rows of the tensor sources (the A part of a pair)
+            if len(first_row) != int(np.count_nonzero(is_tensor)):
+                raise ValueError(f"point-row chunk: the tensor rows hold {len(first_row)} sources for "
+                                 f"{int(np.count_nonzero(is_tensor))} tensor sources")
             tensor_of_source = np.cumsum(is_tensor) - 1
             is_t = is_tensor[nonempty][keep]
-            tensor_index = tensor_of_source[nonempty][keep][is_t]
+            tensor_index = first_row[tensor_of_source[nonempty][keep][is_t]]
         # Output slots.
         node_base = np.cumsum(q) - q
         grad_q = np.where(has_gradient, q, 0)
@@ -745,7 +754,8 @@ def _check_tensor_sources(grid, tr: TensorRows, tensor_index, q, d, conditioned,
         raise ValueError("tensor rows: theta plane id outside the grid")
     if tr.eta_index.size and (tr.eta_index.min() < 0 or tr.eta_index.max() >= n):
         raise ValueError("tensor rows: eta plane id outside the grid")
-    layers = tr.layers[tensor_index]
+    rows = np.concatenate([tensor_index, tensor_index[tr.pair_part[tensor_index] == 1] + 1])      # + the B parts
+    layers = tr.layers[rows]
     rid = np.where(layers < 0, -layers.astype(np.int64) - 1, layers)
     if rid.min() < 0 or rid.max() >= n:
         raise ValueError("tensor rows: radial layer outside the grid")
@@ -779,8 +789,10 @@ def _tensor_eta_range(grid, tr: TensorRows, ts, plane, layout):
     """Min/max wrapped eta offset of the tensor sources ``ts`` (rows of ``tr``), like the CSR sources'.
 
     ``plane`` are the eta planes of their targets (the concatenated targets of ``ts``). The donors of
-    a source are the owners of all 112 entries of all its targets, taken in bounded blocks.
+    a source are the owners of all 112 entries of all its targets, taken in bounded blocks; those of a pair
+    (the A part's row in ``ts``) are the owners of both its parts, so its range is that of the merged row.
     """
+    ts = np.asarray(ts, dtype=np.int64)
     counts = np.diff(tr.target_ptr)[ts]
     target_ptr = np.r_[0, np.cumsum(counts)]
     lo = np.zeros(len(ts), dtype=np.int32)
@@ -792,6 +804,11 @@ def _tensor_eta_range(grid, tr: TensorRows, ts, plane, layout):
         donor_ptr = np.r_[0, np.cumsum(counts[a:b] * DONOR_BLOCK)]
         lo[a:b], hi[a:b] = _eta_offset_range(grid, owners, donor_ptr, plane[target_ptr[a]:target_ptr[b]],
                                              target_ptr[a:b + 1] - target_ptr[a])
+    pair = np.flatnonzero(tr.pair_part[ts] == 1)
+    if len(pair):                       # the B parts read the same target planes through their own donors
+        at, _ = _ragged(target_ptr[pair], counts[pair])
+        lo_b, hi_b = _tensor_eta_range(grid, tr, ts[pair] + 1, plane[at], layout)
+        lo[pair], hi[pair] = np.minimum(lo[pair], lo_b), np.maximum(hi[pair], hi_b)
     return lo, hi
 
 
@@ -860,10 +877,10 @@ class _TensorAccumulator:
         return self._merge(name, *(t[used] for t in tables))[inverse.reshape(ids.shape)]
 
     def add(self, tr: TensorRows, ts, plane, value_slot, gradient_slot):
-        """Add the tensor sources ``ts`` (rows of ``tr``, chunk order) of one chunk.
+        """Add the tensor sources ``ts`` (rows of ``tr``, chunk order) of one chunk; a pair is its A part's row.
 
         ``plane``, ``value_slot``, ``gradient_slot`` (-1: none) are per target of those sources (in
-        order). Returns their min/max eta offsets.
+        order). Returns their min/max eta offsets (of the union of both parts for a pair).
         """
         ts = np.asarray(ts, dtype=np.int64)
         layout = tr.target_layout()
@@ -885,21 +902,38 @@ class _TensorAccumulator:
             ring_ids = self._rows("ring", tr.t_ring[layout["ring_row"][tt[ring]]],
                                   tr.ring_owner, tr.ring_value, tr.ring_derivative)
         has_gradient = tr.has_gradient[ts][src]
+        pair = tr.pair_part[ts] == 1
+        paired = pair[src]                                  # targets of a pair: part B's targets follow part A's
+        mirror_layer = (self._merge("layers", tr.layers[ts[pair] + 1].astype(np.int16))[(np.cumsum(pair) - 1)[src]]
+                        if pair.any() else None)
         for family in np.unique(family_t):
             for gradient in (False, True):
-                sel = np.flatnonzero((family_t == family) & (has_gradient == gradient))
-                if not len(sel):
-                    continue
-                key = (int(family), gradient)
-                self.pieces.setdefault(key, []).append((
-                    value_slot[sel].astype(np.int32),
-                    gradient_slot[sel].astype(np.int32) if gradient else None,
-                    eta[sel], radial[sel],
-                    None if family == _RINGWISE else layer[sel],
-                    None if family == _RINGWISE else theta[sel],
-                    ring_ids[ring_row[sel]] if family == _RINGWISE else None))
-                self.sources[key] = self.sources.get(key, 0) + int(
-                    len(np.unique(src[sel])))
+                group = np.flatnonzero((family_t == family) & (has_gradient == gradient))
+                for is_pair in (False, True):
+                    sel = group[paired[group] == is_pair]
+                    if not len(sel):
+                        continue
+                    key = (int(family), gradient, is_pair)
+                    ringwise = family == _RINGWISE
+                    mirror = (None,) * 5
+                    if is_pair:
+                        mt = tt[sel] + counts[src[sel]]               # the B targets
+                        mirror = (
+                            self._rows("eta", tr.t_eta[mt], tr.eta_index, tr.eta_value, tr.eta_derivative),
+                            self._rows("radial", tr.t_radial[mt], tr.radial),
+                            None if ringwise else mirror_layer[sel],
+                            None if ringwise else self._rows("theta", tr.t_theta[layout["theta_row"][mt]], tr.theta_index,
+                                                             tr.theta_value, tr.theta_derivative),
+                            self._rows("ring", tr.t_ring[layout["ring_row"][mt]], tr.ring_owner, tr.ring_value,
+                                       tr.ring_derivative) if ringwise else None)
+                    self.pieces.setdefault(key, []).append((
+                        value_slot[sel].astype(np.int32),
+                        gradient_slot[sel].astype(np.int32) if gradient else None,
+                        eta[sel], radial[sel],
+                        None if ringwise else layer[sel],
+                        None if ringwise else theta[sel],
+                        ring_ids[ring_row[sel]] if ringwise else None, *mirror))
+                    self.sources[key] = self.sources.get(key, 0) + int(len(np.unique(src[sel])))
         return lo, hi
 
     def finalize(self):
@@ -914,13 +948,14 @@ class _TensorAccumulator:
         (ring_owner, ring_value, ring_derivative) = t.get("ring", (np.zeros((0, 7), np.int32),
                                                                    np.zeros((0, 7)), np.zeros((0, 7))))
         (layers,) = t["layers"]
-        angular = any(family != _RINGWISE for family, _ in self.pieces)
+        angular = any(family != _RINGWISE for family, _, _ in self.pieces)
         grid = self.grid
         columns = {key: [None if parts[0] is None else np.concatenate(parts) for parts in zip(*self.pieces.pop(key))]
-                   for key in sorted(self.pieces, key=lambda k: (_FAMILY_NAMES[k[0]], k[1]))}
-        combo_key, combo_lookup = _theta_combos(
-            grid.n, layers, len(theta_index),
-            [(cols[4], cols[5]) for (family, _), cols in columns.items() if family != _RINGWISE])
+                   for key in sorted(self.pieces, key=lambda k: (_FAMILY_NAMES[k[0]], k[1], k[2]))}
+        # columns: value slots, gradient slots, eta, radial, layer, theta, ring, then the same four/five of part B
+        used = [(cols[4], cols[5]) for (family, _, _), cols in columns.items() if family != _RINGWISE]
+        used += [(cols[9], cols[10]) for (family, _, paired), cols in columns.items() if family != _RINGWISE and paired]
+        combo_key, combo_lookup = _theta_combos(grid.n, layers, len(theta_index), used)
         tables = TensorTables(
             grid.n, theta_index.astype(np.int32), theta_value, theta_derivative, eta_index.astype(np.int32),
             eta_value, eta_derivative, radial, ring_owner.astype(np.int32), ring_value, ring_derivative,
@@ -931,19 +966,27 @@ class _TensorAccumulator:
                      ring=len(ring_owner))
         batches, summary = [], []
         for key, cols in columns.items():
-            family, gradient = key
+            family, gradient, paired = key
             ring = family == _RINGWISE
+            mirror = None
+            if paired:
+                mirror = TensorMirror(
+                    _narrow_index(cols[7], sizes["eta"]), _narrow_index(cols[8], sizes["radial"]),
+                    None if ring else _narrow_index(cols[9], sizes["layers"]),
+                    None if ring else _narrow_index(cols[10], sizes["theta"]),
+                    _narrow_index(cols[11], sizes["ring"]) if ring else None)
             batch = TensorRowBatch(
                 _FAMILY_NAMES[family], float(1 / grid.n) if family == 2 else 1.0, cols[0], cols[1],
                 _narrow_index(cols[2], sizes["eta"]), _narrow_index(cols[3], sizes["radial"]),
                 None if ring else _narrow_index(cols[4], sizes["layers"]),
                 None if ring else _narrow_index(cols[5], sizes["theta"]),
-                _narrow_index(cols[6], sizes["ring"]) if ring else None)
+                _narrow_index(cols[6], sizes["ring"]) if ring else None, mirror)
             batches.append(batch)
             targets = len(batch.value_slots)
-            summary.append(BucketSummary(_FAMILY_NAMES[family], False, gradient, 0, DONOR_BLOCK,
-                                         self.sources[key], targets, DONOR_BLOCK * targets,
-                                         tensor_nbytes((), batch), "tensor"))
+            parts = 2 if paired else 1                        # factorizations contracted per target
+            summary.append(BucketSummary(_FAMILY_NAMES[family], False, gradient, 0, parts * DONOR_BLOCK,
+                                         self.sources[key], targets, parts * DONOR_BLOCK * targets,
+                                         tensor_nbytes((), batch), "tensor_paired" if paired else "tensor"))
         return tables, tuple(batches), tuple(summary)
 
 
