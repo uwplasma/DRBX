@@ -7,7 +7,7 @@ identity and resume refusals, the stage wiring with the heavy functions monkeypa
 and ``analyze`` on synthetic outputs.
 
 Fully synthetic / ``tmp_path`` based except the optional read of the local stripped re-freeze folder (skipped when
-absent); the real bounded preflight is ``tests/test_p08_step6_global_campaign_real.py`` (slow).
+absent); the real bounded preflight is ``tests/test_p08_step6_global_campaign_real.py`` (removed 4 October 2026: it needed the oracle arrays retired on 2 October) (slow).
 """
 from __future__ import annotations
 

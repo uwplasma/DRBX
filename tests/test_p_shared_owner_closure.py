@@ -3,8 +3,8 @@
 report). Two layers, matching this repo's own convention
 (``tests/test_p_shared_selection.py``/``tests/test_p_shared_replay_support
 .py``): fully synthetic tests for the small, geometry-independent helpers,
-and a skip-gated real-N32-geometry/oracle test for the end-to-end selection
-+ row-build + campaign comparison.
+and skip-gated real-N32-geometry tests for the end-to-end selection + row build.
+(The oracle-comparison tests were dropped on 4 October 2026 with the oracle arrays retired on 2 October.)
 """
 from __future__ import annotations
 
@@ -221,15 +221,8 @@ def _geometry_available(n: int) -> bool:
     return (directory / "base_geometry.npz").is_file() and (directory / "rlp_topology.npz").is_file()
 
 
-def _oracle_available(n: int) -> bool:
-    from p_shared.replay_support import DEFAULT_PATHS, CAMPAIGN_FUNCS
-    return oc.oracle_available(dict(DEFAULT_PATHS), CAMPAIGN_FUNCS, n=n) if _geometry_available(n) else False
-
-
 needs_geometry = pytest.mark.skipif(not (_geometry_available(N) and SIDECAR.is_file()),
                                     reason="HSX N32 geometry/sidecar inputs are unavailable")
-needs_oracle = pytest.mark.skipif(not _oracle_available(N),
-                                  reason="the six frozen campaigns' N32 oracle arrays are unavailable")
 
 REQUIRED_CATEGORIES = {
     "axis_core", "near_axis", "aggregate", "transition", "interior", "interior_secondary",
@@ -277,43 +270,3 @@ def test_build_owner_rows_covers_every_selected_owners_incident_faces():
     # would need are all present (no missing R1 row for any built raw id).
     for raw_id in built["raw_ids"]:
         assert ("R1", int(raw_id)) in built["row_index"]
-
-
-@needs_oracle
-@pytest.mark.slow
-def test_run_owner_closure_check_passes_against_every_frozen_oracle():
-    """The task report's own gate: build only the selected owners' rows, run
-    every campaign's replay-unit arithmetic, and diff against each frozen
-    oracle at exactly those owners -- must pass at roundoff level (see
-    ``p_shared.owner_closure.RATIO_TOLERANCE``/``ABS_FALLBACK_TOLERANCE``)."""
-    from p_shared.replay_support import DEFAULT_PATHS, CAMPAIGN_FUNCS
-
-    payload = oc.run_owner_closure_check(n=N, input_root=WORKSPACE, sidecar_path=SIDECAR,
-                                         paths=dict(DEFAULT_PATHS), campaigns=CAMPAIGN_FUNCS, compare=True, curvature="fd", face_quadrature="q3", inner_support="profile7")
-    failed = [r for r in payload["table"] if not r["pass"]]
-    assert failed == []
-    assert payload["all_pass"] is True
-    assert len(payload["table"]) > 20  # every campaign x term/variant row actually ran
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("n", [48, 64])
-def test_run_owner_closure_check_passes_at_n48_and_n64(n):
-    """Grid-generic oracle comparison (task): the same gate as the N32 test
-    above, but at N48/N64, where there is no on-disk production geometry --
-    ``build_owner_rows`` must compute its own geometry for just the selected
-    owners (:func:`p_shared.owner_closure._owner_geometry_arrays`), never
-    read a grid's ``geometry.npz``."""
-    from p_shared.replay_support import DEFAULT_PATHS, CAMPAIGN_FUNCS
-
-    if not (_geometry_available(n) and SIDECAR.is_file()):
-        pytest.skip(f"HSX N{n} geometry/sidecar inputs are unavailable")
-    if not _oracle_available(n):
-        pytest.skip(f"the six frozen campaigns' N{n} oracle arrays are unavailable")
-
-    payload = oc.run_owner_closure_check(n=n, input_root=WORKSPACE, sidecar_path=SIDECAR,
-                                         paths=dict(DEFAULT_PATHS), campaigns=CAMPAIGN_FUNCS, compare=True, curvature="fd", face_quadrature="q3", inner_support="profile7")
-    failed = [r for r in payload["table"] if not r["pass"]]
-    assert failed == []
-    assert payload["all_pass"] is True
-    assert len(payload["table"]) > 20

@@ -6,7 +6,7 @@ shards (multi-device cases run in a subprocess with forced host devices: the dev
 imported). Checked per shard count: the stacked preconditioner factors equal the plane slices of the global ones and
 apply to the same vector; one matvec and the boundary term equal the global ones; the solve takes the same number of
 iterations (+-1) and agrees to ``10 rtol ||phi||_M``. Host-side lowering checks (halo window, divisibility) run
-in-process. The real N32 / N48 exports are in ``tests/test_perpendicular_phi_sharding_real.py`` (slow).
+in-process. The real N32 / N48 exports are in ``tests/test_perpendicular_phi_sharding_real.py`` (removed 4 October 2026: it needed the oracle arrays retired on 2 October) (slow).
 """
 from __future__ import annotations
 

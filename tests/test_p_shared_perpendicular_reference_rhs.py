@@ -1,13 +1,10 @@
 """Tests for ``scripts/p_shared/perpendicular_reference_rhs.py`` -- the host continuum reference of the
 production perpendicular RHS terms (P08 step 3, gate G3.3).
 
-Two layers, matching this repo's convention (``tests/test_p_shared_owner_closure.py``): fully synthetic
-tests of the pure pieces (owner projection weights, sign conventions, the design section 1 algebra) on a
-fake geometry, and skip-gated ``slow`` real-geometry tests on the owner closure at N32/N48/N64 that
-
-* reproduce the frozen oracles' own R arrays (P06N ``R_*`` for every catalogue variant, P07N ``O_q3``,
-  P05N ``R``) and the host ``assemble_owner_terms`` R terms bitwise, and
-* check the independent production-formula evaluation against the campaign-style constructions.
+Fully synthetic tests of the pure pieces (owner projection weights, sign conventions, the design section 1
+algebra) on a fake geometry. The ``slow`` real-geometry tests on the owner closure at N32/N48/N64 (against the frozen
+oracles' own R arrays and the host ``assemble_owner_terms`` R terms) were dropped on 4 October 2026 with the
+oracle arrays retired on 2 October.
 """
 from __future__ import annotations
 
@@ -18,15 +15,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-WORKSPACE = Path(__file__).resolve().parents[2]  # .../HSX drbx
-GEOMETRY = WORKSPACE / "geometry_artifacts/rlp_convergence_32_48_64_20260917"
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from p_shared import perpendicular_reference_rhs as prr  # noqa: E402
-
-SIDECAR = WORKSPACE / "work/p07n_extraction_hotspot_audit_20260926/localized_sidecar.json"
 
 
 # ---------------------------------------------------------------------------
@@ -292,122 +285,3 @@ def test_production_formula_check_agrees_to_roundoff_on_the_fake_geometry():
     assert report["max_rel"] < 1e-13
     assert report["J_min"] > 0.0
     assert len(report["pointwise"]) == 4 * 4 and len(report["owner_level"]) == 4 * 2
-
-
-# ---------------------------------------------------------------------------
-# Skip-gated real-geometry / oracle tests on the owner closure.
-# ---------------------------------------------------------------------------
-def _geometry_available(n: int) -> bool:
-    directory = GEOMETRY / f"{n}x{n}x{n}"
-    return (directory / "base_geometry.npz").is_file() and (directory / "rlp_topology.npz").is_file()
-
-
-def _oracle_available(n: int) -> bool:
-    from p_shared.replay_support import DEFAULT_PATHS
-    from p_shared import owner_closure as oc
-    needed = (DEFAULT_PATHS["p05n_p06n_upwind"] / "p06n" / f"N{n}.raw.npz",
-              DEFAULT_PATHS["p07n"] / f"N{n}.global.npz", DEFAULT_PATHS["p05n_frozen"] / f"N{n}.raw.npz")
-    return all(p.is_file() for p in needed) and oc.oracle_available(
-        dict(DEFAULT_PATHS), ("p05", "p05n_frozen", "p07"), n=n)
-
-
-def _closure(n: int):
-    from p_shared import owner_closure as oc
-    from p_shared.replay_support import build_environment
-
-    if not (_geometry_available(n) and SIDECAR.is_file()):
-        pytest.skip(f"HSX N{n} geometry/sidecar inputs are unavailable")
-    if not _oracle_available(n):
-        pytest.skip(f"the frozen N{n} oracle arrays are unavailable")
-    env = build_environment(n=n, input_root=WORKSPACE, sidecar_path=SIDECAR, curvature="fd", face_quadrature="q3", inner_support="profile7")
-    owners = sorted(set(oc.select_owners(env.t, env.census).values()))
-    return env, owners
-
-
-PARAMS = prr.ReferenceParams(rho_star=0.7, tau=1.0, diffusion={"density": 0.3, "Te": 0.5, "Ti": 0.11, "vorticity": 0.9})
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("n", [32, 48, 64])
-def test_constructions_reproduce_the_frozen_oracles_own_R_arrays_on_the_closure(n):
-    from p_shared.replay_support import DEFAULT_PATHS
-
-    env, owners = _closure(n)
-    rows = prr.verify_against_oracles(env, owners, dict(DEFAULT_PATHS))
-    assert [r["campaign"] for r in rows].count("P06N") == 42        # 14 variants x (material, remainder, total)
-    failed = [r for r in rows if not r["pass"]]
-    assert failed == []
-    for row in rows:
-        if row["campaign"] == "P07N":
-            assert row["max_rel"] < 1e-12                             # same arithmetic as the oracle: roundoff
-        if row["campaign"] == "P05N":
-            assert row["max_rel"] < 1e-13
-        if row["campaign"] == "P06N":
-            assert row["max_rel"] < 1e-8                              # oracle's own K batching residual
-
-
-@pytest.mark.slow
-def test_constructions_are_bitwise_the_host_assemble_owner_terms_R_terms_at_n32():
-    from p_shared import owner_closure as oc, replay_units as ru
-    from p_shared.replay_support import DEFAULT_PATHS
-    import p06n_field_derived_global.core as p06n_core
-
-    env, owners = _closure(32)
-    built = oc.build_owner_rows(env, owners, provider=oc.load_provider_for_env(SIDECAR, curvature="fd", face_quadrature="q3"))
-    campaigns = ("p05n_frozen", "p06n", "p07n")
-    oracle = ru._load_oracle_owner_values(env, dict(DEFAULT_PATHS), campaigns)
-    out = oc.assemble_owner_terms(env, built, campaigns, oracle)
-    support = prr.owner_support(env, built)
-    n_total = len(env.t.vol)
-    dense = lambda pair: oc.owner_values_from_pairs(pair, owners, n_total)
-
-    evolution = np.maximum(dense(out["cells"]["q1_evolution_volume"]), 1e-300)[:, None]
-    adapter = prr.cf.P06NAdapter(env.ref, env.t.g.eta_period, None)
-    for vi, name in enumerate(p06n_core.CATALOGUE_TABLES.variant_names):
-        values, gradients = prr.P06NState(adapter, name).values_gradients(support.points)
-        got = prr.curvature_reference(env, support, values, gradients, tau=1.0)
-        for label in ("material", "remainder", "total"):
-            host = dense(out["cells"][f"p06n_raw_R_{label}"][vi]) / evolution
-            np.testing.assert_array_equal(got[label], host)
-    p07n = prr.cf.P07NAdapter(env.ref, env.t.g.eta_period, np.zeros((1, 1)))
-    host_o = dense(out["p07"]["p07n_global_O_q3"]) / env.t.vol[owners][:, None]
-    np.testing.assert_array_equal(prr.diffusion_reference(env, support, p07n.exact_gradients, positive_operator=True), host_o)
-    p05n = prr.cf.P05NAdapter("p05n_frozen", env.ref, env.t.g.eta_period, np.zeros((1, 1)))
-    host_r = dense(out["cells"]["p05n_frozen_raw_R"]) / env.t.vol[owners][:, None]
-    np.testing.assert_array_equal(
-        prr.bracket_reference(env, support, p05n.exact_gradient(support.points), p05n.r_pair_index), host_r)
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("n", [32, 48, 64])
-@pytest.mark.parametrize("variant", ["main_phi_neumann", "main_phi_dirichlet"])
-def test_independent_production_formulas_equal_the_campaign_constructions_to_roundoff(n, variant):
-    env, owners = _closure(n)
-    state = prr.p06n_state(env, variant)
-    report = prr.production_formula_check(env, owners, state, PARAMS)
-    assert report["J_min"] > 0.0                       # signed J is positive: |J| in P05/P06 equals production's J
-    assert report["max_rel"] < 1e-13, report
-    assert report["n_points"] > 0
-
-
-@pytest.mark.slow
-def test_reference_rhs_on_the_n32_closure_is_shaped_ordered_and_diffusion_has_the_production_sign():
-    env, owners = _closure(32)
-    state = prr.p06n_state(env, "main_phi_neumann")
-    support = prr.owner_support(env, owners)
-    rhs = prr.reference_rhs(env, owners, state, PARAMS, support=support)
-    assert set(rhs) == set(prr.FIELDS)
-    for name in prr.FIELDS:
-        for term in ("poisson_bracket", "curvature", "curvature_material", "curvature_remainder",
-                     "perpendicular_diffusion", "total"):
-            assert rhs[name][term].shape == (len(owners),) and np.all(np.isfinite(rhs[name][term]))
-    # a different owner order permutes the outputs
-    rev = prr.reference_rhs(env, owners[::-1], state, PARAMS)
-    np.testing.assert_array_equal(rev["Ti"]["curvature"], rhs["Ti"]["curvature"][::-1])
-    # the P07/P07N action is the *positive* operator: production diffusion is its negative
-    unit = prr.ReferenceParams(1.0, 1.0)
-    mid = prr.diffusion_midpoint_check(env, owners, state, unit, support=support)
-    assert all(v["sign_agreement"] for v in mid.values())
-    assert mid["density"]["max_rel"] < 0.3 and mid["vorticity"]["max_rel"] < 0.3
-    # main_phi_neumann: grad phi = grad Te, so the Te bracket vanishes identically
-    assert np.max(np.abs(rhs["Te"]["poisson_bracket"])) < 1e-12
