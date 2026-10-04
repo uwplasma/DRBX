@@ -169,6 +169,22 @@ D/N results cover the original four patterns through D/N/D/N. Bounded full-RHS
 checks establish the narrow-kernel equivalence; retain all scalar owner actions
 for independent rescoring.
 
+The boundary-fixture preflight compares freshly evaluated analytic wall data
+against saved values, so bitwise equality across platforms is not required.
+Its active-wall budget is `32 * eps(float64) * max(1, abs(expected))` per
+entry (about 7.11e-15 for magnitudes at most one). Shapes, float64 precision,
+finiteness and nonwall padding remain strict. Receipts record maximum absolute
+differences, fractions of this budget and counts of rounded entries for each
+boundary array. The scalar/full-action replay stays at `atol=1e-8, rtol=1e-11`;
+hash checks, constant gates and scientific scoring are unchanged.
+
+This repairs the Perlmutter preflight failure at four of 1610 entries with
+maximum difference 1.3877787807814457e-17, before any GPU actions ran. The
+original failed source/run remains immutable. Use a fresh output namespace
+with the new manifest and rerun the cheap tests/reference audit/preflight;
+reuse the original large immutable bank/reference datasets. Do not relabel
+old receipts as passing under the new source identity.
+
 Use a new REPLAY directory, the immutable OLD baseline and the completed
 SCIENCE run with identity `e8303a1a...389652`. BASE_SOURCE is OLD's frozen
 `source/scripts/q08_extraction_global`. The missing original completion.json

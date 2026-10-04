@@ -40,6 +40,17 @@ its references corrected globally; full-grid N replay still requires the
 immutable banks on Perlmutter. Q08 remains open pending that result. The six assembled RHS equations and
 full-grid CPU/GPU replay already have their documented evidence and exceptions.
 
+The first focused Ti remote replay stopped before GPU execution on an overly
+strict boundary-fixture equality check: four entries differed by at most
+1.39e-17. The repaired preflight admits only active-wall float64 roundoff,
+`32*eps*max(1,abs(expected))`, and records the observed discrepancy. Layout,
+precision, finiteness and nonwall padding remain strict; numerical actions,
+the final operator replay tolerance and scientific scoring are unchanged.
+All 25 focused tests and the 22-state D/N bounded replay pass locally, with
+scalar/full-RHS disagreement at most 5.69e-14. Preserve the failed run and use
+a new source/output identity for recovery with the same immutable datasets.
+GPU and corrected global Ti qualification are still pending.
+
 ### FCI traced parallel gradient: global N-O gate passed — 30 September 2026
 
 User clarification selects a scalar-value difference along traced field lines

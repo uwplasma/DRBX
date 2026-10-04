@@ -21,6 +21,7 @@ from scripts.q08_rhs_mms_global.campaign import read, write, sha, check_source, 
 SCI_ID = 'e8303a1a3b93580ebfabd2e0c68b50dc4e8f9f9d90057840e9f38fb7cf389652'
 COUNTS = {32:25376, 48:86016, 64:202304}
 LAST = {32:10, 48:15, 64:21}
+BOUNDARY_EPS_MULTIPLIER = 32
 
 
 def checked_path(root, name):
@@ -94,6 +95,37 @@ def scalar_boundary(bank, case):
     return restore(bank.wall_index, [(cls,sliced)])[0]
 
 
+def check_boundary_fixture(actual, expected, wall_index):
+    """Compare recomputed float64 wall data with a saved cross-platform fixture.
+
+    Trigonometry and normal contractions can round differently across math
+    libraries. Only active wall entries get a small elementwise roundoff
+    budget; layout, precision, finite values and nonwall padding remain strict.
+    The downstream scalar/full-action replay gate is independent and unchanged.
+    """
+    actual, expected = np.asarray(actual), np.asarray(expected)
+    if (actual.shape != expected.shape or actual.ndim not in (3,4) or
+            actual.shape[0] != 1 or actual.dtype != np.float64 or expected.dtype != np.float64):
+        raise ValueError('boundary fixture layout/float64 mismatch')
+    if not np.isfinite(actual).all() or not np.isfinite(expected).all():
+        raise ValueError('nonfinite boundary fixture')
+    wall = np.asarray(wall_index)
+    if (wall.ndim != 1 or not np.issubdtype(wall.dtype,np.integer) or
+            len(np.unique(wall)) != len(wall) or np.any((wall<0)|(wall>=actual.shape[1]))):
+        raise ValueError('invalid boundary wall indices')
+    nonwall = np.ones(actual.shape[1],dtype=bool);nonwall[wall] = False
+    np.testing.assert_array_equal(actual[:,nonwall],expected[:,nonwall],
+                                  err_msg='boundary nonwall padding changed')
+    error = abs(actual[:,wall]-expected[:,wall])
+    budget = (BOUNDARY_EPS_MULTIPLIER*np.finfo(np.float64).eps *
+              np.maximum(1.,abs(expected[:,wall])))
+    fraction = float(np.max(error/budget,initial=0.))
+    if fraction > 1:
+        raise ValueError(f'boundary fixture roundoff budget exceeded: {fraction}')
+    return dict(max_abs=float(np.max(error,initial=0.)), max_budget_fraction=fraction,
+                rounded_entries=int(np.count_nonzero(error)))
+
+
 def preflight(output, inputs, *, gpu=False):
     """Saved 21-owner CPU check against actual full six-field implementation."""
     import jax
@@ -120,6 +152,7 @@ def preflight(output, inputs, *, gpu=False):
             full = jax.jit(lambda p,x,bi,bo,phi,pb:apply_q_plan(p,x,bi,bo,phi,pb,c.COEFF,
                 kinds=(kind,)*6,phi_kind=kind,tau=c.TAU,mu=c.MU,characteristic_method='polynomial'))
             maximum = oracle_max = 0.
+            boundary_checks = [dict(max_abs=0.,max_budget_fraction=0.,rounded_entries=0) for _ in range(4)]
             for case in range(22):
                 state = np.broadcast_to(np.r_[c.BASE,.2][:,None],(6,plan.n_owner)).copy()
                 state[:,data['donor_ids']] = data['state'][case]
@@ -127,8 +160,11 @@ def preflight(output, inputs, *, gpu=False):
                 bc = tuple(QBoundaryData(*(data[f'{name}_bc_{i}'][case] for i in range(4)))
                            for name in ('inner','outer','phi'))
                 sb = scalar_boundary(bank,case)
-                for a,b in zip(sb,bc[0]):
-                    np.testing.assert_array_equal(a,b[2:3])
+                for index,(a,b) in enumerate(zip(sb,bc[0])):
+                    check = check_boundary_fixture(a,b[2:3],bank.wall_index)
+                    for key in ('max_abs','max_budget_fraction'):
+                        boundary_checks[index][key] = max(boundary_checks[index][key],check[key])
+                    boundary_checks[index]['rounded_entries'] += check['rounded_entries']
                 narrow = np.asarray(scalar(plan,state[2:3],sb))
                 expected = numerical(bank,full(plan,state,*bc[:2],phi,bc[2]))[:,29]
                 np.testing.assert_allclose(narrow,expected,atol=1e-8,rtol=1e-11)
@@ -137,10 +173,13 @@ def preflight(output, inputs, *, gpu=False):
                 if case == 0 and abs(narrow-O[case]).max() > 1e-7:
                     raise ValueError('constant gate')
             records.append(dict(n=n,kind=kind,cases=22,owners=len(bank.owners),
-                                scalar_full_max_abs=maximum,NO_max=oracle_max))
+                                scalar_full_max_abs=maximum,NO_max=oracle_max,
+                                boundary_fixture=boundary_checks))
         jax.clear_caches()
     result = dict(passed=True,test_only=not gpu,gpu=gpu,identity=check_source()[0],records=records,
                   device=str(jax.devices()[0]),
+                  boundary_fixture_policy=dict(eps_multiplier=BOUNDARY_EPS_MULTIPLIER,
+                      scale='max(1,abs(expected))',dtype='float64',nonwall_exact=True),
                   scope='bounded scalar diagnostic/full RHS equivalence; not global qualification')
     write(output/('bounded_gpu_preflight.json' if gpu else 'bounded_preflight.json'),result)
     return result
