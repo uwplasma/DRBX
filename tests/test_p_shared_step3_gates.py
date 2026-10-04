@@ -1,6 +1,6 @@
 """Fast tests of the P08 step-3 gate harness (``scripts/p_shared/step3_gates.py``, gates G3.2 / G3.3).
 
-The real N32/N48/N64 gates live in ``tests/test_p_shared_step3_gates_real.py`` (slow).  Here: the pure pieces (column
+The real N32/N48/N64 gates live in ``tests/test_p_shared_step3_gates_real.py`` (removed 4 October 2026: it needed the oracle arrays retired on 2 October) (slow).  Here: the pure pieces (column
 naming of a campaign's pairs, feeding the combined call, sparse pairs, the G3.3 metrics, observed orders and flags) and
 the glue that drives ``perpendicular_rhs`` for the bracket / curvature / diffusion campaigns, on the shared synthetic
 perpendicular world (``tests.perpendicular_synthetic``): each glue function must reproduce the separate operator call

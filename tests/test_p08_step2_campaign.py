@@ -3,7 +3,7 @@ refusal logic, preflight gating, checkpointed campaign evaluation, report writin
 equivalence (blocked == unblocked) of the operators on the synthetic perpendicular world.
 
 Fully synthetic / ``tmp_path`` based: no real geometry, no row artifact, no oracle data (the real end-to-end
-check is ``tests/test_p08_step2_campaign_real.py``, slow).
+check is ``tests/test_p08_step2_campaign_real.py`` (removed 4 October 2026: it needed the oracle arrays retired on 2 October), slow).
 """
 from __future__ import annotations
 

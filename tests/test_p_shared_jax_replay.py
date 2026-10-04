@@ -1,6 +1,6 @@
 """Fast unit tests of the JAX owner-closure harness helpers (``scripts/p_shared/jax_replay.py``, P08 step 2b, E6).
 
-The real N32/N48/N64 closure gates live in ``tests/test_p_shared_jax_replay_real.py`` (slow). Here: the
+The real N32/N48/N64 closure gates live in ``tests/test_p_shared_jax_replay_real.py`` (removed 4 October 2026: it needed the oracle arrays retired on 2 October) (slow). Here: the
 uniform tolerance policy, the owner-space term normalization, the host-format helpers (``uniq`` /
 sparse pairs / structure check), the one-ulp perturbation and conditioning floors, and the P07 owner-numerator
 conversion on the synthetic perpendicular world.

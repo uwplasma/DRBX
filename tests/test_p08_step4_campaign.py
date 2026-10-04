@@ -5,7 +5,7 @@ configuration and identity, CLI, preflight gating (the oracle rows never gate), 
 guarantee of ``run_replay_stage``.
 
 Fully synthetic / ``tmp_path`` based: no real geometry, row artifact or oracle data (the real bounded check is
-``tests/test_p08_step4_campaign_real.py``, slow).
+``tests/test_p08_step4_campaign_real.py`` (removed 4 October 2026: it needed the oracle arrays retired on 2 October), slow).
 """
 from __future__ import annotations
 

@@ -6,7 +6,7 @@ settings, the identity (configuration, inherited settings, sources, sidecar, ora
 build, owner-subset gate after the N32 build), the run flow, ``validate`` and ``analyze`` on synthetic outputs.
 
 Fully synthetic / ``tmp_path`` based (the heavy functions are monkeypatched); the real bounded preflight is
-``tests/test_p08_step5_compact_c3_campaign_real.py`` (slow).
+``tests/test_p08_step5_compact_c3_campaign_real.py`` (removed 4 October 2026: it needed the oracle arrays retired on 2 October) (slow).
 """
 from __future__ import annotations
 
