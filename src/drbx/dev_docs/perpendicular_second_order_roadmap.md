@@ -2691,7 +2691,12 @@ regional second-order gate is imposed. P10 independently checks solutions.
     - This amends "Retain the RLP owner unknowns" for the P path.
   - **Gates use the H-weighted L2 norm against exact nodal values** (user, 4 October 2026). This amends the locked MMS observation contract for the P path. C3 numbers are historical and compared only like-for-like.
   - **Wall inflow data (D7 a)** (user, 4 October 2026). Every advected field gets the inflow SAT at the wall, including Neumann-kind fields. The inflow trace is the manufactured trace in MMS and an extrapolated trace in production; diffusion carries the Neumann SAT.
-  - **Layout family across N32/48/64:** decided by the M1 layout prototype (user, 4 October 2026).
+  - **Layout: family A** (user, 4 October 2026; [M1 report](../../../../work/p09_m1_layout_20261004/report.md)).
+    - **Rule:** a core of fixed radius R_c = 1/8 (K = n/8 rings) with degree p = min(K + 2, 12), plus one ring level at the full count N = n. There are no level faces up to n = 128.
+    - **Gate:** at HSX it passes the projected P05 gate on the step-6 transverse set. Global order is ≥ 2.55 on 32→48 and ≥ 2.75 on 48→64 for every field, and the abscissa equals max ½c at N32, N48 and N64.
+    - **Time step:** RK4 Δt at HSX N32 is 2.97e-6 (1.79e-6 at N48, 1.26e-6 at N64), 20–28% below today's. Accepted.
+    - **Known limit, not gating:** the φ_wave Ti order at HSX is 1.30 / 1.70 for every family. It comes from the η product-rule defect, because the HSX metric changes by 21–29% between adjacent η planes.
+    - **The rule needs n divisible by 8.**
   - **Dissipation defaults** (user, 4 October 2026):
     - **On by default.** Ring face jumps at full upwind strength ½|U_n|, interface penalty Γ = ½|v|, wall inflow τ = |v_w|. None of these has a tunable factor.
     - **Core shell damping −κP_h** with κ = c_κ·max|V|·p/R_c and **c_κ = 1 fixed by rule**.
