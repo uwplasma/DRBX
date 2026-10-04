@@ -141,3 +141,55 @@ def test_frozen_mapping_and_scoped_actual_omega_replay_tolerance():
     assert "actual-vorticity B/C remain unavailable" in reuse["old_exact_input_O_policy"]
     assert all("resolved_path" not in entry for entry in reuse["runtime_geometry_inputs"])
     assert all(not str(value).startswith("/") for value in reuse["source_data"].values())
+
+
+def test_complete_reducer_writes_global_orders_and_completion(tmp_path, monkeypatch):
+    """Exercise the real summary hierarchy with known second-order saved actions."""
+    monkeypatch.syspath_prepend(str(campaign.REPO / "scripts"))
+    from p05_structured_global import numerics as k
+
+    cfg = campaign.config()
+    contexts = {}
+    identity = "synthetic-reducer-fixture"
+    (tmp_path / "reuse_inputs").mkdir()
+    campaign.save_json(tmp_path / "preflight_validation.json", {"cpu_backend": ["cpu"]})
+    for n in cfg["resolutions"]:
+        count = n**3
+        owners = np.arange(count) % 2
+        volume = np.bincount(owners).astype(float)
+        contexts[n] = SimpleNamespace(rv=np.ones(count), ro=owners, vol=volume)
+        reference = np.zeros((2, len(k.PAIRS)))
+        campaign.save_npz(
+            tmp_path / "reuse_inputs" / f"N{n}.reuse.npz",
+            reference=reference, volume=volume, old_C=reference,
+            old_U_minus_A=reference, old_exact_input_O=reference,
+            old_exact_input_O_pair_slots=np.arange(len(k.PAIRS)),
+            exact_input_valid_slots=np.ones((len(k.PAIRS), 3), dtype=bool),
+        )
+        action = np.full((count, len(k.PAIRS)), 1.0/n**2)
+        action[:, 5] = 0.0
+        unit = {"stage": "run", "n": n, "index": 0, "start": 0, "stop": count}
+        campaign.atomic_chunk(tmp_path, unit, identity, {
+            "arrays": dict(ids=np.arange(count), action=action,
+                           constant_action_max_abs=0.0, constant_gradient_max_abs=0.0,
+                           support_residual_max=0.0, argument_antisymmetry_max_abs=0.0),
+            "seconds": 0.0, "peak_rss_gib": 0.0,
+        })
+    monkeypatch.setattr(k, "load_context", lambda n, root: contexts[n])
+    monkeypatch.setattr(campaign, "raw_units", lambda n: [
+        {"stage": "run", "n": n, "index": 0, "start": 0, "stop": n**3}
+    ])
+    monkeypatch.setattr(campaign, "regional_owner_masks", lambda *args: (
+        {"all": np.ones(2, dtype=bool)}, {"fixture": True}
+    ))
+    campaign.reduce_validate(tmp_path, tmp_path, identity)
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    completion = json.loads((tmp_path / "completion.json").read_text())
+    assert completion["operational_validation"] == "passed"
+    assert summary["implementation_pass"]
+    for variant in cfg["candidates"]:
+        assert summary["scientific_accuracy_gate_pass"][variant]
+        for case in (name for name in cfg["cases"] if name != "constant_control"):
+            np.testing.assert_allclose(
+                summary["orders"][variant][case]["orders_N32_N48_N64"], 2.0, atol=1e-10
+            )
