@@ -14,10 +14,10 @@ from drbx.native.fci_curvature_production_flux import curvature_principal_matrix
 from drbx.native.fci_operators import _curvature_bc_characteristic_wall_states
 
 #: Evaluations of the P06 absolute-matrix action ``|M| jump``:
-#: ``"lapack4"`` the 4x4 ``eig`` / ``inv`` / ``cond`` of the campaign; ``"block_lapack"`` the same
-#: spectral action on the 3x3 ``(n, Te, Ti)`` block alone (the omega column of the principal matrix is zero);
-#: ``"closed_form"`` (default) the same block from the one real root of a cubic and its Sylvester projector, with no LAPACK.
-ABSOLUTE_METHODS = ("lapack4", "block_lapack", "closed_form")
+#: ``"lapack4"`` the 4x4 ``eig`` / ``inv`` / ``cond`` of the campaign (kept to reproduce frozen campaigns bitwise);
+#: ``"closed_form"`` (default) the same spectral action on the 3x3 ``(n, Te, Ti)`` block alone (the omega column of the
+#: principal matrix is zero), from the one real root of a cubic and its Sylvester projector, with no LAPACK.
+ABSOLUTE_METHODS = ("lapack4", "closed_form")
 
 
 def p05_scalar_face_jump(common_gradient, lower_value, upper_value, h_covariant_over_b,
@@ -159,92 +159,6 @@ def _frobenius_fallback(matrix, jump):
 
 
 # --------------------------------------------------------------------------
-# "block_lapack": the 3x3 (n, Te, Ti) block with LAPACK ``eig``
-# --------------------------------------------------------------------------
-# The principal matrix is ``P = [[A, 0], [c^T, 0]]`` (its omega column vanishes), and then exactly
-# ``|P| = [[|A|, 0], [c^T sign(A), 0]]``: the right eigenvector of ``P`` for the eigenvalue ``lambda_i`` of ``A``
-# is ``(v_i, c.v_i/lambda_i)``, its left eigenvector ``(w_i, 0)``, and the eigenvalue 0 of the omega row drops out of
-# ``|.|``.  The same holds for ``M = s P``.  ``sign(0) = 0`` here, as in ``"closed_form"``.
-
-def _absolute_block_primal(matrix, jump):
-    block = matrix[..., :3, :3]
-    row = matrix[..., 3, :3]
-    eigenvalues, eigenvectors = jnp.linalg.eig(block)
-    inverse = jnp.linalg.inv(eigenvectors)
-    condition = jnp.linalg.cond(eigenvectors)
-    real = jnp.real(eigenvalues)
-    valid = (jnp.max(jnp.abs(jnp.imag(eigenvalues)), axis=-1)
-             <= 1e-10*(1+jnp.max(jnp.abs(real), axis=-1)))
-    valid &= jnp.isfinite(condition) & (condition <= 1e8)
-    modal = jnp.einsum('...ij,...j->...i', inverse, jump[..., :3])
-    absolute = jnp.real(jnp.einsum('...ij,...j->...i', eigenvectors, jnp.abs(real)*modal))
-    sign_action = jnp.real(jnp.einsum('...ij,...j->...i', eigenvectors, jnp.sign(real)*modal))
-    omega = jnp.sum(row*sign_action, axis=-1)
-    spectral = jnp.concatenate((absolute, omega[..., None]), axis=-1)
-    fallback = _frobenius_fallback(matrix, jump)
-    return (jnp.where(valid[..., None], spectral, fallback), ~valid,
-            eigenvalues, eigenvectors, inverse, modal)
-
-
-@jax.custom_jvp
-def _absolute_block_action(matrix, jump):
-    """``(|M| jump, invalid)`` through the 3x3 block; ``invalid`` is a 0/1 float flag (no tangent)."""
-    action, invalid = _absolute_block_primal(matrix, jump)[:2]
-    return action, invalid.astype(action.dtype)
-
-
-@_absolute_block_action.defjvp
-def _absolute_block_action_jvp(primals, tangents):
-    """Fréchet derivative of ``V f(Lambda) V^-1`` for ``f = |.|`` and ``f = sign`` away from branch crossings.
-
-    As for the 4x4 action: the matrix action itself is differentiated by divided differences of ``f`` (a repeated
-    eigenvalue takes ``f'``: ``sign`` and 0), not the unsupported nonsymmetric eigenvector derivatives.
-    """
-    matrix, jump = primals
-    dmatrix, djump = tangents
-    action, invalid, eigenvalues, eigenvectors, inverse, modal = (
-        _absolute_block_primal(matrix, jump))
-    eigenvalues, eigenvectors, inverse, modal, invalid = (
-        jax.lax.stop_gradient(x) for x in (eigenvalues, eigenvectors, inverse, modal, invalid))
-    lam = jnp.real(eigenvalues)
-    gap = lam[..., :, None]-lam[..., None, :]
-    same = jnp.abs(gap) <= 1e-12*(1+jnp.maximum(jnp.abs(lam[..., :, None]), jnp.abs(lam[..., None, :])))
-    safe_gap = jnp.where(same, 1, gap)
-
-    def divided(f, fprime):
-        return jnp.where(same, fprime[..., :, None], (f[..., :, None]-f[..., None, :])/safe_gap)
-
-    block = matrix[..., :3, :3]; row = matrix[..., 3, :3]
-    dblock = dmatrix[..., :3, :3]; drow = dmatrix[..., 3, :3]; du = djump[..., :3]; u = jump[..., :3]
-    transformed = jnp.einsum('...ij,...jk,...kl->...il', inverse, dblock, eigenvectors)
-    absolute_divided = divided(jnp.abs(lam), jnp.sign(lam))
-    sign_divided = divided(jnp.sign(lam), jnp.zeros_like(lam))
-    dmodal = jnp.einsum('...ij,...j->...i', inverse, du)
-    # |A| u and sign(A) u, and their tangents
-    d_abs = (jnp.einsum('...ij,...jk,...kl,...l->...i', eigenvectors, absolute_divided*transformed, inverse, u)
-             + jnp.real(jnp.einsum('...ij,...j->...i', eigenvectors, jnp.abs(lam)*dmodal)))
-    d_abs = jnp.real(d_abs)
-    sign_action = jnp.real(jnp.einsum('...ij,...j->...i', eigenvectors, jnp.sign(lam)*modal))
-    d_sign = jnp.real(jnp.einsum('...ij,...jk,...kl,...l->...i', eigenvectors, sign_divided*transformed, inverse, u)
-                      + jnp.einsum('...ij,...j->...i', eigenvectors, jnp.sign(lam)*dmodal))
-    d_omega = jnp.sum(drow*sign_action, axis=-1) + jnp.sum(row*d_sign, axis=-1)
-    spectral_tangent = jnp.concatenate((d_abs, d_omega[..., None]), axis=-1)
-    square = jnp.sum(matrix*matrix, axis=(-2, -1))
-    norm = jnp.where(square > 0, jnp.sqrt(jnp.where(square > 0, square, 1.)), 0.)
-    dnorm = jnp.sum(matrix*dmatrix, axis=(-2, -1))/jnp.maximum(norm, 1e-300)
-    fallback_tangent = dnorm[..., None]*jump+norm[..., None]*djump
-    tangent = jnp.where(invalid[..., None], fallback_tangent, spectral_tangent)
-    flag = invalid.astype(action.dtype)
-    return (action, flag), (tangent, jnp.zeros_like(flag))
-
-
-def _p06_absolute_action_block(matrix, jump):
-    """``(|M| jump, invalid)`` by the 3x3 block eigensolve and the usual validity test / Frobenius fallback."""
-    action, flag = _absolute_block_action(matrix, jump)
-    return action, jax.lax.stop_gradient(flag) > .5
-
-
-# --------------------------------------------------------------------------
 # "closed_form": cubic root + Sylvester projector, no LAPACK
 # --------------------------------------------------------------------------
 # With ``D = diag(n_safe, Te, Te)`` the (n, Te, Ti) block of ``P`` is ``A = Te D Abar D^-1`` where
@@ -377,18 +291,18 @@ def p06_characteristic_face_correction(common_state, lower_state, upper_state,
     there and written back where ``wall_mask`` selects it, so the result is
     bitwise that of ``wall_faces=None`` (the solve on every face, masked by
     ``wall_mask``) at a fraction of the cost.  The two must describe the same
-    faces; padded entries are ignored.  The other methods do not solve at the wall (below) and ignore it.
+    faces; padded entries are ignored.  ``"closed_form"`` does not solve at the wall (below) and ignores it.
 
     ``absolute_method`` (static, one of :data:`ABSOLUTE_METHODS`) selects how ``|M| jump`` is evaluated:
     ``"lapack4"`` (the campaign's 4x4 ``eig``; pin it to reproduce frozen campaigns bitwise, wall solve and counters
-    included), ``"block_lapack"`` or ``"closed_form"`` (see the
-    comments above ``_absolute_block_primal`` and ``_curvature_negative_root``).  The spectral-fallback counter
-    counts the nodes on the Frobenius fallback: for ``"lapack4"`` / ``"block_lapack"`` those failing the real-spectrum /
+    included) or ``"closed_form"`` (see the
+    comments above ``_curvature_negative_root``).  The spectral-fallback counter
+    counts the nodes on the Frobenius fallback: for ``"lapack4"`` those failing the real-spectrum /
     eigenvector-condition test, for ``"closed_form"`` the non-physical ones (``n`` or ``Te`` not above
-    ``positivity_floor``, ``Ti < 0``, ``tau < 0``, non-finite).  ``"block_lapack"`` / ``"closed_form"`` replace the wall
+    ``positivity_floor``, ``Ti < 0``, ``tau < 0``, non-finite).  ``"closed_form"`` replaces the wall
     characteristic solve by its exact result, the identity (``lower = upper = central`` at wall faces, jump 0; see
     :func:`_wall_identity_fallback`), and count as wall fallback the non-physical wall nodes (``n``, ``Te`` or ``Ti`` not
-    above ``positivity_floor``, non-finite inputs).  They differ from the solve only at finite non-physical nodes, which
+    above ``positivity_floor``, non-finite inputs).  It differs from the solve only at finite non-physical nodes, which
     the solve may turn into NaN (complex spectrum, ill-conditioned eigenvectors, e.g. ``Ti -> 0``) and the identity only counts.
     """
     _validated_absolute_method(absolute_method)
@@ -438,8 +352,6 @@ def p06_characteristic_face_correction(common_state, lower_state, upper_state,
     if absolute_method == "closed_form":
         absolute, spectral_fallback = _absolute_action_closed_form(
             central[..., 0], central[..., 1], central[..., 2], B, tau, -normal, matrix, jump, positivity_floor)
-    elif absolute_method == "block_lapack":
-        absolute, spectral_fallback = _p06_absolute_action_block(matrix, jump)
     else:
         absolute, spectral_fallback = _p06_absolute_action(matrix, jump)
     material = jnp.einsum('...ij,...j->...i', matrix, jump)
