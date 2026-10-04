@@ -1,0 +1,9 @@
+{
+  "schema": "q09-prepared-inputs-v1",
+  "n": 32,
+  "baseline_run": "/pscratch/sd/y/yiqunx/q08-extraction-global-ff1bff86-20261002T233534Z",
+  "science_run": "/pscratch/sd/y/yiqunx/q08-rhs-mms-bd3410af-U4rB3I",
+  "canonical_root": "/pscratch/sd/y/yiqunx/uw_summer",
+  "cache_directory": "reference_cache",
+  "host_memory_gib": 40
+}
