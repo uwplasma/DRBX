@@ -69,7 +69,11 @@ class Block(Protocol):
     dissipation: Callable | None
 
     def to_block_frame(self, h_log, jac_log, u, theta):
-        """Transform logical-frame ``(h (E, n_b, 3), jac (E, n_b))`` to the block frame."""
+        """Transform logical-frame ``(h (E, n_b, 3), jac (E, n_b))`` to the block frame.
+
+        A block may also define ``to_block_frame_K(K (E, n_b, 3), u, theta)`` (contravariant curvature); the plan builder
+        applies it when present and leaves ``K`` unchanged otherwise.
+        """
 
 
 def _ring_side(t: np.ndarray, N: int, u_face: float) -> Side:

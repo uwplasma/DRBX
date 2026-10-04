@@ -121,7 +121,7 @@ def test_plan_pytree_round_trip_and_jit():
     again = jax.tree_util.tree_unflatten(treedef, leaves)
     assert again.structure == plan.structure and plan_identity(again) == plan_identity(plan)
     names = {f.name for f in dataclasses.fields(NodalPlan)}
-    assert names == {"wxy", "jac", "h", "B", "K", "Hp", "blocks", "faces", "structure"}
+    assert names == {"wxy", "jac", "h", "B", "K", "Hp", "blocks", "faces", "structure", "core_Ginv"}
     traces = []
 
     @jax.jit
@@ -390,7 +390,11 @@ def test_norms_and_region_errors():
     f = rng.standard_normal((8, lay.P, 2))
     assert float(h_inner(f, f, H)) == pytest.approx(np.sum(Hn[..., None] * f * f), rel=1e-13)
     masks = ring_region_masks(lay, 8)
-    assert {"interior", "wall", "level_bands", "inner_wall", "all"} <= set(masks) and "core" not in masks
+    assert {"interior", "wall", "level_bands", "inner_wall", "all", "adjacent_band", "wall_ring"} <= set(masks)
+    assert "core" not in masks
+    assert np.array_equal(masks["adjacent_band"], (np.broadcast_to(lay.node_ring[None, :], (8, lay.P)) >= 26)
+                          & (np.broadcast_to(lay.node_ring[None, :], (8, lay.P)) <= 30))
+    assert np.array_equal(masks["wall_ring"], np.broadcast_to(lay.node_ring[None, :], (8, lay.P)) == 31)
     r = np.broadcast_to(lay.node_ring[None, :], (8, lay.P))
     assert np.array_equal(masks["wall"], r >= 28)
     assert np.array_equal(masks["level_bands"], (r >= 12) & (r <= 19))

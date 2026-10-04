@@ -7,8 +7,12 @@ meta field (see ``operator_plan.py``). Arrays are host float64 NumPy arrays.
 
 Metric and curvature are carried per node and eta plane in the block frame: ``h (E, P, 3)``, ``jac (E, P)`` (positive
 ``|J|``), ``B (E, P)``, ``K (E, P, 3)``; ``Hp = wxy * jac`` is the per-plane norm (the full norm is ``Hp * deta``).
-``B`` and ``K`` are carried unchanged (no frame transform) and are not used by the scheme yet.
-TODO: a cartesian core block (M1) needs ``K`` transformed to its block frame like ``h`` and ``jac``.
+``h``, ``jac`` and (when the block provides ``to_block_frame_K``, as the Cartesian core does) ``K`` are transformed to
+each block's frame; ``B`` is a scalar and unchanged. ``K`` is not used by the scheme yet.
+
+A core block (``CoreBlock``) is stored as :class:`CoreBlockArrays` and ``core_Ginv (E, d_m, d_m)`` holds, per plane, the
+inverse Gram matrix of the ``nu <= p - 1`` Zernike columns under the block-frame weight ``wxy * jac`` (the data of the
+shell-damping projector); ``structure.core`` describes it.
 
 The level D5c maps ``CAA, CAB, CBA, CBB`` of a ring-ring face are built by applying the level trace matching to unit
 trace vectors: with traces ``a = T_A phi`` and ``b = T_B phi``, the Fourier modes common to both sides (no Nyquist) are
@@ -30,9 +34,11 @@ import jax
 import numpy as np
 
 from drbx.geometry.nodal_layout import NodalLayout, RingLevelBlock, node_raw_ids
+from drbx.geometry.sbp_core import CoreBlock
 from drbx.geometry.sbp_operators import ring_basis
 
-SCHEMA = "drbx.nodal-plan.v1"
+SCHEMA = "drbx.nodal-plan.v2"
+METRIC_SCHEMA = "drbx.nodal-metric.v1"
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +50,8 @@ class NodalStructure:
 
     ``blocks``: ``(kind, offset, n_nodes, m, N, i0)`` (``m = N = 0``, ``i0 = -1`` for non-ring blocks);
     ``faces``: ``(a_blk, b_blk, NA, NB, X)``; ``walls``: ``(blk, side, sign, N)``;
-    ``side_rows``: ``(blk, side, rows)`` with the static ring rows carrying a nonzero trace weight.
+    ``side_rows``: ``(blk, side, rows)`` with the static ring rows carrying a nonzero trace weight;
+    ``core``: ``(block_idx, p, R_c, N_c, d_m, ring_blk)`` of a Zernike core (``ring_blk`` the ring level it faces) or ``None``.
     """
 
     n: int
@@ -56,6 +63,7 @@ class NodalStructure:
     deta: float
     du: float
     side_rows: tuple[tuple[int, str, tuple[int, ...]], ...]
+    core: tuple | None = None
 
     def to_json(self) -> str:
         return json.dumps({f.name: getattr(self, f.name) for f in dc_fields(self)})
@@ -95,6 +103,23 @@ class DenseBlockArrays(NamedTuple):
     outer: SideArrays
 
 
+class CoreBlockArrays(NamedTuple):
+    """Zernike core: Cartesian ``D1, D2``, the outer side, the D5c gradient matrices and the shell columns ``Vm``."""
+
+    D1: np.ndarray
+    D2: np.ndarray
+    outer: SideArrays
+    G1_phi: np.ndarray
+    G1_tr: np.ndarray
+    G2_phi: np.ndarray
+    G2_tr: np.ndarray
+    Vm: np.ndarray
+
+    @property
+    def inner(self):
+        return None
+
+
 class FaceArrays(NamedTuple):
     """Transfer pair ``Iab (NB, NA)``, ``Iba (NA, NB)`` and level D5c maps (``None`` unless both sides are rings)."""
 
@@ -114,9 +139,10 @@ class NodalPlan:
     B: np.ndarray         # (E, P)
     K: np.ndarray         # (E, P, 3)
     Hp: np.ndarray        # (E, P)
-    blocks: tuple         # RingBlockArrays | DenseBlockArrays per block
+    blocks: tuple         # RingBlockArrays | DenseBlockArrays | CoreBlockArrays per block
     faces: tuple          # FaceArrays per face
     structure: NodalStructure
+    core_Ginv: np.ndarray | None = None   # (E, d_m, d_m) shell-damping Gram inverses (core only)
 
 
 jax.tree_util.register_dataclass(
@@ -269,25 +295,37 @@ def build_nodal_plan(layout: NodalLayout, metric: NodalMetric) -> NodalPlan:
             raise ValueError(f"metric.{name} must have shape {shape}, got {arr.shape}")
     h = np.empty_like(h_log)
     jac = np.empty_like(jac_log)
+    K = K.copy()
     for blk, off in zip(layout.blocks, layout.offsets):
         sl = slice(off, off + blk.n_nodes)
         hb, jb = blk.to_block_frame(h_log[:, sl], jac_log[:, sl], blk.u, blk.theta)
         h[:, sl], jac[:, sl] = hb, jb
+        if hasattr(blk, "to_block_frame_K"):
+            K[:, sl] = blk.to_block_frame_K(K[:, sl], blk.u, blk.theta)
     if not (np.all(np.isfinite(h)) and np.all(np.isfinite(jac))):
         raise ValueError("the nodal metric h and jac must be finite at every node (is the core metric filled?)")
     if not np.all(jac > 0.0):
         raise ValueError(f"the block-frame jacobian must be positive, min {jac.min():.3e}")
 
     blocks_arr, blocks_desc, side_rows = [], [], []
+    core_desc, core_Ginv = None, None
     for b_idx, (blk, off) in enumerate(zip(layout.blocks, layout.offsets)):
-        if isinstance(blk, RingLevelBlock):
+        if isinstance(blk, CoreBlock):
+            blocks_arr.append(CoreBlockArrays(blk.D1, blk.D2, _side_arrays(blk.sides["outer"]), blk.G1_phi, blk.G1_tr,
+                                              blk.G2_phi, blk.G2_tr, blk.Vm))
+            blocks_desc.append((blk.kind, off, blk.n_nodes, 0, 0, -1))
+            Hk = layout.wxy[None, off:off + blk.n_nodes] * jac[:, off:off + blk.n_nodes]
+            gram = np.einsum("qi,eq,qj->eij", blk.Vm, Hk, blk.Vm)
+            core_Ginv = np.linalg.inv(gram)
+            core_desc = (b_idx, blk.p, float(blk.R_c), blk.n_nodes, blk.Vm.shape[1], b_idx + 1)
+        elif isinstance(blk, RingLevelBlock):
             blocks_arr.append(RingBlockArrays(blk.Du, blk.Dth, blk.radial.tL, blk.radial.tR, blk.radial.w))
             blocks_desc.append((blk.kind, off, blk.n_nodes, blk.m, blk.N, blk.i0))
         else:
             blocks_arr.append(DenseBlockArrays(np.asarray(blk.D1, dtype=np.float64), np.asarray(blk.D2, dtype=np.float64),
                                                _side_arrays(blk.sides["inner"]), _side_arrays(blk.sides["outer"])))
             blocks_desc.append((blk.kind, off, blk.n_nodes, 0, 0, -1))
-        for name in ("inner", "outer"):
+        for name in blk.sides:
             side_rows.append((b_idx, name, tuple(int(r) for r in blk.sides[name].rows)))
 
     faces_arr, faces_desc = [], []
@@ -299,10 +337,11 @@ def build_nodal_plan(layout: NodalLayout, metric: NodalMetric) -> NodalPlan:
     walls = tuple((w.block_idx, w.side, w.sign, layout.blocks[w.block_idx].sides[w.side].N) for w in layout.walls)
 
     structure = NodalStructure(n=layout.n, n_eta=E, P=P, blocks=tuple(blocks_desc), faces=tuple(faces_desc),
-                               walls=walls, deta=layout.deta, du=layout.du, side_rows=tuple(side_rows))
+                               walls=walls, deta=layout.deta, du=layout.du, side_rows=tuple(side_rows),
+                               core=core_desc)
     return NodalPlan(wxy=np.asarray(layout.wxy, dtype=np.float64), jac=jac, h=h, B=B, K=K,
                      Hp=layout.wxy[None, :] * jac, blocks=tuple(blocks_arr), faces=tuple(faces_arr),
-                     structure=structure)
+                     structure=structure, core_Ginv=core_Ginv)
 
 
 # ---------------------------------------------------------------------------
@@ -311,12 +350,18 @@ def build_nodal_plan(layout: NodalLayout, metric: NodalMetric) -> NodalPlan:
 _TOP_FIELDS = ("wxy", "jac", "h", "B", "K", "Hp")
 _RING_FIELDS = RingBlockArrays._fields
 _FACE_FIELDS = FaceArrays._fields
+_CORE_FIELDS = ("D1", "D2", "G1_phi", "G1_tr", "G2_phi", "G2_tr", "Vm")
 
 
 def _named_arrays(plan: NodalPlan) -> list[tuple[str, np.ndarray]]:
     named = [(name, np.asarray(getattr(plan, name))) for name in _TOP_FIELDS]
+    if plan.core_Ginv is not None:
+        named.append(("core_Ginv", np.asarray(plan.core_Ginv)))
     for i, blk in enumerate(plan.blocks):
-        if isinstance(blk, RingBlockArrays):
+        if isinstance(blk, CoreBlockArrays):
+            named += [(f"block{i}.{f}", np.asarray(getattr(blk, f))) for f in _CORE_FIELDS]
+            named += [(f"block{i}.outer.{f}", np.asarray(getattr(blk.outer, f))) for f in SideArrays._fields]
+        elif isinstance(blk, RingBlockArrays):
             named += [(f"block{i}.{f}", np.asarray(getattr(blk, f))) for f in _RING_FIELDS]
         else:
             named += [(f"block{i}.D1", np.asarray(blk.D1)), (f"block{i}.D2", np.asarray(blk.D2))]
@@ -369,15 +414,81 @@ def load_nodal_plan(path: str | Path, *, expected_identity: str | None = None) -
     for i, desc in enumerate(structure.blocks):
         if desc[0] == "ring":
             blocks.append(RingBlockArrays(*(arrays[f"block{i}.{f}"] for f in _RING_FIELDS)))
+        elif desc[0] == "core":
+            outer = SideArrays(*(arrays[f"block{i}.outer.{f}"] for f in SideArrays._fields))
+            blocks.append(CoreBlockArrays(arrays[f"block{i}.D1"], arrays[f"block{i}.D2"], outer,
+                                          *(arrays[f"block{i}.{f}"] for f in _CORE_FIELDS[2:])))
         else:
             sides = {s: SideArrays(*(arrays[f"block{i}.{s}.{f}"] for f in SideArrays._fields)) for s in ("inner", "outer")}
             blocks.append(DenseBlockArrays(arrays[f"block{i}.D1"], arrays[f"block{i}.D2"], sides["inner"], sides["outer"]))
     faces = [FaceArrays(*(arrays.get(f"face{i}.{f}") for f in _FACE_FIELDS)) for i in range(len(structure.faces))]
     plan = NodalPlan(**{name: arrays[name] for name in _TOP_FIELDS}, blocks=tuple(blocks), faces=tuple(faces),
-                     structure=structure)
+                     structure=structure, core_Ginv=arrays.get("core_Ginv"))
     recomputed = plan_identity(plan)
     if recomputed != identity:
         raise ValueError(f"nodal-plan identity does not match its arrays (stored {identity!r}, recomputed {recomputed!r})")
     if expected_identity is not None and identity != expected_identity:
         raise ValueError(f"nodal-plan identity {identity!r} != expected {expected_identity!r}")
     return plan
+
+
+# ---------------------------------------------------------------------------
+# Logical-frame metric extraction products
+# ---------------------------------------------------------------------------
+def _layout_points(layout: NodalLayout) -> np.ndarray:
+    E, P = layout.n_eta, layout.P
+    eta = (np.arange(E) + 0.5) * layout.deta
+    return np.stack([np.broadcast_to(layout.node_u, (E, P)), np.broadcast_to(layout.node_theta, (E, P)),
+                     np.broadcast_to(eta[:, None], (E, P))], axis=-1)
+
+
+def _metric_identity(arrays: dict, meta_json: str) -> str:
+    digest = hashlib.sha256()
+    for name in ("h", "jac", "B", "K", "points"):
+        a = np.ascontiguousarray(arrays[name])
+        digest.update(name.encode("utf-8"))
+        digest.update(repr(a.dtype).encode("utf-8"))
+        digest.update(repr(a.shape).encode("utf-8"))
+        digest.update(a.tobytes())
+    digest.update(meta_json.encode("utf-8"))
+    digest.update(METRIC_SCHEMA.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def save_nodal_metric(path: str | Path, metric: NodalMetric, points, meta: dict) -> str:
+    """Write a logical-frame nodal metric (``h, jac, B, K`` and the ``points (E, P, 3)`` it was evaluated at) with ``meta``.
+
+    Returns the sha256 identity over the arrays, the meta JSON and the schema.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    arrays = {"h": np.asarray(metric.h), "jac": np.asarray(metric.jac), "B": np.asarray(metric.B),
+              "K": np.asarray(metric.K), "points": np.asarray(points)}
+    meta_json = json.dumps(meta, sort_keys=True)
+    identity = _metric_identity(arrays, meta_json)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("wb") as handle:
+        np.savez(handle, meta=np.array(meta_json), schema=np.array(METRIC_SCHEMA), identity=np.array(identity), **arrays)
+    tmp.replace(path)
+    return identity
+
+
+def load_nodal_metric(path: str | Path, layout: NodalLayout, expected_identity: str | None = None) -> tuple[NodalMetric, dict]:
+    """Read a file written by :func:`save_nodal_metric`; returns ``(NodalMetric, meta)``.
+
+    Raises ``ValueError`` on a schema, identity or ``expected_identity`` mismatch, or if the stored points differ from the
+    layout's node ``(u, theta, eta)`` by more than 1e-13.
+    """
+    with np.load(Path(path), allow_pickle=False) as data:
+        schema, identity, meta_json = str(data["schema"]), str(data["identity"]), str(data["meta"])
+        arrays = {name: np.asarray(data[name]) for name in ("h", "jac", "B", "K", "points")}
+    if schema != METRIC_SCHEMA:
+        raise ValueError(f"unsupported nodal-metric schema {schema!r}")
+    if _metric_identity(arrays, meta_json) != identity:
+        raise ValueError("nodal-metric identity does not match its arrays")
+    if expected_identity is not None and identity != expected_identity:
+        raise ValueError(f"nodal-metric identity {identity!r} != expected {expected_identity!r}")
+    want = _layout_points(layout)
+    if arrays["points"].shape != want.shape or not np.allclose(arrays["points"], want, rtol=0.0, atol=1e-13):
+        raise ValueError("the stored metric points do not match the layout's nodes")
+    return NodalMetric(arrays["h"], arrays["jac"], arrays["B"], arrays["K"]), json.loads(meta_json)

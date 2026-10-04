@@ -40,8 +40,9 @@ def ring_region_masks(layout: NodalLayout, n_eta: int,
 
     Regions: ``core`` (non-ring nodes), ``core_band`` (the first level's first four rings, only with a core),
     ``level_bands`` (``i - 4 <= ring <= i + 3`` around every ring-ring level face starting at ``i``), ``wall``
-    (last four rings), ``inner_wall`` (first four rings of an ``inner="wall"`` layout), ``interior`` (none of
-    these), ``all`` and one ``uband_<lo>-<hi>`` per band.
+    (last four rings), ``adjacent_band`` (rings ``n - 6 .. n - 2``), ``wall_ring`` (ring ``n - 1``), ``inner_wall`` (first
+    four rings of an ``inner="wall"`` layout), ``interior`` (none of ``core``, ``core_band``, ``level_bands``, ``wall``,
+    ``inner_wall``), ``all`` and one ``uband_<lo>-<hi>`` per band.
     """
     r = np.broadcast_to(layout.node_ring[None, :], (n_eta, layout.P))
     u = np.broadcast_to(layout.node_u[None, :], (n_eta, layout.P))
@@ -57,6 +58,7 @@ def ring_region_masks(layout: NodalLayout, n_eta: int,
     wall = r >= layout.n - WALL_BAND_RINGS
     interior = ~(core | core_band | level_bands | wall | inner_wall)
     out = {"core": core, "core_band": core_band, "level_bands": level_bands, "interior": interior, "wall": wall,
+           "adjacent_band": (r >= layout.n - 6) & (r <= layout.n - 2), "wall_ring": r == layout.n - 1,
            "inner_wall": inner_wall, "all": np.ones_like(core)}
     for lo, hi in bands:
         out[f"uband_{lo:.2f}-{hi:.2f}"] = (u >= lo) & (u < hi)

@@ -53,6 +53,13 @@ def test_sharded_matches_single_device_in_subprocess():
     assert res["ref_max"] > 0
 
 
+def test_family_a_core_sharded_matches_single_device_in_subprocess():
+    res = _subprocess("family_a")
+    assert res["P"] == 254 and res["ref_max"] > 0
+    for s in (1, 2, 4):
+        assert res[f"S{s}"] <= 1e-14, res
+
+
 def test_too_few_planes_per_shard_raises():
     res = _subprocess("short")
     assert res["S4"] is not None and "halo" in res["S4"]

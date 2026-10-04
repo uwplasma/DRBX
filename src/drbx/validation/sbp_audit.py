@@ -147,3 +147,46 @@ def edge_band(L, k: int = 10, maxiter: int = 100, tol: float = 1e-8) -> tuple[np
         if len(lam) == 0:
             return np.array([]), np.array([])
     return _gate(L, lam, vec, tol)
+
+
+def jax_linear_operator(apply_lin: Callable, E: int, P: int, transpose: bool = True) -> spla.LinearOperator:
+    """Matrix-free SciPy operator of the linear map ``apply_lin: (E, P) -> (E, P)`` (index ``k * P + p``).
+
+    ``matvec`` is the jitted map; with ``transpose=True`` ``rmatvec`` is its exact transpose from ``jax.linear_transpose``,
+    so ``eigsh``/``eigs``/``svds`` run without assembling a matrix (probing refuses above ``MAX_UNKNOWNS``).
+    """
+    import jax
+    import jax.numpy as jnp
+
+    E, P = int(E), int(P)
+    fwd = jax.jit(apply_lin)
+    zeros = jnp.zeros((E, P))
+    bwd = jax.jit(jax.linear_transpose(apply_lin, zeros)) if transpose else None
+
+    def matvec(x):
+        return np.asarray(fwd(jnp.asarray(np.asarray(x, dtype=np.float64).reshape(E, P)))).reshape(-1)
+
+    def rmatvec(y):
+        return np.asarray(bwd(jnp.asarray(np.asarray(y, dtype=np.float64).reshape(E, P)))[0]).reshape(-1)
+
+    return spla.LinearOperator((E * P, E * P), matvec=matvec, rmatvec=rmatvec if transpose else None, dtype=np.float64)
+
+
+def rk4_amp(z) -> np.ndarray:
+    """``|R(z)|`` of the classical RK4 stability polynomial."""
+    z = np.asarray(z)
+    return np.abs(1 + z + z**2 / 2 + z**3 / 6 + z**4 / 24)
+
+
+def rk4_dt(eigs: Sequence[complex]) -> float:
+    """Largest ``dt`` with ``|R_RK4(lambda dt)| <= 1`` for every given eigenvalue (bisection; a purely imaginary
+    eigenvalue gives ``2 sqrt(2) / |lambda|``)."""
+    lam = np.asarray(eigs, dtype=complex)
+    lo, hi = 0.0, 10.0 / np.abs(lam).max()
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        if np.all(rk4_amp(lam * mid) <= 1 + 1e-12):
+            lo = mid
+        else:
+            hi = mid
+    return lo

@@ -2,8 +2,8 @@
 
 ``tests/test_fci_perpendicular_sbp_sharding.py`` runs this module as a script with
 ``XLA_FLAGS=--xla_force_host_platform_device_count=4`` (set before JAX is imported) and reads the JSON on the last
-stdout line. Modes: ``agree`` (sharded against single-device ``sbp_bracket`` for 1/2/4 shards) and ``short`` (a plan
-with fewer than 3 planes per shard is rejected).
+stdout line. Modes: ``agree`` (sharded against single-device ``sbp_bracket`` for 1/2/4 shards), ``family_a`` (the same
+for the family-A n = 16 layout with a Zernike core) and ``short`` (a plan with fewer than 3 planes per shard is rejected).
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ import jax                                                                      
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp                                                                          # noqa: E402
 
+from drbx.geometry.nodal_families import build_family_a_layout                                    # noqa: E402
 from drbx.geometry.nodal_layout import build_nodal_layout                                        # noqa: E402
 from drbx.native.fci_perpendicular_sbp_boundary import SatBoundaryData                           # noqa: E402
 from drbx.native.fci_perpendicular_sbp_bracket import sbp_bracket                                # noqa: E402
@@ -65,6 +66,26 @@ def run_agree(n_eta=16, shard_counts=(1, 2, 4)) -> dict:
     return out
 
 
+def run_family_a(n_eta=16, shard_counts=(1, 2, 4)) -> dict:
+    """Family A, n = 16 (core K = 2, p = 4): core D5c, core shell damping (traced ``c_kappa``) and ring levels."""
+    lay = build_family_a_layout(16, n_eta=n_eta)
+    plan = build_nodal_plan(lay, nodal_metric_from_callable(lay, metric))
+    rng = np.random.default_rng(13)
+    phi = rng.standard_normal((n_eta, lay.P))
+    g = rng.standard_normal((n_eta, lay.P, 2))
+    bcd = SatBoundaryData(tuple(jnp.asarray(rng.standard_normal((n_eta, w[3], 2))) for w in plan.structure.walls), None)
+    ref = np.asarray(jax.jit(sbp_bracket)(plan, phi, g, bcd, RHO, 0.7))
+    out = {"P": lay.P}
+    for s in shard_counts:
+        mesh = make_plane_mesh(s)
+        sharded = shard_nodal_plan(plan, s, mesh)
+        got = np.asarray(jax.jit(lambda sp, ph, gg, b, r, ck: sharded_sbp_bracket(sp, ph, gg, b, r, mesh, ck))(
+            sharded, phi, g, bcd, RHO, 0.7))
+        out[f"S{s}"] = float(np.abs(got - ref).max() / np.abs(ref).max())
+    out["ref_max"] = float(np.abs(ref).max())
+    return out
+
+
 def run_short() -> dict:
     _, plan = build(8)
     errors = {}
@@ -79,9 +100,9 @@ def run_short() -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("agree", "short"))
+    parser.add_argument("mode", choices=("agree", "short", "family_a"))
     args = parser.parse_args(argv)
-    result = run_agree() if args.mode == "agree" else run_short()
+    result = {"agree": run_agree, "short": run_short, "family_a": run_family_a}[args.mode]()
     result["devices"] = len(jax.devices())
     print(json.dumps(result))
     return 0
