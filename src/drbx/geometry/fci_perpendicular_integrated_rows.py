@@ -142,13 +142,6 @@ def _coupled(t, service, key, points, integ):
     for plane in np.unique(ei):
         target3 = _target_for_plane(points, integ, ei, ev, ed, plane, center, scale, _EXP3)
         target4 = _target_for_plane(points, integ, ei, ev, ed, plane, center, scale, r.EXP4)
-        if service.inner_support == "last_aggregate_nearest28":
-            # C2: the same isotropic nearest-28 donors (with rank repair) as the point rows; P's ring pick is the fallback
-            got = service._nearest28(plane, center, scale, np.atleast_2d(target4))
-            if got is not None:
-                donor, C4 = got[0], got[4]
-                ids.extend(donor); coefficients.extend(target4 @ C4)
-                continue
         for level in range(4):
             lo = max(0, int(radial.min())-level); hi = min(n-1, int(radial.max())+level)
             donor = donors(lo, hi, plane)
@@ -183,9 +176,9 @@ def prepare_integrated_face_rows(context: PointRowContext, keys, family, points,
                                  inner_support="profile7"):
     """Prepare one P07 row per canonical face with explicit q3 geometry arrays.
 
-    ``inner_support`` (``"profile7"`` default, or ``"last_aggregate"``) is the inner donor-support rule of
-    :class:`StructuredReconstruction`. At ``"last_aggregate"`` a singleton or ringwise face (family 5, 6) whose
-    anchor ring is at most the last agglomerated ring is built as the coupled quartic (family code 7, the code
+    ``inner_support`` (``"profile7"`` default, or ``"fixed_radius"``) is the inner donor-support rule of
+    :class:`StructuredReconstruction`. At ``"fixed_radius"`` a singleton or ringwise face (family 5, 6) whose
+    anchor ring lies below the fixed switch radius is built as the coupled quartic (family code 7, the code
     it reports); all other faces are unchanged.
 
     ``integrand`` has shape ``(faces, 9, 3)`` and is the face quadrature
@@ -205,12 +198,6 @@ def prepare_integrated_face_rows(context: PointRowContext, keys, family, points,
         code = int(code)
         if (code in (5, 6) and service.inner_support == "fixed_radius"
                 and service.below_fixed_switch(key[0], key[1])):
-            code = 7
-        if (code in (5, 6) and service.inner_support == "any_aggregate"
-                and service.stencil_min_profile(key[0], key[1]) < service.t.n):
-            code = 7
-        if (code in (5, 6) and service.inner_support in ("last_aggregate", "last_aggregate_nearest28")
-                and service.anchor_ring(key[0], key[1]) <= service.last):
             code = 7
         if code == 0:
             donor = np.empty(0, np.int64); weight = np.empty(0); conditioned = False

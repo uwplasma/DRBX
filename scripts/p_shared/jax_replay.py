@@ -989,7 +989,7 @@ def main(argv=None) -> int:
     parser.add_argument("--face-quadrature", choices=FACE_QUADRATURE_CHOICES, default=DEFAULT_FACE_QUADRATURE,
                         help="P05/P06 face-node rule (P07 stays q3)")
     parser.add_argument("--inner-support", choices=INNER_SUPPORT_CHOICES, default=DEFAULT_INNER_SUPPORT,
-                        help="inner donor support of the P05/P06/P07 rows (C0 profile7, C1 last_aggregate)")
+                        help="inner donor support of the P05/P06/P07 rows (C0 profile7, C3 fixed_radius)")
     parser.add_argument("--bfield-toroidal", choices=BFIELD_TOROIDAL_CHOICES, default=DEFAULT_BFIELD_TOROIDAL,
                         help="toroidal interpolation of the B evaluator (spline = frozen, compact_c3)")
     parser.add_argument("--output", default=None)

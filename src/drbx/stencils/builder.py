@@ -339,7 +339,7 @@ def build_r4_p07_rows(context: PointRowContext, census: FaceCensus, p07_row_indi
     ``face_points_by_row`` (Q3 nodes), ``face_weight_by_row`` (q3 weights,
     the same shared quadrature primitive as R2/R3) and ``face_tensor_by_row``
     (the geometry-only P07 tensor at those nodes) must share the same row
-    order and count. ``inner_support`` (``"profile7"`` default, or ``"last_aggregate"``) is the inner donor
+    order and count. ``inner_support`` (``"profile7"`` default, or ``"fixed_radius"``) is the inner donor
     support of the P07 rows (see ``prepare_integrated_face_rows``). The integrand is P07's frozen normal-row convention,
     ``w_q * T[q, axis, :]`` (``contract_face_tensor``).
 
