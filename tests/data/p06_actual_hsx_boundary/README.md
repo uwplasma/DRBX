@@ -5,8 +5,9 @@ selection. It retains the real HSX owner-observation matrix, frozen donors and
 weights, q3 wall polynomial value/gradient rows, contravariant metric,
 Jacobian, logical quadrature weights, and dynamic owner values.
 
-`generate_fixture.py` records the parent artifact and donor hash in the JSON
-sidecar. The package geometry/data separation is tested explicitly: metric and
+`generate_fixture.py` (removed from the tree with the P01-P04 audit chain;
+regeneration is at commit `c0269a95`) recorded the parent artifact and donor
+hash in the JSON sidecar. The package geometry/data separation is tested explicitly: metric and
 polynomial rows prepare the fixed maps, while boundary values are supplied only
 at application time. The fixture is a regression and transformation test, not
 a global accuracy or convergence claim.

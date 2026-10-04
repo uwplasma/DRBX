@@ -36,9 +36,9 @@ convergence. They share the global operator L2 order gate and inexpensive
 midpoint MMS convention; parallel structure is promoted only after diffusion
 certification.
 
-The [clean remote global qualification commands](../../../scripts/hsx_remote_qualification/REMOTE_COMMANDS.md)
-and [implementation validation](../../../scripts/hsx_remote_qualification/VALIDATION.md)
-support the new versioned perpendicular campaign. The roadmaps retain the
+The clean remote global qualification commands and implementation validation
+(`scripts/hsx_remote_qualification/`, removed; see commit `c0269a95`)
+supported the versioned perpendicular campaign. The roadmaps retain the
 scientific acceptance gates and separate P/Q ownership.
 
 ## Topology boundaries

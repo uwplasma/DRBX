@@ -674,9 +674,9 @@ evolved certification. Blob-driver synchronization stays deferred.
 The earlier local P global campaign is paused and preserved as historical
 evidence. The matched-q3 centered-bracket N32/N48/N64 qualification was run
 as a **new remote campaign**, using
-[`scripts/hsx_remote_qualification`](../../../scripts/hsx_remote_qualification/README.md).
+`scripts/hsx_remote_qualification` (removed; see commit `c0269a95`).
 The remote handoff contains repository commands only, in
-[REMOTE_COMMANDS.md](../../../scripts/hsx_remote_qualification/REMOTE_COMMANDS.md).
+`scripts/hsx_remote_qualification/REMOTE_COMMANDS.md` (removed; see commit `c0269a95`).
 The material extension used the separate
 P05 runner (`scripts/p05_material_campaign`, removed; see commit `257bd55f`) and reused the
 hash-pinned completed centered campaign. Both computations are complete.
@@ -712,7 +712,7 @@ above.
 The remote performance repair removes persistent query-basis growth, shares
 metric evaluations, microbatches metric/curl queries, groups owner memberships
 once, isolates preparation stages, and validates resumed chunks before worker
-startup. See the campaign [implementation validation](../../../scripts/hsx_remote_qualification/VALIDATION.md).
+startup. See the campaign implementation validation (`scripts/hsx_remote_qualification/VALIDATION.md`, removed; see commit `c0269a95`).
 It changes execution/source identity, not the frozen candidate or acceptance
 contract. Start a fresh output folder for this release. Per-worker RSS and cache
 telemetry are recorded; full-node runtime and memory remain remotely measured
@@ -1315,7 +1315,7 @@ fixed-time solution checks are retained in P10.
 
 **Dependencies:** P04 (numerical dependency satisfied).
 
-**Current milestone:** P1's [bounded formulation/reconstruction audit](p06_curvature_bounded_plan.md)
+**Current milestone:** P1's bounded formulation/reconstruction audit (`p06_curvature_bounded_plan.md`, removed; see commit `c0269a95`)
 and remote global campaign are complete. The
 [returned-campaign local analysis](../../../../work/p06-curvature-cpu_4bb8336e_8ijYwA5H/local_analysis/report.md)
 independently confirms all 22 nonzero primary M/R/total components above order
