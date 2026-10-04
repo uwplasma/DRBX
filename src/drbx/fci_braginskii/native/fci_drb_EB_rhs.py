@@ -792,6 +792,29 @@ class LocalFciDrbEBRhs:
             owner_values_halo=owner_halo,
         )
 
+    def _owner_current_gradient(
+        self,
+        phi_owned: jnp.ndarray,
+        gradient: Callable[[jnp.ndarray], jnp.ndarray],
+    ) -> jnp.ndarray:
+        """Fine-cell view ``E P G E phi`` of the owner-level potential gradient.
+
+        The stored electron velocity is an owner field, so the current that
+        closes the polarization balance must be built from the same projected
+        gradient: using ``G E phi`` in the solve and ``P G E phi`` in ``Ve``
+        disagrees wherever owner agglomeration makes ``E P != I``. With
+        ``P = W_o^-1 E^T W_c`` the pair ``(P G E, P D E)`` is the weighted
+        adjoint pair in owner space. Without agglomeration ``G E phi`` is used
+        unchanged (including on inactive cells, as before).
+        """
+
+        gradient_dense = gradient(self._expand_owner_field_for_stencil(phi_owned))
+        if not self._uses_projected_fine_grid:
+            return gradient_dense
+        return self._expand_owner_field_for_stencil(
+            self._project_fine_cell_term(gradient_dense)
+        )
+
     def _project_fine_cell_term(self, value_fine: jnp.ndarray) -> jnp.ndarray:
         """Map a raw fine-cell-space RHS contribution into owner/state space.
 
@@ -2492,8 +2515,7 @@ class LocalFciDrbEBRhs:
         coefficient = (h ** 2 * mu) / rho_star ** 2
 
         def extra_operator(field_owned: jnp.ndarray) -> jnp.ndarray:
-            phi_dense = self._expand_owner_field_for_stencil(field_owned)
-            g_dense = current_phi_gradient(phi_dense)
+            g_dense = self._owner_current_gradient(field_owned, current_phi_gradient)
             divergence_dense = current_phi_divergence(density_dense * g_dense)
             return -coefficient * self._project_fine_cell_term(
                 kappa_dense * divergence_dense
@@ -2537,8 +2559,7 @@ class LocalFciDrbEBRhs:
 
         # g = G(phi*); Ve* = Ve_b + h*mu*PVe(g);
         # omega* = omega_pred - h**2*mu*Pvort(kappa*D_h(n*g))
-        phi_dense_final = self._expand_owner_field_for_stencil(phi_owned)
-        g_dense = current_phi_gradient(phi_dense_final)
+        g_dense = self._owner_current_gradient(phi_owned, current_phi_gradient)
         Ve_star = Ve_b + h * mu * self._project_fine_cell_term(g_dense)
         coupled_divergence_dense = current_phi_divergence(density_dense * g_dense)
         omega_star = omega_pred - h ** 2 * mu * self._project_fine_cell_term(
