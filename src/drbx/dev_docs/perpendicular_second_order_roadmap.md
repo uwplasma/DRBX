@@ -2549,7 +2549,7 @@ regional second-order gate is imposed. P10 independently checks solutions.
 
 **Dependencies:** P08. This is the gate before P10 (user decision, 4 October 2026). It was added on 3 October as P11, an investigation track.
 
-**Status:** in progress. Step 1, the Option B prototype of the P05 bracket, is running.
+**Status:** in progress. The SBP split-form bracket is the production bracket (user decision, 4 October 2026); only details of its construction remain. Option B rounds 1–3 are done (round 3: the seam error is closure-row truncation on a steep manufactured field, not the trace). An integration design and the τp_i model change run in parallel.
 
 **Gate:** the perpendicular RHS has no numerical energy source beyond the physical compressibility bound.
 - **Bracket (required):** the discrete energy identity holds to round-off, and the rightmost eigenvalue of the frozen-φ operator is at most max(½c).
@@ -2612,7 +2612,72 @@ regional second-order gate is imposed. P10 independently checks solutions.
 - **1d checks:** negative semidefinite to round-off. Also report the change in static error, the eigenvalues with dissipation on, and the damping rate of grid-scale modes.
 - **Evidence:** the prototype report and `results.json` in the design folder. If a criterion fails, record the mechanism and stop before step 2.
 
+**Step 1 results — round 1 (4 October 2026).** See the [round-1 report](../../../../work/p09_optionB_20261003/report.md).
+- **Energy identity:** met to round-off (≤1.8e-17 on the testbed, 5.5e-18 at HSX N32); the axis term is exactly zero.
+- **Eigenvalue bound:** met only with the **D7+ wall correction** ½H⁻¹ω t_R[t_Rᵀ(F^u g) − v_w t_Rᵀ g], which makes the wall term exactly −½ω v_w (t_Rᵀ g)². D7+ is adopted.
+  - At HSX N32 the rightmost eigenvalue is +3.25e3 at rings 7–9, against +1.33e4 for today's operator. It equals its mode-weighted ½c and is within 0.2% of the physical S: physical compressibility.
+  - With D7+ and the 1d dissipation nothing grows (RK4 rate about −53).
+- **Accuracy:**
+  - Testbed: overall order 3.2–3.8.
+  - HSX N32 on today's pyramid: rings 0–6 are 10–100× worse than C3 (axis 0.34–1.09, near-axis 0.085–0.23); interior ω 0.161 against 0.046; wall 40–60× better.
+- **Causes near the axis:**
+  - Discrete ½c reaches 1.93e4 at ring 1, where the physical S is 260. Amplitudes zeroed on ring 0 but present on rings 1–2 sit inside the axis extrapolation's support.
+  - On 8-node rings, φ's sin 4θ is the Nyquist mode.
+  - At the 16→32 transition, the 16-node rings truncate the m = 8 content of F·ω.
+- **Radial closure:** b = 4, s = 3, unique. The interior is exact to degree 4, the closures to degree 2.
+- **Time step:** RK4 Δt 3.25e-6, against 3.7–4.1e-6 today.
+
+**Step 1 results — round 2: Zernike core and SBP ring levels (4 October 2026).** See the [round-2 report](../../../../work/p09_optionB_core_20261004/report.md).
+- **Construction:**
+  - **Core:** a p = 6 polar-Gauss polynomial core inside u = K/n. Its operator is projection-type SBP: exact on degree p, and D_x and D_y commute.
+  - **Ring levels:** rings are grouped into constant-N levels, each its own SBP radial block.
+  - **Coupling:** levels and core are coupled by SAT. Each side's flux trace is set against a symmetric velocity-weighted interpolant of the other side's, plus an upwind penalty Γ = ½|v|.
+  - **Velocity:** from a trace-matched φ (deviation D5c).
+  - **Dissipation:** the 1d jumps in the rings, plus shell damping −κHP_h of the core modes above degree p.
+- **Layout rules:**
+  - L1: θ arc ≤ αΔu, with α = 4.27 fitted to today's rule.
+  - L2: every level is at least 8 rings wide, so the closures at the two ends of a level do not overlap.
+  - L3: K is the smallest ring index for which L2's pass leaves only levels at least 8 wide. This gives K = 5 at n = 32, 64, 128 and 256, and K = 11 at n = 48.
+  - At HSX N32 this gives the core plus one 32-node level on rings 5–31, with no level-to-level face.
+- **What it fixed:**
+  - energy identity to round-off including the core and every interface (2.6e-17 at HSX);
+  - numerical abscissa = max ½c in every case;
+  - ½c = 0 on a straight field (2.5e-4);
+  - HSX core error 0.04–0.11, against round 1's 0.34–1.09;
+  - interior ω 0.047, against 0.161;
+  - wall 5–30× better than C3+S1 (recomputed like-for-like).
+- **What remains, against C3+S1:**
+  - **Near the axis:** the core and rings 5–8 are 2–2.5× worse.
+  - **The seam band u 0.12–0.21:** 5.5–10× worse. Inferred cause: the ring block's degree-2 inner closure takes a quadratic-extrapolated trace on the core circle (flux mismatch 3.9% at n = 32, where the core's own trace is accurate to about 1e-5), and the SAT lifts the mismatch into the first rows. A p = 8 core and K = 3 gave no gain.
+  - **Level faces (n ≥ 64):** they converge at 2nd order, limited by the closures rather than the transfer.
+- **Transfer pair at level faces:** Almquist-type and plain Fourier transpose give level-band errors within 8% of each other. Only the Fourier pair gives ½c = 0 exactly on a straight field.
+- **Eigenvalues at HSX N32:**
+  - **Default:** +408.8, 99.9% in the core: physical compressibility (mode-weighted ½c 411 against S 402.5).
+  - **Centred interfaces:** a grid-scale +3281 appears at rings 6–9; the upwind penalty removes it.
+  - **With dissipation:** no residual-gated eigenvalue was found. RK4 to T = 0.04 ends at −50.3, still drifting up by about 3 per window. No growth seen; not proven.
+- **Time step:** see Cross-cutting.
+
+**Round 3 — the core–ring seam (4 October 2026; [report](../../../../work/p09_optionB_trace_20261004/report.md)).** The trace is not the cause, so V1 and V2 were not built.
+- **Trace substitution has little effect.** Replacing the ring block's trace on the core circle with the exact trace or the core's trace barely moves the band error: n 0.122 → 0.107–0.109; ω gets worse.
+  - The 3.7% mismatch is in the flux F^u, not the field; the field trace error is 1e-4.
+  - The core's own F^u trace is just as wrong (3.5%), because D5c matches the core gradient to the ring trace.
+- **The decisive control.** Same resolution with no block boundary in the band: round 1's single full-ring radial block, whose closure sits only at rings 0–3. It gives n 0.013 and ω 0.030 at n = 32, 9× and 3× better than round 2, and about level with C3+S1.
+- **Mechanism (inferred from the per-term breakdown and that control):** truncation in the degree-2 closure rows of the conservative half, at the seam (rings 5–8) and in the core's outer rows. The SAT cannot cancel it.
+- **It is a property of the manufactured field.**
+  - The step-6 ω carries a bump exp(−((u² − 0.21²)/0.06)²) peaking at u = 0.21, right on the K = 5 seam.
+  - The testbed shows the same band error without HSX geometry.
+  - With the smoother phi_wave field the band error is 7× lower at n = 32 (n 0.016), and 3.7e-4 at n = 64.
+  - Any steep structure that crosses a block boundary meets the same 2nd-order closure behaviour.
+- **Remaining levers (layout or design decisions, not trace fixes):**
+  - put the seam outside steep regions: K ≥ 9, where a p = 6 core is too coarse;
+  - or avoid a radial closure at the seam, for example a single radial block running down to a small inner core.
+
 **Step 2 — Decide on and integrate the bracket (after step 1; user decision).**
+- **Decided (user, 4 October 2026):**
+  - The SBP split-form bracket is the production bracket. Only construction details remain, starting with round 3.
+  - Level faces use the plain Fourier transpose pair, because the Almquist-type pair gives no accuracy gain here.
+  - Option B is nodal, so adopting it settles D1 below on nodal point values, unless the integration design finds a blocker.
+- **Integration design (in progress):** moving from C3 owner averages to the nodal layout. It covers what that means for the P05–P07 operators, Q's FCI maps, the wall and sheath, MMS fields and diagnostics, and which parts are independent of the seam.
 - **D1 for production:** nodal point values (the prototype) or owner averages (finite volume, as today).
   - Owner averages cost an O((mΔθ)²) mismatch at owner-count doublings, or a non-diagonal H.
   - With steps 4–5 the choice becomes system-wide.
@@ -2674,7 +2739,12 @@ regional second-order gate is imposed. P10 independently checks solutions.
     - The leftover ½ωᵀH(Kφ − c∘φ) is a discrete product-rule error, since D(Vφ) ≠ φ·DV. It has no partner term in another equation, so it is a small net source or sink in the total energy, not a transfer between fields, and its sign is not fixed.
   - **Size:** for resolved fields it is truncation error and should shrink with refinement. Grid-scale content does not shrink, so the defect then depends on how much energy sits at the grid scale. Dissipation (stage 1d) keeps that small.
   - **Exact alternative:** a 3-D Arakawa-type bracket, which reproduces both each field's own ∫g² balance and the compressible E×B exchange. Its existence with curved h is open (Arakawa 2-D: the average of the advective form and both flux forms).
-  - **Cheap check (proposed):** evaluate ½ωᵀH(Kφ − c∘φ) in the Option B prototype on the manufactured fields at N32/N48/N64, and once on a checkerboard-contaminated field, to see both regimes.
+  - **Measured on round 1 (4 October 2026; [W1 report](../../../../work/p09_optionB_w1_20261004/report.md)):**
+    - **Identity:** confirmed to ≤3.6e-16. The defect is about 4th order on resolved fields.
+    - **Size at HSX N32:** 17% of the physical exchange for ω_η2, with 73% of it coming from the 16→32 transition rings 9–12.
+    - **Checkerboard response:** a θ checkerboard gives about 2000× more on 16-node rings than on full rings.
+    - **Open:** a 1st-order response to a radial checkerboard in φ.
+  - **Test-catalogue lesson (η-parity):** the step-6 manufactured ω and n give W = P = 0 exactly. By η-parity, d and c∘φ carry only η-harmonics 0 and 2, while these g carry harmonic 1. So step-6 fields cannot exercise this exchange; use η-wavenumber-2 variants. The P10.1 field catalogue should be checked for the same blind spot.
 - **W2 — linear coupling pairs (linear; a stability issue, not only accounting).**
   - When two fields are coupled linearly, a non-adjoint discrete pair can make the coupled linear system grow, even if each operator passes the gate on its own field. This is the ring-3 problem spread across two fields.
   - |U_n|-weighted upwinding does not necessarily cover it, and it vanishes on stagnation lines in any case.
@@ -2690,20 +2760,31 @@ regional second-order gate is imposed. P10 independently checks solutions.
   - **Sheath:** sheath losses are physical sinks.
   - **What is relied on instead:** the gate (no operator creates energy), adjoint linear pairs (W2), and dissipation for grid-scale content (upwinding where the flow is nonzero).
 - **Residual risk:** on stagnation and convergence lines |U_n| = 0, so upwinding does not damp grid-scale content there. If evolved runs show grid-scale noise accumulating there, the options are strain-aware jump speeds or explicit hyperdiffusion.
-- **Level transitions and coarse-ring aliasing (recorded 4 October 2026; decision deferred until the round-2 Almquist variant reports).** Two separate mechanisms add error where the ring node count changes. The round-2 prototype targets only the first.
+- **Level transitions and coarse-ring aliasing (recorded 4 October 2026; outcome after round 2 at the end).** Two separate mechanisms add error where the ring node count changes. The round-2 prototype targets only the first.
   - **Masked-amplitude jump (round 2 targets this).** A Fourier amplitude that is zeroed on the coarse ring but present on the fine ring is a jump of size a_m, so the radial stencil makes an error of about a_m/Δu. In round 1 this caused the fake compressibility at ring 1 and the 16→32 error for ω. The W1 check found most of the HSX N32 ω defect on the 16→32 transition rings. Round 2 makes each constant-N level its own SBP block, coupled by SAT with Fourier transfer, and compares Almquist's order-preserving interpolation with the plain transpose pair. The jump is then never differentiated; the expected interface error is about a_m.
   - **Product aliasing on coarse rings (round 2 does not target this).** Products such as V·ω on a 16-node ring fold harmonics m ≥ 8 back onto lower ones. Interfaces do not change how products are formed within a ring. The W1 check found that this amplifies grid-scale content on the 16-node rings by about 2000× compared with full rings.
   - **Not fixable by either:** harmonics with m ≥ N_coarse/2 are lost at the interface. This is a resolution limit; layout rule L1 (θ spacing ≤ α·Δu) keeps it small.
   - **Candidate fix, not adopted:** product dealiasing, forming products on a 3/2-padded θ grid and truncating back. It is cheap to implement but adds runtime. Decide after round 2 reports, based on whether the transition-band error and the W1 defect remain large once the interfaces are in place. If it is adopted, re-run the W1 check on the round-2 operator with and without it.
+  - **Outcome after round 2 (4 October 2026): dealiasing is not adopted.**
+    - The level-band error is closure-limited: the Almquist-type and Fourier pairs give the same error.
+    - Content that the coarse side cannot represent enters through the SAT lift, scaled by a_m/Δu. For steep modes it is the same size as the closure error. Neither mechanism is product aliasing.
+    - At HSX N32 the round-2 layout has no 16-node rings, so the aliasing W1 measured there is gone by construction.
+    - Revisit if evolved runs show grid-scale noise on coarse levels.
 
 **Model change: hot-ion polarization variable ψ = φ + τp_i (decided 4 October 2026).** This changes the model equations, not the discretization. It fixes a continuum defect that no SBP operator can remove.
 - **The change.**
   - Boussinesq polarization: ω = ∇⊥²(φ + τTi) becomes ω = ∇⊥²(φ + τp_i), with p_i = nTi in normalized units (n₀ = 1).
-  - The same ψ is used everywhere ψ appears:
-    - the curvature remainder in the n, Te and Ti rows;
-    - the composite parallel gradient G(φ + τTi) in the Ve equation;
-    - the μτ column of the production parallel flux matrix.
   - It is still Boussinesq: the φ solve stays a constant-coefficient Laplacian, and only its right-hand side changes, from τ∇⊥²Ti to τ∇⊥²p_i.
+  - **Only the polarization relation is a model change (corrected 4 October 2026, from the [scoping survey](../../../../work/p09_continuum_energy_20261004/model_change_scoping.md)).**
+    - The code also uses ψ in three places as an internal *split* of φ = ψ − τTi:
+      - the curvature remainder C(ψ), together with the elimination column in `curvature_principal_matrix`;
+      - the composite G(ψ) in Ve;
+      - the μτ column of the parallel flux matrix.
+    - In the continuum each split cancels: the net terms are C(φ) and μ∇∥φ.
+    - Changing one half of a split alone changes the physics. A re-split must update each pair together:
+      - **Curvature:** column 0 gains c·τTi and column 2 becomes c·τn, with c = (2n, 4Te/3, 4Ti/3).
+      - **Ve:** A[4,0] = μTe/n + μτTi, A[4,2] = μτn, and G(φ + τnTi).
+    - Keeping the old split is continuum-correct. The upwind and characteristic dissipation, built from those local matrices, then misses the new local coupling.
 - **Why: the continuum model.**
   - The Ti form drops τñ from the polarization while the curvature and parallel terms keep it. The linearized pairs then mismatch: n–Te by 2τ, n–Ti by 2τ², n–Ve by τ.
   - With these terms there is no quadratic energy. About a uniform, gradient-free background, the model has growing modes with growth ∝ |k| at τ > 0: 0.148|k| at τ = 1 and large k⊥², 0.009|k| at τ = 0.1. Without dissipation the system is ill-posed.
@@ -2716,23 +2797,33 @@ regional second-order gate is imposed. P10 independently checks solutions.
     - τ = 1: about 0.5–0.8.
   - It is linear in k at low k, matching the hand model (0.148, 0.290, 0.413 against 0.149, 0.299, 0.448).
   - The default perpendicular diffusion (1e-5) barely changes it.
-  - Patching ψ in the polarization and curvature removes the growth on the coordinate and fci-legacy paths. On the production characteristic path it leaves 0.09 (upwind) or 0.19 (centred) at τ = 1. Not diagnosed; the likely cause is that the patch does not reach the μτ column inside the characteristic parallel flux.
+  - Patching only the polarization (φ += −τñ) removes the growth on the coordinate and fci-legacy paths with centred curvature (about 1e-12).
+  - It leaves 4.7e-3 with upwind production curvature, and 0.09 (upwind) or 0.19 (centred) on the production characteristic parallel path, at τ = 1.
+  - Likely cause (inferred, untested): those paths' local matrices still carry the old elimination column, so their dissipation is built for the old split.
 - **Why: the literature.**
   - The Ti form comes from the GBS stellarator papers (Coelho et al. 2022, [doi:10.1088/1741-4326/ac6ad2](https://doi.org/10.1088/1741-4326/ac6ad2); 2024), which cite the cold-ion Ricci et al. 2012 for the Boussinesq step. The sign audit above used the same normalized form (arXiv:2508.04881).
   - The energy-consistent forms all keep p_i:
     - Scott 2007 ([doi:10.1063/1.2783993](https://doi.org/10.1063/1.2783993)): W = φ + τ(ñ + T̃i);
     - Hermes-3 (Dudson et al. 2026, [doi:10.1088/1741-4326/ae3627](https://doi.org/10.1088/1741-4326/ae3627)): Boussinesq with p_i/n₀, and a proven energy theorem;
     - the non-Boussinesq GBS (Halpern et al. 2016; Giacomin et al. 2022) and GRILLIX.
-- **Where it lands.**
-  - P07: the polarization right-hand side, and the φ solve's inputs. The P07 operator itself is unchanged.
-  - P06: the ψ in the curvature remainder.
-  - Production `native/fci_drb_EB_rhs.py`: the polarization (about lines 5568–5572 and 5650–5692) and the curvature ψ (about lines 2234, 2321, 2326 and 2360–2368).
-  - Q path: the composite G(ψ) (`fci_drb_EB_rhs.py` about 510–549) and the μτ column (`fci_parallel_production_flux.py` about 400–417). Flag these to Q's owners. The change needs both paths to agree.
+- **Where it lands (staged).**
+  1. **The model change itself (stage 1).**
+     - The polarization relation: the φ solve's right-hand side and its p_i boundary data, the vorticity-from-polarization helpers, the MPE gauge multiplier, and the polarization balance terms. In `native/fci_drb_EB_rhs.py`, about lines 1711–1850 and 5537–5670.
+     - Its callers: `fci_boundary_imex_*` and `simulate_hsx_blob.py`.
+     - The hand-built copy in `linear/dispersion.py`.
+     - The MMS references: `hsx_mms_continuum_reference.py` and `scripts/p09_evolved_mms/source.py`.
+     - `docs/physics_models.md`.
+     - The P07 operator is unchanged.
+  2. **The lockstep re-split (stage 2, only if the stage-1 Jacobian still shows growth on the upwind or characteristic paths).**
+     - **Curvature:** `curvature_principal_matrix`, the remainder ψ, and the P06 closed-form |M|, which must be re-derived or switched to `lapack4`.
+     - **Ve:** the composite G(ψ), the μτ column in `fci_parallel_production_flux.py`, the short-leg Jacobian, and the `q_*` modules, including re-deriving the characteristic quartic.
+     - The P path makes the Q-side changes as well (user decision, 4 October 2026), so both paths agree; Q's owners are informed.
+     - New forms go behind a keyword whose default is the old form. The frozen P06 oracle imports the live `curvature_principal_matrix`.
 - **Sequencing.**
   - Make the change before the P10.1 evolved-MMS harness is built, so the manufactured sources are written once, for the final model.
   - The operators P05–P07 are unchanged, so their static gates stand. The MMS manufactured fields and sources change.
 - **Acceptance.**
-  1. The uniform-background slab Jacobian shows no τ-driven growth beyond the τ = 0 baseline, on every parallel path including the production characteristic one.
+  1. The uniform-background slab Jacobian shows no τ-driven growth beyond the τ = 0 baseline, on every parallel path including the production characteristic one, after stage 1 or, if needed, stage 2.
   2. The symbolic pairing check with the F₂ weights passes (`work/p09_continuum_energy_20261004/scripts/lin10.py`, `lin9.py`).
   3. `docs/physics_models.md` states the polarization form and cites its sources.
 - **Companion defects (same audit; separate decisions, not part of this change).**
@@ -2743,6 +2834,11 @@ regional second-order gate is imposed. P10 independently checks solutions.
 
 **Cross-cutting.**
 - **SBP fixes the spatial operators, not the time step.** Neutral operators have imaginary eigenvalues, and classical RK4 needs |λ|dt ≲ 2.8 there.
+- **Time step on the round-2 layout (deferred, user decision 4 October 2026).**
+  - **Size:** RK4 Δt at HSX N32 is 2.69e-6, against 3.25e-6 in round 1 and 3.7–4.1e-6 today.
+  - **Not the core:** its |λ| is 0.18–0.36 of the rings'.
+  - **The limiting mode** sits on rings 6–9. Rule L2 refines today's 6-ring, 16-node level (rings 5–10) to 32 nodes, which halves the θ arc there; that accounts for the 17% loss from round 1. The rest of the gap to today comes from the SBP operator itself.
+  - **Later fix:** the layout rule can keep the agglomeration coarser, for example by extending a narrow level outward instead of refining it.
 - **State-dependent wall data (P11):** each condition first needs a continuous energy estimate, and the SAT strengths mirror it (Nordström 2017). Without one, linearize about the state and check eigenvalues.
 - **Reading:** an annotated [SBP reading list](../../../../../plasma%20papers/Theory/summation-by-parts/reading-list.md) is kept outside the repository. The core references:
 
@@ -3141,7 +3237,7 @@ revision, configuration, measured results, and unresolved failures.
 | P06N | Physical-normal Neumann curvature | Shared extraction/replay and bounded Neumann reconstruction admission | passed — user-accepted static qualification 28 September; recovered-trace wall contract | [Acceptance record](../../../../work/p05n_p06n_43250ccf_20260928T053254Z_c415a4cd/local_analysis/acceptance_decision.md) for `43250ccf`, job 58995223: all 30 gated entries pass, including held-out (centered 4.38–6.15, U 4.47–6.12, pre-asymptotic). The q3 correction is active and converges at 4.2–5.4. φ enters only through the remainder (bitwise check). The all-Dirichlet rich case closes the P06 seam defect. The wall characteristic correction is zero by contract; not a physical wall-law qualification. Transition region lowest (2.2–2.6 on N48→N64). Evolution, production integration and the rung wall law remain open. |
 | P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | passed — user-accepted closure qualification 27 September; midpoint accuracy geometry-limited | [Acceptance record](../../../../work/p07n_field_derived_274e93e9_20260927T054625Z_72cfa1/local_analysis/acceptance_decision.md) for campaign `274e93e9`: N−O `2.24–3.85/2.25–3.73` on every field including held-out; wall-normal residual about 4th order; returned `global_order_pass=false` preserved; N−R ≈ O−R `1.55–1.74/1.72–1.83` limited by unresolved near-wall toroidal geometry (most plausibly coil ripple). The `5930b72c` failure is preserved. Inversion/gauge, energy, evolution and production integration remain open. |
 | P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | in progress — steps 1–2 (host consolidation, row artifact, JAX operators) accepted 29–30 September; step 3 next; see the P08 execution plan | Include separately qualified Dirichlet and Neumann variants. Use the deduplicated periodic face census. Decide or reconcile the Neumann closure (P-path point rows vs production physical halos). Watch the RLP transition region. Reconstructed φ: production FGMRES inverting the qualified P07 operator (new `operator_form`); new preconditioners likely. |
-| P09 | Energy-stable perpendicular operators (SBP) | P08 | in progress — step 1, the Option B prototype of the P05 bracket | [Design](../../../../work/p09_optionB_20261003/design.md); motivation in the [instability](../../../../work/p09_instability_20261003/report.md) and [symmetric-rows](../../../../work/p09_symrows_20261003/report.md) reports. Gate before P10 (user decision, 4 October 2026); replaced operators re-pass their static gates. Added on 3 October as P11. |
+| P09 | Energy-stable perpendicular operators (SBP) | P08 | in progress — SBP split form chosen for production (4 October 2026); Option B rounds 1–3 done | [Design](../../../../work/p09_optionB_20261003/design.md); [round 1](../../../../work/p09_optionB_20261003/report.md), [round 2](../../../../work/p09_optionB_core_20261004/report.md); motivation in the [instability](../../../../work/p09_instability_20261003/report.md) and [symmetric-rows](../../../../work/p09_symrows_20261003/report.md) reports. Gate before P10 (user decision, 4 October 2026); replaced operators re-pass their static gates. Added on 3 October as P11. |
 | P10 | Evolved MMS and promotion | P08, P09 | pending | Was P09 before 4 October 2026. |
 
 
