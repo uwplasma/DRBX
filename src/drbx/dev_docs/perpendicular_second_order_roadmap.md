@@ -2684,7 +2684,15 @@ regional second-order gate is imposed. P10 independently checks solutions.
 - **Decided (user, 4 October 2026):**
   - The SBP split-form bracket is the production bracket. Only construction details remain.
   - Level faces use the plain Fourier transpose pair, because the Almquist-type pair gives no accuracy gain here.
-  - Option B is nodal, so adopting it settles D1 below on nodal point values, unless the integration design finds a blocker.
+  - **D1 = nodal point values** (user, 4 October 2026).
+    - Unknowns are point values at nodes: ring nodes at raw-cell centres, core nodes at Gauss points.
+    - H holds the quadrature weights.
+    - Inside the operator there is no raw-cell restriction or prolongation. The only transfers are the Fourier ones at level faces.
+    - This amends "Retain the RLP owner unknowns" for the P path.
+  - **Gates use the H-weighted L2 norm against exact nodal values** (user, 4 October 2026). This amends the locked MMS observation contract for the P path. C3 numbers are historical and compared only like-for-like.
+  - **Open, to be decided with the SBP Laplacian design (step 4):**
+    - narrow vs wide second derivatives for P07/φ, and whether φ uses the bracket's gradient;
+    - how P06/P07 act on the nodal state.
 - **Integration design (in progress):** moving from C3 owner averages to the nodal layout. It covers what that means for the P05–P07 operators, Q's FCI maps, the wall and sheath, MMS fields and diagnostics, and which parts are independent of the seam.
 - **D1 for production:** nodal point values (the prototype) or owner averages (finite volume, as today).
   - Owner averages cost an O((mΔθ)²) mismatch at owner-count doublings, or a non-diagonal H.
