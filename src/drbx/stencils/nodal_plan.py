@@ -8,6 +8,7 @@ meta field (see ``operator_plan.py``). Arrays are host float64 NumPy arrays.
 Metric and curvature are carried per node and eta plane in the block frame: ``h (E, P, 3)``, ``jac (E, P)`` (positive
 ``|J|``), ``B (E, P)``, ``K (E, P, 3)``; ``Hp = wxy * jac`` is the per-plane norm (the full norm is ``Hp * deta``).
 ``B`` and ``K`` are carried unchanged (no frame transform) and are not used by the scheme yet.
+TODO: a cartesian core block (M1) needs ``K`` transformed to its block frame like ``h`` and ``jac``.
 
 The level D5c maps ``CAA, CAB, CBA, CBB`` of a ring-ring face are built by applying the level trace matching to unit
 trace vectors: with traces ``a = T_A phi`` and ``b = T_B phi``, the Fourier modes common to both sides (no Nyquist) are
