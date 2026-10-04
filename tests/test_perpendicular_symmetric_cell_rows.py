@@ -25,7 +25,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from drbx.geometry.fci_perpendicular_reconstruction import (  # noqa: E402
-    CELL_STENCILS, PointRowContext, StructuredReconstruction)
+    CELL_STENCILS, PairedFactors, PointRowContext, StructuredReconstruction)
 
 N = 12
 RINGS = {0: 1, 1: 4, 2: 8}                  # owners per eta plane of the agglomerated rings (others: one per raw cell)
@@ -153,9 +153,9 @@ def test_interior_singleton_cell_weights_are_fourth_order_centred(full):
     own = np.ravel_multi_index(key, (n, n, n))
     np.testing.assert_allclose(sym.value[0, sym.donor_ids == own], 1.0, atol=1e-13)
     assert abs(np.sum(sym.value) - 1.0) < 1e-13 and np.sum(np.abs(sym.value) > 1e-13) == 1
-    # a symmetric row is not one tensor factorization
+    # a symmetric row is not one tensor factorization: its factors are those of its two parts (paired tensor sources)
     row, factors = StructuredReconstruction(full, cell_stencil="symmetric").rows_with_factors(key, p, "cell")
-    assert factors is None
+    assert isinstance(factors, PairedFactors) and factors.a.family == factors.b.family == "singleton"
     _same_row(row, sym)
     _, biased_factors = StructuredReconstruction(full).rows_with_factors(key, p, "cell")
     assert biased_factors is not None and biased_factors.family == "singleton"

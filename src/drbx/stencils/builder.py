@@ -90,7 +90,8 @@ class PointRowRequest:
     radial_degree: int      # the D-lift degree (3 or 4); 0 where unconditioned
     row: PointRows
     #: the 1-D factors the row was built from (``PointFactors``; unconditioned singleton / ringwise /
-    #: centered_radial rows only), captured when a builder is called with ``capture_factors=True``
+    #: centered_radial rows only, or ``PairedFactors`` for a ``cell_stencil="symmetric"`` R1 cell row), captured when a
+    #: builder is called with ``capture_factors=True``
     factors: object = field(default=None, repr=False, compare=False)
 
 
@@ -184,7 +185,8 @@ def build_r1_cell_rows(S: StructuredReconstruction, context: PointRowContext, ra
 
     ``capture_factors`` (here and in ``build_r2_face_rows`` / ``build_r3_side_rows``) additionally records,
     on each returned ``PointRowRequest.factors``, the factors an unconditioned singleton / ringwise /
-    centered_radial row was built from (``StructuredReconstruction.rows_with_factors``); the rows are
+    centered_radial row was built from (``StructuredReconstruction.rows_with_factors``; for a
+    ``cell_stencil="symmetric"`` cell row ``1/2 (A + B)`` the ``PairedFactors`` of its two parts); the rows are
     bitwise the same either way.
     """
     n = context.n

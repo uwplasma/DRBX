@@ -13,18 +13,25 @@ section 6; the on-disk members (``tr_*``) are written by ``drbx.stencils.artifac
 
 Nothing is fitted back from weights, and nothing is recomputed at load: every table
 entry is the float the construction produced.
+
+A ``cell_stencil="symmetric"`` cell row is not one factorization but ``1/2 (A + B)`` of two (A the biased row, B
+its mirror; ``PairedFactors``). It is stored as two consecutive sources of the same :class:`TensorRows`, sharing its
+deduplicated tables; :func:`average_expanded_rows` merges their expansions exactly as
+``StructuredReconstruction._average_rows`` does (union of the donors, A then B, ``0.5 *``) and
+:func:`merge_paired_expansion` applies it to a whole expansion. :func:`verified_tensor_rows` accepts a paired
+candidate only if that merge reproduces its dense row bit for bit.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Sequence
 
 import numpy as np
 
-from drbx.geometry.fci_perpendicular_reconstruction import PointFactors
+from drbx.geometry.fci_perpendicular_reconstruction import PairedFactors, PointFactors
 
 __all__ = ["FAMILY_CODES", "TensorRows", "TensorExpansion", "build_tensor_rows", "expand_tensor_rows",
-           "apply_tensor_rows_numpy", "verified_tensor_rows"]
+           "apply_tensor_rows_numpy", "verified_tensor_rows", "average_expanded_rows", "merge_paired_expansion"]
 
 #: family code of ``TensorRows.family`` (per source).
 FAMILY_CODES = {"singleton": 0, "ringwise": 1, "centered_radial": 2}
@@ -88,6 +95,21 @@ class TensorRows:
         ring_row = np.full(len(source), -1, dtype=np.int64)
         ring_row[ring] = np.arange(int(ring.sum()))
         return dict(source=source, local=local, family=family, theta_row=theta_row, ring_row=ring_row)
+
+    def take_sources(self, sources) -> "TensorRows":
+        """The rows of the sources ``sources`` (indices, in the order given): their per-source and per-target
+        arrays. Every factor table is kept whole (a row no remaining target uses is harmless)."""
+        sources = np.asarray(sources, dtype=np.int64)
+        counts = np.diff(self.target_ptr)[sources]
+        layout = self.target_layout()
+        target = _flat_index(self.target_ptr[sources], counts)
+        ring = layout["family"][target] == _RINGWISE
+        rows = replace(
+            self, family=self.family[sources], layers=self.layers[sources], has_gradient=self.has_gradient[sources],
+            target_ptr=_ptr(counts), t_eta=self.t_eta[target], t_radial=self.t_radial[target],
+            t_theta=self.t_theta[layout["theta_row"][target[~ring]]], t_ring=self.t_ring[layout["ring_row"][target[ring]]])
+        rows.validate()
+        return rows
 
     def validate(self) -> None:
         ts, tt = self.n_sources, self.n_targets
@@ -446,6 +468,67 @@ def expand_tensor_rows(tr: TensorRows) -> TensorExpansion:
 
 
 # --------------------------------------------------------------------------------------
+# paired sources: 1/2 (A + B) of two consecutive expanded sources
+# --------------------------------------------------------------------------------------
+
+def average_expanded_rows(donor_a, value_a, gradient_a, donor_b, value_b, gradient_b):
+    """``(donor, value, gradient)`` of ``1/2 (A + B)`` for two dense rows, exactly as
+    ``StructuredReconstruction._average_rows`` merges them: the ascending union of the donors, zeros, ``+= A``,
+    ``+= B`` (a donor of one row only gets ``0.0 + w``, so ``-0.0`` becomes ``+0.0``), then ``0.5 *`` the whole.
+
+    A row is ``donor (d,)``, ``value (q, d)`` and ``gradient (q, 3, d)`` (``None`` for a source that stores no
+    gradient; then both are ``None`` and so is the result's). The one place the artifact encoder's verification and
+    its decode merge a pair: they cannot disagree with each other, and ``tests/test_perpendicular_paired_tensor_rows.py``
+    pins this to ``_average_rows`` itself.
+    """
+    if (gradient_a is None) != (gradient_b is None):
+        raise ValueError("paired rows: only one of the two stores a gradient")
+    ids = np.union1d(donor_a, donor_b)
+    value = np.zeros((len(value_a), len(ids)))
+    gradient = None if gradient_a is None else np.zeros((len(value_a), 3, len(ids)))
+    for donor, v, g in ((donor_a, value_a, gradient_a), (donor_b, value_b, gradient_b)):
+        pos = np.searchsorted(ids, donor)
+        value[:, pos] += v
+        if gradient is not None:
+            gradient[:, :, pos] += g
+    return ids, 0.5 * value, None if gradient is None else 0.5 * gradient
+
+
+def merge_paired_expansion(exp: TensorExpansion, counts, has_gradient, multiplicity) -> TensorExpansion:
+    """The expansion of the *logical* sources of an expansion of ``TensorRows`` sources.
+
+    ``multiplicity[k]`` (1 or 2) consecutive expanded sources form logical source ``k``: a single is itself, a
+    pair ``(A, B)`` is :func:`average_expanded_rows` of the two (equal target counts and gradient storage).
+    ``counts`` and ``has_gradient`` are those of the expanded sources. All singles: ``exp`` itself.
+    """
+    multiplicity = np.asarray(multiplicity, dtype=np.int64)
+    counts, has_gradient = np.asarray(counts, dtype=np.int64), np.asarray(has_gradient, dtype=bool)
+    if (np.any((multiplicity < 1) | (multiplicity > 2)) or int(multiplicity.sum()) != len(exp.donor_ptr) - 1
+            or len(counts) != len(has_gradient) or len(counts) != len(exp.donor_ptr) - 1):
+        raise ValueError("paired expansion: multiplicity does not match the expanded sources")
+    if (multiplicity == 1).all():
+        return exp
+    first = np.cumsum(multiplicity) - multiplicity
+    donors, values, gradients = [], [], []
+    for s, m in zip(first.tolist(), multiplicity.tolist()):
+        parts = [exp.source_rows(s + k, int(counts[s + k]), bool(has_gradient[s + k])) for k in range(m)]
+        if m == 2 and (counts[s] != counts[s + 1] or has_gradient[s] != has_gradient[s + 1]):
+            raise ValueError("paired expansion: the two parts of a pair differ in targets or gradient storage")
+        donor, value, gradient = parts[0] if m == 1 else average_expanded_rows(*parts[0], *parts[1])
+        donors.append(donor)
+        values.append(value)
+        gradients.append(gradient)
+    width = np.array([len(d) for d in donors], dtype=np.int64)
+    q, with_gradient = counts[first], has_gradient[first]
+    return TensorExpansion(
+        _ptr(width), np.concatenate(donors).astype(np.int64),
+        _ptr(q * width), np.concatenate([v.reshape(-1) for v in values]),
+        _ptr(np.where(with_gradient, q * width, 0)),
+        np.concatenate([g.transpose(1, 0, 2).reshape(3, -1) for g in gradients if g is not None] or [np.zeros((3, 0))],
+                       axis=1))
+
+
+# --------------------------------------------------------------------------------------
 # verified construction (the encoder's use)
 # --------------------------------------------------------------------------------------
 
@@ -457,14 +540,23 @@ def _source_of_entries(ptr: np.ndarray) -> np.ndarray:
     return np.repeat(np.arange(len(ptr) - 1), np.diff(ptr))
 
 
-def _failed_sources(tr: TensorRows, expected: dict) -> np.ndarray:
-    """Boolean per source: does the expansion differ (in donors, value or gradient bits) from ``expected``
-    (``donor_ptr, donor, value, gradient`` in the expansion's own flat layout)?"""
-    ts = tr.n_sources
-    counts = np.diff(tr.target_ptr)
+def _failed_sources(tr: TensorRows, expected: dict, multiplicity=None) -> np.ndarray:
+    """Boolean per candidate: does the expansion differ (in donors, value or gradient bits) from ``expected``
+    (``donor_ptr, donor, value, gradient`` in the expansion's own flat layout)?
+
+    ``multiplicity`` (per candidate, default all 1) is the number of consecutive sources of ``tr`` that form the
+    candidate: a candidate of 2 is a pair and its expected rows are those of their merge
+    (:func:`merge_paired_expansion`)."""
+    counts, has_gradient = np.diff(tr.target_ptr), tr.has_gradient
+    multiplicity = np.ones(tr.n_sources, dtype=np.int64) if multiplicity is None else np.asarray(multiplicity)
+    ts = len(multiplicity)
     bad = np.zeros(ts, dtype=bool)
     try:
         exp = expand_tensor_rows(tr)
+        if (multiplicity == 2).any():
+            exp = merge_paired_expansion(exp, counts, has_gradient, multiplicity)
+            first = np.cumsum(multiplicity) - multiplicity
+            counts, has_gradient = counts[first], has_gradient[first]
     except (ValueError, IndexError, KeyError):
         return np.ones(ts, dtype=bool)
     width = np.diff(exp.donor_ptr)
@@ -474,12 +566,17 @@ def _failed_sources(tr: TensorRows, expected: dict) -> np.ndarray:
     bad |= np.bincount(_source_of_entries(exp.donor_ptr), weights=(exp.donor != expected["donor"]), minlength=ts) > 0
     src_v = np.repeat(np.arange(ts), counts * width)
     bad |= np.bincount(src_v, weights=_bit_differs(exp.value, expected["value"]), minlength=ts) > 0
-    g_counts = np.where(tr.has_gradient, counts * width, 0)
+    g_counts = np.where(has_gradient, counts * width, 0)
     if g_counts.sum():
         src_g = np.repeat(np.arange(ts), g_counts)
         differs = _bit_differs(exp.gradient, expected["gradient"]).any(axis=0)
         bad |= np.bincount(src_g, weights=differs, minlength=ts) > 0
     return bad
+
+
+def _parts(candidate) -> tuple:
+    """The ``PointFactors`` a verified candidate is stored as: itself, or ``(a, b)`` of a ``PairedFactors``."""
+    return (candidate.a, candidate.b) if isinstance(candidate, PairedFactors) else (candidate,)
 
 
 def _raw_owner_conflicts(factors) -> np.ndarray:
@@ -503,33 +600,50 @@ def _raw_owner_conflicts(factors) -> np.ndarray:
     return bad
 
 
-def verified_tensor_rows(factors: Sequence[PointFactors], has_gradient: Sequence[bool], expected_for):
-    """Build :class:`TensorRows` for ``factors`` keeping only the sources whose expansion reproduces the dense
+def _candidate_conflicts(candidates) -> np.ndarray:
+    """``_raw_owner_conflicts`` per candidate (a pair conflicts if either of its parts does)."""
+    parts = [part for candidate in candidates for part in _parts(candidate)]
+    owner = np.repeat(np.arange(len(candidates)), [len(_parts(candidate)) for candidate in candidates])
+    bad = np.zeros(len(candidates), dtype=bool)
+    bad[owner[_raw_owner_conflicts(parts)]] = True
+    return bad
+
+
+def verified_tensor_rows(factors: Sequence[PointFactors | PairedFactors], has_gradient: Sequence[bool], expected_for):
+    """Build :class:`TensorRows` for ``factors`` keeping only the candidates whose expansion reproduces the dense
     rows bit for bit.
 
-    ``expected_for(indices)`` returns the dense rows of the given input sources as
-    ``dict(donor_ptr, donor, value, gradient)`` in the expansion's flat layout. Returns
-    ``(tensor_rows or None, accepted)`` with ``accepted`` a boolean per input source; sources that fail are
-    dropped (the caller stores them as CSR) and the survivors are re-verified with their own tables.
+    A candidate is a ``PointFactors`` (one source of the result) or a ``PairedFactors`` (two consecutive sources,
+    A then B, whose :func:`average_expanded_rows` merge is its dense row). ``expected_for(indices)`` returns the dense
+    rows of the given input candidates as ``dict(donor_ptr, donor, value, gradient)`` in the expansion's flat layout
+    (one entry per candidate, a pair's being its merged row). Returns ``(tensor_rows or None, accepted)`` with
+    ``accepted`` a boolean per input candidate; candidates that fail are dropped (the caller stores them as CSR)
+    and the survivors are re-verified with their own tables.
     """
     factors, has_gradient = list(factors), np.asarray(has_gradient, dtype=bool)
+    multiplicity = np.array([len(_parts(candidate)) for candidate in factors], dtype=np.int64)
     live = np.arange(len(factors))
     conflicts_checked = False
+
+    def tabulate(indices):
+        return build_tensor_rows([part for i in indices for part in _parts(factors[i])],
+                                 np.repeat(has_gradient[indices], multiplicity[indices]))
+
     while len(live):
         try:
-            tr = build_tensor_rows([factors[i] for i in live], has_gradient[live])
+            tr = tabulate(live)
         except (ValueError, KeyError, IndexError, TypeError):
             if not conflicts_checked:            # one raw cell with two owners across sources: drop those sources
                 conflicts_checked = True
-                keep = ~_raw_owner_conflicts([factors[i] for i in live])
+                keep = ~_candidate_conflicts([factors[i] for i in live])
                 if not keep.all():
                     live = live[keep]
                     continue
-            # a source whose factors cannot even be tabulated: isolate it
+            # a candidate whose factors cannot even be tabulated: isolate it
             keep = []
             for i in live:
                 try:
-                    build_tensor_rows([factors[i]], has_gradient[[i]])
+                    tabulate(np.array([i]))
                     keep.append(i)
                 except (ValueError, KeyError, IndexError, TypeError):
                     pass
@@ -537,7 +651,7 @@ def verified_tensor_rows(factors: Sequence[PointFactors], has_gradient: Sequence
                 return None, np.zeros(len(factors), dtype=bool)
             live = np.array(keep, dtype=np.int64)
             continue
-        bad = _failed_sources(tr, expected_for(live))
+        bad = _failed_sources(tr, expected_for(live), multiplicity[live])
         if not bad.any():
             accepted = np.zeros(len(factors), dtype=bool)
             accepted[live] = True
