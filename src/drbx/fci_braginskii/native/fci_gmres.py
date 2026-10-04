@@ -147,6 +147,9 @@ class SolvaxGmresInfo:
     phi_is_finite: jnp.ndarray
     rhs_is_finite: jnp.ndarray
     guess_is_finite: jnp.ndarray
+    # ``converged`` also accepts the relaxed acceptance tolerance; this flag
+    # records whether the strict ``tol``/``atol`` target itself was met.
+    strict_converged: jnp.ndarray
 
     def __post_init__(self) -> None:
         pass
@@ -165,6 +168,7 @@ class SolvaxGmresInfo:
             self.phi_is_finite,
             self.rhs_is_finite,
             self.guess_is_finite,
+            self.strict_converged,
         )
         return children, None
 
@@ -684,6 +688,7 @@ def solvax_gmres_solve(
         phi_is_finite=phi_is_finite,
         rhs_is_finite=rhs_is_finite,
         guess_is_finite=guess_is_finite,
+        strict_converged=strict_converged,
     )
     return phi, info
 

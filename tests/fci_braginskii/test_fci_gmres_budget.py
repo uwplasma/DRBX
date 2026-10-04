@@ -109,3 +109,29 @@ def test_coprime_budget_keeps_full_krylov_cycle_and_converges():
     assert bool(info.converged)
     assert residual <= config.tol * rhs_norm
     assert float(info.final_residual_l2) == pytest.approx(residual, rel=1e-6, abs=1e-14)
+
+
+def test_relaxed_acceptance_is_reported_separately_from_strict_convergence():
+    geometry, domain = _single_device_slab()
+    shape = geometry.owned_shape
+    apply_A = _convection_dominated_operator(shape)
+    rhs = jnp.asarray(np.random.default_rng(0).standard_normal(shape))
+
+    def solve(config):
+        return jax.jit(
+            lambda b: solvax_gmres_solve(apply_A, b, jnp.zeros_like(b), geometry, domain, config)
+        )(rhs)[1]
+
+    strict = solve(SolvaxGmresConfig(tol=1.0e-8, atol=1.0e-12, restart=50, maxiter=101))
+    assert bool(strict.converged) and bool(strict.strict_converged)
+
+    # Ten iterations cannot reach 1e-12 but do reach a 0.5 relative residual.
+    relaxed = solve(
+        SolvaxGmresConfig(
+            tol=1.0e-12, atol=0.0, restart=10, maxiter=10, acceptance_tol=0.5,
+            residual_correction_steps=0,
+        )
+    )
+    assert bool(relaxed.converged) and not bool(relaxed.failed)
+    assert not bool(relaxed.strict_converged)
+    assert 1.0e-12 < float(relaxed.final_residual_rel_l2) <= 0.5
