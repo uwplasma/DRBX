@@ -135,6 +135,21 @@ class PointFactors:
     ring_derivative: np.ndarray = None
 
 
+@dataclass(frozen=True)
+class PairedFactors:
+    """The factors of a ``cell_stencil="symmetric"`` cell row (opt-in capture, ``rows_with_factors``).
+
+    The row is ``1/2 (expand(a) + expand(b))``: ``a`` is the biased row A, ``b`` its mirror B, and ``expand``
+    is the dense row that the factors reproduce bit for bit. The two are merged exactly as
+    ``StructuredReconstruction._average_rows`` does (ascending union of the donors, zeros, ``+= A``, ``+= B``,
+    then ``* 0.5``). Captured only when both parts are captured and of the same family (both singleton or both
+    ringwise); a pair of different families (a singleton A whose mirror reaches an agglomerated ring) has no
+    paired factors.
+    """
+    a: PointFactors
+    b: PointFactors
+
+
 #: inner donor-support rules of :class:`StructuredReconstruction`: the current ``"profile7"`` (coupled quartic
 #: only while some ring of the four-layer stencil has fewer than seven owners) and ``"last_aggregate"`` (C1: also
 #: coupled quartic through the last agglomerated ring)
@@ -205,9 +220,11 @@ class StructuredReconstruction:
         return self._rows(key,points,location,fixed_anchor,None)
 
     def rows_with_factors(self, key, points, location='face', *, fixed_anchor=False):
-        """``(rows(...), PointFactors or None)``: the same ``PointRows`` bit for bit, plus the factors
-        actually used (``None`` outside the unconditioned singleton/ringwise/centered_radial families, and for the
-        merged ``cell_stencil="symmetric"`` cell rows, which are not one tensor factorization)."""
+        """``(rows(...), PointFactors or PairedFactors or None)``: the same ``PointRows`` bit for bit, plus the factors
+        actually used: ``None`` outside the unconditioned singleton/ringwise/centered_radial families; a
+        ``PointFactors`` for those rows; for a merged ``cell_stencil="symmetric"`` cell row (``1/2 (A + B)``, not one
+        tensor factorization) a ``PairedFactors`` of its two parts, or ``None`` if A and B are of different families
+        (a singleton A whose mirror B is the ringwise fallback)."""
         cap=[]
         row=self._rows(key,points,location,fixed_anchor,cap)
         return row,(cap[0] if cap else None)
@@ -238,7 +255,7 @@ class StructuredReconstruction:
             return self._coupled(key,p,anchor,layers,rid,fixed_anchor)
         family='singleton' if np.all(self.profile[rid]==n) else 'tensor'
         if self.cell_stencil=="symmetric" and location=='cell' and not fixed_anchor and self.mirror_available(i):
-            return self._symmetric_cell(key,p,anchor,layers,family)
+            return self._symmetric_cell(key,p,anchor,layers,family,cap)
         if family=='singleton':
             return self._singleton(p,anchor,layers,rid,fixed_anchor,cap)
         return self._tensor(p,anchor,layers,rid,fixed_anchor,cap)
@@ -249,19 +266,25 @@ class StructuredReconstruction:
         mirror=np.arange(int(i)-2,int(i)+2)
         return bool(np.min(self.profile[np.where(mirror<0,-mirror-1,mirror)])>=7)
 
-    def _symmetric_cell(self,key,p,anchor,layers,family):
+    def _symmetric_cell(self,key,p,anchor,layers,family,cap=None):
         """``cell_stencil="symmetric"``: ``1/2 (A + B)`` for an unconditioned singleton/ringwise cell row at the cell
         centre. A is the biased row (radial layers ``i-1..i+2``, eta planes ``k-2..k+1``); B is its mirror (layers
         ``i-2..i+1``, eta planes reflected about the cell's plane ``k``), built by the same ``family`` builder (a
         singleton A takes the ringwise B if B reaches an agglomerated ring). The average is the fourth-order centred
-        derivative, (1,-8,0,8,-1)/12 on layers ``i-2..i+2``. No factors are captured: the merged row is not one tensor
-        factorization. Side rows (``fixed_anchor``) are anchored on the face, not the cell centre, and are not mirrored."""
+        derivative, (1,-8,0,8,-1)/12 on layers ``i-2..i+2``. The merged row is not one tensor factorization: with
+        ``cap`` (the factor capture list) A's and B's own factors are captured and a ``PairedFactors`` is appended
+        only if both were and they are of the same family (not for a singleton A with the ringwise fallback B). Side
+        rows (``fixed_anchor``) are anchored on the face, not the cell centre, and are not mirrored."""
         n=self.t.n;i=int(key[0]);kc=int(key[2])%n
         build={'singleton':self._singleton,'tensor':self._tensor}[family]
-        a=build(p,anchor,layers,np.where(layers<0,-layers-1,layers),False)
+        cap_a=None if cap is None else []
+        a=build(p,anchor,layers,np.where(layers<0,-layers-1,layers),False,cap_a)
         mirror=np.arange(i-2,i+2);rid=np.where(mirror<0,-mirror-1,mirror)
         if family=='singleton' and not np.all(self.profile[rid]==n):build=self._tensor
-        return self._average_rows(a,build(p,anchor,mirror,rid,False,None,kc),p)
+        cap_b=None if cap is None else []
+        b=build(p,anchor,mirror,rid,False,cap_b,kc)
+        if cap is not None and cap_a and cap_b and cap_a[0].family==cap_b[0].family:cap.append(PairedFactors(cap_a[0],cap_b[0]))
+        return self._average_rows(a,b,p)
 
     @staticmethod
     def _average_rows(a,b,p):
