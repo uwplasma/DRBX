@@ -2886,6 +2886,14 @@ regional second-order gate is imposed. P10 independently checks solutions.
      - **Ve:** the composite G(ψ), the μτ column in `fci_parallel_production_flux.py`, the short-leg Jacobian, and the `q_*` modules, including re-deriving the characteristic quartic.
      - The P path makes the Q-side changes as well (user decision, 4 October 2026), so both paths agree; Q's owners are informed.
      - New forms go behind a keyword whose default is the old form. The frozen P06 oracle imports the live `curvature_principal_matrix`.
+  - **Result (4 October 2026; [acceptance report](../../../../work/p09_tau_pi_acceptance_20261004/report.md)): stage 2 is needed.**
+    - **Stage 1 (394a9144):**
+      - Criterion 2 passes: the continuum pairing is symmetric and growth is ≤ 1.4e-15 at every tested k⊥, τ and μ.
+      - Criterion 1 passes only for centred curvature on the coordinate and fci-legacy paths.
+      - At τ = 1 there is still growth: upwind curvature 4.7e-3 on every path (the τ = 0 baseline is 1.6e-4), and on the production characteristic path 0.086 (upwind) and 0.187 (centred). The old form gave 0.515 and 0.708.
+    - **Stage 2, with the full lockstep as in-process overrides:** 7.5e-5 (upwind, every path) and 4.9e-13 (production centred) at τ = 1, and 1.3e-4 at τ = 0.1. All are below the τ = 0 baseline. Either half of a pair alone grows (0.03–0.59).
+    - The stage-1 production growth comes from the characteristic |A| dissipation, which is built on the old split (A[4,0] lacks μτTi).
+    - **Stage 2 is in implementation:** both pairs, the P06 closed-form |M| and the parallel characteristic quartic, behind the polarization selector. The old-form default stays on the shared matrix functions. The acceptance runs are repeated on the committed code.
 - **Sequencing.**
   - Make the change before the P10.1 evolved-MMS harness is built, so the manufactured sources are written once, for the final model.
   - The operators P05–P07 are unchanged, so their static gates stand. The MMS manufactured fields and sources change.
