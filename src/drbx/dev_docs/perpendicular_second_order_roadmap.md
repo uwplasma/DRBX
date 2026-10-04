@@ -2710,6 +2710,11 @@ regional second-order gate is imposed. P10 independently checks solutions.
     - **Core shell damping −κP_h** with κ = c_κ·max|V|·p/R_c and **c_κ = 1 fixed by rule**.
       - It is a modal filter for the core modes the projection-type derivative cannot see, so no characteristic speed sets it.
       - M3 checks that results are insensitive over c_κ = 0.1–1.
+  - **Ring derivative application** (user, 4 October 2026; [benchmark](../../../../work/p09_theta_bench_20261004/report.md)):
+    - **D_θ stays pseudospectral (Fourier) and is applied by FFT:** rfft, multiply by ik with the Nyquist mode zeroed, then irfft. It is the same operator as the dense matrix to round-off (≤ 4.5e-14), at any node offset.
+    - **The radial SBP derivative is applied banded:** closure rows plus the 5-point interior.
+    - The dense `Du`/`Dth` stay in the plan as test references and for probing.
+    - **Measured share of bracket time saved by both changes:** −5% (slower) at n = 32, 12% at n = 64, 32% at n = 128. FFT alone is about 2× slower than the dense matrix at N = 32 and wins from N = 128 up. A periodic FD stencil in θ was rejected: its phase error is about 20% at m = 8 on N = 32.
   - **Open, to be decided with the SBP Laplacian design (step 4):**
     - narrow vs wide second derivatives for P07/φ, and whether φ uses the bracket's gradient;
     - how P06/P07 act on the nodal state.
@@ -2746,6 +2751,14 @@ regional second-order gate is imposed. P10 independently checks solutions.
 - **Also:** whether the φ matrix is symmetric in H, which would allow CG in place of FGMRES.
 - **Cost:** one sparse eigenvalue solve per operator, with matrix-free products. The assembled attempt that included diffusion needed 9.3 GB and was dropped.
 - **Parallel (Q-path) operators:** only if Q's owners agree.
+- **Result (M4, 4 October 2026; [report](../../../../work/p09_m4_audit_20261004/report.md)):** HSX N32, production field kinds.
+  - **P06 curvature is a numerical energy source, with growth confirmed.**
+    - Rightmost eigenvalue: +1983 at τ = 1 and +1004 ± 5312i at τ = 0 (residuals ≤ 1e-9), both reproduced by RK4. That is 3.5× the continuum symmetric bound of 564.
+    - Two families of growing modes: wall modes on the outer two rings (Neumann closure on inflow characteristics) and interior grid-scale checkerboards, one at the 16→32 agglomeration step.
+    - The centred material term carries the growth; q3 does not damp it.
+    - **The Step 5 gate condition is met.**
+  - **P07 Dirichlet is dissipative** (ω = −177). **The φ matrix is 20% non-H-symmetric,** 87% of that from the wall rows on the outer two rings, so CG is not admissible until the Step 4 SAT wall closure.
+  - **P07N:** ω = +1.2, from the wall faces; growth not resolved, negligible against operator rates of about 1e3.
 
 **Step 4 — P07 diffusion/polarization and the φ solve, in the same H.**
 - **Construction:** second derivatives that are symmetric negative semidefinite in H by construction.
@@ -2759,6 +2772,9 @@ regional second-order gate is imposed. P10 independently checks solutions.
 **Step 5 — P06 curvature.**
 - C = K·∇ with a fixed vector K. The interchange terms ∫φ C(p) and ∫p C(φ) cancel between equations only if C is antisymmetric in H, up to the ∇·K term.
 - **Construction:** the same D and split form as the bracket. The q3 face upwinding is rewritten as −Gᵀ|A|G, so it can only damp.
+- **Wall closure: option (a), as for the bracket** (user, 4 October 2026).
+  - Inflow SAT on P06's incoming characteristics, with τ from the characteristic speed, replacing today's Neumann closure.
+  - Reason: M4 found the curvature drift crossing the wall (k^u ≈ +21), with two of three characteristics entering the domain. Neumann closures there leave even the continuum problem without an energy bound.
 - **Then:** re-qualify the P06/P06N static gates.
 
 **Step 6 — Q path (parallel operators), only with Q's owners.**
