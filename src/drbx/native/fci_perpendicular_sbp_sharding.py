@@ -33,7 +33,7 @@ __all__ = ["NODAL_HALO", "PHI_HALO", "ShardedNodalPlan", "nodal_plan_specs", "sh
 
 NODAL_HALO = 3
 PHI_HALO = 2
-_PLANE_FIELDS = ("jac", "h", "B", "K", "Hp")
+_PLANE_FIELDS = ("jac", "h", "B", "K", "Hp", "core_Ginv")      # core_Ginv only when the plan has a core
 
 
 class ShardedNodalPlan(NamedTuple):
@@ -50,7 +50,7 @@ jax.tree_util.register_pytree_node(
 def nodal_plan_specs(plan: NodalPlan) -> NodalPlan:
     """``PartitionSpec`` pytree of ``plan``: metric arrays split on the leading (eta) axis, the rest replicated."""
     rep = jax.tree_util.tree_map(lambda _: P(), plan)
-    return dataclasses.replace(rep, **{name: P(AXIS) for name in _PLANE_FIELDS})
+    return dataclasses.replace(rep, **{name: P(AXIS) for name in _PLANE_FIELDS if getattr(plan, name) is not None})
 
 
 def shard_nodal_plan(plan: NodalPlan, n_shards: int, mesh: Mesh | None = None) -> ShardedNodalPlan:
@@ -71,8 +71,12 @@ def shard_nodal_plan(plan: NodalPlan, n_shards: int, mesh: Mesh | None = None) -
     return ShardedNodalPlan(plan, n_shards)
 
 
-def sharded_sbp_bracket(sharded: ShardedNodalPlan, phi, g, bcd: SatBoundaryData | None, rho_star, mesh: Mesh):
-    """``sbp_bracket`` under ``shard_map`` over the eta axis; ``phi (n_eta, P)``, ``g (n_eta, P[, F])`` global arrays."""
+def sharded_sbp_bracket(sharded: ShardedNodalPlan, phi, g, bcd: SatBoundaryData | None, rho_star, mesh: Mesh,
+                        c_kappa=1.0):
+    """``sbp_bracket`` under ``shard_map`` over the eta axis; ``phi (n_eta, P)``, ``g (n_eta, P[, F])`` global arrays.
+
+    ``c_kappa`` (core shell damping) is a replicated traced scalar.
+    """
     plan, n_shards = sharded
     if int(mesh.shape[AXIS]) != n_shards:
         raise ValueError(f"the mesh has {mesh.shape[AXIS]} shards along {AXIS!r}, the plan {n_shards}")
@@ -80,16 +84,16 @@ def sharded_sbp_bracket(sharded: ShardedNodalPlan, phi, g, bcd: SatBoundaryData 
     scalar = g.ndim == 2
     plane = jax.tree_util.tree_map(lambda _: P(AXIS), bcd)
 
-    def body(plan_l, phi_l, g_l, bc_l, rho):
+    def body(plan_l, phi_l, g_l, bc_l, rho, ck):
         phi_ext = exchange_plane_halo(phi_l, PHI_HALO, AXIS, n_shards)
         F = velocity_flux_ext(plan_l, phi_ext, rho)
         g3 = g_l[..., None] if scalar else g_l
         both = exchange_plane_halo(jnp.concatenate([g3, F], axis=-1), NODAL_HALO, AXIS, n_shards)
         g_ext = both[..., :g3.shape[-1]]
         F_ext = both[..., g3.shape[-1]:]
-        out = sbp_bracket_ext(plan_l, F_ext, g_ext[..., 0] if scalar else g_ext, bc_l)
+        out = sbp_bracket_ext(plan_l, F_ext, g_ext[..., 0] if scalar else g_ext, bc_l, ck)
         return out
 
-    fn = jax.shard_map(body, mesh=mesh, in_specs=(nodal_plan_specs(plan), P(AXIS), P(AXIS), plane, P()),
+    fn = jax.shard_map(body, mesh=mesh, in_specs=(nodal_plan_specs(plan), P(AXIS), P(AXIS), plane, P(), P()),
                        out_specs=P(AXIS), check_vma=False)
-    return fn(plan, jnp.asarray(phi), g, bcd, jnp.asarray(rho_star))
+    return fn(plan, jnp.asarray(phi), g, bcd, jnp.asarray(rho_star), jnp.asarray(c_kappa))

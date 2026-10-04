@@ -9,7 +9,7 @@ negative semidefinite in ``H = Hp * deta`` by construction.
   a level end, the upwind interface SAT covers those): ``w_f = (2 pi / N) deta``, ``U_n = F1``;
 - ``eta`` faces on all nodes of any block: ``w_f = wxy`` (extended planes, halo at least 3).
 
-Per-block hooks (core shell damping) are not part of this module; the caller adds them on the nodes of their block.
+The core's shell damping (``core_damping_ext``) acts on the core nodes only and is part of ``dissipation_ext``.
 Functions ending in ``_ext`` take halo-extended ``F, g`` (halo >= 3) and return the owned planes; the others take
 owned arrays and wrap periodically.
 """
@@ -96,13 +96,41 @@ def dissipation_eta_ext(plan: NodalPlan, F_ext, g_ext):
     return num / bc(H, num)
 
 
-def dissipation_ext(plan: NodalPlan, F_ext, g_ext):
-    """Total face-jump dissipation on the owned planes of halo-``>= 3`` extended ``F`` and ``g``."""
-    return dissipation_ring_ext(plan, F_ext, g_ext) + dissipation_eta_ext(plan, F_ext, g_ext)
+def core_damping_ext(plan: NodalPlan, F_ext, g_ext, c_kappa=1.0):
+    """Core shell damping ``-kappa_k P_h g`` on the core nodes, zero elsewhere (owned planes).
+
+    ``P_h g = g - Vm Ginv_k Vm^T (Hk g)`` removes the part of ``g`` outside ``P_{p-1}`` (``H``-orthogonally, ``Hk = wxy * jac``
+    per plane) and ``kappa_k = c_kappa p / R_c max_core sqrt(V_x^2 + V_y^2)`` with ``V = F / jac`` in the block frame. The
+    term is not divided by ``H`` (it is already a rate); ``c_kappa`` is traced and the per-plane max is plane-local.
+    """
+    out = jnp.zeros_like(crop(g_ext, halo_of(plan, g_ext)))
+    if plan.structure.core is None:
+        return out
+    h = halo_of(plan, g_ext)
+    g, F = crop(g_ext, h), crop(F_ext, h)
+    cb, p, R_c, n_c, _dm, _ring = plan.structure.core
+    o0 = plan.structure.blocks[cb][1]
+    sl = slice(o0, o0 + n_c)
+    Vm = plan.blocks[cb].Vm
+    jac_c = plan.jac[:, sl]
+    gc = g[:, sl]
+    vxy = jnp.sqrt(jnp.sum((F[:, sl, :2] / jac_c[..., None]) ** 2, axis=-1))
+    kappa = c_kappa * (p / R_c) * jnp.max(vxy, axis=1)
+    Hk = plan.wxy[sl][None, :] * jac_c
+    coef = jnp.einsum("qd,eq...->ed...", Vm, bc(Hk, gc) * gc)
+    coef = jnp.einsum("edf,ef...->ed...", plan.core_Ginv, coef)
+    ph = gc - jnp.einsum("qd,ed...->eq...", Vm, coef)
+    return out.at[:, sl].set(-bc(kappa, gc) * ph)
 
 
-def _wrapped(fn, plan, F, g):
-    return fn(plan, extend_periodic(F, HALO), extend_periodic(g, HALO))
+def dissipation_ext(plan: NodalPlan, F_ext, g_ext, c_kappa=1.0):
+    """Total dissipation on the owned planes of halo-``>= 3`` extended ``F`` and ``g``: face jumps plus core shell damping."""
+    return (dissipation_ring_ext(plan, F_ext, g_ext) + dissipation_eta_ext(plan, F_ext, g_ext)
+            + core_damping_ext(plan, F_ext, g_ext, c_kappa))
+
+
+def _wrapped(fn, plan, F, g, *args):
+    return fn(plan, extend_periodic(F, HALO), extend_periodic(g, HALO), *args)
 
 
 def dissipation_ring(plan: NodalPlan, F, g):
@@ -113,6 +141,10 @@ def dissipation_eta(plan: NodalPlan, F, g):
     return _wrapped(dissipation_eta_ext, plan, F, g)
 
 
-def dissipation(plan: NodalPlan, F, g):
-    """Face-jump dissipation of owned ``F (E, P, 3)`` and ``g (E, P[, ...])`` (periodic eta)."""
-    return _wrapped(dissipation_ext, plan, F, g)
+def dissipation(plan: NodalPlan, F, g, c_kappa=1.0):
+    """Dissipation (face jumps plus core shell damping) of owned ``F (E, P, 3)``, ``g (E, P[, ...])`` (periodic eta)."""
+    return _wrapped(dissipation_ext, plan, F, g, c_kappa)
+
+
+def core_damping(plan: NodalPlan, F, g, c_kappa=1.0):
+    return _wrapped(core_damping_ext, plan, F, g, c_kappa)

@@ -24,7 +24,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from drbx.native.fci_perpendicular_sbp_boundary import SatBoundaryData
-from drbx.native.fci_perpendicular_sbp_dissipation import HALO, dissipation, dissipation_ext
+from drbx.native.fci_perpendicular_sbp_dissipation import HALO, core_damping_ext, dissipation, dissipation_ext
 from drbx.native.fci_perpendicular_sbp_ops import (
     bc,
     crop,
@@ -46,7 +46,7 @@ __all__ = [
     "HALO", "level_match", "flux_from_potential", "velocity_flux", "velocity_flux_ext", "advect", "divergence",
     "interface_centred", "wall_correction", "wall_inflow", "interface_upwind", "transport", "transport_ext",
     "compressibility", "compressibility_ext", "linear_operator", "linear_operator_ext", "sbp_bracket_ext", "sbp_bracket",
-    "dissipation", "dissipation_ext",
+    "dissipation", "dissipation_ext", "core_damping_ext",
 ]
 
 
@@ -62,6 +62,8 @@ def level_match(plan: NodalPlan, phi):
     """Level D5c: ``phi~ = phi + sum_sides T^T (d_s / |t|^2)`` with the common face modes set to their average."""
     out = phi
     for face, (a_blk, b_blk, _na, _nb, _x) in zip(plan.faces, plan.structure.faces):
+        if plan.structure.blocks[a_blk][0] == "core":
+            continue                                    # core-ring face: handled by the core D5c in flux_from_potential
         if face.CAA is None:
             raise NotImplementedError("faces touching a non-ring block need the block's velocity_gradient rule (M1)")
         a = trace(plan, a_blk, "outer", phi)
@@ -79,7 +81,15 @@ def flux_from_potential(plan: NodalPlan, phi_t_ext, rho_star):
     """``F = h x (D1, D2, D_eta) phi~ / rho*`` on the owned planes of a halo-``>= 2`` extended ``phi~``."""
     h = halo_of(plan, phi_t_ext)
     own = crop(phi_t_ext, h)
-    grad = jnp.stack([d1(plan, own), d2(plan, own), d_eta(phi_t_ext, plan.structure.deta, h)], axis=-1)
+    g1, g2 = d1(plan, own), d2(plan, own)
+    if plan.structure.core is not None:
+        cb, _p, _R, n_c, _dm, ring_blk = plan.structure.core
+        arr, o0 = plan.blocks[cb], plan.structure.blocks[cb][1]
+        phi_c = own[:, o0:o0 + n_c]
+        tr = trace(plan, ring_blk, "inner", own)
+        g1 = g1.at[:, o0:o0 + n_c].set(_apply(arr.G1_phi, phi_c) + _apply(arr.G1_tr, tr))
+        g2 = g2.at[:, o0:o0 + n_c].set(_apply(arr.G2_phi, phi_c) + _apply(arr.G2_tr, tr))
+    grad = jnp.stack([g1, g2, d_eta(phi_t_ext, plan.structure.deta, h)], axis=-1)
     return jnp.cross(plan.h, grad) / rho_star
 
 
@@ -211,9 +221,12 @@ def linear_operator_ext(plan: NodalPlan, F_ext, g_ext, bcd: SatBoundaryData | No
             + interface_upwind(plan, F, g))
 
 
-def sbp_bracket_ext(plan: NodalPlan, F_ext, g_ext, bcd: SatBoundaryData | None = None):
-    """``L g`` plus the face-jump dissipation, from extended ``F`` and ``g`` (halo >= 3)."""
-    return linear_operator_ext(plan, F_ext, g_ext, bcd) + dissipation_ext(plan, F_ext, g_ext)
+def sbp_bracket_ext(plan: NodalPlan, F_ext, g_ext, bcd: SatBoundaryData | None = None, c_kappa=1.0):
+    """``L g`` plus the dissipation (face jumps and core shell damping), from extended ``F`` and ``g`` (halo >= 3).
+
+    ``c_kappa`` scales the core shell damping and is a traced argument (not static).
+    """
+    return linear_operator_ext(plan, F_ext, g_ext, bcd) + dissipation_ext(plan, F_ext, g_ext, c_kappa)
 
 
 def _wrap(F, g):
@@ -232,7 +245,7 @@ def linear_operator(plan: NodalPlan, F, g, bcd: SatBoundaryData | None = None):
     return linear_operator_ext(plan, *_wrap(F, g), bcd)
 
 
-def sbp_bracket(plan: NodalPlan, phi, g, bcd: SatBoundaryData | None, rho_star):
+def sbp_bracket(plan: NodalPlan, phi, g, bcd: SatBoundaryData | None, rho_star, c_kappa=1.0):
     """The full right-hand-side bracket ``L g + dissipation`` for owned ``phi (E, P)`` and ``g (E, P[, F])``."""
     F = velocity_flux(plan, phi, rho_star)
-    return sbp_bracket_ext(plan, *_wrap(F, g), bcd)
+    return sbp_bracket_ext(plan, *_wrap(F, g), bcd, c_kappa)
