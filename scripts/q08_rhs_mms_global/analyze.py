@@ -3,7 +3,7 @@ import csv
 import io
 from pathlib import Path
 import numpy as np
-from scripts.q08_rhs_mms_global.campaign import NS, read, write, sha, require
+from scripts.q08_rhs_mms_global.campaign import NS, read, write, sha, require, MUTABLE_PROVENANCE
 from scripts.q08_rhs_mms_global.science import SPANS, TERMS, REGIONS, METRICS
 from scripts.q08_extraction_global import common as c
 
@@ -110,7 +110,8 @@ def analyze(run, identity):
     from scripts.q08_extraction_global.common import atomic_npz
     summary, arrays, table, report = products(run, identity)
     atomic_npz(run/'totals.npz', **arrays)
-    (run/'orders.csv').write_text(table); (run/'report.md').write_text(report)
+    (run/'orders.csv').write_bytes(table.encode('utf-8'))
+    (run/'report.md').write_bytes(report.encode('utf-8'))
     write(run/'analysis.json', summary)
     write(run/'analysis_receipt.json', dict(passed=True, identity=identity,
         files={n:sha(run/n) for n in ('totals.npz','orders.csv','report.md','analysis.json')}))
@@ -124,17 +125,20 @@ def completion(run, identity):
     with np.load(run/'totals.npz') as z:
         if set(z.files) != set(arrays) or any(not np.array_equal(z[k], v, equal_nan=True) for k, v in arrays.items()):
             raise ValueError('independent completion reduction mismatch')
-    if (run/'orders.csv').read_text() != table or (run/'report.md').read_text() != report:
+    # Compare the actual UTF-8 serialization; read_text normalizes CRLF from
+    # csv.writer to LF, making a correctly written table fail validation.
+    if (run/'orders.csv').read_bytes() != table.encode('utf-8') or (run/'report.md').read_bytes() != report.encode('utf-8'):
         raise ValueError('tables/report independent reduction mismatch')
     require(run, 'analysis_receipt', identity)
     files = {str(p.relative_to(run)):sha(p) for folder in
         ('science','references','science_source','source_snapshot','provenance')
-        for p in (run/folder).rglob('*') if p.is_file()}
+        for p in (run/folder).rglob('*') if p.is_file() and str(p.relative_to(run)) not in MUTABLE_PROVENANCE}
     names = ('verification','binding','preflight','preflight_gpu','pilot','analysis','analysis_receipt',
              *(f'references_N{n}' for n in NS), *(f'gpu_N{n}' for n in NS))
     files.update({name+'.json':sha(run/(name+'.json')) for name in names})
     files.update({name:sha(run/name) for name in ('totals.npz','orders.csv','report.md')})
     result = dict(passed=True, identity=identity, files=files, scientific_order_accepted=False,
+                  mutable_operational_logs=list(MUTABLE_PROVENANCE),
                   production_promoted=False, scope='complete static global six-field MMS artifacts')
     write(run/'completion.json', result)
     return result

@@ -32,6 +32,22 @@ def pack(centered, correction, diffusion, current, omega_adv, omega_cur,
         phi_force, electron_material, ti_compensation, generalized_force), axis=-1)), axis=-1)
 
 
+def check_action_identities(action):
+    """Check all output coverage and the electron/omega assembly conventions."""
+    a = np.asarray(action)
+    if a.shape[-1] != len(TERMS) or not np.isfinite(a).all():
+        raise ValueError('invalid 31-output scientific action')
+    for actual, expected in (
+        (a[..., 18:24], a[..., :6]+a[..., 6:12]+a[..., 12:18]),
+        (a[..., 5], a[..., 25]+a[..., 26]),
+        (a[..., 4], a[..., 28]+a[..., 30]),
+        # This is the negative material Ti column. The generalized force
+        # adds the opposite Ti contribution, cancelling it in centered Ve.
+        (a[..., 29], a[..., 27]-a[..., 30]),
+    ):
+        np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-10)
+
+
 def numerical(bank, result):
     if not np.asarray(result.inputs_valid).all() or not np.asarray(result.eigensystem_admissible).all():
         raise ValueError('invalid numerical thermodynamic state or characteristic split')
@@ -45,8 +61,7 @@ def numerical(bank, result):
     out = pack(nc, nu, nd, p[..., 0], nc[..., 5]-p[..., 1], p[..., 1],
                p[..., 2], p[..., 5], p[..., 3], p[..., 4])
     np.testing.assert_allclose(out[..., 18:24], total, rtol=1e-14, atol=1e-12)
-    if not np.isfinite(out).all():
-        raise ValueError('nonfinite numerical action')
+    check_action_identities(out)
     return out
 
 
@@ -84,8 +99,10 @@ def oracle(bank, geometry):
         diffusion = c.COEFF*np.einsum('rs,crfs->crf', bank.magnetic_L[ai], gf)
         outputs.append(project(bank, pack(centered, correction, diffusion, dj,
             np.asarray(ov.centered), current, c.MU*gc,
-            np.asarray(mat.material)[:, :nr, 4], c.MU*c.TAU*gi, c.MU*(gc+c.TAU*gi))))
-    return np.stack(outputs)
+            np.asarray(mat.material)[:, :nr, 4], -c.MU*c.TAU*gi, c.MU*(gc+c.TAU*gi))))
+    action = np.stack(outputs)
+    check_action_identities(action)
+    return action
 
 
 def _material(*args):
@@ -137,7 +154,8 @@ def continuum(bank, geometry, geom):
         centered = np.concatenate((material, (adv+cur)[..., None]), axis=-1)
         results.append(project(bank, pack(centered, np.zeros_like(centered),
             c.COEFF*diffusion.transpose(1, 0, 2), dj, adv, cur,
-            phi_force, em, c.MU*c.TAU*gi, c.MU*(gp+c.TAU*gi))))
+            phi_force, em, -c.MU*c.TAU*gi, c.MU*(gp+c.TAU*gi))))
+    check_action_identities(np.stack(results))
     diagnostics = dict(center_b_replay_max=float(abs(b0[:, 2]-geometry['b_eta']).max()),
         center_B_replay_max=float(abs(B0-geometry['bmag']).max()),
         kappa_replay_max=float(abs(kappas[0]-geometry['magnetic_L'].sum(-1)).max()),

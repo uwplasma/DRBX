@@ -13,7 +13,7 @@ def bounded(run, old, identity, canonical, *, gpu=False, test_cpu=False):
     from drbx.stencils.q_plan import lower_q_plan
     from drbx.native.q_plan import apply_q_plan
     from drbx.native.q_parallel import QBoundaryData
-    from scripts.q08_rhs_mms_global.science import oracle, continuum, numerical
+    from scripts.q08_rhs_mms_global.science import oracle, continuum, numerical, check_action_identities
     from gpu_stage import compiler_guard
     if gpu:
         from scripts.q08_extraction_global.gpu import device_inventory
@@ -56,6 +56,10 @@ def bounded(run, old, identity, canonical, *, gpu=False, test_cpu=False):
                     found['N'] = numerical(bank, result)
                     compiler_guard(call.lower(*args).compile().as_text(), test_cpu=test_cpu)
                 for tag, actual in found.items():
+                    # Saved baseline predates the last three diagnostics.
+                    # Validate their signed force identities as well as the
+                    # original 28-column persisted action replay.
+                    check_action_identities(actual)
                     keys = ('centered', 'correction', 'diffusion', 'combined', 'current',
                             'omega_advection', 'omega_current', 'phi_force')
                     expected = np.concatenate([saved[f's{int(1/span)}_k{ki}_{key}_{tag}'] for key in keys], axis=-1)
@@ -70,6 +74,7 @@ def bounded(run, old, identity, canonical, *, gpu=False, test_cpu=False):
     result = dict(passed=True, identity=identity, test_only=test_cpu, gpu=gpu,
         device_inventory=inventory, seconds=time.perf_counter()-tick,
         max_abs=maxima, max_budget_fraction=fractions, reference_diagnostics=sensitivity,
+        persisted_outputs=28, identity_checked_outputs=31,
         scope='21 complete HSX owners, all22 states, four BC patterns, both diffusion spans')
     write(Path(run)/('preflight_gpu.json' if gpu else 'preflight.json'), result)
     return result

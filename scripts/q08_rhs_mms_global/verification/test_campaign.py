@@ -17,7 +17,7 @@ p.add_argument('--baseline-source',type=Path,default=HERE.with_name('q08_extract
 p.add_argument('--run',type=Path,default=Path(tempfile.gettempdir())/'q08-mms-portable-tests')
 a, remaining=p.parse_known_args()
 load(a.baseline_source,a.run)
-from scripts.q08_rhs_mms_global.science import reduce_case,pack,TERMS,SPANS
+from scripts.q08_rhs_mms_global.science import reduce_case,pack,TERMS,SPANS,check_action_identities
 from scripts.q08_rhs_mms_global.references import valid
 from scripts.q08_rhs_mms_global.gpu import record_valid
 
@@ -74,6 +74,68 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(TERMS[23],'combined_omega')
         self.assertEqual(TERMS[24],'current')
         self.assertEqual(TERMS[-1],'electron_generalized_force')
+
+    def test_every_output_column_is_packed_in_named_order(self):
+        blocks = [np.arange(i, i+12.).reshape(2, 6) for i in (1, 31, 71)]
+        diagnostics = [np.array([i, i+.5]) for i in range(101, 108)]
+        action = pack(*blocks, *diagnostics)
+        expected = np.column_stack((*[b[:, j] for b in (*blocks, sum(blocks)) for j in range(6)],
+                                    *diagnostics))
+        self.assertEqual(len(TERMS), 31)
+        np.testing.assert_array_equal(action, expected)
+
+    def test_force_and_ti_identities_reject_wrong_diagnostic_sign(self):
+        centered = np.arange(12.).reshape(2, 6)
+        phi = np.array([23., 29.]); ti = np.array([-7., -11.])
+        generalized = phi-ti
+        material = centered[:, 4]-generalized
+        current = np.array([2., 3.]); omega_cur = np.array([5., 7.])
+        action = pack(centered, centered*.1, centered*.2, current,
+            centered[:, 5]-omega_cur, omega_cur, phi, material, ti, generalized)
+        check_action_identities(action)
+        for column in (*range(24), 25, 26, 27, 28, 29, 30):
+            broken = action.copy(); broken[:, column] += 1
+            with self.subTest(term=TERMS[column]), self.assertRaises(AssertionError):
+                check_action_identities(broken)
+        broken = action.copy(); broken[:, 29] *= -1
+        with self.assertRaises(AssertionError):check_action_identities(broken)
+        broken = action.copy(); broken[:, 24] = np.nan
+        with self.assertRaises(ValueError):check_action_identities(broken)
+
+    def test_completion_real_csv_write_read_and_mutable_runtime(self):
+        import csv
+        import io
+        from scripts.q08_rhs_mms_global import analyze as module
+        out=io.StringIO(); writer=csv.writer(out)
+        writer.writerow(['term','error']); writer.writerow(['electron_ti_compensation',.25])
+        table=out.getvalue()
+        summary=dict(passed=True,identity='test'); arrays=dict(rms=np.array([.25]))
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            products=(summary,arrays,table,'test report\n')
+            with patch.object(module,'products',return_value=products):
+                module.analyze(root,'test')
+                self.assertIn(b'\r\n',(root/'orders.csv').read_bytes())
+                self.assertNotEqual((root/'orders.csv').read_text(),table)
+                for name in ('verification','binding','preflight','preflight_gpu','pilot',
+                             *(f'references_N{n}' for n in (32,48,64)),
+                             *(f'gpu_N{n}' for n in (32,48,64))):
+                    write(root/(name+'.json'),dict(passed=True,identity='test'))
+                (root/'provenance').mkdir()
+                runtime=root/'provenance/complete_runtime.txt'; runtime.write_text('running\n')
+                stable=root/'provenance/design.json'; stable.write_text('{}\n')
+                receipt=module.completion(root,'test')
+                self.assertNotIn('provenance/complete_runtime.txt',receipt['files'])
+                self.assertIn('provenance/design.json',receipt['files'])
+                runtime.write_text('running\nexit 0\n')
+                require(root,'completion','test')
+                (root/'orders.csv').write_bytes(table.replace('.25','.26').encode())
+                with self.assertRaisesRegex(ValueError,'tables/report'):
+                    module.completion(root,'test')
+                (root/'orders.csv').write_bytes(table.encode())
+                stable.write_text('{"changed": true}\n')
+                with self.assertRaisesRegex(ValueError,'stage content changed'):
+                    require(root,'completion','test')
 
     def test_frozen_contract(self):
         _,m=check_source()

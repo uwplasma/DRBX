@@ -4,6 +4,16 @@ User-approved freeze, 29 September 2026. This is a research qualification and
 implementation contract, not a claim that the method is selectable in the
 production solver. The [Q roadmap](parallel_second_order_roadmap.md) owns status.
 
+**Current coupled-Q choice, 4 October 2026:** the user selects total cap
+separation h/32 for diffusion and the other base parallel operators, retaining
+five eta planes. h/16 remains a qualified diffusion alternative; other h/n
+choices need consistent prepared geometry/rows and applicable qualification.
+This selects between previously evaluated diffusion spans without changing
+the operator formula, original campaign receipts or production defaults. See
+the [Q08 configuration](parallel_second_order_roadmap.md#current-q08-configuration--user-freeze-4-october-2026)
+for the C3 coupled baseline and material's paired outer sampling. The original
+29 September evidence and choices below retain their historical identity.
+
 ## Identity and acceptance scope
 
 - Accepted campaign identity:
