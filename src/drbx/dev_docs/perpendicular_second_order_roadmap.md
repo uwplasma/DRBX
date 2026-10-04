@@ -2394,7 +2394,7 @@ Steps:
          - P07 N−R is identical across C0–C3 to about 1%, because O−R dominates it.
          - C2 has the most accurate reconstruction (pooled 0.11× C0, min order 3.1). But its P07/P06 convergence is irregular: per-ring N−O at N64 is up to 7× C0 at u 0.27. On 48→64 it stalls at u 0.06–0.12 (P07 N−O order 0.32) and u 0.27–0.33 (order 1.1; P06 0.11). It adds 33 new rebound flags, against 10 for C3.
          - C3 confirmed on the larger sample: interface band 0.21–0.27 is 1.8× C0 at orders 5.4/4.4; the band 0.12–0.21 is 8× below C0 at order 1.8/1.4.
-         - The C2 option stays in the code as a non-default evaluation path.
+         - C1, C1b and C2 were removed from the code on 4 October 2026 (user decision); default numerics unchanged.
    - **Background: transverse reconstruction at the coupled/ringwise switch.** This was found by the Q path and confirmed for P, 29 September. The [P audit](../../../../work/p_transverse_wave_audit_20260929/report.md) and its [follow-up](../../../../work/p_transverse_wave_audit_20260929/followup/report.md) are bounded: Q's 36 owners plus fresh phases and fixed-coordinate tracks, N32/N48/N64, run through P's own assemblies.
      - **Controls.** Fixed-wavelength transverse waves exp(i[2πx/λ + η]) and the y analogue, with λ = 2 and 4, in computational disk coordinates.
      - **Finding.**

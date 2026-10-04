@@ -693,7 +693,7 @@ class Environment:
     wall_cache: WallDataCache
     curvature: str = DEFAULT_CURVATURE     # "fd" | "autodiff": which K ``ref._curvature`` evaluates (see p_shared.provider)
     face_quadrature: str = DEFAULT_FACE_QUADRATURE   # "q3" | "q2": the P05/P06 face-node rule (P07 stays q3)
-    inner_support: str = DEFAULT_INNER_SUPPORT       # "profile7" | "last_aggregate": the inner donor support of S
+    inner_support: str = DEFAULT_INNER_SUPPORT       # "profile7" | "fixed_radius": the inner donor support of S
     bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL   # "spline" | "compact_c3": the B evaluator's toroidal interpolation
     cell_stencil: str = "biased"                     # "biased" | "symmetric": the R1 cell-row stencil of S
 
@@ -708,7 +708,7 @@ def build_environment(*, n: int, input_root: Path, sidecar_path: Path, curvature
     else delegated); ``"fd"`` (default) is the frozen reference, unchanged.  ``face_quadrature`` (``"q3"``
     default, or ``"q2"``) is recorded on the environment and selects the P05/P06 face nodes of the owner
     closure and the host face replay (see :mod:`p_shared.face_quadrature`); it does not change ``ref``.
-    ``inner_support`` (``"profile7"`` default, or ``"last_aggregate"``) is the inner donor support of ``env.S`` (and of
+    ``inner_support`` (``"fixed_radius"`` default, or ``"profile7"``) is the inner donor support of ``env.S`` (and of
     the P07 R4 rows the owner closure builds; see :mod:`p_shared.inner_support`).  ``bfield_toroidal`` (``"spline"``
     default, or ``"compact_c3"``) selects the toroidal interpolation of ``env.ref``'s B evaluator (:mod:`p_shared.bfield`).
     ``cell_stencil`` (``"biased"`` default, the historic cell rows, or ``"symmetric"``, the fourth-order centred
