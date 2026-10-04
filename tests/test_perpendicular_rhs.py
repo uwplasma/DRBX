@@ -375,7 +375,7 @@ def lower_world_p07_only():
     return lower_world(_admissible(make_world(owners=OWNERS)), include=("p07",))
 
 
-@pytest.mark.parametrize("method", ("block_lapack", "closed_form"))
+@pytest.mark.parametrize("method", ("closed_form",))
 def test_absolute_method_selector_reaches_the_curvature_and_keeps_the_default_bitwise(
         plan, state, phi, bc5, params, rhs, owner_fields, method):
     # the default is "closed_form"; "lapack4" (the campaign's 4x4 eig) is the reference the others must match

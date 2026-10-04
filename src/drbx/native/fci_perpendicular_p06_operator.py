@@ -36,8 +36,8 @@ on the eigensystem): use ``jax.jvp``. The q1 numerators are linear in the gradie
 (``p06_q1_state_numerators``). The q3 JVP is valid away from eigenvalue crossings and sign changes
 (``fci_perpendicular_face_corrections._absolute_matrix_action_jvp``).
 
-``absolute_method`` (static, default ``"closed_form"``; ``"lapack4"`` reproduces the frozen campaigns bitwise) switches that eigensystem for the faster ``"block_lapack"`` /
-``"closed_form"`` evaluations of the same ``|M| jump`` (``ABSOLUTE_METHODS``); the default is bitwise unchanged.
+``absolute_method`` (static, default ``"closed_form"``; ``"lapack4"`` reproduces the frozen campaigns bitwise) switches that eigensystem for the faster
+``"closed_form"`` evaluation of the same ``|M| jump`` (``ABSOLUTE_METHODS``); the default is bitwise unchanged.
 """
 from __future__ import annotations
 
@@ -334,7 +334,7 @@ def p06_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, g
     with ``cells`` and ``faces``. ``bc`` at the plan's point tables, columns matching ``fields``.
 
     ``absolute_method`` (static; default ``"closed_form"``; ``"lapack4"`` is bitwise the campaign's 4x4 ``eig``) selects the evaluation of the
-    q3 absolute-matrix action: ``"block_lapack"`` (3x3 block ``eig``) or ``"closed_form"`` (cubic root and Sylvester
+    q3 absolute-matrix action: ``"lapack4"`` or ``"closed_form"`` (cubic root and Sylvester
     projector, no LAPACK); see :func:`drbx.native.fci_perpendicular_face_corrections.p06_characteristic_face_correction`.
     """
     if plan.cells is None or plan.faces is None:

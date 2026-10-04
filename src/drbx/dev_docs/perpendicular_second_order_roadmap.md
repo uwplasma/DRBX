@@ -2833,6 +2833,7 @@ shared implementation and final model/MMS integration record.
   interpolation test, frozen residual slope, or elliptic solution result alone
   substitutes for the agreed global operator-plus-solution contract.
 - **Renumbering, 4 October 2026 (user decision):** the energy-stability milestone, added on 3 October as P11, is now P09 and gates evolved certification. Evolved MMS and final integration moved from P09 to P10 (its stages P09.0–P09.2 are now P10.0–P10.2), and the φ wall model moved from P10 to P11. Names created before then keep the old numbers: the `work/p09_*` folders, `scripts/p09_evolved_mms/`, `tests/test_p09_evolved_source.py` and commit messages.
+- **P06 absolute-matrix action, 4 October 2026:** the intermediate `absolute_method="block_lapack"` (3x3-block `eig`, introduced at `cbbcc1ff` between the 4x4 `lapack4` and the `closed_form` default) was removed. Removed 4 October 2026; default numerics unchanged. `lapack4` stays as the bitwise reproduction pin.
 
 ### Progress ledger
 

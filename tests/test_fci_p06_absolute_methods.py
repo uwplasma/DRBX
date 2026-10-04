@@ -1,4 +1,4 @@
-"""``absolute_method`` of the P06 q3 absolute-matrix action: ``"lapack4"`` (default), ``"block_lapack"``, ``"closed_form"``.
+"""``absolute_method`` of the P06 q3 absolute-matrix action: ``"lapack4"`` (reproduction pin), ``"closed_form"`` (default).
 
 Per-node agreement with the 4x4 LAPACK action and with a 60-digit mpmath reference on random physical states
 (extreme ratios, ``Ti -> 0``), the validity / fallback semantics, JVPs against finite differences and against the 4x4
@@ -16,7 +16,7 @@ from drbx.native.fci_curvature_production_flux import curvature_principal_matrix
 from drbx.native.fci_operators import _curvature_bc_characteristic_wall_states
 from drbx.native.fci_perpendicular_face_corrections import (
     ABSOLUTE_METHODS, _absolute_action_closed_form, _curvature_negative_root, _p06_absolute_action,
-    _p06_absolute_action_block, _wall_identity_fallback, p06_characteristic_face_correction)
+    _wall_identity_fallback, p06_characteristic_face_correction)
 
 DATA = Path(__file__).parent/'data/p_shared_face_rows'
 FLOOR = 1e-12
@@ -42,10 +42,8 @@ def _three(state, floor=FLOOR):
     n, te, ti, b, tau, scale, jump = (jnp.asarray(x) for x in state)
     matrix = _matrix(n, te, ti, b, tau, scale)
     lapack, lapack_invalid = _p06_absolute_action(matrix, jump)
-    block, block_invalid = _p06_absolute_action_block(matrix, jump)
     closed, closed_invalid = _absolute_action_closed_form(n, te, ti, b, tau, scale, matrix, jump, floor)
     return {'lapack4': (np.asarray(lapack), np.asarray(lapack_invalid)),
-            'block_lapack': (np.asarray(block), np.asarray(block_invalid)),
             'closed_form': (np.asarray(closed), np.asarray(closed_invalid))}
 
 
@@ -79,7 +77,7 @@ def _relative(action, reference):
 
 
 def test_methods_listed_and_unknown_rejected():
-    assert ABSOLUTE_METHODS == ('lapack4', 'block_lapack', 'closed_form')
+    assert ABSOLUTE_METHODS == ('lapack4', 'closed_form')
     with pytest.raises(ValueError, match='absolute_method'):
         p06_characteristic_face_correction(*(np.zeros((1, 1, 4)),)*3, np.ones((1, 1)), np.ones((1, 1)), np.ones((1, 1)),
                                            np.zeros(1, bool), np.zeros(1, bool), absolute_method='eig')
@@ -90,12 +88,11 @@ def test_physical_states_agree_with_the_mpmath_reference_and_the_4x4_action():
     state = _states(120, 0, n=(-2, 2), te=(-1.5, 1.5), r=(-2, 2), tau=(-.5, .5))
     reference = _reference(state)
     out = _three(state)
-    assert not out['lapack4'][1].any() and not out['block_lapack'][1].any() and not out['closed_form'][1].any()
+    assert not out['lapack4'][1].any() and not out['closed_form'][1].any()
     for name, (action, _) in out.items():
         assert np.max(_relative(action, reference)) <= 1e-12, name
-    for name in ('block_lapack', 'closed_form'):
-        diff = _relative(out[name][0], out['lapack4'][0])
-        assert np.max(diff) <= 1e-12, (name, np.max(diff), np.median(diff))
+    diff = _relative(out['closed_form'][0], out['lapack4'][0])
+    assert np.max(diff) <= 1e-12, (np.max(diff), np.median(diff))
 
 
 def test_wide_ranges_the_closed_form_is_closer_to_the_reference_than_the_4x4_action():
@@ -104,11 +101,10 @@ def test_wide_ranges_the_closed_form_is_closer_to_the_reference_than_the_4x4_act
     reference = _reference(state)
     out = _three(state)
     assert not out['closed_form'][1].any()
-    valid4, valid3 = ~out['lapack4'][1], ~out['block_lapack'][1]
-    assert valid4.sum() >= 100 and valid3.sum() >= 100       # the eigenvector-condition test drops a few nodes of each
+    valid4 = ~out['lapack4'][1]
+    assert valid4.sum() >= 100       # the eigenvector-condition test drops a few nodes
     error = {name: _relative(action, reference) for name, (action, _) in out.items()}
     assert np.max(error['closed_form']) <= 1e-12
-    assert np.max(error['block_lapack'][valid3]) <= 1e-10
     assert np.median(error['closed_form']) <= 2*np.median(error['lapack4'][valid4])
     assert np.max(_relative(out['closed_form'][0][valid4], out['lapack4'][0][valid4])) <= 2*np.max(error['lapack4'][valid4])+1e-12
 
@@ -142,10 +138,9 @@ def test_ti_zero_uses_sign_zero_and_stays_finite():
     state[2] = np.zeros(6)                           # Ti = 0 exactly
     reference = _reference(tuple(state))
     out = _three(tuple(state))
-    for name in ('closed_form', 'block_lapack'):
-        action, invalid = out[name]
-        assert not invalid.any(), name
-        np.testing.assert_allclose(_relative(action, reference), 0, atol=1e-12, err_msg=name)
+    action, invalid = out['closed_form']
+    assert not invalid.any()
+    np.testing.assert_allclose(_relative(action, reference), 0, atol=1e-12)
     # tau = 0 gives the same r = 0 (the third column of the block vanishes)
     state = list(_states(6, 3)); state[4] = np.zeros(6)
     assert np.max(_relative(_three(tuple(state))['closed_form'][0], _reference(tuple(state)))) <= 1e-12
@@ -184,13 +179,11 @@ def _function(method, state):
         m = _matrix(n_, te_, ti_, b, tau, scale)
         if method == 'closed_form':
             return _absolute_action_closed_form(n_, te_, ti_, b, tau, scale, m, jump_, FLOOR)[0]
-        if method == 'block_lapack':
-            return _p06_absolute_action_block(m, jump_)[0]
         return _p06_absolute_action(m, jump_)[0]
     return fn, (n, te, ti, jump)
 
 
-@pytest.mark.parametrize('method', ('block_lapack', 'closed_form'))
+@pytest.mark.parametrize('method', ('closed_form',))
 def test_jvp_matches_finite_differences_and_the_4x4_jvp(method):
     state = _states(30, 5, n=(-1, 1), te=(-1, 1), r=(-2, 1.5), tau=(-.3, .3))
     fn, primals = _function(method, state)
@@ -208,21 +201,6 @@ def test_jvp_matches_finite_differences_and_the_4x4_jvp(method):
     ok = ~np.asarray(_p06_absolute_action(_matrix(*(jnp.asarray(x) for x in state[:6])), jnp.asarray(state[6]))[1])
     assert ok.sum() >= 25
     assert np.max(np.abs(np.asarray(jvp)-np.asarray(jvp4))[ok]/scale[ok]) <= 1e-8
-
-
-def test_block_lapack_fallback_flag_and_tangent():
-    matrix = np.zeros((1, 1, 4, 4)); matrix[0, 0, 0, 1] = -1; matrix[0, 0, 1, 0] = 1       # complex spectrum
-    jump = np.array([[[.3, -.2, .1, .4]]])
-    action, fallback = _p06_absolute_action_block(jnp.asarray(matrix), jnp.asarray(jump))
-    assert int(np.sum(np.asarray(fallback))) == 1
-    np.testing.assert_allclose(action, np.linalg.norm(matrix[0, 0])*jump, rtol=0, atol=1e-14)
-    tangent = np.zeros_like(matrix); tangent[0, 0, 0, 0] = .1
-    _, dot = jax.jvp(lambda m: _p06_absolute_action_block(m, jnp.asarray(jump))[0], (jnp.asarray(matrix),),
-                     (jnp.asarray(tangent),))
-    eps = 1e-6
-    finite = (_p06_absolute_action_block(jnp.asarray(matrix+eps*tangent), jnp.asarray(jump))[0]
-              - _p06_absolute_action_block(jnp.asarray(matrix-eps*tangent), jnp.asarray(jump))[0])/(2*eps)
-    np.testing.assert_allclose(dot, finite, rtol=1e-6, atol=1e-9)
 
 
 def _hsx_args(n, state=0):
@@ -254,7 +232,7 @@ def test_default_method_is_bitwise_the_closed_form_and_the_4x4_helper_is_untouch
     assert np.array_equal(np.asarray(action), _three(state)['lapack4'][0])
 
 
-@pytest.mark.parametrize('method', ('block_lapack', 'closed_form'))
+@pytest.mark.parametrize('method', ('closed_form',))
 def test_methods_agree_with_the_4x4_action_through_the_face_correction(method):
     rng = np.random.default_rng(8)
     faces, nodes = 7, 9
@@ -304,7 +282,7 @@ def _legacy_wall_solve(central, lower, upper, B, normal, weight, wall, collapsed
     return (*out[:4], jnp.sum(fallback & w[:, None]))
 
 
-@pytest.mark.parametrize('method', ('block_lapack', 'closed_form'))
+@pytest.mark.parametrize('method', ('closed_form',))
 @pytest.mark.parametrize('seed', (0, 1))
 def test_wall_identity_is_bitwise_the_wall_characteristic_solve(method, seed):
     args = _wall_case(seed)
@@ -319,7 +297,7 @@ def test_wall_identity_is_bitwise_the_wall_characteristic_solve(method, seed):
     assert int(new[4]) == 0 and np.isfinite(np.asarray(new[0])).all()
 
 
-@pytest.mark.parametrize('method', ('block_lapack', 'closed_form'))
+@pytest.mark.parametrize('method', ('closed_form',))
 def test_non_physical_wall_nodes_are_counted_in_the_wall_fallback(method):
     central, lower, upper, B, normal, weight, wall, collapsed = _wall_case(2)
     central = central.copy()
