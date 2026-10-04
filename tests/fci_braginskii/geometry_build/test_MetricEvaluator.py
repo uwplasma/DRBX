@@ -2517,6 +2517,7 @@ def build_hsx_metric_plot(
     return metric_evaluator
 
 
+@requires_plotly
 def test_real_hsx_metric_plot_if_input_files_exist(tmp_path):
     mgrid_env = os.environ.get("DRBX_HSX_MGRID")
     vessel_env = os.environ.get("DRBX_HSX_VESSEL")
