@@ -36,7 +36,11 @@ shard, stacked along a leading shard axis:
   padded Neumann / integrated-row targets are out of range (``.at[].set`` drops them; the integrated-row buckets are
   also padded to a multiple of ``FACE_CHUNK`` faces for the chunked contraction), as are the padded entries of
   ``FacePlan.wall_faces`` (local wall-face indices, padded with the out-of-range face index; the ``lapack4`` P06 wall solve
-  gathers clipped and scatters / counts only the in-range entries; the other methods ignore them).
+  gathers clipped and scatters / counts only the in-range entries; the other methods ignore them);
+* the wall column stencils of the characteristic wall closure (``CellPlan.wall_cells`` / ``wall_donors`` / ``wall_weights``,
+  read with ``PerpendicularParams(wall_transport="characteristic")``) follow their cells: a wall cell is kept with its
+  owner, its column shares the cell's eta plane, so the four donor owners are owned local rows (asserted), and the padded
+  entries carry the out-of-range cell index (the scatter drops them), weight 0 and the trash owner.
 
 Tensor-encoded sources keep their grid-global eta tables: their per-apply theta tables are still built for all ``n``
 planes (planes outside the window gather the trash row), so a sharded apply does not yet reduce that cost.
@@ -64,8 +68,8 @@ from drbx.native.fci_perpendicular_integrated_rows import IntegratedFaceBatch, p
 from drbx.native.fci_perpendicular_plane_preconditioner import owner_layout
 from drbx.native.fci_perpendicular_reconstruction_state import BoundaryData
 from drbx.native.fci_perpendicular_rhs import (
-    FIELDS, PerpendicularParams, PerpendicularTerms, _TERM_ORDER, _kinds, _validate, perpendicular_columns,
-    perpendicular_rhs)
+    FIELDS, PerpendicularParams, PerpendicularTerms, _TERM_ORDER, _check_wall_transport, _kinds, _validate,
+    perpendicular_columns, perpendicular_rhs)
 from drbx.native.fci_perpendicular_source_rows import SourceRowBatch, SourceRowPayload
 from drbx.native.fci_perpendicular_tensor_rows import TensorRowBatch
 from drbx.stencils.operator_plan import (
@@ -328,6 +332,16 @@ def _local_cells(c: CellPlan, sh: _Shard) -> CellPlan:
         neumann_cell = loc[c.neumann_cell[kr]].astype(np.int32)
     else:
         neumann_cell = c.neumann_cell[:0]
+    wall = {}
+    if c.wall_cells is not None:                    # the wall column stencils of the kept cells; donors are owned rows
+        wc, wd = np.asarray(c.wall_cells), np.asarray(c.wall_donors)
+        kw = np.flatnonzero(loc[wc] >= 0)
+        donors = sh.owner_map[wd[kw]]
+        if (donors == sh.trash).any():
+            raise ValueError(f"shard {sh.s}: a wall column donor is not owned by the shard (the column of a wall cell "
+                             f"must lie in the cell's eta plane)")
+        wall = dict(wall_cells=loc[wc[kw]].astype(wc.dtype), wall_donors=donors.astype(wd.dtype),
+                    wall_weights=np.asarray(c.wall_weights)[kw])
     take = lambda a: np.asarray(a)[kc]
     return CellPlan(
         rows=rows, value_slot=_slots(vmap, c.value_slot[kc], "cells"), gradient_slot=_slots(gmap, c.gradient_slot[kc], "cells"),
@@ -335,7 +349,7 @@ def _local_cells(c: CellPlan, sh: _Shard) -> CellPlan:
         raw_owner=sh.owner_map[c.raw_owner[kc]].astype(c.raw_owner.dtype), raw_volume=take(c.raw_volume),
         owner_volume=sh.vector(c.owner_volume), evolution_volume=sh.vector(c.evolution_volume), h=take(c.h),
         jac=take(c.jac), B=take(c.B), K=take(c.K), J=take(c.J), weight=take(c.weight),
-        evolution_weight=take(c.evolution_weight))
+        evolution_weight=take(c.evolution_weight), **wall)
 
 
 def _local_faces(f: FacePlan, sh: _Shard) -> tuple[FacePlan, np.ndarray]:
@@ -580,15 +594,21 @@ def _pad_cells(cells: Sequence[CellPlan], trash: int, n_queries: int) -> list:
     rn = _neumann_count([c.neumann for c in cells])
     payloads = _pad_payloads([c.rows for c in cells], trash, n_queries)
     neumann = _pad_neumann([c.neumann for c in cells], rn, trash)
+    has_wall = cells[0].wall_cells is not None
+    rw = max(len(c.wall_cells) for c in cells) if has_wall else 0
     out = []
     for c, rows, nr in zip(cells, payloads, neumann):
         first = lambda a: _pad_like_first(a, rc)
+        wall = {}
+        if has_wall:        # padding: the out-of-range cell index ``rc`` (dropped by the scatter), trash donors, weight 0
+            wall = dict(wall_cells=_pad(c.wall_cells, rw, rc), wall_donors=_pad(c.wall_donors, rw, trash),
+                        wall_weights=_pad(c.wall_weights, rw))
         out.append(replace(
             c, rows=rows, value_slot=first(c.value_slot), gradient_slot=first(c.gradient_slot),
             conditioned=_pad(c.conditioned, rc, False), neumann=nr, neumann_cell=_pad(c.neumann_cell, rn, rc),
             raw_ids=_pad(c.raw_ids, rc, -1), raw_owner=_pad(c.raw_owner, rc, trash), raw_volume=_pad(c.raw_volume, rc),
             h=first(c.h), jac=first(c.jac), B=first(c.B), K=first(c.K), J=first(c.J), weight=_pad(c.weight, rc),
-            evolution_weight=_pad(c.evolution_weight, rc)))
+            evolution_weight=_pad(c.evolution_weight, rc), **wall))
     return out
 
 
@@ -748,6 +768,7 @@ def sharded_perpendicular_rhs(sharded: ShardedPerpendicularPlan, state: Mapping[
     if int(mesh.shape[AXIS]) != sharded.n_shards:
         raise ValueError(f"the mesh has {mesh.shape[AXIS]} shards along {AXIS!r}, the plan {sharded.n_shards}")
     kinds = _kinds(field_kinds, columns)
+    _check_wall_transport(sharded.plan, params, terms)
     used = {c: jnp.asarray(state[c]) for c in columns[:-1]}
     t, total, detail, diagnostics = _sharded_rhs(
         sharded.plan, used, jnp.asarray(phi), bc, params, mesh=mesh, columns=columns, fields=fields, terms=terms,
