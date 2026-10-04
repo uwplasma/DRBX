@@ -21,7 +21,7 @@ solver capabilities. Detailed run evidence belongs in linked research artifacts.
 
 | Roadmap | Scope |
 |---|---|
-| [Second-order perpendicular RLP operators](perpendicular_second_order_roadmap.md) | P00–P09 global operator and elliptic/MMS solution certification, with regional diagnostics; authoritative task progress ledger |
+| [Second-order perpendicular RLP operators](perpendicular_second_order_roadmap.md) | P00–P11 global operator and elliptic/MMS solution certification, with regional diagnostics; authoritative task progress ledger |
 | [Second-order parallel RLP operators](parallel_second_order_roadmap.md) | Q00–Q09 HSX diffusion certification, shared interface structure, and coupled parallel operator/solution MMS; authoritative task progress ledger |
 | [Parallel FCI/direct architecture comparison](parallel_fci_direct_design_comparison.md) | Reopened Q design choice; traced FCI strongly preferred, direct reconstruction retained as an alternative and benchmark |
 | [FCI return basis and support candidate](q_fci_geometry_aware_return_design.md) | Research design contract for geometry-aware cubic-potential face returns, adequate traced-leg support, and the next bounded verification; not production-certified |
