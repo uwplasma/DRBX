@@ -191,13 +191,15 @@ def detachment_sol_step(state, params, dt):
     loss_rate = (2.0 / 3.0) * jnp.maximum(energy_loss, 0.0) / jnp.maximum(pressure, pressure_floor)
     pressure = pressure / (1.0 + dt * loss_rate)
 
-    # Bohm sheath heat sink at the target (semi-implicit). The total target
-    # heat flux is gamma n T v_t; the boundary advective flux already removes
-    # the enthalpy 5 n T v_t (5/2 T per species), so only the remainder is
-    # applied here (as in hermes-3 sheath_boundary_simple).
+    # Bohm sheath heat sink at the target (semi-implicit). ``gamma`` is the
+    # total sheath heat transmission at the sound speed (Stangeby eq. 2.95).
+    # The fluid boundary fluxes already carry the enthalpy 5 n T v_t and the
+    # ion kinetic energy (n T v_t at M = 1), so only the remaining electron
+    # sheath excess (gamma - 6) n T v_t is removed here; at supersonic entry
+    # the ion kinetic power grows as M^2 (Stangeby eq. 14.5).
     target_velocity = _target_velocity(density, momentum, pressure, params)
     sheath_rate = jnp.zeros(nz).at[-1].set(
-        (2.0 / 3.0) * jnp.maximum(params.sheath_transmission - 5.0, 0.0) * density[-1] * target_velocity * _temperature(density, pressure, params)[-1] / dz / jnp.maximum(pressure[-1], pressure_floor)
+        (2.0 / 3.0) * jnp.maximum(params.sheath_transmission - 6.0, 0.0) * density[-1] * target_velocity * _temperature(density, pressure, params)[-1] / dz / jnp.maximum(pressure[-1], pressure_floor)
     )
     pressure = pressure / (1.0 + dt * sheath_rate)
 
