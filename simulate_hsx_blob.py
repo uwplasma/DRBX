@@ -1184,17 +1184,18 @@ def _format_state_diagnostics(
 def _format_phi_solver_diagnostics(
     info: object,
 ) -> jax.Array:
-    """Pack fixed-shape phi diagnostics while preserving the first four slots."""
+    """Pack fixed-shape phi diagnostics; slot 4 is the strict-tolerance flag."""
 
-    first_four = jnp.stack(
+    first_five = jnp.stack(
         (
             jnp.asarray(info.num_steps, dtype=jnp.float64),
             jnp.asarray(info.final_residual_rel_l2, dtype=jnp.float64),
             jnp.asarray(info.failed, dtype=jnp.float64),
             jnp.asarray(info.converged, dtype=jnp.float64),
+            jnp.asarray(info.strict_converged, dtype=jnp.float64),
         )
     )
-    return jnp.concatenate((first_four, jnp.zeros(3, dtype=jnp.float64)))
+    return jnp.concatenate((first_five, jnp.zeros(2, dtype=jnp.float64)))
 
 
 def _print_rk_stage_diagnostics(
@@ -2835,6 +2836,7 @@ def run_full_eb(
     accumulated_operator_seconds = 0.0
     accumulated_gmres_seconds = 0.0
     accumulated_gmres_iterations = 0.0
+    relaxed_phi_acceptances = 0
 
     def execute_advance(*advance_args):
         with jax.disable_jit(advance_execution == "eager"):
@@ -2902,6 +2904,12 @@ def run_full_eb(
             np.any(gmres_stage_diagnostics_host[:, 2] > 0.5)
         )
         accumulated_gmres_iterations += gmres_iterations_host
+        relaxed_phi_acceptances += int(
+            np.sum(
+                (gmres_stage_diagnostics_host[:, 3] > 0.5)
+                & (gmres_stage_diagnostics_host[:, 4] < 0.5)
+            )
+        )
         field_names = initial_state.field_names()
         density_index = field_names.index("density")
         Te_index = field_names.index("Te")
@@ -3211,6 +3219,12 @@ def run_full_eb(
         f"[simulation] average {time_integrator} GMRES iterations: "
         f"{accumulated_gmres_iterations / num_steps:.2f} "
         "(four solves per timestep)",
+        flush=True,
+    )
+    print(
+        f"[simulation] phi solves accepted only under the relaxed acceptance "
+        f"tolerance (strict tol missed): {relaxed_phi_acceptances} of "
+        f"{4 * num_steps}",
         flush=True,
     )
     return materialized_state(state)
