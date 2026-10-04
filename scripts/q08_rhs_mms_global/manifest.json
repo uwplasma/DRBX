@@ -38,26 +38,27 @@
   "replay_rtol": 1e-11,
   "constant_atol": 1e-07,
   "ti_boundary_fixture_roundoff": {
-    "eps_multiplier": 32,
-    "scale": "max(1,abs(expected))",
+    "atol": 1e-12,
+    "rtol": 1e-13,
     "dtype": "float64",
-    "nonwall_exact": true
+    "nonwall_exact": true,
+    "same_platform_bitwise": true
   },
   "files": {
-    "README.md": "79fccec397811e44efee93e197ee92a1d6597e39347921ad2a983fe82f21f11b",
+    "README.md": "69ce1a46ac64097e04cadd8e69439ad89b39c963b248e2387c089b39282adbe3",
     "__init__.py": "9832743bd043d728dded12a36625b4b42f2b4d6e4eda0c80f7dd7b9a70b95a8d",
     "analyze.py": "c7c548a0bcb9465ce51ebe9a696495893b9182e13fe93ecacd562fc2c72372b0",
     "campaign.py": "ec095320922f222b78b147813535924bd29772a200fdb6fc51954027c1d49533",
-    "freeze.py": "58e4a54595594efa25cba18f17adb0c786030d7a3d44c54571b35e187457e2b0",
+    "freeze.py": "9336fea3f324d166a761ab13867fb2a9465dbb2e9547b8e17e10f1f3a472d13b",
     "gpu.py": "4f35ddb6b3f8e41b052017252ff5b3af09828e6396939c98c26fc152cec36f10",
     "preflight.py": "6d742d51c602b324ff3efcbb785d017acd74a049923a4641ee06b391969a3a16",
     "references.py": "4170e0e987f4a25d688c63f406c66682d00e946d70715a3eb17f5e1bf63580c3",
     "resources.py": "069688a16ea88acc1fdf765eec187e34106e2e46678d14f239e2c1319d072763",
     "run_all.py": "e5c83fc5a7149b9ea0e2fabc995833dbd26d81f48e6fc8f49d693e6c17e2931f",
     "science.py": "6e88eb4d81c97891dff0f9e5697af08b0374ef3cd68639da093cb7d931bb4951",
-    "ti_replay.py": "e9fb05c3af1ec48345fed7cc08c74b52e4a0b4eec988b390df34d7544710ae4c",
+    "ti_replay.py": "62edfcc9af30251a5625b040844bfb8c5202570658d65461aae868fb80d027e6",
     "verification/import_probe.py": "8dba01c93b113306d9ac2dac744ce9668ceeeb4583ccd61aa10d0a98af61572b",
     "verification/test_campaign.py": "80432a1bb0ffcd60701eee82516d7e57a2bf1ab99b42075a44838e67eaf84a96",
-    "verification/test_closeout.py": "8e9e7b618efa6f702ca3b74bad04a823dac7cbe8c2d1868ba0513c80199a4189"
+    "verification/test_closeout.py": "1238d3bfca7696654cf7ed51a7ce8b77fe30579ad72991adae2fa175ddafc013"
   }
 }

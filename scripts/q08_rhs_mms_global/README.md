@@ -171,16 +171,23 @@ for independent rescoring.
 
 The boundary-fixture preflight compares freshly evaluated analytic wall data
 against saved values, so bitwise equality across platforms is not required.
-Its active-wall budget is `32 * eps(float64) * max(1, abs(expected))` per
-entry (about 7.11e-15 for magnitudes at most one). Shapes, float64 precision,
-finiteness and nonwall padding remain strict. Receipts record maximum absolute
+Its user-authorized active-wall budget is `1e-12 + 1e-13 * abs(expected)` per
+entry. The optimized scalar producer is independently compared bitwise with
+the original producer evaluated on the same machine, for every bounded case.
+Shapes, float64 precision, finiteness and nonwall padding remain strict. Receipts record maximum absolute
 differences, fractions of this budget and counts of rounded entries for each
 boundary array. The scalar/full-action replay stays at `atol=1e-8, rtol=1e-11`;
 hash checks, constant gates and scientific scoring are unchanged.
 
-This repairs the Perlmutter preflight failure at four of 1610 entries with
-maximum difference 1.3877787807814457e-17, before any GPU actions ran. The
-original failed source/run remains immutable. Use a fresh output namespace
+The complete returned audit found all 264 optimized/original live arrays
+bitwise equal; eight normal-derivative arrays exceeded the earlier 32-epsilon
+fixture bound, with maximum discrepancy 3.2862601528904634e-14. A one-ULP wave
+phase shift accounts for the worst difference. Substituting all returned BCs
+in the unchanged bounded operator changes its output by at most 6.70e-11,
+below 0.4% of the unchanged action-replay budget. This evidence supports the
+fixture-only portability allowance, not a new scientific tolerance.
+
+The original failed sources/runs remain immutable. Use a fresh output namespace
 with the new manifest and rerun the cheap tests/reference audit/preflight;
 reuse the original large immutable bank/reference datasets. Do not relabel
 old receipts as passing under the new source identity.

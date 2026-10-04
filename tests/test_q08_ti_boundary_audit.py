@@ -22,6 +22,12 @@ class BoundaryAuditTests(unittest.TestCase):
         self.assertEqual(record['over_budget'],0)
         self.assertFalse(record['nonwall_exact'])
 
+    def test_portable_fixture_policy_reports_its_actual_budget(self):
+        expected=np.array([[[-.8559914628299974]]]);actual=np.array([[[-.8559914628299645]]])
+        record=difference_summary(actual,expected,np.array([0]),atol=1e-12,rtol=1e-13)
+        self.assertEqual(record['over_budget'],0)
+        self.assertAlmostEqual(record['worst']['budget'],1e-12+1e-13*abs(expected.item()),places=25)
+
     def test_nonfinite_and_shape_errors_fail(self):
         expected=np.zeros((1,3,2))
         for actual in (expected.astype(np.float32),expected[0],np.full_like(expected,np.nan)):

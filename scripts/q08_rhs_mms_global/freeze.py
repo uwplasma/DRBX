@@ -17,8 +17,8 @@ def main():
         new_tracing=False,new_preparation=False,new_references=True,
         fields=['n','Te','Ti','Vi','Ve','omega'], outputs=31,
         replay_atol=1e-8,replay_rtol=1e-11,constant_atol=1e-7,
-        ti_boundary_fixture_roundoff=dict(eps_multiplier=32,scale='max(1,abs(expected))',
-            dtype='float64',nonwall_exact=True),
+        ti_boundary_fixture_roundoff=dict(atol=1e-12,rtol=1e-13,
+            dtype='float64',nonwall_exact=True,same_platform_bitwise=True),
         files={str(p.relative_to(HERE)):hashlib.sha256(p.read_bytes()).hexdigest() for p in files})
     p=HERE/'manifest.json';p.write_text(json.dumps(m,indent=2)+'\n')
     print(hashlib.sha256(p.read_bytes()).hexdigest())
