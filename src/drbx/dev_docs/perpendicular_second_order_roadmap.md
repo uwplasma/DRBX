@@ -2674,7 +2674,7 @@ regional second-order gate is imposed. P10 independently checks solutions.
 
 **Step 2 — Decide on and integrate the bracket (after step 1; user decision).**
 - **Decided (user, 4 October 2026):**
-  - The SBP split-form bracket is the production bracket. Only construction details remain, starting with round 3.
+  - The SBP split-form bracket is the production bracket. Only construction details remain.
   - Level faces use the plain Fourier transpose pair, because the Almquist-type pair gives no accuracy gain here.
   - Option B is nodal, so adopting it settles D1 below on nodal point values, unless the integration design finds a blocker.
 - **Integration design (in progress):** moving from C3 owner averages to the nodal layout. It covers what that means for the P05–P07 operators, Q's FCI maps, the wall and sheath, MMS fields and diagnostics, and which parts are independent of the seam.
