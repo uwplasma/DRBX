@@ -2324,7 +2324,7 @@ Steps:
          - The coordinate map (the `MetricEvaluator` checkpoint) is kept as an independent coordinate input. It was fitted with the spline field, which is recorded in provenance. MMS consistency does not depend on it.
          - The grazing-angle map and the Jarvis wall diagnostic are regenerated through `build_environment(..., bfield_toroidal=...)`.
        - **Provenance:** a non-spline build records `policy.bfield_toroidal` and hashes the B-evaluator sources (`Bfield_evaluator.py`, `compact_toroidal.py`, `jax_bfield_evaluator.py`, `p_shared/bfield.py`). The MAKEGRID file and its currents (via the sidecar) are already hashed. `check_artifact_options` treats a missing key as spline.
-       - **Bounded comparison:** `scripts/p08_bfield_eval/`. For both evaluators on identical owners at N32/N48/N64, it reports:
+       - **Bounded comparison:** `scripts/p08_bfield_eval` (removed; see commit `6c4de657`). For both evaluators on identical owners at N32/N48/N64, it reports:
          - N−R per term, plus N−O, O−R and N−R for diffusion;
          - Dirichlet and physical-normal Neumann variants;
          - six regions × {on-plane, mid-plane} MAKEGRID knot classes;
@@ -2390,7 +2390,7 @@ Steps:
          - Near axis: order 0.5–0.9, pre-existing in all candidates.
        - Frozen reproduction pins `"profile7"`.
        - **C2 evaluated and rejected; C3 locked, 1 October 2026 (user decision).** C2 (`inner_support="last_aggregate_nearest28"`) is C1's layout with Q's isotropic nearest-28 donors.
-         - Remote campaign `scripts/p08_inner_support_eval/`, commit `078633ce`: C1/C2/C3 at N32/N48/N64, 12 owners per ring (521 at N64). [Results](../../../../work/p08_donor_support_c1_20260930/design.md#remote-decision-campaign-c1-c2-c3-at-n32n48n64-1-october-2026).
+         - Remote campaign `scripts/p08_inner_support_eval` (removed; see commit `078633ce`): C1/C2/C3 at N32/N48/N64, 12 owners per ring (521 at N64). [Results](../../../../work/p08_donor_support_c1_20260930/design.md#remote-decision-campaign-c1-c2-c3-at-n32n48n64-1-october-2026).
          - P07 N−R is identical across C0–C3 to about 1%, because O−R dominates it.
          - C2 has the most accurate reconstruction (pooled 0.11× C0, min order 3.1). But its P07/P06 convergence is irregular: per-ring N−O at N64 is up to 7× C0 at u 0.27. On 48→64 it stalls at u 0.06–0.12 (P07 N−O order 0.32) and u 0.27–0.33 (order 1.1; P06 0.11). It adds 33 new rebound flags, against 10 for C3.
          - C3 confirmed on the larger sample: interface band 0.21–0.27 is 1.8× C0 at orders 5.4/4.4; the band 0.12–0.21 is 8× below C0 at order 1.8/1.4.
