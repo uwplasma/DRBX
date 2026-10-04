@@ -35,10 +35,13 @@ revisit it when qualifying a different resolution regime. Defer further
 patch-eigenmode investigation and assess full-domain dynamics with the Q09
 evolved path before production promotion. The [local Q08 closeout](../../../../work/q08_closeout_20261004/report.md)
 completes host-memory calibration, harness repair and a local source/evidence
-freeze. The focused corrected Ti diagnostic is replayed on bounded owners and
-its references corrected globally; full-grid N replay still requires the
-immutable banks on Perlmutter. Q08 remains open pending that result. The six assembled RHS equations and
-full-grid CPU/GPU replay already have their documented evidence and exceptions.
+freeze. The [focused corrected Ti global replay](../../../../work/q08_ti_return_20261004/report.md)
+now passes independent local review at all 313,696 owners, 22 states and D/N.
+The user accepts moving on on 4 October: Q08 is closed for the frozen static
+and engineering scope, with its documented accuracy exceptions. This is not
+a claim of universal second-order N-R. The six assembled RHS equations and
+full-grid CPU/GPU replay retain their existing evidence. Full-domain evolved
+stability and production promotion remain separate Q09 gates.
 
 The focused Ti remote replay stopped before GPU execution on overly strict
 cross-platform boundary-fixture checks, first exact equality and then a
@@ -54,8 +57,15 @@ requiring optimized/original live producers to agree bitwise on the same
 machine. Layout, precision, finiteness and nonwall padding remain strict.
 Numerical actions, the operator-action gate and scientific scoring are
 unchanged. Preserve failed runs and use a new source/output identity with the
-same immutable datasets. GPU and corrected global Ti qualification remain
-pending. [Independent returned-array audit](../../../../work/q08_ti_boundary_remote_20261004/analysis.json).
+same immutable datasets. This recovery completed successfully under commit
+`08f60566` / identity `fa581260...12871524`; bounded GPU replay differs by at
+most 2.20e-10, and the original action gate is unchanged. Global smooth Ti
+N-O orders are 3.881/3.918 (D) and 3.994/3.997 (N); N-R is about 3.06/0.883,
+controlled by O-R. Every nonconstant regional RMS decreases, but the inner
+held-out wavelength-.7 wave has N-O order 1.973, and shortest-wave N64 N-R
+reaches 7.82% in the outermost Neumann ring. Retain those limits explicitly.
+[Independent returned-array audit](../../../../work/q08_ti_boundary_remote_20261004/analysis.json),
+[global replay review](../../../../work/q08_ti_return_20261004/report.md).
 
 ### FCI traced parallel gradient: global N-O gate passed — 30 September 2026
 
@@ -3439,6 +3449,44 @@ resource feasibility or remaining engineering blockers explicitly recorded.
 **Dependencies:** Q08. The reconstructed-phi leg additionally depends on
 independently certified polarization in perpendicular **P07**.
 
+**Prescribed-phi harness implemented and reviewed, 4 October 2026.** Q08's scoped
+closeout is accepted after the focused Ti replay. The
+[Q09 evolved-MMS contract](q09_evolved_mms_contract.md) and research harness reuse
+the shared Q08 application path and existing RK4 infrastructure. Analytic sources, phi and
+compatible D/physical-normal N data are refreshed at each integrator stage. Use continuum
+forcing, not the numerical RHS as its own scientific source. The first
+execution should be a short full-domain N32 evolution with timestep refinement,
+beginning with traced diffusion and then the six-field parallel RHS. This
+addresses the deferred traced Q04 evolution and avoids interpreting an
+artificially closed patch as the full-grid dynamics. Measure feasibility before
+launching N32/N48/N64 evolved qualification; no run is started by this note.
+
+The [parent implementation review](../../../../work/q09_harness_review_20261004/report.md)
+records 28 focused tests passed and one multi-device hardware skip; an independent
+parent rerun of all 13 new Q09 tests also passed. These cover time-dependent
+forcing/stage refresh, fourth-order temporal algebra, actual bounded HSX t0
+action/BC replay, complete-mode JIT/JVP wiring, dynamic prepared-array inputs and
+content-checked restart. The existing Q08 action, reference and RK4 sources
+remain unchanged. The checked full-bank input adapter is now implemented in
+`scripts/q09_evolved_mms/inputs.py`: it verifies saved Q08 receipts/files, merges
+saved owner-closed banks, loads canonical C3 geometry/physical volumes and
+prepares independent raw material-reference data in bounded checkpointed chunks.
+Checked smooth continuum diffusion references are reused. The
+[adapter audit](../../../../work/q09_input_adapter_20261004/report.md) records
+40 focused tests passed, one hardware skip, and actual-HSX reference reuse at
+seven N32 owners: consumed remote R columns agree within 1.784e-11 with fresh
+local evaluation; time-dependent source reconstruction agrees within 2.105e-13
+at t=0,.4,1. Canonical inputs remain local, but the full saved banks were retired
+locally. The [short remote N32 timestep pilot](../../../scripts/q09_evolved_mms/README.md)
+is now prepared using the retained Q08 banks: diffusion and complete parallel
+RHS, uniform D/N plus both mixed patterns, dt=1e-6/5e-7/2.5e-7 to t=1e-5
+(10/20/40 steps, 24 level runs). Numerical evolution uses an actual A100 with
+CPU input/reference preparation; no retracing or CPU RHS fallback. Source/input
+hashes, checkpoint resume, stage validity and independent saved-state reductions
+are required. No temporal-order gate is inferred at this potentially roundoff-limited
+duration. Full-domain loading/evolution and GPU time
+integration are unperformed; bounded checks are not a solution/stability pass.
+
 - Evolve to a fixed physical time with timestep refinement and the same global
   solution-order target. First prescribe manufactured phi; then repeat with
   the independently certified polarization closure. Keep the latter result
@@ -3499,8 +3547,8 @@ The [original Phase A task](thread://01a0b561-d18d-78b1-b85f-bfe3d67efe49?hostId
 | Q05 | Shared traced preparation/application | Accepted traced-static preparation exception | closed by user acceptance | [Corrected extraction and second review](../../../../work/q05_traced_extraction_20260929/review_v2/report.md): 36 focused + 30 curated checks; 42 site/span replays and two full N64 chunks; max discrepancy 4.467e-10 < 1e-8. User closes Q05 on this evidence; complete-domain action replay remains unperformed and is waived as a Q06 prerequisite. No production promotion or Q04 structural/evolved pass. |
 | Q06 | Certify parallel gradient/divergence pairs | Q05 closed by user acceptance | closed by user acceptance; scoped static qualification | [Contract](q06_traced_gradient_divergence_contract.md), [global traced G](../../../../work/q06_traced_gradient_global_20260930/parent_review.md), [global tube D](../../../../work/q06_tube_global_20260929/parent_review.md), [structural audit](../../../../work/q06_structural_boundary_audit_20260930/report.md). Exact adjointness and owner-weighted conservation do not hold. [Smooth bulk balance](../../../../work/q06_resolved_conservation_20260930/parent_review.md) improves for all eight fields; N64 imbalance/activity 0.004–0.115%. User closes Q06 on 30 September with unchanged operators and documented approximate-balance/non-adjointness exceptions; no evolved or production pass. Continuum N-R/local maximum limits retained. Exterior ghosts unexercised; D(G f) diffusion unnecessary for closure and deferred. |
 | Q07 | Transport and material blocks | Q06 closed with exceptions | five-field static material qualified; bounded prescribed-boundary six-field assembly passed; full closure pending | [Contract](q07_transport_contract.md), [C3 h/32 global review](../../../../work/q07_c3_global_review_20261001/report.md), [six-field assembly](../../../../work/q07_six_field_assembly_20261002/report.md). User accepts the five material fields with documented exceptions. Six-field owner-state assembly replays material, current/phi, vorticity and constant diffusion channels, including D/N/mixed BCs. Keep C3, RK4-64, h/32 material inner and h/16 outer separation, balanced material tube and frozen donors; diffusion spans remain explicit. Next: Q08 engineering consolidation/pilot and remaining C3 static coverage for current/phi, vorticity and diffusion transfer. General basis/enrichment searches are deferred. Physical sheath/SAT, exterior crossings, evolution and production remain open. |
-| Q08 | Traced-span selection, frozen coupled parallel RHS and performance audit | Q07; engineering audit may proceed alongside remaining Q07 coverage | in progress: h/32/five planes frozen; local closeout complete; focused global Ti N replay pending | [Shared extraction plan](q08_shared_extraction_plan.md), [GPU review](../../../../work/q08-verification-v2-149644b9-Apdb1a/local_report.md), [global MMS review](../../../../work/q08_rhs_mms_return_analysis_20261003/report.md), [local closeout](../../../../work/q08_closeout_20261004/report.md). All 1,056 implementation replays pass; N64 warmed RHS is 34.74/10.30 ms on one/four A100s. All base operator spans use h/32, with paired twice-inner outer characteristic sampling. Unequal-resolution check waived as a prerequisite, not tested. Memory guard calibrated against both remote campaigns; 21 harness/closeout tests and bounded Ti replay pass; signed O/R corrected at all 313,696 owners. Full numerical Ti replay requires the existing Perlmutter banks and actual GPU, without another complete RHS campaign. Existing scientific exceptions, full-domain dynamics and production limits remain. |
-| Q09 | Evolved MMS and promotion | Q08; P07 for reconstructed phi | pending | Both phi legs, solution gates, structural and execution qualification; confirm Q08 span choices in evolution before production defaults. |
+| Q08 | Traced-span selection, frozen coupled parallel RHS and performance audit | Q07; engineering audit may proceed alongside remaining Q07 coverage | closed by user acceptance, 4 October; frozen static/engineering scope with accuracy exceptions | [Shared extraction plan](q08_shared_extraction_plan.md), [GPU review](../../../../work/q08-verification-v2-149644b9-Apdb1a/local_report.md), [global MMS review](../../../../work/q08_rhs_mms_return_analysis_20261003/report.md), [local closeout](../../../../work/q08_closeout_20261004/report.md), [final Ti replay](../../../../work/q08_ti_return_20261004/report.md). All 1,056 implementation replays pass; N64 warmed RHS is 34.74/10.30 ms on one/four A100s. All base spans use h/32, with paired twice-inner outer characteristic sampling and five eta planes. Unequal-resolution check waived as a prerequisite, not tested. Focused Ti GPU replay covers 313,696 owners, 22 states and D/N; smooth N-O is approximately fourth order, N-R retains its O-R-dominated 0.883 fine-interval order. Every nonconstant regional RMS decreases; inner wave N-O minimum 1.973 and outermost Neumann wave relative N-R 7.82% remain explicit limits. No production or evolved-stability qualification is implied. |
+| Q09 | Evolved MMS and promotion | Q08; P07 for reconstructed phi | prescribed-phi harness and checked input adapter implemented/reviewed; remote N32 pilot pending | [Contract](q09_evolved_mms_contract.md), [harness review](../../../../work/q09_harness_review_20261004/report.md), [adapter audit](../../../../work/q09_input_adapter_20261004/report.md). 40 focused tests pass, one multi-device skip. Actual bounded HSX remote-reference reuse passes; full saved banks are retained remotely. Next timestep-refined N32 traced-diffusion and six-field evolution; measure cost before the spatial campaign. Both phi legs, solution gates, structural and execution qualification remain unperformed. Confirm Q08 span choices in evolution before production defaults. |
 | Q traced-return research | Frozen selective-repair traced diffusion | Completed layered/balanced/selective campaigns and interface audit | static reconstruction accuracy accepted with documented exceptions; operator frozen | [Frozen contract](q_traced_diffusion_frozen_contract.md), [global result](../../../../work/q_fci_selective_global_20260929/report.md), [interface audit](../../../../work/q_fci_repair_interface_audit_20260929/report.md). Whole-inner nonconstant RMS order>2 for both intervals/spans; localized join/coarse-envelope and O-R limitations retained. Current implementation choice is selective gradient repair, not always-balanced28. Q05 extraction closed by user acceptance on reviewed bounded evidence; Q06 static traced G/D closed with exceptions; next Q07 bounded density-flux block. Production defaults and broader Q04 certification remain unchanged. Earlier projected-return failures remain historical evidence. |
 
 ### Q bounded interior return-map audit — 2026-09-23
