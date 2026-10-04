@@ -521,31 +521,42 @@ def test_stage6_source_routes_through_production_rhs_and_not_a_second_rhs():
     assert "_build_stage6_modal_reference" in source
 
 
-def _full_reference(args):
+def _full_reference(args, **kwargs):
     params = sanity._stage6_parameters(args, "drift-wave")
     _, ky, kpar, kperp2 = sanity._stage6_wavenumbers(args)
     return np.asarray(full_drb_resistive_drift_wave_operator(
         ky, kperp2, kpar, float(params.rho_star), float(args.slab_bfield),
         float(args.drift_wave_gradient), float(params.tau),
-        float(params.mi_over_me), float(params.Ve_nu),
+        float(params.mi_over_me), float(params.Ve_nu), **kwargs,
     ))
 
 
-def test_independent_six_field_reference_entries_and_order():
-    """Check every entry against the continuous six-field equations."""
+@pytest.mark.parametrize("variable", ["phi_plus_tau_pi", "phi_plus_tau_ti"])
+def test_independent_six_field_reference_entries_and_order(variable):
+    """Check every entry against the continuous six-field equations.
+
+    delta_phi = -delta_omega/kperp2 - tau*(c*delta_n + delta_Ti) with c = 1
+    for the hot-ion polarization omega = L_perp(phi + tau n Ti) (default) and
+    c = 0 for the legacy omega = L_perp(phi + tau Ti); delta_phi enters only
+    the density row and the electron parallel-momentum row.
+    """
     args = _stage6_args(mode="drift-wave")
-    A = _full_reference(args)
+    A = _full_reference(args, polarization_variable=variable)
+    c = 1.0 if variable == "phi_plus_tau_pi" else 0.0
+    default = _full_reference(args)
+    if c:
+        np.testing.assert_array_equal(A, default)
     params = sanity._stage6_parameters(args, "drift-wave")
     _, ky, kpar, kperp2 = sanity._stage6_wavenumbers(args)
     B, rho, tau = float(args.slab_bfield), float(params.rho_star), float(params.tau)
     mu, nu, G = float(params.mi_over_me), float(params.Ve_nu), float(args.drift_wave_gradient)
     D, d = 1j * kpar, ky * G / (rho * B)
     E = np.zeros((6, 6), dtype=complex)
-    E[0] = (0, 0, -1j*d*tau, 0, -D, -1j*d/kperp2)
+    E[0] = (-1j*d*tau*c, 0, -1j*d*tau, 0, -D, -1j*d/kperp2)
     E[1] = (0, 0, 0, (2/3)*0.71*D, -(2/3)*1.71*D, 0)
     E[2, 4] = -(2/3)*D
     E[3] = (-(1+tau)*D, -D, -tau*D, 0, 0, 0)
-    E[4] = (-mu*D, -1.71*mu*D, -mu*tau*D, mu*nu, -mu*nu, -mu*D/kperp2)
+    E[4] = (-mu*D*(1 + tau*c), -1.71*mu*D, -mu*tau*D, mu*nu, -mu*nu, -mu*D/kperp2)
     E[5] = (0, 0, 0, B**2*D, -B**2*D, 0)
     np.testing.assert_allclose(A, E, rtol=1e-13, atol=1e-13)
 

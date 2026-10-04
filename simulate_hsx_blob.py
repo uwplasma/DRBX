@@ -2396,11 +2396,14 @@ def run_full_eb(
                 control_volume_fields_owned,
             )
             face_bc = model._face_bcs(local_state)
+            pressure_owned, pressure_bc = model._polarization_pressure(
+                local_state, face_bc
+            )
             vorticity = model._vorticity_from_polarization(
                 local_state.phi,
-                local_state.Ti,
+                pressure_owned,
                 face_bc.phi,
-                face_bc.Ti,
+                pressure_bc,
             )
             return model._owner_state(local_state.replace(vorticity=vorticity))
 
@@ -2974,12 +2977,46 @@ def run_full_eb(
             # Different curvature wall closures can leave the visible state
             # almost unchanged while injecting a hard, grid-scale component
             # into the next polarization solve.  Apply the exact production
-            # Ti Laplacian to the stage RHS so replay files expose the source
-            # tendency tau*Lperp(Ti_t)-omega_t directly.
-            rhs_polarization_terms = model.polarization_balance_terms(
-                rhs.replace(phi=jnp.zeros_like(rhs.phi)),
-                phi_owned=jnp.zeros_like(rhs.phi),
-            )
+            # polarization-pressure Laplacian to the stage RHS so replay files
+            # expose the source tendency tau*Lperp(q_t)-omega_t directly.
+            # Legacy (q = Ti) is linear in Ti, so the RHS Ti tendency is
+            # passed straight through.  For the default hot-ion form q = n Ti,
+            # q_t = Ti*n_t + n*Ti_t is formed from the reconstructed state and
+            # the RHS tendencies, and the RHS-state Ti face payload (the
+            # homogeneous tendency closure used by the legacy path) is kept.
+            rhs_zero_phi = rhs.replace(phi=jnp.zeros_like(rhs.phi))
+            if model.parameters.polarization_variable == "phi_plus_tau_ti":
+                rhs_polarization_terms = model.polarization_balance_terms(
+                    rhs_zero_phi,
+                    phi_owned=jnp.zeros_like(rhs.phi),
+                )
+            else:
+                rhs_face_bc = model._face_bcs(rhs_zero_phi)
+                pressure_tendency = (
+                    model._owner_field(reconstructed.Ti)
+                    * model._owner_field(rhs.density)
+                    + model._owner_field(reconstructed.density)
+                    * model._owner_field(rhs.Ti)
+                )
+                pressure_action = model._positive_polarization_action(
+                    model._polarization_solver(
+                        rhs_face_bc.phi,
+                        config=replace(
+                            model.gmres_config, regularization_epsilon=0.0
+                        ),
+                    ),
+                    pressure_tendency,
+                    rhs_face_bc.Ti,
+                )
+                rhs_polarization_terms = jnp.stack(
+                    (
+                        jnp.zeros_like(rhs.phi),
+                        -jnp.asarray(model.parameters.tau, dtype=jnp.float64)
+                        * pressure_action,
+                        -jnp.asarray(rhs.vorticity, dtype=jnp.float64),
+                    ),
+                    axis=0,
+                )
             polarization_source_tendency = (
                 rhs_polarization_terms[1] + rhs_polarization_terms[2]
             )

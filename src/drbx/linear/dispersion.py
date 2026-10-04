@@ -149,6 +149,7 @@ def full_drb_resistive_drift_wave_operator(
     tau,
     mu,
     nu,
+    polarization_variable="phi_plus_tau_pi",
 ):
     """Continuous six-field electrostatic DRB slab operator.
 
@@ -157,10 +158,18 @@ def full_drb_resistive_drift_wave_operator(
     ``q = (delta_n, delta_Te, delta_Ti, delta_Vi, delta_Ve, delta_omega)``.
     It is derived directly from the continuous legacy EB equations on a flat,
     constant-``B0`` slab about ``n0(x)=1+gradient*x``, ``Te0=Ti0=1`` and zero
-    flow.  The polarization closure is eliminated analytically using
-    ``delta_phi = -delta_omega/kperp2 - tau*delta_Ti``.  This sign follows the
-    Boussinesq balance ``L_perp(phi) = omega - tau*L_perp(Ti)`` and matches the
-    production residual ``-L_perp(phi) - tau*L_perp(Ti) + omega = 0``.
+    flow.  The polarization closure is eliminated analytically.  With the
+    default ``polarization_variable="phi_plus_tau_pi"`` (hot-ion Boussinesq
+    balance ``omega = L_perp(phi + tau*p_i)``, ``p_i = n*Ti``) the
+    linearization about ``n0 = Ti0 = 1`` gives ``delta_p_i = delta_n +
+    delta_Ti`` and ``delta_phi = -delta_omega/kperp2 - tau*(delta_n +
+    delta_Ti)``; this matches the production residual
+    ``-L_perp(phi) - tau*L_perp(p_i) + omega = 0``.  The legacy selector
+    ``"phi_plus_tau_ti"`` uses ``delta_phi = -delta_omega/kperp2 -
+    tau*delta_Ti`` (balance ``omega = L_perp(phi + tau*Ti)``).  ``delta_phi``
+    enters only the density row (E x B advection of ``n0``) and the electron
+    parallel-momentum row, so the selector changes exactly the ``delta_n``
+    column of those two rows: ``-1j*d*tau`` and ``-mu*D*tau`` are added there.
 
     This routine intentionally has no dependency on the production spatial
     discretization or RHS implementation so it can serve as an independent
@@ -176,17 +185,34 @@ def full_drb_resistive_drift_wave_operator(
     tau = jnp.asarray(tau, dtype=jnp.float64)
     mu = jnp.asarray(mu, dtype=jnp.float64)
     nu = jnp.asarray(nu, dtype=jnp.float64)
+    if polarization_variable == "phi_plus_tau_pi":
+        density_in_phi = 1.0
+    elif polarization_variable == "phi_plus_tau_ti":
+        density_in_phi = 0.0
+    else:
+        raise ValueError(
+            "polarization_variable must be 'phi_plus_tau_pi' or "
+            f"'phi_plus_tau_ti', got {polarization_variable!r}"
+        )
     D = 1j * k_par
     d = k_y * gradient / (rho_star * b0)
     two_thirds = jnp.asarray(2.0 / 3.0, dtype=jnp.float64)
+    # delta_phi = -delta_omega/kperp2 - tau*(density_in_phi*delta_n + delta_Ti)
     return jnp.array(
         [
-            [0, 0, -1j * d * tau, 0, -D, -1j * d / kperp2],
+            [
+                -1j * d * tau * density_in_phi,
+                0,
+                -1j * d * tau,
+                0,
+                -D,
+                -1j * d / kperp2,
+            ],
             [0, 0, 0, two_thirds * 0.71 * D, -two_thirds * 1.71 * D, 0],
             [0, 0, 0, 0, -two_thirds * D, 0],
             [-(1 + tau) * D, -D, -tau * D, 0, 0, 0],
             [
-                -mu * D,
+                -mu * D * (1.0 + tau * density_in_phi),
                 -mu * 1.71 * D,
                 -mu * tau * D,
                 mu * nu,

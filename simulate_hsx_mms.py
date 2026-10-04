@@ -160,6 +160,9 @@ def _fourth_order_structured_derivatives(values, coordinates, periods=None):
 # on the same perpendicular diffusion coefficient for every evolved field.
 PHYSICAL_PARAMETERS = {
     "tau": 1.0,
+    # Hot-ion Boussinesq polarization omega = L_perp(phi + tau*n*Ti); the
+    # reference and the production RHS must use the same selector.
+    "polarization_variable": "phi_plus_tau_pi",
     "mi_over_me": 1836.0,
     "rho_star": 1.0,
     "density_D_perp": 1.0e-5,
@@ -767,6 +770,7 @@ def _runtime(geometry, host, args):
     )
     params = blob.FciDrbEBRhsParameters(
         tau=PHYSICAL_PARAMETERS["tau"],
+        polarization_variable=PHYSICAL_PARAMETERS["polarization_variable"],
         mi_over_me=PHYSICAL_PARAMETERS["mi_over_me"],
         rho_star=PHYSICAL_PARAMETERS["rho_star"],
         phi_inversion_iterations=PRODUCTION_GMRES["max_iterations"],
@@ -2150,6 +2154,7 @@ def run(args):
         Ve_nu=PHYSICAL_PARAMETERS["Ve_nu"],
         perp_diffusion=PHYSICAL_PARAMETERS["density_D_perp"],
         enable_generalized_potential=True,
+        polarization_variable=PHYSICAL_PARAMETERS["polarization_variable"],
     )
     args.reference = reference
     args.metric_context = SimpleNamespace(

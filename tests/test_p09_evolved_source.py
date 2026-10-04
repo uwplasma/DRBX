@@ -133,8 +133,10 @@ def _synthetic_geometry(seed=6, q=60, n_own=7, faces=15, qd=11, qn=9):
     return Geometry(**{k: jnp.asarray(v) for k, v in geo.items()})
 
 
-def _numpy_reference(geo, st, t, params):
-    """The host definitions of ``reference_rhs`` (numpy ``point_bracket`` / ``_continuum_terms`` / loops)."""
+def _numpy_reference(geo, st, t, params, variable="phi_plus_tau_pi"):
+    """The host definitions of ``reference_rhs`` (numpy ``point_bracket`` / ``_continuum_terms`` / loops).
+
+    ``psi = phi + tau n Ti`` (hot-ion polarization; ``phi + tau Ti`` for ``variable="phi_plus_tau_ti"``)."""
     g = {k: np.asarray(v) for k, v in geo._asdict().items()}
     n_own = len(g["owner_volume"])
     v, gr, dt = (np.asarray(a) for a in st.jit_value_grad_dt(g["points"], t))
@@ -158,9 +160,15 @@ def _numpy_reference(geo, st, t, params):
         p06numerics.TAU = old_tau
     wden = np.maximum(mean(g["evolution_weight"][:, None], np.ones(len(own)), np.ones(n_own))[:, 0], 1e-300)
     curv = mean(total, g["evolution_weight"], wden)
-    _v, gf = st.jit_value_grad(g["face_points"].reshape(-1, 3), t)
+    vf, gf = st.jit_value_grad(g["face_points"].reshape(-1, 3), t)
     gf = np.asarray(gf).reshape(len(g["face_lower"]), 9, 5, 3)
-    gf = np.concatenate([gf[:, :, :4], (gf[:, :, 4] + float(params.tau) * gf[:, :, 2])[:, :, None]], axis=2)
+    vf = np.asarray(vf).reshape(len(g["face_lower"]), 9, 5)
+    tau = float(params.tau)
+    if variable == "phi_plus_tau_pi":      # grad(phi + tau n Ti) = grad phi + tau (Ti grad n + n grad Ti)
+        grad_psi = gf[:, :, 4] + tau * (vf[:, :, 2, None] * gf[:, :, 0] + vf[:, :, 0, None] * gf[:, :, 2])
+    else:
+        grad_psi = gf[:, :, 4] + tau * gf[:, :, 2]
+    gf = np.concatenate([gf[:, :, :4], grad_psi[:, :, None]], axis=2)
     face_o = np.einsum("fqa,fqka->fk", g["face_integrand"], gf)
     o = np.zeros((n_own, 5))
     for f in range(len(face_o)):
@@ -175,20 +183,35 @@ def _numpy_reference(geo, st, t, params):
             "Rbar": rbar, "S": dqbar[:, :4] - rbar, "Dbar_psi": -o[:, 4], "sigma": qbar[:, 3] + o[:, 4]}
 
 
-def test_evaluate_matches_numpy_pipeline_and_time_derivatives():
+@pytest.mark.parametrize("variable", ["phi_plus_tau_pi", "phi_plus_tau_ti"])
+def test_evaluate_matches_numpy_pipeline_and_time_derivatives(variable):
     geo = _synthetic_geometry()
     params = S.default_params(0.05, 1.0, np.asarray([0.01, 0.02, 0.03, 0.04]))
-    src = S.Source(1.0, TIME, block=32)                    # block smaller than the point count: padding is exercised
+    # block smaller than the point count: padding is exercised
+    src = S.Source(1.0, TIME, block=32, polarization_variable=variable)
     st = F.TimeState(TIME, 1.0)
     t = 0.017
     out = src.evaluate(geo, t, params)
-    ref = _numpy_reference(geo, st, t, params)
+    ref = _numpy_reference(geo, st, t, params, variable)
     for key, r in ref.items():
         assert _rel(out[key], r) <= 1e-13, key
     # dqbar_dt vs central differences of qbar(t); S is built from it
     h = 1e-5
     fd = (np.asarray(src.evaluate(geo, t + h, params)["qbar"]) - np.asarray(src.evaluate(geo, t - h, params)["qbar"])) / (2 * h)
     assert _rel(out["dqbar_dt"], fd) < 1e-7
+
+
+def test_polarization_variable_changes_only_the_psi_functional():
+    geo = _synthetic_geometry()
+    params = S.default_params(0.05, 0.7, np.asarray([0.01, 0.02, 0.03, 0.04]))
+    new = S.Source(1.0, TIME, block=32).evaluate(geo, 0.017, params)
+    old = S.Source(1.0, TIME, block=32, polarization_variable="phi_plus_tau_ti").evaluate(geo, 0.017, params)
+    for key in new:                       # the curvature split cpsi and every evolved-field lane are unchanged
+        if key not in ("Dbar_psi", "sigma"):
+            assert np.array_equal(np.asarray(new[key]), np.asarray(old[key])), key
+    assert _rel(new["Dbar_psi"], old["Dbar_psi"]) > 1e-6
+    with pytest.raises(ValueError, match="polarization_variable"):
+        S.Source(1.0, TIME, polarization_variable="phi_plus_tau_te")
 
 
 def test_boundary_data_and_time_derivative():
@@ -203,7 +226,14 @@ def test_boundary_data_and_time_derivative():
     assert _rel(bc.dirichlet_tangential, np.moveaxis(g[:, :, 1:], 1, 2)) <= 1e-15
     gn = np.asarray(st.jit_value_grad(np.asarray(geo.neumann_points), t)[1])
     assert _rel(bc.neumann_normal, np.einsum("qa,qfa->qf", np.asarray(geo.neumann_a), gn)) <= 1e-14
-    assert _rel(psi.dirichlet_value[:, 0], v[:, 4] + v[:, 2]) <= 1e-15 and psi.neumann_normal is None
+    tau = float(params.tau)
+    assert _rel(psi.dirichlet_value[:, 0], v[:, 4] + tau * v[:, 0] * v[:, 2]) <= 1e-15 and psi.neumann_normal is None
+    tang = np.moveaxis(g[:, :, 1:], 1, 2)                                   # (Qd, 2, 5)
+    expected = tang[:, :, 4] + tau * (v[:, None, 2] * tang[:, :, 0] + v[:, None, 0] * tang[:, :, 2])
+    assert _rel(psi.dirichlet_tangential[:, :, 0], expected) <= 1e-14
+    legacy_bc, legacy_psi = S.Source(1.0, TIME, block=4, polarization_variable="phi_plus_tau_ti").boundary(geo, t, params)
+    assert _rel(legacy_psi.dirichlet_value[:, 0], v[:, 4] + tau * v[:, 2]) <= 1e-15
+    assert _rel(legacy_psi.dirichlet_tangential[:, :, 0], tang[:, :, 4] + tau * tang[:, :, 2]) <= 1e-15
     (b0, p0), (db, dp) = src.boundary_dt(geo, t, params)
     h = 1e-5
     bp, pp = src.boundary(geo, t + h, params)

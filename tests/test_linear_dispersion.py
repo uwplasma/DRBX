@@ -244,3 +244,43 @@ def test_jacobian_operator_recovers_a_known_linear_system() -> None:
     # eigenvalues are 0.5 and -0.2 +/- 3i
     assert np.allclose(growths, [-0.2, -0.2, 0.5], atol=1e-10)
     assert np.allclose(freqs, [0.0, 3.0, 3.0], atol=1e-10)
+
+
+# --- hot-ion Boussinesq polarization in the six-field slab reference ----------
+
+def _six_field(tau: float, **kwargs) -> np.ndarray:
+    from drbx.linear import dispersion
+
+    return np.asarray(
+        dispersion.full_drb_resistive_drift_wave_operator(
+            0.4, 1.7, 0.3, 1.0, 1.2, 0.5, tau, 1836.0, 0.01, **kwargs
+        )
+    )
+
+
+def test_six_field_polarization_tau_zero_is_selector_independent() -> None:
+    np.testing.assert_array_equal(
+        _six_field(0.0), _six_field(0.0, polarization_variable="phi_plus_tau_ti")
+    )
+
+
+def test_six_field_polarization_density_coupling_entries() -> None:
+    """delta_phi = -delta_omega/k2 - tau*(delta_n + delta_Ti): n column only."""
+
+    tau, ky, kpar, rho, b0, grad, mu = 0.8, 0.4, 0.3, 1.0, 1.2, 0.5, 1836.0
+    new = _six_field(tau)
+    legacy = _six_field(tau, polarization_variable="phi_plus_tau_ti")
+    np.testing.assert_array_equal(new, _six_field(tau, polarization_variable="phi_plus_tau_pi"))
+    d = ky * grad / (rho * b0)
+    diff = new - legacy
+    expected = np.zeros((6, 6), dtype=complex)
+    expected[0, 0] = -1j * d * tau
+    expected[4, 0] = -mu * 1j * kpar * tau
+    np.testing.assert_allclose(diff, expected, rtol=1e-13, atol=1e-13)
+    # The legacy dn/dt row carries no direct delta_n self-coupling.
+    assert legacy[0, 0] == 0.0 and new[0, 0] != 0.0
+
+
+def test_six_field_polarization_rejects_unknown_variable() -> None:
+    with pytest.raises(ValueError, match="polarization_variable"):
+        _six_field(1.0, polarization_variable="phi_plus_tau_te")

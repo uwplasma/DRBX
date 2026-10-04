@@ -621,8 +621,21 @@ class FciDrbEBRhsParameters:
             "primitive-least-residual",
         )
     )
+    # Boussinesq polarization closure for the potential solve.  The default
+    # hot-ion form is omega = Lperp(phi + tau p_i) with p_i = n Ti;
+    # ``phi_plus_tau_ti`` is the legacy omega = Lperp(phi + tau Ti) form.
+    # Only the polarization relation is selected here: the curvature
+    # remainder and parallel composite splits of phi are unchanged.
+    polarization_variable: str = "phi_plus_tau_pi"
 
     def __post_init__(self):
+        if self.polarization_variable not in (
+            "phi_plus_tau_pi", "phi_plus_tau_ti",
+        ):
+            raise ValueError(
+                "polarization_variable must be 'phi_plus_tau_pi' or "
+                f"'phi_plus_tau_ti', got {self.polarization_variable!r}"
+            )
         if self.parallel_characteristic_wall_law not in (
             "primitive-least-residual", "energy-absorbing",
             "physical-boundary-state",
@@ -661,7 +674,10 @@ class FciDrbEBRhsParameters:
                 self.vorticity_D_perp,
                 self.vorticity_D_parallel,
             ),
-            self.parallel_characteristic_wall_law,
+            (
+                self.parallel_characteristic_wall_law,
+                self.polarization_variable,
+            ),
         )
 
     @classmethod
@@ -715,7 +731,8 @@ class FciDrbEBRhsParameters:
             Vi_parallel_viscosity=Vi_parallel_viscosity,
             vorticity_D_perp=vorticity_D_perp,
             vorticity_D_parallel=vorticity_D_parallel,
-            parallel_characteristic_wall_law=_aux_data,
+            parallel_characteristic_wall_law=_aux_data[0],
+            polarization_variable=_aux_data[1],
         )
 
 
@@ -1707,21 +1724,90 @@ class LocalFciDrbEBRhs:
         )
         return gauge_weights, gauge_affine_offset, gauge_target
 
+    def _polarization_pressure(
+        self,
+        state_owned: FciDrbEBState,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+    ) -> tuple[jnp.ndarray, LocalBoundaryFaceBC3D]:
+        """Return the field ``q`` and face data in the polarization ``phi + tau q``.
+
+        ``polarization_variable='phi_plus_tau_ti'`` (legacy) returns
+        ``(Ti, face_bc.Ti)`` unchanged.  The default hot-ion Boussinesq form
+        returns ``p_i = n Ti`` formed from the owner-space fields together with
+        a derived physical-face payload for ``p_i``:
+
+        * both fields Dirichlet: Dirichlet with value ``n_b Ti_b``;
+        * both fields Neumann (value = normal derivative): Neumann with value
+          ``Ti_f g_n + n_f g_Ti`` (product rule), where ``n_f`` and ``Ti_f``
+          are the face traces of each field under its own closure.
+
+        Every shipped wall model gives density and Ti the same kind and mask.
+        A face where the two payloads disagree (mixed kinds, or only one
+        mask active) has no product closure; its value is set to NaN so the
+        inconsistency is loud instead of silently choosing a rule.
+        """
+
+        if self.parameters.polarization_variable == "phi_plus_tau_ti":
+            return state_owned.Ti, face_bc.Ti
+        density = self._owner_field(state_owned.density)
+        ti = self._owner_field(state_owned.Ti)
+        density_bc = face_bc.density
+        ti_bc = face_bc.Ti
+        density_trace = build_local_boundary_face_trace_from_halo(
+            self._prepare_scalar_halo(density, density_bc),
+            self.geometry,
+            self.domain,
+            density_bc,
+        )
+        ti_trace = build_local_boundary_face_trace_from_halo(
+            self._prepare_scalar_halo(ti, ti_bc),
+            self.geometry,
+            self.domain,
+            ti_bc,
+        )
+        fields: dict[str, jnp.ndarray] = {}
+        for axis in ("x", "y", "z"):
+            kind_n = getattr(density_bc, f"kind_{axis}")
+            kind_t = getattr(ti_bc, f"kind_{axis}")
+            g_n = getattr(density_bc, f"value_{axis}")
+            g_t = getattr(ti_bc, f"value_{axis}")
+            n_face = getattr(density_trace, f"value_{axis}")
+            t_face = getattr(ti_trace, f"value_{axis}")
+            mask = getattr(density_bc, f"mask_{axis}") | getattr(
+                ti_bc, f"mask_{axis}"
+            )
+            both_dirichlet = (kind_n == BC_DIRICHLET) & (kind_t == BC_DIRICHLET)
+            both_neumann = (kind_n == BC_NEUMANN) & (kind_t == BC_NEUMANN)
+            value = jnp.where(
+                both_dirichlet,
+                g_n * g_t,
+                jnp.where(both_neumann, t_face * g_n + n_face * g_t, jnp.nan),
+            )
+            fields[f"kind_{axis}"] = jnp.where(
+                both_neumann, BC_NEUMANN, BC_DIRICHLET
+            )
+            fields[f"value_{axis}"] = value
+            fields[f"mask_{axis}"] = mask
+        pressure_bc = LocalBoundaryFaceBC3D(layout=density_bc.layout, **fields)
+        return density * ti, pressure_bc
+
     def _vorticity_from_polarization(
         self,
         phi_owned: jnp.ndarray,
-        Ti_owned: jnp.ndarray,
+        pressure_owned: jnp.ndarray,
         phi_face_bc: LocalBoundaryFaceBC3D,
-        Ti_face_bc: LocalBoundaryFaceBC3D,
+        pressure_face_bc: LocalBoundaryFaceBC3D,
     ) -> jnp.ndarray:
         """Derive omega from the polarization balance relation.
 
         This is a post-reconstruction helper, not a boundary condition.  The
         evolved vorticity state remains untouched; callers may use this when
         a downstream trace or diagnostic needs the wall-consistent
-        polarization image of ``phi + tau Ti``.  The two fields retain their
-        own physical face payloads, so the selected action is evaluated as
-        ``-A(phi; phi_face_bc) - tau A(Ti; Ti_face_bc)``; this preserves
+        polarization image of ``phi + tau q``, where ``q`` is the field
+        returned by :meth:`_polarization_pressure` (``p_i = n Ti`` by default,
+        ``Ti`` for the legacy selector).  The two fields retain their own
+        physical face payloads, so the selected action is evaluated as
+        ``-A(phi; phi_face_bc) - tau A(q; pressure_face_bc)``; this preserves
         distinct affine Dirichlet/Neumann data rather than combining fields
         before applying one boundary closure.
         """
@@ -1737,12 +1823,15 @@ class LocalFciDrbEBRhs:
             jnp.asarray(phi_owned, dtype=jnp.float64),
             phi_face_bc,
         )
-        ti_action = self._positive_polarization_action(
+        pressure_action = self._positive_polarization_action(
             solver,
-            jnp.asarray(Ti_owned, dtype=jnp.float64),
-            Ti_face_bc,
+            jnp.asarray(pressure_owned, dtype=jnp.float64),
+            pressure_face_bc,
         )
-        return -phi_action - jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_action
+        return (
+            -phi_action
+            - jnp.asarray(self.parameters.tau, dtype=jnp.float64) * pressure_action
+        )
 
     def recover_polarization_multiplier(
         self,
@@ -1753,9 +1842,10 @@ class LocalFciDrbEBRhs:
         """Recover the augmented polarization multiplier from its raw residual.
 
         For the simplified GBS-MPE all-Neumann solve, the augmented equation
-        uses ``A phi + lambda*1 = -tau*A(Ti) - omega``.  Hence the exact
-        weighted raw-residual convention is
-        ``lambda = -mean_M(A(phi) + tau*A(Ti) + omega)``.  This helper does
+        uses ``A phi + lambda*1 = -tau*A(q) - omega`` with ``q = p_i = n Ti``
+        (``q = Ti`` for the legacy ``phi_plus_tau_ti`` selector).  Hence the
+        exact weighted raw-residual convention is
+        ``lambda = -mean_M(A(phi) + tau*A(q) + omega)``.  This helper does
         not solve for ``phi`` and leaves the raw polarization image unchanged.
         Non-augmented wall models have no such multiplier and return zero.
         """
@@ -1772,8 +1862,11 @@ class LocalFciDrbEBRhs:
         phi_action = self._positive_polarization_action(
             solver, jnp.asarray(phi_owned, dtype=jnp.float64), face_bc.phi
         )
+        pressure_owned, pressure_bc = self._polarization_pressure(
+            state_owned, face_bc
+        )
         ti_action = self._positive_polarization_action(
-            solver, jnp.asarray(state_owned.Ti, dtype=jnp.float64), face_bc.Ti
+            solver, jnp.asarray(pressure_owned, dtype=jnp.float64), pressure_bc
         )
         active, volume_weights = solver._operator_mass_weights()
         active = jnp.asarray(active, dtype=bool)
@@ -1815,11 +1908,14 @@ class LocalFciDrbEBRhs:
             mask_y=physical_masks[1],
             mask_z=physical_masks[2],
         )
+        pressure_owned, pressure_bc = self._polarization_pressure(
+            state_owned, face_bc
+        )
         omega_pol = self._vorticity_from_polarization(
             phi_owned,
-            state_owned.Ti,
+            pressure_owned,
             face_bc.phi,
-            face_bc.Ti,
+            pressure_bc,
         )
         if polarization_multiplier is None:
             polarization_multiplier = self.recover_polarization_multiplier(
@@ -5525,18 +5621,22 @@ class LocalFciDrbEBRhs:
         return_diagnostics: bool = False,
     ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
         solver = self._polarization_solver(face_bc.phi)
-        # Ti contributes the physical Laplacian, never the algebraic solver
-        # regularization.  Route every operator form through the same selected
-        # positive action so conservative RLP also receives H and raw-volume
-        # normalization.
+        # The polarization pressure (p_i = n Ti, or Ti for the legacy
+        # selector) contributes the physical Laplacian, never the algebraic
+        # solver regularization.  Route every operator form through the same
+        # selected positive action so conservative RLP also receives H and
+        # raw-volume normalization.
         physical_solver = self._polarization_solver(
             face_bc.phi,
             config=replace(self.gmres_config, regularization_epsilon=0.0),
         )
+        pressure_owned, pressure_bc = self._polarization_pressure(
+            state_owned, face_bc
+        )
         positive_ti_action = self._positive_polarization_action(
             physical_solver,
-            state_owned.Ti,
-            face_bc.Ti,
+            pressure_owned,
+            pressure_bc,
         )
         ti_laplacian = -positive_ti_action
         phi_rhs = (
@@ -5626,9 +5726,11 @@ class LocalFciDrbEBRhs:
         *,
         phi_owned: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
-        """Return ``(-Lperp phi, tau Lperp Ti, -omega)`` in owner space.
+        """Return ``(-Lperp phi, tau Lperp q, -omega)`` in owner space.
 
-        This diagnostic decomposition uses the exact production closures and
+        Here ``q = p_i = n Ti`` for the default hot-ion polarization
+        (``q = Ti`` for the legacy ``phi_plus_tau_ti`` selector).  This
+        diagnostic decomposition uses the exact production closures and
         RLP restriction.  Consequently ``terms[0] - terms[1] - terms[2]`` is
         bit-for-bit the algebraic residual returned by
         :meth:`polarization_residual`, apart from the final inactive mask.
@@ -5649,10 +5751,13 @@ class LocalFciDrbEBRhs:
             phi_owned,
             face_bc.phi,
         )
+        pressure_owned, pressure_bc = self._polarization_pressure(
+            state_owned, face_bc
+        )
         ti_action = self._positive_polarization_action(
             solver,
-            state_owned.Ti,
-            face_bc.Ti,
+            pressure_owned,
+            pressure_bc,
         )
         return jnp.stack(
             (

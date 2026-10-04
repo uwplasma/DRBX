@@ -375,13 +375,14 @@ def test_structured_periodic_derivative_converges_fourth_order_on_nonuniform_gri
     assert coarse / fine > 8.0
 
 
-def test_generalized_potential_polarization_and_vorticity_lanes_are_nonzero():
+@pytest.mark.parametrize("variable", ["phi_plus_tau_pi", "phi_plus_tau_ti"])
+def test_generalized_potential_polarization_and_vorticity_lanes_are_nonzero(variable):
     reference = _load(
         REFERENCE, "simulate_hsx_mms_generalized_potential_test"
     )
     ref = reference.ContinuumMmsReference(
         _SyntheticMetric(), object(), 1.0, tau=0.8, perp_diffusion=1.0e-5,
-        enable_generalized_potential=True,
+        enable_generalized_potential=True, polarization_variable=variable,
     )
     points = np.asarray(
         ((0.19, 0.31, 0.42), (0.37, 1.48, 2.31), (0.58, 2.79, 4.74),
@@ -391,14 +392,71 @@ def test_generalized_potential_polarization_and_vorticity_lanes_are_nonzero():
     prepared = ref.prepare(points)
     data = ref.evaluate(points, 0.23, prepared=prepared)
     psi, psi_du, psi_dtheta, psi_deta, _, psi_hessian = ref._psi_raw(points)
-    expected_phi = -ref.tau * (data.values["Ti"] - 1.0) + psi
+    # phi + tau*q = psi + tau with q = n*Ti (hot-ion) or Ti (legacy), so that
+    # omega = L_perp(psi) in both polarization forms.
+    if variable == "phi_plus_tau_pi":
+        q = data.values["density"] * data.values["Ti"]
+    else:
+        q = data.values["Ti"]
+    expected_phi = -ref.tau * (q - 1.0) + psi
     np.testing.assert_allclose(data.values["phi"], expected_phi, rtol=0.0, atol=1.0e-13)
+    np.testing.assert_allclose(
+        data.values["phi"] + ref.tau * q, psi + ref.tau, rtol=0.0, atol=1.0e-13
+    )
     expected_omega = psi_hessian[:, 0, 0] + psi_hessian[:, 1, 1]
     np.testing.assert_allclose(prepared.mms_omega, expected_omega, rtol=0.0, atol=1.0e-12)
     assert np.max(np.abs(data.values["vorticity"])) > 1.0e-6
     terms = ref.continuum_terms(points, 0.23, prepared=prepared)
     for lane in ("poisson_bracket", "parallel_advection", "perpendicular_diffusion"):
         assert np.max(np.abs(terms["vorticity"][lane])) > 1.0e-14
+
+
+def test_hot_ion_phi_gradient_hessian_and_time_derivative_follow_product_rule():
+    """Analytic ``phi = -tau (n Ti - 1) + psi`` derivatives vs finite differences."""
+    reference = _load(REFERENCE, "simulate_hsx_mms_product_rule_test")
+    ref = reference.ContinuumMmsReference(
+        _SyntheticMetric(), object(), 1.0, tau=0.8, perp_diffusion=1.0e-5,
+        enable_generalized_potential=True,
+    )
+    assert ref.polarization_variable == "phi_plus_tau_pi"
+    points = np.asarray(
+        ((0.19, 0.31, 0.42), (0.37, 1.48, 2.31), (0.58, 2.79, 4.74)),
+        dtype=np.float64,
+    )
+    time, h = 0.23, 1.0e-5
+    raw = ref._fields_raw(points, time)["phi"]
+    value, gradient, hessian = raw[0], np.stack(raw[1:4], axis=-1), raw[5]
+    for axis in range(3):
+        step = np.zeros(3)
+        step[axis] = h
+        up = ref._fields_raw(points + step, time)["phi"]
+        down = ref._fields_raw(points - step, time)["phi"]
+        np.testing.assert_allclose(
+            (up[0] - down[0]) / (2 * h), gradient[:, axis], rtol=1e-7, atol=1e-9
+        )
+        up_grad, down_grad = np.stack(up[1:4], axis=-1), np.stack(down[1:4], axis=-1)
+        np.testing.assert_allclose(
+            (up_grad - down_grad) / (2 * h), hessian[:, axis, :], rtol=1e-6, atol=1e-8
+        )
+    up, down = ref._fields_raw(points, time + h)["phi"], ref._fields_raw(points, time - h)["phi"]
+    np.testing.assert_allclose(
+        (up[0] - down[0]) / (2 * h), raw[4], rtol=1e-7, atol=1e-9
+    )
+    legacy = reference.ContinuumMmsReference(
+        _SyntheticMetric(), object(), 1.0, tau=0.8, perp_diffusion=1.0e-5,
+        enable_generalized_potential=True, polarization_variable="phi_plus_tau_ti",
+    )
+    assert np.max(np.abs(legacy._fields_raw(points, time)["phi"][0] - value)) > 1e-6
+    with pytest.raises(ValueError, match="polarization_variable"):
+        reference.ContinuumMmsReference(
+            _SyntheticMetric(), object(), 1.0, polarization_variable="phi_plus_tau_te"
+        )
+
+
+def test_mms_driver_uses_one_polarization_selector_for_reference_and_production():
+    source = DRIVER.read_text(encoding="utf-8")
+    assert 'polarization_variable=PHYSICAL_PARAMETERS["polarization_variable"]' in source
+    assert source.count('PHYSICAL_PARAMETERS["polarization_variable"]') == 2
 
 
 def test_reference_projector_uses_one_cell_midpoint():
