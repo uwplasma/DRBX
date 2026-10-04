@@ -162,10 +162,11 @@ def test_paired_encoding_decodes_bitwise_to_the_input_chunk(symmetric):
 
 
 def _check_factored_view(chunk, rows, data):
-    """``decode_chunk_factored``: tags and pointers as in the full decode; the rows of every source but the single tensor
-    sources (pairs come back merged, as CSR) are the full chunk's; expanding the singles' factors gives their rows."""
+    """``decode_chunk_factored(expand_pairs=True)``, the first-stage view: tags and pointers as in the full decode; the
+    rows of every source but the single tensor sources (pairs come back merged, as CSR) are the full chunk's; expanding
+    the singles' factors gives their rows."""
     full = decode_chunk("cells", data)
-    stored, tensor, is_tensor = art.decode_chunk_factored("cells", data)
+    stored, tensor, is_tensor = art.decode_chunk_factored("cells", data, expand_pairs=True)
     encoding = _arrays(data)["src_encoding"]
     assert np.array_equal(is_tensor, encoding == ENCODING_TENSOR)
     for name in ("request", "entity_id", "quad_node", "family", "conditioned", "bc_variant", "radial_degree",
@@ -190,7 +191,7 @@ def _check_factored_view(chunk, rows, data):
     return stored, tensor, is_tensor
 
 
-def test_decode_chunk_factored_returns_pairs_as_csr_and_singles_as_factors(symmetric):
+def test_decode_chunk_factored_can_return_pairs_as_csr_and_singles_as_factors(symmetric):
     chunk, factors, rows = symmetric["chunk"], symmetric["factors"], symmetric["rows"]
     data = encode_chunk("cells", chunk, factors=factors)
     stored, tensor, is_tensor = _check_factored_view(chunk, rows, data)
@@ -211,14 +212,14 @@ def test_pairs_singles_and_csr_sources_interleave_in_any_chunk_order(symmetric, 
     _check_factored_view(chunk, rows, data)
 
 
-def test_a_chunk_of_pairs_only_has_no_tensor_rows_in_the_factored_view(symmetric):
+def test_a_chunk_of_pairs_only_has_no_tensor_rows_in_the_expanded_pairs_view(symmetric):
     keep = [s for s, key in enumerate(KEYS) if _kind_of(key).startswith("pair")]
     rows = [symmetric["rows"][s] for s in keep]
     chunk = _pack(rows, [KEYS[s] for s in keep])
     stats = {}
     data = encode_chunk("cells", chunk, factors=[symmetric["factors"][s] for s in keep], stats=stats)
     assert stats["paired_sources"] == stats["tensor_sources"] == len(keep) and stats["fallback_sources"] == 0
-    stored, tensor, is_tensor = art.decode_chunk_factored("cells", data)
+    stored, tensor, is_tensor = art.decode_chunk_factored("cells", data, expand_pairs=True)
     assert tensor is None and not is_tensor.any()
     _assert_identical(stored, chunk)                         # every source is CSR in this view
     _assert_identical(decode_chunk("cells", data), chunk)
@@ -234,7 +235,7 @@ def test_pairs_with_and_without_stored_gradient_roundtrip(symmetric):
     pair = np.flatnonzero(_arrays(data)["src_encoding"] == ENCODING_PAIRED)
     assert has_gradient[pair].any() and not has_gradient[pair].all()
     _assert_identical(decode_chunk("cells", data), chunk)
-    stored, tensor, is_tensor = art.decode_chunk_factored("cells", data)
+    stored, tensor, is_tensor = art.decode_chunk_factored("cells", data, expand_pairs=True)
     assert np.array_equal(is_tensor, _arrays(data)["src_encoding"] == ENCODING_TENSOR)
     assert np.array_equal(stored.has_gradient, chunk.has_gradient)
 
@@ -520,16 +521,17 @@ def test_corrupt_paired_members_are_rejected(symmetric):
 
 
 # ---------------------------------------------------------------------------
-# the loader needs no change: the factored view lowers like the dense chunk
+# both factored views lower like the dense chunk (the paired runtime itself: test_perpendicular_paired_tensor_runtime.py)
 # ---------------------------------------------------------------------------
-def test_lowering_the_factored_view_of_a_paired_chunk_matches_the_dense_chunk(symmetric):
+@pytest.mark.parametrize("expand_pairs", (True, False))
+def test_lowering_a_factored_view_of_a_paired_chunk_matches_the_dense_chunk(symmetric, expand_pairs):
     from drbx.stencils.loader import FactoredChunk, LoaderGrid, lower_point_chunks
     from tests.test_stencils_tensor_loader import (
         TOL, _apply, _assert_same_layout, _fields, _relative, _weight_scales)
 
     chunk, factors, context = symmetric["chunk"], symmetric["factors"], symmetric["context"]
     data = encode_chunk("cells", chunk, factors=factors)
-    item = FactoredChunk(*art.decode_chunk_factored("cells", data))
+    item = FactoredChunk(*art.decode_chunk_factored("cells", data, expand_pairs=expand_pairs))
     dense = decode_chunk("cells", data)
     assert item.tensor_rows is not None and item.is_tensor.any()
     grid = LoaderGrid.from_context(context)
@@ -537,6 +539,8 @@ def test_lowering_the_factored_view_of_a_paired_chunk_matches_the_dense_chunk(sy
     plan_d = lower_point_chunks([dense], grid=grid)
     _assert_same_layout(plan_f, plan_d)
     assert plan_f.payload.tensor_batches and not plan_d.payload.tensor_batches
+    # the first-stage view (pairs expanded to CSR) has no paired batch; the default view applies the pairs from factors
+    assert any(b.mirror is not None for b in plan_f.payload.tensor_batches) == (not expand_pairs)
     fields = _fields(context)
     v_f, g_f = (np.asarray(x) for x in _apply(plan_f, fields))
     v_d, g_d = (np.asarray(x) for x in _apply(plan_d, fields))

@@ -19,7 +19,9 @@ its mirror; ``PairedFactors``). It is stored as two consecutive sources of the s
 deduplicated tables; :func:`average_expanded_rows` merges their expansions exactly as
 ``StructuredReconstruction._average_rows`` does (union of the donors, A then B, ``0.5 *``) and
 :func:`merge_paired_expansion` applies it to a whole expansion. :func:`verified_tensor_rows` accepts a paired
-candidate only if that merge reproduces its dense row bit for bit.
+candidate only if that merge reproduces its dense row bit for bit. :attr:`TensorRows.pair_part` marks the two
+sources of a pair (0 a single source, 1 the A part, 2 the B part that follows it), so the runtime lowering
+(``drbx.stencils.loader``) can apply ``1/2 (A + B)`` without expanding anything.
 """
 from __future__ import annotations
 
@@ -31,7 +33,8 @@ import numpy as np
 from drbx.geometry.fci_perpendicular_reconstruction import PairedFactors, PointFactors
 
 __all__ = ["FAMILY_CODES", "TensorRows", "TensorExpansion", "build_tensor_rows", "expand_tensor_rows",
-           "apply_tensor_rows_numpy", "verified_tensor_rows", "average_expanded_rows", "merge_paired_expansion"]
+           "apply_tensor_rows_numpy", "verified_tensor_rows", "average_expanded_rows", "merge_paired_expansion",
+           "pair_part_of"]
 
 #: family code of ``TensorRows.family`` (per source).
 FAMILY_CODES = {"singleton": 0, "ringwise": 1, "centered_radial": 2}
@@ -70,10 +73,29 @@ class TensorRows:
     t_radial: np.ndarray          # (Tt,) int32   row of the radial table
     t_theta: np.ndarray           # (Ta,) int32   row of the theta table, for the Ta non-ringwise targets in order
     t_ring: np.ndarray            # (Tr, 4, 4) int32 ring-entry row per (layer, plane), Tr ringwise targets in order
+    #: (Ts,) int8: 0 a single source, 1 the A part of a pair, 2 its B part (always the next source: the row of a
+    #: ``PairedFactors`` is ``1/2 (A + B)``). Not a stored member: it follows from the chunk's ``src_encoding``.
+    #: ``None`` at construction means no pair.
+    pair_part: np.ndarray | None = None
+
+    def __post_init__(self):
+        if self.pair_part is None:
+            object.__setattr__(self, "pair_part", np.zeros(len(self.family), dtype=np.int8))
 
     @property
     def n_sources(self) -> int:
         return len(self.family)
+
+    @property
+    def logical_sources(self) -> np.ndarray:
+        """Rows of the first source (the single, or the A part) of every logical source, in order: a pair is one
+        logical source of two rows."""
+        return np.flatnonzero(self.pair_part != 2)
+
+    @property
+    def multiplicity(self) -> np.ndarray:
+        """Rows (1, or 2 for a pair) of every logical source, in the order of :attr:`logical_sources`."""
+        return 1 + (self.pair_part[self.logical_sources] == 1).astype(np.int64)
 
     @property
     def n_targets(self) -> int:
@@ -98,7 +120,8 @@ class TensorRows:
 
     def take_sources(self, sources) -> "TensorRows":
         """The rows of the sources ``sources`` (indices, in the order given): their per-source and per-target
-        arrays. Every factor table is kept whole (a row no remaining target uses is harmless)."""
+        arrays. Every factor table is kept whole (a row no remaining target uses is harmless). A pair must be taken
+        whole (its A part and the B part after it) or not at all."""
         sources = np.asarray(sources, dtype=np.int64)
         counts = np.diff(self.target_ptr)[sources]
         layout = self.target_layout()
@@ -107,7 +130,8 @@ class TensorRows:
         rows = replace(
             self, family=self.family[sources], layers=self.layers[sources], has_gradient=self.has_gradient[sources],
             target_ptr=_ptr(counts), t_eta=self.t_eta[target], t_radial=self.t_radial[target],
-            t_theta=self.t_theta[layout["theta_row"][target[~ring]]], t_ring=self.t_ring[layout["ring_row"][target[ring]]])
+            t_theta=self.t_theta[layout["theta_row"][target[~ring]]], t_ring=self.t_ring[layout["ring_row"][target[ring]]],
+            pair_part=self.pair_part[sources])
         rows.validate()
         return rows
 
@@ -128,6 +152,24 @@ class TensorRows:
                 raise ValueError(f"corrupted tensor rows: {name} outside its table")
         if np.any((self.family < 0) | (self.family > _CENTERED)):
             raise ValueError("corrupted tensor rows: unknown family code")
+        self.check_pairs()
+
+    def check_pairs(self) -> None:
+        """Raise ``ValueError`` unless :attr:`pair_part` marks well-formed pairs: an A part followed by its B part, of one
+        family, with equal targets and gradient storage."""
+        ts, part = self.n_sources, self.pair_part
+        if part.shape != (ts,) or np.any((part < 0) | (part > 2)):
+            raise ValueError("corrupted tensor rows: pair_part")
+        first = np.flatnonzero(part == 1)
+        if (len(first) != int((part == 2).sum()) or np.any(first + 1 >= ts)
+                or np.any(part[np.minimum(first + 1, ts - 1)] != 2)):
+            raise ValueError("corrupted tensor rows: a pair is an A part followed by its B part")
+        if len(first):
+            counts = np.diff(self.target_ptr)
+            if np.any(self.family[first] != self.family[first + 1]):
+                raise ValueError("corrupted tensor rows: the two parts of a pair differ in family")
+            if np.any(counts[first] != counts[first + 1]) or np.any(self.has_gradient[first] != self.has_gradient[first + 1]):
+                raise ValueError("corrupted tensor rows: the two parts of a pair differ in targets or gradient storage")
 
     # -- npz members (prefix ``tr_``), written/read by drbx.stencils.artifact -----------------
 
@@ -148,9 +190,10 @@ class TensorRows:
         return arrays
 
     @classmethod
-    def from_arrays(cls, arrays: dict, *, has_gradient, target_counts) -> "TensorRows":
+    def from_arrays(cls, arrays: dict, *, has_gradient, target_counts, pair_part=None) -> "TensorRows":
         """Rebuild from the ``tr_*`` members; ``has_gradient`` and ``target_counts`` are those of the tensor
-        sources (they live in the chunk's ``src_has_gradient`` / ``source_ptr``)."""
+        sources (they live in the chunk's ``src_has_gradient`` / ``source_ptr``) and ``pair_part`` marks the pairs
+        among them (:attr:`pair_part`; it follows from the chunk's ``src_encoding``)."""
         wide = {"theta_index": np.int32, "eta_index": np.int32, "ring_owner": np.int32, "raw_ids": np.int32,
                 "raw_owner": np.int32, "family": np.int8, "layers": np.int16}
         kwargs = {}
@@ -161,7 +204,8 @@ class TensorRows:
             kwargs[name] = np.asarray(arrays["tr_" + name]).astype(np.int32)
         counts = np.asarray(target_counts, dtype=np.int64)
         rows = cls(n=int(np.asarray(arrays["tr_n"])), has_gradient=np.asarray(has_gradient, dtype=bool),
-                   target_ptr=_ptr(counts), **kwargs)
+                   target_ptr=_ptr(counts), pair_part=None if pair_part is None else np.asarray(pair_part, dtype=np.int8),
+                   **kwargs)
         rows.validate()
         return rows
 
@@ -262,8 +306,9 @@ def _lookup_owner(raw_ids, raw_owner, raw) -> np.ndarray:
 # construction from captured factors
 # --------------------------------------------------------------------------------------
 
-def build_tensor_rows(factors: Sequence[PointFactors], has_gradient: Sequence[bool]) -> TensorRows:
-    """Tables and indices for the sources whose captured ``factors`` are given (in order)."""
+def build_tensor_rows(factors: Sequence[PointFactors], has_gradient: Sequence[bool], pair_part=None) -> TensorRows:
+    """Tables and indices for the sources whose captured ``factors`` are given (in order); ``pair_part`` marks the
+    pairs among them (:attr:`TensorRows.pair_part`)."""
     factors = list(factors)
     if not factors:
         raise ValueError("no factors")
@@ -325,9 +370,19 @@ def build_tensor_rows(factors: Sequence[PointFactors], has_gradient: Sequence[bo
         ring_value=np.asarray(ring_value, dtype=np.float64), ring_derivative=np.asarray(ring_derivative, dtype=np.float64),
         raw_ids=i32(raw_ids), raw_owner=i32(raw_owner), family=family, layers=layers.astype(np.int16),
         has_gradient=np.asarray(has_gradient, dtype=bool), target_ptr=_ptr(counts),
-        t_eta=i32(t_eta), t_radial=i32(t_radial), t_theta=i32(t_theta), t_ring=i32(t_ring))
+        t_eta=i32(t_eta), t_radial=i32(t_radial), t_theta=i32(t_theta), t_ring=i32(t_ring),
+        pair_part=None if pair_part is None else np.asarray(pair_part, dtype=np.int8))
     rows.validate()
     return rows
+
+
+def pair_part_of(multiplicity) -> np.ndarray:
+    """:attr:`TensorRows.pair_part` of consecutive logical sources of ``multiplicity`` 1 (a single) or 2 (a pair)."""
+    multiplicity = np.asarray(multiplicity, dtype=np.int64)
+    part = np.zeros(int(multiplicity.sum()), dtype=np.int8)
+    a = (np.cumsum(multiplicity) - multiplicity)[multiplicity == 2]
+    part[a], part[a + 1] = 1, 2
+    return part
 
 
 # --------------------------------------------------------------------------------------
@@ -540,15 +595,11 @@ def _source_of_entries(ptr: np.ndarray) -> np.ndarray:
     return np.repeat(np.arange(len(ptr) - 1), np.diff(ptr))
 
 
-def _failed_sources(tr: TensorRows, expected: dict, multiplicity=None) -> np.ndarray:
-    """Boolean per candidate: does the expansion differ (in donors, value or gradient bits) from ``expected``
-    (``donor_ptr, donor, value, gradient`` in the expansion's own flat layout)?
-
-    ``multiplicity`` (per candidate, default all 1) is the number of consecutive sources of ``tr`` that form the
-    candidate: a candidate of 2 is a pair and its expected rows are those of their merge
-    (:func:`merge_paired_expansion`)."""
-    counts, has_gradient = np.diff(tr.target_ptr), tr.has_gradient
-    multiplicity = np.ones(tr.n_sources, dtype=np.int64) if multiplicity is None else np.asarray(multiplicity)
+def _failed_sources(tr: TensorRows, expected: dict) -> np.ndarray:
+    """Boolean per logical source (:attr:`TensorRows.logical_sources`): does the expansion differ (in donors, value or
+    gradient bits) from ``expected`` (``donor_ptr, donor, value, gradient`` in the expansion's own flat layout)? A pair
+    (:attr:`TensorRows.pair_part`) is compared through the merge of its two parts (:func:`merge_paired_expansion`)."""
+    counts, has_gradient, multiplicity = np.diff(tr.target_ptr), tr.has_gradient, tr.multiplicity
     ts = len(multiplicity)
     bad = np.zeros(ts, dtype=bool)
     try:
@@ -627,7 +678,7 @@ def verified_tensor_rows(factors: Sequence[PointFactors | PairedFactors], has_gr
 
     def tabulate(indices):
         return build_tensor_rows([part for i in indices for part in _parts(factors[i])],
-                                 np.repeat(has_gradient[indices], multiplicity[indices]))
+                                 np.repeat(has_gradient[indices], multiplicity[indices]), pair_part_of(multiplicity[indices]))
 
     while len(live):
         try:
@@ -651,7 +702,7 @@ def verified_tensor_rows(factors: Sequence[PointFactors | PairedFactors], has_gr
                 return None, np.zeros(len(factors), dtype=bool)
             live = np.array(keep, dtype=np.int64)
             continue
-        bad = _failed_sources(tr, expected_for(live), multiplicity[live])
+        bad = _failed_sources(tr, expected_for(live))
         if not bad.any():
             accepted = np.zeros(len(factors), dtype=bool)
             accepted[live] = True
@@ -665,11 +716,14 @@ def verified_tensor_rows(factors: Sequence[PointFactors | PairedFactors], has_gr
 # --------------------------------------------------------------------------------------
 
 def apply_tensor_rows_numpy(tr: TensorRows, owner_fields, *, values: bool = True, gradients: bool = True,
-                            block: int = 1024):
+                            block: int = 1024, merge_pairs: bool = False):
     """Contract the factors with ``owner_fields`` (owners, F) without expanding the rows.
 
     Returns ``(values (Tt, F), gradients (Tg, 3, F))``: one value row per target in order, one gradient
-    row per target of a source with ``has_gradient``. Per target and field, with ``G`` the gathered donor
+    row per target of a source with ``has_gradient``. The two parts of a pair (:attr:`TensorRows.pair_part`) are
+    sources of their own, so their targets have a row each; with ``merge_pairs`` the rows of a pair's A part become
+    the row of the pair, ``0.5 * (A + B)``, and those of its B part are dropped (one row per target of every
+    logical source). Per target and field, with ``G`` the gathered donor
     block (layer l, plane e, slot j):
     value = sum L[l] ev[e] w[j] G, d/dr = sum Dr[l] ev[e] w[j] G, d/dtheta = sum L[l] ev[e] w'[j] G,
     d/deta = sum L[l] ed[e] w[j] G, where (w, w') = (tv, td) for singleton/centered_radial (the same for all
@@ -717,4 +771,17 @@ def apply_tensor_rows_numpy(tr: TensorRows, owner_fields, *, values: bool = True
                 out_g[rows, 0] = contract(D, ev, vv)[g]
                 out_g[rows, 1] = contract(L, ev, dd)[g]
                 out_g[rows, 2] = contract(L, ed, vv)[g]
+    first = np.flatnonzero(tr.pair_part == 1)
+    if merge_pairs and len(first):
+        counts = np.diff(tr.target_ptr)[first]
+        a = _flat_index(tr.target_ptr[first], counts)                        # the A targets; B's follow count rows later
+        b = a + np.repeat(counts, counts)
+        if values:
+            out_v[a] = 0.5 * (out_v[a] + out_v[b])
+            out_v = np.delete(out_v, b, axis=0)
+        if gradients:
+            with_gradient = grad_target[a]
+            ga, gb = grad_row[a[with_gradient]], grad_row[b[with_gradient]]
+            out_g[ga] = 0.5 * (out_g[ga] + out_g[gb])
+            out_g = np.delete(out_g, gb, axis=0)
     return out_v, out_g
