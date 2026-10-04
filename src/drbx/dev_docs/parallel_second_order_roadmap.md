@@ -8,6 +8,38 @@ evidence in linked research artifacts. The separate
 
 ## 1. Objective and shared acceptance contract
 
+### Current Q08 configuration — user freeze, 4 October 2026
+
+The selected coupled verification configuration uses **h/32 for traced G,
+tube D, material transport and every accepted cap-gradient diffusion channel**,
+with common five-plane eta quartic reconstruction. Here h is one eta-plane
+spacing and h/32 is the total inner cap separation: each cap is at +/-h/64.
+Keep the existing paired characteristic construction: its outer samples have
+total separation h/16, twice the inner separation. Selecting one base span
+does not change that nesting or any qualified operator formula. Retain C3,
+RK4-64, the accepted transverse supports/repair choices and D/physical-normal
+N reconstruction, including mixed field-wise assignments.
+
+Alternative h/n configurations remain allowed as explicit prepared-plan
+choices. Trace endpoints, inner/outer pairing, magnetic coefficients, boundary
+data locations and artifact/cache identity must match the requested span;
+changing only an application denominator is invalid. Preserve existing h/16
+diffusion evidence, but use h/32 for the common baseline. Other numerical
+actions require their own applicable verification/qualification; configurability
+does not transfer h/32 certification to arbitrary n. This freezes the research
+configuration, not production defaults or time-integration qualification.
+
+By user decision, the proposed unequal perpendicular/eta resolution check is
+skipped as a Q08 prerequisite. The associated coverage is untested, not passed;
+revisit it when qualifying a different resolution regime. Defer further
+patch-eigenmode investigation and assess full-domain dynamics with the Q09
+evolved path before production promotion. The [local Q08 closeout](../../../../work/q08_closeout_20261004/report.md)
+completes host-memory calibration, harness repair and a local source/evidence
+freeze. The focused corrected Ti diagnostic is replayed on bounded owners and
+its references corrected globally; full-grid N replay still requires the
+immutable banks on Perlmutter. Q08 remains open pending that result. The six assembled RHS equations and
+full-grid CPU/GPU replay already have their documented evidence and exceptions.
+
 ### FCI traced parallel gradient: global N-O gate passed — 30 September 2026
 
 User clarification selects a scalar-value difference along traced field lines
@@ -3233,7 +3265,16 @@ settle the final span/support choice or close Q08.
 
 #### Q08 traced-span selection before freezing the coupled RHS
 
-**Required step — added by user decision, 30 September 2026; pending.**
+**Required step — added by user decision, 30 September 2026; bounded comparison
+completed 3 October; h/32 and five planes selected by the user on 4 October.** The
+[span/support/stiffness report](../../../../work/q08_span_support_20261003/report.md)
+supports retaining five eta planes and identifies h/64 as a possible future
+accuracy alternative. The selected h/32 configuration includes diffusion;
+the existing twice-inner characteristic separation is preserved. The user
+waives the unequal-resolution check as a Q08 prerequisite, retaining that
+coverage limitation. Restricted-patch spectra do not certify a production
+timestep; full-domain dynamics remain for Q09. The design criteria below
+continue to govern any later alternative-span qualification.
 Investigate a suitable denominator `d` for total traced cap separation `h/d`
 (`h = delta_eta`, each symmetric leg `h/(2d)`). Use `d` here to distinguish
 the denominator from grid resolution N. Keep h/32 as the working traced-G
@@ -3281,7 +3322,8 @@ This deferred selection step was not a prerequisite to the scoped Q06 closure.
   transition, bulk and wall sites, prior O-R hotspots, fresh sites and
   nonpolynomial wave orientations. Preserve signed cancellation diagnostics;
   do not select a span from favorable cancellation in one manufactured field.
-- Test representative production resolution ratios: refine perpendicular
+- Deferred by user decision on 4 October; not a Q08 prerequisite: test
+  representative production resolution ratios by refining perpendicular
   resolution at fixed eta spacing, and vary eta spacing with perpendicular
   resolution controlled. Include resolved-scale amplitude/phase response and
   eta variation; a shorter evaluation span cannot recover unsampled parallel
@@ -3440,7 +3482,7 @@ The [original Phase A task](thread://01a0b561-d18d-78b1-b85f-bfe3d67efe49?hostId
 | Q05 | Shared traced preparation/application | Accepted traced-static preparation exception | closed by user acceptance | [Corrected extraction and second review](../../../../work/q05_traced_extraction_20260929/review_v2/report.md): 36 focused + 30 curated checks; 42 site/span replays and two full N64 chunks; max discrepancy 4.467e-10 < 1e-8. User closes Q05 on this evidence; complete-domain action replay remains unperformed and is waived as a Q06 prerequisite. No production promotion or Q04 structural/evolved pass. |
 | Q06 | Certify parallel gradient/divergence pairs | Q05 closed by user acceptance | closed by user acceptance; scoped static qualification | [Contract](q06_traced_gradient_divergence_contract.md), [global traced G](../../../../work/q06_traced_gradient_global_20260930/parent_review.md), [global tube D](../../../../work/q06_tube_global_20260929/parent_review.md), [structural audit](../../../../work/q06_structural_boundary_audit_20260930/report.md). Exact adjointness and owner-weighted conservation do not hold. [Smooth bulk balance](../../../../work/q06_resolved_conservation_20260930/parent_review.md) improves for all eight fields; N64 imbalance/activity 0.004–0.115%. User closes Q06 on 30 September with unchanged operators and documented approximate-balance/non-adjointness exceptions; no evolved or production pass. Continuum N-R/local maximum limits retained. Exterior ghosts unexercised; D(G f) diffusion unnecessary for closure and deferred. |
 | Q07 | Transport and material blocks | Q06 closed with exceptions | five-field static material qualified; bounded prescribed-boundary six-field assembly passed; full closure pending | [Contract](q07_transport_contract.md), [C3 h/32 global review](../../../../work/q07_c3_global_review_20261001/report.md), [six-field assembly](../../../../work/q07_six_field_assembly_20261002/report.md). User accepts the five material fields with documented exceptions. Six-field owner-state assembly replays material, current/phi, vorticity and constant diffusion channels, including D/N/mixed BCs. Keep C3, RK4-64, h/32 material inner and h/16 outer separation, balanced material tube and frozen donors; diffusion spans remain explicit. Next: Q08 engineering consolidation/pilot and remaining C3 static coverage for current/phi, vorticity and diffusion transfer. General basis/enrichment searches are deferred. Physical sheath/SAT, exterior crossings, evolution and production remain open. |
-| Q08 | Traced-span selection, frozen coupled parallel RHS and performance audit | Q07; engineering audit may proceed alongside remaining Q07 coverage | in progress: full-grid extraction and one/four-A100 replay passed; span/support, remaining scientific coverage and final RHS gates open | [Shared extraction plan](q08_shared_extraction_plan.md), [implementation review](../../../../work/q08_implementation_20261002/report.md), [returned GPU review](../../../../work/q08-verification-v2-149644b9-Apdb1a/local_report.md). All 1,056 static implementation replays pass; N64 warmed full RHS is 34.74/10.30 ms on one/four A100s. Preserve separate P/Q numerical policies. Calibrate the underestimated host-memory guard before tighter allocations. Next select suitable h/d and eta support and finish remaining static term coverage before final RHS freeze; h/32 traced G remains provisional. Production defaults and time-dependent qualification are unchanged. |
+| Q08 | Traced-span selection, frozen coupled parallel RHS and performance audit | Q07; engineering audit may proceed alongside remaining Q07 coverage | in progress: h/32/five planes frozen; local closeout complete; focused global Ti N replay pending | [Shared extraction plan](q08_shared_extraction_plan.md), [GPU review](../../../../work/q08-verification-v2-149644b9-Apdb1a/local_report.md), [global MMS review](../../../../work/q08_rhs_mms_return_analysis_20261003/report.md), [local closeout](../../../../work/q08_closeout_20261004/report.md). All 1,056 implementation replays pass; N64 warmed RHS is 34.74/10.30 ms on one/four A100s. All base operator spans use h/32, with paired twice-inner outer characteristic sampling. Unequal-resolution check waived as a prerequisite, not tested. Memory guard calibrated against both remote campaigns; 21 harness/closeout tests and bounded Ti replay pass; signed O/R corrected at all 313,696 owners. Full numerical Ti replay requires the existing Perlmutter banks and actual GPU, without another complete RHS campaign. Existing scientific exceptions, full-domain dynamics and production limits remain. |
 | Q09 | Evolved MMS and promotion | Q08; P07 for reconstructed phi | pending | Both phi legs, solution gates, structural and execution qualification; confirm Q08 span choices in evolution before production defaults. |
 | Q traced-return research | Frozen selective-repair traced diffusion | Completed layered/balanced/selective campaigns and interface audit | static reconstruction accuracy accepted with documented exceptions; operator frozen | [Frozen contract](q_traced_diffusion_frozen_contract.md), [global result](../../../../work/q_fci_selective_global_20260929/report.md), [interface audit](../../../../work/q_fci_repair_interface_audit_20260929/report.md). Whole-inner nonconstant RMS order>2 for both intervals/spans; localized join/coarse-envelope and O-R limitations retained. Current implementation choice is selective gradient repair, not always-balanced28. Q05 extraction closed by user acceptance on reviewed bounded evidence; Q06 static traced G/D closed with exceptions; next Q07 bounded density-flux block. Production defaults and broader Q04 certification remain unchanged. Earlier projected-return failures remain historical evidence. |
 
@@ -4763,3 +4805,176 @@ cold controller and spawned worker with the conflicting module present.
 Recovery uses a new source identity and separate RUN, retaining the same
 immutable banks and implementation receipts and repeating the prescribed
 gates. No formulas, tolerances, support, traces or qualification claims change.
+
+### Q08 current six-field global MMS returned — 3 October 2026
+
+[Local scientific report](../../../../work/q08_rhs_mms_return_analysis_20261003/report.md),
+[artifact audit](../../../../work/q08_rhs_mms_return_analysis_20261003/validation.json),
+[regional results](../../../../work/q08_rhs_mms_return_analysis_20261003/local_analysis.json).
+Campaign `bd3410af` / identity `e8303a1a...389652` completed all 3,174 reference
+chunks and 528 four-A100 action records for 313,696 complete owners, 22 states,
+four D/N/mixed patterns and both diffusion spans. Its final completion receipt
+was not written: CSV output uses CRLF, but the validator compares it with
+Path.read_text, which normalizes to LF. Local independent reduction reproduces
+all primary sums, RMS, relative RMS, maxima, owner IDs and signed integrals
+exactly; cross-platform log evaluation changes orders by at most 8.88e-16.
+The report and all non-order CSV cells match exactly. All scientific artifact
+hashes pass; one operational runtime log was appended after its verification
+snapshot, retained explicitly in the audit. Original remote artifacts remain
+unchanged, and no numerical campaign rerun is needed for this text defect.
+
+All six assembled equations have decreasing global and regional N-O and N-R
+RMS for every nonconstant state, all BC patterns and both diffusion spans.
+Smooth combined N-O is approximately fourth order (global 3.82–4.06; every
+regional interval >=3.817). With h/32 diffusion and all-D data, combined global
+N-R orders (32→48 / 48→64) are n 1.851/3.693, Te 1.764/3.731,
+Ti 1.910/3.786, Vi 3.012/0.993, Ve 2.858/1.145, omega 1.823/2.379.
+N64 smooth relative global errors are 0.011–0.061%. The velocity intervals
+continue to be O-R dominated and match the accepted material sampling
+limitation; this is not a new GPU or reconstruction failure, nor proof of a
+reference bug. D/N/mixed patterns preserve these conclusions.
+
+For h/32, combined wave global N-O orders are >=3.038/4.428; N-R orders are
+>=1.814/1.494. Worst N64 relative combined wave N-R is 4.483% globally,
+7.549% in the wall region and 7.778% in the outermost ring. Genuine N-O
+exceptions remain: inner minimum 1.868, last-two-aggregate minimum 1.681
+(held-out wavelength .35/110-degree omega), while the wider transition
+minimum is 2.027. Isolated short-wave diffusion N-O can reach 0.967 in the
+last two aggregate rings (Te, same held-out state); RMS still decreases.
+Isolated smooth/wave diffusion global fine-interval N-R is >=2.035/>=2.232.
+h/16 retains a small isolated diffusion core/first-ring coarse-interval
+rebound. Maxima and signed integrals need not decrease with RMS; e.g. one
+combined wave omega wall maximum increases 2.46x on 48→64. Do not claim
+universal regional second order or pointwise monotonicity.
+
+One standalone diagnostic must be excluded pending a harness correction:
+`electron_ti_compensation` returns the negative material Ti column in N, but
+the O/R diagnostic was packed with the positive sign. The generalized force,
+electron assembly and six combined equations are unaffected. Bounded replay
+at 21 owners, D/N, smooth and held-out fields verifies the sign identity to
+1.42e-14; N64 smooth D sampled N-O drops from 47.69 to 3.71e-5 after aligning
+the diagnostic sign. These are bounded norms, not corrected global results.
+Norm-only global payloads cannot recover its exact corrected N-O/N-R without
+a focused replay. Correct this column and CSV comparison before the next
+harness use; do not modify the operator to repair diagnostic output.
+
+Constant N-O is <=5.69e-9; steady source-pair discrepancy is exactly zero.
+The conservative global RMS bound on measured reference-step sensitivity is
+<=8.49e-8 at N64 over all terms/states (pointwise maximum 1.75e-6), much smaller
+than the leading errors. Allocation elapsed about 44m52s; reference stages
+took 47/67/117s and GPU stages 117/268/611s. N64 host peak was 33.03 GiB,
+device live/pool peaks 3.38/4.12 GiB. The complete invocation after initial
+preflight/pilot took about 23m46s.
+
+Evidence supports retaining the current static shared-RHS assembly and C3
+transfer, with the above exceptions. Full Q08 remains open. Next: the planned
+bounded span/eta-support, resolved-scale and stiffness assessment, including
+the short-wave aggregate-ring limitations. Physical wall/SAT, exterior caps,
+perpendicular coupling, Q09 evolved MMS and production promotion stay separate.
+
+### Q08 harness repairs and bounded span/support/stiffness audit — 3 October 2026
+
+[Bounded report](../../../../work/q08_span_support_20261003/report.md),
+[harness review](../../../../work/q08_harness_repair_20261003/report.md).
+The requested GPT-6.1 Sol worker repaired byte-exact CSV completion validation,
+the standalone O/R Ti-compensation sign, and the mutable operational runtime-log
+hash treatment. Parent review and 14 focused tests pass. All 31 output identities
+are checked, retaining the immutable first-28 persisted numerical replay.
+The assembled equations, generalized force and numerical tolerances are
+unchanged. The old manifest intentionally rejects these local edits; a future
+campaign needs a newly reviewed source identity. Returned remote receipts and
+the scientifically excluded old global Ti-diagnostic norms remain untouched.
+
+The bounded numerical identity starts `c1899e35bd9544f4`. The comparison covers
+33 complete owners / 221 raw members across N32/N48/N64, all 22 states, D/N,
+consistent inner h/16/h/32/h/64 with twice-inner outer characteristic separation,
+and common five-plane quartic versus three-plane quadratic eta support. The
+magnetic evaluator, RK4-64, transverse donors and accepted repair choices are
+fixed. Baseline rows replay exactly and actions within 4.66e-9 (0.409 of the
+unchanged replay budget). Degree-appropriate reproduction is within 2.10e-15;
+physical-normal enforcement is within 1.96e-12. The primary run took 255.9 s,
+peaked at 1.36 GiB per process and produced about 92 MiB including checks.
+
+Retain five planes: at N64 three planes saves 40% of local donor/wall entries,
+but increases smooth combined N-O by 104–521 times, often against a small
+baseline. At eight eta points per wavelength the bulk traced-G amplitude
+response is 0.988 with five planes versus 0.900 with three; at four it is
+0.849 versus 0.637. These are derivative response measurements, not evolved
+damping rates. No optimized three-plane runtime speedup is claimed.
+
+Five-plane h/64 reduces N64 smooth combined selected-owner N-R to 0.138–0.270
+of h/32 with almost unchanged N-O. Wave N-R ratios are 0.659–1.013; the
+outermost-wall Neumann held-out Ve maximum increases about 1.9% as favorable
+N-O/O-R cancellation shrinks. Thus shortening does not cure the wave
+reconstruction limitation. These are bounded norms, not global orders. The
+h/16 material variant crosses once at its positive outer sample at N48;
+inner samples remain inside, so this is not a new failure of previously
+qualified h/16 diffusion caps. Exterior continuation remains diagnostic-only.
+
+The reduced actual-HSX periodic eta-line Jacobians show no universal inverse-
+span stiffness increase: interior/Neumann spectral radii vary less than 0.1%
+over a fourfold span change; N64 Dirichlet wall changes +2.68% on h/32 to h/64.
+G/diffusion row L1 norms change at most about 1.32%/2.14% on that comparison.
+However all reduced line systems have growing modes, strongest at the
+Dirichlet wall. Independent-transverse 30/140-owner wall patches also have
+positive eigenvalues for D/N. Their strong patch-size sensitivity and artificial
+fixed patch-edge data preclude a full-grid instability claim, but growth cannot
+be dismissed solely as the transverse-constant line restriction. Nonlinear
+directional checks reproduce the patch Jacobians to relative 2.37e-9. RK4
+approaches the same growing matrix-exponential solution; this is not a stable
+evolution pass. `modal_limits.json` explicitly corrects an original diagnostic
+that admitted tiny positive modes into a nominal non-growing-mode timestep
+limit; saved matrices and scientific actions remain unchanged.
+
+The requested bounded comparisons and measurements are complete. Keep h/32
+and five planes as the working qualified baseline; h/64 would require affected
+global qualification if selected. Next isolate material/correction/current and
+diffusion growth with the actual boundary-consistent operator and suitable
+background/closure before timestep signoff. Final per-operator span selection,
+anisotropic resolution ratios, Q08 final freeze and Q09 evolved stability remain
+open. No operator promotion, new campaign, commit or push was performed.
+
+### Q08 growing-mode investigation reviewed — 3 October 2026
+
+[Investigation](../../../../work/q08_growing_modes_20261003/report.md),
+[independent parent review](../../../../work/q08_growing_modes_20261003/parent_review.json).
+Identity `04d17c944e2ece65...`: all 27 source, 55 input, 25 prior-evidence and
+40 result hashes pass parent verification. The parent independently reproduced
+representative same-mode term contributions and lifted-mode residuals. No
+packing, parameter-orientation or electron Ti/force-pairing defect was found;
+the ten old matrix cases replay within 1.24e-9. Nonlinear perturbation evolution
+and time refinement reproduce the restricted-system growth.
+
+Small periodic interior and Neumann-wall line rates disappear in a diagnostic
+control subtracting only the centered div(b) coefficient. This implicates
+geometric compression of the forced constant background and/or its transverse
+restriction, not a reason to remove physical div(b). Here b is the unit field;
+this is distinct from an assumption that div(B) vanishes. The large rates are
+dominated by centered transport through restricted derivatives. For the same
+N64 Dirichlet-wall line eigenvector, centered/correction/current/diffusion
+contributions are +2859.56/-121.56/+0.10/-316.81, totaling +2421.29. With phi
+fixed, current-to-omega coupling is triangular and cannot change material
+eigenvalues. Correction is not uniformly damping in every restricted patch;
+N64 patch diffusion-only spectra have negative real maxima.
+
+The strongest evidence concerns artificial closure. A 252-owner bulk patch
+without physical wall rows also grows at +1041.13. About 74% of that mode's
+norm lies on artificial edges. The 252-owner D wall mode is concentrated more
+at the patch's inner artificial edge than at the physical wall. Lifting wall
+patch modes by zero and applying the actual Jacobian on their 1014-owner
+reverse donor footprint produces exterior/interior action ratios 0.991 D and
+0.701 N. Relative full lifted eigen-residuals are 0.704/0.574 despite inside
+residuals near 1e-14: these are not approximate global eigenmodes. The complete
+action does have positive initial growth in the diagnostic fluctuation norm;
+this may be transient growth and is neither a thermodynamic-energy claim nor
+proof of full-grid modal instability. Geometry still affects the rows; no
+MMS O/R reference enters this diagnostic.
+
+Keep the five-plane h/32 policy and existing static gates unchanged. The next
+discriminating bounded test is to evolve the exterior response: begin with
+J²v on the next reverse-support collar, then short matrix-free propagation
+with verified support/tail error and no repeated pinning of halo values.
+Compare against the original fixed-exterior trajectory. This is preferable
+to tuning reconstruction or interpreting another isolated patch spectrum as
+global stability. Full-grid stability, suitable physical closure/equilibrium,
+final Q08 selection and Q09 evolution remain open.

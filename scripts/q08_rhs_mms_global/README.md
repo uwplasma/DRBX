@@ -131,6 +131,25 @@ receipts. There are no scientific chunks from that failed pilot to migrate.
 
 ## Return
 
+### Local harness repairs after the returned campaign
+
+The local analyzer validates CSV serialization as UTF-8 bytes, preserving the
+CRLF emitted by csv.writer during the actual write/read round trip. The O/R
+standalone Ti compensation now follows N's negative material convention,
+`-mu*tau*G(Ti)`. The assembled RHS and generalized force are unchanged. Bounded
+preflight still compares the 28 columns present in the original saved actions,
+and also checks coverage, finiteness and assembly/force identities for all 31
+outputs. The Ti identity is `Ti_compensation = phi_force - generalized_force`.
+
+`provenance/complete_runtime.txt` is the specific mutable wrapper runtime log;
+new verification/completion receipts explicitly list it outside content hashes.
+All other scientific provenance remains hashed. Existing receipts and returned
+artifacts are not changed. The repaired source has a new manifest identity;
+the original manifest remains in the returned source. Do not relabel or
+complete the returned campaign with this source. Its full corrected Ti
+diagnostic norms cannot be reconstructed from reduced norm payloads; use the
+focused replay below with the original banks.
+
 `completion.json`, `analysis.json`, `totals.npz`, `orders.csv`, `report.md`,
 all reference chunks/receipts, scientific reduction records/compiler proofs,
 preflight/pilot/grid receipts, frozen source, provenance, logs and operational
@@ -138,3 +157,47 @@ receipt. `totals.npz` includes every norm/order/max/integral array; analysis.jso
 documents its axes and the reference sensitivity. An execution pass is not an
 automatic scientific pass. Return any scientific exceptions unchanged for
 local interpretation. Do not close full Q08 or promote production.
+
+### Focused Ti diagnostic closeout
+
+`ti_replay.py` replays only `-mu*tau*G(Ti)` at h/32 using the existing scalar
+reconstruction and owner projection. There is no complete RHS rerun, tracing,
+row preparation or new continuum reference. Old O/R payloads have the positive
+sign: verify their hashes and signed identities before negating this column.
+The term is independent of diffusion span, phi and other fields' BCs. Scalar
+D/N results cover the original four patterns through D/N/D/N. Bounded full-RHS
+checks establish the narrow-kernel equivalence; retain all scalar owner actions
+for independent rescoring.
+
+Use a new REPLAY directory, the immutable OLD baseline and the completed
+SCIENCE run with identity `e8303a1a...389652`. BASE_SOURCE is OLD's frozen
+`source/scripts/q08_extraction_global`. The missing original completion.json
+does not authorize skipping input verification. Consumed reference payloads,
+chunk receipts and original owner-state hashes are checked.
+
+```bash
+python ti_replay.py reference-audit --run "$REPLAY" --science-run "$SCIENCE"
+python ti_replay.py bounded --run "$REPLAY" --baseline-source "$BASE_SOURCE" --baseline-run "$OLD"
+python ti_replay.py bounded-gpu --run "$REPLAY" --baseline-source "$BASE_SOURCE" --baseline-run "$OLD"
+python ti_replay.py gpu --run "$REPLAY" --science-run "$SCIENCE" \
+  --baseline-run "$OLD" --baseline-source "$BASE_SOURCE" --n 32 --host-gib "$HOST_GIB"
+python ti_replay.py gpu --run "$REPLAY" --science-run "$SCIENCE" \
+  --baseline-run "$OLD" --baseline-source "$BASE_SOURCE" --n 48 --host-gib "$HOST_GIB"
+python ti_replay.py gpu --run "$REPLAY" --science-run "$SCIENCE" \
+  --baseline-run "$OLD" --baseline-source "$BASE_SOURCE" --n 64 --host-gib "$HOST_GIB"
+python ti_replay.py analyze --run "$REPLAY"
+```
+
+Reference audit and bounded CPU regression can run locally. Global N has no
+CPU fallback: use the existing four-A100 inventory, with the first GPU running
+this smaller scalar action. Each command is a separate process; enable GPU
+JAX float64 and preserve scheduler visibility for the GPU stages. The old
+device guard and calibrated `3*census + 8 GiB` host admission policy remain.
+That empirical guard exceeds measured peaks; it is not a universal RSS bound
+or a production payload estimate. Missing banks stop execution.
+
+One writer lock and per-state/BC checkpoints support same-identity resume.
+Return N32/N48/N64 payloads/receipts, bounded GPU preflight, reference audit,
+orders.csv, analysis.json, completion.json and logs. This corrects one
+diagnostic; Q08 scientific closure remains a local review decision. No remote
+job is launched by these instructions.

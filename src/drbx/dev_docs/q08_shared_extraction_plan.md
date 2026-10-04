@@ -1,9 +1,12 @@
 # Q08 shared reconstruction extraction plan
 
-Status: **bounded shared extraction implemented; full-grid and GPU gates open**,
-2 October 2026. The APIs below are reusable research-library code, without a
-production solver selector. Q08 remains in progress; its full static,
-performance and span-selection gates remain open.
+Status, 4 October 2026: **shared extraction and full-grid GPU replay passed;
+h/32 and five eta planes selected; Q08 closeout pending**. The APIs below are
+reusable research-library code, without a production solver selector. See the
+[current roadmap freeze](parallel_second_order_roadmap.md#current-q08-configuration--user-freeze-4-october-2026)
+for the selected numerical contract, static evidence, remaining diagnostic and
+resource work, and explicitly untested coverage. The stages below retain the
+original implementation/replay requirements.
 
 [Implementation and independent review](../../../../work/q08_implementation_20261002/report.md)
 records source snapshots, literal C3 replay, tests and measured resource costs.
@@ -32,7 +35,10 @@ For the extraction replay, freeze:
   structured outer support, last-agglomerated-ring switch and common five-plane
   η polynomial. No new basis, support search or selection thresholds.
 - Material inner total separation h/32, outer characteristic separation h/16.
-  Diffusion continues to require an explicit h/16 or h/32 choice.
+  The user-selected common baseline now uses h/32 diffusion as well. Keep
+  spans explicit in preparation/application identity and retain h/16 diffusion
+  replay coverage. Alternative h/n plans must prepare consistent endpoints,
+  nested outer sampling and coefficients and carry their own qualification.
 - Current scalar values at primitive slots, raw coefficients/products before
   complete-owner physical-volume projection, matched Ti/φ force once.
 - Separate coefficient records for geometry-consistent material divergence
@@ -325,10 +331,11 @@ require repeating analytic-reference/tracing campaigns. Keep old scientific
 coverage limits: current/φ, vorticity and C3 diffusion transfer still need their
 remaining term-resolved global static evidence before full RHS certification.
 
-After representation/performance are stable, return to Q08's separate span and
-three-versus-five-plane comparison. Those experiments change numerical actions
-and require their own scoped qualification; this extraction does not select
-them. Q09 confirms the selected configuration in evolution.
+The subsequent span and three-versus-five-plane comparison is complete. The
+user selected h/32 and five planes on 4 October, including h/32 diffusion,
+and skipped unequal-resolution checks as a Q08 prerequisite. Alternative
+actions require their own scoped qualification. Q09 confirms the selected
+configuration in full-domain evolution; patch spectra are not a substitute.
 
 ## Replay and review policy
 

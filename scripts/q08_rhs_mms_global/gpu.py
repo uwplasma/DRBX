@@ -13,6 +13,7 @@ from boundary_cache import CachedAPI
 from boundary_values import catalogue_replay
 from gpu_stage import compiler_guard, memory_snapshot
 from scripts.q08_rhs_mms_global.science import TERMS, SPANS, numerical, reduce_case
+from scripts.q08_rhs_mms_global.resources import host_guard
 
 
 def load_references(run, old, n, identity):
@@ -103,12 +104,8 @@ def run_grid(run, old, identity, n, host_gib):
     tick = time.perf_counter()
     devices, inventory = oldgpu.device_inventory(False)
     _, estimate = oldgpu.estimate_merge(old, n, BASE_ID, host_gib)
-    # The previous replay measured up to 2.06x its declared host estimate.
-    # Add explicit empirical margin and independent-reference merge allowance.
-    required = 3*estimate['estimated_host_peak_upper_bytes']+8*2**30
-    available = min(int(host_gib*2**30), estimate.get('observed_host_available_bytes', 2**63))
-    if required > available:
-        raise MemoryError(f'calibrated host guard needs {required/2**30:.2f} GiB; budget/available {available/2**30:.2f}')
+    guard = host_guard(estimate, host_gib)
+    required = guard['required_bytes']
     oldgpu._device_guard(estimate, inventory)
     root = run/'science'/f'N{n}'; root.mkdir(parents=True, exist_ok=True)
     mesh = Mesh(np.asarray(devices[:4], object), ('z',))
@@ -183,7 +180,7 @@ def run_grid(run, old, identity, n, host_gib):
         gc.collect()
     result = dict(passed=True, identity=identity, n=n, validation=validate_grid(run, identity, n),
         device_inventory=inventory, boundary_audit=boundary_audit,
-        host_guard_bytes=required, host_budget_gib=host_gib, host_peak_rss_gib=oldgpu.peak_rss_gib(),
+        host_guard_bytes=required, host_guard=guard, host_budget_gib=host_gib, host_peak_rss_gib=oldgpu.peak_rss_gib(),
         device_memory=memory_snapshot(devices), timings=timings, wall_seconds=time.perf_counter()-tick,
         compiler_proofs=proofs, source='steady manufactured S=-R; same assembled GPU stage',
         scope='global static MMS, no time integration or physical sheath/SAT qualification')

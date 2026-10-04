@@ -20,6 +20,9 @@ POLY = HERE.with_name('q08_polynomial_global')
 BASE_ID = 'ff1bff86e4af5045b84856d16550f0f45edcbe03b83fc83cc5584557af4c8722'
 POLY_ID = '1a953c60d7352b2a74e6a737d7c2be7dcca9ee194808db3154e5f840d4a9b087'
 NS = (32, 48, 64)
+# A remote wrapper appends its exit/time after final validation. Scientific
+# provenance remains content-hashed; this one operational stream cannot be.
+MUTABLE_PROVENANCE = ('provenance/complete_runtime.txt',)
 
 
 def read(p):
@@ -81,6 +84,9 @@ def verify(run, old, implementation, baseline, poly, identity):
     # Reuse the complete content-based baseline input validator without any
     # row preparation, CPU action replay, tracing or old-RUN mutations.
     result = poly.verify(run, old, baseline, identity, read(POLY/'manifest.json'))
+    for rel in MUTABLE_PROVENANCE:
+        result['records'].pop(rel, None)
+    result['mutable_operational_logs'] = list(MUTABLE_PROVENANCE)
     completed = read(implementation/'completion.json')
     if not completed.get('passed') or completed.get('identity') != POLY_ID:
         raise ValueError('completed GPU implementation gate missing')
