@@ -2653,6 +2653,40 @@ regional second-order gate is imposed. P10 independently checks solutions.
 - **Shared norm:** the perpendicular and parallel operators must share one H, or the whole-system energy estimate does not close.
 - This is recorded for coordination and is not scheduled on the P path.
 
+**Watch items: energy exchange between equations (recorded 4 October 2026; not gates).** The gate above covers each operator acting on its own field. The items below concern how energy moves between equations in the coupled system. Check them when the relevant step runs, and record what is found. None blocks P09 or P10.
+- **The target is a hierarchy, not exact exchange everywhere:**
+
+  | Priority | Property | Status here |
+  |---|---|---|
+  | 1 | Each operator creates no numerical energy on its own | The P09 gate |
+  | 2 | Linear coupling pairs are adjoint in H, so the coupled linear system has no spurious growth | Watch item W2 |
+  | 3 | Nonlinear exchanges are exact, such as the E×B energy exchange | Watch item W1; left to dissipation |
+  | 4 | Exact exchange with neutrals, sheath and sources | Not attainable; only consistency is required |
+- **Background: what an exchange is.**
+  - The total energy splits into reservoirs: E×B kinetic energy E_K = ½∫n|∇⊥φ|² dV, thermal energy (n, Te, Ti), parallel kinetic energy, and magnetic or sheath energy.
+  - With ω = ∇·(n∇⊥φ), integrating by parts gives dE_K/dt = −∫φ ∂ω/∂t dV plus wall terms. So multiplying a vorticity-equation term by −φ and integrating shows what that term does to E_K.
+  - A term either moves energy between reservoirs (an exchange) or removes it (dissipation). An exchange is exact on the grid only if the paired discrete terms are H-transposes of each other, so that what one equation loses the other gains.
+- **W1 — the E×B energy exchange through the bracket (nonlinear; accounting, not stability).**
+  - **Continuum:** ∫φ V·∇ω dV = −∫c φ ω dV plus boundary terms (V ⊥ ∇φ, c = ∇·V). This is zero in 2-D with straight field lines, and a small compressible exchange in 3-D.
+  - **Split-form bracket (paper derivation, untested):** φᵀH·B_h(φ, ω) = −ωᵀH(c∘φ) − ½ωᵀH(Kφ − c∘φ) plus boundary terms.
+    - K is the discrete conservative operator, Kφ = |J|⁻¹D_i(|J|V^i φ).
+    - The advective half annihilates φ exactly, because the component cross product makes V ⊥ ∇φ at every node.
+    - The leftover ½ωᵀH(Kφ − c∘φ) is a discrete product-rule error, since D(Vφ) ≠ φ·DV. It has no partner term in another equation, so it is a small net source or sink in the total energy, not a transfer between fields, and its sign is not fixed.
+  - **Size:** for resolved fields it is truncation error and should shrink with refinement. Grid-scale content does not shrink, so the defect then depends on how much energy sits at the grid scale. Dissipation (stage 1d) keeps that small.
+  - **Exact alternative:** a 3-D Arakawa-type bracket, which reproduces both each field's own ∫g² balance and the compressible E×B exchange. Its existence with curved h is open (Arakawa 2-D: the average of the advective form and both flux forms).
+  - **Cheap check (proposed):** evaluate ½ωᵀH(Kφ − c∘φ) in the Option B prototype on the manufactured fields at N32/N48/N64, and once on a checkerboard-contaminated field, to see both regimes.
+- **W2 — linear coupling pairs (linear; a stability issue, not only accounting).**
+  - When two fields are coupled linearly, a non-adjoint discrete pair can make the coupled linear system grow, even if each operator passes the gate on its own field. This is the ring-3 problem spread across two fields.
+  - |U_n|-weighted upwinding does not necessarily cover it, and it vanishes on stagnation lines in any case.
+  - **Interchange pair (P path):** C(p) in the vorticity equation against C(φ) in the pressure equations, linearized about the background profiles. In an energy-consistent model, ∫φ C(p) = −∫p C(φ). Step 3 should extend its audit to the H-symmetric part of this two-field operator, not only each operator on its own field.
+  - **Parallel sound-wave pair (Q path):** ∇∥p in the momentum equation against ∇∥·v∥ in the pressure equation. GRILLIX's support operators enforce this adjointness. Flag it to Q's owners.
+  - **Open:** whether DRBX's continuum model is energy-consistent in this sense, with every transfer paired, is not yet checked. That comes first, because a discrete pairing can only mirror a continuum one.
+- **Why exact exchange everywhere is not the goal.**
+  - **Neutrals:** ionization, recombination and charge exchange move energy through local source terms. The coupled plasma–neutral system does not conserve a simple quadratic energy for a discretization to mirror.
+  - **Sheath:** sheath losses are physical sinks.
+  - **What is relied on instead:** the gate (no operator creates energy), adjoint linear pairs (W2), and dissipation for grid-scale content (upwinding where the flow is nonzero).
+- **Residual risk:** on stagnation and convergence lines |U_n| = 0, so upwinding does not damp grid-scale content there. If evolved runs show grid-scale noise accumulating there, the options are strain-aware jump speeds or explicit hyperdiffusion.
+
 **Cross-cutting.**
 - **SBP fixes the spatial operators, not the time step.** Neutral operators have imaginary eigenvalues, and classical RK4 needs |λ|dt ≲ 2.8 there.
 - **State-dependent wall data (P11):** each condition first needs a continuous energy estimate, and the SAT strengths mirror it (Nordström 2017). Without one, linearize about the state and check eigenvalues.
