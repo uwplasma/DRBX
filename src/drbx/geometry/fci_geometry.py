@@ -10,13 +10,6 @@ from jax import lax
 
 _pytree_base = jax.tree_util.register_pytree_node_class
 
-def _normalize_same_shape_fields(instance, field_names: tuple[str, ...], *, expected_shape: tuple[int, ...], label: str) -> None:
-    for name in field_names:
-        value = jnp.asarray(getattr(instance, name), dtype=jnp.float64)
-        if value.shape != expected_shape:
-            raise ValueError(f"{label}.{name} must have shape {expected_shape}, got {value.shape}")
-        object.__setattr__(instance, name, value)
-
 class _DataclassPyTreeMixin:
     """Generic PyTree support for frozen dataclasses.
     All dataclass fields with init=True are treated as dynamic PyTree children.
@@ -4008,102 +4001,6 @@ def _rk4_step_cell_centered(
     k3 = rhs(state + 0.5 * h * k2)
     k4 = rhs(state + h * k3)
     return state + (h / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-
-
-def _trace_fieldline_to_plane_cell_centered(
-    grid: CellCenteredGrid3D,
-    B_contra_cell: jnp.ndarray,
-    Bmag_cell: jnp.ndarray,
-    seed_points: jnp.ndarray,
-    *,
-    step: float,
-    substeps: int,
-    periodic_axes: tuple[bool, bool, bool],
-    min_abs_bz: float,
-    boundary_value: float,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    points = jnp.asarray(seed_points, dtype=jnp.float64)
-    if points.ndim != 2 or points.shape[-1] != 3:
-        raise ValueError(f"seed_points must have shape (n, 3), got {points.shape}")
-
-    nseed = int(points.shape[0])
-    step_size = float(step) / float(max(int(substeps), 1))
-    length = jnp.zeros(nseed, dtype=jnp.float64)
-    alive = jnp.ones(nseed, dtype=bool)
-    state = points
-
-    def _speed(sampled_b: jnp.ndarray, sampled_bmag: jnp.ndarray) -> jnp.ndarray:
-        bz = sampled_b[..., 2]
-        safe_bz = jnp.where(
-            jnp.abs(bz) < min_abs_bz,
-            jnp.where(bz < 0.0, -1.0, 1.0) * min_abs_bz,
-            bz,
-        )
-        return jnp.asarray(sampled_bmag, dtype=jnp.float64) / jnp.maximum(jnp.abs(safe_bz), 1.0e-30)
-
-    for _ in range(max(int(substeps), 1)):
-        b0 = jax.vmap(
-            lambda point: _interpolate_B_contravariant_cell_centered(
-                grid,
-                B_contra_cell,
-                point,
-                periodic_axes=periodic_axes,
-                boundary_value=boundary_value,
-            )
-        )(state)
-        bmag0 = _interpolate_scalar_cell_centered(
-            Bmag_cell,
-            state[:, 0],
-            state[:, 1],
-            state[:, 2],
-            grid=grid,
-            periodic_axes=periodic_axes,
-            boundary_value=boundary_value,
-        )
-        next_state = jax.vmap(
-            lambda point: _rk4_step_cell_centered(
-                grid,
-                B_contra_cell,
-                point,
-                step_size,
-                periodic_axes=periodic_axes,
-                min_abs_bz=min_abs_bz,
-                boundary_value=boundary_value,
-            )
-        )(state)
-        bmag1 = _interpolate_scalar_cell_centered(
-            Bmag_cell,
-            next_state[:, 0],
-            next_state[:, 1],
-            next_state[:, 2],
-            grid=grid,
-            periodic_axes=periodic_axes,
-            boundary_value=boundary_value,
-        )
-        b1 = jax.vmap(
-            lambda point: _interpolate_B_contravariant_cell_centered(
-                grid,
-                B_contra_cell,
-                point,
-                periodic_axes=periodic_axes,
-                boundary_value=boundary_value,
-            )
-        )(next_state)
-        finite = jnp.all(jnp.isfinite(next_state), axis=-1)
-        valid = _physical_domain_valid_mask(
-            grid,
-            next_state[:, 0],
-            next_state[:, 1],
-            next_state[:, 2],
-            periodic_axes=periodic_axes,
-        )
-        increment = 0.5 * abs(step_size) * (_speed(b0, bmag0) + _speed(b1, bmag1))
-        increment = jnp.where(alive & finite & valid, increment, 0.0)
-        length = length + increment
-        state = jnp.where((alive & finite & valid)[..., None], next_state, state)
-        alive = alive & finite & valid
-
-    return state, length, ~alive
 
 
 def build_fci_maps_from_b_contravariant(

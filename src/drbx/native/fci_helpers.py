@@ -17,24 +17,8 @@ def _as_float64_array(value: jnp.ndarray, name: str) -> jnp.ndarray:
     return array
 
 
-def _as_optional_boundary_plane(value: jnp.ndarray | float | None, name: str) -> jnp.ndarray | None:
-    """Normalize a boundary-plane payload for the global/reference path."""
-
-    if value is None:
-        return None
-    array = jnp.asarray(value, dtype=jnp.float64)
-    if array.ndim not in (0, 2):
-        raise ValueError(f"{name} must be scalar or 2D, got {array.shape}")
-    return array
-
-
-def _as_face_flux_array(value: jnp.ndarray, name: str) -> jnp.ndarray:
-    """Normalize a face-aligned 3D array without deciding global vs local layout."""
-
-    array = jnp.asarray(value, dtype=jnp.float64)
-    if array.ndim != 3:
-        raise ValueError(f"{name} must be 3D, got {array.shape}")
-    return array
+# Face-aligned arrays are normalized the same way, without deciding global vs local layout.
+_as_face_flux_array = _as_float64_array
 
 
 def _as_int_face_array(value: jnp.ndarray, name: str) -> jnp.ndarray:
@@ -167,15 +151,6 @@ def _local_cell_halo_array(value: jnp.ndarray, layout: HaloLayout3D, name: str) 
     return array
 
 
-def _local_owned_cell_array(value: jnp.ndarray, layout: HaloLayout3D, name: str) -> jnp.ndarray:
-    """Validate a local owned-cell array."""
-
-    array = jnp.asarray(value, dtype=jnp.float64)
-    if array.shape != layout.owned_shape:
-        raise ValueError(f"{name} must have shape {layout.owned_shape}, got {array.shape}")
-    return array
-
-
 def _local_face_halo_array(value: jnp.ndarray, layout: HaloLayout3D, axis: int, name: str) -> jnp.ndarray:
     """Validate a halo-padded local face array."""
 
@@ -198,26 +173,6 @@ def _local_control_face_array(value: jnp.ndarray, layout: HaloLayout3D, axis: in
     return array
 
 
-def _local_coordinate_face_tuple(
-    value: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-    layout: HaloLayout3D,
-    name: str,
-    *,
-    region: Literal["control", "halo_face"] = "control",
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Validate a local coordinate-face tuple against a halo layout."""
-
-    if len(value) != 3:
-        raise ValueError(f"{name} must be a tuple of three face arrays")
-    validators = (
-        _local_control_face_array if region == "control" else _local_face_halo_array
-    )
-    x_value = validators(value[0], layout, 0, f"{name}.x")
-    y_value = validators(value[1], layout, 1, f"{name}.y")
-    z_value = validators(value[2], layout, 2, f"{name}.z")
-    return x_value, y_value, z_value
-
-
 def local_side_plane_shape(layout: HaloLayout3D, axis: int) -> tuple[int, int]:
     """Return the owned-cell side-plane shape for a local boundary payload."""
 
@@ -228,26 +183,6 @@ def local_side_plane_shape(layout: HaloLayout3D, axis: int) -> tuple[int, int]:
     if axis == 1:
         return nx, nz
     return nx, ny
-
-
-def _as_local_side_plane_array(
-    value: jnp.ndarray | float,
-    layout: HaloLayout3D,
-    axis: int,
-    name: str,
-    *,
-    dtype=jnp.float64,
-) -> jnp.ndarray:
-    """Validate a local side-plane payload used by ghost-fill boundary helpers."""
-
-    axis = _validate_axis(axis)
-    array = jnp.asarray(value, dtype=dtype)
-    expected_shape = local_side_plane_shape(layout, axis)
-    if array.ndim == 0:
-        return jnp.broadcast_to(array, expected_shape)
-    if array.shape != expected_shape:
-        raise ValueError(f"{name} must have shape {expected_shape}, got {array.shape}")
-    return array
 
 
 def _as_local_wall_array(

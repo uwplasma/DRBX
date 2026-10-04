@@ -1224,31 +1224,6 @@ def _interpolate_trajectories_at_toroidal_plane(
     return endpoints, lengths, crossed
 
 
-def _cartesian_to_annular_indices(
-    points_xyz: np.ndarray,
-    *,
-    crossed: np.ndarray,
-    axis_major_radius: float,
-    axis_vertical: float,
-    rho_min: float,
-    rho_max: float,
-    nx: int,
-    nz: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    major = np.sqrt(points_xyz[:, 0] ** 2 + points_xyz[:, 1] ** 2)
-    vertical = points_xyz[:, 2]
-    radial_offset = major - float(axis_major_radius)
-    vertical_offset = vertical - float(axis_vertical)
-    rho = np.sqrt(radial_offset * radial_offset + vertical_offset * vertical_offset)
-    theta = np.mod(np.arctan2(vertical_offset, radial_offset), 2.0 * np.pi)
-    x_index = (rho - float(rho_min)) / max(float(rho_max - rho_min), 1.0e-30) * float(nx - 1)
-    z_index = theta / (2.0 * np.pi) * float(nz)
-    boundary = (~crossed) | (~np.isfinite(x_index)) | (x_index < 0.0) | (x_index > float(nx - 1))
-    x_index = np.where(boundary, 0.0, x_index)
-    z_index = np.where(boundary | (~np.isfinite(z_index)), 0.0, z_index)
-    return x_index, z_index, boundary
-
-
 def build_essos_vmec_scaled_qa_coordinates(
     wout_path: Path,
     *,
@@ -1397,31 +1372,6 @@ def _structured_plane_spacing(coordinates_x: np.ndarray, coordinates_y: np.ndarr
     return np.asarray(spacing, dtype=np.float64)
 
 
-def _annular_exit_length_from_trajectories(
-    trajectories_xyz: np.ndarray,
-    *,
-    axis_major_radius: float,
-    axis_vertical: float,
-    rho_min: float,
-    rho_max: float,
-) -> np.ndarray:
-    major = np.sqrt(trajectories_xyz[:, :, 0] ** 2 + trajectories_xyz[:, :, 1] ** 2)
-    vertical = trajectories_xyz[:, :, 2]
-    rho = np.sqrt((major - float(axis_major_radius)) ** 2 + (vertical - float(axis_vertical)) ** 2)
-    tolerance = 1.0e-10 * max(float(rho_max - rho_min), 1.0)
-    outside = (rho < float(rho_min) - tolerance) | (rho > float(rho_max) + tolerance) | (~np.isfinite(rho))
-    arc_length = np.concatenate(
-        [
-            np.zeros((trajectories_xyz.shape[0], 1), dtype=np.float64),
-            np.cumsum(np.linalg.norm(np.diff(trajectories_xyz, axis=1), axis=2), axis=1),
-        ],
-        axis=1,
-    )
-    first_exit = np.argmax(outside, axis=1)
-    has_exit = np.any(outside, axis=1)
-    return np.where(has_exit, arc_length[np.arange(trajectories_xyz.shape[0]), first_exit], arc_length[:, -1])
-
-
 def _structured_exit_length_from_trajectories(
     trajectories_xyz: np.ndarray,
     *,
@@ -1560,40 +1510,6 @@ def _metric_from_coordinates(
         g_12=jnp.asarray(cov[..., 0, 1], dtype=jnp.float64),
         g_13=jnp.asarray(cov[..., 0, 2], dtype=jnp.float64),
         g_23=jnp.asarray(cov[..., 1, 2], dtype=jnp.float64),
-    )
-
-
-def _annular_metric_tensor(
-    *,
-    rho: np.ndarray,
-    major: np.ndarray,
-    bmag: np.ndarray,
-    drho: float,
-    dphi: float,
-    dtheta: float,
-) -> MetricTensor3D:
-    zeros = np.zeros_like(rho)
-    safe_rho = np.maximum(rho, 1.0e-8)
-    safe_major = np.maximum(major, 1.0e-8)
-    jacobian = safe_major * safe_rho
-    return MetricTensor3D(
-        dx=jnp.asarray(np.full_like(rho, float(drho)), dtype=jnp.float64),
-        dy=jnp.asarray(np.full_like(rho, float(dphi)), dtype=jnp.float64),
-        dz=jnp.asarray(np.full_like(rho, float(dtheta)), dtype=jnp.float64),
-        J=jnp.asarray(jacobian, dtype=jnp.float64),
-        Bxy=jnp.asarray(bmag, dtype=jnp.float64),
-        g11=jnp.asarray(np.ones_like(rho), dtype=jnp.float64),
-        g22=jnp.asarray(1.0 / (safe_major * safe_major), dtype=jnp.float64),
-        g33=jnp.asarray(1.0 / (safe_rho * safe_rho), dtype=jnp.float64),
-        g12=jnp.asarray(zeros, dtype=jnp.float64),
-        g13=jnp.asarray(zeros, dtype=jnp.float64),
-        g23=jnp.asarray(zeros, dtype=jnp.float64),
-        g_11=jnp.asarray(np.ones_like(rho), dtype=jnp.float64),
-        g_22=jnp.asarray(safe_major * safe_major, dtype=jnp.float64),
-        g_33=jnp.asarray(safe_rho * safe_rho, dtype=jnp.float64),
-        g_12=jnp.asarray(zeros, dtype=jnp.float64),
-        g_13=jnp.asarray(zeros, dtype=jnp.float64),
-        g_23=jnp.asarray(zeros, dtype=jnp.float64),
     )
 
 
