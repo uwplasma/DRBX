@@ -2697,6 +2697,10 @@ regional second-order gate is imposed. P10 independently checks solutions.
     - **Time step:** RK4 Δt at HSX N32 is 2.97e-6 (1.79e-6 at N48, 1.26e-6 at N64), 20–28% below today's. Accepted.
     - **Known limit, not gating:** the φ_wave Ti order at HSX is 1.30 / 1.70 for every family. It comes from the η product-rule defect, because the HSX metric changes by 21–29% between adjacent η planes.
     - **The rule needs n divisible by 8.**
+    - **Core compressibility artifact: accepted** (user, 4 October 2026).
+      - Discrete ½c in the core exceeds the physical S: 2127 against 642 at N32, 1249 against 646 at N48, 975 against 678 at N64.
+      - The excess falls monotonically, at order about 2.2 / 2.5.
+      - The global max ½c is set in the interior, so the eigenvalue bound and the time step are unaffected.
   - **Dissipation defaults** (user, 4 October 2026):
     - **On by default.** Ring face jumps at full upwind strength ½|U_n|, interface penalty Γ = ½|v|, wall inflow τ = |v_w|. None of these has a tunable factor.
     - **Core shell damping −κP_h** with κ = c_κ·max|V|·p/R_c and **c_κ = 1 fixed by rule**.
