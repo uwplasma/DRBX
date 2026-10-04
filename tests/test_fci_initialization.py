@@ -153,6 +153,11 @@ class _SmallWallModel:
         weights = weights.at[-1].set(1.0 / float(shape[1] * shape[2]))
         return weights, jnp.asarray(0.0), jnp.asarray(0.25)
 
+    def _polarization_pressure(self, state, face_bc):
+        # Legacy selector semantics (q = Ti): this stub pins the wall-trace
+        # defect arithmetic below, independent of the polarization variable.
+        return state.Ti, face_bc.Ti
+
     def _vorticity_from_polarization(self, phi, ti, face_phi, face_ti):
         del face_phi, face_ti
         defect = self._upper_trace(phi) - phi[-1]

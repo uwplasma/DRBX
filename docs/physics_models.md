@@ -121,8 +121,29 @@ structure
 ω = ∇⊥·(C ∇⊥ φ)
 ```
 
-with model-dependent coefficients `C` and metric terms. The corresponding
-vorticity transport equation is represented schematically as
+with model-dependent coefficients `C` and metric terms.
+
+The FCI EB lane (`FciDrbEBRhsParameters`) uses the Boussinesq hot-ion form
+
+```text
+ω = ∇⊥²(φ + τ p_i),    p_i = n T_i      (normalized, n0 = 1)
+```
+
+so the potential solve keeps the constant-coefficient operator `A = -∇⊥²`
+and only its right-hand side, `τ A(p_i) - ω`, carries the ion pressure. The
+reason is energy consistency: the older `ω = ∇⊥²(φ + τ T_i)` form drops the
+`τ ñ` contribution, so the linear curvature pairs no longer match and
+unphysical growth proportional to `|k|` appears at `τ > 0`. Select the legacy
+form with `polarization_variable="phi_plus_tau_ti"` (default
+`"phi_plus_tau_pi"`). The curvature remainder and parallel composite splits of
+`φ` are internal and cancel in the continuum; they are unchanged. Sources:
+Scott 2007 ([doi:10.1063/1.2783993](https://doi.org/10.1063/1.2783993)) and
+Dudson et al. 2026, Hermes-3
+([doi:10.1088/1741-4326/ae3627](https://doi.org/10.1088/1741-4326/ae3627))
+for the hot-ion polarization; the `φ + τ T_i` form follows Coelho et al. 2022
+([doi:10.1088/1741-4326/ac6ad2](https://doi.org/10.1088/1741-4326/ac6ad2)).
+
+The corresponding vorticity transport equation is represented schematically as
 
 ```text
 ∂t ω + ∇·(ω u_E) = ∇∥ J∥ + S_ω

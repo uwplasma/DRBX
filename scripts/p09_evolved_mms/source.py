@@ -11,8 +11,11 @@ returns the owner arrays (``N`` owners; fields in the order ``density, Te, Ti, v
   exactly the definitions of ``p_shared.perpendicular_reference_rhs.reference_rhs``; ``Rbar = bracket + curv_total +
   diffusion``;
 * ``S = dqbar_dt[:, :4] - Rbar`` (the source of ``d_t q = R + S``);
-* ``Dbar_psi (N,)`` the same face functional (``D = 1``) on ``psi = phi + tau Ti``, and ``sigma = omegabar - Dbar_psi``:
-  the campaign solves ``A psi_h = -(omega_h - sigma) - B g_psi``.
+* ``Dbar_psi (N,)`` the same face functional (``D = 1``) on the polarization variable ``psi = phi + tau n Ti``
+  (hot-ion Boussinesq ``omega = L_perp psi``; gradient ``grad phi + tau (Ti grad n + n grad Ti)``), and
+  ``sigma = omegabar - Dbar_psi``: the campaign solves ``A psi_h = -(omega_h - sigma) - B g_psi``.
+  ``Source(polarization_variable="phi_plus_tau_ti")`` restores the legacy ``psi = phi + tau Ti``. The curvature remainder
+  ``cpsi = C(phi) + tau C(Ti)`` in ``continuum_terms`` is a curvature split, independent of this selector.
 
 ``Source.boundary(geo, t, params)`` -> ``(BoundaryData of the five columns, psi BoundaryData)`` at the plan's Dirichlet /
 Neumann points (value and tangential ``(theta, eta)`` gradient; ``g_N = a . grad f``; ``psi`` has Dirichlet data only);
@@ -39,7 +42,7 @@ from drbx.native.fci_perpendicular_reconstruction_state import BoundaryData     
 
 from p09_evolved_mms.fields import TimeState                                                # noqa: E402
 
-TI_SLOT, PHI_SLOT = 2, 4
+N_SLOT, TI_SLOT, PHI_SLOT = 0, 2, 4
 
 
 class Params(NamedTuple):
@@ -87,7 +90,12 @@ class Source:
     """Jitted evaluators built from the time-dependent fields (``fields.TimeState``). ``block`` is the point-block size
     of the ``lax.map`` over face / boundary points (bounds the transient memory of the gradient kernels)."""
 
-    def __init__(self, om: float = 1.0, specs=None, block: int = 65536):
+    def __init__(self, om: float = 1.0, specs=None, block: int = 65536,
+                 polarization_variable: str = "phi_plus_tau_pi"):
+        if polarization_variable not in ("phi_plus_tau_pi", "phi_plus_tau_ti"):
+            raise ValueError("polarization_variable must be 'phi_plus_tau_pi' or 'phi_plus_tau_ti', "
+                             f"got {polarization_variable!r}")
+        self.polarization_variable = polarization_variable
         self.state = TimeState(specs, om)
         self.block = int(block)
         self.evaluate = jax.jit(self._evaluate)
@@ -102,6 +110,15 @@ class Source:
         v, g = jax.lax.map(lambda p: self.state.batch_value_grad(p, t), padded)
         return v.reshape(-1, v.shape[-1])[:count], g.reshape((-1,) + g.shape[2:])[:count]
 
+    def _psi(self, value, grad, tau):
+        """``(psi, grad psi)`` from ``value (..., 5)`` and ``grad (..., 5, k)`` (``k``: 3 or the tangential pair)."""
+        if self.polarization_variable == "phi_plus_tau_ti":
+            return (value[..., PHI_SLOT] + tau * value[..., TI_SLOT],
+                    grad[..., PHI_SLOT, :] + tau * grad[..., TI_SLOT, :])
+        n, ti = value[..., N_SLOT], value[..., TI_SLOT]
+        return (value[..., PHI_SLOT] + tau * n * ti,
+                grad[..., PHI_SLOT, :] + tau * (ti[..., None] * grad[..., N_SLOT, :] + n[..., None] * grad[..., TI_SLOT, :]))
+
     def _evaluate(self, geo, t, params):
         n_own = geo.owner_volume.shape[0]
         tau, vol = params.tau, geo.owner_volume
@@ -114,9 +131,10 @@ class Source:
         w = geo.evolution_weight
         denom = jnp.maximum(jax.ops.segment_sum(w, geo.raw_owner, num_segments=n_own), 1e-300)[:, None]
         curv = [owner_sum(a, w, geo.raw_owner, n_own) / denom for a in (material, remainder, total)]
-        _v, gf = self._grad_blocks(geo.face_points.reshape(-1, 3), t)
+        vf, gf = self._grad_blocks(geo.face_points.reshape(-1, 3), t)
+        vf = vf.reshape(geo.face_points.shape[0], geo.face_points.shape[1], 5)
         gf = gf.reshape(geo.face_points.shape[0], geo.face_points.shape[1], 5, 3)
-        gf = jnp.concatenate([gf[:, :, :4], (gf[:, :, PHI_SLOT] + tau * gf[:, :, TI_SLOT])[:, :, None]], axis=2)
+        gf = jnp.concatenate([gf[:, :, :4], self._psi(vf, gf, tau)[1][:, :, None]], axis=2)
         face_o = jnp.einsum("fqa,fqka->fk", geo.face_integrand, gf)                  # (F, 5): 4 fields, psi
         o_q3 = face_scatter(face_o, geo.face_lower, geo.face_upper, n_own) / vol[:, None]
         diffusion, dbar_psi = -o_q3[:, :4] * params.D, -o_q3[:, 4]
@@ -130,8 +148,8 @@ class Source:
         tangential = jnp.moveaxis(g[:, :, 1:], 1, 2)                                # (Qd, 2, 5)
         _v, gn = self._grad_blocks(geo.neumann_points, t)
         normal = jnp.einsum("qa,qfa->qf", geo.neumann_a, gn)
-        psi = BoundaryData((v[:, PHI_SLOT] + params.tau * v[:, TI_SLOT])[:, None],
-                           (tangential[:, :, PHI_SLOT] + params.tau * tangential[:, :, TI_SLOT])[:, :, None], None)
+        psi_value, psi_tangential = self._psi(v, jnp.moveaxis(tangential, 1, 2), params.tau)
+        psi = BoundaryData(psi_value[:, None], psi_tangential[:, :, None], None)
         return BoundaryData(v, tangential, normal), psi
 
     def _boundary_dt(self, geo, t, params):

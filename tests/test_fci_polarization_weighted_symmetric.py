@@ -173,11 +173,12 @@ def test_simplified_gbs_mpe_vorticity_helper_uses_polarization_action(monkeypatc
             state,
             phi_owned=state.phi,
         )
+        pressure, pressure_bc = model._polarization_pressure(state, face_bc)
         omega_pol = model._vorticity_from_polarization(
             state.phi,
-            state.Ti,
+            pressure,
             face_bc.phi,
-            face_bc.Ti,
+            pressure_bc,
         )
         identity_ok = jnp.all(
             jnp.isclose(
@@ -190,11 +191,13 @@ def test_simplified_gbs_mpe_vorticity_helper_uses_polarization_action(monkeypatc
         final_calls = captured["calls"][-2:]
         raw_fields_ok = (
             jnp.allclose(final_calls[0][0], state.phi, rtol=0.0, atol=0.0)
-            & jnp.allclose(final_calls[1][0], state.Ti, rtol=0.0, atol=0.0)
+            & jnp.allclose(final_calls[1][0], pressure, rtol=0.0, atol=0.0)
         )
+        # The second action is on the polarization pressure p_i = n Ti with
+        # its derived physical-face payload (the Ti payload for legacy).
         bc_routing_ok = (
             final_calls[0][1] is face_bc.phi
-            and final_calls[1][1] is face_bc.Ti
+            and final_calls[1][1] is pressure_bc
         )
         routing_ok = jax.lax.pmin(
             (raw_fields_ok & bc_routing_ok).astype(jnp.float64),
@@ -328,10 +331,11 @@ def test_weighted_symmetric_form_is_shared_by_phi_and_ti_balance() -> None:
             reconstructed,
             face_bc.phi,
         )
+        pressure, pressure_bc = model._polarization_pressure(state, face_bc)
         ti_action = model._positive_polarization_action(
             solver,
-            state.Ti,
-            face_bc.Ti,
+            pressure,
+            pressure_bc,
         )
         residual = model.polarization_residual(
             state,

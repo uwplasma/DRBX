@@ -151,6 +151,9 @@ def test_local_initializer_executes_operator_boundary_builder(monkeypatch):
         def _fci_parallel_characteristic_wall_data(self, **kwargs):
             return {"wall_data": wall, "primitive_stencils": [fake_stencil]}
 
+        def _polarization_pressure(self, state, face_bc):
+            return state.Ti, face_bc.Ti
+
         def _vorticity_from_polarization(self, phi, ti, face_phi, face_ti):
             self.vorticity_args = (phi, ti, face_phi, face_ti)
             return zero

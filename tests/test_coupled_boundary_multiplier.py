@@ -39,7 +39,11 @@ class _FakeModel:
         self.physical_wall_model_name = (
             "simplified-gbs-mpe" if simplified else "simple-conducting-sheath"
         )
-        self.parameters = SimpleNamespace(tau=2.0)
+        # Legacy selector (q = Ti): these stubs pin the weighted raw-residual
+        # convention and the raw-image arithmetic, which do not depend on q.
+        self.parameters = SimpleNamespace(
+            tau=2.0, polarization_variable="phi_plus_tau_ti"
+        )
         self.domain = SimpleNamespace(mesh_axis_names=())
         self.gmres_config = SolvaxGmresConfig(regularization_epsilon=0.0)
 
@@ -52,6 +56,7 @@ class _FakeModel:
     )
 
     recover_polarization_multiplier = LocalFciDrbEBRhs.recover_polarization_multiplier
+    _polarization_pressure = LocalFciDrbEBRhs._polarization_pressure
     _vorticity_from_polarization = LocalFciDrbEBRhs._vorticity_from_polarization
 
 
@@ -78,6 +83,30 @@ def test_recover_polarization_multiplier_uses_weighted_raw_residual(monkeypatch)
     )
     raw = (jnp.asarray([3.0, 4.0, 5.0])
            + 2.0 * jnp.asarray([2.0, 3.0, 4.0])
+           + jnp.asarray([4.0, 5.0, 6.0]))
+    expected = -float(jnp.dot(jnp.asarray([1.0, 2.0, 1.0]), raw) / 4.0)
+    np.testing.assert_allclose(lam, expected)
+
+
+def test_recover_polarization_multiplier_uses_polarization_pressure(monkeypatch):
+    """Hot-ion form: lambda = -mean_M(A(phi) + tau*A(p_i) + omega), p_i = n Ti."""
+
+    class _HotIonModel(_FakeModel):
+        def _polarization_pressure(self, state_owned, face_bc):
+            return state_owned.density * state_owned.Ti, face_bc.Ti
+
+    model = _HotIonModel()
+    state = _state({"Ti": [1.0, 2.0, 3.0], "omega": [4.0, 5.0, 6.0]}).replace(
+        density=jnp.asarray([2.0, 0.5, 1.0])
+    )
+    face_bc = SimpleNamespace(phi=object(), Ti=object())
+    monkeypatch.setattr(rhs_module, "_spmd_sum", lambda value, domain: value)
+    lam = model.recover_polarization_multiplier(
+        state, phi_owned=jnp.asarray([2.0, 3.0, 4.0]), face_bc=face_bc
+    )
+    pressure = jnp.asarray([2.0, 1.0, 3.0])
+    raw = (jnp.asarray([3.0, 4.0, 5.0])
+           + 2.0 * (pressure + 1.0)
            + jnp.asarray([4.0, 5.0, 6.0]))
     expected = -float(jnp.dot(jnp.asarray([1.0, 2.0, 1.0]), raw) / 4.0)
     np.testing.assert_allclose(lam, expected)

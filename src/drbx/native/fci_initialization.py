@@ -317,13 +317,14 @@ def initialize_boundary_compatible_rung3(
 
     result = model._owner_state(quiet)
     final_face = model._face_bcs(result)
+    pressure_owned, pressure_bc = model._polarization_pressure(result, final_face)
     result = model._owner_state(
         result.replace(
             vorticity=model._vorticity_from_polarization(
                 result.phi,
-                result.Ti,
+                pressure_owned,
                 final_face.phi,
-                final_face.Ti,
+                pressure_bc,
             )
         )
     )

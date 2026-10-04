@@ -180,7 +180,13 @@ def _vorticity(coord, time, rho_min, rho_max):
             return J * (g - jnp.outer(b, b)) @ grad
         J, _, _, _, _ = _scalar_geometry(coord)
         return jnp.trace(jax.jacfwd(flux)(coord)) / J
-    return laplacian(lambda q: _field_functions(q, time, rho_min, rho_max)[1]) + laplacian(lambda q: _field_functions(q, time, rho_min, rho_max)[3])
+    # Hot-ion Boussinesq polarization omega = L_perp(phi + tau n Ti) with the
+    # fixture's tau = 1 (the default ``polarization_variable="phi_plus_tau_pi"``).
+    def pressure(q):
+        fields = _field_functions(q, time, rho_min, rho_max)
+        return fields[0] * fields[3]
+
+    return laplacian(lambda q: _field_functions(q, time, rho_min, rho_max)[1]) + laplacian(pressure)
 
 
 def _data_at(context: ShiftedTorusEbMmsContext, time: float) -> AnalyticMmsData:

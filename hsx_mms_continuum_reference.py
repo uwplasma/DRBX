@@ -165,6 +165,7 @@ def build_continuum_reference_from_artifact(
     perp_diffusion: float = 1.0e-5,
     enable_generalized_potential: bool = True,
     metric_query_batch_size: int = 4096,
+    polarization_variable: str = "phi_plus_tau_pi",
 ) -> "ContinuumMmsReference":
     """Construct the fixed MMS reference from one serialized artifact.
 
@@ -193,6 +194,7 @@ def build_continuum_reference_from_artifact(
         perp_diffusion=perp_diffusion,
         enable_generalized_potential=enable_generalized_potential,
         metric_query_batch_size=metric_query_batch_size,
+        polarization_variable=polarization_variable,
     )
 
 
@@ -215,6 +217,7 @@ def build_continuum_reference_from_sidecar(
     perp_diffusion: float = 1.0e-5,
     enable_generalized_potential: bool = True,
     metric_query_batch_size: int | None = None,
+    polarization_variable: str = "phi_plus_tau_pi",
 ) -> "ContinuumMmsReference":
     """Restore a qualified frozen continuous HSX MMS reference.
 
@@ -265,6 +268,7 @@ def build_continuum_reference_from_sidecar(
         Ve_nu=Ve_nu,
         perp_diffusion=perp_diffusion,
         enable_generalized_potential=enable_generalized_potential,
+        polarization_variable=polarization_variable,
         eta_period=float(payload["analytic_mms_eta_period"]),
         metric_query_batch_size=int(
             payload.get("metric_query_batch_size", 4096)
@@ -445,6 +449,37 @@ def _sum_terms_with_hessian(
     return (*out, hessian)
 
 
+POLARIZATION_VARIABLES = ("phi_plus_tau_pi", "phi_plus_tau_ti")
+
+
+def _product_minus_one_with_hessian(
+    density_raw: tuple[np.ndarray, ...], ti_raw: tuple[np.ndarray, ...]
+) -> tuple[np.ndarray, ...]:
+    """Return ``n*Ti - 1`` and its derivatives from perturbation raw tuples.
+
+    Both inputs are ``(value, du, dtheta, deta, dt, hessian)`` for the
+    perturbations ``n - 1`` and ``Ti - 1``.  Gradients (including the time
+    derivative) use the product rule; the Hessian uses
+    ``(ab)'' = a''b + a'b'^T + b'a'^T + ab''``.
+    """
+
+    n = 1.0 + density_raw[0]
+    ti = 1.0 + ti_raw[0]
+    firsts = tuple(
+        n * ti_first + ti * n_first
+        for n_first, ti_first in zip(density_raw[1:5], ti_raw[1:5])
+    )
+    grad_n = np.stack(density_raw[1:4], axis=-1)
+    grad_ti = np.stack(ti_raw[1:4], axis=-1)
+    hessian = (
+        n[:, None, None] * ti_raw[5]
+        + ti[:, None, None] * density_raw[5]
+        + grad_n[:, :, None] * grad_ti[:, None, :]
+        + grad_ti[:, :, None] * grad_n[:, None, :]
+    )
+    return (n * ti - 1.0, *firsts, hessian)
+
+
 class ContinuumMmsReference:
     """Pointwise bulk EB continuum reference on an arbitrary smooth metric.
 
@@ -470,7 +505,14 @@ class ContinuumMmsReference:
         enable_generalized_potential: bool = False,
         eta_period: float | None = None,
         metric_query_batch_size: int = 4096,
+        polarization_variable: str = "phi_plus_tau_pi",
     ) -> None:
+        if polarization_variable not in POLARIZATION_VARIABLES:
+            raise ValueError(
+                f"polarization_variable must be one of {POLARIZATION_VARIABLES}, "
+                f"got {polarization_variable!r}"
+            )
+        self.polarization_variable = str(polarization_variable)
         if not np.isfinite(B0) or B0 <= 0.0:
             raise ValueError("B0 must be finite and positive")
         self.metric_evaluator = metric_evaluator
@@ -732,11 +774,19 @@ class ContinuumMmsReference:
             name: _sum_terms_with_hessian(q, t, spec, self.eta_period)
             for name, spec in terms.items()
         }
-        # The default regression mode chooses phi=-tau*(Ti-1), making omega=0
+        # The default regression mode chooses phi=-tau*(p_i-1), p_i=n*Ti
+        # (hot-ion Boussinesq omega=L_perp(phi+tau*p_i)), making omega=0
         # exactly.  Production MMS enables a static generalized potential psi:
-        # phi=-tau*(Ti-1)+psi, with omega=L_perp psi assembled independently
-        # from the cached metric tensor/divergence in ``prepare``.
-        phi = tuple(-self.tau * value for value in raw["Ti"])
+        # phi=-tau*(p_i-1)+psi, with omega=L_perp psi assembled independently
+        # from the cached metric tensor/divergence in ``prepare``.  The legacy
+        # selector ``phi_plus_tau_ti`` uses phi=-tau*(Ti-1)+psi instead.
+        if self.polarization_variable == "phi_plus_tau_pi":
+            polarization_raw = _product_minus_one_with_hessian(
+                raw["density"], raw["Ti"]
+            )
+        else:
+            polarization_raw = raw["Ti"]
+        phi = tuple(-self.tau * value for value in polarization_raw)
         if self.enable_generalized_potential:
             psi = self._psi_raw(q)
             phi = tuple(a + b for a, b in zip(phi, psi))
