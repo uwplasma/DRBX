@@ -73,7 +73,7 @@ manufactured-vorticity hotspot does not demonstrate an inherent simulation
 error. Independent finer-source validation is valuable, but is not a blanket
 prerequisite for simulation work or a retroactive P05 static-pass gate.
 Simulation readiness follows integration, stability and resolution-sensitivity
-evidence in P08/P09. This note does not launch new campaigns.
+evidence in P08/P10. This note does not launch new campaigns.
 
 Start with the existing two hotspots, nearby control and a small representative
 point set, keeping the coordinate map, equilibrium and current configuration
@@ -98,7 +98,7 @@ The fitted coordinate map has not been independently certified by these tests.
 
 If no improved input becomes available, retain the uncertainty explicitly;
 simulation refinement alone is not independent geometry certification, but the
-missing input does not block P08/P09 integration and evolution work.
+missing input does not block P08/P10 integration and evolution work.
 
 ### Near-wall toroidal geometry resolution (coil ripple) — 27 September 2026
 
@@ -131,10 +131,10 @@ geometry resolution, separate from the solver's own error. Evidence is in the
 - **Pointwise operators, P05's centered bracket and P06's q1 volume terms:** the operator and the reference evaluate identical coefficient functions at the same midpoints, so both alias the ripple at the same phase and the error cancels exactly. The [P06N exact-input screen](../../../../work/p06n_exact_input_screen_20260927/report.md) confirms this by code identity. Their midpoint MMS **hides** the limitation: N−R measures only the field reconstruction and closure.
 - **Consequence:** P05/P05N/P06/P06N midpoint passes certify their reconstructions and Neumann closures. They do **not** show near-wall physical accuracy at N32–N64. Pointwise sampling aliases unresolved coefficient structure, and that would only show against an independent cell-averaged or better-resolved reference, or in evolved/physics comparisons. Physically both operator forms see the same unresolved geometry: pointwise operators alias it, volume operators partly filter it.
 
-**Consequences and open decisions for P08/P09 (not scheduled by this note):**
+**Consequences and open decisions for P08/P10 (not scheduled by this note):**
 1. Midpoint-accuracy statements for wall-active fields at N32–N64 must cite this limitation. The Dirichlet fine-interval orders (2.06–2.11) are optimistic for near-wall edge structure.
 2. Resolving n = 48 to asymptotic second order needs n·h_η ≲ 1, i.e. N_η of order 300 in the outer region. Eta-only refinement would be sufficient for this effect.
-3. The alternatives are to deliberately filter the ripple, which is a physics modelling assumption to justify separately and must be applied consistently in operator and reference, or to revisit how the perpendicular operators couple in η on a grid that is not field-aligned. Both are design decisions for P08/P09, not repairs to accepted operators.
+3. The alternatives are to deliberately filter the ripple, which is a physics modelling assumption to justify separately and must be applied consistently in operator and reference, or to revisit how the perpendicular operators couple in η on a grid that is not field-aligned. Both are design decisions for P08/P10, not repairs to accepted operators.
 
 ## Next P milestone: shared extraction and replay before P08
 
@@ -163,7 +163,7 @@ speed claim. Next qualify physical-normal Neumann data through the shared
 boundary construction and the separate P05N, P06N and P07N operator gates below,
 under the [27 September Neumann MMS field contract](#physical-normal-neumann-mms-field-contract--27-september-2026),
 before combined P08 certification. Full
-model/default integration remains at P09. Equivalent replay does not require a
+model/default integration remains at P10. Equivalent replay does not require a
 new global static campaign. The older extraction applies only to its own
 operator identity; Q need not finish before this work proceeds.
 
@@ -583,7 +583,7 @@ higher degree, bias scan or new donor search is justified by these results.
 ### Integration sequencing: consolidate first, integrate at the end
 
 **User decision, 22 September 2026:** full shared-model integration belongs at
-the end of this roadmap, in P09. A qualified individual operator is not an
+the end of this roadmap, in P10. A qualified individual operator is not an
 instruction to wire it into every driver or replace production defaults.
 First establish the bracket, curvature, and diffusion/polarization designs in
 P05–P07; then consolidate the components they demonstrably share before P08's
@@ -596,7 +596,7 @@ Early package extraction, saved-action replay, and small opt-in adapters in
 existing diagnostic harnesses remain allowed when needed for the authorized
 experiment. These are provisional implementation and verification steps, not
 full integration or a reason to freeze the final shared API prematurely.
-P08 and P09 may assemble the candidate operators in the verification harness
+P08 and P10 may assemble the candidate operators in the verification harness
 to perform their required tests; deployment into the shared model/default
 workflow follows the final gates. Blob-driver synchronization stays deferred.
 
@@ -666,7 +666,7 @@ to launch another campaign or promote production behavior now.
 Reuse the extracted bracket implementation and the P06 boundary-functional
 machinery for P07 where their numerical contracts agree. Do not insert full bracket-driver/model
 integration as the next milestone. Consolidate common machinery before the
-combined P08 RHS; complete full integration only at the end of P09 after
+combined P08 RHS; complete full integration only at the end of P10 after
 evolved certification. Blob-driver synchronization stays deferred.
 
 ### Preserved execution contract for the completed remote campaigns
@@ -789,7 +789,7 @@ Geometry-independent unit tests may check algebra, indexing, hashes, and norm
 bookkeeping only. Preserve historical idealized results as background without
 rerunning them to satisfy milestones. Missing HSX inputs must be reported or
 produced through the explicit geometry producer, never replaced by an idealized
-fixture. This policy applies to P01–P09, including tests added during repairs.
+fixture. This policy applies to P01–P10, including tests added during repairs.
 
 Begin numerical audits with the existing **32³/48³/64³** HSX artifacts. Keep one
 continuous geometry reference across the sequence. Nonmonotone results remain
@@ -1309,7 +1309,7 @@ for each bracket path being qualified, with qualified references. Report
 constant/antisymmetry and shared-face identities as scientific diagnostics under
 the current-study rule above, not additional blockers. Interface orders are
 diagnostic, not independent second-order gates. Independent
-fixed-time solution checks are retained in P09.
+fixed-time solution checks are retained in P10.
 
 ### P06 — Repair and certify complete curvature
 
@@ -1424,7 +1424,7 @@ law and unconstrained omega policy are unchanged.
 in each evolved equation, retaining coupled balance and compatible identities.
 Report material and remainder residuals separately to expose errors in the
 composition; directional and regional orders are diagnostic. Independent
-fixed-time solution checks are retained in P09.
+fixed-time solution checks are retained in P10.
 
 ### P07 — Repair and certify perpendicular diffusion/polarization
 
@@ -1776,7 +1776,7 @@ new transport physics, or evolved/global campaign is implied by this plan.
 **Gate:** second-order global operator residuals and independent elliptic
 solutions, correct nullspace and conservation/boundary balances, and the
 applicable energy property. Fixed-time diffusion solution MMS is retained in
-P09. Regional operator orders remain diagnostic.
+P10. Regional operator orders remain diagnostic.
 
 **Decision rule:** promote the smallest candidate that passes all gates. If both
 the retained composition and the explicit mass/source candidate fail, record
@@ -1869,7 +1869,7 @@ reopen the accepted Dirichlet static passes.
 - **Frozen catalogue:** `field_b1` (the frozen smooth-control base), `field_e3` and `field_e12`, which give weak and strong theta wall-trace gradients and so exercise `r_theta` non-orthogonality. `heldout_field_b2` (m2/m3 content) is held out, and the constant is included. All wall data are field-derived.
 - **Reporting and acceptance:** N−R global L2 order ≥ 1.8 on both intervals for every nonconstant field stays the headline gate, as traditional MMS reporting. The constant and wall-trend checks stay as well. The acceptance decision is the user's, made after the results by examining N−O (reconstruction/closure error against exact face fluxes) and O−R (exact-flux consistency with the midpoint target) separately. This follows the Dirichlet P07 observed-order acceptance. The frozen gate flag is preserved as returned, whatever the decision.
 - **Predeclared expectation:** the [admission screen](../../../../work/p07n_compatible_fields_20260927/report.md) gives exact-gradient O−R orders of `1.548/1.830`, `1.739/1.782`, `1.684/1.809` and `1.712/1.719` respectively. The accepted Dirichlet P07 fields give `1.75–1.81/2.06–2.11` under the same screen. For smooth fields, N−O is about `5e-5` of O−R, so N−R is expected to track O−R. A gate failure consistent with this prediction is therefore expected, and is a field/geometry/target property rather than a closure defect.
-- **Why Neumann converges more slowly than Dirichlet (measured 27 September):** an [envelope sweep](../../../../work/p07n_compatible_fields_20260927/report.md#addendum-why-the-dirichlet-fields-converge-faster-27-september-2026) shows O−R order is controlled by how much field content sits in u>7/8, where the perpendicular-tensor coefficients' sub-Nyquist eta content grows about tenfold. This holds even for fields with zero wall value and gradient. The accepted Dirichlet fields peak at u≈0.45. A Neumann test must have wall content. The Dirichlet fine-interval orders are therefore optimistic for near-wall edge/SOL structure, and P08/P09 resolution planning should use the outer-band behavior.
+- **Why Neumann converges more slowly than Dirichlet (measured 27 September):** an [envelope sweep](../../../../work/p07n_compatible_fields_20260927/report.md#addendum-why-the-dirichlet-fields-converge-faster-27-september-2026) shows O−R order is controlled by how much field content sits in u>7/8, where the perpendicular-tensor coefficients' sub-Nyquist eta content grows about tenfold. This holds even for fields with zero wall value and gradient. The accepted Dirichlet fields peak at u≈0.45. A Neumann test must have wall content. The Dirichlet fine-interval orders are therefore optimistic for near-wall edge/SOL structure, and P08/P10 resolution planning should use the outer-band behavior.
 - **Outcome and attribution:** the returned campaign matched this expectation exactly (N−O `2.24–3.85/2.25–3.73`; N−R ≈ O−R as predicted), and the user accepted it on 27 September. The residual midpoint stall of wall-active fields, including the held-out field, is most plausibly unresolved modular-coil ripple. See [near-wall toroidal geometry resolution](#near-wall-toroidal-geometry-resolution-coil-ripple--27-september-2026).
 
 The [bounded pilot](../../../../work/p_neumann_structured_trace_20260926/report.md)
@@ -1936,7 +1936,7 @@ anisotropic diffusive flux.
 **Gate:** true physical-normal-derivative-only boundary input, demonstrated boundary
 consistency and global static operator convergence for the supported Neumann
 variants, with unchanged Dirichlet behavior. Include both boundary families in
-P08/P09 for physically consistent field/closure combinations. Pure-Neumann
+P08/P10 for physically consistent field/closure combinations. Pure-Neumann
 polarization inversion additionally needs compatibility and gauge/nullspace
 handling in the later solution tests; a static operator pass does not certify
 that solve, and this step does not require a new inversion method.
@@ -2024,7 +2024,7 @@ The provisional bounded fields were in the exactness space, so these checks are 
 - **Why it was invisible:** those corrections were about 1e-12 or smaller for its fields.
 - **Scope:** the centered candidate is unaffected. The upwinded (U) qualification carried the defect.
 - **Fix:** `scripts/p06_structured_global/numerics.py` now skips the aliases (`_periodic_duplicate_face`, with a test). The accepted result stays pinned to `2458dbf6`.
-- **Requirement:** P08/P09 production integration must use the deduplicated census.
+- **Requirement:** P08/P10 production integration must use the deduplicated census.
 
 **Frozen catalogue — user decision, 28 September 2026**, in [p06n_catalogue.json](../../../scripts/p06n_field_derived_global/p06n_catalogue.json):
 - n, Te, Ti = rich_f, rich_a, rich_c (Neumann), outside the exactness space so the characteristic correction is active;
@@ -2104,7 +2104,7 @@ wall state and wall law move to the rung wall-law qualification.
   full-domain high-order quadrature.
 - Test matched single-device and eta-sharded execution.
 
-**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K, q2 (P05/P06) and inner donor support C3 adopted 30 September and locked 1 October after the remote C1/C2/C3 campaign; the bundle is complete and final. Standalone campaign A dropped (user decision, 30 September): see step 4. **P08 passed (user decision, 2 October 2026); see step 7.** Step 4 complete (1 October). Step 5 complete (2 October): φ solver chosen and the 5.3 combined campaign passed; φ is Dirichlet only, with Neumann-type φ in P10. Open: step 6 (transverse-wave check, matched single-device/η-sharded execution, N64 geometry/reference recheck), a one-time artifact rebuild and reference re-freeze if the B-field evaluator changes, and step 7. Update each step's status here as it completes.
+**Execution plan — 28 September 2026.** Status: step 1 accepted; steps 2 and 3 done (30 September); operator-change bundle (3b): autodiff K, q2 (P05/P06) and inner donor support C3 adopted 30 September and locked 1 October after the remote C1/C2/C3 campaign; the bundle is complete and final. Standalone campaign A dropped (user decision, 30 September): see step 4. **P08 passed (user decision, 2 October 2026); see step 7.** Step 4 complete (1 October). Step 5 complete (2 October): φ solver chosen and the 5.3 combined campaign passed; φ is Dirichlet only, with Neumann-type φ in P11. Open: step 6 (transverse-wave check, matched single-device/η-sharded execution, N64 geometry/reference recheck), a one-time artifact rebuild and reference re-freeze if the B-field evaluator changes, and step 7. Update each step's status here as it completes.
 
 Starting point (code inventory, 28 September):
 - Every qualified action is computed only by host NumPy in `scripts/`, across six packages that each reimplement the runner, observation functional, wall lattice and face census.
@@ -2262,11 +2262,11 @@ Steps:
        - The continuum normal-Neumann quadratic form is itself indefinite on toroidal modes. The bulk term is m²⟨J P⊥^{ηη}⟩, which is 7e-4 to 5e-2 because P⊥^{ηη} is 0.15% of g^{ηη}. The oblique wall term, −½∮f²∇_Γ·(b_n b_t), is ±3e-2 to 6e-2.
        - Consequences: the left null vector is 81× away from the volume weights, and Neumann φ errors run from 1e-3 up to 100× the field.
        - A conormal condition would remove only the wall term. Dirichlet removes both.
-       - **φ wall condition: Dirichlet only through P08 and P09 (user decision, 2 October 2026).** Every Neumann-type φ condition is deferred to [P10](#p10--φ-wall-model-bookkeeping-for-future-physics-work-not-a-gate), which is bookkeeping, not a gate:
+       - **φ wall condition: Dirichlet only through P08–P10 (user decision, 2 October 2026).** Every Neumann-type φ condition is deferred to [P11](#p11--φ-wall-model-bookkeeping-for-future-physics-work-not-a-gate), which is bookkeeping, not a gate:
          - normal Neumann (Loizu's magnetic-presheath-entrance condition);
          - conormal Neumann (the polarization-current condition);
          - a mixed Dirichlet/Neumann condition chosen by grazing angle.
-       - **Open issues recorded in P10** ([grazing-angle map](../../../../work/p08_wall_grazing_angle_20261002/)):
+       - **Open issues recorded in P11** ([grazing-angle map](../../../../work/p08_wall_grazing_angle_20261002/)):
          - Normal Neumann's compatibility condition is weighted by ℓ, not the volume weights, so λ is spurious.
          - Every Neumann form leaves the constant potential level free.
          - The toroidal near-null modes remain.
@@ -2311,7 +2311,7 @@ Steps:
        - Every new P campaign pins `bfield_toroidal="compact_c3"` explicitly. The code default stays `"spline"` for now, because these packages pass only three options and rely on it:
          - the frozen step-1/2 runners and the frozen-reproduction tests;
          - the completed step-4, step-5 export and 5.3 packages, which would otherwise mix a `compact_c3` environment with spline artifacts.
-         - Flipping the default needs those call sites pinned to `"spline"` first. That is deferred to P09 integration.
+         - Flipping the default needs those call sites pinned to `"spline"` first. That is deferred to P10 integration.
        - **Option:** `bfield_toroidal` = `"spline"` (default, frozen) | `"compact_c3"` (`scripts/p_shared/bfield.py`), threaded like `inner_support`.
          - The frozen reference builder (`hsx_mms_continuum_reference.py`) and `p07_diffusion_global/numerics.py` are hash-pinned by frozen manifests, so they are not edited.
          - Instead, `p_shared` replaces `reference.bfield_evaluator` after the reference is built and before the provider wraps it. The JAX evaluator for autodiff K and the P07 divergence is derived from it.
@@ -2450,14 +2450,14 @@ Steps:
        - Run on the `compact_c3` artifacts at N32/N48/N64, single device against Sz = 2, 4, 8.
        - The RHS is **bitwise equal** for `main_phi_dirichlet` and `transverse_dirichlet`, every field and term.
        - The ψ solves take identical iteration counts, with ‖Δψ‖_M/‖ψ‖_M ≤ 3e-16.
-       - Timing in that run was not a scaling measurement (forced host devices). One single-device RHS evaluation took 41 s at N64, a P09 performance item.
+       - Timing in that run was not a scaling measurement (forced host devices). One single-device RHS evaluation took 41 s at N64, a P10 performance item.
 7. **Acceptance record and roadmap update.**
    - **P08 acceptance record: P08 passed (user decision, 2 October 2026).** The core-band limitation stays under investigation and is re-evaluated with its report.
      - **Final operator:**
        - P05/P05N bracket, P06/P06N curvature and P07/P07N diffusion/polarization on the row artifact;
        - autodiff K, q2 faces for P05/P06 (P07 at q3), inner support C3 (`fixed_radius`);
-       - B evaluator `compact_c3` (pinned explicitly; the code default stays `spline` until P09).
-     - **φ:** Dirichlet only (Neumann-type φ is in P10). Solved by FGMRES with block-Jacobi over η planes, float32 plane LDU factors, warm starts, production rtol 1e-8.
+       - B evaluator `compact_c3` (pinned explicitly; the code default stays `spline` until P10).
+     - **φ:** Dirichlet only (Neumann-type φ is in P11). Solved by FGMRES with block-Jacobi over η planes, float32 plane LDU factors, warm starts, production rtol 1e-8.
      - **Gate, part by part:**
        - **Certified operator contributions and the combined residual:** the `compact_c3` re-freeze (`scripts/p08_step5_compact_c3/`, commit 6c4de657, job 59207210, identity 2eeecb16…).
          - Every solver and finiteness gate passes. The global total order is ≥ 4.3 in every variant, field and arm (criterion 1.8), and the lowest regional order is 4.08.
@@ -2486,10 +2486,10 @@ Steps:
        2. Near-wall P07 O−R (face flux against midpoint reference) is about 3e-2 at order about 1.7–2.0. It comes from under-resolved near-wall coefficient structure (coil ripple), not from the reconstruction.
        3. Generic fields with degree-≥4 content converge at about third order (the cubic in-plane and η reconstruction). Catalogue fields show about fifth order because they lie near the exactness space.
        4. The MAKEGRID field and the fitted coordinate map are not certified against a finer independent source (non-blocking).
-     - **Carry-forwards to P09:**
+     - **Carry-forwards to P10:**
        - time-dependent source/boundary pairing;
        - reconciling the P-path Neumann point rows with production's physical halos;
-       - the production wall model (P10 route A first);
+       - the production wall model (P11 route A first);
        - flipping the code default to `compact_c3` after pinning the frozen call sites to spline;
        - sharded `raw_pairs` / `jump_mask` / `face_multiplier` overrides, and per-shard tensor θ tables;
        - RHS performance: one single-device evaluation takes about 41 s at N64 on CPU;
@@ -2506,7 +2506,7 @@ Steps:
        - **Effect at large N** (synthetic, to N256): coupled conditioning and the error constant stay bounded, whereas C3 grows ∝ N and ends up 50× worse at the interface.
        - **Adopt** when the next re-freeze happens anyway, or before going beyond N64. That means a new `inner_support` option threaded like C3, a C3-vs-new remote campaign, and a re-freeze of the changed rows.
        - **Not recommended:** deeper blocks (6×5). They fix the P07 order in 0.12–0.21, but make the R1/R2 gradients and a P05 proxy 1.4–4.5× worse; a real P05 check would be needed first.
-     - **Core-reconstruction design study: scheduled after the P09.0 RHS performance batch C (user decision, 3 October 2026).**
+     - **Core-reconstruction design study: scheduled after the P10.0 RHS performance batch C (user decision, 3 October 2026).**
        - **Root cause** ([doubling study](../../../../work/p08_doubling_rootcause_20261002/report.md), synthetic):
          - **Primarily, owner aspect against a fixed 4-ring stencil.** The 4×7 quartic patch is about 7·aspect/4 times longer than it is deep. Its arc straightens as coverage shrinks, so it starves of radial information; the face-flux error constant is fitted as ∝ aspect^1.9·N^1.7, and the effect is present even without jumps.
          - **Secondarily, the ring after each owner-count doubling.** Its two radial faces use donor patches from rings with different owner counts, so the face-flux errors do not cancel. This defect dominates beyond N128.
@@ -2517,14 +2517,14 @@ Steps:
        - **Scoring:** fixed u, 32→64 pairs, synthetic to N256, and a real P05/P06 check (about 2.5 GiB).
 
 Pending decisions:
-- **Neumann closure in the harness: closed for P08 (user decision, 2 October 2026).** P08 uses the qualified P-path point rows. Reconciling them with production's physical halos is a P09 integration item.
+- **Neumann closure in the harness: closed for P08 (user decision, 2 October 2026).** P08 uses the qualified P-path point rows. Reconciling them with production's physical halos is a P10 integration item.
 - **The combined catalogue**, frozen before evaluation. Resolved for step 5.3: `scripts/p08_step5_combined/configuration.json`.
 
 Carry-forwards:
 - the production wall model (deferred to full RHS wiring, user decision 30 September).
   - Under the P-path operators a wall model becomes a provider of per-field kinds and `BoundaryData` on the plan's tables.
   - `no-flow` and `simple-conducting-sheath` map directly. `simplified-gbs-mpe` needs a Robin density condition, the augmented-Neumann φ solve and a derived ω.
-  - **φ (user decision, 2 October 2026):** Dirichlet with a sheath-informed wall value (P10 route A).
+  - **φ (user decision, 2 October 2026):** Dirichlet with a sheath-informed wall value (P11 route A).
     - The first form is insulating: φ_w = ΛTe, with j∥ = 0 (as in GRILLIX).
     - The optional form carries current: φ_w = (Te/e)[Λ − w(α) ln(1 − j∥/(e n c_s))], where w(α) switches the sheath current on smoothly across the critical-angle band.
     - The φ solver already accepts any per-point Dirichlet data. The wall model must supply the ψ = φ + τTi trace value and its tangential (θ, η) gradient at the plan's Dirichlet points.
@@ -2541,21 +2541,145 @@ Carry-forwards:
 **Gate:** the certified operator contributions and the combined perpendicular
 residual meet the global operator-order criterion, with qualified references
 and matched sharding/source/phi diagnostics ("source" is satisfied by the qualified re-frozen references, user decision
-2 October 2026; time-dependent source/boundary pairing is P09). Keep term-resolved and regional
+2 October 2026; time-dependent source/boundary pairing is P10). Keep term-resolved and regional
 error budgets so a summed residual cannot hide a failing operator. No separate
-regional second-order gate is imposed. P09 independently checks solutions.
+regional second-order gate is imposed. P10 independently checks solutions.
 
-### P09 — Certify evolved MMS and complete final integration
+### P09 — Energy-stable perpendicular operators (SBP)
 
-**Dependencies:** P08.
+**Dependencies:** P08. This is the gate before P10 (user decision, 4 October 2026). It was added on 3 October as P11, an investigation track.
+
+**Status:** in progress. Step 1, the Option B prototype of the P05 bracket, is running.
+
+**Gate:** the perpendicular RHS has no numerical energy source beyond the physical compressibility bound.
+- **Bracket (required):** the discrete energy identity holds to round-off, and the rightmost eigenvalue of the frozen-φ operator is at most max(½c).
+- **P06, P07 and the φ operator:** included only if the step-3 audit finds a positive H-symmetric part beyond the continuum operator's; then converted until it is gone.
+- **Accuracy:** every replaced operator re-passes its static gates (P05/P05N, P06/P06N or P07/P07N), and the P08 references of the changed terms are re-frozen, before P10 uses it.
+- **Method:** SBP split form with SAT is the primary route. If it fails, record the mechanism and choose another route that meets the same gate.
+- **Out of scope:** the Q path (step 6 is coordination only).
+
+**Why: the evolved-RHS linear-stability diagnosis (N32, 3 October 2026).** Evidence: the [instability report](../../../../work/p09_instability_20261003/report.md) and the [symmetric-rows report](../../../../work/p09_symrows_20261003/report.md).
+- **Already in the package:**
+  - the corrected, dissipative P05 jump sign (`43197e1b`);
+  - opt-in centred cell rows, `cell_stencil="symmetric"` (`eb13a9f3`; the default stays `"biased"`);
+  - an opt-in outflow wall closure for the bracket, `wall_transport="characteristic"` (`40e0dce6`; the default stays `"dirichlet"`). It removes the wall vorticity modes.
+- **Remaining:** the ring-3 family, about +1.33e4 at N32 (step-6 φ, ρ* = 0.05).
+  - It is a grid-scale θ dipole on a convergence line of the E×B flow.
+  - It has no continuum counterpart. The physical compressibility S = ½∇·V is at most 470 at ring 3 and 5.58e3 globally.
+- **Cause:** the bracket is in advective form, and its rows are not antisymmetric near the axis (the coupled-quartic fits, anchor ring below u = 0.21) or at the wall (one-sided cubics through the wall value).
+  - Centred stencils reverse the group velocity of grid-scale content, so that content grows on a convergence line.
+  - Symmetric rows or a Fourier θ basis alone therefore do not remove the mode.
+- **Invisible to a short evolved run:** with the roughly 170× smaller |φ|/ρ* that P10.1's dt needs anyway (user decision pending), the mode grows only about 13× over the 50-step run. P10.1 would likely pass with it present, which is why this gate comes before P10.
+
+**Terms.** The new bracket is an *SBP split-form* bracket, and it needs both ingredients.
+- **Split form** (a rewriting of the continuum operator): V·∇g = ½[V^i∂_i g + |J|⁻¹∂_i(|J|V^i g)] − ½cg, with c = ∇·V = 2S.
+  - The bracketed transport part is skew-adjoint, so it changes ∫g² dV only through the wall flux.
+- **SBP** (a property of the discrete derivative): D = W⁻¹Q with diagonal W > 0, where Q + Qᵀ is nonzero only in boundary terms. It makes integration by parts exact in the discrete norm.
+- **SAT:** boundary and interface conditions imposed weakly, as penalties whose strengths come from the energy estimate.
+- **Why both:**
+  - With an SBP D and H = |J|W, the discrete split form gives gᵀH·(transport) = the wall term exactly.
+  - The advective form alone leaves a commutator of V with the antisymmetric part of D. That term is not sign-definite at the grid scale.
+  - A derivative that is not SBP leaves interior terms in either form.
+- **Scope:** this makes each advected field's g² neutral for a given φ, which is what the frozen-φ eigenvalue test measures.
+  - The E×B energy exchange ∫φ[φ, ω] is a separate property.
+  - With the split form it is expected to close only to truncation error, because the discrete product rule fails.
+  - Arakawa's 2-D Jacobian closes it exactly by also being skew in φ.
+
+**Step 1 — Option B: the SBP split-form P05 bracket (prototype, in progress).** See the [design](../../../../work/p09_optionB_20261003/design.md). The prototype is NumPy/SciPy, outside the package.
+- **Discretization:**
+  - one node per owner per η plane, at a raw-cell centre;
+  - H = |J|·w^u·(2π/N_i)·Δη;
+  - D_θ: Fourier on each ring;
+  - D_η: centred (1, −8, 0, 8, −1)/12;
+  - D_u: applied per physical Fourier amplitude with ring masks, so truncation and zero-padding between rings are exact transposes. It uses the same centred interior stencil, with generalized-SBP closures for cell-centred nodes (faces at the axis and the wall);
+  - axis: zero radial flux, imposed by SAT;
+  - wall: a characteristic SAT, with inflow penalty τ = |v_w| and nothing at outflow;
+  - c: from the same operators, so constants are preserved exactly.
+- **Stages:**
+  - **1a:** derive the radial closure and check the operators.
+  - **1b:** an analytic disk × periodic-η testbed: n = 16–128, straight and curved h, a saddle near the axis, and an advective-form control.
+  - **1c:** HSX N32, from one extraction.
+  - **1d:** upwind dissipation −H⁻¹Σ_d G_dᵀ diag(½w_f|U_n|) G_d. This is today's jump, scattered through Gᵀ instead of ±1 to the two owners.
+- **Decisions (user, 3 October 2026):**
+  - Target at least 2nd order overall, starting from the current 4th-order interior; no 6th-order stencils.
+  - Zero-flux axis closure. Parity ghosts are dropped; a Zernike core remains a later option.
+  - The velocity uses the discrete ∇φ, with the exact (autodiff) gradient as a control.
+  - Keep upwinding, in the 1d form, to damp grid-scale modes.
+- **Success criteria:**
+  1. Energy identity to round-off: for random g the transport part contributes only the wall term, and the axis term is exactly zero.
+  2. No ring-3 mode: the rightmost eigenvalue is at most max(½c).
+  3. Accuracy: at N32, regional static accuracy comparable to today's C3 rows with `cell_stencil="symmetric"`. On the testbed, at least 2nd order overall with a 4th-order interior.
+- **1d checks:** negative semidefinite to round-off. Also report the change in static error, the eigenvalues with dissipation on, and the damping rate of grid-scale modes.
+- **Evidence:** the prototype report and `results.json` in the design folder. If a criterion fails, record the mechanism and stop before step 2.
+
+**Step 2 — Decide on and integrate the bracket (after step 1; user decision).**
+- **D1 for production:** nodal point values (the prototype) or owner averages (finite volume, as today).
+  - Owner averages cost an O((mΔθ)²) mismatch at owner-count doublings, or a non-diagonal H.
+  - With steps 4–5 the choice becomes system-wide.
+- **Representation:** how the Fourier ring and amplitude operators enter the plan, the row artifact and sharding. They are not today's sparse rows.
+- **Wall:** the SAT replaces both the one-sided wall rows and `wall_transport="characteristic"`.
+- **Possible earlier change:** if 1d holds up, scatter today's jump through Gᵀ. This is a small production change, independent of the rest of Option B, but it changes the qualified jump candidate.
+- **Then:**
+  1. re-qualify the P05/P05N static gates on the new bracket;
+  2. re-freeze the P08 references of the changed terms;
+  3. P10.1 then runs on the new bracket.
+
+**Step 3 — Audit the other operators (cheap; N32, local).**
+- **Check:** the largest eigenvalue of the H-symmetric part of P06 curvature, P07 diffusion/polarization and the φ operator. A positive value marks a source of numerical energy.
+- **Prior result:** the first diagnosis bounded P06's symmetric part (q1 + q3) at λ_max = +5.9e3, at the wall rings (i = 29–31). That is an energy bound, not a proven mode.
+- **Also:** whether the φ matrix is symmetric in H, which would allow CG in place of FGMRES.
+- **Cost:** one sparse eigenvalue solve per operator, with matrix-free products. The assembled attempt that included diffusion needed 9.3 GB and was dropped.
+- **Parallel (Q-path) operators:** only if Q's owners agree.
+
+**Step 4 — P07 diffusion/polarization and the φ solve, in the same H.**
+- **Construction:** second derivatives that are symmetric negative semidefinite in H by construction.
+  - **Cross terms:** the H-adjoint form −G†(D⊥)G.
+  - **Diagonal terms:** narrow-stencil variable-coefficient operators (Mattsson 2012). The wide form leaves the Nyquist mode undamped.
+- **Polarization:** the same H-adjoint form, so the discrete E×B energy ½∫n|∇⊥φ|² is a positive quadratic form in the same H. Whether G must be the bracket's gradient (the design's "consistency of the φ solve with D") is decided here.
+- **Boundary data:** Dirichlet (a symmetric, Nitsche-like penalty) and Neumann (a flux penalty) as SAT. The existing `BoundaryData` targets feed the penalties instead of being written into rows.
+- **Solver:** a symmetric definite φ matrix permits CG.
+- **Then:** re-qualify the P07/P07N static gates and the φ elliptic controls.
+
+**Step 5 — P06 curvature.**
+- C = K·∇ with a fixed vector K. The interchange terms ∫φ C(p) and ∫p C(φ) cancel between equations only if C is antisymmetric in H, up to the ∇·K term.
+- **Construction:** the same D and split form as the bracket. The q3 face upwinding is rewritten as −Gᵀ|A|G, so it can only damp.
+- **Then:** re-qualify the P06/P06N static gates.
+
+**Step 6 — Q path (parallel operators), only with Q's owners.**
+- **Support operators**, as in GRILLIX:
+  - the parallel divergence is minus the H-adjoint of the parallel gradient;
+  - parallel diffusion becomes −∇∥†χ∇∥;
+  - sheath and MPE conditions are imposed as SAT.
+- **Shared norm:** the perpendicular and parallel operators must share one H, or the whole-system energy estimate does not close.
+- This is recorded for coordination and is not scheduled on the P path.
+
+**Cross-cutting.**
+- **SBP fixes the spatial operators, not the time step.** Neutral operators have imaginary eigenvalues, and classical RK4 needs |λ|dt ≲ 2.8 there.
+- **State-dependent wall data (P11):** each condition first needs a continuous energy estimate, and the SAT strengths mirror it (Nordström 2017). Without one, linearize about the state and check eigenvalues.
+- **Reading:** an annotated [SBP reading list](../../../../../plasma%20papers/Theory/summation-by-parts/reading-list.md) is kept outside the repository. The core references:
+
+| Reference | Used for |
+|---|---|
+| [Strand, 1994](https://doi.org/10.1006/jcph.1994.1005); [Del Rey Fernández–Boom–Zingg, 2014](https://doi.org/10.1016/j.jcp.2014.01.038) | Deriving diagonal-norm closures; generalized SBP for cell-centred nodes (1a) |
+| [Svärd–Nordström, 2014](https://doi.org/10.1016/j.jcp.2014.02.031); [Svärd–Nordström, 2006](https://doi.org/10.1016/j.jcp.2006.02.014) | The energy method; why lower-order closures still give a higher global order |
+| [Carpenter–Gottlieb–Abarbanel, 1994](https://doi.org/10.1006/jcph.1994.1057); [Nordström, 2017](https://doi.org/10.1007/s10915-016-0303-9) | SAT penalties; well-posed boundary conditions first, then their discrete mirror |
+| [Fisher–Carpenter, 2013](https://doi.org/10.1016/j.jcp.2013.06.014); [Gassner, 2013](https://doi.org/10.1137/120890144) | Split forms on SBP operators |
+| [Mattsson–Svärd–Nordström, 2004](https://doi.org/10.1023/B:JOMP.0000027955.75872.3f); [Mattsson, 2017](https://doi.org/10.1016/j.jcp.2017.01.042) | Dissipation that keeps the energy estimate (1d) |
+| [Mattsson–Nordström, 2004](https://doi.org/10.1016/j.jcp.2004.03.001); [Mattsson, 2012](https://doi.org/10.1007/s10915-011-9525-z) | Second derivatives, including variable coefficients (step 4) |
+| [Goodman–Hou–Tadmor, 1994](https://doi.org/10.1007/s002110050019) | Fourier collocation of the advective form is not guaranteed stable when the velocity changes sign |
+| [Stegmeir et al., 2016](https://doi.org/10.1016/j.cpc.2015.09.016) | Support operators for the parallel direction (step 6) |
+
+### P10 — Certify evolved MMS and complete final integration
+
+**Dependencies:** P08, P09.
 
 - Run fixed-final-time perpendicular MMS with independently controlled temporal
   and solver errors.
 - Include diffusion-only evolution, bracket/curvature evolution, and the coupled
   perpendicular system.
 - Recheck phi reconstruction and source/boundary pairing.
-- Linear stability of the evolved RHS: the N32 diagnosis of 3 October 2026 and its SBP follow-up are tracked in [P11](#p11--sbp-energy-stable-operators-investigation-track).
-- φ uses the Dirichlet wall condition with manufactured, time-dependent trace data. The solver accepts any per-point data, so the sheath-informed values of P10 need no solver change. Neumann-type φ conditions are out of scope.
+- Run on the operators that pass the [P09](#p09--energy-stable-perpendicular-operators-sbp) energy-stability gate. A short evolved run cannot detect slow grid-scale growth by itself.
+- φ uses the Dirichlet wall condition with manufactured, time-dependent trace data. The solver accepts any per-point data, so the sheath-informed values of P11 need no solver change. Neumann-type φ conditions are out of scope.
 - Add compact regression tests for the discovered failure mechanisms; keep
   expensive convergence campaigns as reproducible research artifacts.
 - Verify JIT, JVP/gradient behavior on the smooth path, sharding agreement, and
@@ -2572,25 +2696,25 @@ regional second-order gate is imposed. P09 independently checks solutions.
 volume-weighted L2 order criterion in Section 1 for the isolated controls and
 coupled perpendicular system; elliptic solution controls also pass. Temporal,
 linear-solve, and geometry-reference budgets are qualified. P05–P08 global
-operator gates also pass; local and regional error orders remain diagnostic.
+operator gates and the P09 energy-stability gate also pass; local and regional error orders remain diagnostic.
 
 **Final deliverable:** a certification bundle containing commands, immutable
 configuration manifests, machine-readable errors/orders, plots, regional
 diagnostics, and passing regression evidence, together with the consolidated
 shared implementation and final model/MMS integration record.
 
-### P10 — φ wall model (bookkeeping for future physics work, not a gate)
+### P11 — φ wall model (bookkeeping for future physics work, not a gate)
 
 **Status:** this records the physics options for the φ wall condition so they are not lost.
 - It is **not** part of the P operator/MMS roadmap.
 - It has no acceptance gate.
-- P05–P09, and roadmap completion, do not depend on it.
+- P05–P10, and roadmap completion, do not depend on it.
 - The P path qualifies Dirichlet φ with manufactured wall data only.
 
 **Inputs:**
 - the presheath-theory literature review, `work/presheath_literature_review_20261002/report.md` (in progress, 2 October 2026);
 - the [HSX grazing-angle map](../../../../work/p08_wall_grazing_angle_20261002/): wall area is 10% below 0.3°, 23% at 0.3–1°, 51% at 1–3° and 16% above 3°. b·n̂ changes sign on the wall, so tangency curves exist;
-- P09, for anything that uses time-dependent wall data.
+- P10, for anything that uses time-dependent wall data.
 
 **Common background:**
 - The sheath current–voltage law is j∥ = e n c_s[1 − exp(Λ − eφ/Te)], with Λ = ½ ln(mi/(2π me)).
@@ -2650,123 +2774,6 @@ shared implementation and final model/MMS integration record.
 
 **Decision record:** none yet. Revisit after the literature review, and record any evidence here.
 
-### P11 — SBP energy-stable operators (investigation track)
-
-**Status:** in progress since 3 October 2026. Step 1, the Option B prototype of the P05 bracket, is running.
-- This is an investigation, not a roadmap gate. P09 completion does not depend on it.
-- Adopting one of its operators replaces an accepted operator. Before P09 uses it, that operator's static gates (P05/P05N, P06/P06N or P07/P07N) and the affected P08 references must be re-qualified.
-
-**Why: the P09 linear-stability diagnosis (N32, 3 October 2026).** Evidence: the [instability report](../../../../work/p09_instability_20261003/report.md) and the [symmetric-rows report](../../../../work/p09_symrows_20261003/report.md).
-- **Already in the package:**
-  - the corrected, dissipative P05 jump sign (`43197e1b`);
-  - opt-in centred cell rows, `cell_stencil="symmetric"` (`eb13a9f3`; the default stays `"biased"`);
-  - an opt-in outflow wall closure for the bracket, `wall_transport="characteristic"` (`40e0dce6`; the default stays `"dirichlet"`). It removes the wall vorticity modes.
-- **Remaining:** the ring-3 family, about +1.33e4 at N32 (step-6 φ, ρ* = 0.05).
-  - It is a grid-scale θ dipole on a convergence line of the E×B flow.
-  - It has no continuum counterpart. The physical compressibility S = ½∇·V is at most 470 at ring 3 and 5.58e3 globally.
-- **Cause:** the bracket is in advective form, and its rows are not antisymmetric near the axis (the coupled-quartic fits, anchor ring below u = 0.21) or at the wall (one-sided cubics through the wall value).
-  - Centred stencils reverse the group velocity of grid-scale content, so that content grows on a convergence line.
-  - Symmetric rows or a Fourier θ basis alone therefore do not remove the mode.
-- **Not by itself a P09.1 blocker:** with the roughly 170× smaller |φ|/ρ* that P09.1's dt needs anyway (user decision pending), the mode grows about 13× over the 50-step run.
-
-**Terms.** The new bracket is an *SBP split-form* bracket, and it needs both ingredients.
-- **Split form** (a rewriting of the continuum operator): V·∇g = ½[V^i∂_i g + |J|⁻¹∂_i(|J|V^i g)] − ½cg, with c = ∇·V = 2S.
-  - The bracketed transport part is skew-adjoint, so it changes ∫g² dV only through the wall flux.
-- **SBP** (a property of the discrete derivative): D = W⁻¹Q with diagonal W > 0, where Q + Qᵀ is nonzero only in boundary terms. It makes integration by parts exact in the discrete norm.
-- **SAT:** boundary and interface conditions imposed weakly, as penalties whose strengths come from the energy estimate.
-- **Why both:**
-  - With an SBP D and H = |J|W, the discrete split form gives gᵀH·(transport) = the wall term exactly.
-  - The advective form alone leaves a commutator of V with the antisymmetric part of D. That term is not sign-definite at the grid scale.
-  - A derivative that is not SBP leaves interior terms in either form.
-- **Scope:** this makes each advected field's g² neutral for a given φ, which is what the frozen-φ eigenvalue test measures.
-  - The E×B energy exchange ∫φ[φ, ω] is a separate property.
-  - With the split form it is expected to close only to truncation error, because the discrete product rule fails.
-  - Arakawa's 2-D Jacobian closes it exactly by also being skew in φ.
-
-**Step 1 — Option B: the SBP split-form P05 bracket (prototype, in progress).** See the [design](../../../../work/p09_optionB_20261003/design.md). The prototype is NumPy/SciPy, outside the package.
-- **Discretization:**
-  - one node per owner per η plane, at a raw-cell centre;
-  - H = |J|·w^u·(2π/N_i)·Δη;
-  - D_θ: Fourier on each ring;
-  - D_η: centred (1, −8, 0, 8, −1)/12;
-  - D_u: applied per physical Fourier amplitude with ring masks, so truncation and zero-padding between rings are exact transposes. It uses the same centred interior stencil, with generalized-SBP closures for cell-centred nodes (faces at the axis and the wall);
-  - axis: zero radial flux, imposed by SAT;
-  - wall: a characteristic SAT, with inflow penalty τ = |v_w| and nothing at outflow;
-  - c: from the same operators, so constants are preserved exactly.
-- **Stages:**
-  - **1a:** derive the radial closure and check the operators.
-  - **1b:** an analytic disk × periodic-η testbed: n = 16–128, straight and curved h, a saddle near the axis, and an advective-form control.
-  - **1c:** HSX N32, from one extraction.
-  - **1d:** upwind dissipation −H⁻¹Σ_d G_dᵀ diag(½w_f|U_n|) G_d. This is today's jump, scattered through Gᵀ instead of ±1 to the two owners.
-- **Decisions (user, 3 October 2026):**
-  - Target at least 2nd order overall, starting from the current 4th-order interior; no 6th-order stencils.
-  - Zero-flux axis closure. Parity ghosts are dropped; a Zernike core remains a later option.
-  - The velocity uses the discrete ∇φ, with the exact (autodiff) gradient as a control.
-  - Keep upwinding, in the 1d form, to damp grid-scale modes.
-- **Success criteria:**
-  1. Energy identity to round-off: for random g the transport part contributes only the wall term, and the axis term is exactly zero.
-  2. No ring-3 mode: the rightmost eigenvalue is at most max(½c).
-  3. Accuracy: at N32, regional static accuracy comparable to today's C3 rows with `cell_stencil="symmetric"`. On the testbed, at least 2nd order overall with a 4th-order interior.
-- **1d checks:** negative semidefinite to round-off. Also report the change in static error, the eigenvalues with dissipation on, and the damping rate of grid-scale modes.
-- **Evidence:** the prototype report and `results.json` in the design folder. If a criterion fails, record the mechanism and stop before step 2.
-
-**Step 2 — Decide on and integrate the bracket (after step 1; user decision).**
-- **D1 for production:** nodal point values (the prototype) or owner averages (finite volume, as today).
-  - Owner averages cost an O((mΔθ)²) mismatch at owner-count doublings, or a non-diagonal H.
-  - With steps 4–5 the choice becomes system-wide.
-- **Representation:** how the Fourier ring and amplitude operators enter the plan, the row artifact and sharding. They are not today's sparse rows.
-- **Wall:** the SAT replaces both the one-sided wall rows and `wall_transport="characteristic"`.
-- **Possible earlier change:** if 1d holds up, scatter today's jump through Gᵀ. This is a small production change, independent of the rest of Option B, but it changes the qualified jump candidate.
-- **Then:**
-  1. re-qualify the P05/P05N static gates on the new bracket;
-  2. re-freeze the P08 references of the changed terms;
-  3. run the P09.1 evolved check.
-
-**Step 3 — Audit the other operators (cheap; N32, local).**
-- **Check:** the largest eigenvalue of the H-symmetric part of P06 curvature, P07 diffusion/polarization and the φ operator. A positive value marks a source of numerical energy.
-- **Prior result:** the first diagnosis bounded P06's symmetric part (q1 + q3) at λ_max = +5.9e3, at the wall rings (i = 29–31). That is an energy bound, not a proven mode.
-- **Also:** whether the φ matrix is symmetric in H, which would allow CG in place of FGMRES.
-- **Cost:** one sparse eigenvalue solve per operator, with matrix-free products. The assembled attempt that included diffusion needed 9.3 GB and was dropped.
-- **Parallel (Q-path) operators:** only if Q's owners agree.
-
-**Step 4 — P07 diffusion/polarization and the φ solve, in the same H.**
-- **Construction:** second derivatives that are symmetric negative semidefinite in H by construction.
-  - **Cross terms:** the H-adjoint form −G†(D⊥)G.
-  - **Diagonal terms:** narrow-stencil variable-coefficient operators (Mattsson 2012). The wide form leaves the Nyquist mode undamped.
-- **Polarization:** the same H-adjoint form, so the discrete E×B energy ½∫n|∇⊥φ|² is a positive quadratic form in the same H. Whether G must be the bracket's gradient (the design's "consistency of the φ solve with D") is decided here.
-- **Boundary data:** Dirichlet (a symmetric, Nitsche-like penalty) and Neumann (a flux penalty) as SAT. The existing `BoundaryData` targets feed the penalties instead of being written into rows.
-- **Solver:** a symmetric definite φ matrix permits CG.
-- **Then:** re-qualify the P07/P07N static gates and the φ elliptic controls.
-
-**Step 5 — P06 curvature.**
-- C = K·∇ with a fixed vector K. The interchange terms ∫φ C(p) and ∫p C(φ) cancel between equations only if C is antisymmetric in H, up to the ∇·K term.
-- **Construction:** the same D and split form as the bracket. The q3 face upwinding is rewritten as −Gᵀ|A|G, so it can only damp.
-- **Then:** re-qualify the P06/P06N static gates.
-
-**Step 6 — Q path (parallel operators), only with Q's owners.**
-- **Support operators**, as in GRILLIX:
-  - the parallel divergence is minus the H-adjoint of the parallel gradient;
-  - parallel diffusion becomes −∇∥†χ∇∥;
-  - sheath and MPE conditions are imposed as SAT.
-- **Shared norm:** the perpendicular and parallel operators must share one H, or the whole-system energy estimate does not close.
-- This is recorded for coordination and is not scheduled on the P path.
-
-**Cross-cutting.**
-- **SBP fixes the spatial operators, not the time step.** Neutral operators have imaginary eigenvalues, and classical RK4 needs |λ|dt ≲ 2.8 there.
-- **State-dependent wall data (P10):** each condition first needs a continuous energy estimate, and the SAT strengths mirror it (Nordström 2017). Without one, linearize about the state and check eigenvalues.
-- **Reading:** an annotated [SBP reading list](../../../../../plasma%20papers/Theory/summation-by-parts/reading-list.md) is kept outside the repository. The core references:
-
-| Reference | Used for |
-|---|---|
-| [Strand, 1994](https://doi.org/10.1006/jcph.1994.1005); [Del Rey Fernández–Boom–Zingg, 2014](https://doi.org/10.1016/j.jcp.2014.01.038) | Deriving diagonal-norm closures; generalized SBP for cell-centred nodes (1a) |
-| [Svärd–Nordström, 2014](https://doi.org/10.1016/j.jcp.2014.02.031); [Svärd–Nordström, 2006](https://doi.org/10.1016/j.jcp.2006.02.014) | The energy method; why lower-order closures still give a higher global order |
-| [Carpenter–Gottlieb–Abarbanel, 1994](https://doi.org/10.1006/jcph.1994.1057); [Nordström, 2017](https://doi.org/10.1007/s10915-016-0303-9) | SAT penalties; well-posed boundary conditions first, then their discrete mirror |
-| [Fisher–Carpenter, 2013](https://doi.org/10.1016/j.jcp.2013.06.014); [Gassner, 2013](https://doi.org/10.1137/120890144) | Split forms on SBP operators |
-| [Mattsson–Svärd–Nordström, 2004](https://doi.org/10.1023/B:JOMP.0000027955.75872.3f); [Mattsson, 2017](https://doi.org/10.1016/j.jcp.2017.01.042) | Dissipation that keeps the energy estimate (1d) |
-| [Mattsson–Nordström, 2004](https://doi.org/10.1016/j.jcp.2004.03.001); [Mattsson, 2012](https://doi.org/10.1007/s10915-011-9525-z) | Second derivatives, including variable coefficients (step 4) |
-| [Goodman–Hou–Tadmor, 1994](https://doi.org/10.1007/s002110050019) | Fourier collocation of the advective form is not guaranteed stable when the velocity changes sign |
-| [Stegmeir et al., 2016](https://doi.org/10.1016/j.cpc.2015.09.016) | Support operators for the parallel direction (step 6) |
-
 ### Tracking and future-task rules
 
 - P02/P03 may run independently after P01. P05/P06/P07 may become separate
@@ -2783,9 +2790,10 @@ shared implementation and final model/MMS integration record.
   reuse; retain the historical evidence unchanged.
 - Preserve failed candidates and their measured failure mechanisms in research
   artifacts, keeping current-behavior documentation free of experiment history.
-- The roadmap is complete only when P09 passes (P10 is bookkeeping and P11 an investigation track; neither is required); no conservation identity,
+- The roadmap is complete only when P10 passes, which requires P09 (P11 is bookkeeping and not required); no conservation identity,
   interpolation test, frozen residual slope, or elliptic solution result alone
   substitutes for the agreed global operator-plus-solution contract.
+- **Renumbering, 4 October 2026 (user decision):** the energy-stability milestone, added on 3 October as P11, is now P09 and gates evolved certification. Evolved MMS and final integration moved from P09 to P10 (its stages P09.0–P09.2 are now P10.0–P10.2), and the φ wall model moved from P10 to P11. Names created before then keep the old numbers: the `work/p09_*` folders, `scripts/p09_evolved_mms/`, `tests/test_p09_evolved_source.py` and commit messages.
 
 ### Progress ledger
 
@@ -3044,8 +3052,8 @@ revision, configuration, measured results, and unresolved failures.
 | P06N | Physical-normal Neumann curvature | Shared extraction/replay and bounded Neumann reconstruction admission | passed — user-accepted static qualification 28 September; recovered-trace wall contract | [Acceptance record](../../../../work/p05n_p06n_43250ccf_20260928T053254Z_c415a4cd/local_analysis/acceptance_decision.md) for `43250ccf`, job 58995223: all 30 gated entries pass, including held-out (centered 4.38–6.15, U 4.47–6.12, pre-asymptotic). The q3 correction is active and converges at 4.2–5.4. φ enters only through the remainder (bitwise check). The all-Dirichlet rich case closes the P06 seam defect. The wall characteristic correction is zero by contract; not a physical wall-law qualification. Transition region lowest (2.2–2.6 on N48→N64). Evolution, production integration and the rung wall law remain open. |
 | P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | passed — user-accepted closure qualification 27 September; midpoint accuracy geometry-limited | [Acceptance record](../../../../work/p07n_field_derived_274e93e9_20260927T054625Z_72cfa1/local_analysis/acceptance_decision.md) for campaign `274e93e9`: N−O `2.24–3.85/2.25–3.73` on every field including held-out; wall-normal residual about 4th order; returned `global_order_pass=false` preserved; N−R ≈ O−R `1.55–1.74/1.72–1.83` limited by unresolved near-wall toroidal geometry (most plausibly coil ripple). The `5930b72c` failure is preserved. Inversion/gauge, energy, evolution and production integration remain open. |
 | P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | in progress — steps 1–2 (host consolidation, row artifact, JAX operators) accepted 29–30 September; step 3 next; see the P08 execution plan | Include separately qualified Dirichlet and Neumann variants. Use the deduplicated periodic face census. Decide or reconcile the Neumann closure (P-path point rows vs production physical halos). Watch the RLP transition region. Reconstructed φ: production FGMRES inverting the qualified P07 operator (new `operator_form`); new preconditioners likely. |
-| P09 | Evolved MMS and promotion | P08 | pending | — |
-| P11 | SBP energy-stable operators (investigation track) | P05–P08 (the accepted operators it would replace) | in progress — step 1, the Option B prototype of the P05 bracket | [Design](../../../../work/p09_optionB_20261003/design.md); motivation in the [instability](../../../../work/p09_instability_20261003/report.md) and [symmetric-rows](../../../../work/p09_symrows_20261003/report.md) reports. Not a roadmap gate; adopting one of its operators re-opens that operator's static gates. |
+| P09 | Energy-stable perpendicular operators (SBP) | P08 | in progress — step 1, the Option B prototype of the P05 bracket | [Design](../../../../work/p09_optionB_20261003/design.md); motivation in the [instability](../../../../work/p09_instability_20261003/report.md) and [symmetric-rows](../../../../work/p09_symrows_20261003/report.md) reports. Gate before P10 (user decision, 4 October 2026); replaced operators re-pass their static gates. Added on 3 October as P11. |
+| P10 | Evolved MMS and promotion | P08, P09 | pending | Was P09 before 4 October 2026. |
 
 
 ### P07 portable global campaign preparation — 2026-09-23
