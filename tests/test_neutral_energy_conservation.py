@@ -138,15 +138,17 @@ def _isolated_target_state(nz, *, temperature, mach):
     return params, dsm.DetachmentSolState(density, momentum, pressure, jnp.zeros(nz)), cs
 
 
-def test_detachment_target_heat_loss_is_gamma_n_t_v_once() -> None:
+def test_detachment_target_heat_loss_counts_enthalpy_and_kinetic_once() -> None:
     # Uniform supersonic outflow, no sources: interior fluxes cancel, so the
-    # thermal-energy loss over one small step is the total target heat flux
-    # gamma n T v_t, with the advected enthalpy counted once.
+    # thermal-energy loss over one small step is the advected enthalpy
+    # 5 n T v_t plus the sheath excess (gamma - 6) n T v_t. With the ion
+    # kinetic power M^2 n T v_t carried by the momentum flux the total is
+    # (gamma - 1 + M^2) n T v_t, i.e. gamma n T c_s at M = 1 (Stangeby 2.95, 14.5).
     nz, dt, temperature, mach = 32, 1.0e-6, 1.0, 1.3
     params, state, cs = _isolated_target_state(nz, temperature=temperature, mach=mach)
     new = dsm.detachment_sol_step(state, params, dt)
     dz = 1.0 / nz
     loss = -float(jnp.sum(1.5 * (new.plasma_pressure - state.plasma_pressure)) * dz / dt)
-    expected = params.sheath_transmission * 1.0 * temperature * mach * cs
+    expected = (params.sheath_transmission - 1.0) * 1.0 * temperature * mach * cs
     np.testing.assert_allclose(loss, expected, rtol=1e-3)
 
