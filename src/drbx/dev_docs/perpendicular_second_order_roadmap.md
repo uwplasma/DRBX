@@ -615,7 +615,7 @@ its own scoped qualification.
 
 The completed extraction-and-replay implementation contract and corrected
 matching-error denominator audit are recorded in
-[P05 bracket extraction and replay](p05_bracket_extraction_replay.md). A
+[P05 bracket extraction and replay](../../../../work/p_wip_archive_20261004/g2_face_flux_bracket/src/drbx/dev_docs/p05_bracket_extraction_replay.md). A
 self-contained N32 complete-owner fixture now covers resident eager/JIT/JVP and
 changed-field reuse without the campaign artifacts. This closes P05's saved-
 action replay follow-through without reopening either static accuracy milestone;
@@ -1441,7 +1441,7 @@ milestones; no new run is implied.
 
 **Historical decision after local energy-repair feasibility (23 September 2026):**
 The [P worker](thread://01a0d0df-8d51-7e93-8549-f6d8b36dd427?hostId=local) completed the
-[bounded assignment](p07_local_energy_repair_assignment.md); the
+[bounded assignment](../../../../work/p_wip_archive_20261004/g4_p07_assignment_docs/src/drbx/dev_docs/p07_local_energy_repair_assignment.md); the
 [report and standalone validation](../../../../work/p07_local_energy_repair_20260923/report.md)
 use all 264 frozen faces and preserve the accepted static accuracy pass.
 The full 16-owner D_trace symmetric forms have minima
@@ -1488,7 +1488,7 @@ consistency and conservation; no repair or assignment is launched by this
 review. Elliptic qualification remains deferred at the user's preference.
 
 **Historical decision after scaling review (23 September 2026):** The bounded
-[quartic-response and stencil-scaling test](p07_dirichlet_error_scaling_assignment.md)
+[quartic-response and stencil-scaling test](../../../../work/p_wip_archive_20261004/g4_p07_assignment_docs/src/drbx/dev_docs/p07_dirichlet_error_scaling_assignment.md)
 is complete and [independently reviewed](../../../../work/p07_dirichlet_error_scaling_20260923/parent_review.md).
 Normalized footprints remain broad but nearly fixed; complete-row norms grow
 moderately, and large fourth-order/higher-order contributions change their
@@ -1503,7 +1503,7 @@ and polarization/inversion qualification remain open. Historical recommendations
 below to proceed immediately to elliptic testing are superseded by this deferral.
 
 **Current decision after the bounded mechanism test (23 September 2026):**
-The matched [Dirichlet-to-flux assignment](p07_dirichlet_flux_mechanism_assignment.md)
+The matched [Dirichlet-to-flux assignment](../../../../work/p_wip_archive_20261004/g4_p07_assignment_docs/src/drbx/dev_docs/p07_dirichlet_flux_mechanism_assignment.md)
 is complete. The [parent review](../../../../work/p07_dirichlet_flux_mechanism_20260923/parent_review.md)
 independently verifies archived donors/fluxes, complete signed actions and all
 reported group budgets. Preserve the accepted global static-order pass and
@@ -1583,7 +1583,7 @@ overlap, then complete the bounded N48/N64 comparison before deciding on the
 separate global campaign.
 
 The remaining adapter and bounded replay work is assigned to the replacement
-P worker through the [implementation handoff](p07_refinement_worker_handoff.md).
+P worker through the [implementation handoff](../../../../work/p_wip_archive_20261004/g4_p07_assignment_docs/src/drbx/dev_docs/p07_refinement_worker_handoff.md).
 Existing track selections and topology preparation are reusable; they are not
 completed numerical refinement results.
 
@@ -1713,7 +1713,7 @@ degree or donor-count change is justified by this audit.
 **Dependencies:** P04 and P03's return-map audit.
 
 **Next bounded assignment: physical-action audit and shared-face comparison.**
-The [P07 worker assignment](p07_diffusion_polarization_bounded_assignment.md)
+The [P07 worker assignment](../../../../work/p_wip_archive_20261004/g4_p07_assignment_docs/src/drbx/dev_docs/p07_diffusion_polarization_bounded_assignment.md)
 provides the execution design, direct code entry points, and artifact locations.
 Start on the existing N32 HSX artifact with complete owners selected by geometry
 across axis, agglomerated bulk, size transitions, ordinary interior, physical
