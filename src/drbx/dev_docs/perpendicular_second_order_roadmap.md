@@ -678,7 +678,7 @@ as a **new remote campaign**, using
 The remote handoff contains repository commands only, in
 [REMOTE_COMMANDS.md](../../../scripts/hsx_remote_qualification/REMOTE_COMMANDS.md).
 The material extension used the separate
-[P05 runner](../../../scripts/p05_material_campaign/README.md) and reused the
+P05 runner (`scripts/p05_material_campaign`, removed; see commit `257bd55f`) and reused the
 hash-pinned completed centered campaign. Both computations are complete.
 The remote setup skill chooses concurrency to fit the active allocation and
 worker memory; the campaign requires an explicit worker count. **No remote
@@ -1368,7 +1368,7 @@ through the new face assembly replays the saved face correction to
 `1.06e-16`; the portable frozen point candidate replays all bounded
 N32/N48/N64 centered and U actions to `2.50e-11`.
 
-The computation-only [portable global runner](../../../scripts/p06_curvature_global/README.md)
+The computation-only portable global runner (`scripts/p06_curvature_global`, removed; see commit `6f95ecea`)
 now covers complete-owner N32/N48/N64 M/R/total actions for both states,
 centered and U candidates with shared preparation, directional/region
 diagnostics, independent continuous references and bounded q3/q5/q7 reference
