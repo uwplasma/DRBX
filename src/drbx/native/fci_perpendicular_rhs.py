@@ -34,6 +34,11 @@ the branch points of the operators (P06 q3 eigenvalue crossings, P05 advection-s
 ``raw_pairs``: explicit ``(generator, transported)`` column-name pairs evaluated through the same shared state with
 P05; their unscaled ``P05Terms`` (centered / jump split, per-face jumps) are returned as ``PerpendicularTerms
 .raw_pairs``. It is what reaches the frozen campaigns' own pairs, which are not all ``(phi, g)``.
+
+``PerpendicularParams.wall_transport="characteristic"`` changes the bracket's radial cell gradient of the
+Dirichlet-kind fields at the outer wall cells where the E x B transport leaves the domain
+(:func:`_characteristic_wall_gradient`); the explicit ``raw_pairs``, P06 and P07 always read the unmodified state, and the
+default ``"dirichlet"`` is the unmodified RHS (bitwise).
 """
 from __future__ import annotations
 
@@ -55,8 +60,8 @@ from drbx.native.fci_perpendicular_reconstruction_state import (
 from drbx.stencils.operator_plan import PerpendicularPlan
 
 __all__ = [
-    "FIELDS", "PHI", "TERM_NAMES", "PerpendicularParams", "PerpendicularTerms", "perpendicular_columns",
-    "perpendicular_rhs"]
+    "FIELDS", "PHI", "TERM_NAMES", "WALL_TRANSPORTS", "PerpendicularParams", "PerpendicularTerms",
+    "perpendicular_columns", "perpendicular_rhs"]
 
 #: the fields of step 3, in the order of the P06 state / curvature output (Vi and Ve are not enabled)
 FIELDS = ("density", "Te", "Ti", "vorticity")
@@ -65,6 +70,8 @@ PHI = "phi"
 TERM_NAMES = {"bracket": "poisson_bracket", "curvature": "curvature", "diffusion": "perpendicular_diffusion"}
 _TERM_ORDER = tuple(TERM_NAMES)
 _CURVATURE_INDEX = {name: i for i, name in enumerate(FIELDS)}
+#: choices of ``PerpendicularParams.wall_transport``
+WALL_TRANSPORTS = ("dirichlet", "characteristic")
 
 
 @jax.tree_util.register_dataclass
@@ -78,6 +85,17 @@ class PerpendicularParams:
     P06 q3 absolute-matrix action: ``"lapack4"`` (the campaign's 4x4 ``eig``; pin it to reproduce frozen campaigns bitwise), ``"block_lapack"`` or
     ``"closed_form"`` (see ``fci_perpendicular_face_corrections.ABSOLUTE_METHODS``). Being part of ``params`` it
     reaches the sharded RHS as well.
+
+    ``wall_transport`` is the static closure of the bracket's radial cell gradient at the outer wall, one of
+    :data:`WALL_TRANSPORTS`. ``"dirichlet"`` (the default) is the plan's cell rows as they are: the Dirichlet-kind fields'
+    rows on the outer rings are one-sided cubics through the pinned wall value, which over-specifies a field the E x B
+    transport carries into the wall (a growing near-wall mode). ``"characteristic"`` replaces, at the wall cells
+    (rings ``n - 2`` and ``n - 1``) where the transport is outward (``U^u < 0``, see :func:`_characteristic_wall_gradient`),
+    the radial component of the cell gradient of the Dirichlet-kind fields in the ``(phi, g)`` bracket by the interior
+    one-sided cubic on the cell's own radial column (no wall value); the value, the other components, P06, the face states,
+    the diffusion, the explicit ``raw_pairs`` and the potential solve are unchanged. It needs the plan's ``wall_cells`` /
+    ``wall_donors`` / ``wall_weights`` (:class:`~drbx.stencils.operator_plan.CellPlan`: full rings next to the wall) and
+    assumes ``rho_star > 0``; it is inert without the bracket. Being part of ``params`` it reaches the sharded RHS as well.
     """
 
     rho_star: object = 1.0
@@ -85,6 +103,7 @@ class PerpendicularParams:
     diffusion: Mapping = dataclasses.field(default_factory=dict)
     positivity_floor: object = FLOOR
     absolute_method: str = dataclasses.field(default="closed_form", metadata=dict(static=True))
+    wall_transport: str = dataclasses.field(default="dirichlet", metadata=dict(static=True))
 
 
 class PerpendicularTerms(NamedTuple):
@@ -151,6 +170,59 @@ def _kinds(field_kinds, columns) -> tuple[str, ...]:
     return normalize_kinds(tuple(field_kinds), len(columns))
 
 
+def _validated_wall_transport(value) -> str:
+    if value not in WALL_TRANSPORTS:
+        raise ValueError(f"wall_transport must be one of {WALL_TRANSPORTS}, got {value!r}")
+    return value
+
+
+def _check_wall_transport(plan, params, terms) -> None:
+    """Host-side check that ``params.wall_transport`` can act on ``plan`` (a plan or the stacked plan of a sharded one):
+    the characteristic closure needs the wall column stencils of the cell plan when the bracket is requested."""
+    if (_validated_wall_transport(params.wall_transport) == "characteristic" and "bracket" in terms
+            and plan.cells is not None and plan.cells.wall_cells is None):
+        raise ValueError(
+            "wall_transport='characteristic' needs the wall column stencils of the plan (CellPlan.wall_cells / "
+            "wall_donors / wall_weights), which exist only if every column cell of the wall cells on the radial rings "
+            "n-4 .. n-1 is its owner's only raw cell (full rings); this plan has agglomerated or ownerless column cells. "
+            "Use wall_transport='dirichlet' or a plan with full rings next to the wall.")
+
+
+def _characteristic_wall_gradient(cells, gradient, stacked, phi_column: int, field_columns: tuple):
+    """``gradient`` ``(R, 3, F)`` with its radial component (0, ``d/du``) replaced in the columns ``field_columns`` at the
+    wall cells where the E x B transport leaves the domain (the ``wall_transport="characteristic"`` closure).
+
+    The bracket is ``dg/dt = +U . grad g / (|J| rho_star)`` with ``U = -h x grad phi`` (see ``pair_actions``), so ``g`` is
+    advected with ``V = -U / (|J| rho_star)``: the transport is outward at the outer wall where ``V^u > 0``, i.e.
+    ``U^u < 0`` (``rho_star > 0``; ``h`` is ``cells.h`` and ``grad phi`` the cell gradient of column ``phi_column``).
+    The Dirichlet-kind cell rows of the outer rings ``n - 2`` and ``n - 1`` are one-sided cubics through the rings
+    ``n - 3 .. n - 1`` and the pinned wall value; where the transport carries the field into the wall that stencil leans
+    downwind and the pinned value over-specifies the problem (a growing near-wall mode). A characteristic (upwind)
+    closure takes the information from the interior instead: there ``d/du`` of the field is the one-sided cubic on the
+    cell's own radial column, rings ``n - 4 .. n - 1``, without the wall value, i.e. ``(1, -6, 3, 2) / (6 du)`` on the
+    owners of the rings ``(n - 4, n - 3, n - 2, n - 1)`` for a cell of ring ``n - 2`` and ``(-2, 9, -18, 11) / (6 du)``
+    for ring ``n - 1`` (``du = 1 / n``; the weights are ``cells.wall_weights``, the Lagrange derivative at the cell's
+    centre, the owners ``cells.wall_donors`` and the cells ``cells.wall_cells``, see ``operator_plan.wall_column_rows``).
+    Where the transport enters the domain the plan's row (with the wall value, the physical inflow data) is kept. Only
+    the radial component switches, by a hard ``where``; the bracket multiplies it by ``U^u``, so the RHS stays continuous
+    (an ``|U^u|`` kink at ``U^u = 0``) and the derivative is that of the selected branch. The value, the theta / eta
+    components and every other column are not touched (P06 reads the unmodified gradient).
+
+    ``stacked`` ``(n_owners, F)`` holds the owner values the column stencils read. A ``wall_cells`` entry outside
+    ``[0, R)`` is the padding of a sharded plan and does nothing (the scatter drops it; the gathers are clipped).
+    """
+    if not field_columns:
+        return gradient
+    cols = np.asarray(field_columns, dtype=np.int32)
+    wall = cells.wall_cells
+    safe = jnp.minimum(wall, gradient.shape[0] - 1)
+    outward = -jnp.cross(cells.h[safe], gradient[safe, :, phi_column])[:, 0] < 0.0          # U^u < 0  <=>  V^u > 0
+    interior = jnp.sum(cells.wall_weights[:, :, None] * stacked[:, cols][cells.wall_donors], axis=1)      # (W, ncol)
+    current = gradient[safe[:, None], 0, cols[None, :]]
+    chosen = jnp.where(outward[:, None], interior, current)
+    return gradient.at[wall[:, None], 0, cols[None, :]].set(chosen, mode="drop")
+
+
 @partial(jax.jit, static_argnames=("columns", "fields", "terms", "kinds", "pairs"))
 def _rhs(plan, state, phi, bc, params, jump_mask, face_multiplier, *, columns, fields, terms, kinds, pairs):
     nf = len(fields)
@@ -175,17 +247,30 @@ def _rhs(plan, state, phi, bc, params, jump_mask, face_multiplier, *, columns, f
     if need_bracket or pairs:
         vpos = {c: i for i, c in enumerate(vcols)}
         face_index = [(gcols.index(a), vpos[b]) for a, b in index]
-        t = p05_terms_from_state(plan, cs.gradient, fs.gradient, fs.lower, fs.upper, index, jump_mask=jump_mask,
-                                 face_pairs=face_index)
+        # ``wall_transport="characteristic"`` changes the radial cell gradient of the Dirichlet-kind fields in the (phi, g)
+        # bracket only; P06 (below) and the explicit ``raw_pairs`` keep ``cs.gradient``
+        grad_bracket = cs.gradient
+        if need_bracket and params.wall_transport == "characteristic":
+            grad_bracket = _characteristic_wall_gradient(
+                plan.cells, cs.gradient, stacked, col[PHI], tuple(col[f] for f in fields if kinds[col[f]] == "dirichlet"))
+        nb = nf * need_bracket
+        split = bool(pairs) and grad_bracket is not cs.gradient         # the raw pairs then take a call of their own
+        t = p05_terms_from_state(plan, grad_bracket, fs.gradient, fs.lower, fs.upper, index[:nb] if split else index,
+                                 jump_mask=jump_mask, face_pairs=face_index[:nb] if split else face_index)
+        t_raw, k = t, nb
+        if split:
+            t_raw = p05_terms_from_state(plan, cs.gradient, fs.gradient, fs.lower, fs.upper, index[nb:],
+                                         jump_mask=jump_mask, face_pairs=face_index[nb:])
+            k = 0
         if need_bracket:
             out["bracket_centered"] = t.centered_owner[:, :nf] / params.rho_star
             out["bracket_jump"] = t.jump_owner[:, :nf] / params.rho_star
             out["bracket"] = (t.centered_owner[:, :nf] + t.jump_owner[:, :nf]) / params.rho_star
             diagnostics["antisymmetry"] = t.antisymmetry
         if pairs:
-            k = nf * need_bracket
-            out["raw_pairs"] = P05Terms(t.centered_owner[:, k:], t.jump_owner[:, k:], t.centered_numerator[:, k:],
-                                        t.jump_numerator[:, k:], t.face_jump[:, k:], t.antisymmetry)
+            out["raw_pairs"] = P05Terms(t_raw.centered_owner[:, k:], t_raw.jump_owner[:, k:],
+                                        t_raw.centered_numerator[:, k:], t_raw.jump_numerator[:, k:],
+                                        t_raw.face_jump[:, k:], t_raw.antisymmetry)
     if need_curv:
         groups = jnp.asarray([[col[f] for f in FIELDS] + [col[PHI]]], dtype=jnp.int32)
         face_groups = jnp.asarray([[vcols.index(col[f]) for f in FIELDS] + [0]], dtype=jnp.int32)
@@ -233,9 +318,14 @@ def perpendicular_rhs(plan: PerpendicularPlan, state: Mapping[str, object], phi,
     ``bracket`` / ``curvature`` / ``diffusion``. ``jump_mask`` (default ``plan.faces.p07_valid``) and
     ``face_multiplier`` (default ``plan.faces.face_multiplier``, ones) are the P05 / P06 options of the same name.
     The plan needs ``cells`` and ``faces`` for the bracket / curvature / ``raw_pairs`` and ``p07`` for the diffusion.
+    ``params.wall_transport="characteristic"`` (the bracket's outflow wall closure, see :class:`PerpendicularParams`)
+    needs the plan's wall column stencils (``plan.cells.wall_cells`` / ``wall_donors`` / ``wall_weights``, built by the
+    lowering when the wall columns are full rings) and raises ``ValueError`` without them; it does not touch
+    ``raw_pairs``.
     """
     fields, terms, pairs = _validate(fields, terms, raw_pairs)
     _validated_absolute_method(params.absolute_method)
+    _validated_wall_transport(params.wall_transport)
     columns = perpendicular_columns(fields, terms, pairs)
     missing = [c for c in columns[:-1] if c not in state]
     if missing:
@@ -243,6 +333,7 @@ def perpendicular_rhs(plan: PerpendicularPlan, state: Mapping[str, object], phi,
     needs_states = "bracket" in terms or "curvature" in terms or bool(pairs)
     if needs_states and (plan.cells is None or plan.faces is None):
         raise ValueError("the bracket / curvature / raw_pairs need a plan lowered with cells and faces")
+    _check_wall_transport(plan, params, terms)
     if "diffusion" in terms:
         if plan.p07 is None:
             raise ValueError("the diffusion needs a plan lowered with p07")

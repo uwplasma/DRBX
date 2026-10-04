@@ -70,7 +70,8 @@ __all__ = [
     "PerpendicularPlan", "NEUMANN_LAYOUTS",
     "face_row_selection", "p07_row_selection", "lower_perpendicular_plan",
     "lower_perpendicular_plan_from_artifact", "lower_perpendicular_plan_from_rows",
-    "pack_owner_rows", "plan_nbytes", "EVOLUTION_FLOOR", "Q3_NODES", "FACE_NODE_COUNTS", "NEUMANN_WALL_POINTS"]
+    "pack_owner_rows", "plan_nbytes", "EVOLUTION_FLOOR", "Q3_NODES", "FACE_NODE_COUNTS", "NEUMANN_WALL_POINTS",
+    "wall_column_rows", "lagrange_derivative_weights", "WALL_RINGS", "WALL_COLUMN"]
 
 #: floor of the q1 evolution weight's ``B`` (host: ``np.maximum(B, 1.0e-30)``)
 EVOLUTION_FLOOR = 1.0e-30
@@ -184,6 +185,16 @@ class CellPlan:
     ``rows`` is a ``SourceRowPayload`` (one source, one target per cell); its value output row of cell
     ``c`` is ``value_slot[c]`` and its gradient row ``gradient_slot[c]``. ``neumann`` holds one row
     per *conditioned* cell, row ``r`` belonging to cell ``neumann_cell[r]``.
+
+    ``wall_cells`` / ``wall_donors`` / ``wall_weights`` (optional, default ``None``) are the column stencils of the
+    characteristic wall closure of the P05 bracket (:func:`wall_column_rows`; read by ``perpendicular_rhs`` with
+    ``PerpendicularParams(wall_transport="characteristic")`` only): for each of the ``W`` raw cells of the two outermost
+    radial rings ``n - 2`` and ``n - 1``, ``wall_cells[w]`` is its cell index, ``wall_donors[w]`` the owner ids of the four
+    raw cells of the same ``(theta, eta)`` column on the rings ``n - 4 .. n - 1`` and ``wall_weights[w]`` the weights of
+    the interior one-sided cubic derivative along the radial coordinate ``u`` on them at the cell's own ring (the
+    derivative of the cubic through the four ring centres; no wall value). They are ``None`` when some of those column
+    cells is not its owner's only raw cell (agglomerated rings), and empty when the plan has no wall cell. Sharded plans
+    pad them with the out-of-range cell index ``R`` (a no-op entry), weight 0 and the trash owner.
     """
 
     rows: SourceRowPayload
@@ -204,6 +215,9 @@ class CellPlan:
     J: np.ndarray                   # (R,)     p06_raw_J
     weight: np.ndarray              # (R,)     p06_raw_weight (plain q1 quadrature weight)
     evolution_weight: np.ndarray    # (R,)     weight * J / max(B, 1e-30)
+    wall_cells: np.ndarray | None = None      # (W,) int32, cell indices of the raw cells of rings n - 2, n - 1
+    wall_donors: np.ndarray | None = None     # (W, 4) int32, owners of their column on rings n - 4 .. n - 1
+    wall_weights: np.ndarray | None = None    # (W, 4) float64, interior cubic d/du weights on those owners
 
 
 @dataclass(frozen=True)
@@ -356,6 +370,66 @@ def _check_ascending_unique(values: np.ndarray, what: str) -> np.ndarray:
     if values.ndim != 1 or (len(values) > 1 and np.any(np.diff(values) <= 0)):
         raise ValueError(f"{what} must be a strictly ascending 1-D id array")
     return values
+
+
+# --------------------------------------------------------------------------
+# Wall column stencils (characteristic wall closure of the P05 bracket)
+# --------------------------------------------------------------------------
+
+#: radial rings next to the wall whose cells carry a wall column stencil (rings ``n - 2`` and ``n - 1``), and the number
+#: of rings of that stencil (``n - 4 .. n - 1``)
+WALL_RINGS, WALL_COLUMN = 2, 4
+
+
+def lagrange_derivative_weights(nodes, at: int) -> np.ndarray:
+    """``w[l] = L_l'(nodes[at])``, the weights of the derivative at ``nodes[at]`` of the polynomial through values on
+    ``nodes`` (distinct): ``sum_l w[l] f(nodes[l]) = p'(nodes[at])``, exact for degree ``len(nodes) - 1``."""
+    x = np.asarray(nodes, dtype=np.float64)
+    count = len(x)
+    if x.ndim != 1 or not 0 <= int(at) < count or len(np.unique(x)) != count:
+        raise ValueError("nodes must be distinct and `at` an index into them")
+    at = int(at)
+    w = np.empty(count)
+    for l in range(count):
+        others = [m for m in range(count) if m != l]
+        if l == at:
+            w[l] = sum(1.0 / (x[at] - x[m]) for m in others)
+        else:
+            w[l] = (np.prod([x[at] - x[m] for m in others if m != at])
+                    / np.prod([x[l] - x[m] for m in others]))
+    return w
+
+
+def wall_column_rows(raw_ids, raw_to_owner, n: int) -> dict | None:
+    """The ``wall_*`` fields of :class:`CellPlan` (keys ``wall_cells``, ``wall_donors``, ``wall_weights``), or ``None``.
+
+    Each raw cell of the rings ``n - 2`` and ``n - 1`` among ``raw_ids`` (``raw = (i n + j) n + k``, ``i`` the radial ring)
+    gets the owners of the four cells ``(i', j, k)``, ``i' = n - 4 .. n - 1``, of its own ``(theta, eta)`` column and the
+    weights of the interior one-sided cubic ``d/du`` at its own ring centre: ``n * L_l'(c)`` for the cubic through the
+    ring centres ``u_l = (i' + 1/2) / n``, i.e. ``(1, -6, 3, 2) n / 6`` on ring ``n - 2`` and ``(-2, 9, -18, 11) n / 6``
+    on ring ``n - 1``; the wall value does not enter. ``raw_to_owner`` is the grid's global ``(n ** 3,)`` map, so a
+    bounded plan (``raw_ids`` a subset) is covered. Returns ``None`` unless every column cell is a full ring cell, the
+    only raw cell of its owner (agglomerated rings, or raw cells without an owner, have no such stencil); no wall
+    cell in ``raw_ids`` gives empty arrays."""
+    n = int(n)
+    raw_ids = np.asarray(raw_ids, dtype=np.int64)
+    ro = np.asarray(raw_to_owner).reshape(-1).astype(np.int64)
+    if ro.shape != (n ** 3,):
+        raise ValueError(f"raw_to_owner must have n**3 = {n ** 3} entries, got {ro.shape}")
+    if n < WALL_COLUMN:
+        return None
+    layers = np.arange(n - WALL_COLUMN, n)
+    cells = np.flatnonzero(raw_ids // (n * n) >= n - WALL_RINGS)
+    ring, j, k = raw_ids[cells] // (n * n), (raw_ids[cells] // n) % n, raw_ids[cells] % n
+    donors = ro[(layers[None, :] * n + j[:, None]) * n + k[:, None]]
+    if cells.size:
+        if (donors < 0).any() or (np.bincount(ro[ro >= 0])[donors] != 1).any():
+            return None
+    # radial centres in units of the cell width 1/n: the weights per unit u are n times those per unit of that width
+    nodes = layers + 0.5
+    table = np.stack([lagrange_derivative_weights(nodes, int(c)) for c in range(WALL_COLUMN - WALL_RINGS, WALL_COLUMN)]) * n
+    return dict(wall_cells=cells.astype(np.int32), wall_donors=donors.astype(np.int32),
+                wall_weights=table[ring - (n - WALL_RINGS)])
 
 
 def _neumann_rows(nplan: NeumannRowPlan, order: np.ndarray | None, remap: np.ndarray, *,
@@ -602,12 +676,15 @@ def lower_perpendicular_plan(*, grid: LoaderGrid, census: FaceCensus, geometry: 
         evolution_weight = weight * J / np.maximum(B, EVOLUTION_FLOOR)
         evolution_volume = np.zeros(grid.n_owners)
         np.add.at(evolution_volume, raw_owner, evolution_weight)
+        # the wall column stencils of the characteristic wall closure (None if the wall columns are not full rings)
+        wall = wall_column_rows(raw_ids, grid.raw_to_owner, n) if np.size(grid.raw_to_owner) == n ** 3 else None
         cells = (cplan, cells_neumann, dict(
             value_slot=value_slot, gradient_slot=gradient_slot, conditioned=conditioned, neumann_cell=neumann_cell,
             raw_ids=raw_ids, raw_owner=raw_owner.astype(np.int32), raw_volume=raw_volume[raw_ids],
             owner_volume=owner_volume, evolution_volume=evolution_volume,
             h=np.asarray(geometry.p05_raw_h), jac=np.abs(np.asarray(geometry.p05_raw_jacobian)),
-            B=B, K=np.asarray(geometry.p06_raw_K), J=J, weight=weight, evolution_weight=evolution_weight))
+            B=B, K=np.asarray(geometry.p06_raw_K), J=J, weight=weight, evolution_weight=evolution_weight,
+            **(wall or {})))
 
     # --- R2 / R3 -----------------------------------------------------------
     faces = None
