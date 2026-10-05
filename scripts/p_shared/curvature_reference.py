@@ -21,6 +21,9 @@ Notes on delegation:
   handed, and here that is the wrapper's own instance attribute (it shadows the
   delegated method for the wrapper only; the wrapped object's own internal calls stay
   uncached, which changes speed but not values).
+* An eta-filtered reference (``reference.eta_filter_arm``, ``p_shared.eta_filter``) feeds the JAX table twin of its
+  filtered field to the autodiff evaluators (``logical_field``) in place of ``jax_bfield.evaluate_cartesian``; a raw
+  reference builds them exactly as before.
 * Methods of the wrapped object that call ``self._curvature`` internally (for example
   ``prepare``) run with ``self`` = the wrapped object and therefore still use its
   finite-difference ``K``.  The P-path never calls them; use ``ref._curvature`` or
@@ -38,11 +41,22 @@ from typing import Any
 import numpy as np
 
 from drbx.geometry.curvature_autodiff import DEFAULT_MODE
+
+from p_shared.eta_filter import EtaFilterArm
 # adopted 30 September 2026 after QK1-QK4 (work/p08_bundle_autodiff_curvature_20260930); "fd" reproduces the
 # frozen step 1-3 oracles and campaigns and must be passed explicitly for that
 DEFAULT_CURVATURE = "autodiff"
 
 _OWN = frozenset({"_wrapped", "_autodiff_k", "_autodiff_perp", "_autodiff_mode", "_metric"})
+
+
+def _jax_field(ref: Any, jax_bfield_class: Any):
+    """``(jax_bfield, extra kwargs)`` of the autodiff evaluators: the JAX Cartesian evaluator of ``ref.bfield_evaluator``
+    (no extra kwargs), or, for an eta-filtered reference, ``(None, {"logical_field": <JAX table twin>})``."""
+    arm = getattr(ref, "eta_filter_arm", None)
+    if isinstance(arm, EtaFilterArm):
+        return None, {"logical_field": arm.jax_field()}
+    return jax_bfield_class.from_evaluator(ref.bfield_evaluator), {}
 
 
 class AutodiffCurvatureReference:
@@ -89,10 +103,10 @@ class AutodiffCurvatureReference:
 
             ref = self._wrapped
             jax_metric = JaxMetricEvaluator.from_metric_evaluator(ref.metric_evaluator)
-            jax_bfield = JaxComponentSplineBFieldEvaluator.from_evaluator(ref.bfield_evaluator)
+            jax_bfield, extra = _jax_field(ref, JaxComponentSplineBFieldEvaluator)
             mode, block = self._autodiff_mode
             object.__setattr__(self, "_autodiff_k", autodiff_curvature(jax_metric, jax_bfield, float(ref.B0),
-                                                                       mode=mode, block=block))
+                                                                       mode=mode, block=block, **extra))
         return self._autodiff_k
 
     def _curvature(self, q: np.ndarray) -> np.ndarray:
@@ -107,10 +121,10 @@ class AutodiffCurvatureReference:
 
             ref = self._wrapped
             jax_metric = JaxMetricEvaluator.from_metric_evaluator(ref.metric_evaluator)
-            jax_bfield = JaxComponentSplineBFieldEvaluator.from_evaluator(ref.bfield_evaluator)
+            jax_bfield, extra = _jax_field(ref, JaxComponentSplineBFieldEvaluator)
             mode, block = self._autodiff_mode
             object.__setattr__(self, "_autodiff_perp", autodiff_perpendicular_geometry(
-                jax_metric, jax_bfield, float(ref.B0), mode=mode, block=block))
+                jax_metric, jax_bfield, float(ref.B0), mode=mode, block=block, **extra))
         return self._autodiff_perp
 
     def perpendicular_geometry_autodiff(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

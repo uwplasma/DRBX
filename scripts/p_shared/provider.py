@@ -61,6 +61,11 @@ B-field toroidal option.  ``bfield_toroidal="spline"`` (the default) leaves the 
 ``"compact_c3"`` replaces ``reference.bfield_evaluator`` by the compact-C3 toroidal evaluator right after the frozen
 reference is built (``p_shared.bfield``; the hash-pinned reference builder itself is not edited).
 
+Eta-filter option.  ``eta_filter=None`` (the default) is the raw field; a dict ``{"quantity": "J*B^i",
+"max_harmonic_per_period": 3, "nfp": 4, "samples_per_period": 64}`` selects the eta-filtered field of
+``drbx.geometry.eta_filtered_field`` (a low-resolution MMS verification arm, ``p_shared.eta_filter``), applied after the
+B-field option, again to the reference instance (the hash-pinned builder is not edited).
+
 Do not put this package's own directory first on ``sys.path`` -- it has no
 stdlib-shadowing modules today, but per the P-path convention (see
 ``p06n_field_derived_global/campaign.py``'s module docstring) always import
@@ -85,6 +90,7 @@ from perpendicular_structured.reference_geometry import curvature_geometry as _c
 import p06_structured_global.numerics as _p06numerics  # noqa: E402
 
 from p_shared.bfield import DEFAULT_BFIELD_TOROIDAL, apply_bfield_toroidal, check_bfield_toroidal  # noqa: E402
+from p_shared.eta_filter import DEFAULT_ETA_FILTER, apply_eta_filter, check_eta_filter, reference_eta_filter  # noqa: E402
 from p_shared.curvature_reference import check_curvature as _check_curvature  # noqa: E402
 from p_shared.curvature_reference import wrap_reference as _wrap_reference  # noqa: E402
 from p_shared.curvature_reference import face_geometry as _face_geometry_for  # noqa: E402
@@ -105,7 +111,7 @@ class ScriptsGeometryProvider:
 
     def __init__(self, reference: Any, *, curvature: str = DEFAULT_CURVATURE,
                  face_quadrature: str = DEFAULT_FACE_QUADRATURE,
-                 bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> None:
+                 bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL, eta_filter=DEFAULT_ETA_FILTER) -> None:
         self._curvature_choice = _check_curvature(curvature)
         self._face_quadrature = _check_face_quadrature(face_quadrature)
         self._bfield_toroidal = check_bfield_toroidal(bfield_toroidal)
@@ -113,19 +119,26 @@ class ScriptsGeometryProvider:
         if found != bfield_toroidal:
             raise ValueError(f"bfield_toroidal {bfield_toroidal!r} does not match the reference evaluator's "
                              f"toroidal_method {found!r} (build it via ScriptsGeometryProvider.from_sidecar)")
+        self._eta_filter = check_eta_filter(eta_filter)
+        if reference_eta_filter(reference) != self._eta_filter:
+            raise ValueError(f"eta_filter {self._eta_filter!r} does not match the reference's field "
+                             f"{reference_eta_filter(reference)!r} (build it via ScriptsGeometryProvider.from_sidecar)")
         self._reference = _wrap_reference(reference, curvature)
 
     @classmethod
     def from_sidecar(cls, sidecar, *, verify_hashes: bool = False, curvature: str = DEFAULT_CURVATURE,
                      face_quadrature: str = DEFAULT_FACE_QUADRATURE,
-                     bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL) -> "ScriptsGeometryProvider":
+                     bfield_toroidal: str = DEFAULT_BFIELD_TOROIDAL,
+                     eta_filter=DEFAULT_ETA_FILTER) -> "ScriptsGeometryProvider":
         """Build the frozen reference exactly as every accepted campaign
         does, via ``p07_diffusion_global.numerics.reference``, apply the ``bfield_toroidal`` option
-        (``p_shared.bfield``; ``"spline"`` changes nothing), then wrap it."""
+        (``p_shared.bfield``; ``"spline"`` changes nothing) and the ``eta_filter`` option (``p_shared.eta_filter``;
+        ``None`` changes nothing), then wrap it."""
         reference = apply_bfield_toroidal(_refnum.reference(sidecar, verify_hashes=verify_hashes), sidecar,
                                           bfield_toroidal)
+        reference = apply_eta_filter(reference, sidecar, eta_filter, bfield_toroidal)
         return cls(reference, curvature=curvature, face_quadrature=face_quadrature,
-                   bfield_toroidal=bfield_toroidal)
+                   bfield_toroidal=bfield_toroidal, eta_filter=eta_filter)
 
     @property
     def reference(self) -> Any:
@@ -147,6 +160,11 @@ class ScriptsGeometryProvider:
     def bfield_toroidal(self) -> str:
         """``"spline"`` (frozen B evaluator) or ``"compact_c3"`` (compact-C3 toroidal interpolation of B)."""
         return self._bfield_toroidal
+
+    @property
+    def eta_filter(self) -> dict | None:
+        """``None`` (raw field) or the eta-filter option dict (``drbx.geometry.eta_filtered_field``)."""
+        return self._eta_filter
 
     # -- P05 -----------------------------------------------------------
     def p05_metric(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

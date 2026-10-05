@@ -82,21 +82,41 @@ _FLOOR = 1.0e-30
 DEFAULT_MODE = "block"
 
 
-def covariant_over_B_parts(jax_metric: Any, jax_bfield: Any, B0: float) -> Callable:
+def _field_at(jax_bfield: Any, logical_field: Any, q, m, B0: float):
+    """``(Bc, Bcontra)``: Cartesian field and the contravariant field divided by ``B0`` at the logical point(s) ``q``.
+
+    ``logical_field=None`` (the default): the Cartesian field of ``jax_bfield`` at the mapped position, projected with
+    the logical Jacobian matrix.  Otherwise ``logical_field.contravariant(q, m)`` (physical units) is the field -- for
+    instance :class:`drbx.geometry.eta_filtered_field.JaxEtaFilterTable`, a field defined in logical coordinates --
+    and the Cartesian field is the Jacobian matrix applied to it.
+    """
+
+    if logical_field is None:
+        Bc = jax_bfield.evaluate_cartesian(m.position)
+        return Bc, jnp.linalg.solve(m.jacobian_matrix, Bc[..., None])[..., 0] / B0
+    Bcontra = logical_field.contravariant(q, m)
+    return jnp.einsum("...ij,...j->...i", m.jacobian_matrix, Bcontra), Bcontra / B0
+
+
+def covariant_over_B_parts(jax_metric: Any, jax_bfield: Any, B0: float, logical_field: Any = None) -> Callable:
     """Return ``parts(q) -> (A, B, J)`` for one logical point ``q`` of shape ``(3,)``.
 
     ``A = b_cov / B`` (covariant components of ``b_hat / |B|``), ``B = |B|/B0`` and
     ``J`` the signed metric Jacobian.  The expressions reproduce
     ``hsx_mms_continuum_reference._metric_batch`` (contravariant field from the
     Cartesian B and the logical Jacobian matrix, ``b_cov = g_cov b^i``).
+
+    ``logical_field`` (default ``None``: the field is ``jax_bfield.evaluate_cartesian`` of the mapped position, as
+    always) replaces the Cartesian evaluator by a field given in logical coordinates (``contravariant(q, metric)``,
+    for example the eta-filtered table of :mod:`drbx.geometry.eta_filtered_field`); ``jax_bfield`` may then be ``None``.
     """
 
     B0 = float(B0)
 
     def parts(q):
-        m = jax_metric.evaluate(q[None], reject_nonpositive_J=False)
-        Bc = jax_bfield.evaluate_cartesian(m.position)
-        Bcontra = jnp.linalg.solve(m.jacobian_matrix, Bc[..., None])[..., 0] / B0
+        qb = q[None]
+        m = jax_metric.evaluate(qb, reject_nonpositive_J=False)
+        Bc, Bcontra = _field_at(jax_bfield, logical_field, qb, m, B0)
         bmag = jnp.maximum(jnp.linalg.norm(Bc, axis=-1) / B0, _FLOOR)
         bunit = Bcontra / bmag[..., None]
         bcov = jnp.einsum("...ij,...j->...i", m.g_cov, bunit)
@@ -121,7 +141,7 @@ class AutodiffCurvature:
     """
 
     def __init__(self, jax_metric: Any, jax_bfield: Any, B0: float, *, mode: str = DEFAULT_MODE,
-                 block: int = 256) -> None:
+                 block: int = 256, logical_field: Any = None) -> None:
         if mode not in ("sequential", "block"):
             raise ValueError("mode must be 'sequential' or 'block'")
         if int(block) < 1:
@@ -129,7 +149,7 @@ class AutodiffCurvature:
         self.B0 = float(B0)
         self.mode = mode
         self.block = int(block)
-        parts = covariant_over_B_parts(jax_metric, jax_bfield, self.B0)
+        parts = covariant_over_B_parts(jax_metric, jax_bfield, self.B0, logical_field)
         self._parts = parts
         A_only = lambda q: parts(q)[0]  # noqa: E731
 
@@ -195,33 +215,36 @@ class AutodiffCurvature:
 
 
 def autodiff_curvature(jax_metric: Any, jax_bfield: Any, B0: float, *, mode: str = DEFAULT_MODE,
-                       block: int = 256) -> AutodiffCurvature:
+                       block: int = 256, logical_field: Any = None) -> AutodiffCurvature:
     """Return the callable ``K(points (Q, 3)) -> (Q, 3)`` (float64), jitted and vmapped.
 
-    The returned :class:`AutodiffCurvature` also carries ``divergence_identity``.
+    The returned :class:`AutodiffCurvature` also carries ``divergence_identity``.  ``logical_field`` (default ``None``)
+    is as in :func:`covariant_over_B_parts`.
     """
-    return AutodiffCurvature(jax_metric, jax_bfield, B0, mode=mode, block=block)
+    return AutodiffCurvature(jax_metric, jax_bfield, B0, mode=mode, block=block, logical_field=logical_field)
 
 
-def curvature_divergence_identity(jax_metric: Any, jax_bfield: Any, B0: float, points: Any) -> np.ndarray:
+def curvature_divergence_identity(jax_metric: Any, jax_bfield: Any, B0: float, points: Any,
+                                  logical_field: Any = None) -> np.ndarray:
     """``d_i (|J| K^i / B)`` at ``points (Q, 3)`` by autodiff (zero up to roundoff)."""
-    return AutodiffCurvature(jax_metric, jax_bfield, B0).divergence_identity(points)
+    return AutodiffCurvature(jax_metric, jax_bfield, B0, logical_field=logical_field).divergence_identity(points)
 
 
-def perpendicular_flux_tensor_one(jax_metric: Any, jax_bfield: Any, B0: float) -> Callable:
+def perpendicular_flux_tensor_one(jax_metric: Any, jax_bfield: Any, B0: float, logical_field: Any = None) -> Callable:
     """Return ``tensor(q) -> J (g^{ij} - b^i b^j)`` (``(3, 3)``) for one logical point ``q`` of shape ``(3,)``.
 
     ``b`` is the contravariant unit vector (contravariant field from the Cartesian B and the logical Jacobian matrix,
     as in :func:`covariant_over_B_parts`), ``g^{ij}`` the contravariant metric and ``J`` the *signed* Jacobian
-    (``metric.signed_J``), exactly as ``hsx_mms_continuum_reference._perpendicular_flux_tensor``.
+    (``metric.signed_J``), exactly as ``hsx_mms_continuum_reference._perpendicular_flux_tensor``.  ``logical_field`` is
+    as in :func:`covariant_over_B_parts`.
     """
 
     B0 = float(B0)
 
     def tensor(q):
-        m = jax_metric.evaluate(q[None], reject_nonpositive_J=False)
-        Bc = jax_bfield.evaluate_cartesian(m.position)
-        Bcontra = jnp.linalg.solve(m.jacobian_matrix, Bc[..., None])[..., 0] / B0
+        qb = q[None]
+        m = jax_metric.evaluate(qb, reject_nonpositive_J=False)
+        Bc, Bcontra = _field_at(jax_bfield, logical_field, qb, m, B0)
         bmag = jnp.maximum(jnp.linalg.norm(Bc, axis=-1) / B0, _FLOOR)
         bunit = Bcontra / bmag[..., None]
         projector = m.g_contra - jnp.einsum("...i,...j->...ij", bunit, bunit)
@@ -241,7 +264,7 @@ class AutodiffPerpendicularGeometry:
     """
 
     def __init__(self, jax_metric: Any, jax_bfield: Any, B0: float, *, mode: str = DEFAULT_MODE,
-                 block: int = 256) -> None:
+                 block: int = 256, logical_field: Any = None) -> None:
         if mode not in ("sequential", "block"):
             raise ValueError("mode must be 'sequential' or 'block'")
         if int(block) < 1:
@@ -249,7 +272,7 @@ class AutodiffPerpendicularGeometry:
         self.B0 = float(B0)
         self.mode = mode
         self.block = int(block)
-        tensor_one = perpendicular_flux_tensor_one(jax_metric, jax_bfield, self.B0)
+        tensor_one = perpendicular_flux_tensor_one(jax_metric, jax_bfield, self.B0, logical_field)
         self._tensor_one = tensor_one
 
         def geometry_one(q):
@@ -276,6 +299,7 @@ class AutodiffPerpendicularGeometry:
 
 
 def autodiff_perpendicular_geometry(jax_metric: Any, jax_bfield: Any, B0: float, *, mode: str = DEFAULT_MODE,
-                                    block: int = 256) -> AutodiffPerpendicularGeometry:
+                                    block: int = 256, logical_field: Any = None) -> AutodiffPerpendicularGeometry:
     """Return the callable ``points (Q, 3) -> (tensor (Q, 3, 3), divergence (Q, 3))`` (float64), jitted and vmapped."""
-    return AutodiffPerpendicularGeometry(jax_metric, jax_bfield, B0, mode=mode, block=block)
+    return AutodiffPerpendicularGeometry(jax_metric, jax_bfield, B0, mode=mode, block=block,
+                                         logical_field=logical_field)

@@ -70,8 +70,9 @@ def load_layout_metric(n: int, out_root: Path):
     return layout, metric, meta
 
 
-def build_reference():
-    """The frozen reference ``ref`` of the P05 field adapter (``compact_c3`` options, as the extraction)."""
+def build_reference(eta_filter=None):
+    """The frozen reference ``ref`` of the P05 field adapter (``compact_c3`` options, as the extraction; ``eta_filter`` is
+    the option of the nodal metric's meta, ``None`` for the raw field)."""
     from p08_step5_compact_c3 import campaign as cc
     from p_shared import provider as pshared_provider
     from p_shared import replay_support as rs
@@ -79,7 +80,7 @@ def build_reference():
     options = cc.operator_options(cc.config())
     prov = pshared_provider.ScriptsGeometryProvider.from_sidecar(
         str(rs.DEFAULT_SIDECAR), verify_hashes=False, curvature=options.get("curvature", "autodiff"),
-        bfield_toroidal=options.get("bfield_toroidal", "spline"))
+        bfield_toroidal=options.get("bfield_toroidal", "spline"), eta_filter=eta_filter)
     return prov.reference
 
 
@@ -160,7 +161,9 @@ def run(n: int, out_root: Path, sets=None) -> dict:
     t0 = time.perf_counter()
     sets = tuple(sets or F.SET_NAMES)
     layout, metric, meta = load_layout_metric(n, out_root)
-    ref = build_reference() if any(x in ("p05", "p05w") for x in sets) else None
+    meta_filter = meta.get("eta_filter")                      # recorded by extract_metric for a filtered arm only
+    option = None if meta_filter is None else {k: v for k, v in meta_filter.items() if k != "arm_sha256"}
+    ref = build_reference(option) if any(x in ("p05", "p05w") for x in sets) else None
     if ref is not None:
         log(f"N{n}: frozen reference built ({time.perf_counter() - t0:.1f} s)")
     receipts = [compute_set(n, out_root, name, layout, metric, ref) for name in sets]

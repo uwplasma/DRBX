@@ -1,0 +1,36 @@
+{
+  "schema": "drbx.p09-sbp-curvature-v1",
+  "resolutions": [32, 48, 64],
+  "tau": 1.0,
+  "psi": "phi_plus_tau_pi",
+  "absolute_method": "closed_form",
+  "c_kappa": 1.0,
+  "time": 0.37,
+  "eta_period": 6.283185307179586,
+  "gate_minimum_order": 1.8,
+  "constant_tolerance": 1e-08,
+  "arms": {
+    "raw": "work/p09_m3_campaign_20261004",
+    "filtered": "work/p09_m3_filtered_20261004"
+  },
+  "output": "work/p09_m6_curvature_20261004",
+  "gated_arms": ["filtered"],
+  "variants": {
+    "centered": {"jump_dissipation": false, "c_kappa": 0.0},
+    "centered_core": {"jump_dissipation": false, "c_kappa": 1.0},
+    "dissipative": {"jump_dissipation": true, "c_kappa": 1.0}
+  },
+  "catalogues": {
+    "p06": {
+      "source": "p06_structured_global.numerics (_evaluate_fields; frozen MMS at time 0.37, regular-chart heldout, homogeneous and variable Dirichlet phi)",
+      "cases": ["corrected_frozen_mms", "regular_chart_heldout", "homogeneous_dirichlet", "variable_dirichlet"],
+      "gated_in_original": "all four cases, equations density, Te, Ti (primary U) and vorticity (primary centred), M/R/total terms, global L2 order >= 1.8 on both intervals; the analytic-zero vorticity remainder is exempt",
+      "gated_here": "all four cases, total term, equations n, Te, Ti, omega"
+    },
+    "p06n": {
+      "source": "p06n_field_derived_global/p06n_catalogue.json (frozen), fields via p06n_field_derived_global.fields.evaluate",
+      "gated_in_original": "every nonconstant case (main_phi_neumann, main_phi_dirichlet, heldout_phi_neumann, heldout_phi_dirichlet, dirichlet_rich), equations density, Te, Ti; the two constant cases are controls",
+      "gated_here": "the same five cases on n, Te, Ti (omega reported); the constant cases as controls"
+    }
+  }
+}
