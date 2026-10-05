@@ -54,8 +54,15 @@ from .fci_operators import (
     aggregate_local_control_volume_average,
     _mask_inactive_owned,
     _mask_state_inactive_owned,
+    _solver_active_mask,
+    _solver_volume_weights,
 )
-from .fci_gmres import SolvaxGmresConfig, SolvaxGmresInfo
+from .fci_gmres import (
+    SolvaxGmresConfig,
+    SolvaxGmresInfo,
+    _spmd_norm,
+    _spmd_remove_weighted_mean,
+)
 from .fci_support_pair import build_weighted_negative_adjoint
 from .fci_parallel_production_flux import (
     parallel_characteristic_wall_data,
@@ -2418,6 +2425,7 @@ class LocalFciDrbEBRhs:
         state_owned: FciDrbEBState,
         *,
         solve_dt: Any,
+        return_residuals: bool = False,
     ) -> tuple[FciDrbEBState, FciDrbEBState, SolvaxGmresInfo]:
         """Linearized backward-Euler current/phi coupled potential solve.
 
@@ -2566,6 +2574,49 @@ class LocalFciDrbEBRhs:
             kappa_dense * coupled_divergence_dense
         )
 
+        residuals = None
+        if return_residuals:
+            weights = _solver_volume_weights(self.geometry, self.control_volume_geometry)
+            active = _solver_active_mask(self.geometry, self.control_volume_geometry)
+            mean_zero = bool(solver.config.project_mean_zero)
+
+            def norm(x):
+                x = _mask_inactive_owned(x, self.geometry, active_mask=active)
+                if mean_zero:
+                    x = _spmd_remove_weighted_mean(
+                        x, self.geometry, self.domain, active, weights
+                    )
+                return _spmd_norm(x, self.geometry, self.domain, active, weights)
+
+            def apply(op, field):
+                return op._apply_A(
+                    field,
+                    face_bc=op.face_bc,
+                    control_volume_boundary_bc=op._default_control_volume_boundary_bc(),
+                    project_mean_zero=mean_zero,
+                )
+
+            minus_laplacian_phi = apply(replace(solver, extra_operator=None), phi_owned)
+            current_rec = density_dense * (
+                Vi_dense - self._expand_owner_field_for_stencil(Ve_star)
+            )
+            omega_rec = omega_b + h * self._project_fine_cell_term(
+                kappa_dense * current_phi_divergence(current_rec)
+            )
+            cfg = solver.config
+            residuals = {
+                "polarization": norm(
+                    omega_star
+                    - rho_star ** 2 * (tau * ti_laplacian - minus_laplacian_phi)
+                ),
+                "continuity": norm(omega_rec - omega_star),
+                "omega_norm": norm(omega_star),
+                "acceptance": rho_star ** 2 * jnp.maximum(
+                    cfg.acceptance_atol,
+                    cfg.acceptance_tol * norm(phi_rhs - apply(solver, phi_lift)),
+                ),
+            }
+
         stage_state = self._owner_state(state_owned.replace(
             phi=phi_owned,
             Ve=Ve_star,
@@ -2581,6 +2632,8 @@ class LocalFciDrbEBRhs:
             Ve=Ve_star - Ve_b,
             vorticity=omega_star - omega_b,
         ))
+        if return_residuals:
+            return stage_state, increment_state, info, residuals
         return stage_state, increment_state, info
 
     def evaluate_stage(
