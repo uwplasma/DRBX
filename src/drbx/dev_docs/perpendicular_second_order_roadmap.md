@@ -2822,6 +2822,12 @@ regional second-order gate is imposed. P10 independently checks solutions.
   - **M5a (32de409b):** CG with the plane-block preconditioner (`fci_perpendicular_plane_preconditioner`, the same one the P07 FGMRES solve uses): 9 iterations at n = 16–32 on the testbed. CG mainly saves Krylov storage; the iteration count is set by the preconditioner. M5b measures the warm per-solve time at HSX N32/48/64, split into operator apply and preconditioner apply, against the P07 FGMRES solve (0.11 / 0.32 / 0.80 s, 10 / 9 / 9 iterations).
   - **Conditional follow-ups (only if the preconditioner apply dominates):** (1) LDLᵀ factors of the now-symmetric plane blocks, about half the memory traffic at the same iterations; (2) a θ-Fourier preconditioner from θ-averaged coefficients (per plane, per mode banded radial solves plus a small core solve), cheaper per apply but more iterations because HSX's metric varies strongly in θ. Keep either only if the total time drops.
 - **Then:** re-qualify the P07/P07N static gates and the φ elliptic controls.
+- **Decisions after M5b (user, 5 October 2026).**
+  - Constant-control tolerances are decided case by case (round-off grows with ρ ∝ n²).
+  - The raw-arm Neumann near-null negative directions are acceptable; no extra Rayleigh-quotient reporting.
+  - The η-filter table stays at 257×256 (its interpolation error is part of the geometry and does not enter N − R).
+  - **The filtered arm filters the logical map too** (toroidal modes above 3 per period dropped; B̃^i = F̃^i/J̃ with the filtered J̃), so h, K and the metric come from one consistent geometry. In progress; the filtered gates are rerun on the new arm.
+  - **A at the half planes is evaluated from the analytic metric during extraction** instead of spectral interpolation (A_ηη rang negative). Follows the preconditioner change.
 - **M5b result (4118e444, 5 October 2026; [report](../../../../work/p09_m5_laplacian_20261004/report.md)).**
   - Filtered arm (gated) passes P07 transverse and P07N, with Dirichlet, conormal and physical-normal Neumann data: orders 1.80–2.60 (ω, ψ 4.5/5.2). The raw arm stalls at 0.5–0.7 on 48→64, as the prototype did.
   - Constant control 1.9e-8 at N64 against the absolute 1e-8 tolerance: round-off (≈ 1.7e-16 ρ); tolerance decision open.
