@@ -130,7 +130,7 @@ The FCI EB lane (`FciDrbEBRhsParameters`) uses the Boussinesq hot-ion form
 ```
 
 so the potential solve keeps the constant-coefficient operator `A = -∇⊥²`
-and only its right-hand side, `τ A(p_i) - ω`, carries the ion pressure. The
+and only its right-hand side, `-τ A(p_i) - ω`, carries the ion pressure. The
 reason is energy consistency: the older `ω = ∇⊥²(φ + τ T_i)` form drops the
 `τ ñ` contribution, so the linear curvature pairs no longer match and
 unphysical growth proportional to `|k|` appears at `τ > 0`. Select the legacy

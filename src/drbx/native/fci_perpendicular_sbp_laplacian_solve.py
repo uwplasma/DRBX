@@ -10,11 +10,11 @@ rings by a banded block ``L D L^T`` (``rings_per_block`` rings per super-ring) a
 by :mod:`drbx.geometry.sbp_laplacian_assembly` a group of planes at a time (bounded memory, bitwise the blocks of the full
 assembly). ``method="core_super_ring"`` is the previous layout (the P07 banded LDU with the core as the first super-ring).
 
-Typical use, the Boussinesq potential ``div(grad phi) = tau div(grad q) - omega`` with ``q = n Ti`` (the P07 convention
-``A(q) = -L_perp(q)``; ``phi`` and ``q`` carry their own wall data)::
+Typical use, the Boussinesq potential ``div(grad phi) = omega - tau div(grad q)`` with ``q = n Ti`` (from
+``omega = div(grad(phi + tau q))``; ``phi`` and ``q`` carry their own wall data)::
 
     prec = build_dirichlet_preconditioner(lplan)                        # once per geometry / coefficient
-    s = tau * laplacian_action(lplan, q, bcd_q, "dirichlet") - omega
+    s = omega - tau * laplacian_action(lplan, q, bcd_q, "dirichlet")
     phi, info = solve_dirichlet(lplan, s, bcd_phi, prec, x0=phi_prev)    # every stage
 """
 from __future__ import annotations
