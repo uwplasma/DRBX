@@ -118,13 +118,13 @@ def require(run, name, identity):
     return r
 
 
-def verify(args, identity):
+def verify(args, identity, *, n=32):
     from scripts.q09_evolved_mms.inputs import audit
     run = args.run.resolve()
     for p in (args.baseline_run, args.science_run):
         p = p.resolve()
         if run.is_relative_to(p) or p.is_relative_to(run): raise ValueError('new separate RUN required')
-    cfg = dict(schema='q09-prepared-inputs-v1', n=32, baseline_run=str(args.baseline_run.resolve()),
+    cfg = dict(schema='q09-prepared-inputs-v1', n=n, baseline_run=str(args.baseline_run.resolve()),
         science_run=str(args.science_run.resolve()), canonical_root=str(args.canonical_root.resolve()),
         cache_directory=str(run/'prepared_reference'), host_memory_gib=args.host_gib)
     path = run/'config/inputs.json'
@@ -132,7 +132,7 @@ def verify(args, identity):
     write(path, cfg)
     _, hashes, plan, estimate = audit(run/'config')
     fixtures()
-    result = dict(passed=True, identity=identity, inputs=hashes, config_sha256=sha(path), n=32,
+    result = dict(passed=True, identity=identity, inputs=hashes, config_sha256=sha(path), n=n,
         owners=plan['n_owner'], chunks=len(plan['chunks']), estimate=estimate)
     write(run/'verification.json', result); return result
 
@@ -212,8 +212,9 @@ def preflight(run, identity):
     from drbx.stencils.q_plan import lower_q_plan
     from drbx.native.q_plan import apply_q_plan
     folder = HERE.parent/'q08_extraction_global/inputs/bounded'
-    bank = build_q_bank(*(load_chunk(folder/f'N32_h{d}.npz') for d in (16, 32)))
-    with np.load(folder/'N32_inputs.npz') as z: saved = {k: z[k].copy() for k in z.files}
+    n = verification['n']
+    bank = build_q_bank(*(load_chunk(folder/f'N{n}_h{d}.npz') for d in (16, 32)))
+    with np.load(folder/f'N{n}_inputs.npz') as z: saved = {k: z[k].copy() for k in z.files}
     geometry = {k: saved[k] for k in ('magnetic_L', 'b_eta', 'eta_step', 'bmag')}
     plan = lower_q_plan(bank, diffusion_span=1/32, **geometry)
     state = np.broadcast_to(np.r_[c.BASE, .2][:, None], (6, bank.metadata['n_owner'])).copy()
@@ -236,28 +237,28 @@ def preflight(run, identity):
 def case_key(mode, kinds, phi): return f'{mode}_{kinds}_phi{phi}'
 
 
-def signature(provider, mode, kinds, phi, dt):
+def signature(provider, mode, kinds, phi, dt, *, end=END):
     from scripts.q08_extraction_global.common import digest
-    return digest(dict(provider=provider, mode=mode, kinds=kinds, phi_kind=phi, start=0., end=END, dt=dt))
+    return digest(dict(provider=provider, mode=mode, kinds=kinds, phi_kind=phi, start=0., end=end, dt=dt))
 
 
-def validate_case(folder, provider, observations, mode, kinds, phi):
+def validate_case(folder, provider, observations, mode, kinds, phi, *, dt0=DT, end=END, levels=3):
     import numpy as np
     from scripts.q09_evolved_mms.provider import load_checkpoint
     from scripts.q09_evolved_mms.evolution import error_report, temporal_comparison, step_count
     report = read(folder/'report.json')
-    if report['identity'] != provider or len(report['runs']) != 3: raise ValueError('case report identity/coverage')
+    if report['identity'] != provider or len(report['runs']) != levels: raise ValueError('case report identity/coverage')
     states = []; v = observations['volume']; target = observations['target']; initial = observations['initial']
     regions = {k[7:]: a for k, a in observations.items() if k.startswith('region:')}
     for level, r in enumerate(report['runs']):
-        dt = DT/2**level
-        cp = load_checkpoint(folder/f'level{level}.npz', signature(provider, mode, kinds, phi, dt))
-        x = cp['state']; steps = step_count(0., END, dt)
-        if (not r['completed'] or r['dt'] != dt or r['start'] != 0 or r['requested_end'] != END
-            or r['actual_end'] != END or cp['time'] != END or cp['accepted_steps'] != steps
+        dt = dt0/2**level
+        cp = load_checkpoint(folder/f'level{level}.npz', signature(provider, mode, kinds, phi, dt, end=end))
+        x = cp['state']; steps = step_count(0., end, dt)
+        if (not r['completed'] or r['dt'] != dt or r['start'] != 0 or r['requested_end'] != end
+            or r['actual_end'] != end or cp['time'] != end or cp['accepted_steps'] != steps
             or r['accepted_steps'] != steps or x.shape != initial.shape or np.any(x[:3] <= 0)):
             raise ValueError('time/shape/positivity completion gate')
-        expected_times = [i*dt+s*((END if i+1 == steps else (i+1)*dt)-i*dt)
+        expected_times = [i*dt+s*((end if i+1 == steps else (i+1)*dt)-i*dt)
                           for i in range(steps) for s in (0., .5, .5, 1.)]
         np.testing.assert_allclose(cp['stage_times'], expected_times, atol=1e-14, rtol=1e-14)
         if r['stage_times'] != cp['stage_times'] or r['error'] != error_report(x, target, v, regions):
@@ -272,7 +273,7 @@ def validate_case(folder, provider, observations, mode, kinds, phi):
     return report
 
 
-def run_pilot(run, identity):
+def run_pilot(run, identity, *, dt0=DT, end=END, checkpoint_every=1, snapshots=False, modes=MODES, levels=3):
     verification = require(run, 'verification', identity)
     require(run, 'tests', identity); require(run, 'preflight', identity)
     if sha(run/'config/inputs.json') != verification['config_sha256']:
@@ -293,8 +294,11 @@ def run_pilot(run, identity):
     tick = time.perf_counter(); payload = q_payload(provider)
     jax.block_until_ready(payload); staging_seconds = time.perf_counter()-tick
     observations = dict(initial=np.asarray(provider.manufactured.state(0.)),
-        target=np.asarray(provider.manufactured.state(END)), volume=provider.volume,
+        target=np.asarray(provider.manufactured.state(end)), volume=provider.volume,
         **{'region:'+k: v for k, v in provider.regions.items()})
+    if snapshots:
+        observations.update({f'target:part{j}': np.asarray(provider.manufactured.state(end*j/5))
+                             for j in range(1, 6)})
     opath = run/'observations.npz'
     if opath.exists():
         prior = require(run, 'observations', identity)
@@ -307,7 +311,7 @@ def run_pilot(run, identity):
     write(run/'preparation.json', dict(passed=True, identity=identity, provider=pid,
         seconds=preparation_seconds, staging_seconds=staging_seconds, hardware=inventory, memory=memory,
         resources=resource_measurement()))
-    for mode in MODES:
+    for mode in modes:
         for kinds, phi in KINDS:
             key = case_key(mode, kinds, phi); folder = run/'cases'/key; folder.mkdir(parents=True, exist_ok=True)
             if (folder/'receipt.json').exists():
@@ -316,22 +320,23 @@ def run_pilot(run, identity):
                     raise ValueError('case checkpoint identity')
                 for name, h in receipt['files'].items():
                     if sha(folder/name) != h: raise ValueError('case content changed')
-                validate_case(folder, pid, observations, mode, kinds, phi)
+                validate_case(folder, pid, observations, mode, kinds, phi, dt0=dt0, end=end, levels=levels)
                 continue
             (folder/'report.json').unlink(missing_ok=True)
-            args = SimpleNamespace(dt=DT, end=END, mode=mode, kinds=kinds, phi_kind=phi, output=folder, resume=True)
+            args = SimpleNamespace(dt=dt0, end=end, mode=mode, kinds=kinds, phi_kind=phi, output=folder, resume=True, checkpoint_every=checkpoint_every, snapshots=snapshots, levels=levels)
             tick = time.perf_counter()
             _run(args, provider, payload, pid, q_stepper(mode, tuple(kinds), phi))
-            validate_case(folder, pid, observations, mode, kinds, phi)
-            names = ['report.json', 'timings.json', 'timing_history.jsonl', *[f'level{i}.npz' for i in range(3)]]
+            validate_case(folder, pid, observations, mode, kinds, phi, dt0=dt0, end=end, levels=levels)
+            names = [str(p.relative_to(folder)) for p in sorted((folder/'snapshots').glob('*.npz'))] if snapshots else []
+            names += ['report.json', 'timings.json', 'timing_history.jsonl', *[f'level{i}.npz' for i in range(levels)]]
             write(folder/'receipt.json', dict(passed=True, identity=identity, provider=pid,
                 mode=mode, kinds=kinds, phi_kind=phi, seconds=time.perf_counter()-tick,
                 resources=resource_measurement(),
                 files={name: sha(folder/name) for name in names}))
-    validate(run, identity)
+    validate(run, identity, n=verification['n'], dt0=dt0, end=end, snapshots=snapshots, modes=modes, levels=levels)
 
 
-def validate(run, identity):
+def validate(run, identity, *, n=32, dt0=DT, end=END, snapshots=False, modes=MODES, levels=3):
     import numpy as np
     verification = require(run, 'verification', identity)
     require(run, 'tests', identity); require(run, 'preflight', identity)
@@ -344,28 +349,31 @@ def validate(run, identity):
     if (observations['initial'].shape != (6, verification['owners'])
         or observations['target'].shape != observations['initial'].shape
         or observations['volume'].shape != (verification['owners'],)
-        or verification['n'] != 32 or verification['owners'] != 25376
+        or verification['n'] != n or verification['owners'] != {32:25376, 48:86016, 64:202304}[n]
         or not all(np.isfinite(a).all() for a in observations.values())
         or np.any(observations['volume'] <= 0)):
-        raise ValueError('full N32 observation coverage/finite/volume gate')
+        raise ValueError('full observation coverage/finite/volume gate')
     records = {}; consumed = {name: sha(run/name) for name in (
         'verification.json', 'tests.json', 'preflight.json', 'preparation.json', 'observations.json', 'observations.npz', 'config/inputs.json')}
-    for mode in MODES:
+    for mode in modes:
         for kinds, phi in KINDS:
             key = case_key(mode, kinds, phi); folder = run/'cases'/key; receipt = read(folder/'receipt.json')
             if (receipt.get('passed') is not True or receipt['identity'] != identity or receipt['provider'] != obs['provider']
                 or (receipt['mode'], receipt['kinds'], receipt['phi_kind']) != (mode, kinds, phi)):
                 raise ValueError('case completion identity')
-            if set(receipt['files']) != {'report.json', 'timings.json', 'timing_history.jsonl', 'level0.npz', 'level1.npz', 'level2.npz'}:
+            expected = {'report.json', 'timings.json', 'timing_history.jsonl'} | {f'level{i}.npz' for i in range(levels)}
+            if snapshots:
+                expected |= {f'snapshots/level{level}_part{j}.npz' for level in range(levels) for j in range(1, 6)}
+            if set(receipt['files']) != expected:
                 raise ValueError('case completion coverage')
             for name, h in receipt['files'].items():
                 if sha(folder/name) != h: raise ValueError('completed case content changed')
                 consumed[str((folder/name).relative_to(run))] = h
             consumed[str((folder/'receipt.json').relative_to(run))] = sha(folder/'receipt.json')
-            records[key] = validate_case(folder, obs['provider'], observations, mode, kinds, phi)
+            records[key] = validate_case(folder, obs['provider'], observations, mode, kinds, phi, dt0=dt0, end=end, levels=levels)
     write(run/'summary.json', dict(identity=identity, cases=records, interpretation='machine reductions only; scientific analysis pending'))
     consumed['summary.json'] = sha(run/'summary.json')
-    write(run/'completion.json', dict(passed=True, identity=identity, cases=8, level_runs=24,
+    write(run/'completion.json', dict(passed=True, identity=identity, cases=len(modes)*len(KINDS), level_runs=len(modes)*len(KINDS)*levels,
         files=consumed, scientific_qualification=False, stability_qualification=False, production_promoted=False))
 
 

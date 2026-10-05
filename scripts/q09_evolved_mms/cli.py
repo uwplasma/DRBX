@@ -8,7 +8,7 @@ from pathlib import Path
 import jax
 from scripts.q08_extraction_global.common import atomic_json, digest
 from .provider import PreparedProvider, save_checkpoint, load_checkpoint
-from .evolution import advance, q_stepper, q_payload, temporal_comparison
+from .evolution import advance, q_stepper, q_payload, temporal_comparison, step_count
 
 
 def main(argv=None):
@@ -61,7 +61,7 @@ def _run(args, provider, data, identity, stepper):
     history(dict(event='begin', identity=identity))
     # One compiled executable per boundary/mode case, reused for dt refinements.
     compiled = jax.jit(lambda s, t, h, payload: stepper(s, time=t, timestep=h, carry=payload))
-    for level in range(3):
+    for level in range(getattr(args, 'levels', 3)):
         dt = args.dt/2**level
         signature = digest(dict(provider=identity, mode=args.mode, kinds=args.kinds,
             phi_kind=args.phi_kind, start=0., end=args.end, dt=dt))
@@ -70,6 +70,21 @@ def _run(args, provider, data, identity, stepper):
             raise ValueError('checkpoint exists: choose a fresh output or explicitly --resume')
         resume = load_checkpoint(path, signature) if path.exists() else None
         samples = []; tick = time.perf_counter()
+        count = step_count(0., args.end, dt)
+        cadence = getattr(args, 'checkpoint_every', 1)
+        snapshots = getattr(args, 'snapshots', False)
+        if not isinstance(cadence, int) or cadence < 1 or (snapshots and count % 5):
+            raise ValueError('invalid checkpoint cadence/five-part time sampling')
+        def checkpoint(payload):
+            accepted = payload['accepted_steps']
+            milestone = snapshots and accepted % (count//5) == 0
+            if milestone:
+                sample_path = args.output/'snapshots'/f'level{level}_part{accepted//(count//5)}.npz'
+                sample_path.parent.mkdir(exist_ok=True)
+                save_checkpoint(sample_path, signature, payload)
+            # A snapshot is durable before the latest resumable state can pass it.
+            if milestone or accepted % cadence == 0 or accepted == count:
+                save_checkpoint(path, signature, payload)
         def timed_step(i, seconds):
             sample = dict(step=i, seconds=seconds); samples.append(sample)
             history(dict(event='step', level=level, **sample))
@@ -77,7 +92,7 @@ def _run(args, provider, data, identity, stepper):
             dt=dt, volume=provider.volume, target=provider.manufactured.state, regions=provider.regions,
             carry=data, resume=resume, compiled_step=compiled,
             timing_callback=timed_step,
-            checkpoint=lambda payload: save_checkpoint(path, signature, payload))
+            checkpoint=checkpoint)
         states.append(state); reports.append(report)
         timings.append(dict(level=level, wall_seconds=time.perf_counter()-tick,
             synchronized_step_including_validation=samples, resumed_steps=0 if resume is None else resume['accepted_steps']))

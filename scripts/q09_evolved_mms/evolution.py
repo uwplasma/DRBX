@@ -207,5 +207,8 @@ def temporal_comparison(states, volume):
     v = np.asarray(volume)
     d = [np.sqrt(np.sum(v*(np.asarray(a)-np.asarray(b))**2, axis=1)/v.sum())
          for a, b in zip(states[:-1], states[1:])]
-    return dict(self_difference_rms=[a.tolist() for a in d],
-        observed_orders=[float(np.log2(a/b)) if a > 0 and b > 0 else None for a, b in zip(*d)])
+    if len(states) not in (1, 2, 3):
+        raise ValueError('temporal comparison requires one to three states')
+    orders = ([float(np.log2(a/b)) if a > 0 and b > 0 else None for a, b in zip(*d)]
+              if len(d) == 2 else [None]*np.shape(states[0])[0])
+    return dict(self_difference_rms=[a.tolist() for a in d], observed_orders=orders)
