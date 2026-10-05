@@ -17,8 +17,8 @@ energy balance), together with a neutral density that is:
 
 The result is an attached recycling SOL: neutrals born at the target penetrate
 upstream, ionize where the plasma is hot, and the plasma flows back to the target
-at the Bohm speed. Self-consistent detachment (an *evolved* temperature with
-conduction and radiative rollover) is a further extension.
+at the Bohm speed. The evolved-temperature SD1D-matched model is
+``detachment_sol_model``.
 
 Everything is pure ``jax.numpy`` (with the solvax tridiagonal solve) and therefore
 ``jit``/``grad``/``vmap`` transparent. Fields are hermes-3 normalized

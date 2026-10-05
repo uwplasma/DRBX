@@ -47,7 +47,7 @@ then plotting):
 ```bash
 PYTHONPATH=src python examples/tokamak/drift_wave_turbulence.py
 PYTHONPATH=src python examples/sol/open_sol_flux_tube.py
-PYTHONPATH=src python examples/benchmarks/b6_detachment_rollover.py
+PYTHONPATH=src python examples/benchmarks/b6_detachment_sd1d.py
 PYTHONPATH=src python examples/stellarator/stellarator_turbulence.py
 ```
 
@@ -82,7 +82,7 @@ The current release includes:
 | Drift-wave turbulence | JAX-native Hasegawa-Wakatani flagship with differentiable inverse design |
 | Linear stability | drift-wave, shear-Alfven, and interchange dispersion solver plus the general Jacobian engine |
 | Open-field-line SOL | open slab flux tube with Bohm sheath targets, two-point steady state, sheath/recycling closure |
-| Neutrals and detachment | hermes-3 AMJUEL atomic rates (packaged), recycling SOL, self-consistent detaching SOL with the SD1D rollover, gradient-based detachment control |
+| Neutrals and detachment | hermes-3 AMJUEL atomic rates (packaged), recycling SOL, SD1D-matched 1D plasma-neutral model (13.6 eV scan reproduced to 0.35%), implicit-derivative target-temperature control |
 | 3D stellarator workflows | rotating-ellipse and island-divertor geometry, FCI 2-field/4-field/DRB models, closed vs limiter-open turbulence, imported ESSOS coil / VMEC / VMEX geometry |
 | Differentiability | `jax.grad` through every model — sensitivity, uncertainty, inverse design, detachment control |
 | Parallelism | multi-device `shard_map` FCI stepping with halo exchange, bit-exact vs single device |
