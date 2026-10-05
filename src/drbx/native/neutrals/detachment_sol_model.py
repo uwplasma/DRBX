@@ -872,4 +872,6 @@ def detachment_target_outputs(theta, params: DetachmentSolParameters, guess: Det
         return (u, s), dx
 
     u, s = steady(jnp.asarray(theta, dtype=jnp.float64))
-    return _target_outputs_from(u, s, jnp.asarray(theta, dtype=jnp.float64), params, grid)
+    # ``0 * s`` keeps a concrete (zero) cotangent on the source scale: JAX 0.6
+    # rejects a symbolic Zero in the transposed custom_linear_solve.
+    return _target_outputs_from(u, s, jnp.asarray(theta, dtype=jnp.float64), params, grid) + 0.0 * s
