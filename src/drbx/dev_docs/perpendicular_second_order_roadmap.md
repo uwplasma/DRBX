@@ -2728,9 +2728,19 @@ regional second-order gate is imposed. P10 independently checks solutions.
       - **η-filtered arm:** the order gate.
     - **How to filter.** Apply it to the field, not the operator. Filter B's cylindrical components in φ at fixed (R, Z) above a fixed physical cutoff; this preserves ∇·B = 0. Derive h, J, K and the FCI maps from the filtered field, so each arm has one geometry identity.
     - **Scope.** M5 and M6 plan both arms from the start.
-  - **Open, to be decided with the SBP Laplacian design (step 4):**
-    - narrow vs wide second derivatives for P07/φ, and whether φ uses the bracket's gradient;
-    - how P06/P07 act on the nodal state.
+  - **SBP Laplacian design** (user, 4 October 2026; [Laplacian study](../../../../work/p09_laplacian_20261004/report.md)):
+    - **Narrow form for P07 and φ.**
+      - Staggered SBP faces for the diagonal terms: radial (closure key (4,6,4,5)), Fourier in θ, 4th order in η. Cross terms use the collocated D.
+      - Core: projection D plus shell penalty κ = c_κ·λ_max(A_xy)·(p/R_c)².
+      - SAT: SIPG at the core circle; Nitsche (Dirichlet) or flux (Neumann) at the wall.
+      - It is SBP and exactly H-symmetric, but not semidefinite by construction. HSX Neumann N48/N64 has one direction at −2.1e-7 against ρ ≈ 2.5e7.
+      - Measured orders: testbed 2.3–2.5. Wide is about 1.5, and its core error stalls.
+    - **φ does not use the bracket's gradient:** the solve error is the same either way.
+    - **Neumann φ: deferred to P11.** It is near-singular at HSX for both forms (lowest eigenvalue about 3e-7 against 280 for Dirichlet). φ stays Dirichlet-only.
+    - **Open (pending the user):**
+      - a definiteness audit at plan build;
+      - accepting the degree-2 shared-H Neumann boundary order (static orders tend to about 1.5);
+      - the conormal vs physical-normal Neumann data for P07N.
 - **Integration design (in progress):** moving from C3 owner averages to the nodal layout. It covers what that means for the P05–P07 operators, Q's FCI maps, the wall and sheath, MMS fields and diagnostics, and which parts are independent of the seam.
 - **D1 for production:** nodal point values (the prototype) or owner averages (finite volume, as today).
   - Owner averages cost an O((mΔθ)²) mismatch at owner-count doublings, or a non-diagonal H.
