@@ -14,6 +14,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
+from drbx.geometry.sbp_operators import CLOSURE_B, MIN_RADIAL_POINTS, radial_block
 from drbx.native.owner_plane_layout import exchange_plane_halo
 from drbx.stencils.nodal_plan import DenseBlockArrays, NodalPlan, RingBlockArrays
 
@@ -59,6 +60,41 @@ def _sl(desc):
     return desc[1], desc[1] + desc[2]
 
 
+def _closure_width() -> int:
+    """Columns spanned by the closure rows of the radial block (read off its nonzero pattern)."""
+    rows = radial_block(MIN_RADIAL_POINTS).D_unit[:CLOSURE_B]
+    return int(np.nonzero(rows.any(axis=0))[0].max()) + 1
+
+
+_CLOSURE_W = _closure_width()
+
+
+def _ring_d1(Du, gl, m: int):
+    """Radial derivative of ``gl (E, m, N, ...)`` along axis 1 with the banded ``Du``; dense when ``m`` is too small.
+
+    The ``CLOSURE_B`` rows at each end are small dense products; the interior rows are a 5-point stencil on shifted
+    slices. All coefficients are read from ``Du`` (so the plan stays the source of truth and carries the ``1/du``).
+    """
+    if m < MIN_RADIAL_POINTS:
+        return jnp.einsum("ab,ebj...->eaj...", Du, gl)
+    b, w = CLOSURE_B, _CLOSURE_W
+    left = jnp.einsum("ab,ebj...->eaj...", Du[:b, :w], gl[:, :w])
+    right = jnp.einsum("ab,ebj...->eaj...", Du[m - b:, m - w:], gl[:, m - w:])
+    n_int = m - 2 * b
+    mid = sum(Du[b, b + o - 2] * gl[:, b + o - 2:b + o - 2 + n_int] for o in range(5))
+    return jnp.concatenate([left, mid, right], axis=1)
+
+
+def _ring_d2(gl, N: int):
+    """Fourier derivative of ``gl (E, m, N, ...)`` along axis 2 (Nyquist mode zeroed); equals ``Dth`` to round-off."""
+    k = np.arange(N // 2 + 1, dtype=float)
+    if N % 2 == 0:
+        k[-1] = 0.0
+    ghat = jnp.fft.rfft(gl, axis=2)
+    ik = jnp.asarray(1j * k, dtype=ghat.dtype).reshape((1, 1, k.size) + (1,) * (gl.ndim - 3))
+    return jnp.fft.irfft(ik * ghat, n=N, axis=2)
+
+
 def d1(plan: NodalPlan, x):
     """Radial (first logical direction) derivative of ``x (E, P, ...)``."""
     out = []
@@ -68,7 +104,7 @@ def d1(plan: NodalPlan, x):
         if isinstance(arr, RingBlockArrays):
             _, _, _, m, N, _ = desc
             gl = xb.reshape((xb.shape[0], m, N) + xb.shape[2:])
-            out.append(jnp.einsum("ab,ebj...->eaj...", arr.Du, gl).reshape(xb.shape))
+            out.append(_ring_d1(arr.Du, gl, m).reshape(xb.shape))
         else:
             out.append(jnp.einsum("pq,eq...->ep...", arr.D1, xb))
     return jnp.concatenate(out, axis=1)
@@ -83,7 +119,7 @@ def d2(plan: NodalPlan, x):
         if isinstance(arr, RingBlockArrays):
             _, _, _, m, N, _ = desc
             gl = xb.reshape((xb.shape[0], m, N) + xb.shape[2:])
-            out.append(jnp.einsum("jl,eal...->eaj...", arr.Dth, gl).reshape(xb.shape))
+            out.append(_ring_d2(gl, N).reshape(xb.shape))
         else:
             out.append(jnp.einsum("pq,eq...->ep...", arr.D2, xb))
     return jnp.concatenate(out, axis=1)
