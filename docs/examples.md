@@ -55,18 +55,18 @@ inputs, outputs, source modules, tests, and documentation page, see
 | --- | --- |
 | [`examples/benchmarks/linear_dispersion.py`](../examples/benchmarks/linear_dispersion.py) | Drift-wave, shear-Alfven, and interchange dispersion vs analytic relations ([page](linear_dispersion_benchmark.md)). |
 | [`examples/benchmarks/linear_drb_survey.py`](../examples/benchmarks/linear_drb_survey.py) | Parameter survey of the linearized-DRB regimes (hydrodynamic/adiabatic drift waves, Alfven, interchange). |
-| [`examples/benchmarks/b6_detachment_rollover.py`](../examples/benchmarks/b6_detachment_rollover.py) | SD1D detachment benchmark: target-flux rollover and sub-1-eV target cooling. [Tutorial](tutorial_open_sol.md). |
+| [`examples/benchmarks/b6_detachment_sd1d.py`](../examples/benchmarks/b6_detachment_sd1d.py) | SD1D-matched 1D plasma-neutral model against SD1D's 13.6 eV upstream-density scan (target temperature and flux). [Tutorial](tutorial_open_sol.md). |
 | [`examples/benchmarks/performance_benchmark.py`](../examples/benchmarks/performance_benchmark.py) | Turbulence throughput and gradient-cost measurements ([page](performance_and_differentiability.md)). |
 | [`examples/benchmarks/fci_sharded_strong_scaling.py`](../examples/benchmarks/fci_sharded_strong_scaling.py) | Multi-device `shard_map` strong scaling with per-shard core binding. |
 
-![Detachment rollover](media/b6_detachment.png)
+![B6 SD1D scan](media/b6_detachment.png)
 
 ## Autodiff
 
 | Example | What it teaches |
 | --- | --- |
 | [`examples/autodiff/differentiation_methods.py`](../examples/autodiff/differentiation_methods.py) | Forward vs reverse vs checkpointed gradients on the same turbulence rollout, with measured costs. |
-| [`examples/autodiff/detachment_control.py`](../examples/autodiff/detachment_control.py) | Newton control of the detachment front using forward-mode sensitivities through the stiff SOL solve. |
+| [`examples/autodiff/detachment_control.py`](../examples/autodiff/detachment_control.py) | Newton control of the steady target temperature with implicit-function derivatives of the SD1D-matched solve. |
 | [`examples/autodiff_diffusion_sensitivity.py`](../examples/autodiff_diffusion_sensitivity.py) | `jax.grad` sensitivity against finite differences on the compact diffusion lane. |
 | [`examples/autodiff_diffusion_uncertainty.py`](../examples/autodiff_diffusion_uncertainty.py) | Covariance pushforward vs vectorized Monte Carlo. |
 | [`examples/autodiff_diffusion_inverse_design.py`](../examples/autodiff_diffusion_inverse_design.py) | Gradient-based inverse-design loop. |

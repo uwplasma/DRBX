@@ -22,7 +22,7 @@ related JAX solver papers).
 | `Hasegawa-Wakatani Turbulence` | `native_exact` | Linear growth matches the B2 eigenvalue; differentiable end to end. |
 | `Fluid 1D MMS Convergence` | `native-validated` | Manufactured-solution observed orders on the promoted 1D fluid lane. |
 | `Open SOL Two-Point Steady State` | `native-validated` | Mach 1 targets, half-upstream target density, roundoff-closed sheath accounting. |
-| `Recycling / Detachment SOL` | `native-validated` | Neutral cushion, detachment onset, SD1D target-flux rollover, differentiable control. |
+| `Recycling / Detachment SOL` | `native-validated` | Neutral cushion, detachment onset, SD1D 13.6 eV scan reproduced (T_t 0.35%, flux 0.15%), implicit-derivative control. |
 | `Rotating-Ellipse FCI` | `genuinely non-axisymmetric gate` | Autodiff metric; order-2 direct and traced parallel gradients; shape-differentiable. |
 | `Stellarator Turbulence (closed/open)` | `native_operational` | 4-field interchange with limiter SOL drainage on the rotating ellipse. |
 | `Stellarator FCI Validation` | `native non-axisymmetric gate` | Full-metric, field-line-map, operator, sheath/recycling, neutral, vorticity campaigns. |
@@ -61,13 +61,13 @@ tests. Details: [Fluid 1D MMS Convergence](fluid_1d_mms_convergence.md).
 
 ![Recycling SOL](media/recycling_sol.png)
 
-![Detachment rollover](media/b6_detachment.png)
+![B6 SD1D scan](media/b6_detachment.png)
 
 ![Detachment control](media/detachment_control.png)
 
 The open-slab two-point steady state, the coupled recycling SOL with the
-hermes-3 AMJUEL reactions, the SD1D detachment rollover, and gradient-based
-detachment control. Gates: `tests/test_open_field_line_sol.py`,
+hermes-3 AMJUEL reactions, the SD1D-matched 13.6 eV scan, and gradient-based
+target-temperature control. Gates: `tests/test_open_field_line_sol.py`,
 `tests/test_native_recycling_sol.py`, `tests/test_native_detachment_sol.py`,
 `tests/test_detachment_control.py`. Pages:
 [Open-Field-Line SOL](open_field_line_sol.md),

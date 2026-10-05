@@ -7,10 +7,10 @@ These are analytical identities, independent of the implementation:
   closure evolves pressures, the hermes-style closure internal energies);
 - isolated charge exchange of a drifting ion fluid through stationary neutrals
   (the closed-cell counterexample): kinetic energy lost equals heat gained;
-- detachment-model conduction with a uniform temperature carries no heat at a
-  nonuniform density, and conserves ``sum(3 n T)``;
-- the CX velocity-damping rate of ions on stationary neutrals is independent of
-  the ion density.
+- SD1D-model conduction carries no heat at a uniform temperature and is
+  conservative on the stretched, expanding grid;
+- the SD1D CX velocity-damping rate of ions on stationary neutrals is
+  independent of the ion density.
 """
 
 from __future__ import annotations
@@ -88,40 +88,48 @@ def test_hydrogen_reaction_sources_conserve_energy() -> None:
     np.testing.assert_allclose(np.asarray(total), 0.0, atol=1e-12 * scale)
 
 
+def _sd1d_grid(ny=64):
+    params = dsm.DetachmentSolParameters(ny=ny)
+    return params, dsm._grid(params)
+
+
+def _ext(x):
+    return jnp.concatenate([x[:1], x[:1], x, x[-1:], x[-1:]])
+
+
 def test_detachment_conduction_uniform_temperature_null() -> None:
-    nz = 64
-    z = (jnp.arange(nz) + 0.5) / nz
-    density = 1.0 + 0.8 * jnp.sin(3.0 * z) ** 2
-    temperature = jnp.full(nz, 0.7)
-    kappa = 2.0 * 0.7**2.5 * jnp.ones(nz - 1)
-    out = dsm._implicit_conduction(density, temperature, kappa, 0.05)
-    np.testing.assert_allclose(np.asarray(out), 0.7, rtol=1e-13)
+    params, grid = _sd1d_grid()
+    z = jnp.linspace(0.0, 1.0, params.ny)
+    kappa = 2.0 + jnp.sin(3.0 * z) ** 2
+    out = dsm._div_diffusion(_ext(kappa), _ext(jnp.full(params.ny, 0.7)), grid, upwind=True)
+    np.testing.assert_allclose(np.asarray(out), 0.0, atol=1e-15)
 
 
 def test_detachment_conduction_conserves_thermal_energy() -> None:
-    nz = 64
-    z = (jnp.arange(nz) + 0.5) / nz
-    density = 1.0 + 0.8 * jnp.sin(3.0 * z) ** 2
+    # The area-weighted finite-volume conduction moves heat between cells without
+    # creating any: sum(div * A * dl) = 0 for any profile, on the stretched,
+    # expanding SD1D grid.
+    params, grid = _sd1d_grid()
+    z = jnp.linspace(0.0, 1.0, params.ny)
     temperature = 0.2 + jnp.exp(-((z - 0.3) ** 2) / 0.01)
-    face = 0.5 * (temperature[:-1] + temperature[1:])
-    out = dsm._implicit_conduction(density, temperature, 2.0 * face**2.5, 0.01)
-    np.testing.assert_allclose(float(jnp.sum(3 * density * out)), float(jnp.sum(3 * density * temperature)), rtol=1e-13)
-    assert float(jnp.max(out)) < float(jnp.max(temperature))
+    out = dsm._div_diffusion(_ext(temperature**2.5), _ext(temperature), grid, upwind=True)
+    weights = grid.dl[2:-2] * grid.area[2:-2]
+    total = float(jnp.sum(out * weights))
+    assert abs(total) < 1e-13 * float(jnp.sum(jnp.abs(out) * weights))
 
 
 def test_detachment_cx_damping_independent_of_ion_density() -> None:
-    nz, dt, nn, temperature = 16, 1.0e-7, 0.5, 0.1
-    params = dsm.DetachmentSolParameters(upstream_power=0.0, recycling_fraction=0.0, neutral_diffusion=0.0)
-    norm = params.normalization
-    rate_scale = norm.Nnorm * (params.parallel_length / norm.sound_speed)
-    t_eff = jnp.clip(2.0 * temperature * norm.Tnorm / params.ion_mass, 0.01, 1.0e4)
-    expected_cx = float(dsm.charge_exchange_rate_coefficient(t_eff)) * nn * rate_scale
+    # SD1D friction F_cx = N Nn <sigma v>_cx (V - Vn): the momentum-damping rate
+    # per ion, F_cx / (N V), depends on Nn and T only.
+    params = dsm.DetachmentSolParameters(ny=16, recombination=False)
+    grid = dsm._grid(params)
+    nn, temperature, velocity = 0.5, 0.1, 0.3
+    rates = []
     for n_i in (0.5, 2.0):
-        density = jnp.full(nz, n_i)
-        momentum = params.ion_mass * density * 0.3
-        state = dsm.DetachmentSolState(density, momentum, 2.0 * density * temperature, jnp.full(nz, nn))
-        new = dsm.detachment_sol_step(state, params, dt)
-        mid = nz // 2
-        damping = (float(momentum[mid] / new.ion_momentum[mid]) - 1.0) / dt
-        rec = float(dsm.rate_coefficient("d", "rec", temperature * norm.Tnorm, n_i * norm.Nnorm)) * rate_scale * n_i
-        np.testing.assert_allclose(damping - rec, expected_cx, rtol=2e-3)
+        u = jnp.stack([jnp.full(16, n_i), jnp.full(16, n_i * velocity), jnp.full(16, 2 * n_i * temperature),
+                       jnp.full(16, nn), jnp.zeros(16), jnp.full(16, nn * temperature)], axis=1)
+        terms = dsm._terms(u, 0.0, dsm._theta(params), params, grid)
+        ionisation_part = 0.0  # Vn = 0, so ionisation carries no friction
+        rates.append(float((terms.F[8] - ionisation_part) / (n_i * velocity)))
+    expected = nn * params.Nnorm * float(dsm.sd1d_charge_exchange_rate(temperature * params.Tnorm)) / params.omega_ci
+    np.testing.assert_allclose(rates, expected, rtol=1e-12)

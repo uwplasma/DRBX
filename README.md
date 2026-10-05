@@ -138,28 +138,30 @@ On open field lines, parallel transport to Bohm-sheath targets relaxes to the
 two-point steady state (Mach 1 at the targets, target density half the
 upstream value). Fluid neutrals with AMJUEL ionization, recombination and
 charge-exchange rates conserve particles and momentum exactly against the
-plasma, and their energy transfers conserve thermal plus kinetic energy. With
-evolved temperature, implicit Spitzer conduction and radiation, the reduced 1D
-model cools its target through 1 eV as upstream density rises.
+plasma, and their energy transfers conserve thermal plus kinetic energy.
 
-*Status:* this reduced detachment model is **not yet qualified**. Its rollover
-is not grid-converged (the highest-density case detaches at 120 cells but not
-at 240 or 480), and its upstream boundary differs from SD1D. A model matched to
-the SD1D equations and checked against the published SD1D dataset is in
-progress; until then, treat the figure below as a qualitative illustration.
+The 1D divertor-leg model reproduces the SD1D equations (Dudson et al., PPCF
+61, 065008, 2019) term by term and solves for the steady state with a Newton
+method, so target quantities are differentiable through the implicit-function
+theorem. Against the published SD1D hydrogen-only scan (13.6 eV ionisation
+cost, 800 cells) the target temperature agrees within 0.35% and the target
+particle flux within 0.15% over 18 upstream densities, with particle and power
+ledgers closed to 1e-8. Carbon radiation and excitation are not modelled, so
+this case cools to ~3 eV without the flux rollover seen in SD1D's carbon runs.
 
-![Detachment rollover](docs/media/b6_detachment.png)
+![SD1D comparison](docs/media/b6_detachment.png)
 
 *[`examples/sol/open_sol_flux_tube.py`](examples/sol/open_sol_flux_tube.py),
 [`examples/sol/recycling_sol.py`](examples/sol/recycling_sol.py),
-[`examples/benchmarks/b6_detachment_rollover.py`](examples/benchmarks/b6_detachment_rollover.py)*
+[`examples/benchmarks/b6_detachment_sd1d.py`](examples/benchmarks/b6_detachment_sd1d.py)*
 
 ## Differentiable design and control
 
-Because the solve is differentiable, gradients drive design loops. Forward-mode
-sensitivity through the stiff SOL solve feeds a trust-region Newton iteration
-that holds the target at the 1 eV detachment threshold; gradient descent through
-a nonlinear drift-wave run recovers a drive parameter.
+Because the solve is differentiable, gradients drive design loops. Implicit
+derivatives of the steady SD1D-matched solution give Newton steps that find the
+upstream density placing the target at a requested temperature (10 eV in four
+solves); gradient descent through a nonlinear drift-wave run recovers a drive
+parameter.
 
 ![Detachment control](docs/media/detachment_control.png)
 
@@ -262,7 +264,7 @@ Each benchmark has a test and an example that regenerates its figure:
 | Island-divertor field | Shanahan et al., *J. Plasma Phys.* 90 (2024) | island chains, stochastic edge, emergent open SOL |
 | Open-field-line SOL | Stangeby, *The Plasma Boundary of Magnetic Fusion Devices* (2000) | Mach 1 at targets; target density half upstream; Bohm particle balance |
 | Neutrals and recycling | Dudson et al., *Comput. Phys. Commun.* 296, 108991 (2024); AMJUEL | exact plasma-neutral particle and momentum conservation |
-| Detachment rollover | Dudson et al., *PPCF* 61, 065008 (2019) | qualitative only: target cools through 1 eV; rollover not grid-converged (SD1D-matched comparison in progress) |
+| SD1D 1D divertor leg | Dudson et al., *PPCF* 61, 065008 (2019) and its published dataset | 13.6 eV hydrogen scan: target T within 0.35%, target flux within 0.15% (800 cells); ledgers closed; grid convergence 100–1600 cells (~3% between 800 and 1600) |
 
 More in [docs/validation_gallery.md](docs/validation_gallery.md).
 
