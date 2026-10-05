@@ -27,6 +27,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+essos = ["essos>=0.19.4"]
 dev = ["pytest", "pytest-cov", "pytest-xdist"]
 docs = ["mkdocs", "pymdown-extensions"]
 
