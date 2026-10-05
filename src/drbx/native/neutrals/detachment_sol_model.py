@@ -117,6 +117,24 @@ def _implicit_diffusion(field, face_diffusivity, dt):
     return tridiagonal_solve(lower, diagonal, upper, field, method="thomas")
 
 
+def _implicit_conduction(density, temperature, face_conductivity, dt):
+    """Backward-Euler ``3 n dT/dt = d/dz (kappa dT/dz)`` with insulated ends.
+
+    The flux is driven by the temperature gradient and ``3 n`` is the thermal
+    capacity of ``p = 2 n T``, so a uniform temperature carries no heat flux at
+    any density profile and ``sum(3 n T)`` is conserved exactly.
+    """
+
+    n = temperature.shape[0]
+    coefficient = dt * n**2
+    capacity = 3.0 * density
+    off = -coefficient * face_conductivity
+    lower = jnp.zeros(n).at[1:].set(off)
+    upper = jnp.zeros(n).at[:-1].set(off)
+    diagonal = capacity.at[:-1].add(coefficient * face_conductivity).at[1:].add(coefficient * face_conductivity)
+    return tridiagonal_solve(lower, diagonal, upper, capacity * temperature, method="thomas")
+
+
 def detachment_sol_step(state, params, dt):
     """Advance the self-consistent detaching SOL one operator-split step."""
 
@@ -154,8 +172,10 @@ def detachment_sol_step(state, params, dt):
     density = jnp.maximum((density + dt * ionization_frequency * total) / (1.0 + dt * (ionization_frequency + recombination_frequency)), density_floor)
     neutral_density = jnp.maximum(total - density, 0.0)
     effective_temperature = jnp.clip(2.0 * temperature * norm.Tnorm / params.ion_mass, 0.01, 1.0e4)
-    charge_exchange_frequency = charge_exchange_rate_coefficient(effective_temperature) * electron * rate_scale
-    momentum = momentum / (1.0 + dt * (charge_exchange_frequency * neutral_density + recombination_frequency))
+    # Stationary neutrals damp the ion velocity at K_cx n_n (an event rate per
+    # ion), not at the volumetric event rate K_cx n_i n_n.
+    charge_exchange_frequency = charge_exchange_rate_coefficient(effective_temperature) * neutral_density * rate_scale
+    momentum = momentum / (1.0 + dt * (charge_exchange_frequency + recombination_frequency))
 
     # Self-limiting radiative / ionization energy loss.
     ionization_energy = energy_loss_coefficient("d", "iz", physical_temperature, electron_density_m3)
@@ -174,8 +194,9 @@ def detachment_sol_step(state, params, dt):
     # Implicit Spitzer conduction.
     temperature = _temperature(density, pressure, params)
     conductivity = params.conduction_coefficient * temperature**2.5
-    diffusivity = conductivity / (3.0 * jnp.maximum(density, density_floor))
-    pressure = jnp.maximum(_implicit_diffusion(pressure, 0.5 * (diffusivity[:-1] + diffusivity[1:]), dt), pressure_floor)
+    density = jnp.maximum(density, density_floor)
+    temperature = _implicit_conduction(density, temperature, 0.5 * (conductivity[:-1] + conductivity[1:]), dt)
+    pressure = jnp.maximum(2.0 * density * temperature, pressure_floor)
 
     density = density.at[0].set(params.upstream_density)
 
