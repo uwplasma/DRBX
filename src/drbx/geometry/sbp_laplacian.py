@@ -20,7 +20,7 @@ with the narrow face-flux discretisation chosen in the P09 Laplacian study (``A 
 Everything here is host NumPy, built once (see the JAX boundary in ``docs/code_structure.md``): stencils, closures, face
 interpolation data, the penalty rule, ``kappa``, traces, and the :class:`LaplacianPlan` pytree the JAX apply
 (:mod:`drbx.native.fci_perpendicular_sbp_laplacian`) takes as an argument. Host sparse assembly for audits and
-preconditioners lives in :mod:`drbx.validation.sbp_laplacian_audit`.
+preconditioners lives in :mod:`drbx.geometry.sbp_laplacian_assembly` (audits in :mod:`drbx.validation.sbp_laplacian_audit`).
 
 Supported layouts: ``inner="core"`` with exactly one ring level of ``N = n`` nodes (family A) and one outer wall.
 """

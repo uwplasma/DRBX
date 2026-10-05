@@ -11,10 +11,15 @@
    operator apply and the preconditioner apply (jitted, warm), the preconditioner build time and memory.
    Reference: P07 FGMRES + plane solve (``work/p08_step5_solver_studies_20261001/README.md``).
 
-The preconditioner is built per group of planes and merged into the stock ``PlanePreconditioner`` (``tools.py``) to stay inside
-the host memory budget; with ``--groups 1`` it is the stock ``build_dirichlet_preconditioner``.
+Preconditioner arms (``--method``): ``core_schur`` (default; the package's ``build_dirichlet_preconditioner``: rings by a banded
+``L D L^T`` with ``--rings-per-block`` rings per super-ring, the dense core by its Schur complement, windowed assembly with
+``--group-planes`` planes per group) or ``core_super_ring`` (the previous layout, the dense core as the first super-ring of the P07
+banded LDU, built group by group and merged by ``tools.build_merged_preconditioner`` with ``--groups`` groups).
+``--skip-controls`` runs the CG benchmark only; ``--result-dir`` writes ``solve<tag>.json`` there instead of next to the metric.
+The compile time is measured separately (ahead-of-time ``lower`` + ``compile`` of the solve, persistent cache off).
 
-    python solve_bench.py N --arm raw|filtered [--out ROOT] [--groups G] [--factor-dtype float64|float32]
+    python solve_bench.py N --arm raw|filtered [--out ROOT] [--method core_schur|core_super_ring] [--rings-per-block R]
+        [--group-planes G | --groups G] [--factor-dtype float64|float32] [--skip-controls] [--result-dir DIR] [--tag T]
 """
 from __future__ import annotations
 
@@ -45,12 +50,14 @@ def timeit(fn, reps: int):
     return float(np.min(ts)), float(np.median(ts))
 
 
-def run(n: int, arm: str, out_root: Path, groups: int, factor_dtype: str, tag: str) -> dict:
+def run(n: int, arm: str, out_root: Path, groups: int, factor_dtype: str, tag: str, method: str = "core_schur",
+        rings_per_block: int | str = "auto", group_planes: int | None = None, skip_controls: bool = False,
+        result_dir: Path | None = None, compile_cache: bool = False) -> dict:
     import jax
     jax.config.update("jax_enable_x64", True)
+    jax.config.update("jax_enable_compilation_cache", bool(compile_cache))   # cold compile times unless asked otherwise
     import jax.numpy as jnp
     from drbx.native import fci_perpendicular_sbp_laplacian_solve as sol
-    from drbx.native.fci_perpendicular_plane_preconditioner import apply_plane_preconditioner
     from drbx.native.fci_perpendicular_sbp_laplacian import (LaplacianBoundaryData, laplacian_action_jit, laplacian_form_jit)
     from drbx.native.fci_perpendicular_sbp_norms import region_errors, ring_region_masks
 
@@ -65,23 +72,31 @@ def run(n: int, arm: str, out_root: Path, groups: int, factor_dtype: str, tag: s
     plan_np = plan
     plan = jax.tree_util.tree_map(jnp.asarray, plan)           # device-resident plan (as in production), not copied per call
     masks = ring_region_masks(md.layout, n)
-    res = dict(n=n, arm=arm, groups=groups, factor_dtype=factor_dtype, rtol=rtol, unknowns=E * P, metric_identity=md.identity)
+    res = dict(n=n, arm=arm, method=method, rings_per_block=rings_per_block, group_planes=group_planes, groups=groups,
+               factor_dtype=factor_dtype, rtol=rtol, unknowns=E * P, metric_identity=md.identity)
 
     # --- preconditioner build
     rss0 = C.peak_rss_gib()
     tb = time.perf_counter()
-    prec = T.build_merged_preconditioner(plan_np, groups, factor_dtype, log=log)
+    if method == "core_super_ring":
+        prec = T.build_merged_preconditioner(plan_np, groups, factor_dtype, log=log)
+    else:
+        prec = sol.build_dirichlet_preconditioner(plan_np, factor_dtype=factor_dtype, method=method,
+                                                  rings_per_block=rings_per_block, group_planes=group_planes)
     t_build = time.perf_counter() - tb
-    info = {k: v for k, v in prec.info.items() if k != "per_group"}
+    meta = prec.meta
+    info = {k: v for k, v in prec.info.items() if k not in ("per_group", "groups", "params")}
+    info.update(S=meta.S, B=meta.B, w=meta.w)
     res["preconditioner"] = dict(build_seconds=t_build, rss_before_gib=rss0, peak_rss_after_build_gib=C.peak_rss_gib(),
-                                 storage_gib=prec.nbytes / 2 ** 30, info=info, per_group=prec.info.get("per_group"))
+                                 storage_gib=prec.nbytes / 2 ** 30, info=info, per_group=prec.info.get("per_group") or prec.info.get("groups"))
     log(f"{arm} N{n}: preconditioner built {t_build:.1f}s, storage {prec.nbytes / 2 ** 30:.2f} GiB ({factor_dtype}), "
         f"S={prec.meta.S} B={prec.meta.B} w={prec.meta.w}, peak rss {C.peak_rss_gib():.2f}")
+    jax.block_until_ready(jax.tree_util.tree_leaves(prec))
 
     # --- controls
     controls = {}
     phis = {}
-    for cname in ("transverse", "transverse_wave"):
+    for cname in (("transverse",) if skip_controls else ("transverse", "transverse_wave")):
         cat = Fl.make_catalogue(cname)
         data = Fl.NodalData(md, cat)
         f = cat.names.index("phi")
@@ -91,7 +106,7 @@ def run(n: int, arm: str, out_root: Path, groups: int, factor_dtype: str, tag: s
     zero = jnp.zeros((E, P))
     for cname, d in phis.items():
         phi, g = jnp.asarray(d["V"]), jnp.asarray(d["wall"])
-        for case in ("discrete", "continuum"):
+        for case in (() if skip_controls else ("discrete", "continuum")):
             if case == "discrete":
                 s = laplacian_action_jit(plan, phi, LaplacianBoundaryData(value=(g,)), "dirichlet", None, 1.0)
             else:
@@ -122,22 +137,29 @@ def run(n: int, arm: str, out_root: Path, groups: int, factor_dtype: str, tag: s
     solve = jax.jit(lambda lp, s, g, pr, x0: sol.solve_dirichlet(lp, s, LaplacianBoundaryData(value=(g,)), pr, rtol=rtol,
                                                                  maxit=maxit, x0=x0))
     tc = time.perf_counter()
-    x, inf = solve(plan, s, g, prec, zero)
+    lowered = solve.lower(plan, s, g, prec, zero)
+    t_lower = time.perf_counter() - tc
+    tc = time.perf_counter()
+    compiled = lowered.compile()
+    t_compile = time.perf_counter() - tc
+    tc = time.perf_counter()
+    x, inf = compiled(plan, s, g, prec, zero)
     jax.block_until_ready(x)
     t_first = time.perf_counter() - tc
 
     def one():
-        xx, ii = solve(plan, s, g, prec, zero)
+        xx, ii = compiled(plan, s, g, prec, zero)
         jax.block_until_ready(xx)
         return ii
 
     tmin, tmed = timeit(one, reps)
     its = int(one()["iterations"])
-    res["cg"] = dict(first_call_seconds=t_first, warm_min_seconds=tmin, warm_median_seconds=tmed, compile_seconds_estimate=t_first - tmed,
+    res["cg"] = dict(trace_lower_seconds=t_lower, compile_seconds=t_compile, first_call_seconds=t_first, warm_min_seconds=tmin,
+                     warm_median_seconds=tmed, relative_residual=float(inf["relative_residual"]),
                      iterations=its, rtol=rtol, seconds_per_iteration=tmed / max(its, 1))
     # per-iteration split: operator apply (the jitted energy form), preconditioner apply, vector updates
     Mv = jax.jit(lambda lp, v: laplacian_form_jit(lp, v, None, "dirichlet", None, 1.0))
-    Pa = jax.jit(lambda pr, r: apply_plane_preconditioner(pr, r.reshape(-1)).reshape(E, P))
+    Pa = jax.jit(lambda pr, r: sol.apply_preconditioner(pr, r.reshape(-1)).reshape(E, P))
     rng = np.random.default_rng(0)
     v = jnp.asarray(rng.standard_normal((E, P)))
     Hj = jnp.asarray(H)
@@ -164,12 +186,12 @@ def run(n: int, arm: str, out_root: Path, groups: int, factor_dtype: str, tag: s
                            fgmres_plane_iterations=CONFIG["cg"]["baseline_fgmres_plane_iterations"][str(n)],
                            source="work/p08_step5_solver_studies_20261001/README.md (owner-based P07, rtol 1e-10, plane_jax)")
     res["cg"]["ratio_vs_fgmres_seconds"] = tmed / res["baseline"]["fgmres_plane_seconds"]
-    log(f"{arm} N{n}: CG it={its} warm {tmin:.3f}/{tmed:.3f}s (first {t_first:.1f}s); per iteration: apply {t_mv[1] * 1e3:.1f} ms, "
+    log(f"{arm} N{n}: CG it={its} warm {tmin:.3f}/{tmed:.3f}s (compile {t_compile:.1f}s); per iteration: apply {t_mv[1] * 1e3:.1f} ms, "
         f"prec {t_pa[1] * 1e3:.1f} ms, vec {t_vo[1] * 1e3:.2f} ms; baseline {res['baseline']['fgmres_plane_seconds']}s / "
         f"{res['baseline']['fgmres_plane_iterations']} it")
     res["seconds"] = time.perf_counter() - t0
     res["peak_rss_gib"] = C.peak_rss_gib()
-    C.write_json(C.arm_dir(out_root, arm, n) / f"solve{tag}.json", res)
+    C.write_json((C.arm_dir(out_root, arm, n) if result_dir is None else Path(result_dir)) / f"solve{tag}.json", res)
     return res
 
 
@@ -178,12 +200,19 @@ def main(argv=None) -> int:
     ap.add_argument("n", type=int)
     ap.add_argument("--arm", choices=C.ARMS, required=True)
     ap.add_argument("--out", type=Path, default=C.DEFAULT_ROOT)
-    ap.add_argument("--groups", type=int, default=0)
+    ap.add_argument("--groups", type=int, default=0, help="groups of the core_super_ring merge")
+    ap.add_argument("--method", default="core_schur", choices=("core_schur", "core_super_ring"))
+    ap.add_argument("--rings-per-block", type=lambda v: v if v == "auto" else int(v), default="auto")
+    ap.add_argument("--group-planes", type=int, default=None, help="planes per assembly group of core_schur")
+    ap.add_argument("--skip-controls", action="store_true")
+    ap.add_argument("--compile-cache", action="store_true", help="allow the persistent compilation cache (default: cold compiles)")
+    ap.add_argument("--result-dir", type=Path, default=None)
     ap.add_argument("--factor-dtype", default="float64", choices=("float64", "float32"))
     ap.add_argument("--tag", default="")
     args = ap.parse_args(argv)
     groups = args.groups or DEFAULT_GROUPS[args.n]
-    run(args.n, args.arm, args.out, groups, args.factor_dtype, args.tag)
+    run(args.n, args.arm, args.out, groups, args.factor_dtype, args.tag, args.method, args.rings_per_block, args.group_planes,
+        args.skip_controls, args.result_dir, args.compile_cache)
     return 0
 
 

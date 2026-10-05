@@ -1,17 +1,13 @@
-"""Memory-bounded helpers of the M5b campaign built on the M5a package (nothing here changes the package).
+"""Memory-bounded helpers of the M5b campaign (the windowed in-plane assembly now lives in the package).
 
-The stock ``build_dirichlet_preconditioner`` assembles the in-plane matrix of *all* ``E`` planes on the host and factorises it
-into one ``(S, E, 2w + 1, B, B)`` array; at N48/N64 the host transients exceed the campaign's 4 GB budget. The plane blocks are
-independent, so the same preconditioner can be built group by group (the in-plane diagonal block of plane ``k`` only needs
-the plan data of plane ``k`` and, through the ``eta eta`` diagonal, the half-plane coefficients ``aee_h`` of the planes
-``k - 2 .. k + 1``): :func:`window_plan` slices the plan to a window with 3 guard planes on each side, :func:`group_inplane`
-assembles its in-plane matrix with the package's ``LaplacianAssembly`` and keeps the centre planes, and
-:func:`build_merged_preconditioner` factorises every group with the stock ``build_plane_preconditioner`` and merges the groups
-into ONE stock ``PlanePreconditioner`` (identical arrays to ``build_dirichlet_preconditioner``; the solve is the package's).
+``build_dirichlet_preconditioner`` of the package assembles the in-plane matrix a group of planes at a time
+(``drbx.geometry.sbp_laplacian_assembly.iter_inplane_blocks``, bitwise the blocks of the full assembly). What remains here is the
+campaign's merge of the *previous* layout (the P07 banded LDU with the dense core as the first super-ring) group by group into ONE
+stock ``PlanePreconditioner`` (:func:`build_merged_preconditioner`, also used for the Neumann + shift blocks of the matrix-free
+audit and the re-freeze), kept as the "old" arm of the preconditioner benchmark.
 """
 from __future__ import annotations
 
-import dataclasses
 import time
 
 import jax
@@ -19,36 +15,18 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.sparse as sp
 
-GUARD = 3
 
-
-def window_plan(plan, k0: int, k1: int):
-    """The plan restricted to planes ``k0 - GUARD .. k1 + GUARD - 1`` (periodic indices): ``(window plan, offset of k0)``."""
-    st = plan.structure
-    E = st.n_eta
-    idx = (np.arange(k0 - GUARD, k1 + GUARD)) % E
-    kw = {}
-    for f in dataclasses.fields(plan):
-        v = getattr(plan, f.name)
-        if f.name in ("Hp", "A", "auu_f", "att_h", "aee_h", "kappa", "wall_alpha", "wall_beta_th", "wall_beta_eta") and v is not None:
-            kw[f.name] = np.asarray(v)[idx]
-    return dataclasses.replace(plan, structure=dataclasses.replace(st, n_eta=len(idx)), **kw), GUARD
-
-
-def group_inplane(plan, k0: int, k1: int, kind: str = "dirichlet"):
+def group_inplane(plan, k0: int, k1: int, kind: str = "dirichlet", shared=None):
     """In-plane block-diagonal CSR ``((k1 - k0) P, (k1 - k0) P)`` of the planes ``k0 .. k1 - 1`` (windowed assembly)."""
-    from drbx.validation.sbp_laplacian_audit import LaplacianAssembly
+    from drbx.geometry.sbp_laplacian_assembly import LaplacianAssembly
 
-    wp, off = window_plan(plan, k0, k1)
-    asm = LaplacianAssembly(wp)
-    M = asm.matrix(kind, inplane=True).tocsr()
-    P = plan.structure.P
-    lo, hi = off * P, (off + (k1 - k0)) * P
-    return M[lo:hi, lo:hi].tocsr()
+    return LaplacianAssembly(plan, window=(k0, k1), shared=shared).matrix(kind, inplane=True).tocsr()
 
 
 def group_keys(plan, n_planes: int):
     """``(ring, plane, theta)`` keys of ``n_planes`` planes (as ``plane_keys`` with ``n_eta = n_planes``)."""
+    import dataclasses
+
     from drbx.geometry.sbp_laplacian import plane_keys
 
     st = dataclasses.replace(plan.structure, n_eta=n_planes)
@@ -63,6 +41,9 @@ def build_merged_preconditioner(plan, groups: int = 1, factor_dtype: str = "floa
 
     st = plan.structure
     E, P = st.n_eta, st.P
+    from drbx.geometry.sbp_laplacian_assembly import global_assembly_data
+
+    shared = global_assembly_data(plan)
     bounds = np.linspace(0, E, groups + 1).astype(int)
     infos, t0 = [], time.perf_counter()
     big = {}                                           # merged lo / up / dinv, filled group by group (donated in-place updates)
@@ -74,7 +55,7 @@ def build_merged_preconditioner(plan, groups: int = 1, factor_dtype: str = "floa
     for g in range(groups):
         k0, k1 = int(bounds[g]), int(bounds[g + 1])
         t1 = time.perf_counter()
-        M = group_inplane(plan, k0, k1, kind)
+        M = group_inplane(plan, k0, k1, kind, shared)
         if shift:
             M = M + shift * sp.identity(M.shape[0], format="csr")
         t_asm = time.perf_counter() - t1

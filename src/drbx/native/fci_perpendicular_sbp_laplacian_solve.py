@@ -4,9 +4,11 @@ With ``L f = -H^-1 (M f - b)`` the Dirichlet problem is ``M f = b - H s``, ``M``
 :func:`solve_dirichlet` runs CG (flexible Polak-Ribiere form, identical to CG for a fixed SPD preconditioner and robust to the
 float32 rounding of the factors) on the matrix-free JAX form of :mod:`drbx.native.fci_perpendicular_sbp_laplacian`, jitted with
 the plan, the preconditioner, the coefficient and the data as arguments. The preconditioner is the block-Jacobi over eta planes
-of :mod:`drbx.native.fci_perpendicular_plane_preconditioner` (exact banded block-LDU of every in-plane block), factorised from
-the in-plane blocks assembled on the host by :class:`~drbx.validation.sbp_laplacian_audit.LaplacianAssembly` with the node keys
-of :func:`~drbx.geometry.sbp_laplacian.plane_keys`. The core is a dense block that becomes the first super-ring.
+of :mod:`drbx.native.fci_perpendicular_plane_preconditioner`: every in-plane block ``[core, rings]`` is inverted exactly, the
+rings by a banded block ``L D L^T`` (``rings_per_block`` rings per super-ring) and the dense core by its Schur complement
+(``method="core_schur"``, the default), so the block size is set by the rings only. The in-plane blocks are assembled on the host
+by :mod:`drbx.geometry.sbp_laplacian_assembly` a group of planes at a time (bounded memory, bitwise the blocks of the full
+assembly). ``method="core_super_ring"`` is the previous layout (the P07 banded LDU with the core as the first super-ring).
 
 Typical use, the Boussinesq potential ``div(grad phi) = tau div(grad q) - omega`` with ``q = n Ti`` (the P07 convention
 ``A(q) = -L_perp(q)``; ``phi`` and ``q`` carry their own wall data)::
@@ -21,29 +23,66 @@ import jax
 import jax.numpy as jnp
 
 from drbx.geometry.sbp_laplacian import LaplacianPlan, plane_keys
+from drbx.geometry.sbp_laplacian_assembly import LaplacianAssembly, iter_inplane_blocks
 from drbx.native.fci_perpendicular_plane_preconditioner import (
-    PlanePreconditioner, apply_plane_preconditioner, build_plane_preconditioner)
+    CoreSchurPreconditioner, PlanePreconditioner, apply_core_schur_preconditioner, apply_plane_preconditioner,
+    build_core_schur_preconditioner, build_plane_preconditioner)
 from drbx.native.fci_perpendicular_sbp_laplacian import laplacian_form
-from drbx.validation.sbp_laplacian_audit import LaplacianAssembly
 
-__all__ = ["build_dirichlet_preconditioner", "solve_dirichlet", "solve_dirichlet_jit"]
+__all__ = ["apply_preconditioner", "build_dirichlet_preconditioner", "solve_dirichlet", "solve_dirichlet_jit"]
+
+_METHODS = ("core_schur", "core_super_ring")
+
+
+def apply_preconditioner(prec, r):
+    """``M^-1 r`` of either preconditioner type (the type is static under ``jit``)."""
+    if isinstance(prec, CoreSchurPreconditioner):
+        return apply_core_schur_preconditioner(prec, r)
+    return apply_plane_preconditioner(prec, r)
 
 
 def build_dirichlet_preconditioner(lp: LaplacianPlan, coeff=None, c_kappa: float = 1.0, *, factor_dtype: str = "float64",
-                                   max_block: int | None = None, assembly: LaplacianAssembly | None = None
-                                   ) -> PlanePreconditioner:
+                                   max_block: int | None = None, assembly: LaplacianAssembly | None = None,
+                                   method: str = "core_schur", rings_per_block: int | str = "auto", group_planes: int | None = None
+                                   ) -> PlanePreconditioner | CoreSchurPreconditioner:
     """Plane-block preconditioner of the Dirichlet matrix (host; ``coeff (E, P)`` and ``c_kappa`` as in the apply).
 
     ``factor_dtype`` is the storage and apply dtype of the factors (``"float32"`` halves the memory traffic).
-    ``prec.info`` records the block layout (``S`` super-rings of ``B`` slots, bandwidth ``w``, padding).
+    ``method="core_schur"`` (default): exact symmetric inverse of every in-plane block, rings by banded ``L D L^T`` with
+    ``rings_per_block`` rings per super-ring (``"auto"``: the cheapest ring factor) and the core by its Schur complement
+    (:func:`~drbx.native.fci_perpendicular_plane_preconditioner.build_core_schur_preconditioner`); the in-plane matrix is
+    assembled ``group_planes`` planes at a time (default: about 12e6 stored entries per group, see
+    :func:`~drbx.geometry.sbp_laplacian_assembly.plane_group_size`), so the host memory does not grow with the number of
+    planes. ``method="core_super_ring"``: the P07 banded block-LDU of the full in-plane matrix with the core as the first
+    super-ring (``max_block`` as in :func:`~drbx.native.fci_perpendicular_plane_preconditioner.build_plane_preconditioner`).
+    A given ``assembly`` supplies its in-plane matrix instead of the windowed assembly. ``prec.info`` records the layout.
     """
-    asm = LaplacianAssembly(lp, coeff, c_kappa) if assembly is None else assembly
-    ring, plane, theta = plane_keys(lp.structure)
-    return build_plane_preconditioner(asm.matrix("dirichlet", inplane=True), ring, plane, theta,
-                                      factor_dtype=factor_dtype, max_block=max_block)
+    if method not in _METHODS:
+        raise ValueError(f"method must be one of {_METHODS}, got {method!r}")
+    st = lp.structure
+    if method == "core_super_ring":
+        asm = LaplacianAssembly(lp, coeff, c_kappa) if assembly is None else assembly
+        ring, plane, theta = plane_keys(st)
+        return build_plane_preconditioner(asm.matrix("dirichlet", inplane=True), ring, plane, theta,
+                                          factor_dtype=factor_dtype, max_block=max_block)
+    if max_block is not None:
+        raise ValueError("max_block applies to method='core_super_ring'")
+    if assembly is None:
+        blocks = iter_inplane_blocks(lp, coeff, c_kappa, group_planes=group_planes)
+    else:
+        mat = assembly.matrix("dirichlet", inplane=True).tocsr()
+        blocks = ((k0, k1, mat[k0 * st.P:k1 * st.P, k0 * st.P:k1 * st.P])
+                  for k0, k1 in _groups(st.n_eta, group_planes))
+    return build_core_schur_preconditioner(blocks, n_planes=st.n_eta, n_core=st.Nc, n_rings=st.m, ring_size=st.N,
+                                           factor_dtype=factor_dtype, rings_per_block=rings_per_block)
 
 
-def solve_dirichlet(lp: LaplacianPlan, s, bcd, prec: PlanePreconditioner, *, coeff=None, c_kappa=1.0, x0=None,
+def _groups(n: int, size: int | None):
+    size = n if size is None else int(size)
+    return [(k, min(k + size, n)) for k in range(0, n, size)]
+
+
+def solve_dirichlet(lp: LaplacianPlan, s, bcd, prec: PlanePreconditioner | CoreSchurPreconditioner, *, coeff=None, c_kappa=1.0, x0=None,
                     rtol: float = 1e-10, maxit: int = 200, residual_norm: str = "h_inv"):
     """Solve ``L f = s`` for ``f (E, P)`` with Dirichlet wall data ``bcd`` (``s (E, P)`` the per-volume right-hand side).
 
@@ -62,7 +101,7 @@ def solve_dirichlet(lp: LaplacianPlan, s, bcd, prec: PlanePreconditioner, *, coe
         return laplacian_form(lp, v, None, "dirichlet", coeff, c_kappa)
 
     def precond(r):
-        return apply_plane_preconditioner(prec, r.reshape(-1)).reshape(E, P)
+        return apply_preconditioner(prec, r.reshape(-1)).reshape(E, P)
 
     if residual_norm == "h_inv":
         def norm(r):

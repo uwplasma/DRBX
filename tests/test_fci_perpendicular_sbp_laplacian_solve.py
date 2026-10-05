@@ -1,5 +1,7 @@
-"""Plane-block preconditioned CG Dirichlet solve of the nodal SBP Laplacian: the dense core as the first super-ring, CG against a
-direct solve (constant and varying polarization coefficient, lagged preconditioner, warm start) and JAX hygiene."""
+"""Plane-block preconditioned CG Dirichlet solve of the nodal SBP Laplacian: the previous layout with the dense core as the first
+super-ring (``method="core_super_ring"``), CG against a direct solve (constant and varying polarization coefficient, lagged
+preconditioner, warm start) with the default core-Schur preconditioner, and JAX hygiene. The core-Schur preconditioner itself is
+tested in ``test_fci_perpendicular_sbp_laplacian_precond.py``."""
 from __future__ import annotations
 
 import sys
@@ -32,7 +34,7 @@ def c16():
 def test_plane_preconditioner_accepts_the_dense_core_as_the_first_super_ring(c16):
     plan = c16.plan
     asm = LaplacianAssembly(plan, c16.coeff)
-    prec = sol.build_dirichlet_preconditioner(plan, c16.coeff, assembly=asm)
+    prec = sol.build_dirichlet_preconditioner(plan, c16.coeff, assembly=asm, method="core_super_ring")
     info = prec.info
     st = plan.structure
     assert info["n_owners"] == c16.E * c16.P and info["n_planes"] == c16.E and info["n_rings"] == 1 + st.m
@@ -47,7 +49,7 @@ def test_plane_preconditioner_accepts_the_dense_core_as_the_first_super_ring(c16
                           for k in range(c16.E)])
     assert np.abs(z - ref).max() <= 1e-10 * np.abs(ref).max()
     # a float32 factorisation is a close approximation (flexible CG tolerates it)
-    prec32 = sol.build_dirichlet_preconditioner(plan, c16.coeff, assembly=asm, factor_dtype="float32")
+    prec32 = sol.build_dirichlet_preconditioner(plan, c16.coeff, assembly=asm, factor_dtype="float32", method="core_super_ring")
     z32 = np.asarray(apply_plane_preconditioner(prec32, r))
     assert np.abs(z32 - ref).max() <= 1e-4 * np.abs(ref).max() and prec32.nbytes < prec.nbytes
 
