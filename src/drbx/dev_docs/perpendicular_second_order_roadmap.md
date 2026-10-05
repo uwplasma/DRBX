@@ -2726,7 +2726,21 @@ regional second-order gate is imposed. P10 independently checks solutions.
     - **Rule.** The final MMS tests (static and evolved) run two geometry arms:
       - **Ripple arm (full HSX field):** always run; errors, orders and stability results are reported, but nothing on this arm is gated.
       - **η-filtered arm:** the order gate.
-    - **How to filter.** Apply it to the field, not the operator. Filter B's cylindrical components in φ at fixed (R, Z) above a fixed physical cutoff; this preserves ∇·B = 0. Derive h, J, K and the FCI maps from the filtered field, so each arm has one geometry identity.
+    - **How to filter** ([scoping](../../../../work/p09_eta_filter_20261004/report.md)). Apply it to the field, not the operator.
+      - **Rejected: filtering cylindrical B along φ at fixed (R, Z).** Lines at fixed (R, Z) pass the coils, so their spectrum is broadband. Truncating rings into the plasma (|B| up to 10–41%, b up to 0.2–0.9 rad, ∇·B up to 0.37).
+      - **Adopted for scoping: filter the contravariant flux density F^i = J·B^i along η at fixed (u, θ),** keeping per-period harmonics m ≤ M, then set B̃^i = F̃^i/J.
+        - The filter commutes with the logical derivatives, so ∂_i(J B̃^i) = 0. At the wall, the relative ∇·B median is 5e-5 (2.8e-4 raw).
+        - h, J, K and the FCI maps all derive from B̃. The logical map is shared by both arms.
+      - **Cutoff M = 3** (k ≤ 12 per turn, fixed for all N). It removes the k = 48 line about 300× in h_η at the wall. It changes |B| at the wall by 4.5% rms.
+      - **Logical-coordinate filtering is adopted** (user, 4 October 2026).
+        - **Scope:** a verification device for the low-resolution MMS gates only.
+        - **Production** uses the full field and resolves the coil ripple through its η resolution.
+      - **Ladder and judging** (user, 4 October 2026):
+        - The ladder stays at N32/48/64 with n_eta = n.
+        - Passing is judged on the evidence, not by a mechanical order threshold. With M = 3, N32 puts k = 16 at the η Nyquist, so some pairs sit below 1.8 on 32→48 while 48→64 is clean.
+      - **Scope by path** (user, 4 October 2026):
+        - **Now:** the filtered arm covers the P path only, i.e. the static perpendicular gates.
+        - **Later:** when P and Q are joined, the time-evolution MMS runs at several resolutions on both the filtered and the raw arms.
     - **Scope.** M5 and M6 plan both arms from the start.
   - **SBP Laplacian design** (user, 4 October 2026; [Laplacian study](../../../../work/p09_laplacian_20261004/report.md)):
     - **Narrow form for P07 and φ.**
@@ -2737,10 +2751,19 @@ regional second-order gate is imposed. P10 independently checks solutions.
       - Measured orders: testbed 2.3–2.5. Wide is about 1.5, and its core error stalls.
     - **φ does not use the bracket's gradient:** the solve error is the same either way.
     - **Neumann φ: deferred to P11.** It is near-singular at HSX for both forms (lowest eigenvalue about 3e-7 against 280 for Dirichlet). φ stays Dirichlet-only.
-    - **Open (pending the user):**
-      - a definiteness audit at plan build;
-      - accepting the degree-2 shared-H Neumann boundary order (static orders tend to about 1.5);
-      - the conormal vs physical-normal Neumann data for P07N.
+    - **Neumann boundary order: accepted** (user, 4 October 2026).
+      - The shared H is exact only to degree 2, so the Neumann boundary rows of the second derivative carry O(h) truncation. Static orders tend to about 1.5; Dirichlet stays at about 2.3.
+      - Accepted because time evolution typically recovers about one order, and P07 diffusion is mainly artificial diffusion. φ is Dirichlet.
+      - A degree-3 shared-H closure remains open research.
+    - **Neumann data: conormal, computed from physical-normal data** (user, 4 October 2026).
+      - The operator takes the conormal flux ν·∇f with ν = P⊥n̂; this is the natural SAT datum.
+      - Physical-normal data g_n = n̂·∇f (for example, MPE) are converted with the wall's tangential gradient:
+
+        ν·∇f = (1 − b_n²) g_n − b_n b_Γ·∇_Γ f, where b_n = n̂·b and b_Γ is b's tangential part.
+
+        No interior normal derivative and no FCI parallel derivative is needed; ∇_Γ f comes from the wall trace with the tangential SBP derivatives.
+      - The ∇_Γ f term makes it an oblique-derivative condition. The tangential gradient can be lagged as data, or kept in the operator, where it adds a bounded, non-symmetric boundary term. The choice and its continuum coercivity check go into the M5 spec.
+    - **Definiteness audit at plan build:** default. The lowest-eigenvalue check flags any negative direction.
 - **Integration design (in progress):** moving from C3 owner averages to the nodal layout. It covers what that means for the P05–P07 operators, Q's FCI maps, the wall and sheath, MMS fields and diagnostics, and which parts are independent of the seam.
 - **D1 for production:** nodal point values (the prototype) or owner averages (finite volume, as today).
   - Owner averages cost an O((mΔθ)²) mismatch at owner-count doublings, or a non-diagonal H.
@@ -2768,6 +2791,12 @@ regional second-order gate is imposed. P10 independently checks solutions.
 | M7 | Q interface: nodal index space and shared H (Q-owned; P-only with an explicit transfer until then) | Q's gates |
 | M8 | P10 on the nodal stack | P10 gate |
 
+**M3 status (4 October 2026): the bracket is accepted on accuracy** (user; [M3c report](../../../../work/p09_m3_campaign_20261004/report.md)).
+- **Parity with the prototype:** round-off (N32 ≤ 3.1e-11).
+- **Passing pairs:** the switch set and the P05 MMS pairs, at orders 2.0–3.5. The P05 actual-vorticity pair passes on its 8-plane subset (0.8% sampling difference).
+- **P05N wall-band shortfalls:** explained by the HSX coil-ripple metric. With the η-filtered field (M = 3), 48→64 is ≥ 2.36 for every pair. On 32→48, 2 of 7 pairs fall below 1.8 because N32 puts k = 16 at the η Nyquist; judged on the evidence.
+- **Confirmation still pending:** M3d's spectral checks (energy identity, ω = max ½c, dt, Cayley and RK4 at N32, the c_κ sweep), the P08 re-freeze, and the official filtered-arm static rerun.
+
 **Step 3 — Audit the other operators (cheap; N32, local).**
 - **Check:** the largest eigenvalue of the H-symmetric part of P06 curvature, P07 diffusion/polarization and the φ operator. A positive value marks a source of numerical energy.
 - **Prior result:** the first diagnosis bounded P06's symmetric part (q1 + q3) at λ_max = +5.9e3, at the wall rings (i = 29–31). That is an energy bound, not a proven mode.
@@ -2790,11 +2819,41 @@ regional second-order gate is imposed. P10 independently checks solutions.
 - **Polarization:** the same H-adjoint form, so the discrete E×B energy ½∫n|∇⊥φ|² is a positive quadratic form in the same H. Whether G must be the bracket's gradient (the design's "consistency of the φ solve with D") is decided here.
 - **Boundary data:** Dirichlet (a symmetric, Nitsche-like penalty) and Neumann (a flux penalty) as SAT. The existing `BoundaryData` targets feed the penalties instead of being written into rows.
 - **Solver:** a symmetric definite φ matrix permits CG.
+  - **M5a (32de409b):** CG with the plane-block preconditioner (`fci_perpendicular_plane_preconditioner`, the same one the P07 FGMRES solve uses): 9 iterations at n = 16–32 on the testbed. CG mainly saves Krylov storage; the iteration count is set by the preconditioner. M5b measures the warm per-solve time at HSX N32/48/64, split into operator apply and preconditioner apply, against the P07 FGMRES solve (0.11 / 0.32 / 0.80 s, 10 / 9 / 9 iterations).
+  - **Conditional follow-ups (only if the preconditioner apply dominates):** (1) LDLᵀ factors of the now-symmetric plane blocks, about half the memory traffic at the same iterations; (2) a θ-Fourier preconditioner from θ-averaged coefficients (per plane, per mode banded radial solves plus a small core solve), cheaper per apply but more iterations because HSX's metric varies strongly in θ. Keep either only if the total time drops.
 - **Then:** re-qualify the P07/P07N static gates and the φ elliptic controls.
+- **M5b result (4118e444, 5 October 2026; [report](../../../../work/p09_m5_laplacian_20261004/report.md)).**
+  - Filtered arm (gated) passes P07 transverse and P07N, with Dirichlet, conormal and physical-normal Neumann data: orders 1.80–2.60 (ω, ψ 4.5/5.2). The raw arm stalls at 0.5–0.7 on 48→64, as the prototype did.
+  - Constant control 1.9e-8 at N64 against the absolute 1e-8 tolerance: round-off (≈ 1.7e-16 ρ); tolerance decision open.
+  - Dirichlet definite (λmin ≈ 278). Neumann: positive on the filtered arm; raw N48/N64 have tiny negative toroidal-only directions (≈ −3e-12 ρ) that the package audit's default threshold and tolerance miss.
+  - `aee_h` (spectral η half-node interpolation of A_ηη) rings negative on both arms.
+  - CG: 4 iterations at every N; the preconditioner apply is ≥ 90% of the time and the dense core's super-ring padding makes N48 3× slower than the P07 FGMRES solve (N32 and N64 are faster). The host-assembled preconditioner build does not fit beyond N32; the campaign's windowed build does.
 
 **Step 5 — P06 curvature.**
 - C = K·∇ with a fixed vector K. The interchange terms ∫φ C(p) and ∫p C(φ) cancel between equations only if C is antisymmetric in H, up to the ∇·K term.
-- **Construction:** the same D and split form as the bracket. The q3 face upwinding is rewritten as −Gᵀ|A|G, so it can only damp.
+- **Construction:** the same D and split form as the bracket.
+- **Dissipation: centred by default, with the jump dissipation as a measured option** (user, 4 October 2026).
+  - **Default:** the centred split form with the wall inflow SAT. It is energy-neutral up to ∇·K and the boundary terms, so stability does not need interior dissipation.
+  - **Option:** the q3 face upwinding rewritten as −Gᵀ W_M|A|G, which can only damp. It is symmetrized with the same field weights W_M that symmetrize the principal matrix, so the coupled energy norm is H ⊗ W_M.
+  - **Why centred is the default:**
+    - In the τp_i Jacobian study the centred curvature was the clean variant (2e-12), while the old upwind q3 had a τ-independent artifact (1.6e-4).
+    - The bracket's jump dissipation (wherever there is E×B flow) and P07 artificial diffusion already damp grid-scale content in the same fields.
+  - **Decide on evidence in M6:** static accuracy on both arms, plus the spectrum and dt with and without the option. Revisit with evolved runs at P10.
+  - **The risk with centred only:** dispersive grid-scale wiggles where E×B flow is weak and curvature drift is strong.
+  - **|A| for the option:** the closed form from τp_i stage 2 once it is validated against `lapack4`, or a direct eigendecomposition in the meantime.
+- **Investigate the analytic eigensolve (M6 task, user 4 October 2026).** SBP does not change the principles behind the closed form: the principal matrix stays real-diagonalizable and W_M-symmetrizable, and the ω column is zero, so the spectrum reduces to a cubic. What changes is the stage-2 matrix entries. The investigation:
+  - **Carry-over (answered by stage 2):** both closed forms hard-coded the old entries and were re-derived. The new P06 cubic is 9μ³ + (30(r−s)−60)μ² + (60+100s−200r−60rs)μ + 200r(1+s), with r = τTi/Te and s = n·r; its discriminant is positive for r, s ≥ 0, so the three roots are real and distinct with exactly one negative, and |A| = A − 2μ₋E₋ still holds. First check: agreement with `lapack4` to about 1e-14 over 20,000 random states, τ ∈ {0, 0.1, 1, 5, 10}. The Q quartic reproduces A to ≤ 1e-8 on moderate states but only 1e-8 to 1e-6 on a few extreme ones (|Ve| ≈ 90). The checks below remain for M6.
+  - **Accuracy against `lapack4`:** sweep the state range of the MMS and blob fields, including the closest root separations the discriminant allows, the τ → 0 limit and the exact r = 0 branch (not yet checked). Record the maximum relative error of |A| and of its action.
+  - **Symmetrization:** check that W_M|A| is symmetric positive semidefinite to rounding for the closed form, so −Gᵀ W_M|A|G can only damp in H ⊗ W_M.
+  - **Cost:** time the closed form against the batched `lapack4` per node, since the option needs |A| on every face.
+  - **Outcome:** the closed form becomes the default |A| for the dissipation option (and stays so in production) only if it passes all three checks; otherwise `lapack4` stays.
+- **Bracket filtered arm (5 October 2026; [report](../../../../work/p09_m3_filtered_20261004/report.md)):** P05 passes (varying_generator_varying 1.95/2.76); P05N 4 of 6 pass, the other two miss only on 32→48 (1.60, 1.76; 48→64 2.5–2.6). **Recorded as a pass (user, 5 October 2026):** the two P05N pairs are pre-asymptotic at N32. Wall-dominated pairs stay wall-dominated. The wave potential's discrete compressibility roughly doubles on the filtered metric (max c/2 1384 → 3007 at N32), the same direction as the curvature flux's larger discrete divergence below; open.
+- **M6 result (f1912216, 4 October 2026; [report](../../../../work/p09_m6_curvature_20261004/report.md)).**
+  - Filtered arm (gated) passes P06 and P06N for all three variants (centred, centred + core damping, dissipative): orders 2.0–2.7 (P06) and 2.9–4.1 (P06N). The raw arm fails on 48→64 (1.1–1.9), as the bracket did.
+  - The dissipative option changes errors by < 10% and orders by < 0.05, so centred stays the default; the option is kept.
+  - Energy identity ≤ 4e-18, W2 interchange ≤ 3e-17. Curvature RK4 dt at N32 is about 1e-4, so the bracket sets dt.
+  - Analytic eigensolve: the closed-form |M| agrees with 60-digit arithmetic to 1.3e-15 even at near-repeated roots (where lapack4 fails), W|M| is symmetric PSD to rounding, and it is 120–190× faster than lapack4. It stays the default.
+  - Open: the filtered flux |J|K/B has a larger discrete divergence than the raw one at N32 (wall ring 27×), though only the filtered one converges.
 - **Wall closure: option (a), as for the bracket** (user, 4 October 2026).
   - Inflow SAT on P06's incoming characteristics, with τ from the characteristic speed, replacing today's Neumann closure.
   - Reason: M4 found the curvature drift crossing the wall (k^u ≈ +21), with two of three characteristics entering the domain. Neumann closures there leave even the continuum problem without an energy bound.
@@ -2916,7 +2975,8 @@ regional second-order gate is imposed. P10 independently checks solutions.
       - At τ = 1 there is still growth: upwind curvature 4.7e-3 on every path (the τ = 0 baseline is 1.6e-4), and on the production characteristic path 0.086 (upwind) and 0.187 (centred). The old form gave 0.515 and 0.708.
     - **Stage 2, with the full lockstep as in-process overrides:** 7.5e-5 (upwind, every path) and 4.9e-13 (production centred) at τ = 1, and 1.3e-4 at τ = 0.1. All are below the τ = 0 baseline. Either half of a pair alone grows (0.03–0.59).
     - The stage-1 production growth comes from the characteristic |A| dissipation, which is built on the old split (A[4,0] lacks μτTi).
-    - **Stage 2 is in implementation:** both pairs, the P06 closed-form |M| and the parallel characteristic quartic, behind the polarization selector. The old-form default stays on the shared matrix functions. The acceptance runs are repeated on the committed code.
+    - **Stage 2 committed (9f87e184):** both pairs, the P06 closed-form |M| and the parallel characteristic quartic follow `polarization_variable`; the shared matrix functions take `psi=` with the old form as default. Acceptance on the committed code with no overrides reproduces the override study to the printed digits: 7.475e-5 (upwind, coordinate and production, τ = 1), 4.92e-13 (production centred), 1.32e-4 (τ = 0.1); legacy control 0.634. Evidence: `work/p09_tau_pi_acceptance_20261004/jacobian/stage2_verify/`.
+    - **Open:** selected short-leg walls (the implicit μτ·G(n·Ti) handoff) are written from the algebra but untested, since no test geometry selects one. The p_i parallel trace is the product of the n and Ti traces, which differs from the stage-1 polarization payload by O(h²) on Neumann faces.
 - **Sequencing.**
   - Make the change before the P10.1 evolved-MMS harness is built, so the manufactured sources are written once, for the final model.
   - The operators P05–P07 are unchanged, so their static gates stand. The MMS manufactured fields and sources change.

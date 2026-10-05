@@ -39,6 +39,17 @@ CLOSURE_ROWS: tuple[tuple[Fraction, ...], ...] = (
 CLOSURE_B = 4
 MIN_RADIAL_POINTS = 2 * CLOSURE_B
 
+# "t3" closure (same norm ``W_CLOSURE`` and interior stencil, rows exact to degree 2): the member of the ``b = 4``,
+# ``s = 4`` family whose boundary extrapolation is the unique cubic one. It is the collocated radial derivative of the
+# perpendicular Laplacian (``geometry.sbp_laplacian``); the bracket keeps the quadratic ``s3`` closure above.
+T3_T_LEFT: tuple[Fraction, ...] = (_F(35, 16), _F(-35, 16), _F(21, 16), _F(-5, 16))
+T3_CLOSURE_ROWS: tuple[tuple[Fraction, ...], ...] = (
+    (_F(-3675, 1732), _F(6695, 1732), _F(-4097, 1732), _F(1077, 1732), _F(0), _F(0)),
+    (_F(131, 228), _F(-245, 76), _F(283, 76), _F(-245, 228), _F(0), _F(0)),
+    (_F(-313, 1804), _F(15, 164), _F(-1323, 1804), _F(39, 44), _F(-32, 451), _F(0)),
+    (_F(-27, 1468), _F(175, 1468), _F(-969, 1468), _F(-75, 1468), _F(256, 367), _F(-32, 367)),
+)
+
 
 class RadialBlockOps(NamedTuple):
     """Unit-spacing radial SBP block: ``D_unit``, norm ``w`` and boundary extrapolations ``tL``, ``tR``."""
@@ -53,21 +64,25 @@ def _float_array(values) -> np.ndarray:
     return np.array([float(v) for v in values])
 
 
-def radial_block(m: int) -> RadialBlockOps:
+def radial_block(m: int, closure: str = "s3") -> RadialBlockOps:
     """SBP radial block on ``m >= 8`` cell-centred points at unit spacing.
 
     The physical derivative is ``D_unit / du`` and the level quadrature weights are ``w * du``.
-    Satisfies ``diag(w) D + D^T diag(w) = tR tR^T - tL tL^T``.
+    Satisfies ``diag(w) D + D^T diag(w) = tR tR^T - tL tL^T``. ``closure`` is ``"s3"`` (quadratic boundary trace; the
+    bracket) or ``"t3"`` (cubic trace ``t = (35, -35, 21, -5) / 16``, same norm; the perpendicular Laplacian).
     """
     m = int(m)
     if m < MIN_RADIAL_POINTS:
         raise ValueError(f"radial block needs m >= {MIN_RADIAL_POINTS} points, got {m}")
+    if closure not in ("s3", "t3"):
+        raise ValueError(f"closure must be 's3' or 't3', got {closure!r}")
+    closure_rows, t_left = (CLOSURE_ROWS, T_LEFT) if closure == "s3" else (T3_CLOSURE_ROWS, T3_T_LEFT)
     D = np.zeros((m, m))
     interior = _float_array(INTERIOR)
     for i in range(CLOSURE_B, m - CLOSURE_B):
         D[i, i - 2:i + 3] = interior
     cols = np.arange(CLOSURE_B + 2)
-    for i, row in enumerate(CLOSURE_ROWS):
+    for i, row in enumerate(closure_rows):
         r = _float_array(row)
         D[i, :CLOSURE_B + 2] = r
         D[m - 1 - i, m - 1 - cols] = -r
@@ -75,7 +90,7 @@ def radial_block(m: int) -> RadialBlockOps:
     w[:CLOSURE_B] = _float_array(W_CLOSURE)
     w[m - CLOSURE_B:] = w[:CLOSURE_B][::-1]
     tL = np.zeros(m)
-    tL[:CLOSURE_B] = _float_array(T_LEFT)
+    tL[:CLOSURE_B] = _float_array(t_left)
     return RadialBlockOps(D, w, tL, tL[::-1].copy())
 
 

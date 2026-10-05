@@ -6,7 +6,10 @@ Stages per resolution (each its own process; the heavy ones one N at a time):
 1. ``extract``    -- nodal HSX metric of the family-A layout (``extract_metric.py``);
 2. ``references`` -- exact nodal fields and brackets (``references.py``; ``p05`` needs the provider, ~3 GB);
 3. ``static``     -- production ``sbp_bracket`` and no-dissipation control on the nodes (``static.py``);
-4. ``reduce``     -- global errors, orders, gates, regions, reference budget over all finished resolutions (``reduce.py``).
+4. ``reduce``     -- global errors, orders, gates, regions, reference budget over all finished resolutions (``reduce.py``);
+5. ``spectral``   -- energy identity, abscissa, |lambda|max / dt, ``c_kappa`` sweep per resolution (``spectral.py``; the Cayley
+   band and the RK4 power iteration are N32 only: ``spectral.py 32 --parts cayley,rk4``), then ``spectral.py --summarize``;
+6. ``refreeze``   -- the P08 nodal bracket reference, prescribed-phi arm (``refreeze.py``).
 
     python campaign.py run --out ROOT [--grids 32,48,64]
     python campaign.py run-stage --stage static --n 32 --out ROOT
@@ -26,9 +29,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 CONFIG = json.loads((HERE / "configuration.json").read_text())
 GRIDS = tuple(CONFIG["resolutions"])
-STAGES = ("extract", "references", "static")
-SCRIPT = {"extract": "extract_metric.py", "references": "references.py", "static": "static.py", "reduce": "reduce.py"}
-RECEIPT = {"extract": "extract_receipt.json", "references": "references_receipt.json", "static": "static_receipt.json"}
+STAGES = ("extract", "references", "static", "spectral", "refreeze")
+SCRIPT = {"extract": "extract_metric.py", "references": "references.py", "static": "static.py", "reduce": "reduce.py",
+          "spectral": "spectral.py", "refreeze": "refreeze.py"}
+RECEIPT = {"extract": "extract_receipt.json", "references": "references_receipt.json", "static": "static_receipt.json",
+           "spectral": "spectral/sweep.json", "refreeze": "nodal_bracket_reference_manifest.json"}
 
 
 def done(out: Path, stage: str, n: int | None) -> bool:

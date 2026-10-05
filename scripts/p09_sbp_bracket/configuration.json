@@ -19,6 +19,13 @@
   "reference_budget_fraction": 0.1,
   "reference_budget_planes": 4,
   "provider_options_source": "p08_step5_compact_c3.campaign.operator_options",
+  "eta_filter": null,
+  "eta_filter_arm": {
+    "quantity": "J*B^i",
+    "max_harmonic_per_period": 3,
+    "nfp": 4,
+    "samples_per_period": 64
+  },
   "catalogues": {
     "p05": {
       "source": "p05_structured_global.numerics.fields (analytic fields; omega off)",

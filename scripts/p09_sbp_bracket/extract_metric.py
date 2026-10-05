@@ -6,7 +6,11 @@ One process per N. Evaluates ``h = b_cov / B``, ``|J|``, ``B`` and the autodiff 
 (``compact_c3`` B-field options of ``p08_step5_compact_c3``) and writes ``<out>/N{N}/nodal_metric.npz``
 (``drbx.stencils.nodal_plan.save_nodal_metric``) plus a receipt with seconds and peak RSS.
 
-    python extract_metric.py N --out ROOT [--check-m1 hsx_m1_N32.npz]
+    python extract_metric.py N --out ROOT [--check-m1 hsx_m1_N32.npz] [--eta-filter arm|none|JSON]
+
+``--eta-filter`` selects the field: ``none`` (the default: ``configuration.json`` ``eta_filter``, ``null``) is the raw
+field; ``arm`` the eta-filtered verification arm ``configuration.json`` ``eta_filter_arm`` (``p_shared.eta_filter``); or
+the option dict as JSON.  The option and the arm identity enter the metric meta (hence the metric identity) only when set.
 """
 from __future__ import annotations
 
@@ -52,7 +56,18 @@ def layout_points(layout) -> np.ndarray:
                      np.broadcast_to(eta[:, None], (E, P))], axis=-1)
 
 
-def extract(n: int, out_root: Path, check_m1: Path | None = None) -> dict:
+def resolve_eta_filter(choice: str | None):
+    """``None`` (raw), the configuration's arm, or a JSON option dict."""
+    if choice is None:
+        return CONFIG.get("eta_filter")
+    if choice == "none":
+        return None
+    if choice == "arm":
+        return CONFIG["eta_filter_arm"]
+    return json.loads(choice)
+
+
+def extract(n: int, out_root: Path, check_m1: Path | None = None, eta_filter: dict | None = None) -> dict:
     t0 = time.perf_counter()
     from drbx.geometry.nodal_families import build_family_a_layout, family_a
     from drbx.stencils.nodal_plan import NodalMetric, metric_from_geometry_provider, save_nodal_metric
@@ -66,7 +81,7 @@ def extract(n: int, out_root: Path, check_m1: Path | None = None) -> dict:
     sidecar = Path(rs.DEFAULT_SIDECAR)
     prov = pshared_provider.ScriptsGeometryProvider.from_sidecar(
         str(sidecar), verify_hashes=False, curvature=options.get("curvature", "autodiff"),
-        bfield_toroidal=options.get("bfield_toroidal", "spline"))
+        bfield_toroidal=options.get("bfield_toroidal", "spline"), eta_filter=eta_filter)
     log(f"N{n}: provider built in {time.perf_counter() - t0:.1f} s; layout P={layout.P} (core {layout.blocks[0].n_nodes}, "
         f"K={K}, p={p}), {n * layout.P} points")
     adapter = metric_from_geometry_provider(prov)
@@ -84,6 +99,9 @@ def extract(n: int, out_root: Path, check_m1: Path | None = None) -> dict:
     meta = dict(N=n, K=K, p=p, P=P, n_eta=E, core_nodes=int(layout.blocks[0].n_nodes), family="A",
                 sidecar=str(sidecar), sidecar_sha256=hashlib.sha256(sidecar.read_bytes()).hexdigest(),
                 options=options, provider=type(prov).__name__, jacobian="abs(p05_metric)")
+    arm = getattr(prov.reference, "eta_filter_arm", None)
+    if arm is not None:                                          # raw metrics keep their historic meta (and identity)
+        meta["eta_filter"] = arm.meta()
     path = out_root / f"N{n}" / "nodal_metric.npz"
     identity = save_nodal_metric(path, metric, points, meta)
     check = {}
@@ -103,6 +121,9 @@ def extract(n: int, out_root: Path, check_m1: Path | None = None) -> dict:
     receipt = dict(n=n, identity=identity, path=str(path), seconds=time.perf_counter() - t0,
                    seconds_evaluation=seconds_eval, peak_rss_gib=peak_rss_gib(), bytes=path.stat().st_size,
                    check_vs_m1=check, meta=meta)
+    if arm is not None:                                          # the table is built by the first autodiff K call
+        receipt["eta_filter"] = dict(arm.meta(), table_seconds=arm.table_seconds, table_from_cache=arm.table_from_cache,
+                                     table_equivalence_vs_columns=arm.table_check)
     (out_root / f"N{n}" / "extract_receipt.json").write_text(json.dumps(receipt, indent=1))
     log(f"N{n}: saved {path} ({receipt['bytes'] / 1e6:.1f} MB, {receipt['seconds']:.1f} s, peak {receipt['peak_rss_gib']:.2f} GiB)")
     return receipt
@@ -113,8 +134,9 @@ def main(argv=None) -> int:
     ap.add_argument("n", type=int)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--check-m1", type=Path, default=None)
+    ap.add_argument("--eta-filter", default=None, help="none | arm | JSON option dict (default: configuration eta_filter)")
     args = ap.parse_args(argv)
-    extract(args.n, args.out, args.check_m1)
+    extract(args.n, args.out, args.check_m1, resolve_eta_filter(args.eta_filter))
     return 0
 
 

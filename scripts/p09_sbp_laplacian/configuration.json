@@ -1,0 +1,62 @@
+{
+  "schema": "drbx.p09-sbp-laplacian-v1",
+  "resolutions": [32, 48, 64],
+  "arms": ["raw", "filtered"],
+  "gated_arms": ["filtered"],
+  "family": "A",
+  "eta_period": 6.283185307179586,
+  "tau_polarization": 1.0,
+  "provider_options_source": "p08_step5_compact_c3.campaign.operator_options",
+  "eta_filter_arm": {
+    "quantity": "J*B^i",
+    "max_harmonic_per_period": 3,
+    "nfp": 4,
+    "samples_per_period": 64
+  },
+  "eta_filter_table_cache": "work/p09_m3_filtered_20261004/eta_table_cache",
+  "extraction_chunk": 16384,
+  "extraction_check_points": 384,
+  "gate_minimum_order": 1.8,
+  "constant_tolerance": 1e-08,
+  "catalogues": {
+    "transverse": {
+      "source": "p08_step6_global.fields.PINNED_FIELD_SETS['transverse'] (the Laplacian prototype's catalogue)",
+      "fields": ["n", "Te", "Ti", "omega", "psi"],
+      "psi": "phi_switch + tau n Ti",
+      "bc": "dirichlet",
+      "gate": true
+    },
+    "transverse_wave": {
+      "source": "p08_step6_global.fields.PINNED_FIELD_SETS['transverse_phi_wave']",
+      "fields": ["n", "Te", "Ti", "omega", "psi"],
+      "psi": "phi_wave + tau n Ti",
+      "bc": "dirichlet",
+      "gate": false,
+      "note": "control, reported only"
+    },
+    "p07n": {
+      "source": "p07n_field_derived_global.fields (b1, e3, e12, held-out b2, constant)",
+      "fields": ["field_b1", "field_e3", "field_e12", "heldout_field_b2", "constant"],
+      "bc": ["dirichlet", "neumann_conormal", "neumann_normal"],
+      "gate": true
+    }
+  },
+  "audit": {
+    "k": 4,
+    "lobpcg_maxiter": 80,
+    "max_unknowns_shift_invert": 6000,
+    "memory_budget_gib": 4.0
+  },
+  "cg": {
+    "rtol": 1e-10,
+    "maxit": 200,
+    "warm_repeats": 5,
+    "baseline_fgmres_plane_seconds": {"32": 0.11, "48": 0.32, "64": 0.80},
+    "baseline_fgmres_plane_iterations": {"32": 10, "48": 9, "64": 9}
+  },
+  "refreeze": {
+    "schema": "drbx.p09-nodal-laplacian-reference-v1",
+    "catalogue": "p06n_field_derived_global/p06n_catalogue.json",
+    "variants": ["main_phi_dirichlet", "heldout_phi_dirichlet", "dirichlet_rich", "control_constant_dirichlet"]
+  }
+}
