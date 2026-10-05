@@ -674,7 +674,7 @@ def test_constant_coefficient_eigenmode_polynomial_exactness(monkeypatch):
     monkeypatch.setattr(
         flux,
         "parallel_matrix_from_state",
-        lambda state, tau, mu: jnp.broadcast_to(jnp.asarray(matrix), jnp.asarray(state).shape[:-1] + (5, 5)),
+        lambda state, tau, mu, **kwargs: jnp.broadcast_to(jnp.asarray(matrix), jnp.asarray(state).shape[:-1] + (5, 5)),
     )
     try:
         actual, _ = parallel_target_row_material_residual(

@@ -5,6 +5,7 @@ from itertools import permutations
 from typing import Callable, Literal
 
 import jax
+from .._host_guards import host_asarray, host_bool
 import jax.numpy as jnp
 import numpy as np
 from solvax.precond import (
@@ -3489,6 +3490,7 @@ def _curvature_bc_characteristic_wall_states(
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = 1.0e-10,
     max_condition: float = 1.0e8,
+    psi: str = "phi_plus_tau_ti",
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Solve copied-Neumann wall residuals for incoming curvature modes.
 
@@ -3549,6 +3551,7 @@ def _curvature_bc_characteristic_wall_states(
         bmag,
         tau,
         normal=jnp.asarray(normal, dtype=jnp.float64),
+        psi=psi,
     )
     frozen = jax.lax.stop_gradient(normal_matrix)
     eigenvalues, eigenvectors = jnp.linalg.eig(frozen)
@@ -3658,8 +3661,13 @@ def local_curvature_production_path_op(
     ] = "equilibrium-exterior-canonical-face-state",
     positivity_floor: float = 1.0e-12,
     return_diagnostics: bool = False,
+    psi: str = "phi_plus_tau_ti",
 ) -> jnp.ndarray | tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
     """Apply the owner-face production curvature wave-propagation operator.
+
+    ``psi`` is the split-variable convention of the curvature principal
+    matrix (see :func:`curvature_principal_matrix`); the caller's remainder
+    must use the same variable.
 
     The four coupled variables are reconstructed on every active coordinate
     face and advanced with one canonical-face characteristic split.  Face
@@ -4093,6 +4101,7 @@ def local_curvature_production_path_op(
                     qnormal[:1],
                     interior_on_right=True,
                     positivity_floor=positivity_floor,
+                    psi=psi,
                 )
             )
             upper_exterior, upper_bc_face, _ = (
@@ -4104,6 +4113,7 @@ def local_curvature_production_path_op(
                     qnormal[-1:],
                     interior_on_right=False,
                     positivity_floor=positivity_floor,
+                    psi=psi,
                 )
             )
             lower_active = wall_trace_mask[:1]
@@ -4248,7 +4258,7 @@ def local_curvature_production_path_op(
         # magnetic-field factor in the update.
         dplus, dminus = curvature_face_linearized_fluctuations(
             left_face, right_face, face_state, bface, tau, normal=qnormal,
-            positivity_floor=positivity_floor,
+            positivity_floor=positivity_floor, psi=psi,
         )
         compact_dplus = None
         compact_dminus = None
@@ -4266,6 +4276,7 @@ def local_curvature_production_path_op(
                 tau,
                 normal=compact_direct_normal,
                 positivity_floor=positivity_floor,
+                psi=psi,
             )
         # Face areas are physical regular-face measures.  Use the control
         # volume's fractions/open masks when available so merged owners see
@@ -4428,7 +4439,7 @@ def local_curvature_production_path_op(
         cell_state = 0.5 * (cell_left + cell_right)
         cell_plus, cell_minus = curvature_face_linearized_fluctuations(
             cell_left, cell_right, cell_state, cell_b, tau, normal=cell_q,
-            positivity_floor=positivity_floor,
+            positivity_floor=positivity_floor, psi=psi,
         )
         cell_area = 0.5 * (area[:-1] + area[1:])
         cell_raw_coords = [grid[d][:-1] for d in range(3)]
@@ -4507,6 +4518,7 @@ def local_curvature_production_path_op(
                     tau,
                     normal=direct_cell_normal,
                     positivity_floor=positivity_floor,
+                    psi=psi,
                 )
             )
             direct_cell_measure = 0.5 * (
@@ -6112,51 +6124,51 @@ def _precompute_local_degree_two_reconstruction(
         raise ValueError("max_equations must be at least max_samples")
 
     try:
-        active_owner = np.asarray(cells.is_active_owner, dtype=bool)
-        aggregate_target = np.asarray(cells.is_aggregate_target, dtype=bool)
-        centroid = np.asarray(cells.centroid, dtype=np.float64)
-        second_moment = np.asarray(cells.second_moment, dtype=np.float64)
-        face_active = np.asarray(irregular_faces.active, dtype=bool)
-        face_kind = np.asarray(irregular_faces.kind, dtype=np.int32)
+        active_owner = host_asarray(cells.is_active_owner, dtype=bool)
+        aggregate_target = host_asarray(cells.is_aggregate_target, dtype=bool)
+        centroid = host_asarray(cells.centroid, dtype=np.float64)
+        second_moment = host_asarray(cells.second_moment, dtype=np.float64)
+        face_active = host_asarray(irregular_faces.active, dtype=bool)
+        face_kind = host_asarray(irregular_faces.kind, dtype=np.int32)
         minus_owner = np.stack(
             (
-                np.asarray(irregular_faces.minus_owner_i, dtype=np.int64),
-                np.asarray(irregular_faces.minus_owner_j, dtype=np.int64),
-                np.asarray(irregular_faces.minus_owner_k, dtype=np.int64),
+                host_asarray(irregular_faces.minus_owner_i, dtype=np.int64),
+                host_asarray(irregular_faces.minus_owner_j, dtype=np.int64),
+                host_asarray(irregular_faces.minus_owner_k, dtype=np.int64),
             ),
             axis=-1,
         )
         plus_owner = np.stack(
             (
-                np.asarray(irregular_faces.plus_owner_i, dtype=np.int64),
-                np.asarray(irregular_faces.plus_owner_j, dtype=np.int64),
-                np.asarray(irregular_faces.plus_owner_k, dtype=np.int64),
+                host_asarray(irregular_faces.plus_owner_i, dtype=np.int64),
+                host_asarray(irregular_faces.plus_owner_j, dtype=np.int64),
+                host_asarray(irregular_faces.plus_owner_k, dtype=np.int64),
             ),
             axis=-1,
         )
-        has_plus = np.asarray(irregular_faces.has_plus_owner, dtype=bool)
-        has_remote = np.asarray(irregular_faces.has_remote_owner, dtype=bool)
-        remote_centroid = np.asarray(
+        has_plus = host_asarray(irregular_faces.has_plus_owner, dtype=bool)
+        has_remote = host_asarray(irregular_faces.has_remote_owner, dtype=bool)
+        remote_centroid = host_asarray(
             irregular_faces.remote_centroid,
             dtype=np.float64,
         )
-        remote_second_moment = np.asarray(
+        remote_second_moment = host_asarray(
             irregular_faces.remote_second_moment,
             dtype=np.float64,
         )
-        quadrature_points = np.asarray(
+        quadrature_points = host_asarray(
             irregular_faces.quadrature_points,
             dtype=np.float64,
         )
-        area_weight = np.asarray(
+        area_weight = host_asarray(
             irregular_faces.area_covector_weight,
             dtype=np.float64,
         )
-        quadrature_active = np.asarray(
+        quadrature_active = host_asarray(
             irregular_faces.quadrature_active,
             dtype=bool,
         )
-        face_J = np.asarray(irregular_faces.J, dtype=np.float64)
+        face_J = host_asarray(irregular_faces.J, dtype=np.float64)
     except (TypeError, jax.errors.TracerArrayConversionError) as exc:
         raise ValueError(
             "quadratic reconstruction metadata must be precomputed from concrete host arrays"
@@ -10484,13 +10496,13 @@ def _validate_concrete_angular_agglomeration_tree_assembly(
     if any(isinstance(value, jax.core.Tracer) for value in (*payload, *cv_payload)):
         return
     try:
-        diag = np.asarray(diagonal, dtype=np.float64)
-        edge = np.asarray(child_edge, dtype=np.float64)
-        pi = np.asarray(parent_i, dtype=np.int32)
-        pj = np.asarray(parent_j, dtype=np.int32)
-        pk = np.asarray(parent_k, dtype=np.int32)
-        owner_active = np.asarray(active, dtype=bool)
-        aggregate_volume = np.asarray(
+        diag = host_asarray(diagonal, dtype=np.float64)
+        edge = host_asarray(child_edge, dtype=np.float64)
+        pi = host_asarray(parent_i, dtype=np.int32)
+        pj = host_asarray(parent_j, dtype=np.int32)
+        pk = host_asarray(parent_k, dtype=np.int32)
+        owner_active = host_asarray(active, dtype=bool)
+        aggregate_volume = host_asarray(
             control_volume_geometry.cells.aggregate_volume, dtype=np.float64
         )
     except (jax.errors.TracerArrayConversionError, jax.errors.ConcretizationTypeError):
@@ -12736,7 +12748,7 @@ class LocalPerpLaplacianInverseSolver:
                 )
             assert self.control_volume_boundary_bc is not None
             try:
-                has_active_compact_boundary = bool(
+                has_active_compact_boundary = host_bool(
                     jnp.any(self.control_volume_boundary_bc.active)
                 )
             except (
@@ -12793,7 +12805,7 @@ class LocalPerpLaplacianInverseSolver:
         )
         try:
             all_neumann = all(
-                bool(
+                host_bool(
                     jnp.all(
                         (~mask)
                         | (kind == BC_NEUMANN)
@@ -12854,7 +12866,7 @@ class LocalPerpLaplacianInverseSolver:
             self.domain,
         )
         try:
-            gauge_response_valid = bool(
+            gauge_response_valid = host_bool(
                 jnp.isfinite(gauge_weight_sum)
                 & (jnp.abs(gauge_weight_sum) >= 1.0e-30)
             )
@@ -12877,7 +12889,7 @@ class LocalPerpLaplacianInverseSolver:
             self.domain,
         )
         try:
-            gauge_response_valid = bool(
+            gauge_response_valid = host_bool(
                 jnp.isfinite(gauge_constant_response)
                 & (jnp.abs(gauge_constant_response) >= 1.0e-30)
             )

@@ -13,7 +13,10 @@ sys.path.insert(0, str(WORK))
 
 from root_cause_small_probe import ProbeConfig, build_representative_fixture
 from drbx.native.fci_drb_EB_rhs import build_local_fci_drb_eb_operator_boundary_bundle
-from drbx.native.fci_boundaries import build_local_boundary_face_trace_from_halo
+from drbx.native.fci_boundaries import (
+    LocalBoundaryFaceTrace3D,
+    build_local_boundary_face_trace_from_halo,
+)
 from drbx.native.fci_operators import (
     local_grad_parallel_op_fci_compatible_from_q,
     local_parallel_div_b_fci_from_q_op,
@@ -132,9 +135,7 @@ def _parallel_outputs(model, state, face, context):
     )) + tuple(wall[f"{side}_wall_characteristic_current"] for side in ("backward", "forward"))
 
 
-def _independent_legacy_gradient(model, value, scalar_bc, face, context):
-    halo = model._prepare_fine_storage_halo(value, scalar_bc)
-    trace = build_local_boundary_face_trace_from_halo(halo, model.geometry, model.domain, scalar_bc)
+def _legacy_gradient_with_trace(model, value, trace, face, context):
     q, forward, backward = model._fci_prepare_flux_q(value, trace, context)
     inverse, inv_f, inv_b = model._fci_prepare_inverse_b(face, context)
     div_b = local_parallel_div_b_fci_from_q_op(
@@ -147,10 +148,58 @@ def _independent_legacy_gradient(model, value, scalar_bc, face, context):
     )
 
 
+def _independent_legacy_gradient(model, value, scalar_bc, face, context):
+    halo = model._prepare_fine_storage_halo(value, scalar_bc)
+    trace = build_local_boundary_face_trace_from_halo(halo, model.geometry, model.domain, scalar_bc)
+    return _legacy_gradient_with_trace(model, value, trace, face, context)
+
+
+def _split_affine_gradient(model, state, face, context):
+    """Affine (normal-data) part of the legacy gradient of the Ti-part ``q`` of psi = phi + tau*q.
+
+    Legacy selector: ``q = Ti`` with the Ti face data.  Default selector: ``q = n*Ti`` whose
+    operator trace is the product of the density and Ti operator traces (as the Pe and pressure
+    traces are); the affine part is the legacy gradient with that trace minus the one with the
+    homogeneous (zero normal data) trace of the same field.
+    """
+    zero = jnp.zeros_like(state.density)
+    if model.parameters.polarization_variable != "phi_plus_tau_pi":
+        return state.Ti, _independent_legacy_gradient(model, zero, face.Ti, face, context)
+    halo = model._prepare_state_halo(state, face)
+    boundary = build_local_fci_drb_eb_operator_boundary_bundle(
+        halo, model.geometry, model.domain, face, tau=model.parameters.tau
+    )
+    pi = state.density * state.Ti
+    product = LocalBoundaryFaceTrace3D(
+        value_x=boundary.density.value_x * boundary.Ti.value_x,
+        value_y=boundary.density.value_y * boundary.Ti.value_y,
+        value_z=boundary.density.value_z * boundary.Ti.value_z,
+        mask_x=boundary.density.mask_x & boundary.Ti.mask_x,
+        mask_y=boundary.density.mask_y & boundary.Ti.mask_y,
+        mask_z=boundary.density.mask_z & boundary.Ti.mask_z,
+        layout=boundary.Ti.layout,
+    )
+    homogeneous_bc = replace(
+        face.phi,
+        value_x=jnp.zeros_like(face.phi.value_x),
+        value_y=jnp.zeros_like(face.phi.value_y),
+        value_z=jnp.zeros_like(face.phi.value_z),
+    )
+    homogeneous_trace = build_local_boundary_face_trace_from_halo(
+        model._prepare_fine_storage_halo(pi, homogeneous_bc), model.geometry, model.domain, homogeneous_bc
+    )
+    affine = _legacy_gradient_with_trace(model, pi, product, face, context) - _legacy_gradient_with_trace(
+        model, pi, homogeneous_trace, face, context
+    )
+    return pi, affine
+
+
 def test_static_parallel_assembly_uses_prototype_and_retains_generalized_affine_force(case):
     reference, model, state, face, context = case
     current = state.density * (state.Vi - state.Ve)
     zero = jnp.zeros_like(current)
+    # Split variable psi = phi + tau*q: q = n*Ti (default selector) or q = Ti (legacy selector).
+    split_operand, split_affine = _split_affine_gradient(model, state, face, context)
     # Both are static RHS component evaluations, with short-leg timestep zero.
     old = jax.jit(lambda: _parallel_outputs(reference, state, face, context))()
     live = jax.jit(lambda: _parallel_outputs(model, state, face, context))()
@@ -172,10 +221,10 @@ def test_static_parallel_assembly_uses_prototype_and_retains_generalized_affine_
     _, _, core = model._fci_support_core_pair(face_bc=face, context=context)
     affine = jnp.where(core, 0.0,
         _independent_legacy_gradient(model, zero, face.phi, face, context)
-        + model.parameters.tau * _independent_legacy_gradient(model, zero, face.Ti, face, context)
+        + model.parameters.tau * split_affine
     )
     assert np.max(np.abs(affine)) > 1e-4
-    psi = state.phi + model.parameters.tau * state.Ti
+    psi = state.phi + model.parameters.tau * split_operand
     np.testing.assert_allclose(force, gradient(psi) + affine, atol=2e-11)
     # The full affine Green work is the retained current lift plus the
     # generalized-potential normal-data contribution; neither is discarded.

@@ -7,6 +7,7 @@ import os
 from typing import Callable
 
 import jax
+from .._host_guards import host_bool
 import jax.numpy as jnp
 
 from ..geometry import (
@@ -516,10 +517,14 @@ def _compose_parallel_phi_ti_gradient(
     support_gradient: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     support_target: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
-    """Build one compatible gradient for ``phi + tau*Ti``.
+    """Build one compatible gradient for ``phi + tau*q``.
+
+    ``ti_owned`` / ``legacy_ti_gradient`` are the owner field ``q`` and its
+    primitive gradient: ``q = Ti`` for the legacy split ``psi = phi + tau*Ti``
+    and ``q = n*Ti`` (``p_i``) for ``psi = phi + tau*n*Ti``; the caller picks.
 
     The production electron force contains the generalized-potential
-    combination ``G(phi) + tau*G(Ti)``.  When a support-paired FCI path is
+    combination ``G(phi) + tau*G(q)``.  When a support-paired FCI path is
     active, applying the two primitive maps independently is not equivalent
     across RLP prolongation/restriction or wall-hit rows: ``phi`` may use the
     current/phi transpose pair while ``Ti`` uses the support transpose pair.
@@ -624,8 +629,12 @@ class FciDrbEBRhsParameters:
     # Boussinesq polarization closure for the potential solve.  The default
     # hot-ion form is omega = Lperp(phi + tau p_i) with p_i = n Ti;
     # ``phi_plus_tau_ti`` is the legacy omega = Lperp(phi + tau Ti) form.
-    # Only the polarization relation is selected here: the curvature
-    # remainder and parallel composite splits of phi are unchanged.
+    # The same selector also fixes the internal split variable
+    # psi = phi + tau*n*Ti (default) or phi + tau*Ti (legacy) of the curvature
+    # material/remainder pair and of the parallel (Ve) composite force with
+    # its principal matrix.  Each split cancels in the continuum; it must
+    # match the polarization variable so that the characteristic matrices
+    # used for upwinding are those of the model actually being solved.
     polarization_variable: str = "phi_plus_tau_pi"
 
     def __post_init__(self):
@@ -1647,7 +1656,7 @@ class LocalFciDrbEBRhs:
             active_area_z
         )
         try:
-            if bool(jnp.asarray(total_area <= 0.0)):
+            if host_bool(jnp.asarray(total_area <= 0.0)):
                 raise ValueError(
                     "simplified-gbs-mpe requires at least one physical wall "
                     "face with nonzero area"
@@ -2279,6 +2288,10 @@ class LocalFciDrbEBRhs:
         vector ``(-2n, -4Te/3, -4Ti/3, 0)/B``.
         """
         request_split_diagnostics = return_directional_components
+        # Split variable shared by the curvature principal matrix and the
+        # remainder: psi = phi + tau*n*Ti (default) or the legacy phi + tau*Ti.
+        psi_variable = self.parameters.polarization_variable
+        psi_uses_pi = psi_variable == "phi_plus_tau_pi"
         coupled = (
             density_conservative_stencil,
             Te_conservative_stencil,
@@ -2318,7 +2331,11 @@ class LocalFciDrbEBRhs:
                     "direct curvature faces require physical face BCs and "
                     "density, Te, Ti, vorticity, and phi owner fields"
                 )
-            psi_owner = phi_owner + tau * Ti_owner
+            psi_owner = (
+                phi_owner + tau * density_owner * Ti_owner
+                if psi_uses_pi
+                else phi_owner + tau * Ti_owner
+            )
             if has_lean_radial_curvature:
                 radial_curvature_states = build_local_radial_curvature_face_states(
                     owner_values_owned=jnp.stack(
@@ -2393,6 +2410,7 @@ class LocalFciDrbEBRhs:
             # Directional lanes are materialized only when explicitly requested
             # by the diagnostics API.
             return_diagnostics=request_split_diagnostics,
+            psi=psi_variable,
         )
         if request_split_diagnostics:
             material, diagnostics = material_result
@@ -2403,14 +2421,26 @@ class LocalFciDrbEBRhs:
             phi_halo = self._prepare_rlp_reconstructed_halo(
                 phi_owner, face_bc.phi
             )
-            psi_halo = phi_halo + tau * material_halos[2]
+            psi_halo = (
+                phi_halo + tau * material_halos[0] * material_halos[2]
+                if psi_uses_pi
+                else phi_halo + tau * material_halos[2]
+            )
         else:
-            psi_halo = state_halo.phi + tau * state_halo.Ti
+            psi_halo = (
+                state_halo.phi + tau * state_halo.density * state_halo.Ti
+                if psi_uses_pi
+                else state_halo.phi + tau * state_halo.Ti
+            )
         psi_stencil = build_local_conservative_stencil_from_field(
             psi_halo, self.geometry, context
         )
         if direct_face_states is not None:
-            psi_owner = phi_owner + tau * Ti_owner
+            psi_owner = (
+                phi_owner + tau * density_owner * Ti_owner
+                if psi_uses_pi
+                else phi_owner + tau * Ti_owner
+            )
             psi_direct_face_states = build_local_control_volume_direct_face_states(
                 owner_values_owned=psi_owner,
                 geometry=self.geometry,
@@ -2435,11 +2465,19 @@ class LocalFciDrbEBRhs:
                 direct_control_volume,
                 field_index=4,
             )
-        psi_trace = _combine_operator_traces(
-            operator_boundary.phi,
-            operator_boundary.Ti,
-            operation=lambda phi, ti: phi + tau * ti,
-        )
+        if psi_uses_pi:
+            psi_trace = _combine_operator_traces(
+                operator_boundary.phi,
+                operator_boundary.density,
+                operator_boundary.Ti,
+                operation=lambda phi, n, ti: phi + tau * n * ti,
+            )
+        else:
+            psi_trace = _combine_operator_traces(
+                operator_boundary.phi,
+                operator_boundary.Ti,
+                operation=lambda phi, ti: phi + tau * ti,
+            )
         psi_curvature = self._conservative_curvature(
             psi_stencil,
             boundary_trace=psi_trace,
@@ -2942,6 +2980,7 @@ class LocalFciDrbEBRhs:
                 parallel_characteristic_wall_law=(
                     self.parameters.parallel_characteristic_wall_law
                 ),
+                psi=self.parameters.polarization_variable,
             )
         backward_target = (
             resolved["backward_endpoint_state"]
@@ -4240,6 +4279,7 @@ class LocalFciDrbEBRhs:
                 parallel_characteristic_wall_law=(
                     self.parameters.parallel_characteristic_wall_law
                 ),
+                psi=self.parameters.polarization_variable,
             )
         return {
             "primitive_stencils": primitive_stencils,
@@ -4307,6 +4347,18 @@ class LocalFciDrbEBRhs:
             "Pe": parallel_boundary.Pe,
             "pressure": parallel_boundary.pressure,
         }
+        # The electron force is mu*G(psi) with psi = phi + tau*n*Ti (default)
+        # or the legacy phi + tau*Ti.  For p_i the operand of the Ti-part is
+        # the product field q = n*Ti, with the product of the two level-2
+        # parallel traces (as the pressure and Pe traces are built).
+        psi_uses_pi = self.parameters.polarization_variable == "phi_plus_tau_pi"
+        if psi_uses_pi:
+            fields["pi"] = state_halo.density * state_halo.Ti
+            traces["pi"] = _combine_operator_traces(
+                parallel_boundary.density,
+                parallel_boundary.Ti,
+                operation=lambda n, ti: n * ti,
+            )
         q_data = {
             name: self._fci_prepare_flux_q(field[owned], traces[name], context)
             for name, field in fields.items()
@@ -4363,6 +4415,8 @@ class LocalFciDrbEBRhs:
                 "density", "Te", "Ti", "Vi", "Ve", "Pe",
                 "pressure", "current", "vorticity",
             )
+            if psi_uses_pi:
+                support_gradient_names = support_gradient_names + ("pi",)
             if not use_current_phi_boundary_pair:
                 support_gradient_names = support_gradient_names + ("phi",)
             # In production material mode the final RHS directly consumes
@@ -4376,6 +4430,8 @@ class LocalFciDrbEBRhs:
                     if use_current_phi_boundary_pair
                     else ("Ti", "phi", "vorticity")
                 )
+                if psi_uses_pi:
+                    primary_gradient_names = primary_gradient_names + ("pi",)
                 secondary_gradient_names = tuple(
                     name for name in support_gradient_names
                     if name not in primary_gradient_names
@@ -4543,16 +4599,28 @@ class LocalFciDrbEBRhs:
         # pairs its homogeneous part with exactly this complete map; affine
         # phi/Ti normal data still enter the force here, once.
         legacy_phi_gradient = legacy_grad("phi")
-        legacy_ti_gradient = legacy_grad("Ti")
-        composite_phi_ti_gradient = _compose_parallel_phi_ti_gradient(
-            fields["phi"][owned],
-            fields["Ti"][owned],
-            self.parameters.tau,
-            legacy_phi_gradient=legacy_phi_gradient,
-            legacy_ti_gradient=legacy_ti_gradient,
-            support_gradient=support_gradient,
-            support_target=support_core_target,
-        )
+        if psi_uses_pi:
+            # G(phi + tau*n*Ti): the Ti-part operand is the product field.
+            composite_phi_ti_gradient = _compose_parallel_phi_ti_gradient(
+                fields["phi"][owned],
+                fields["pi"][owned],
+                self.parameters.tau,
+                legacy_phi_gradient=legacy_phi_gradient,
+                legacy_ti_gradient=legacy_grad("pi"),
+                support_gradient=support_gradient,
+                support_target=support_core_target,
+            )
+        else:
+            legacy_ti_gradient = legacy_grad("Ti")
+            composite_phi_ti_gradient = _compose_parallel_phi_ti_gradient(
+                fields["phi"][owned],
+                fields["Ti"][owned],
+                self.parameters.tau,
+                legacy_phi_gradient=legacy_phi_gradient,
+                legacy_ti_gradient=legacy_ti_gradient,
+                support_gradient=support_gradient,
+                support_target=support_core_target,
+            )
 
         gradient_values = {
             name: grad(name)
@@ -4567,7 +4635,7 @@ class LocalFciDrbEBRhs:
                 "pressure",
                 "current",
                 "vorticity",
-            )
+            ) + (("pi",) if psi_uses_pi else ())
         }
 
         material_upwind_correction = jnp.zeros(
@@ -4864,6 +4932,7 @@ class LocalFciDrbEBRhs:
                         self.parameters.parallel_characteristic_wall_law
                     ),
                     resolved_wall_data=wall_data,
+                    psi=self.parameters.polarization_variable,
                 )
             )
             material_map_available = self.geometry.material_maps is not None
@@ -4975,6 +5044,7 @@ class LocalFciDrbEBRhs:
                         center,
                         self.parameters.tau,
                         self.parameters.mi_over_me,
+                        psi=self.parameters.polarization_variable,
                     ),
                     centered_derivative,
                 )
@@ -5004,6 +5074,10 @@ class LocalFciDrbEBRhs:
                 # reconstructed-face derivative; exceptional closures retain
                 # their established one-sided derivative.  Its sum with the
                 # canonical +mu*tau*G(Ti) force should converge to zero.
+                # (For psi = phi + tau*n*Ti the split also carries the density
+                # column mu*tau*Ti of A[4,0]; this diagnostic isolates only the
+                # Ti column A[4,2] = mu*tau*n, so its sum with the p_i force
+                # mu*tau*G(n*Ti) is not expected to vanish.)
                 fallback_backward_derivative = (
                     _nonuniform_second_order_backward_derivative(
                         center,
@@ -5051,6 +5125,7 @@ class LocalFciDrbEBRhs:
                     branch="plus",
                     eigenvalue_tolerance=1.0e-10,
                     max_condition=1.0e10,
+                    psi=self.parameters.polarization_variable,
                 )
                 forward_ti_action, _, _ = _live_characteristic_leg_action(
                     center,
@@ -5061,6 +5136,7 @@ class LocalFciDrbEBRhs:
                     branch="minus",
                     eigenvalue_tolerance=1.0e-10,
                     max_condition=1.0e10,
+                    psi=self.parameters.polarization_variable,
                 )
                 material_ti_force_fields = material_ti_force_fields.at[..., 0].set(
                     -(backward_ti_action + forward_ti_action)[..., 4]
@@ -5264,6 +5340,11 @@ class LocalFciDrbEBRhs:
             "grad_Vi": gradient_values["Vi"],
             "grad_phi": gradient_values["phi"],
             "grad_phi_plus_tau_Ti": composite_phi_ti_gradient,
+            **(
+                {"grad_pi": gradient_values["pi"]}
+                if psi_uses_pi
+                else {}
+            ),
             "grad_Pe": gradient_values["Pe"],
             "grad_pressure": gradient_values["pressure"],
             "grad_current": gradient_values["current"],
@@ -5310,6 +5391,9 @@ class LocalFciDrbEBRhs:
                     ),
                     "ti_derivative_center_weight": primitive_stencils[
                         2
+                    ].derivative_center_weight,
+                    "density_derivative_center_weight": primitive_stencils[
+                        0
                     ].derivative_center_weight,
                 }
                 if self.parallel_material_scheme == "production-path"
@@ -5859,7 +5943,11 @@ class LocalFciDrbEBRhs:
         diagnostic_electrostatic_force = composite_force - jnp.where(
             selected_short_wall,
             mi_over_me * jnp.asarray(self.parameters.tau, dtype=jnp.float64)
-            * parallel_terms["grad_Ti"],
+            * (
+                parallel_terms["grad_pi"]
+                if self.parameters.polarization_variable == "phi_plus_tau_pi"
+                else parallel_terms["grad_Ti"]
+            ),
             0.0,
         )
         directional_force_terms = jnp.stack(
@@ -6135,10 +6223,12 @@ class LocalFciDrbEBRhs:
             context=context,
             short_leg_selection_dt=selection_dt,
         )
+        psi_uses_pi = self.parameters.polarization_variable == "phi_plus_tau_pi"
+        # The handoff force is mu*tau*G(q) with q = n*Ti (default) or Ti.
         coupled_force = (
             self.parameters.mi_over_me
             * self.parameters.tau
-            * parallel_terms["grad_Ti"]
+            * (parallel_terms["grad_pi"] if psi_uses_pi else parallel_terms["grad_Ti"])
         )
         coupled_residual = jnp.zeros(
             self.geometry.owned_shape + (5,), dtype=jnp.float64
@@ -6161,6 +6251,19 @@ class LocalFciDrbEBRhs:
         coupled_jacobian = jnp.zeros(
             self.geometry.owned_shape + (5, 5), dtype=jnp.float64
         ).at[..., 4, 2].set(ti_center_jacobian)
+        if psi_uses_pi:
+            # G(n*Ti) is linear in the product at the center: its center
+            # derivatives are n*w_Ti (Ti column, the A[4,2] = mu*tau*n entry)
+            # and Ti*w_n (density column, the mu*tau*Ti part of A[4,0]).
+            ti_center_jacobian = ti_center_jacobian * center[..., 0]
+            coupled_jacobian = jnp.zeros(
+                self.geometry.owned_shape + (5, 5), dtype=jnp.float64
+            ).at[..., 4, 2].set(ti_center_jacobian).at[..., 4, 0].set(
+                self.parameters.mi_over_me
+                * self.parameters.tau
+                * implicit_data["density_derivative_center_weight"]
+                * center[..., 2]
+            )
         backward_wall = self.geometry.maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
         forward_wall = self.geometry.maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
         (
@@ -6189,6 +6292,7 @@ class LocalFciDrbEBRhs:
             resolved_wall_data=parallel_terms.get(
                 "parallel_characteristic_wall_data"
             ),
+            psi=self.parameters.polarization_variable,
         )
 
         if self._uses_projected_fine_grid:
@@ -6861,11 +6965,20 @@ class LocalFciDrbEBRhs:
         grad_parallel_Ve = stage_parallel_terms["grad_Ve"]
         grad_parallel_Vi = stage_parallel_terms["grad_Vi"]
         grad_parallel_phi = stage_parallel_terms["grad_phi"]
+        psi_uses_pi = self.parameters.polarization_variable == "phi_plus_tau_pi"
+        # G(q) of the Ti-part of the electron split psi = phi + tau*q:
+        # q = n*Ti (default) or Ti (legacy).  Only the production FCI path
+        # carries a Ti-part in the Ve force; the coordinate path never reads it.
+        grad_parallel_split_q = (
+            stage_parallel_terms["grad_pi"]
+            if psi_uses_pi and "grad_pi" in stage_parallel_terms
+            else grad_parallel_Ti
+        )
         grad_parallel_phi_plus_tau_Ti = stage_parallel_terms.get(
             "grad_phi_plus_tau_Ti",
             grad_parallel_phi
             + jnp.asarray(self.parameters.tau, dtype=jnp.float64)
-            * stage_parallel_terms["grad_Ti"],
+            * grad_parallel_split_q,
         )
         grad_parallel_Pe = stage_parallel_terms["grad_Pe"]
         grad_parallel_pressure = stage_parallel_terms["grad_pressure"]
@@ -6904,7 +7017,7 @@ class LocalFciDrbEBRhs:
         Ve_collision_term = mi_over_me * Ve_nu * current_parallel_value
         Ve_phi_force_term = mi_over_me * grad_parallel_phi
         Ve_Ti_force_complete_term = (
-            mi_over_me * tau * grad_parallel_Ti
+            mi_over_me * tau * grad_parallel_split_q
             if production_parallel
             else jnp.zeros_like(grad_parallel_phi)
         )
@@ -6980,10 +7093,10 @@ class LocalFciDrbEBRhs:
             generalized_potential_controls = jnp.stack(
                 (
                     grad_parallel_phi_plus_tau_Ti,
-                    grad_parallel_phi + tau * grad_parallel_Ti,
+                    grad_parallel_phi + tau * grad_parallel_split_q,
                     Ve_electrostatic_term / mi_over_me,
                     grad_parallel_phi,
-                    tau * grad_parallel_Ti,
+                    tau * grad_parallel_split_q,
                 ),
                 axis=-1,
             )

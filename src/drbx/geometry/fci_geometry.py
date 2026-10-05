@@ -10,6 +10,7 @@ from typing import Callable, Mapping, Sequence
 import zipfile
 import numpy as np
 import jax
+from .._host_guards import host_bool, host_float
 import jax.numpy as jnp
 from jax import lax
 
@@ -66,9 +67,9 @@ def _validate_coordinate_stencil_dependency_rows(
     valid_side = (~active) | ((side >= 0) & (side <= 1))
     valid_distance = (~active) | (distance > 0.0)
     try:
-        all_valid_axis = bool(jnp.all(valid_axis))
-        all_valid_side = bool(jnp.all(valid_side))
-        all_valid_distance = bool(jnp.all(valid_distance))
+        all_valid_axis = host_bool(jnp.all(valid_axis))
+        all_valid_side = host_bool(jnp.all(valid_side))
+        all_valid_distance = host_bool(jnp.all(valid_distance))
     except jax.errors.TracerBoolConversionError:
         return
     if not all_valid_axis:
@@ -1358,7 +1359,7 @@ def build_local_coordinate_stencil_dependency_map_from_cut_wall_geometry(
         & (owner_k < nz)
     )
     try:
-        all_targets_in_bounds = bool(jnp.all((~active) | target_in_bounds))
+        all_targets_in_bounds = host_bool(jnp.all((~active) | target_in_bounds))
     except jax.errors.TracerBoolConversionError:
         all_targets_in_bounds = True
     if not all_targets_in_bounds:
@@ -1782,7 +1783,7 @@ class CurvatureEdgeOneForm3D(_DataclassPyTreeMixin):
                 _require_float_shape(getattr(self, name), shape, f"CurvatureEdgeOneForm3D.{name}"),
             )
             try:
-                finite = bool(jnp.all(jnp.isfinite(getattr(self, name))))
+                finite = host_bool(jnp.all(jnp.isfinite(getattr(self, name))))
             except jax.errors.TracerBoolConversionError:
                 finite = True
             if not finite:
@@ -3611,7 +3612,7 @@ class LocalCellAgglomeration3D(_DataclassPyTreeMixin):
             )
         )
         try:
-            all_valid = bool(jnp.all(valid))
+            all_valid = host_bool(jnp.all(valid))
         except jax.errors.TracerBoolConversionError:
             all_valid = True
         if not all_valid:
@@ -3913,17 +3914,17 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
             & (owner_k < shape[2])
         )
         try:
-            all_in_bounds = bool(jnp.all(in_bounds))
-            no_owner_source_overlap = bool(
+            all_in_bounds = host_bool(jnp.all(in_bounds))
+            no_owner_source_overlap = host_bool(
                 jnp.all(~(is_merged_source & is_active_owner))
             )
-            target_semantics_valid = bool(
+            target_semantics_valid = host_bool(
                 jnp.all(is_aggregate_target == (received_source_count > 0))
             )
-            positive_owner_volume = bool(
+            positive_owner_volume = host_bool(
                 jnp.all((~is_active_owner) | (aggregate_volume > 0.0))
             )
-            finite_active_moments = bool(
+            finite_active_moments = host_bool(
                 jnp.all(
                     (~is_active_owner)
                     | (
@@ -3936,15 +3937,15 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
                     )
                 )
             )
-            aggregate_id_valid = bool(
+            aggregate_id_valid = host_bool(
                 jnp.all(
                     (~(is_active_owner | (raw_volume > 0.0)))
                     | (aggregate_id >= 0)
                 )
             )
-            remote_semantics_valid = bool(jnp.all(~owner_is_remote | (is_merged_source & ~is_active_owner)))
+            remote_semantics_valid = host_bool(jnp.all(~owner_is_remote | (is_merged_source & ~is_active_owner)))
             halo_shape = self.layout.cell_halo_shape
-            remote_in_bounds = bool(jnp.all(~owner_is_remote | ((remote_owner_halo_i >= 0) & (remote_owner_halo_i < halo_shape[0]) & (remote_owner_halo_j >= 0) & (remote_owner_halo_j < halo_shape[1]) & (remote_owner_halo_k >= 0) & (remote_owner_halo_k < halo_shape[2]))))
+            remote_in_bounds = host_bool(jnp.all(~owner_is_remote | ((remote_owner_halo_i >= 0) & (remote_owner_halo_i < halo_shape[0]) & (remote_owner_halo_j >= 0) & (remote_owner_halo_j < halo_shape[1]) & (remote_owner_halo_k >= 0) & (remote_owner_halo_k < halo_shape[2]))))
         except jax.errors.TracerBoolConversionError:
             all_in_bounds = True
             no_owner_source_overlap = True
@@ -4236,7 +4237,7 @@ def build_local_control_volume_cell_geometry(
         safe_owner_k,
     ]
     try:
-        has_chain = bool(jnp.any(source_active & target_is_source))
+        has_chain = host_bool(jnp.any(source_active & target_is_source))
     except jax.errors.TracerBoolConversionError:
         has_chain = False
     if has_chain:
@@ -4262,8 +4263,8 @@ def build_local_control_volume_cell_geometry(
         (~positive_raw) | (~target_is_active_owner)
     )
     try:
-        has_orphan_positive = bool(jnp.any(orphan_positive))
-        has_invalid_source = bool(jnp.any(invalid_source))
+        has_orphan_positive = host_bool(jnp.any(orphan_positive))
+        has_invalid_source = host_bool(jnp.any(invalid_source))
     except jax.errors.TracerBoolConversionError:
         has_orphan_positive = False
         has_invalid_source = False
@@ -4371,11 +4372,11 @@ def build_local_control_volume_cell_geometry(
     member_count = is_active_owner.astype(jnp.int32) + received_source_count
     is_aggregate_target = received_source_count > 0
     try:
-        raw_volume_sum = float(jnp.sum(jnp.where(positive_raw, raw_volume, 0.0)))
-        aggregate_volume_sum = float(
+        raw_volume_sum = host_float(jnp.sum(jnp.where(positive_raw, raw_volume, 0.0)))
+        aggregate_volume_sum = host_float(
             jnp.sum(jnp.where(is_active_owner, aggregate_volume, 0.0))
         )
-        volume_conserved = bool(
+        volume_conserved = host_bool(
             jnp.isclose(
                 raw_volume_sum,
                 aggregate_volume_sum,
@@ -5049,7 +5050,7 @@ def _validate_coordinate_stencil_value_slots(
         return
     if int(values.size) == 0:
         try:
-            has_active = bool(jnp.any(active))
+            has_active = host_bool(jnp.any(active))
         except jax.errors.TracerBoolConversionError:
             return
         if has_active:
@@ -5057,7 +5058,7 @@ def _validate_coordinate_stencil_value_slots(
         return
     valid_slot = (~active) | ((slot >= 0) & (slot < int(values.size)))
     try:
-        all_valid = bool(jnp.all(valid_slot))
+        all_valid = host_bool(jnp.all(valid_slot))
     except jax.errors.TracerBoolConversionError:
         return
     if not all_valid:

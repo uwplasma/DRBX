@@ -24,6 +24,16 @@ import jax.numpy as jnp
 Array = jax.Array
 STATE_SIZE = 4
 POSITIVE_COMPONENTS = (0, 1, 2)
+#: Split-variable conventions (the names of ``FciDrbEBParameters.polarization_variable``):
+#: ``psi = phi + tau*Ti`` (legacy, the default of every function below) or
+#: ``psi = phi + tau*n*Ti`` (``p_i = n*Ti``).
+PSI_VARIABLES = ("phi_plus_tau_ti", "phi_plus_tau_pi")
+
+
+def _validated_psi(psi: str) -> str:
+    if psi not in PSI_VARIABLES:
+        raise ValueError(f"psi must be one of {PSI_VARIABLES}, got {psi!r}")
+    return psi
 
 
 @jax.tree_util.register_pytree_node_class
@@ -69,6 +79,7 @@ def curvature_principal_matrix(
     tau: Array | float,
     *,
     k_perp_squared: Array | float | None = None,
+    psi: str = "phi_plus_tau_ti",
 ) -> Array:
     """Return the corrected DAE-reduced curvature RHS Jacobian.
 
@@ -79,8 +90,20 @@ def curvature_principal_matrix(
     ``k_perp_squared`` is supplied, the optional non-local omega column is
     included as a diagnostic using the local Fourier relation
     ``delta phi = -tau delta Ti - delta omega/k_perp_squared``.
+
+    ``psi`` selects the split variable whose curvature remainder is carried
+    outside the material block (the names of
+    ``FciDrbEBParameters.polarization_variable``).  The default
+    ``"phi_plus_tau_ti"`` (``psi = phi + tau*Ti``) is the matrix described
+    above.  ``"phi_plus_tau_pi"`` (``psi = phi + tau*n*Ti``) has
+    ``d psi/d n = tau Ti`` and ``d psi/d Ti = tau n`` instead of ``0`` and
+    ``tau``: on the rows ``(n, Te, Ti)`` with ``c = (2n, 4Te/3, 4Ti/3)`` the
+    ``n`` column gains ``c tau Ti`` and the ``Ti`` column gains
+    ``c tau (n - 1)``.  The omega row is unchanged.  The remainder in the
+    RHS must use the same ``psi``; the two cancel in the continuum.
     """
 
+    _validated_psi(psi)
     n, te, ti, b, tau_value = tuple(
         jnp.asarray(value, dtype=jnp.float64)
         for value in (density, Te, Ti, bmag, tau)
@@ -112,16 +135,23 @@ def curvature_principal_matrix(
         matrix = matrix.at[..., 0, 3].set(2.0 * n / k2_safe)
         matrix = matrix.at[..., 1, 3].set(4.0 * te / (3.0 * k2_safe))
         matrix = matrix.at[..., 2, 3].set(4.0 * ti / (3.0 * k2_safe))
+    if psi == "phi_plus_tau_pi":
+        c = jnp.stack((2.0 * n, 4.0 * te / 3.0, 4.0 * ti / 3.0), axis=-1)
+        matrix = matrix.at[..., 0:3, 0].add(c * (tau_value * ti)[..., None])
+        matrix = matrix.at[..., 0:3, 2].add(c * (tau_value * (n - 1.0))[..., None])
     return matrix
 
 
 def curvature_strict_principal_matrix(
-    state: Array, bmag: Array | float, tau: Array | float
+    state: Array, bmag: Array | float, tau: Array | float,
+    *, psi: str = "phi_plus_tau_ti",
 ) -> Array:
     """Convenience wrapper for :func:`curvature_principal_matrix`."""
 
     state = _require_state(state)
-    return curvature_principal_matrix(state[..., 0], state[..., 1], state[..., 2], bmag, tau)
+    return curvature_principal_matrix(
+        state[..., 0], state[..., 1], state[..., 2], bmag, tau, psi=psi
+    )
 
 
 def curvature_flux_jacobian(
@@ -130,6 +160,7 @@ def curvature_flux_jacobian(
     tau: Array | float,
     *,
     normal: Array | float = 1.0,
+    psi: str = "phi_plus_tau_ti",
 ) -> Array:
     """Return the face flux Jacobian for the curvature RHS.
 
@@ -143,7 +174,7 @@ def curvature_flux_jacobian(
     """
 
     state = _require_state(state)
-    rhs_matrix = curvature_strict_principal_matrix(state, bmag, tau)
+    rhs_matrix = curvature_strict_principal_matrix(state, bmag, tau, psi=psi)
     normal = jnp.asarray(normal, dtype=jnp.float64)
     shape = jnp.broadcast_shapes(rhs_matrix.shape[:-2], normal.shape)
     rhs_matrix = jnp.broadcast_to(rhs_matrix, shape + (STATE_SIZE, STATE_SIZE))
@@ -265,6 +296,7 @@ def curvature_face_linearized_fluctuations(
     positivity_floor: float = 1.0e-12,
     return_fallback: bool = False,
     return_diagnostics: bool = False,
+    psi: str = "phi_plus_tau_ti",
 ) -> tuple[Array, Array] | tuple[Array, Array, Array] | tuple[Array, Array, dict[str, Array]]:
     """Return p=1 fluctuations using one frozen matrix at the face.
 
@@ -312,7 +344,7 @@ def curvature_face_linearized_fluctuations(
     # ``matrix`` is the RHS Jacobian.  Characteristic splitting requires the
     # conservative flux Jacobian, whose sign is opposite for q_t = A_rhs q_x.
     normal_matrix = curvature_flux_jacobian(
-        matrix_state, b_safe, tau, normal=normal_safe
+        matrix_state, b_safe, tau, normal=normal_safe, psi=psi
     )
     jump = right - left
     absolute, spectral_fallback = curvature_characteristic_absolute_action(
@@ -393,6 +425,7 @@ face_linearized_curvature_fluctuations = curvature_face_linearized_fluctuations
 
 
 __all__ = [
+    "PSI_VARIABLES",
     "ReconstructionMetadata",
     "curvature_principal_matrix",
     "curvature_strict_principal_matrix",

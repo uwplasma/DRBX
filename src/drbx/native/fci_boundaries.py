@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import jax
+from .._host_guards import host_bool
 import jax.numpy as jnp
 
 from ..geometry.fci_geometry import (
@@ -1567,7 +1568,7 @@ def build_local_boundary_face_trace_from_halo(
                 may_need_interpolation = False
             else:
                 try:
-                    may_need_interpolation = bool(jnp.any(neumann_candidate))
+                    may_need_interpolation = host_bool(jnp.any(neumann_candidate))
                 except jax.errors.TracerBoolConversionError:
                     # A dynamically supplied BC mask/kind cannot be inspected
                     # while tracing.  Conservatively require the interpolation
@@ -2331,10 +2332,10 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
             logical_axis_valid & logical_face_in_bounds
         )
         try:
-            all_valid_kind = bool(jnp.all(valid_kind))
-            all_valid_owners = bool(jnp.all(valid_owners))
-            all_valid_logical_faces = bool(jnp.all(valid_logical_faces))
-            finite_active_geometry = bool(
+            all_valid_kind = host_bool(jnp.all(valid_kind))
+            all_valid_owners = host_bool(jnp.all(valid_owners))
+            all_valid_logical_faces = host_bool(jnp.all(valid_logical_faces))
+            finite_active_geometry = host_bool(
                 jnp.all(
                     (~(active[:, None, None] & patch_active[:, :, None]))
                     | (
@@ -2345,7 +2346,7 @@ class LocalControlVolumeFaceRows3D(_DataclassPyTreeMixin):
                     )
                 )
             )
-            finite_remote_geometry = bool(
+            finite_remote_geometry = host_bool(
                 jnp.all(
                     (~(active & has_remote_owner))
                     | (
@@ -2932,7 +2933,7 @@ class LocalMomentFittedFaceRows3D(_DataclassPyTreeMixin):
             )
         )
         try:
-            valid = bool(
+            valid = host_bool(
                 jnp.all(valid_observation)
                 & jnp.all((~active) | ((polynomial_order >= 1) & (polynomial_order <= 3)))
                 & jnp.all((~active) | (polynomial_basis_size >= 1))
@@ -3412,7 +3413,7 @@ class LocalControlVolumeFieldClosure3D(_DataclassPyTreeMixin):
         if face_value_valid.shape != patch_shape or face_gradient_valid.shape != patch_shape:
             raise ValueError(f"face trace validity masks must have shape {patch_shape}")
         try:
-            finite = bool(
+            finite = host_bool(
                 jnp.all(
                     (~(active & valid))
                     | (
@@ -3540,7 +3541,7 @@ class LocalControlVolumeBoundaryBC3D(_DataclassPyTreeMixin):
             | (kind == BC_NOFLUX)
         )
         try:
-            all_supported = bool(jnp.all((~active) | supported))
+            all_supported = host_bool(jnp.all((~active) | supported))
         except jax.errors.TracerBoolConversionError:
             all_supported = True
         if not all_supported:
@@ -3719,8 +3720,8 @@ class LocalMomentReconstruction3D(_DataclassPyTreeMixin):
             | (equation_kind == CV_RECONSTRUCTION_EQUATION_REMOTE_CELL)
         )
         try:
-            all_valid_kind = bool(jnp.all(valid_kind))
-            all_valid_order = bool(
+            all_valid_kind = host_bool(jnp.all(valid_kind))
+            all_valid_order = host_bool(
                 jnp.all((~active) | ((polynomial_order >= 1) & (polynomial_order <= 3)))
             )
         except jax.errors.TracerBoolConversionError:
@@ -4091,7 +4092,7 @@ class LocalRegularBoundaryMomentClosure3D(_DataclassPyTreeMixin):
                     f"{face_shape} on axis {axis}, got {axis_valid.shape}"
                 )
             try:
-                finite = bool(
+                finite = host_bool(
                     jnp.all(
                         (~axis_valid)[..., None]
                         | (
@@ -4108,7 +4109,7 @@ class LocalRegularBoundaryMomentClosure3D(_DataclassPyTreeMixin):
                 )
             if self.layout.owned_shape[axis] < 3:
                 try:
-                    short_axis_active = bool(jnp.any(axis_valid))
+                    short_axis_active = host_bool(jnp.any(axis_valid))
                 except jax.errors.TracerBoolConversionError:
                     short_axis_active = False
                 if short_axis_active:
@@ -4319,7 +4320,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                 )
             if self.face_functionals.max_rows:
                 try:
-                    aligned = bool(
+                    aligned = host_bool(
                         jnp.all(
                             self.face_functionals.active
                             == self.irregular_faces.active
@@ -4341,7 +4342,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                     )
         else:
             try:
-                has_irregular_faces = bool(jnp.any(self.irregular_faces.active))
+                has_irregular_faces = host_bool(jnp.any(self.irregular_faces.active))
             except jax.errors.TracerBoolConversionError:
                 has_irregular_faces = False
             if has_irregular_faces:
@@ -4434,7 +4435,7 @@ class LocalEmbeddedControlVolumeGeometry3D(_DataclassPyTreeMixin):
                 & jnp.all(jnp.isfinite(centroid_curvature), axis=-1)
             )
             try:
-                all_finite = bool(jnp.all((~active) | finite))
+                all_finite = host_bool(jnp.all((~active) | finite))
             except jax.errors.TracerBoolConversionError:
                 all_finite = True
             if not all_finite:
@@ -4756,7 +4757,7 @@ class LocalRegularFaceContributionRows3D(_DataclassPyTreeMixin):
 
         valid_axis = (~active) | ((face_axis >= 0) & (face_axis <= 2))
         try:
-            all_valid_axis = bool(jnp.all(valid_axis))
+            all_valid_axis = host_bool(jnp.all(valid_axis))
         except jax.errors.TracerBoolConversionError:
             all_valid_axis = True
         if not all_valid_axis:

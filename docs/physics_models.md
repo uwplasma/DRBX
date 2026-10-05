@@ -135,13 +135,29 @@ reason is energy consistency: the older `ω = ∇⊥²(φ + τ T_i)` form drops 
 `τ ñ` contribution, so the linear curvature pairs no longer match and
 unphysical growth proportional to `|k|` appears at `τ > 0`. Select the legacy
 form with `polarization_variable="phi_plus_tau_ti"` (default
-`"phi_plus_tau_pi"`). The curvature remainder and parallel composite splits of
-`φ` are internal and cancel in the continuum; they are unchanged. Sources:
+`"phi_plus_tau_pi"`). Sources:
 Scott 2007 ([doi:10.1063/1.2783993](https://doi.org/10.1063/1.2783993)) and
 Dudson et al. 2026, Hermes-3
 ([doi:10.1088/1741-4326/ae3627](https://doi.org/10.1088/1741-4326/ae3627))
 for the hot-ion polarization; the `φ + τ T_i` form follows Coelho et al. 2022
 ([doi:10.1088/1741-4326/ac6ad2](https://doi.org/10.1088/1741-4326/ac6ad2)).
+
+**Stage 2: the internal splits follow the polarization variable.** Two internal
+splits of `φ` cancel in the continuum but fix the matrices that the upwinding
+and the characteristic dissipation are built on: the curvature material /
+remainder pair and the parallel (`Ve`) composite force `μ ∇∥ψ` with its
+principal matrix. With `polarization_variable="phi_plus_tau_pi"` both use
+`ψ = φ + τ n T_i` (`∂ψ/∂n = τ T_i`, `∂ψ/∂T_i = τ n`) in lockstep: the curvature
+matrix rows `(n, T_e, T_i)` gain `c τ T_i` in the `n` column and `c τ (n - 1)`
+in the `T_i` column (`c = (2n, 4T_e/3, 4T_i/3)`; the `ω` row is unchanged), the
+parallel matrix has `A[Ve, n] = μ T_e/n + μ τ T_i` and `A[Ve, T_i] = μ τ n`, and
+the remainder and the composite force act on `ψ = φ + τ n T_i`. Changing only
+one half of a pair is a continuum change and grows, so the selector switches all
+of them together; `"phi_plus_tau_ti"` reproduces the previous (`ψ = φ + τ T_i`)
+behaviour bit for bit. The two matrix functions
+(`curvature_principal_matrix`, `parallel_production_principal_matrix`) take a
+`psi=` keyword whose default is the legacy form, so external callers are
+unchanged; the RHS passes `polarization_variable` explicitly.
 
 The corresponding vorticity transport equation is represented schematically as
 

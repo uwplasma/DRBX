@@ -45,7 +45,7 @@ def field_boundary(boundary, selection):
 
 def apply_six_field_rhs(runtime, state, inner_boundary, outer_boundary,
                        phi, phi_boundary, coefficients, *, kinds, phi_kind,
-                       tau, mu):
+                       tau, mu, psi="phi_plus_tau_ti"):
     """Evaluate the selected six-field parallel block; callers inspect flags.
 
     State layout is (...,6,n_owner), output (...,n_chunk_owner,6). Boundary
@@ -55,6 +55,10 @@ def apply_six_field_rhs(runtime, state, inner_boundary, outer_boundary,
     this contains product cross terms and is NOT an affine primitive-state map.
     The split is diagnostic, and the contribution enters the current action once.
 
+    ``psi`` (default ``"phi_plus_tau_ti"``; or ``"phi_plus_tau_pi"`` for
+    psi = phi + tau*n*Ti, with G(n*Ti) of the slot products in place of G(Ti))
+    selects the electron-force split shared by the material row, the matrix
+    and the current/phi force.
     The material electron row already includes -mu*tau*G(Ti). Its matched
     generalized force is supplied once by the current/phi adapter. Diffusion
     coefficients are constant in space, with the existing channel normalization.
@@ -80,7 +84,7 @@ def apply_six_field_rhs(runtime, state, inner_boundary, outer_boundary,
                          inner[..., 1, :], outer[..., 1, :]), axis=-2)
     p = apply_raw_scalar_slots(rt.inner, phi, phi_boundary, kind=phi_kind)
     material = material_from_slots(stencil, p, rt.magnetic_L, rt.b_eta,
-                                    rt.eta_step, tau=tau, mu=mu)
+                                    rt.eta_step, tau=tau, mu=mu, **({} if psi == 'phi_plus_tau_ti' else {'psi': psi}))
     zero_bc = QBoundaryData(*(jnp.zeros_like(a) for a in ib))
     homogeneous = reconstruct_material_slots(rt.inner, x[..., :5, :], zero_bc,
                                               kinds=kinds[:5])
@@ -89,7 +93,10 @@ def apply_six_field_rhs(runtime, state, inner_boundary, outer_boundary,
     physical, d0 = current_div(inner), current_div(homogeneous)
     scale = rt.b_eta/(2*rt.eta_step)
     gphi = scale*(p[..., 1]-p[..., 0])
-    gti = scale*(inner[..., 1, 2]-inner[..., 0, 2])
+    if psi == "phi_plus_tau_pi":
+        gti = scale*(inner[..., 1, 0]*inner[..., 1, 2]-inner[..., 0, 0]*inner[..., 0, 2])
+    else:
+        gti = scale*(inner[..., 1, 2]-inner[..., 0, 2])
     cp = current_phi_from_raw(d0, physical-d0, gphi, gti, inner[..., 2, 0],
         jnp.broadcast_to(runtime.bmag, d0.shape), tau=tau, mu=mu)
     # Replace the already-tested generalized force, rather than appending it.

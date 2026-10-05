@@ -24,6 +24,7 @@ from drbx.geometry import (  # noqa: E402
 )
 from drbx.native.fci_drb_EB_rhs import (  # noqa: E402
     LocalFciDrbEBRhs,
+    _combine_operator_traces,
     _compose_parallel_phi_ti_gradient,
     build_local_fci_drb_eb_operator_boundary_bundle,
 )
@@ -296,14 +297,26 @@ def test_support_core_and_wall_current_phi_pair_are_weighted_adjoint() -> None:
             current_target, 0.0,
             legacy_gradient("phi", phi, operator_boundary.phi)
         )
+        if rhs.parameters.polarization_variable == "phi_plus_tau_pi":
+            # psi = phi + tau*n*Ti: the Ti-part operand is the product field
+            # with the product of the two level-2 parallel traces.
+            split_operand = density * Ti
+            split_trace = _combine_operator_traces(
+                parallel_boundary.density,
+                parallel_boundary.Ti,
+                operation=lambda n, ti: n * ti,
+            )
+        else:
+            split_operand = Ti
+            split_trace = parallel_boundary.Ti
         expected_composite_gradient = gradient(
-            phi + context.parameters.tau * Ti
+            phi + context.parameters.tau * split_operand
         ) + jnp.where(
             core,
             0.0,
             legacy_gradient("phi", phi, operator_boundary.phi)
             + context.parameters.tau
-            * legacy_gradient("Ti", Ti, parallel_boundary.Ti),
+            * legacy_gradient("split", split_operand, split_trace),
         )
         expected_vorticity_current = current_divergence(current) + jnp.where(
             current_target, 0.0, legacy_current
