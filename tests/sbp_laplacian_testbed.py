@@ -20,7 +20,8 @@ jax.config.update("jax_enable_x64", True)
 
 from drbx.geometry.nodal_families import build_family_a_layout  # noqa: E402
 from drbx.geometry.nodal_layout import wall_points  # noqa: E402
-from drbx.geometry.sbp_laplacian import build_laplacian_plan, nodal_laplacian_metric_from_callable  # noqa: E402
+from drbx.geometry.sbp_laplacian import (build_laplacian_plan, laplacian_face_metric_from_callable,  # noqa: E402
+                                         nodal_laplacian_metric_from_callable)
 
 D0, IOTA = 0.12, 1.5
 
@@ -172,6 +173,7 @@ class Case:
 
     def __init__(self, n: int, n_eta: int, with_exact: bool = True):
         self.layout = lay = build_family_a_layout(n, n_eta=n_eta)
+        self._faces = {}
         self.plan = build_laplacian_plan(lay, nodal_laplacian_metric_from_callable(lay, lambda p: _batched(_geometry_fn, p)))
         self.pts = node_points(lay)
         E, P = lay.n_eta, lay.P
@@ -189,6 +191,15 @@ class Case:
             con, nor = wall_data(wp.reshape(-1, 3))
             self.wall_conormal = con.reshape(E, self.N, -1)
             self.wall_normal = nor.reshape(E, self.N, -1)
+
+    def faces_plan(self, theta: bool = True, radial: bool = True):
+        """Plan with the analytic ``A`` evaluated at the ``eta`` half planes (and the ``theta`` half nodes / radial faces)."""
+        key = (theta, radial)
+        if key not in self._faces:
+            met = nodal_laplacian_metric_from_callable(self.layout, lambda p: _batched(_geometry_fn, p))
+            fm = laplacian_face_metric_from_callable(self.layout, lambda p: _batched(_geometry_fn, p)[0], theta=theta, radial=radial)
+            self._faces[key] = build_laplacian_plan(self.layout, met, faces=fm)
+        return self._faces[key]
 
     def h_rel_error(self, err, ref, mask=None):
         m = np.ones_like(self.H, bool) if mask is None else mask

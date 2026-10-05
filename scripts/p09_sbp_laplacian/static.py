@@ -13,7 +13,10 @@ Sets (all with the unit coefficient):
 
 Output ``<out>/<arm>/N<N>/static.json`` (and ``static/<set>_<mode>.npz`` with ``N`` and ``R``).
 
-    python static.py N --arm raw|filtered [--out ROOT]
+    python static.py N --arm raw|filtered [--out ROOT] [--variant interp|ee|ee_tt|all] [--faces-root ROOT]
+
+``--variant`` builds the plan with the listed face families taken from the tensor evaluated at the faces (``extract_metric.py
+--faces``) and writes ``<faces-root>/<arm>/N<N>/<variant>/static.json`` (and ``static/``) instead of the M5b location.
 """
 from __future__ import annotations
 
@@ -46,7 +49,7 @@ def table(err, ref, H, masks):
     return row
 
 
-def run(n: int, arm: str, out_root: Path) -> dict:
+def run(n: int, arm: str, out_root: Path, variant: str | None = None, faces_root: Path = C.FACES_ROOT) -> dict:
     import jax
     jax.config.update("jax_enable_x64", True)
     import jax.numpy as jnp
@@ -55,12 +58,14 @@ def run(n: int, arm: str, out_root: Path) -> dict:
 
     t0 = time.perf_counter()
     md = C.load_metric(out_root, arm, n)
-    plan = C.build_plan(md)
+    plan = C.variant_plan(md, variant, faces_root)
     st = plan.structure
     H = np.asarray(plan.Hp) * st.deta
     masks = ring_region_masks(md.layout, n)
-    res = dict(n=n, arm=arm, metric_identity=md.identity, tau=float(plan.tau), tau_w=float(plan.tau_w), sets={})
-    outdir = C.arm_dir(out_root, arm, n) / "static"
+    res = dict(n=n, arm=arm, metric_identity=md.identity, tau=float(plan.tau), tau_w=float(plan.tau_w), sets={},
+               variant=variant, evaluated=list(st.evaluated))
+    rdir = C.arm_dir(out_root, arm, n) if variant is None else C.variant_dir(faces_root, arm, n, variant)
+    outdir = rdir / "static"
     outdir.mkdir(parents=True, exist_ok=True)
     for sname, modes in SETS.items():
         ts = time.perf_counter()
@@ -90,7 +95,7 @@ def run(n: int, arm: str, out_root: Path) -> dict:
         res["sets"][sname] = sres
     res["seconds"] = time.perf_counter() - t0
     res["peak_rss_gib"] = C.peak_rss_gib()
-    C.write_json(C.arm_dir(out_root, arm, n) / "static.json", res)
+    C.write_json(rdir / "static.json", res)
     log(f"{arm} N{n}: static done {res['seconds']:.1f}s")
     return res
 
@@ -100,8 +105,10 @@ def main(argv=None) -> int:
     ap.add_argument("n", type=int)
     ap.add_argument("--arm", choices=C.ARMS, required=True)
     ap.add_argument("--out", type=Path, default=C.DEFAULT_ROOT)
+    ap.add_argument("--variant", choices=tuple(C.VARIANTS), default=None)
+    ap.add_argument("--faces-root", type=Path, default=C.FACES_ROOT)
     args = ap.parse_args(argv)
-    run(args.n, args.arm, args.out)
+    run(args.n, args.arm, args.out, args.variant, args.faces_root)
     return 0
 
 

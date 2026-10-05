@@ -24,7 +24,8 @@ from collections.abc import Iterator
 import numpy as np
 import scipy.sparse as sp
 
-from drbx.geometry.sbp_laplacian import LaplacianPlan, face_coefficients, fourier_half_interp, stag_eta, stag_fourier
+from drbx.geometry.sbp_laplacian import (LaplacianPlan, evaluated_faces, face_coefficients, fourier_half_interp, stag_eta,
+                                         stag_fourier)
 from drbx.geometry.sbp_operators import TWO_PI, deta_matrix, ring_dtheta
 
 __all__ = ["LaplacianAssembly", "global_assembly_data", "iter_inplane_blocks", "plane_group_size"]
@@ -41,7 +42,8 @@ def _pad(M, left: int, total: int):
 def global_assembly_data(lp: LaplacianPlan, coeff=None) -> dict:
     """Quantities of the assembly that couple the planes: ``A``, the face coefficients ``auu, att, aee``, ``c_core``, ``c_wall``, the
     penalty scalings ``s_in, s_wall`` (maxima over all planes), and ``Ge_diag (E, P)``, the in-plane diagonal of ``Ge^T c Ge``
-    (through the periodic ``eta`` interpolation of ``a_ee`` and the staggered ``eta`` derivative).
+    (through the periodic ``eta`` interpolation of ``a_ee`` and the staggered ``eta`` derivative). Face families the plan takes
+    from the tensor evaluated at the faces (``lp.structure.evaluated``) use it times the interpolated coefficient.
 
     Computed from all ``E`` planes of ``lp``; a windowed :class:`LaplacianAssembly` takes the rows of its planes.
     """
@@ -57,7 +59,7 @@ def global_assembly_data(lp: LaplacianPlan, coeff=None) -> dict:
         coeff = np.asarray(coeff, dtype=np.float64)
         A = coeff[..., None, None] * A0
         auu, att, aee = face_coefficients(A, np.asarray(lp.Iu), fourier_half_interp(N, np.pi / st.n),
-                                          fourier_half_interp(E, 0.0), Nc, m, N)
+                                          fourier_half_interp(E, 0.0), Nc, m, N, coeff=coeff, evaluated=evaluated_faces(lp))
         cr = coeff[:, Nc:].reshape(E, m, N)
         c_in = np.einsum("r,erj->ej", np.asarray(lp.t_in)[:4], cr[:, :4])
         c_wall = np.einsum("r,erj->ej", np.asarray(lp.t_out)[-4:], cr[:, -4:])

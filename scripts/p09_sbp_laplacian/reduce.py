@@ -9,7 +9,9 @@ Reads ``<out>/<arm>/N<n>/static.json`` for every finished ``n`` and writes ``<ou
   omega, psi``; ``p07n``: the four nonconstant fields, Dirichlet and both Neumann data types) has order >= 1.8 on both
   intervals; the constant control has ``max |N| <= 1e-8``. Ungated arms (raw) and the ``transverse_wave`` control are reported.
 
-    python reduce.py --arm raw|filtered [--out ROOT]
+    python reduce.py --arm raw|filtered [--out ROOT] [--variant V] [--faces-root ROOT]
+
+``--variant`` reduces ``<faces-root>/<arm>/N<n>/<variant>/static.json`` into ``<faces-root>/<arm>/static_summary_<variant>.json``.
 """
 from __future__ import annotations
 
@@ -37,15 +39,15 @@ def order(ea, eb, na, nb):
     return math.log(ea / eb) / math.log(nb / na)
 
 
-def reduce_arm(out_root: Path, arm: str) -> dict:
+def reduce_arm(out_root: Path, arm: str, variant: str | None = None) -> dict:
     per = {}
     for n in CONFIG["resolutions"]:
-        p = C.arm_dir(out_root, arm, n) / "static.json"
+        p = (C.arm_dir(out_root, arm, n) if variant is None else C.variant_dir(out_root, arm, n, variant)) / "static.json"
         if p.exists():
             per[n] = json.loads(p.read_text())
     ns = sorted(per)
     gated_arm = arm in CONFIG["gated_arms"]
-    out = dict(arm=arm, grids=ns, gated_arm=gated_arm, gate_minimum_order=GATE_ORDER, constant_tolerance=CONST_TOL, sets={})
+    out = dict(arm=arm, variant=variant, grids=ns, gated_arm=gated_arm, gate_minimum_order=GATE_ORDER, constant_tolerance=CONST_TOL, sets={})
     for sname, s0 in per[ns[0]]["sets"].items():
         sres = {}
         for mode, m0 in s0.items():
@@ -103,9 +105,12 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm", choices=C.ARMS, required=True)
     ap.add_argument("--out", type=Path, default=C.DEFAULT_ROOT)
+    ap.add_argument("--variant", choices=tuple(C.VARIANTS), default=None)
+    ap.add_argument("--faces-root", type=Path, default=C.FACES_ROOT)
     args = ap.parse_args(argv)
-    out = reduce_arm(args.out, args.arm)
-    C.write_json(Path(args.out) / args.arm / "static_summary.json", out)
+    root = args.out if args.variant is None else args.faces_root
+    out = reduce_arm(root, args.arm, args.variant)
+    C.write_json(Path(root) / args.arm / ("static_summary.json" if args.variant is None else f"static_summary_{args.variant}.json"), out)
     print_table(out)
     return 0
 
