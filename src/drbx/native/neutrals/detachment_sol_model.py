@@ -75,7 +75,6 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax._src.core import eval_context as _eval_context
 from jax.scipy.linalg import lu_factor, lu_solve
 
 __all__ = [
@@ -815,7 +814,7 @@ def detachment_target_outputs(theta, params: DetachmentSolParameters, guess: Det
     """``[T_t (eV), Gamma_t A_t]`` at steady state as a differentiable function of
     ``theta = [n_up (m^-3), power_flux (W/m^2)]``.
 
-    The primal is the Newton solve (concrete values, call outside ``jit``); the
+    The primal is the Newton solve, run on host values via ``jax.pure_callback``; the
     derivative is the implicit-function tangent ``dx = -G_x^{-1} G_theta dtheta``
     through ``lax.custom_linear_solve`` with the transposed bordered block solve,
     so ``jax.jacfwd`` and ``jax.grad`` both apply.
@@ -824,10 +823,13 @@ def detachment_target_outputs(theta, params: DetachmentSolParameters, guess: Det
     cache = {}
 
     def solve_primal(th):
-        # The Newton loop runs eagerly on concrete values even when a reverse-mode
-        # trace is active (grad traces the jvp rule with concrete primals).
-        with _eval_context():
-            return _solve_primal(th)
+        # The Newton loop runs on concrete host values through a callback, so the
+        # primal is available under jit, jacfwd and grad alike.
+        shapes = (
+            jax.ShapeDtypeStruct((params.ny, len(DetachmentSolState._fields)), jnp.float64),
+            jax.ShapeDtypeStruct((), jnp.float64),
+        )
+        return jax.pure_callback(_solve_primal, shapes, th)
 
     def _solve_primal(th):
         th = np.asarray(th)
@@ -838,7 +840,7 @@ def detachment_target_outputs(theta, params: DetachmentSolParameters, guess: Det
         if not r.converged:
             raise RuntimeError(f"steady solve did not converge (residual {r.residual:.2e})")
         cache["r"] = r
-        return jnp.stack(r.state, axis=1), jnp.asarray(r.source_scale)
+        return np.stack([np.asarray(f) for f in r.state], axis=1), np.asarray(r.source_scale, dtype=np.float64)
 
     @jax.custom_jvp
     def steady(th):
