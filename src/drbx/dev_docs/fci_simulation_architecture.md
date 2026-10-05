@@ -220,7 +220,11 @@ owner values to all fine cells so visualization receives a complete field.
 - A new FCI parallel operator must define mapped endpoint behavior at physical
   wall hits and axis crossings.
 - Do not add a second toroidal state representation or silent fallback around
-  owner-space RLP.
+  owner-space RLP. The one exception is the nodal SBP perpendicular path: its
+  state is point values at the family-A nodes, it is selected explicitly, and
+  it exchanges with the parallel operators only through the plane-local
+  raw-grid transfers `E` and `R = H^-1 E^T m`, with the pair cell mass `m`
+  so that the parallel pairs stay adjoint in the nodal norm `H`.
 - New production sharding paths must preserve the eta-only contract. Any
   communication required by a new operator must be explicit; P/R cannot be
   made nonlocal by splitting x or theta.

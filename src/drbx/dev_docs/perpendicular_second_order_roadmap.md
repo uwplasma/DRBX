@@ -2829,6 +2829,9 @@ regional second-order gate is imposed. P10 independently checks solutions.
   - The η-filter table stays at 257×256 (its interpolation error is part of the geometry and does not enter N − R).
   - **The filtered arm filters the logical map too** (toroidal modes above 3 per period dropped; B̃^i = F̃^i/J̃ with the filtered J̃), so h, K and the metric come from one consistent geometry. In progress; the filtered gates are rerun on the new arm.
   - **A at the half planes is evaluated from the analytic metric during extraction** instead of spectral interpolation (A_ηη rang negative). Follows the preconditioner change.
+- **Decisions on production integration (user, 5 October 2026; [design](../../../../work/p09_integration_design_20261004/production_rhs_design.md)).**
+  - The nodal path stores the state at the family-A nodes, `(E, P)` per field: a second toroidal state representation, allowed by an amended extension rule in `fci_simulation_architecture.md`.
+  - The parallel operators stay on the unagglomerated raw grid and exchange with the nodes through E (identity on rings, Zernike evaluation in the core) and R = H⁻¹Eᵀm. **The pair cell mass gets a hook** (`_fci_pair_cell_mass` returns m in nodal mode, raw volume otherwise), so the W2 parallel pair stays exactly adjoint in the nodal H.
 - **M5b result (4118e444, 5 October 2026; [report](../../../../work/p09_m5_laplacian_20261004/report.md)).**
   - Filtered arm (gated) passes P07 transverse and P07N, with Dirichlet, conormal and physical-normal Neumann data: orders 1.80–2.60 (ω, ψ 4.5/5.2). The raw arm stalls at 0.5–0.7 on 48→64, as the prototype did.
   - Constant control 1.9e-8 at N64 against the absolute 1e-8 tolerance: round-off (≈ 1.7e-16 ρ); tolerance decision open.
