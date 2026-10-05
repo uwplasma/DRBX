@@ -2715,6 +2715,19 @@ regional second-order gate is imposed. P10 independently checks solutions.
     - **The radial SBP derivative is applied banded:** closure rows plus the 5-point interior.
     - The dense `Du`/`Dth` stay in the plan as test references and for probing.
     - **Measured share of bracket time saved by both changes:** −5% (slower) at n = 32, 12% at n = 64, 32% at n = 128. FFT alone is about 2× slower than the dense matrix at N = 32 and wins from N = 128 up. A periodic FD stencil in θ was rejected: its phase error is about 20% at m = 8 on N = 32.
+  - **HSX coil ripple and the two geometry arms** (user, 4 October 2026; [wall-band diagnosis](../../../../work/p09_wall_band_20261004/report.md)):
+    - **What happened.** M3c's P05N wall-band failures, and the φ_wave Ti "η limit", come from the HSX metric's η content: up to k ≈ 64 per turn, about 30× stronger at the wall than near the axis. Its k = 48 line is HSX's 48-coil ripple (confirmed by the user).
+    - **Mechanism.** The conservative half of the split form differentiates F^η·g in η. F^η is built from h_u and h_θ, which carry the ripple. At n_eta ≤ 64 that content is unresolved and aliases (48 → 16 at N32/N64, → 0 at N48), so the orders were erratic.
+    - **The old operator could not see it.** It used a pointwise metric in advective form, with the same pointwise metric in the reference (O ≡ R), so it never differentiated the metric in η.
+    - **The operator is not at fault:**
+      - its wall closure, inflow SAT, wall correction, advective half and dissipation all converge at about 2–3;
+      - the testbed converges at 2.3–2.5;
+      - η-low-passing the metric (k ≤ 12, in both N and R) makes every failing pair pass at 2.2–3.0.
+    - **Rule.** The final MMS tests (static and evolved) run two geometry arms:
+      - **Ripple arm (full HSX field):** checks stability and reports accuracy; its order is not gated.
+      - **η-filtered arm:** the order gate.
+    - **How to filter.** Apply it to the field, not the operator. Filter B's cylindrical components in φ at fixed (R, Z) above a fixed physical cutoff; this preserves ∇·B = 0. Derive h, J, K and the FCI maps from the filtered field, so each arm has one geometry identity.
+    - **Scope.** M5 and M6 plan both arms from the start.
   - **Open, to be decided with the SBP Laplacian design (step 4):**
     - narrow vs wide second derivatives for P07/φ, and whether φ uses the bracket's gradient;
     - how P06/P07 act on the nodal state.
