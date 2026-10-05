@@ -2724,7 +2724,7 @@ regional second-order gate is imposed. P10 independently checks solutions.
       - the testbed converges at 2.3–2.5;
       - η-low-passing the metric (k ≤ 12, in both N and R) makes every failing pair pass at 2.2–3.0.
     - **Rule.** The final MMS tests (static and evolved) run two geometry arms:
-      - **Ripple arm (full HSX field):** checks stability and reports accuracy; its order is not gated.
+      - **Ripple arm (full HSX field):** always run; errors, orders and stability results are reported, but nothing on this arm is gated.
       - **η-filtered arm:** the order gate.
     - **How to filter.** Apply it to the field, not the operator. Filter B's cylindrical components in φ at fixed (R, Z) above a fixed physical cutoff; this preserves ∇·B = 0. Derive h, J, K and the FCI maps from the filtered field, so each arm has one geometry identity.
     - **Scope.** M5 and M6 plan both arms from the start.
