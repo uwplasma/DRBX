@@ -44,6 +44,35 @@ plasma:
 
 *Reproduce with [`examples/stellarator/stellarator_3d_render.py`](examples/stellarator/stellarator_3d_render.py).*
 
+## HSX stellarator scrape-off layer (experimental FCI backend)
+
+An experimental seven-field electrostatic Braginskii backend runs a seeded
+filament in the full HSX scrape-off layer, up to the vessel wall. Its eta slices are surfaces of a
+scalar potential that follow the stellarator. Small wall-cut cells are merged
+into owner cells, the current and potential are advanced together in an
+implicit stage, and the potential is solved with GMRES sharded over eta.
+Verified so far: (Ve, vorticity) continuity across the stage to about 1e-16
+relative, restarts bitwise equal to straight runs, identical GMRES counts on
+1, 2 and 4 devices, normalization tests, and 85/85 real-geometry tests. The time order is
+1.4-1.5 for n, T, Vi and vorticity but about 0.8 for phi. The canonical 32-cubed run (200 steps to
+t = 0.15) takes about 6.4 s per step on a laptop CPU, with about 95 GMRES
+iterations per solve.
+
+![HSX FCI filament](docs/media/hsx_fci_blob.png)
+
+![HSX FCI filament evolution](docs/media/hsx_fci_blob.gif)
+
+```bash
+python simulate_hsx_blob.py --geometry artifacts/geometry/hsx_fci_32x32x32 \
+  --save-every 10 --output run/history.npz
+python examples/stellarator/hsx_fci_blob_render.py run/history.npz docs/media
+```
+
+The geometry bundle is distributed separately; see
+[docs/fci_braginskii_hsx_backend.md](docs/fci_braginskii_hsx_backend.md).
+*Scope:* experimental and wall-limited: no sheath, neutral or recycling
+coupling yet.
+
 ## Install
 
 ```bash
@@ -149,6 +178,7 @@ Verified today (each with a passing test):
 | Open-field-line SOL flux tube | two-point / Bohm-sheath SOL theory (Stangeby, *The Plasma Boundary of Magnetic Fusion Devices*, 2000) | parallel flow reaches Mach 1 at the targets; target density = half upstream; exact Bohm particle balance and sheath-recycling accounting |
 | Neutrals and recycling (hermes-3 model) | hermes-3: Dudson et al., *Comput. Phys. Commun.* 296, 108991 (2024); AMJUEL atomic rates | physically-correct ionization/recombination/CX rates; exact plasma↔neutral particle & momentum conservation; neutrals conserve on the 3D closed rotating ellipse and recycle on the open slab |
 | SD1D detachment rollover (B6) | SD1D: Dudson et al., *Plasma Phys. Control. Fusion* 61, 065008 (2019) | self-consistent SOL (evolved temperature, implicit Spitzer conduction, self-limiting radiation): the target cools through 1 eV into the recombining regime and the target ion flux rolls over as upstream density rises; differentiable |
+| HSX scrape-off layer FCI filament (experimental) | HSX geometry; FCI after Stegmeir et al. (2016) | (Ve, ω) continuity across the implicit stage ~1e-16; restart bitwise; equal GMRES counts on 1/2/4 devices; 85/85 real-geometry tests; time order 1.4-1.5 (n, T, Vi, ω), ~0.8 (φ) |
 | Differentiable inverse design | — | gradient descent through turbulence recovers a drive parameter |
 
 Planned rungs (seeded-blob inertial scaling and others) are
