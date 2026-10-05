@@ -1378,6 +1378,21 @@ def _load_restart_state(
     return FciDrbEBState(**arrays), restart_time
 
 
+def _restart_step_offset(path: Path) -> int:
+    """Return the global step stored in a snapshot/checkpoint, else 0.
+
+    Restarted runs number their steps from this offset so that periodic
+    checkpoints keep global step labels and cannot overwrite the checkpoint
+    the run restarted from.  History files carry no step and give 0.
+    """
+
+    with np.load(path, allow_pickle=False) as data:
+        if "step" not in data:
+            return 0
+        step = np.asarray(data["step"])
+        return int(step.reshape(-1)[0]) if step.size == 1 else 0
+
+
 def _format_snapshot_time(value: float) -> str:
     return f"{value:.12e}".replace("+", "p").replace("-", "m").replace(".", "d")
 
@@ -1410,6 +1425,7 @@ def run_full_eb(
     snapshot_dir: Path | None = None,
     run_metadata: dict[str, object] | None = None,
     reconstruct_initial_phi: bool = True,
+    start_step: int = 0,
     parallel_operator_scheme: str = "fci",
     control_volume_descriptor=None,
     control_volume_fields_host=None,
@@ -2709,6 +2725,7 @@ def run_full_eb(
         failure_reason: str | None = None,
         periodic_checkpoint: bool = False,
     ) -> None:
+        step = int(step) + int(start_step)
         if inspected is None:
             inspected = inspect_host(state)
         snapshot_state = materialized_state(state)
@@ -3036,7 +3053,8 @@ def run_full_eb(
             and snapshot_schedule[next_snapshot] <= current_time + 1.0e-14
         )
         periodic_checkpoint_due = (
-            checkpoint_every > 0 and step % int(checkpoint_every) == 0
+            checkpoint_every > 0
+            and (step + int(start_step)) % int(checkpoint_every) == 0
         )
         if inspection_enabled and (
             (diagnostic_every > 0 and step % int(diagnostic_every) == 0)
@@ -4052,6 +4070,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
         },
         reconstruct_initial_phi=not restart_used,
+        start_step=(
+            _restart_step_offset(args.restart_from) if restart_used else 0
+        ),
         control_volume_descriptor=control_volume_descriptor,
         control_volume_fields_host=control_volume_fields,
         control_volume_boundary_bc=control_volume_boundary_bc,
