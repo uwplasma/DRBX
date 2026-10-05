@@ -90,23 +90,32 @@ def compute_fci_neutral_reaction_diffusion(
     ion_density_source = ionisation_rate - recombination_rate
     electron_density_source = ionisation_rate - recombination_rate
 
+    # Internal-energy transfers Q (each particle carries 3T/2 of its donor) plus
+    # the receiver-fluid mixing heat: the bulk kinetic energy that the momentum
+    # exchange below removes from the pair, so thermal + kinetic energy is
+    # conserved. The evolved fields are pressures, so the sources are 2Q/3.
+    m_n = float(neutral_mass)
+    m_i = float(ion_mass)
     ionisation_neutral_energy = 1.5 * ionisation_rate * tn
     recombination_ion_energy = 1.5 * recombination_rate * ti
     cx_neutral_energy = 1.5 * charge_exchange_rate * tn
     cx_ion_energy = 1.5 * charge_exchange_rate * ti
-    relative_velocity = ui - un
-    cx_kinetic = 0.5 * charge_exchange_rate * jnp.square(relative_velocity)
+    ionisation_mixing = 0.5 * ionisation_rate * (m_i * jnp.square(ui) + m_n * jnp.square(un) - 2.0 * m_n * un * ui)
+    recombination_mixing = 0.5 * recombination_rate * (m_n * jnp.square(un) + m_i * jnp.square(ui) - 2.0 * m_i * ui * un)
+    cx_kinetic = 0.5 * charge_exchange_rate * (m_i * jnp.square(ui) + m_n * jnp.square(un) - (m_i + m_n) * ui * un)
 
-    neutral_pressure_source = (
-        neutral_pressure_diffusion_source
-        - ionisation_neutral_energy
+    neutral_heat = (
+        -ionisation_neutral_energy
         + recombination_ion_energy
         - cx_neutral_energy
         + cx_ion_energy
         + cx_kinetic
+        + recombination_mixing
     )
-    ion_pressure_source = ionisation_neutral_energy - recombination_ion_energy + cx_neutral_energy - cx_ion_energy + cx_kinetic
-    electron_pressure_source = -ionisation_energy * ionisation_rate - recombination_energy * recombination_rate
+    ion_heat = ionisation_neutral_energy - recombination_ion_energy + cx_neutral_energy - cx_ion_energy + cx_kinetic + ionisation_mixing
+    neutral_pressure_source = neutral_pressure_diffusion_source + (2.0 / 3.0) * neutral_heat
+    ion_pressure_source = (2.0 / 3.0) * ion_heat
+    electron_pressure_source = -(2.0 / 3.0) * (ionisation_energy * ionisation_rate + recombination_energy * recombination_rate)
 
     ionisation_momentum = ionisation_rate * float(neutral_mass) * un
     recombination_momentum = recombination_rate * float(ion_mass) * ui
