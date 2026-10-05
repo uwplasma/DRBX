@@ -9,11 +9,13 @@
    located by region (core, core band, wall rings, interior), ring, theta seam and eta seam participation.
 
     python audit.py N --arm raw|filtered [--out ROOT] [--mode host|mf|both] [--k 4] [--maxiter 600] [--tol 1e-15]
+        [--variant interp|ee|ee_tt|all] [--faces-root ROOT]
 
 ``--mode host``: the package ``audit_laplacian_plan`` (host sparse assembly; N32 only within the 4 GB budget), once with the
 package defaults (80 LOBPCG iterations, tolerance 1e-7 rho) and once refined (the near-null Neumann cluster sits at ~1e-12 rho,
 below the default tolerance). ``--mode mf``: the matrix-free LOBPCG of ``audit_mf.py`` (any N). ``--estimate-only`` prints the
-host-assembly memory estimate. Output ``<out>/<arm>/N<N>/audit<tag>.json``.
+host-assembly memory estimate. Output ``<out>/<arm>/N<N>/audit<tag>.json``. ``--variant`` takes the listed face families from the
+tensor evaluated at the faces (``extract_metric.py --faces``) and writes to ``<faces-root>/<arm>/N<N>/<variant>/`` instead.
 """
 from __future__ import annotations
 
@@ -140,16 +142,18 @@ def _finish(r: dict, vecs, plan, md, H) -> dict:
 
 
 def audit(n: int, arm: str, out_root: Path, k: int, maxiter: int, tol: float, mode: str, groups: int, factor_dtype: str,
-          tag: str = "", estimate_only: bool = False) -> dict:
+          tag: str = "", estimate_only: bool = False, variant: str | None = None, faces_root: Path = C.FACES_ROOT) -> dict:
     t0 = time.perf_counter()
     md = C.load_metric(out_root, arm, n)
-    plan = C.build_plan(md)
+    plan = C.variant_plan(md, variant, faces_root)
+    rdir = C.arm_dir(out_root, arm, n) if variant is None else C.variant_dir(faces_root, arm, n, variant)
+    rdir.mkdir(parents=True, exist_ok=True)
     st = plan.structure
     t_plan = time.perf_counter() - t0
     log(f"{arm} N{n}: plan built {t_plan:.1f}s (E={st.n_eta}, P={st.P}, unknowns {st.n_eta * st.P}, tau={float(plan.tau):.1f}, "
         f"tau_w={float(plan.tau_w):.1f})")
     res = dict(n=n, arm=arm, unknowns=st.n_eta * st.P, plan_seconds=t_plan, coefficients=coefficient_report(plan),
-               metric_identity=md.identity, mode=mode)
+               metric_identity=md.identity, mode=mode, variant=variant, evaluated=list(st.evaluated))
     log("coefficients: " + "; ".join(f"{key} [{res['coefficients'][key]['min']:.4g}, {res['coefficients'][key]['max']:.4g}] "
                                      f"neg {res['coefficients'][key]['negative']['count']}" for key in ("auu_f", "att_h", "aee_h")))
     H = np.asarray(plan.Hp) * st.deta
@@ -157,7 +161,7 @@ def audit(n: int, arm: str, out_root: Path, k: int, maxiter: int, tol: float, mo
         N_ = st.N
         nnz = st.n_eta * st.P * 12 * N_
         res["host_assembly_estimate"] = dict(nnz_per_row_model="12 N (387 measured at N32)", nnz=nnz, transient_gib=nnz * 71 / 2 ** 30)
-        C.write_json(C.arm_dir(out_root, arm, n) / "audit_estimate.json", res)
+        C.write_json(rdir / "audit_estimate.json", res)
         log(f"host full-matrix estimate: nnz {nnz:.2e}, transient {nnz * 71 / 2 ** 30:.1f} GiB")
         return res
     out = {}
@@ -216,10 +220,10 @@ def audit(n: int, arm: str, out_root: Path, k: int, maxiter: int, tol: float, mo
         out["matrix_free"] = o
     res["audit"] = out
     if vec_store:
-        np.savez_compressed(C.arm_dir(out_root, arm, n) / f"audit_vectors{tag}.npz", **vec_store)   # nodal values (n, k) of the lowest vectors
+        np.savez_compressed(rdir / f"audit_vectors{tag}.npz", **vec_store)   # nodal values (n, k) of the lowest vectors
     res["seconds"] = time.perf_counter() - t0
     res["peak_rss_gib"] = C.peak_rss_gib()
-    C.write_json(C.arm_dir(out_root, arm, n) / f"audit{tag}.json", res)
+    C.write_json(rdir / f"audit{tag}.json", res)
     return res
 
 
@@ -236,10 +240,12 @@ def main(argv=None) -> int:
     ap.add_argument("--factor-dtype", default="float64", choices=("float64", "float32"))
     ap.add_argument("--tag", default="")
     ap.add_argument("--estimate-only", action="store_true")
+    ap.add_argument("--variant", choices=tuple(C.VARIANTS), default=None)
+    ap.add_argument("--faces-root", type=Path, default=C.FACES_ROOT)
     args = ap.parse_args(argv)
     groups = args.groups or {32: 1, 48: 8, 64: 16}[args.n]
     audit(args.n, args.arm, args.out, args.k, args.maxiter, args.tol, args.mode, groups, args.factor_dtype, args.tag,
-          args.estimate_only)
+          args.estimate_only, args.variant, args.faces_root)
     return 0
 
 

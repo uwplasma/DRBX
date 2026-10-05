@@ -9,6 +9,12 @@ Layout of the output root ``ROOT`` (``work/p09_m5_laplacian_20261004``)::
     ROOT/<arm>/N<n>/solve.json                phi controls + CG benchmark (solve_bench.py)
     ROOT/<arm>/N<n>/nodal_laplacian_reference.npz + manifest   (refreeze.py)
 
+Evaluated face tensors (``extract_metric.py --faces``; the face-coefficient variants of :data:`VARIANTS`)::
+
+    FACES_ROOT/<arm>/N<n>/laplacian_faces.npz            A^{ee} at the eta half planes, A^{tt} at the theta half nodes, A^{uu} at the radial faces
+    FACES_ROOT/<arm>/N<n>/faces_receipt.json
+    FACES_ROOT/<arm>/N<n>/<variant>/{audit,static,solve}.json   the scripts' ``--variant`` runs (the metric still comes from ROOT)
+
 ``arm`` is ``raw`` (the production field) or ``filtered`` (the eta-filtered verification arm of ``p_shared.eta_filter``).
 """
 from __future__ import annotations
@@ -44,6 +50,11 @@ WORK = Path("/Users/yxie/Desktop/HSX drbx/work")
 DEFAULT_ROOT = WORK / "p09_m5_laplacian_20261004"
 METRIC_FILE = "laplacian_metric.npz"
 METRIC_SCHEMA = "drbx.p09-laplacian-metric-v1"
+FACES_ROOT = DEFAULT_ROOT / "faces"
+FACES_FILE = "laplacian_faces.npz"
+FACES_SCHEMA = "drbx.p09-laplacian-faces-v1"
+#: face-coefficient variants: the face families taking the tensor evaluated at the faces (the rest interpolated from the nodes)
+VARIANTS = {"interp": (), "ee": ("ee",), "ee_tt": ("ee", "tt"), "all": ("ee", "tt", "uu")}
 M3_METRIC = {"raw": WORK / "p09_m3_campaign_20261004", "filtered": WORK / "p09_m3_filtered_20261004"}
 
 
@@ -59,6 +70,16 @@ def arm_dir(root: Path, arm: str, n: int) -> Path:
     if arm not in ARMS:
         raise ValueError(f"arm must be one of {ARMS}")
     return Path(root) / arm / f"N{n}"
+
+
+def faces_dir(root: Path, arm: str, n: int) -> Path:
+    return arm_dir(root, arm, n)
+
+
+def variant_dir(root: Path, arm: str, n: int, variant: str) -> Path:
+    if variant not in VARIANTS:
+        raise ValueError(f"variant must be one of {tuple(VARIANTS)}")
+    return faces_dir(root, arm, n) / variant
 
 
 def sha256_file(path) -> str:
@@ -143,6 +164,43 @@ def build_plan(md: MetricData, **kw):
     return build_laplacian_plan(md.layout, md.metric, **kw)
 
 
+class FaceData:
+    """The tensors evaluated at the faces (``laplacian_faces.npz`` of ``extract_metric.py --faces``) of one arm and resolution."""
+
+    def __init__(self, path: Path, md: MetricData):
+        with np.load(path, allow_pickle=False) as z:
+            if str(z["schema"]) != FACES_SCHEMA:
+                raise ValueError(f"unsupported faces schema in {path}")
+            self.arrays = {k: np.asarray(z[k]) for k in z.files if k not in ("schema", "meta", "identity")}
+            self.meta = json.loads(str(z["meta"]))
+            self.identity = str(z["identity"])
+        if sha256_arrays(self.arrays, json.dumps(self.meta, sort_keys=True)) != self.identity:
+            raise ValueError(f"faces identity mismatch in {path}")
+        if self.meta["metric_identity"] != md.identity:
+            raise ValueError("the faces were extracted for a different nodal metric")
+        self.A_ee_h, self.A_tt_h, self.A_uu_f = (self.arrays[k] for k in ("A_ee_h", "A_tt_h", "A_uu_f"))
+
+    def face_metric(self, variant: str):
+        """``LaplacianFaceMetric`` of the variant (``None`` for ``"interp"``)."""
+        from drbx.geometry.sbp_laplacian import LaplacianFaceMetric
+
+        ev = VARIANTS[variant]
+        if not ev:
+            return None
+        return LaplacianFaceMetric(self.A_ee_h, self.A_tt_h if "tt" in ev else None, self.A_uu_f if "uu" in ev else None)
+
+
+def load_faces(root: Path, arm: str, n: int, md: MetricData) -> FaceData:
+    return FaceData(faces_dir(root, arm, n) / FACES_FILE, md)
+
+
+def variant_plan(md: MetricData, variant: str | None, faces_root: Path = FACES_ROOT, **kw):
+    """Plan of a face-coefficient variant (``None``: the plain interpolated plan, the M5b default)."""
+    if variant is None or variant == "interp":
+        return build_plan(md, **kw)
+    return build_plan(md, faces=load_faces(faces_root, md.meta["arm"], md.meta["n"], md).face_metric(variant), **kw)
+
+
 def write_json(path: Path, obj) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -175,4 +233,7 @@ def plan_identity(plan) -> str:
 
     arrays = {f.name: np.asarray(getattr(plan, f.name)) for f in dataclasses.fields(plan)
               if f.name != "structure" and getattr(plan, f.name) is not None}
-    return sha256_arrays(arrays, json.dumps(dataclasses.asdict(plan.structure), sort_keys=True))
+    st = dataclasses.asdict(plan.structure)
+    if not st.get("evaluated"):
+        st.pop("evaluated", None)                       # an interpolated plan keeps its pre-faces identity
+    return sha256_arrays(arrays, json.dumps(st, sort_keys=True))

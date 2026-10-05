@@ -471,3 +471,102 @@ def test_penalty_rule_bounds_the_exact_trace_constants():
         assert exact[key] <= rule[key] <= 1.6 * exact[key], key
     assert abs(tau - float(lp.tau)) <= 1e-12 * tau and abs(tau_w - float(lp.tau_w)) <= 1e-12 * tau_w
     assert abs(tau - (rule["C_c"] / 4 + rule["C_r"] / 2)) <= 1e-12 * tau and abs(tau_w - 2 * rule["C_w"]) <= 1e-12 * tau_w
+
+
+# ------------------------------------------------------------------------------------------------ evaluated face tensors
+def test_face_points_and_defaults_are_the_interpolated_plan():
+    """The face points are the half planes / half nodes / radial faces; an analytic tensor evaluated there equals the spectral
+    (Lagrange) interpolation of its nodal values; ``faces=None`` is bitwise the interpolated plan."""
+    lay = build_family_a_layout(16, n_eta=8)
+    core, ring = lay.blocks
+    E, P, Nc, m, N = lay.n_eta, lay.P, core.n_nodes, ring.m, ring.N
+    pts = sl.laplacian_face_points(lay)
+    assert pts["ee"].shape == (E, P, 3) and pts["tt"].shape == (E, m, N, 3) and pts["uu"].shape == (E, m + 1, N, 3)
+    assert np.abs(pts["ee"][..., 2] - (np.arange(E) + 1.0)[:, None] * lay.deta).max() <= 1e-14
+    assert abs(pts["uu"][0, 0, 0, 0] - core.R_c) <= 1e-14 and abs(pts["uu"][0, m, 0, 0] - 1.0) <= 1e-14
+    assert np.abs(pts["tt"][..., 1] - (lay.node_theta[Nc:Nc + N] + np.pi / N)).max() <= 1e-14
+
+    def fn(q):                                                           # smooth, band-limited in theta and eta, cubic in u
+        u, t, e = np.asarray(q).T
+        A = np.zeros((len(u), 3, 3))
+        A[:, 0, 0] = 1.0 + u ** 3 - 0.5 * u * u
+        A[:, 1, 1] = 2.0 + 0.5 * np.cos(2 * t + e) + 0.2 * np.sin(3 * t)
+        A[:, 2, 2] = 1.0 + 0.4 * np.cos(e) + 0.3 * np.sin(2 * e + t)
+        return A
+
+    met = sl.nodal_laplacian_metric_from_callable(lay, lambda q: (fn(q), np.ones(len(q)) * 0.5 + q[:, 0], None))
+    fm = sl.laplacian_face_metric_from_callable(lay, fn)
+    base = sl.build_laplacian_plan(lay, met)
+    plan = sl.build_laplacian_plan(lay, met, faces=fm)
+    assert base.structure.evaluated == () and plan.structure.evaluated == ("uu", "tt", "ee")
+    again = sl.build_laplacian_plan(lay, met, faces=None)
+    for name in ("auu_f", "att_h", "aee_h", "A", "Hp", "tau", "tau_w"):
+        assert np.array_equal(getattr(base, name), getattr(again, name))
+    assert np.abs(plan.auu_f - base.auu_f).max() <= 1e-12 * np.abs(base.auu_f).max()
+    assert np.abs(plan.att_h - base.att_h).max() <= 1e-12 * np.abs(base.att_h).max()
+    ref = np.asarray(base.aee_h)
+    assert np.abs(plan.aee_h[:, Nc:] - ref[:, Nc:]).max() <= 1e-12 * np.abs(ref).max()      # ring: the same function
+    # core nodes: the block frame divides A_eta,eta by u (as core_frame_A), and the half-plane value is the evaluated one
+    assert np.abs(plan.aee_h[:, :Nc] - ref[:, :Nc]).max() <= 1e-12 * np.abs(ref[:, :Nc]).max()
+    only = sl.build_laplacian_plan(lay, met, faces=sl.laplacian_face_metric_from_callable(lay, fn, theta=False, radial=False))
+    assert only.structure.evaluated == ("ee",) and np.array_equal(only.auu_f, base.auu_f) and np.array_equal(only.att_h, base.att_h)
+    with pytest.raises(ValueError, match="A_ee_h"):
+        sl.build_laplacian_plan(lay, met, faces=sl.LaplacianFaceMetric(fm.A_ee_h[:, :-1]))
+    with pytest.raises(ValueError, match="A_uu_f"):
+        sl.build_laplacian_plan(lay, met, faces=sl.LaplacianFaceMetric(fm.A_ee_h, None, fm.A_uu_f[:, :-1]))
+
+
+@pytest.fixture(scope="module")
+def faces16(c16):
+    return {key: c16.faces_plan(*key) for key in ((False, False), (True, False), (True, True))}
+
+
+def test_evaluated_faces_jax_apply_matches_host_assembly_and_keeps_the_energy_structure(faces16, c16):
+    rng = np.random.default_rng(11)
+    E, P, N = c16.E, c16.P, c16.N
+    f = rng.standard_normal((E, P, 3))
+    gD, gN = rng.standard_normal((E, N, 3)), rng.standard_normal((E, N, 3))
+    bcd = lap.LaplacianBoundaryData(value=(gD,), conormal=(gN,))
+    zero = np.zeros((E, N, 3))
+    for key, plan in faces16.items():
+        for coeff, ck in ((None, 1.0), (c16.coeff, 2.5)):
+            out = np.asarray(FORM(plan, f, bcd, KINDS3, coeff, ck))
+            asm = LaplacianAssembly(plan, coeff, ck)
+            for i, kind in enumerate(KINDS3):
+                g = gD[..., i] if kind == "dirichlet" else gN[..., i]
+                ref = (asm.matrix(kind) @ f[..., i].ravel() - asm.data_vector(g, kind)).reshape(E, P)
+                assert rel(out[..., i], ref) <= 1e-11, (key, i)
+            for kind in ("dirichlet", "neumann"):                          # H-symmetry of the evaluated-face matrix
+                assert h_symmetry(asm.matrix(kind), asm.H) <= 1e-14, (key, kind)
+            # L(1) = 0: Neumann with zero conormal data, Dirichlet with the constant datum, and the divergence theorem
+            H = (np.asarray(plan.Hp) * plan.structure.deta)[..., None]
+            ones = np.ones((E, P, 3))
+            Lc = -np.asarray(FORM(plan, ones, lap.LaplacianBoundaryData(value=(np.ones((E, N, 3)),), conormal=(zero,)), KINDS3,
+                                  coeff, 1.0)) / H
+            Lf = -np.asarray(FORM(plan, f, lap.LaplacianBoundaryData(value=(zero,), conormal=(zero,)), KINDS3, coeff, 1.0)) / H
+            assert np.abs(Lc).max() <= 1e-9 * np.abs(Lf).max(), key
+            g = rng.standard_normal((E, N, 3))
+            Lg = -np.asarray(FORM(plan, f, lap.LaplacianBoundaryData(value=(zero,), conormal=(g,)), KINDS3, coeff, 1.0)) / H
+            assert abs(np.sum(H[..., 0] * Lg[..., 1]) - np.sum(g[..., 1]) * TWO_PI / N * plan.structure.deta) \
+                <= 1e-12 * np.sum(np.abs(H[..., 0] * Lg[..., 1]))
+    # the evaluated plan differs from the interpolated one only through the faces (a small, nonzero change)
+    d = np.abs(np.asarray(FORM(faces16[(True, True)], f, bcd, KINDS3, None, 1.0)) - np.asarray(FORM(c16.plan, f, bcd, KINDS3, None, 1.0)))
+    assert 0.0 < d.max() < 0.05 * np.abs(np.asarray(FORM(c16.plan, f, bcd, KINDS3, None, 1.0))).max()
+
+
+def test_evaluated_faces_are_nonnegative_and_the_static_accuracy_is_not_worse(faces16, c16):
+    for key, plan in faces16.items():
+        assert np.asarray(plan.aee_h).min() >= 0.0 and np.asarray(plan.att_h).min() > 0.0 and np.asarray(plan.auu_f).min() > 0.0
+        # with a positive coefficient the face value stays positive (A_face > 0 times an interpolated positive coefficient)
+        _c = lap._coefficients(plan, c16.coeff)
+        assert float(np.asarray(_c.aee).min()) >= 0.0
+    errs = {}
+    for name, bcd, kind, ref in (("D", lap.LaplacianBoundaryData(value=(c16.wall_val,)), "dirichlet", c16.lap),
+                                 ("N", lap.LaplacianBoundaryData(conormal=(c16.wall_conormal,)), "neumann", c16.lap),
+                                 ("Dc", lap.LaplacianBoundaryData(value=(c16.wall_val,)), "dirichlet", c16.lap_c)):
+        for key, plan in (("interp", c16.plan), ("ee", faces16[(False, False)]), ("all", faces16[(True, True)])):
+            out = np.asarray(lap.laplacian_action(plan, c16.vals, bcd, (kind,) * 3, c16.coeff if name == "Dc" else None))
+            errs[name, key] = [c16.h_rel_error(out[..., i] - ref[..., i], ref[..., i]) for i in (0, 1)]
+    for name in ("D", "N", "Dc"):
+        for key in ("ee", "all"):                                           # not worse than interpolated (10 % slack)
+            assert all(a <= 1.1 * b for a, b in zip(errs[name, key], errs[name, "interp"])), (name, key, errs)

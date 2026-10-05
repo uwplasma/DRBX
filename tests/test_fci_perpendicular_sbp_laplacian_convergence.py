@@ -68,3 +68,24 @@ def test_pcg_iterations_and_definiteness_audit_at_n32():
     assert res["seconds"] < 120
     asm = LaplacianAssembly(c.plan)
     assert asm.matrix("dirichlet").nnz < 5e7
+
+
+def test_static_orders_with_faces_evaluated_are_not_worse_than_interpolated():
+    """Evaluating the tensor at the eta half planes (and at every face) keeps the orders of the interpolated faces (analytic testbed)."""
+    act = jax.jit(lap.laplacian_action, static_argnames=("kinds", "neumann_mode"))
+    errs = {(k, v): [] for k in ("D", "N") for v in ("interp", "ee", "all")}
+    for n in NS:
+        c = tb.case(n, N_ETA)
+        plans = {"interp": c.plan, "ee": c.faces_plan(False, False), "all": c.faces_plan(True, True)}
+        runs = {"D": (lap.LaplacianBoundaryData(value=(c.wall_val,)), "dirichlet"),
+                "N": (lap.LaplacianBoundaryData(conormal=(c.wall_conormal,)), "neumann")}
+        for (key, (bcd, kind)), (vname, plan) in ((a, b) for a in runs.items() for b in plans.items()):
+            out = np.asarray(act(plan, c.vals, bcd, (kind,) * 3, None))
+            errs[key, vname].append([c.h_rel_error(out[..., i] - c.lap[..., i], c.lap[..., i]) for i in (0, 1)])
+    for key in ("D", "N"):
+        base = np.asarray(_orders(errs[key, "interp"]))
+        for vname in ("ee", "all"):
+            e = np.asarray(errs[key, vname])
+            assert (np.diff(e, axis=0) < 0).all(), (key, vname)
+            assert (e[-1] <= 1.05 * np.asarray(errs[key, "interp"])[-1]).all(), (key, vname)
+            assert (np.asarray(_orders(e)) >= base - 0.15).all(), (key, vname, _orders(e), base)

@@ -20,7 +20,8 @@ the boundary data enter as cotangents on the trace features:
 
 Arrays are ``(E, P)`` or ``(E, P, F)``; wall data ``(E, N, F)`` (or ``(E, N)`` for one field), one entry per wall as a tuple
 like :class:`~drbx.native.fci_perpendicular_sbp_boundary.SatBoundaryData`. ``coeff`` multiplies ``A`` pointwise
-(``n``, ``n / B^2``, ...); its face values are interpolated from the nodal product ``coeff * A`` at call time, the
+(``n``, ``n / B^2``, ...); its face values are interpolated from the nodal product ``coeff * A`` at call time (for a face
+family the plan evaluated at the faces, ``plan.structure.evaluated``: the evaluated tensor times the interpolated ``coeff``), the
 penalties scale with the largest coefficient on their surface and the shell rate with the local value (``coeff >= 0``).
 Single device only (the ``eta`` operators wrap periodically).
 """
@@ -140,10 +141,14 @@ def _coefficients(lp: LaplacianPlan, coeff) -> _Coef:
     coeff = jnp.asarray(coeff)
     A = coeff[..., None, None] * lp.A
     ring = A[:, Nc:]
-    auu = jnp.einsum("km,emj->ekj", lp.Iu, ring[..., 0, 0].reshape(E, m, N))
-    att = _half_interp(ring[..., 1, 1].reshape(E, m, N), 2, N)
-    aee = _half_interp(A[..., 2, 2], 0, E)
     cr = coeff[:, Nc:].reshape(E, m, N)
+    ev = st.evaluated                      # static: families whose face tensor was evaluated at the faces by the plan
+    if "uu" in ev:
+        auu = lp.auu_f * jnp.einsum("km,emj->ekj", lp.Iu, cr)
+    else:
+        auu = jnp.einsum("km,emj->ekj", lp.Iu, ring[..., 0, 0].reshape(E, m, N))
+    att = lp.att_h * _half_interp(cr, 2, N) if "tt" in ev else _half_interp(ring[..., 1, 1].reshape(E, m, N), 2, N)
+    aee = lp.aee_h * _half_interp(coeff, 0, E) if "ee" in ev else _half_interp(A[..., 2, 2], 0, E)
     c_in = jnp.einsum("r,erj->ej", lp.t_in[:N_TRACE], cr[:, :N_TRACE])
     c_wall = jnp.einsum("r,erj->ej", lp.t_out[-N_TRACE:], cr[:, -N_TRACE:])
     c_core_tr = jnp.einsum("jp,ep->ej", lp.Rx, coeff[:, :Nc])

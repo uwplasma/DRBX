@@ -20,6 +20,10 @@ The compile time is measured separately (ahead-of-time ``lower`` + ``compile`` o
 
     python solve_bench.py N --arm raw|filtered [--out ROOT] [--method core_schur|core_super_ring] [--rings-per-block R]
         [--group-planes G | --groups G] [--factor-dtype float64|float32] [--skip-controls] [--result-dir DIR] [--tag T]
+        [--variant interp|ee|ee_tt|all] [--faces-root ROOT]
+
+``--variant`` takes the listed face families from the tensor evaluated at the faces (``extract_metric.py --faces``); the result goes to
+``<faces-root>/<arm>/N<N>/<variant>/solve<tag>.json`` unless ``--result-dir`` is given.
 """
 from __future__ import annotations
 
@@ -52,7 +56,8 @@ def timeit(fn, reps: int):
 
 def run(n: int, arm: str, out_root: Path, groups: int, factor_dtype: str, tag: str, method: str = "core_schur",
         rings_per_block: int | str = "auto", group_planes: int | None = None, skip_controls: bool = False,
-        result_dir: Path | None = None, compile_cache: bool = False) -> dict:
+        result_dir: Path | None = None, compile_cache: bool = False, variant: str | None = None,
+        faces_root: Path = C.FACES_ROOT) -> dict:
     import jax
     jax.config.update("jax_enable_x64", True)
     jax.config.update("jax_enable_compilation_cache", bool(compile_cache))   # cold compile times unless asked otherwise
@@ -65,15 +70,18 @@ def run(n: int, arm: str, out_root: Path, groups: int, factor_dtype: str, tag: s
     cfg = CONFIG["cg"]
     rtol, maxit, reps = float(cfg["rtol"]), int(cfg["maxit"]), int(cfg["warm_repeats"])
     md = C.load_metric(out_root, arm, n)
-    plan = C.build_plan(md)
+    plan = C.variant_plan(md, variant, faces_root)
     st = plan.structure
     E, P = st.n_eta, st.P
+    if result_dir is None and variant is not None:
+        result_dir = C.variant_dir(faces_root, arm, n, variant)
     H = np.asarray(plan.Hp) * st.deta
     plan_np = plan
     plan = jax.tree_util.tree_map(jnp.asarray, plan)           # device-resident plan (as in production), not copied per call
     masks = ring_region_masks(md.layout, n)
     res = dict(n=n, arm=arm, method=method, rings_per_block=rings_per_block, group_planes=group_planes, groups=groups,
-               factor_dtype=factor_dtype, rtol=rtol, unknowns=E * P, metric_identity=md.identity)
+               factor_dtype=factor_dtype, rtol=rtol, unknowns=E * P, metric_identity=md.identity, variant=variant,
+               evaluated=list(st.evaluated))
 
     # --- preconditioner build
     rss0 = C.peak_rss_gib()
@@ -209,10 +217,12 @@ def main(argv=None) -> int:
     ap.add_argument("--result-dir", type=Path, default=None)
     ap.add_argument("--factor-dtype", default="float64", choices=("float64", "float32"))
     ap.add_argument("--tag", default="")
+    ap.add_argument("--variant", choices=tuple(C.VARIANTS), default=None)
+    ap.add_argument("--faces-root", type=Path, default=C.FACES_ROOT)
     args = ap.parse_args(argv)
     groups = args.groups or DEFAULT_GROUPS[args.n]
     run(args.n, args.arm, args.out, groups, args.factor_dtype, args.tag, args.method, args.rings_per_block, args.group_planes,
-        args.skip_controls, args.result_dir, args.compile_cache)
+        args.skip_controls, args.result_dir, args.compile_cache, args.variant, args.faces_root)
     return 0
 
 
