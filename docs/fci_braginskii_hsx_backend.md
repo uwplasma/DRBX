@@ -178,8 +178,12 @@ current/potential solves and two standalone potential solves), and a step
 takes about 16 s on an 8-core M1.
 
 Multi-device runs decompose only the toroidal (eta) direction:
-`--shard-counts 1 1 N`, with N dividing the eta resolution. On CPU, emulate N
-devices with `DRBX_HOST_DEVICE_COUNT=N`.
+`--shard-counts 1 1 N`, with N dividing the eta resolution; other splits are
+rejected. On CPU, emulate N devices with
+`XLA_FLAGS=--xla_force_host_platform_device_count=N` (the driver does not read
+`DRBX_HOST_DEVICE_COUNT`). Every flag in `XLA_FLAGS` needs its `--` prefix: a
+bare token such as `intra_op_parallelism_threads=4` stops XLA from parsing the
+flags after it, and the run falls back to one device.
 
 ## Neutral-model coupling
 
