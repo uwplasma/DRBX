@@ -1,0 +1,86 @@
+{
+  "schema": "drbx.p09-sbp-bracket-v1",
+  "resolutions": [
+    32,
+    48,
+    64
+  ],
+  "rho_star": 0.05,
+  "family": "A",
+  "eta_period": 6.283185307179586,
+  "c_kappa": 1.0,
+  "c_kappa_sweep": [
+    0.1,
+    0.3,
+    1.0
+  ],
+  "gate_minimum_order": 1.8,
+  "constant_tolerance": 1e-08,
+  "reference_budget_fraction": 0.1,
+  "reference_budget_planes": 4,
+  "provider_options_source": "p08_step5_compact_c3.campaign.operator_options",
+  "catalogues": {
+    "p05": {
+      "source": "p05_structured_global.numerics.fields (analytic fields; omega off)",
+      "gate": true,
+      "pairs": "p05_structured_global.numerics.PAIRS without (0, 1)",
+      "constant_pairs": [
+        [
+          0,
+          6
+        ]
+      ]
+    },
+    "p05n": {
+      "source": "p05n_field_derived_global.fields.evaluate",
+      "catalogue": "p05n_field_derived_global/p05n_catalogue.json",
+      "gate_groups": [
+        "main",
+        "heldout"
+      ],
+      "report_groups": [
+        "controls"
+      ]
+    },
+    "switch": {
+      "source": "p08_step6_global.fields.PINNED_FIELDS (phi_switch)",
+      "gate": true,
+      "advected": [
+        "n",
+        "Te",
+        "Ti",
+        "omega"
+      ],
+      "phi": "phi_switch"
+    },
+    "wave": {
+      "source": "p08_step6_global.fields.PINNED_FIELDS (phi_wave)",
+      "gate": false,
+      "note": "control, reported only; Ti is the recorded known eta limit",
+      "advected": [
+        "n",
+        "Te",
+        "Ti",
+        "omega"
+      ],
+      "phi": "phi_wave"
+    },
+    "p05w": {
+      "source": "p05_structured_global.numerics.fields(full_omega_gradient=True), pair (phi_mms, actual_vorticity)",
+      "gate": true,
+      "note": "finite-difference omega gradient only on p05w_planes equispaced eta planes (cost); operator applied on all planes, error norm over the subset"
+    }
+  },
+  "regions": [
+    "core",
+    "core_band",
+    "interior",
+    "adjacent_band",
+    "wall_ring",
+    "level_bands",
+    "wall"
+  ],
+  "extraction_chunk": 16384,
+  "orientation": "bracket(a, b) = point_bracket(h, |J|, grad a, grad b) / rho_star; production = sbp_bracket with phi = a, g = b, manufactured wall trace of b",
+  "p05w_planes": 8
+}
