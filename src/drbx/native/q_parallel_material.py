@@ -33,12 +33,15 @@ def stage_material_transport(runtime, *, device=None):
 
 
 def material_from_slots(stencil, phi_slots, magnetic_L, b_eta, eta_step, *, tau, mu,
-                        characteristic_method="eig"):
+                        characteristic_method="eig", psi="phi_plus_tau_ti"):
     """Raw action from (...,5 eta slots,5 fields) and (...,3) phi slots.
 
     Material slots are (-2,-1,0,1,2)*eta_step. Phi slots are (-1,1,0).
     Te/Ti compression uses tube D(j), D(V); pressure uses G of slot products.
     The DAE material -mu*tau*G(Ti) and +mu*G(phi+tau*Ti) share one G(Ti).
+    With ``psi="phi_plus_tau_pi"`` (psi = phi + tau*n*Ti) both use G(n*Ti) of
+    the slot products instead (``generalized_force`` then holds
+    mu*(G(phi)+tau*G(n*Ti))); the default is the legacy split.
     The correction has neither another geometry source nor another phi force.
     Returned flags describe raw rows; callers must inspect them before use.
     """
@@ -62,17 +65,18 @@ def material_from_slots(stencil, phi_slots, magnetic_L, b_eta, eta_step, *, tau,
     current = n*(vi-ve)
     dj = D(current)
     gti = G(ti)
+    gsplit = G(n*ti) if psi == "phi_plus_tau_pi" else gti  # G(q) of psi = phi + tau*q
     material = jnp.stack((
         -D(n*ve),
         -ve0*G(te) + 2*te0/(3*n0)*(.71*dj-n0*D(ve)),
         -vi0*gti + 2*ti0/(3*n0)*(dj-n0*D(vi)),
         -vi0*G(vi) - G(n*(te+tau*ti))/n0,
-        -ve0*G(ve) - mu*G(n*te)/n0 - .71*mu*G(te) - mu*tau*gti,
+        -ve0*G(ve) - mu*G(n*te)/n0 - .71*mu*G(te) - mu*tau*gsplit,
     ), axis=-1)
-    force = jnp.zeros_like(material).at[..., 4].set(mu*(G(phi)+tau*gti))
+    force = jnp.zeros_like(material).at[..., 4].set(mu*(G(phi)+tau*gsplit))
     centered = material + force
     result = eta_characteristic_correction(q, b_eta, eta_step, tau=tau, mu=mu,
-                                         characteristic_method=characteristic_method)
+                                         characteristic_method=characteristic_method, **({} if psi == 'phi_plus_tau_ti' else {'psi': psi}))
     finite = result.inputs_finite & jnp.all(jnp.isfinite(phi), axis=-1)
     finite &= jnp.all(jnp.isfinite(material+force+result.correction), axis=-1)
     return MaterialAction(material, force, centered, result.correction,
@@ -99,7 +103,8 @@ def reconstruct_material_slots(scalar, state, boundary, *, kinds):
 
 
 def apply_raw_material_transport(runtime, state, inner_boundary, outer_boundary,
-                                 phi, phi_boundary, *, kinds, phi_kind, tau, mu):
+                                 phi, phi_boundary, *, kinds, phi_kind, tau, mu,
+                                 psi="phi_plus_tau_ti"):
     import jax.numpy as jnp
     if runtime.metadata.get('schema') != 'drbx.q-material.v1':
         raise ValueError('prepared material runtime required')
@@ -111,7 +116,7 @@ def apply_raw_material_transport(runtime, state, inner_boundary, outer_boundary,
                          inner[..., 1, :], outer[..., 1, :]), axis=-2)
     p = apply_raw_scalar_slots(runtime.inner, phi, phi_boundary, kind=phi_kind)
     return material_from_slots(stencil, p, runtime.magnetic_L, runtime.b_eta,
-                               runtime.eta_step, tau=tau, mu=mu)
+                               runtime.eta_step, tau=tau, mu=mu, **({} if psi == 'phi_plus_tau_ti' else {'psi': psi}))
 
 
 def project_material_action(runtime, action):

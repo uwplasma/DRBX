@@ -15,14 +15,27 @@ def _poly(x, d, c, b, a):
     return (((x-d)*x+c)*x+b)*x+a
 
 
-def _quartic_roots(te, ti, drift, tau, mu):
+def _quartic_roots(te, ti, drift, tau, mu, sigma=None):
     # Scale speeds before root finding; both fast electron and slow ion modes
     # must remain resolved. Density is removed by a similarity transformation.
-    speed = jnp.sqrt(jnp.maximum(1., te*mu+tau*ti*mu+te+drift*drift))
+    # ``sigma=None`` is the legacy split psi = phi + tau*Ti.  With
+    # ``sigma = tau*n`` (psi = phi + tau*n*Ti) row Ve of the density-scaled
+    # matrix is (mu (Te + sigma Ti), 1.71 mu, mu sigma, 0, 0) while the ion
+    # row keeps tau; only c, b, a change.
+    if sigma is None:
+        speed = jnp.sqrt(jnp.maximum(1., te*mu+tau*ti*mu+te+drift*drift))
+    else:
+        speed = jnp.sqrt(jnp.maximum(1., te*mu+sigma*ti*mu+tau*ti+te+drift*drift))
     e, r, d = te/speed**2, tau*ti/speed**2, drift/speed
-    c = (-132723*e*mu+21300*e-30000*r*mu)/45000
-    b = d*(169146*e*mu+30000*r*mu)/45000
-    a = (-36423*d*d*e*mu+15123*e*e*mu+46505*e*r*mu)/45000
+    if sigma is None:
+        c = (-132723*e*mu+21300*e-30000*r*mu)/45000
+        b = d*(169146*e*mu+30000*r*mu)/45000
+        a = (-36423*d*d*e*mu+15123*e*e*mu+46505*e*r*mu)/45000
+    else:
+        s = sigma*ti/speed**2
+        c = (-132723*e*mu+21300*e-75000*s*mu)/45000
+        b = d*(169146*e*mu+75000*s*mu)/45000
+        a = (-36423*d*d*e*mu+15123*e*e*mu+(60705*r-35500*s)*e*mu)/45000
     # Stationary points: x^3 - 3d/4*x^2 + c/2*x + b/4 = 0.
     aa, bb, cc = -3*d/4, c/2, b/4
     p = bb-aa*aa/3
@@ -56,8 +69,13 @@ def _quartic_roots(te, ti, drift, tau, mu):
     return roots*speed[..., None], real
 
 
-def polynomial_basis(state, tau, mu, *, max_condition=1e10):
+def polynomial_basis(state, tau, mu, *, max_condition=1e10, psi="phi_plus_tau_ti"):
     """Stopped eigenvalues/right/left factors and the candidate validity flag.
+
+    ``psi`` is the split variable of the principal matrix (see
+    ``parallel_production_principal_matrix``): ``"phi_plus_tau_ti"`` (default)
+    or ``"phi_plus_tau_pi"`` (``psi = phi + tau*n*Ti``), for which the quartic
+    and the eigenvector formulas below are re-derived.
 
     Columns are normalized in physical primitive coordinates, matching the
     Frobenius condition test used by the legacy eigensolver. Nonphysical states
@@ -72,22 +90,38 @@ def polynomial_basis(state, tau, mu, *, max_condition=1e10):
     n, te, ti, vi, ve, tau, mu = (
         jnp.where(physical, x, safe) for x, safe in
         zip((n, te, ti, vi, ve, tau, mu), (1., 1., 1., 0., 0., 1., 1836.)))
+    if psi not in ("phi_plus_tau_ti", "phi_plus_tau_pi"):
+        raise ValueError(f"psi must be 'phi_plus_tau_ti' or 'phi_plus_tau_pi', got {psi!r}")
+    pi = psi == "phi_plus_tau_pi"
+    sigma = tau*n
     d = vi-ve
-    x, real = _quartic_roots(te, ti, d, tau, mu)
+    x, real = _quartic_roots(te, ti, d, tau, mu, sigma if pi else None)
     # For x != d, row Ti enforces delta(Ti) = (2/3) Ti delta(n)/n.
     # Use the electron row to build polynomial eigenvectors, not division by
     # x*(x-d)+71*Te/150 (which can vanish at a perfectly valid simple root).
     # The Vi component below is strictly positive on the physical domain.
     a = 71/150
     un = 1.71*(x-d[..., None])
-    vte = (x*x/mu[..., None]-te[..., None]-(2/3*tau*ti)[..., None])*(x-d[..., None])
-    uv = x*x/mu[..., None]+(.71*te+131/60*tau*ti)[..., None]
+    if pi:
+        vte = (x*x/mu[..., None]-te[..., None]-(5/3*sigma*ti)[..., None])*(x-d[..., None])
+        uv = x*x/mu[..., None]+(.71*te+5/3*ti*(1.71*tau-sigma))[..., None]
+    else:
+        vte = (x*x/mu[..., None]-te[..., None]-(2/3*tau*ti)[..., None])*(x-d[..., None])
+        uv = x*x/mu[..., None]+(.71*te+131/60*tau*ti)[..., None]
     waves = jnp.stack((n[..., None]*un, vte, 2/3*ti[..., None]*un, uv, x*un), axis=-2)
     # The exact contact root x=d has an independent algebraic eigenvector.
-    un = .71*tau
-    ut = -(.71*te+1.71*tau*ti+d*d/mu)
-    ue = tau*(tau*ti+d*d/mu)
-    uv = d*((2/3)*te*un-ue)/(a*te)
+    if pi:
+        # Rows Ve/Vi/Te of (A - d) r = 0 with r_Ti free: scaled so that no
+        # division by sigma - 1.71 tau is needed (nonzero also at tau = 0).
+        un = sigma-1.71*tau
+        ut = d*d/mu+.71*te+ti*(1.71*tau-sigma)
+        ue = -(te+tau*ti)*un-tau*ut
+        uv = d*(2*te*un-3*ue)/(1.42*te)
+    else:
+        un = .71*tau
+        ut = -(.71*te+1.71*tau*ti+d*d/mu)
+        ue = tau*(tau*ti+d*d/mu)
+        uv = d*((2/3)*te*un-ue)/(a*te)
     contact = jnp.stack((n*un, ue, ut, uv, d*un), axis=-1)
     vectors = jnp.concatenate((contact[..., None], waves), axis=-1)
     # Max scaling before the Euclidean norm avoids unnecessary overflow.
@@ -101,7 +135,7 @@ def polynomial_basis(state, tau, mu, *, max_condition=1e10):
     safe = jnp.where(basic[..., None, None], vectors, eye)
     inverse = jnp.linalg.inv(safe)
     condition = jnp.linalg.norm(safe, axis=(-2, -1))*jnp.linalg.norm(inverse, axis=(-2, -1))
-    matrix = parallel_matrix_from_state(jnp.stack((n, te, ti, vi, ve), axis=-1), tau, mu)
+    matrix = parallel_matrix_from_state(jnp.stack((n, te, ti, vi, ve), axis=-1), tau, mu, psi=psi)
     residual = jnp.linalg.norm(matrix@safe-safe*values[..., None, :], axis=(-2, -1))
     residual /= jnp.maximum(jnp.linalg.norm(matrix, axis=(-2, -1))*jnp.linalg.norm(safe, axis=(-2, -1)), 1e-300)
     valid = basic & jnp.isfinite(condition) & (condition <= max_condition) & (residual < 1e-10)
@@ -110,10 +144,11 @@ def polynomial_basis(state, tau, mu, *, max_condition=1e10):
 
 
 def polynomial_characteristic_split(state, tau, mu, normal=1., *,
-                                    eigenvalue_tolerance=1e-10, max_condition=1e10):
+                                    eigenvalue_tolerance=1e-10, max_condition=1e10,
+                                    psi="phi_plus_tau_ti"):
     """Match the legacy split's live-matrix/frozen-projector AD convention."""
-    matrix = parallel_matrix_from_state(state, tau, mu)
-    values, right, left, valid = polynomial_basis(state, tau, mu, max_condition=max_condition)
+    matrix = parallel_matrix_from_state(state, tau, mu, psi=psi)
+    values, right, left, valid = polynomial_basis(state, tau, mu, max_condition=max_condition, psi=psi)
     normal = jnp.asarray(normal, dtype=matrix.dtype)
     oriented = normal[..., None]*values
     plus = jnp.einsum('...ik,...k,...kj->...ij', right, oriented > eigenvalue_tolerance, left)

@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Callable
 
 import jax
+from .._host_guards import host_asarray
 import jax.numpy as jnp
 import numpy as np
 
@@ -49,8 +50,8 @@ def _validated_mass_and_mask(
     # to inspect values on the host is illegal.  Retain full eager validation
     # whenever the inputs are concrete.
     try:
-        host_mass = np.asarray(mass_value)
-        host_active = np.asarray(active_value)
+        host_mass = host_asarray(mass_value)
+        host_active = host_asarray(active_value)
     except jax.errors.TracerArrayConversionError:
         pass
     else:

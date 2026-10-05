@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 import jax
+from .._host_guards import host_asarray, host_bool
 import jax.numpy as jnp
 import numpy as np
 
@@ -511,7 +512,7 @@ class JaxMetricEvaluator:
         valid = jnp.isfinite(signed_J) & (signed_J > 0.0)
         if reject_nonpositive_J:
             try:
-                if bool(np.any(~np.asarray(valid))):
+                if host_bool(np.any(~host_asarray(valid))):
                     raise ValueError("query contains nonpositive or nonfinite mesh Jacobian")
             except (TypeError, jax.errors.ConcretizationTypeError, jax.errors.TracerBoolConversionError):
                 pass

@@ -65,21 +65,29 @@ def scatter_p05_jump(face_jump, lower_owner, upper_owner, owner_volume):
 
 
 def p06_midpoint_material_remainder(values, gradients, bmag, curvature_vector,
-                                    evolution_weight, tau=1.0):
+                                    evolution_weight, tau=1.0, psi="phi_plus_tau_ti"):
     """Frozen q1 material/remainder numerators for five P06 primitive fields.
 
     Arrays are ``(raw, q, 5)`` and ``(raw, q, 5, 3)`` with field order
     ``n, Te, Ti, omega, phi``.  ``evolution_weight`` is q1 J/B, separate
     from any stored physical volume used for diagnostic norms.
+
+    ``psi`` is the split variable of the material matrix and of the
+    remainder (``"phi_plus_tau_ti"``, the default and the frozen campaigns:
+    ``psi = phi + tau*Ti``; ``"phi_plus_tau_pi"``: ``psi = phi + tau*n*Ti``,
+    whose curvature is ``C(phi) + tau*(Ti C(n) + n C(Ti))`` at the midpoint).
     """
     v = jnp.asarray(values); g = jnp.asarray(gradients)
     b = jnp.asarray(bmag); k = jnp.asarray(curvature_vector)
     w = jnp.asarray(evolution_weight)
     n, te, ti = v[..., 0], v[..., 1], v[..., 2]
     curvature = jnp.einsum('...d,...fd->...f', k, g)
-    matrix = curvature_principal_matrix(n, te, ti, b, tau)
+    matrix = curvature_principal_matrix(n, te, ti, b, tau, psi=psi)
     material = jnp.einsum('...ij,...j->...i', matrix, curvature[..., :4])/jnp.maximum(b[..., None], 1e-30)
-    cpsi = curvature[..., 4]+tau*curvature[..., 2]
+    if psi == "phi_plus_tau_pi":
+        cpsi = curvature[..., 4]+tau*(ti*curvature[..., 0]+n*curvature[..., 2])
+    else:
+        cpsi = curvature[..., 4]+tau*curvature[..., 2]
     coeff = jnp.stack((-2*n/b, -4*te/(3*b), -4*ti/(3*b), jnp.zeros_like(n)), axis=-1)
     remainder = coeff*cpsi[..., None]
     return (jnp.sum(w[..., None]*material, axis=1),
@@ -220,12 +228,63 @@ def _positive_pair_invariants(r, mu):
     return jnp.where(small, s_small, s_big), jnp.where(small, p_small, p_big)
 
 
+# ``psi = phi + tau*n*Ti`` (``"phi_plus_tau_pi"``).  The curvature matrix gains ``dpsi/dn = tau Ti`` and
+# ``dpsi/dTi = tau n`` (see ``curvature_principal_matrix``), so with ``r = tau t``, ``s = n tau t``
+#
+#     Abar = [[2 (1+s), 2, 2 tau n], [4/3 (1+s), 14/3, 4 tau n/3], [4 t (1+s)/3, 4 t/3, t tau (4 n - 10)/3]]
+#
+# (D unchanged) and the cubic of ``mu = lambda/Te`` is
+#
+#     p(mu) = 9 mu^3 + (30 (r - s) - 60) mu^2 + (60 + 100 s - 200 r - 60 r s) mu + 200 r (1 + s).
+#
+# Its discriminant is positive for every ``r, s >= 0`` (three distinct real roots) and ``p(0) = 200 r (1 + s) >= 0``
+# with ``p -> -inf``: exactly one root is negative (zero at ``r = 0``) and two are positive, as for the ``Ti`` form.
+# Hence the same decomposition ``|Abar| = Abar - 2 mu_- E_-`` with the Sylvester projector holds; only the cubic
+# (negative root, Vieta invariants of the other two) and the matrix entries differ.
+
+
+@jax.custom_jvp
+def _cubic_negative_root(a2, a1, a0):
+    """The negative root (zero if ``a0 == 0``) of the monic cubic ``mu^3 + a2 mu^2 + a1 mu + a0`` with three real roots,
+    two of them positive: Viete's trigonometric formula (smallest root) and a Newton step."""
+    shift = a2/3
+    p = a1-a2*a2/3
+    q = 2*a2**3/27-a2*a1/3+a0
+    radius = jnp.sqrt(jnp.maximum(-p/3, 1e-300))
+    angle = jnp.arccos(jnp.clip(-q/(2*radius**3), -1., 1.))/3
+    mu = 2*radius*jnp.cos(angle-4*jnp.pi/3)-shift
+    for _ in range(2):
+        mu = mu-(((mu+a2)*mu+a1)*mu+a0)/((3*mu+2*a2)*mu+a1)
+    return jnp.where(a0 == 0, 0., mu)
+
+
+@_cubic_negative_root.defjvp
+def _cubic_negative_root_jvp(primals, tangents):
+    """Implicit derivative ``-(mu^2 da2 + mu da1 + da0)/p'(mu)``."""
+    a2, a1, a0 = primals
+    d2, d1, d0 = tangents
+    mu = _cubic_negative_root(a2, a1, a0)
+    dp_dmu = (3*mu+2*a2)*mu+a1
+    return mu, -(mu*mu*d2+mu*d1+d0)/dp_dmu
+
+
+def _positive_pair_invariants_general(e1, e2, e3, mu):
+    """:func:`_positive_pair_invariants` from the elementary symmetric functions ``e1, e2, e3`` of the three roots."""
+    small = jnp.abs(mu) < 1
+    s_small = e1-mu
+    p_small = e2-mu*s_small
+    mu_big = jnp.where(small, -1., mu)
+    p_big = e3/mu_big
+    s_big = (e2-p_big)/mu_big
+    return jnp.where(small, s_small, s_big), jnp.where(small, p_small, p_big)
+
+
 def _closed_form_physical(n, te, ti, b, tau, scale, floor):
     return (jnp.isfinite(n) & jnp.isfinite(te) & jnp.isfinite(ti) & jnp.isfinite(b) & jnp.isfinite(tau)
             & jnp.isfinite(scale) & (n > floor) & (te > floor) & (ti >= 0) & (tau >= 0))
 
 
-def _absolute_action_closed_form(n, te, ti, b, tau, scale, matrix, jump, floor):
+def _absolute_action_closed_form(n, te, ti, b, tau, scale, matrix, jump, floor, psi="phi_plus_tau_ti"):
     """``(|M| jump, invalid)`` for ``M = scale * P(n, Te, Ti, B, tau)``, no eigensolver.
 
     ``invalid`` marks the non-physical nodes (``n`` or ``Te`` not above ``floor``, ``Ti < 0``, ``tau < 0``, or a
@@ -239,12 +298,24 @@ def _absolute_action_closed_form(n, te, ti, b, tau, scale, matrix, jump, floor):
     scale = jnp.where(valid, scale, 0.)
     n = jnp.maximum(n, 1e-30)                         # as the principal matrix
     r = tau*ti/te
-    mu = _curvature_negative_root(r)
-    pair_sum, pair_product = _positive_pair_invariants(r, mu)
     t = ti/te
+    if psi == "phi_plus_tau_pi":
+        s = n*r
+        a2 = (30*(r-s)-60)/9
+        a1 = (60+100*s-200*r-60*r*s)/9
+        a0 = 200*r*(1+s)/9
+        mu = _cubic_negative_root(a2, a1, a0)
+        pair_sum, pair_product = _positive_pair_invariants_general(-a2, a1, -a0, mu)
+        tn = tau*n
+        apply = lambda v0, v1, v2: (2*(1+s)*v0+2*v1+2*tn*v2,
+                                    4*((1+s)*v0+3.5*v1+tn*v2)/3,
+                                    4*t*((1+s)*v0+v1)/3+t*tau*(4*n-10)/3*v2)
+    else:
+        mu = _curvature_negative_root(r)
+        pair_sum, pair_product = _positive_pair_invariants(r, mu)
+        apply = lambda v0, v1, v2: (2*(v0+v1)+2*tau*v2, (4*v0+14*v1+4*tau*v2)/3, 4*t/3*(v0+v1)-2*tau*t*v2)
     # u in the scaled frame D^-1 u, and Abar u, Abar^2 u
     u0 = jump[..., 0]/n; u1 = jump[..., 1]/te; u2 = jump[..., 2]/te
-    apply = lambda v0, v1, v2: (2*(v0+v1)+2*tau*v2, (4*v0+14*v1+4*tau*v2)/3, 4*t/3*(v0+v1)-2*tau*t*v2)
     a0, a1, a2 = apply(u0, u1, u2)
     b0, b1, b2 = apply(a0, a1, a2)
     # E_- u = (Abar - mu_1)(Abar - mu_2) u / ((mu_- - mu_1)(mu_- - mu_2))
@@ -277,8 +348,12 @@ def _wall_identity_fallback(central, bmag, normal, tau, floor):
 def p06_characteristic_face_correction(common_state, lower_state, upper_state,
                                        bmag, normal, quadrature_weight, wall_mask,
                                        collapsed_mask, *, tau=1.0, positivity_floor=1e-12,
-                                       wall_faces=None, absolute_method="closed_form"):
+                                       wall_faces=None, absolute_method="closed_form",
+                                       psi="phi_plus_tau_ti"):
     """Return distinct lower/upper q3 P06 fluctuation numerators and counters.
+
+    ``psi`` (static; ``"phi_plus_tau_ti"`` default and for the frozen campaigns, or ``"phi_plus_tau_pi"``) is the
+    split variable of the curvature principal matrix, for every ``absolute_method`` and the wall solve.
 
     ``normal`` is ``J*K_axis/B**2``.  At physical upper radial walls the
     campaign replaces the exterior with its characteristic wall solve.  The
@@ -329,7 +404,7 @@ def p06_characteristic_face_correction(common_state, lower_state, upper_state,
     elif wall_faces is None:
         exterior, working, wall_fallback = _curvature_bc_characteristic_wall_states(
             central, central, B, tau, normal, interior_on_right=False,
-            positivity_floor=positivity_floor)
+            positivity_floor=positivity_floor, psi=psi)
         lower = jnp.where(wall[:, None, None], central, lower)
         upper = jnp.where(wall[:, None, None], exterior, upper)
         central = jnp.where(wall[:, None, None], working, central)
@@ -341,17 +416,18 @@ def p06_characteristic_face_correction(common_state, lower_state, upper_state,
         central_wall = take(central)
         exterior, working, wall_fallback = _curvature_bc_characteristic_wall_states(
             central_wall, central_wall, take(B), tau, take(normal), interior_on_right=False,
-            positivity_floor=positivity_floor)
+            positivity_floor=positivity_floor, psi=psi)
         lower = jnp.where(wall[:, None, None], central, lower)
         upper = upper.at[idx].set(exterior, mode="drop")
         central = central.at[idx].set(working, mode="drop")
         wall_fallback_count = jnp.sum(wall_fallback & (idx < wall.shape[0])[:, None])
     matrix = -normal[..., None, None]*curvature_principal_matrix(
-        central[..., 0], central[..., 1], central[..., 2], B, tau)
+        central[..., 0], central[..., 1], central[..., 2], B, tau, psi=psi)
     jump = upper-lower
     if absolute_method == "closed_form":
         absolute, spectral_fallback = _absolute_action_closed_form(
-            central[..., 0], central[..., 1], central[..., 2], B, tau, -normal, matrix, jump, positivity_floor)
+            central[..., 0], central[..., 1], central[..., 2], B, tau, -normal, matrix, jump, positivity_floor,
+            psi=psi)
     else:
         absolute, spectral_fallback = _p06_absolute_action(matrix, jump)
     material = jnp.einsum('...ij,...j->...i', matrix, jump)

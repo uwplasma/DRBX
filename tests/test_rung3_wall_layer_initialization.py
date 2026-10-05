@@ -212,6 +212,7 @@ def test_factored_wall_data_executes_phi_plasma_stencil(monkeypatch):
         parameters=SimpleNamespace(
             tau=1.0, mi_over_me=1.0,
             parallel_characteristic_wall_law="primitive-least-residual",
+            polarization_variable="phi_plus_tau_pi",
         ),
         parallel_short_leg_treatment="none",
         parallel_short_leg_cfl_limit=2.0,

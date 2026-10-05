@@ -375,7 +375,8 @@ def _stack_q_boundary(boundary,sharded):
 
 
 def sharded_q_rhs(sharded,state,inner_boundary,outer_boundary,phi,phi_boundary,
-                  coefficients,*,kinds,phi_kind,tau,mu,mesh=None,characteristic_method="eig"):
+                  coefficients,*,kinds,phi_kind,tau,mu,mesh=None,characteristic_method="eig",
+                  psi="phi_plus_tau_ti"):
     """Full prescribed SixFieldAction under shard_map; returns global bank order.
 
     Owner state/phi retain global old owner numbering at this interface. Halos
@@ -411,7 +412,7 @@ def sharded_q_rhs(sharded,state,inner_boundary,outer_boundary,phi,phi_boundary,
         ext=jnp.concatenate((ext,zero,guard),axis=-1)
         got=apply_q_plan(plan_s,ext[...,:6,:],bis,bos,ext[...,6,:],pbs,coef,
                          kinds=kinds,phi_kind=phi_kind,tau=tau,mu=mu,
-                         characteristic_method=characteristic_method)
+                         characteristic_method=characteristic_method,**({} if psi == 'phi_plus_tau_ti' else {'psi': psi}))
         finite_local=(jnp.all(jnp.isfinite(xs),axis=(-2,-1)) &
                       jnp.all(jnp.isfinite(got.combined),axis=(-2,-1)) &
                       jnp.all(jnp.isfinite(got.diffusion),axis=(-2,-1)))

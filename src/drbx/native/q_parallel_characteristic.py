@@ -17,7 +17,7 @@ class CharacteristicCorrection(NamedTuple):
 
 
 def eta_characteristic_correction(stencil, b_eta, eta_step, *, tau, mu,
-                                  characteristic_method="eig"):
+                                  characteristic_method="eig", psi="phi_plus_tau_ti"):
     """Return the upwind-minus-centered material RHS at raw traced centers.
 
     ``stencil`` has shape (..., 5 slots, 5 fields), with eta offsets
@@ -38,6 +38,8 @@ def eta_characteristic_correction(stencil, b_eta, eta_step, *, tau, mu,
 
     Static ``characteristic_method='polynomial'`` selects the opt-in native
     quartic-root candidate; the accepted generic ``eig`` remains the default.
+    ``psi`` (default ``"phi_plus_tau_ti"``; or ``"phi_plus_tau_pi"``) selects the
+    split variable of the electron force and of the principal matrix.
     """
     import jax.numpy as jnp
     q = jnp.asarray(stencil, dtype=jnp.float64)
@@ -52,12 +54,12 @@ def eta_characteristic_correction(stencil, b_eta, eta_step, *, tau, mu,
     backward = (4*(center-m) - (center-mm))/(2*step[..., None])
     forward = (4*(p-center) - (pp-center))/(2*step[..., None])
     centered = (p-m)/(2*step[..., None])
-    matrix = parallel_matrix_from_state(center, tau, mu)
+    matrix = parallel_matrix_from_state(center, tau, mu, **({} if psi == 'phi_plus_tau_ti' else {'psi': psi}))
     if characteristic_method == "eig":
         plus, minus, _, _, valid = parallel_characteristic_split(matrix, normal=normal)
     elif characteristic_method == "polynomial":
         from .q_characteristic_polynomial import polynomial_characteristic_split
-        plus, minus, _, _, valid = polynomial_characteristic_split(center, tau, mu, normal)
+        plus, minus, _, _, valid = polynomial_characteristic_split(center, tau, mu, normal, **({} if psi == 'phi_plus_tau_ti' else {'psi': psi}))
     else:
         raise ValueError('characteristic_method must be eig or polynomial')
     correction = -jnp.einsum('...ij,...j->...i', plus, backward-centered)

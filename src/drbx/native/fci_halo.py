@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import math
 
 import jax
+from .._host_guards import host_bool
 import jax.numpy as jnp
 from jax import lax
 
@@ -260,7 +261,7 @@ def accumulate_halo_contributions_to_owned(
     )
     face_only = halo_count <= 1
     try:
-        invalid_payload = bool(
+        invalid_payload = host_bool(
             jnp.any(jnp.where(face_only[(...,) + (None,) * (field_halo.ndim - 3)], 0.0, field_halo) != 0)
         )
     except jax.errors.TracerBoolConversionError:

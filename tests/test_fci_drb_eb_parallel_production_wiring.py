@@ -251,7 +251,10 @@ def test_evaluate_stage_replaces_material_package_and_uses_psi_force():
     for lane in range(5):
         assert f"production_material_residual[..., {lane}]" in SOURCE
     assert "Ve_phi_force_term = mi_over_me * grad_parallel_phi" in SOURCE
-    assert "mi_over_me * tau * grad_parallel_Ti" in SOURCE
+    # The Ti-part operand of the split psi = phi + tau*q: q = n*Ti (default
+    # selector, ``grad_pi``) or Ti (legacy selector).
+    assert "mi_over_me * tau * grad_parallel_split_q" in SOURCE
+    assert 'stage_parallel_terms["grad_pi"]' in SOURCE
     assert "Ve_electrostatic_term = Ve_phi_force_term + Ve_Ti_force_term" in SOURCE
     assert "jnp.where(selected_short_wall, 0.0, Ve_Ti_force_complete_term)" in SOURCE
     rhs_start = SOURCE.index("density_rhs = (")
@@ -262,7 +265,8 @@ def test_evaluate_stage_replaces_material_package_and_uses_psi_force():
 
 
 def _curvature_contribution_probe(
-    monkeypatch, *, with_direct_faces, omit_phi_owner=False, lean=False
+    monkeypatch, *, with_direct_faces, omit_phi_owner=False, lean=False,
+    polarization_variable="phi_plus_tau_ti", density_value=1.0,
 ):
     """Exercise curvature face payload selection without constructing a mesh."""
 
@@ -332,7 +336,9 @@ def _curvature_contribution_probe(
         halo_exchange="exchange",
         topology_filler="topology",
         curvature_face_coefficients="coefficients",
-        parameters=SimpleNamespace(n0=1.0, Te0=1.0, Ti0=1.0),
+        parameters=SimpleNamespace(
+            n0=1.0, Te0=1.0, Ti0=1.0, polarization_variable=polarization_variable
+        ),
         _conservative_curvature=fake_curvature,
         _conservative_curvature_components=fake_curvature,
     )
@@ -342,10 +348,12 @@ def _curvature_contribution_probe(
             return jnp.full(shape, float(len(halo_calls)))
 
         rhs._prepare_rlp_reconstructed_halo = fake_halo
-    state_halo = SimpleNamespace(phi=zeros, Ti=zeros)
+    state_halo = SimpleNamespace(
+        phi=zeros, Ti=jnp.ones(shape), density=jnp.full(shape, density_value)
+    )
     boundary = SimpleNamespace(density=None, Te=None, Ti=None, phi=None, vorticity=None)
     owners = dict(
-        density_owner=jnp.ones(shape),
+        density_owner=jnp.full(shape, density_value),
         Te_owner=jnp.ones(shape),
         Ti_owner=jnp.ones(shape),
         vorticity_owner=zeros,
@@ -421,6 +429,25 @@ def test_curvature_rhs_prefers_one_batched_lean_radial_payload(monkeypatch):
     assert patch_calls[0][0][1] == "lean-direct"
     assert patch_calls[0][1] == {"field_index": 4}
     assert len(halo_calls) == 5
+
+
+def test_curvature_rhs_passes_the_split_variable_to_matrix_and_remainder(monkeypatch):
+    # Legacy selector: psi = phi + tau*Ti = 0.7 with tau = 0.7, Ti = 1, phi = 0.
+    for variable, expected in (("phi_plus_tau_ti", 0.7), ("phi_plus_tau_pi", 1.4)):
+        _result, calls, direct_calls, patch_calls, halo_calls, _ = _curvature_contribution_probe(
+            monkeypatch, with_direct_faces=True, lean=True,
+            polarization_variable=variable, density_value=2.0,
+        )
+        assert calls[0]["psi"] == variable
+        np.testing.assert_allclose(direct_calls[0]["owner_values_owned"][..., 4], expected)
+    # Non-direct path: psi halo = phi + tau*n*Ti (default) / phi + tau*Ti (legacy) of the closed halos.
+    for variable, expected in (("phi_plus_tau_ti", 0.7), ("phi_plus_tau_pi", 1.4)):
+        _result, calls, _d, _p, _h, stencil_calls = _curvature_contribution_probe(
+            monkeypatch, with_direct_faces=False, polarization_variable=variable,
+            density_value=2.0,
+        )
+        assert calls[0]["psi"] == variable
+        np.testing.assert_allclose(stencil_calls[0], expected)
 
 
 def test_curvature_rhs_preserves_legacy_path_without_direct_payload(monkeypatch):

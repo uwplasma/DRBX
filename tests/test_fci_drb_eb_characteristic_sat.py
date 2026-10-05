@@ -186,6 +186,7 @@ def test_characteristic_sat_decomposition_is_exact_on_mapped_fixture():
         matrix = parallel_characteristic_matrix(
             density, Te, Ti, Vi, Ve,
             rhs.parameters.tau, rhs.parameters.mi_over_me,
+            psi=rhs.parameters.polarization_variable,
         )
         eigenvalues, right, left, spectral_valid = (
             parallel_characteristic_decomposition(matrix)

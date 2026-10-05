@@ -169,53 +169,56 @@ class _Plan:
 # q1: raw-cell numerators
 # --------------------------------------------------------------------------
 
-def _q1_core(value, gradient, bmag, curvature, weight, tau):
+def _q1_core(value, gradient, bmag, curvature, weight, tau, psi="phi_plus_tau_ti"):
     """``(V, R, 5)`` values / ``(V, R, 3, 5)`` gradients -> weighted material / remainder ``(V, R, 4)``."""
     def one(v, g):
         return p06_midpoint_material_remainder(v[:, None, :], jnp.swapaxes(g, -1, -2)[:, None], bmag[:, None],
-                                               curvature[:, None], weight[:, None], tau)
+                                               curvature[:, None], weight[:, None], tau, psi)
     return jax.vmap(one)(value, gradient)
 
 
-@jax.jit
-def _p06_q1_state_numerators(bmag, curvature, weight, value, gradient, tau):
-    return _q1_core(value, gradient, bmag, curvature, weight, tau)
+@partial(jax.jit, static_argnames=("psi",))
+def _p06_q1_state_numerators(bmag, curvature, weight, value, gradient, tau, psi="phi_plus_tau_ti"):
+    return _q1_core(value, gradient, bmag, curvature, weight, tau, psi)
 
 
-def p06_q1_state_numerators(bmag, curvature_vector, evolution_weight, value, gradient, *, tau=TAU):
+def p06_q1_state_numerators(bmag, curvature_vector, evolution_weight, value, gradient, *, tau=TAU,
+                            psi="phi_plus_tau_ti"):
     """Raw-cell numerators from prepared states.
 
     ``value (V, R, 5)``, ``gradient (V, R, 3, 5)`` (field order ``n, Te, Ti, omega, phi``; gradient in the
     row-application layout), ``bmag (R,)``, ``curvature_vector (R, 3)`` (``K``), ``evolution_weight (R,)``.
     Returns ``(material, remainder)`` ``(V, R, 4)``, each ``w * term`` (the host
     ``_sparse_scatter`` summand). Linear in ``gradient`` at fixed ``value``.
+    ``psi`` (static) is the split variable of the material matrix and the remainder: ``"phi_plus_tau_ti"``
+    (default, the frozen campaigns) or ``"phi_plus_tau_pi"`` (``psi = phi + tau*n*Ti``).
     """
     return P06RawNumerators(*_p06_q1_state_numerators(
         jnp.asarray(bmag), jnp.asarray(curvature_vector), jnp.asarray(evolution_weight),
-        jnp.asarray(value), jnp.asarray(gradient), tau))
+        jnp.asarray(value), jnp.asarray(gradient), tau, psi=psi))
 
 
-def _q1_from_state(cells, cell_value, cell_gradient, groups, tau):
+def _q1_from_state(cells, cell_value, cell_gradient, groups, tau, psi="phi_plus_tau_ti"):
     """Cell ``value (R, F)`` / ``gradient (R, 3, F)`` -> weighted material / remainder ``(V, R, 4)`` per group."""
     value = jnp.moveaxis(cell_value[:, groups], 1, 0)                  # (V, R, 5)
     gradient = jnp.moveaxis(cell_gradient[:, :, groups], 2, 0)         # (V, R, 3, 5)
-    return _q1_core(value, gradient, cells.B, cells.K, cells.evolution_weight, tau)
+    return _q1_core(value, gradient, cells.B, cells.K, cells.evolution_weight, tau, psi)
 
 
-@partial(jax.jit, static_argnames=("kinds",))
-def _p06_q1_raw(cells, fields, bc, groups, tau, *, kinds):
+@partial(jax.jit, static_argnames=("kinds", "psi"))
+def _p06_q1_raw(cells, fields, bc, groups, tau, *, kinds, psi="phi_plus_tau_ti"):
     state = cell_state(_Plan(cells=cells), fields, bc, kinds)
-    return _q1_from_state(cells, state.value, state.gradient, groups, tau)
+    return _q1_from_state(cells, state.value, state.gradient, groups, tau, psi)
 
 
 def p06_q1_raw_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, groups=None, *,
-                          tau=TAU) -> P06RawNumerators:
+                          tau=TAU, psi="phi_plus_tau_ti") -> P06RawNumerators:
     """Raw-cell q1 numerators ``(V, R, 4)`` (cells in ``plan.cells.raw_ids`` order): ``w * material`` and
     ``w * remainder`` with ``w = plan.cells.evolution_weight``."""
     fields = jnp.asarray(fields)
     kinds = normalize_kinds(field_kinds, fields.shape[1])
     g, squeeze = _groups_array(groups, fields.shape[1])
-    material, remainder = _p06_q1_raw(plan.cells, fields, bc, g, tau, kinds=kinds)
+    material, remainder = _p06_q1_raw(plan.cells, fields, bc, g, tau, kinds=kinds, psi=psi)
     if squeeze:
         material, remainder = material[0], remainder[0]
     return P06RawNumerators(material, remainder)
@@ -225,7 +228,8 @@ def p06_q1_raw_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, fie
 # q3: face numerators
 # --------------------------------------------------------------------------
 
-def _q3_core(faces, common, lower, upper, tau, floor, multiplier, absolute_method="closed_form"):
+def _q3_core(faces, common, lower, upper, tau, floor, multiplier, absolute_method="closed_form",
+             psi="phi_plus_tau_ti"):
     """States ``(V, Fc, Qf, 4)`` -> ``(lower, upper (V, Fc, 4), spectral, floor, wall counters (V,))``."""
     axis = faces.axis.astype(jnp.int32)
     K_axis = jnp.take_along_axis(faces.K, axis[:, None, None], axis=-1)[..., 0]
@@ -236,24 +240,26 @@ def _q3_core(faces, common, lower, upper, tau, floor, multiplier, absolute_metho
     def one(c, lo, up):
         return p06_characteristic_face_correction(c, lo, up, faces.B, normal, faces.weight, faces.wall,
                                                   faces.collapsed, tau=tau, positivity_floor=floor,
-                                                  wall_faces=wall_faces, absolute_method=absolute_method)
+                                                  wall_faces=wall_faces, absolute_method=absolute_method, psi=psi)
     lo_num, up_num, spectral, floor_hits, wall_fallback = jax.vmap(one)(common, lower, upper)
     m = multiplier[None, :, None]
     return lo_num * m, up_num * m, spectral, floor_hits, wall_fallback
 
 
-def _q3_from_state(faces, face_value, lower, upper, groups, tau, floor, multiplier, absolute_method="closed_form"):
+def _q3_from_state(faces, face_value, lower, upper, groups, tau, floor, multiplier, absolute_method="closed_form",
+                   psi="phi_plus_tau_ti"):
     """Face ``value`` / ``lower`` / ``upper`` ``(Fc, Qf, F)`` -> q3 numerators and counters per group."""
     def pick(x):                                                            # (Fc, Qf, F) -> (V, Fc, Qf, 4)
         return jnp.moveaxis(x[..., groups[:, :4]], 2, 0)
-    return _q3_core(faces, pick(face_value), pick(lower), pick(upper), tau, floor, multiplier, absolute_method)
+    return _q3_core(faces, pick(face_value), pick(lower), pick(upper), tau, floor, multiplier, absolute_method, psi)
 
 
-@partial(jax.jit, static_argnames=("kinds", "absolute_method"))
-def _p06_q3_faces(faces, fields, bc, groups, tau, floor, multiplier, *, kinds, absolute_method="closed_form"):
+@partial(jax.jit, static_argnames=("kinds", "absolute_method", "psi"))
+def _p06_q3_faces(faces, fields, bc, groups, tau, floor, multiplier, *, kinds, absolute_method="closed_form",
+                  psi="phi_plus_tau_ti"):
     state = face_state(_Plan(faces=faces), fields, bc, kinds, gradients=False)
     return _q3_from_state(faces, state.value, state.lower, state.upper, groups, tau, floor, multiplier,
-                          absolute_method)
+                          absolute_method, psi)
 
 
 def _multiplier(plan_faces, face_multiplier):
@@ -267,7 +273,7 @@ def _multiplier(plan_faces, face_multiplier):
 
 def p06_q3_face_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, groups=None, *,
                            tau=TAU, positivity_floor=FLOOR, face_multiplier=None,
-                           absolute_method="closed_form") -> P06FaceNumerators:
+                           absolute_method="closed_form", psi="phi_plus_tau_ti") -> P06FaceNumerators:
     """q3 lower/upper numerators per face, ``(V, Fc, 4)`` in ``plan.faces.census_row`` order, times
     ``face_multiplier`` (default ``plan.faces.face_multiplier``, ones; the harness sets 2 on the legacy seam
     faces), plus per-state counters. These are the host's ``corr_lo`` / ``corr_hi`` per face."""
@@ -275,7 +281,7 @@ def p06_q3_face_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, fi
     kinds = normalize_kinds(field_kinds, fields.shape[1])
     g, squeeze = _groups_array(groups, fields.shape[1])
     out = _p06_q3_faces(plan.faces, fields, bc, g, tau, positivity_floor, _multiplier(plan.faces, face_multiplier),
-                        kinds=kinds, absolute_method=_validated_absolute_method(absolute_method))
+                        kinds=kinds, absolute_method=_validated_absolute_method(absolute_method), psi=psi)
     if squeeze:
         out = tuple(x[0] for x in out)
     return P06FaceNumerators(*out)
@@ -286,18 +292,18 @@ def p06_q3_face_numerators(plan: PerpendicularPlan, fields, bc: BoundaryData, fi
 # --------------------------------------------------------------------------
 
 def _action_from_state_core(cells, faces, cell_value, cell_gradient, face_value, lower, upper, groups, tau, floor,
-                            multiplier, absolute_method="closed_form", face_groups=None):
+                            multiplier, absolute_method="closed_form", face_groups=None, psi="phi_plus_tau_ti"):
     """The owner arithmetic after the reconstruction: 7 arrays of :class:`P06Action` and the q3 counters.
 
     ``face_groups``: the groups as columns of a pruned face state (``face_state(value_columns=...)``); only its
     first four columns (the evolved fields) are read. Default: ``groups``."""
     n_owners = len(cells.evolution_volume)
-    mat_raw, rem_raw = _q1_from_state(cells, cell_value, cell_gradient, groups, tau)
+    mat_raw, rem_raw = _q1_from_state(cells, cell_value, cell_gradient, groups, tau, psi)
     seg = lambda x: jax.vmap(lambda a: jax.ops.segment_sum(a, cells.raw_owner, num_segments=n_owners))(x)
     material_num, remainder_num = seg(mat_raw), seg(rem_raw)
     lo_num, up_num, spectral, floor_hits, wall_fallback = _q3_from_state(
         faces, face_value, lower, upper, groups if face_groups is None else face_groups, tau, floor, multiplier,
-        absolute_method)
+        absolute_method, psi)
     ones = jnp.ones((n_owners,), dtype=lo_num.dtype)
     correction_num = jax.vmap(lambda lo, up: scatter_p06_characteristic(
         lo, up, faces.lower_owner, faces.upper_owner, ones))(lo_num, up_num)
@@ -308,23 +314,25 @@ def _action_from_state_core(cells, faces, cell_value, cell_gradient, face_value,
     return owner, (spectral, floor_hits, wall_fallback)
 
 
-@partial(jax.jit, static_argnames=("kinds", "absolute_method"))
-def _p06_action(cells, faces, fields, bc, groups, tau, floor, multiplier, *, kinds, absolute_method="closed_form"):
+@partial(jax.jit, static_argnames=("kinds", "absolute_method", "psi"))
+def _p06_action(cells, faces, fields, bc, groups, tau, floor, multiplier, *, kinds, absolute_method="closed_form",
+                psi="phi_plus_tau_ti"):
     cs = cell_state(_Plan(cells=cells), fields, bc, kinds)
     fs = face_state(_Plan(faces=faces), fields, bc, kinds, gradients=False)
     return _action_from_state_core(cells, faces, cs.value, cs.gradient, fs.value, fs.lower, fs.upper, groups, tau,
-                                   floor, multiplier, absolute_method)[0]
+                                   floor, multiplier, absolute_method, psi=psi)[0]
 
 
-@partial(jax.jit, static_argnames=("absolute_method",))
+@partial(jax.jit, static_argnames=("absolute_method", "psi"))
 def _p06_action_from_state(cells, faces, cell_value, cell_gradient, face_value, lower, upper, groups, tau, floor,
-                           multiplier, absolute_method="closed_form"):
+                           multiplier, absolute_method="closed_form", psi="phi_plus_tau_ti"):
     return _action_from_state_core(cells, faces, cell_value, cell_gradient, face_value, lower, upper, groups, tau,
-                                   floor, multiplier, absolute_method)
+                                   floor, multiplier, absolute_method, psi=psi)
 
 
 def p06_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, groups=None, *, tau=TAU,
-               positivity_floor=FLOOR, face_multiplier=None, absolute_method="closed_form") -> P06Action:
+               positivity_floor=FLOOR, face_multiplier=None, absolute_method="closed_form",
+               psi="phi_plus_tau_ti") -> P06Action:
     """P06 owner terms of ``fields`` ``(n_owners, F)``; see the module docstring.
 
     ``groups`` ``(V, 5)`` selects the five columns of each state (``None``: ``F == 5``, no ``V`` axis in
@@ -336,6 +344,10 @@ def p06_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, g
     ``absolute_method`` (static; default ``"closed_form"``; ``"lapack4"`` is bitwise the campaign's 4x4 ``eig``) selects the evaluation of the
     q3 absolute-matrix action: ``"lapack4"`` or ``"closed_form"`` (cubic root and Sylvester
     projector, no LAPACK); see :func:`drbx.native.fci_perpendicular_face_corrections.p06_characteristic_face_correction`.
+
+    ``psi`` (static; default ``"phi_plus_tau_ti"``, bitwise the frozen campaigns) is the split variable of the
+    curvature principal matrix and of the q1 remainder: ``"phi_plus_tau_pi"`` selects ``psi = phi + tau*n*Ti``
+    (the closed form is re-derived for that matrix; ``"lapack4"`` is generic).
     """
     if plan.cells is None or plan.faces is None:
         raise ValueError("p06_action needs a plan lowered with include cells and faces")
@@ -344,7 +356,7 @@ def p06_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, g
     g, squeeze = _groups_array(groups, fields.shape[1])
     out = _p06_action(plan.cells, plan.faces, fields, bc, g, tau, positivity_floor,
                       _multiplier(plan.faces, face_multiplier), kinds=kinds,
-                      absolute_method=_validated_absolute_method(absolute_method))
+                      absolute_method=_validated_absolute_method(absolute_method), psi=psi)
     if squeeze:
         out = tuple(x[0] for x in out)
     material, remainder, total, correction, mat_num, rem_num, corr_num = out
@@ -354,7 +366,8 @@ def p06_action(plan: PerpendicularPlan, fields, bc: BoundaryData, field_kinds, g
 
 def p06_action_from_state(plan: PerpendicularPlan, cell_value, cell_gradient, face_value, face_lower, face_upper,
                           groups=None, *, tau=TAU, positivity_floor=FLOOR, face_multiplier=None,
-                          return_counters: bool = False, absolute_method="closed_form"):
+                          return_counters: bool = False, absolute_method="closed_form",
+                          psi="phi_plus_tau_ti"):
     """The operator arithmetic of :func:`p06_action` on an already-reconstructed state, for callers that share
     one ``cell_state`` / ``face_state`` between operators (P08 step 3, the combined perpendicular RHS).
 
@@ -373,7 +386,7 @@ def p06_action_from_state(plan: PerpendicularPlan, cell_value, cell_gradient, fa
     owner, counters = _p06_action_from_state(
         plan.cells, plan.faces, cell_value, jnp.asarray(cell_gradient), jnp.asarray(face_value),
         jnp.asarray(face_lower), jnp.asarray(face_upper), g, tau, positivity_floor,
-        _multiplier(plan.faces, face_multiplier), _validated_absolute_method(absolute_method))
+        _multiplier(plan.faces, face_multiplier), _validated_absolute_method(absolute_method), psi)
     if squeeze:
         owner = tuple(x[0] for x in owner)
         counters = tuple(x[0] for x in counters)

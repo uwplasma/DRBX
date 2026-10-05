@@ -5,9 +5,13 @@ local material principal symbol and the canonical-face characteristic update
 used for both ordinary FCI legs and legs whose exterior endpoint is a wall.
 The state order throughout is ``(n, Te, Ti, Vi, Ve)``.
 
-The polarization variable ``psi = phi + tau*Ti`` has already been eliminated
-from this material block.  Consequently the electron-velocity row contains
-the leading ``mu*tau`` coefficient multiplying ``Ti``.  Vorticity, current
+The split variable ``psi`` (``phi + tau*Ti`` for the legacy
+``psi="phi_plus_tau_ti"``, ``phi + tau*n*Ti`` for ``psi="phi_plus_tau_pi"``)
+has already been eliminated from this material block.  Consequently the
+electron-velocity row contains the leading ``mu*tau`` coefficient multiplying
+``Ti`` (``mu*tau*n`` plus a ``mu*tau*Ti`` density entry for the ``p_i``
+form).  Every function that builds the principal matrix takes the same
+keyword ``psi``, defaulting to the legacy form.  Vorticity, current
 exchange, and the nonlocal polarization solve deliberately do not belong to
 this five-field Riemann problem.
 """
@@ -26,6 +30,7 @@ from .characteristic_wall_residual import (
 
 
 STATE_SIZE = 5
+_PSI_VARIABLES = ("phi_plus_tau_ti", "phi_plus_tau_pi")
 _LOG_FLOOR = 1.0e-30
 _DEFAULT_EIG_TOL = 1.0e-10
 _DEFAULT_MAX_CONDITION = 1.0e10
@@ -380,13 +385,27 @@ def parallel_production_principal_matrix(
     Ve: Any,
     tau: Any,
     mu: Any,
+    *,
+    psi: str = "phi_plus_tau_ti",
 ) -> jnp.ndarray:
     """Return the corrected DAE-reduced five-field parallel matrix.
 
-    The eliminated-potential convention is ``psi=phi+tau*Ti``.  In
-    particular ``A[4, 2] = mu*tau`` is intentional and must not be replaced by
-    zero.  Inputs may be arbitrarily batched broadcastable arrays.
+    ``psi`` selects the eliminated-potential convention of the electron force
+    ``mu*G(psi)`` (the same names as ``FciDrbEBParameters.polarization_variable``):
+
+    * ``"phi_plus_tau_ti"`` (default, legacy): ``psi = phi + tau*Ti``, so
+      ``A[4, 0] = mu*Te/n`` and ``A[4, 2] = mu*tau``.  ``A[4, 2]`` is
+      intentional and must not be replaced by zero.
+    * ``"phi_plus_tau_pi"``: ``psi = phi + tau*n*Ti`` (``p_i = n*Ti``), so
+      ``dpsi/dn = tau*Ti`` and ``dpsi/dTi = tau*n``, i.e.
+      ``A[4, 0] = mu*Te/n + mu*tau*Ti`` and ``A[4, 2] = mu*tau*n``.
+
+    Every other entry is identical.  Inputs may be arbitrarily batched
+    broadcastable arrays.
     """
+
+    if psi not in _PSI_VARIABLES:
+        raise ValueError(f"psi must be one of {_PSI_VARIABLES}, got {psi!r}")
 
     density, Te, Ti, Vi, Ve, tau, mu = [
         jnp.asarray(x, dtype=jnp.float64) for x in
@@ -411,9 +430,13 @@ def parallel_production_principal_matrix(
     matrix = matrix.at[..., 3, 1].set(1.0)
     matrix = matrix.at[..., 3, 2].set(tau)
     matrix = matrix.at[..., 3, 3].set(Vi)
-    matrix = matrix.at[..., 4, 0].set(mu * Te / n_safe)
+    if psi == "phi_plus_tau_pi":
+        matrix = matrix.at[..., 4, 0].set(mu * Te / n_safe + mu * tau * Ti)
+        matrix = matrix.at[..., 4, 2].set(mu * tau * density)
+    else:
+        matrix = matrix.at[..., 4, 0].set(mu * Te / n_safe)
+        matrix = matrix.at[..., 4, 2].set(mu * tau)
     matrix = matrix.at[..., 4, 1].set(1.71 * mu)
-    matrix = matrix.at[..., 4, 2].set(mu * tau)
     matrix = matrix.at[..., 4, 4].set(Ve)
     return matrix
 
@@ -425,13 +448,14 @@ parallel_principal_matrix = parallel_production_principal_matrix
 
 
 def parallel_matrix_from_state(
-    state: jnp.ndarray, tau: Any, mu: Any
+    state: jnp.ndarray, tau: Any, mu: Any, *, psi: str = "phi_plus_tau_ti"
 ) -> jnp.ndarray:
     """Build the principal matrix from a trailing ``(n,Te,Ti,Vi,Ve)`` state."""
 
     state = _as_state(state)
     return parallel_production_principal_matrix(
-        state[..., 0], state[..., 1], state[..., 2], state[..., 3], state[..., 4], tau, mu
+        state[..., 0], state[..., 1], state[..., 2], state[..., 3], state[..., 4], tau, mu,
+        psi=psi,
     )
 
 
@@ -848,6 +872,7 @@ def _live_characteristic_leg_action(
     max_condition: float,
     basis: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]
         | None = None,
+    psi: str = "phi_plus_tau_ti",
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Apply one live-state characteristic branch to one mapped leg.
 
@@ -859,7 +884,7 @@ def _live_characteristic_leg_action(
 
     face_state = _as_state(face_state)
     jump = _as_state(jump)
-    matrix = parallel_matrix_from_state(face_state, tau, mu)
+    matrix = parallel_matrix_from_state(face_state, tau, mu, psi=psi)
     if basis is None:
         values, vectors, inverse, valid, alpha = _spectral_basis(
             matrix,
@@ -1001,6 +1026,7 @@ def _material_directional_data(
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
+    psi: str = "phi_plus_tau_ti",
 ) -> tuple[jnp.ndarray, ...]:
     """Return both directional material actions and frozen local Jacobians.
 
@@ -1048,11 +1074,11 @@ def _material_directional_data(
     backward_face_used = jnp.where(backward_wall[..., None], center, backward_face)
     forward_face_used = jnp.where(forward_wall[..., None], center, forward_face)
     backward_basis = _spectral_basis(
-        parallel_matrix_from_state(backward_face_used, tau, mu),
+        parallel_matrix_from_state(backward_face_used, tau, mu, psi=psi),
         eigenvalue_tolerance=eigenvalue_tolerance, max_condition=max_condition,
     )
     forward_basis = _spectral_basis(
-        parallel_matrix_from_state(forward_face_used, tau, mu),
+        parallel_matrix_from_state(forward_face_used, tau, mu, psi=psi),
         eigenvalue_tolerance=eigenvalue_tolerance, max_condition=max_condition,
     )
     backward_values, backward_vectors, backward_inverse, backward_valid, backward_alpha = backward_basis
@@ -1172,17 +1198,19 @@ def _material_directional_data(
         backward_face_used, center - minus_used, tau, mu, 1.0, branch="plus",
         eigenvalue_tolerance=eigenvalue_tolerance, max_condition=max_condition,
         basis=backward_basis,
+        psi=psi,
     )
     forward_action, forward_valid_live, _ = _live_characteristic_leg_action(
         forward_face_used, plus_used - center, tau, mu, 1.0, branch="minus",
         eigenvalue_tolerance=eigenvalue_tolerance, max_condition=max_condition,
         basis=forward_basis,
+        psi=psi,
     )
     # Form the same split matrices as the live action, including the finite
     # Rusanov fallback.  These matrices are frozen only through their
     # eigensystem; the face matrix itself is evaluated at the current face.
-    backward_matrix = parallel_matrix_from_state(backward_face_used, tau, mu)
-    forward_matrix = parallel_matrix_from_state(forward_face_used, tau, mu)
+    backward_matrix = parallel_matrix_from_state(backward_face_used, tau, mu, psi=psi)
+    forward_matrix = parallel_matrix_from_state(forward_face_used, tau, mu, psi=psi)
     backward_safe = jnp.where(jnp.isfinite(backward_matrix), backward_matrix, 0.0)
     forward_safe = jnp.where(jnp.isfinite(forward_matrix), forward_matrix, 0.0)
     backward_plus_matrix = jnp.where(
@@ -1515,6 +1543,7 @@ def parallel_target_row_material_residual(
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
     resolved_wall_data: dict[str, jnp.ndarray] | None = None,
+    psi: str = "phi_plus_tau_ti",
 ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
     """Apply the live-face production material update to every mapped row.
 
@@ -1583,6 +1612,7 @@ def parallel_target_row_material_residual(
             positivity_floor=positivity_floor,
             eigenvalue_tolerance=eigenvalue_tolerance,
             max_condition=max_condition,
+            psi=psi,
         )
     else:
         directional = resolved_wall_data
@@ -1929,12 +1959,12 @@ def parallel_target_row_material_residual(
         ) / dxp_safe[..., None]
 
         high_order_basis = _spectral_basis(
-            parallel_matrix_from_state(center_for_calculation, tau, mu),
+            parallel_matrix_from_state(center_for_calculation, tau, mu, psi=psi),
             eigenvalue_tolerance=eigenvalue_tolerance,
             max_condition=max_condition,
         )
         base_center_basis = _spectral_basis(
-            parallel_matrix_from_state(base_center_for_calculation, tau, mu),
+            parallel_matrix_from_state(base_center_for_calculation, tau, mu, psi=psi),
             eigenvalue_tolerance=eigenvalue_tolerance,
             max_condition=max_condition,
         )
@@ -1968,6 +1998,7 @@ def parallel_target_row_material_residual(
             eigenvalue_tolerance=eigenvalue_tolerance,
             max_condition=max_condition,
             basis=high_order_basis,
+            psi=psi,
         )
         forward_second_action, _, _ = _live_characteristic_leg_action(
             center_for_calculation,
@@ -1979,6 +2010,7 @@ def parallel_target_row_material_residual(
             eigenvalue_tolerance=eigenvalue_tolerance,
             max_condition=max_condition,
             basis=high_order_basis,
+            psi=psi,
         )
         backward_second_full = -backward_second_action
         forward_second_full = -forward_second_action
@@ -2003,6 +2035,7 @@ def parallel_target_row_material_residual(
             eigenvalue_tolerance=eigenvalue_tolerance,
             max_condition=max_condition,
             basis=base_center_basis,
+            psi=psi,
         )
         forward_wall_delta_action, _, _ = _live_characteristic_leg_action(
             base_center_for_calculation,
@@ -2014,6 +2047,7 @@ def parallel_target_row_material_residual(
             eigenvalue_tolerance=eigenvalue_tolerance,
             max_condition=max_condition,
             basis=base_center_basis,
+            psi=psi,
         )
         # Ordinary mapped rows are assembled directly from the reconstructed
         # characteristic face fluxes.  The additive correction is retained
@@ -2254,6 +2288,7 @@ def parallel_short_wall_material_data(
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
     resolved_wall_data: dict[str, jnp.ndarray] | None = None,
+    psi: str = "phi_plus_tau_ti",
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Return the selected short-wall material residual and frozen Jacobian.
 
@@ -2287,6 +2322,7 @@ def parallel_short_wall_material_data(
             positivity_floor=positivity_floor,
             eigenvalue_tolerance=eigenvalue_tolerance,
             max_condition=max_condition,
+            psi=psi,
         )
     else:
         info = resolved_wall_data
@@ -2370,6 +2406,7 @@ def parallel_short_wall_backward_euler(
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
+    psi: str = "phi_plus_tau_ti",
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Apply one local backward-Euler increment to selected wall rows.
 
@@ -2402,6 +2439,7 @@ def parallel_short_wall_backward_euler(
         positivity_floor=positivity_floor,
         eigenvalue_tolerance=eigenvalue_tolerance,
         max_condition=max_condition,
+            psi=psi,
     )
     material_residual = selected_residual
     material_jacobian = selected_jacobian
@@ -2477,6 +2515,7 @@ def parallel_characteristic_wall_data(
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
+    psi: str = "phi_plus_tau_ti",
 ) -> dict[str, jnp.ndarray]:
     """Return the complete projected wall data consumed by the material flux.
 
@@ -2501,6 +2540,7 @@ def parallel_characteristic_wall_data(
         positivity_floor=positivity_floor,
         eigenvalue_tolerance=eigenvalue_tolerance,
         max_condition=max_condition,
+            psi=psi,
     )
     info = dict(info)
     info["selected_residual"] = selected_residual

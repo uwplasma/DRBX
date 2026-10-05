@@ -123,7 +123,8 @@ def _diffusion(plan,x,bc,kinds,gathered,coefficients):
 
 
 def apply_q_plan(plan,state,inner_boundary,outer_boundary,phi,phi_boundary,
-                 coefficients,*,kinds,phi_kind,tau,mu,characteristic_method="eig"):
+                 coefficients,*,kinds,phi_kind,tau,mu,characteristic_method="eig",
+                 psi="phi_plus_tau_ti"):
     """Preserve SixFieldAction outputs; six-field material state is real only.
 
     Static ``characteristic_method`` defaults to the accepted ``eig`` path.
@@ -149,15 +150,17 @@ def apply_q_plan(plan,state,inner_boundary,outer_boundary,phi,phi_boundary,
     # value is (...,field,raw,slot); material consumes (...,raw,slot,field).
     stencil=jnp.moveaxis(slots.value[...,:5,:,:],-3,-1)
     material=material_from_slots(stencil,ps,plan.magnetic_L,plan.b_eta,plan.eta_step,
-                                tau=tau,mu=mu,characteristic_method=characteristic_method)
+                                tau=tau,mu=mu,characteristic_method=characteristic_method,**({} if psi == 'phi_plus_tau_ti' else {'psi': psi}))
     homogeneous=jnp.moveaxis(slots.homogeneous[...,:5,:,jnp.array([1,3,2])],-3,-1)
     inner=jnp.moveaxis(slots.value[...,:5,:,jnp.array([1,3,2])],-3,-1)
     def current_div(v):
         return jnp.sum(plan.magnetic_L*v[...,0]*(v[...,3]-v[...,4]),axis=-1)
     physical,d0=current_div(inner),current_div(homogeneous)
     scale=plan.b_eta/(2*plan.eta_step)
+    gti=(scale*(inner[...,1,0]*inner[...,1,2]-inner[...,0,0]*inner[...,0,2])
+         if psi=="phi_plus_tau_pi" else scale*(inner[...,1,2]-inner[...,0,2]))
     cp=current_phi_from_raw(d0,physical-d0,scale*(ps[...,1]-ps[...,0]),
-        scale*(inner[...,1,2]-inner[...,0,2]),inner[...,2,0],
+        gti,inner[...,2,0],
         jnp.broadcast_to(plan.bmag,d0.shape),tau=tau,mu=mu)
     centered5=material.material.at[...,4].add(cp.electron_generalized_force)
     omega=vorticity_from_slots(slots.value[...,5,:,:],inner[...,2,3],plan.b_eta,plan.eta_step)
