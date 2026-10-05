@@ -358,9 +358,13 @@ class CoreSchurPreconditioner:
 
 
 def apply_core_schur_preconditioner(prec: CoreSchurPreconditioner, r: jnp.ndarray) -> jnp.ndarray:
-    """``z = M^-1 r`` plane by plane; jittable with ``prec`` as an argument.  ``r`` is the flat ``(E P,)`` vector (plane-major)."""
+    """``z = M^-1 r`` plane by plane; jittable with ``prec`` as an argument.  ``r`` is the flat ``(E P,)`` vector (plane-major).
+
+    The plane count is read from the leaves (``prec.z.shape[0]``), not from ``meta.E``, so an eta shard of the factors
+    (``(S, p, ...)`` / ``(p, ...)`` leaves) applies to its local ``p P`` vector; the full preconditioner is unchanged.
+    """
     meta = prec.meta
-    n_s, big_b, w, n_e, n_c = meta.S, meta.B, meta.w, meta.E, meta.Nc
+    n_s, big_b, w, n_e, n_c = meta.S, meta.B, meta.w, prec.z.shape[0], meta.Nc
     n_ring = meta.m * meta.N
     fd = prec.lo.dtype
     rp = r.reshape(n_e, n_c + n_ring).astype(fd)
