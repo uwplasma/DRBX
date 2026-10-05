@@ -16,6 +16,10 @@ Typical use, the Boussinesq potential ``div(grad phi) = omega - tau div(grad q)`
     prec = build_dirichlet_preconditioner(lplan)                        # once per geometry / coefficient
     s = omega - tau * laplacian_action(lplan, q, bcd_q, "dirichlet")
     phi, info = solve_dirichlet(lplan, s, bcd_phi, prec, x0=phi_prev)    # every stage
+
+For gradients use :func:`solve_dirichlet_implicit` (same arguments and values): the solution carries the exact implicit
+derivative of ``M f = b(bcd) - H s`` (forward and reverse mode through one adjoint solve), while :func:`solve_dirichlet` is the
+bare CG ``while_loop`` (no reverse mode; forward mode would differentiate the iterations).
 """
 from __future__ import annotations
 
@@ -29,7 +33,8 @@ from drbx.native.fci_perpendicular_plane_preconditioner import (
     build_core_schur_preconditioner, build_plane_preconditioner)
 from drbx.native.fci_perpendicular_sbp_laplacian import laplacian_form
 
-__all__ = ["apply_preconditioner", "build_dirichlet_preconditioner", "solve_dirichlet", "solve_dirichlet_jit"]
+__all__ = ["apply_preconditioner", "build_dirichlet_preconditioner", "solve_dirichlet", "solve_dirichlet_implicit",
+           "solve_dirichlet_implicit_jit", "solve_dirichlet_jit"]
 
 _METHODS = ("core_schur", "core_super_ring")
 
@@ -111,10 +116,20 @@ def solve_dirichlet(lp: LaplacianPlan, s, bcd, prec: PlanePreconditioner | CoreS
             return jnp.sqrt(jnp.sum(r * r))
 
     x0 = jnp.zeros_like(s) if x0 is None else jnp.asarray(x0)
-    r0 = rhs - matvec(x0)
+    return _pcg(matvec, rhs, precond, norm, x0, rtol, maxit)
+
+
+def _pcg(matvec, b, precond, norm, x0, rtol, maxit, *, zero_rhs_exact=False):
+    """Flexible Polak-Ribiere preconditioned CG ``while_loop`` from ``x0``; returns ``(x, info)``.
+
+    ``zero_rhs_exact``: a zero right-hand side returns exactly zero with no iterations (instead of ``rtol``-sized noise).
+    """
+    nb0 = norm(b)
+    nb = jnp.where(nb0 > 0.0, nb0, 1.0)
+    if zero_rhs_exact:
+        x0 = jnp.where(nb0 > 0.0, x0, 0.0)
+    r0 = b - matvec(x0)
     z0 = precond(r0)
-    nb = norm(rhs)
-    nb = jnp.where(nb > 0.0, nb, 1.0)
 
     def cond(st):
         _x, _r, _z, _p, _rz, it, rel = st
@@ -137,3 +152,59 @@ def solve_dirichlet(lp: LaplacianPlan, s, bcd, prec: PlanePreconditioner | CoreS
 
 
 solve_dirichlet_jit = jax.jit(solve_dirichlet, static_argnames=("residual_norm",))
+
+
+def solve_dirichlet_implicit(lp: LaplacianPlan, s, bcd, prec: PlanePreconditioner | CoreSchurPreconditioner, *, coeff=None,
+                             c_kappa=1.0, x0=None, rtol: float = 1e-10, maxit: int = 200, residual_norm: str = "h_inv"):
+    """:func:`solve_dirichlet` with implicit derivatives: same arguments, same ``(f, info)``, same values (the same CG).
+
+    The solve is wrapped in :func:`jax.lax.custom_linear_solve` (``symmetric=True``: ``M`` is symmetric positive definite), so
+    ``f = M^-1 (b(bcd) - H s)`` is differentiated at the solution instead of through the CG iterations. The JVP solves
+    ``M df = db - H ds - dM f`` and the VJP (reverse mode) solves the adjoint system ``M w = f_bar`` once, both by the same
+    preconditioned CG at relative tolerance ``rtol`` (relative to the norm of their own right-hand side, in the
+    ``residual_norm`` norm) and ``maxit``.
+
+    Differentiable: ``s``; the Dirichlet data in ``bcd`` (``b`` is affine in it, any wall array in ``bcd.value``); and ``coeff``
+    and ``c_kappa`` (the operator enters through the ``matvec`` closure, ``dM f`` is the tangent of the matvec at the solution;
+    the polarization-coefficient derivative is verified against finite differences in the tests). The operator itself is
+    only piecewise smooth in ``coeff``: its penalty scalings use ``max |coeff trace|``, so at exactly tied extrema (e.g. a
+    mirror-symmetric coefficient) the derivative is a subgradient, not the two-sided limit. Non-differentiable (treated
+    as constants, their tangents are ignored): the preconditioner ``prec`` (only an approximate inverse used to accelerate the
+    CG, it does not change the solution), the warm start ``x0`` (the result is independent of it up to ``rtol``), ``rtol`` and
+    ``maxit``. Only ``f`` carries derivatives; ``info`` is non-differentiable diagnostics (``stop_gradient``).
+
+    ``x0`` also warm-starts the tangent / adjoint solves (a poor guess for them, but they converge to the same relative
+    tolerance); a zero tangent or cotangent right-hand side returns exactly zero.
+    """
+    if residual_norm not in ("h_inv", "euclid"):
+        raise ValueError(f"residual_norm must be 'h_inv' or 'euclid', got {residual_norm!r}")
+    s = jnp.asarray(s)
+    E, P = s.shape
+    H = lp.Hp * lp.structure.deta
+    rhs = -laplacian_form(lp, jnp.zeros_like(s), bcd, "dirichlet", coeff, c_kappa) - H * s
+
+    def matvec(v):
+        return laplacian_form(lp, v, None, "dirichlet", coeff, c_kappa)
+
+    def precond(r):
+        return apply_preconditioner(prec, r.reshape(-1)).reshape(E, P)
+
+    if residual_norm == "h_inv":
+        def norm(r):
+            return jnp.sqrt(jnp.sum(r * r / H))
+    else:
+        def norm(r):
+            return jnp.sqrt(jnp.sum(r * r))
+
+    x0 = jnp.zeros_like(s) if x0 is None else jax.lax.stop_gradient(jnp.asarray(x0))
+    rtol = jax.lax.stop_gradient(jnp.asarray(rtol))
+    maxit = jax.lax.stop_gradient(jnp.asarray(maxit))
+
+    def solve(mv, b):                                          # the CG of solve_dirichlet on the operator handed in
+        return _pcg(mv, b, precond, norm, x0, rtol, maxit, zero_rhs_exact=True)
+
+    x, info = jax.lax.custom_linear_solve(matvec, rhs, solve=solve, transpose_solve=solve, symmetric=True, has_aux=True)
+    return x, jax.lax.stop_gradient(info)
+
+
+solve_dirichlet_implicit_jit = jax.jit(solve_dirichlet_implicit, static_argnames=("residual_norm",))
