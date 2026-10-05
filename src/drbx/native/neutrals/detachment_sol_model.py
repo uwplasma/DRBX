@@ -59,7 +59,7 @@ area ``A = 1 + (A_t - 1) H(y - y_x)(y - y_x)/(2 pi - y_x)``.
 Steady state: pseudo-transient continuation, backward-Euler steps solved by
 Newton with the exact Jacobian (colored forward-mode, five-cell stencil) in
 2-cell block-tridiagonal form bordered by the source/constraint pair, solved
-with ``solvax.block_thomas``. Derivatives of steady outputs come from the
+by a block LU in ``lax.scan`` (forward and transposed). Derivatives of steady outputs come from the
 implicit-function theorem (``jax.custom_jvp`` + ``lax.custom_linear_solve``
 with the transposed block solve), so ``jax.jacfwd`` and ``jax.grad`` both work
 outside ``jit``.
@@ -75,7 +75,8 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
-from solvax import block_thomas_factor, block_thomas_solve
+from jax._src.core import eval_context as _eval_context
+from jax.scipy.linalg import lu_factor, lu_solve
 
 __all__ = [
     "DetachmentSolParameters",
@@ -491,6 +492,70 @@ def _terms(u, s, theta, params: DetachmentSolParameters, grid: _Grid) -> _Terms:
 
 
 # --------------------------------------------------------------------------
+# Block-tridiagonal LU (lax.scan; compile time independent of the block count)
+
+
+class _BlockLU(NamedTuple):
+    lu: jnp.ndarray
+    piv: jnp.ndarray
+    lower: jnp.ndarray
+    upper: jnp.ndarray
+
+
+def block_thomas_factor(lower, diag, upper):
+    """Top-down block LU: ``D'_k = D_k - L_k D'_{k-1}^{-1} U_{k-1}``."""
+    first = lu_factor(diag[0])
+
+    def step(carry, inp):
+        d_k, l_k, u_prev = inp
+        x = lu_solve(carry, u_prev)
+        new = lu_factor(d_k - l_k @ x)
+        return new, new
+
+    _, (lus, pivs) = jax.lax.scan(step, first, (diag[1:], lower[1:], upper[:-1]))
+    return _BlockLU(jnp.concatenate([first[0][None], lus]), jnp.concatenate([first[1][None], pivs]), lower, upper)
+
+
+def block_thomas_solve(f: _BlockLU, rhs, transpose=False):
+    """Solve ``A x = rhs`` (or ``A^T x = rhs``) with the factors; rhs ``(nb, m)``."""
+    lus, pivs = f.lu, f.piv
+    if not transpose:
+        def down(y_prev, inp):
+            lu, piv, l_k, r_k = inp
+            y = r_k - l_k @ lu_solve((lu, piv), y_prev)
+            return y, y
+
+        _, ys = jax.lax.scan(down, rhs[0], (lus[:-1], pivs[:-1], f.lower[1:], rhs[1:]))
+        ys = jnp.concatenate([rhs[:1], ys])
+        x_last = lu_solve((lus[-1], pivs[-1]), ys[-1])
+
+        def up(x_next, inp):
+            lu, piv, u_k, y_k = inp
+            x = lu_solve((lu, piv), y_k - u_k @ x_next)
+            return x, x
+
+        _, xs = jax.lax.scan(up, x_last, (lus[:-1], pivs[:-1], f.upper[:-1], ys[:-1]), reverse=True)
+        return jnp.concatenate([xs, x_last[None]])
+    z0 = lu_solve((lus[0], pivs[0]), rhs[0], trans=1)
+
+    def down_t(z_prev, inp):
+        lu, piv, u_prev, r_k = inp
+        z = lu_solve((lu, piv), r_k - u_prev.T @ z_prev, trans=1)
+        return z, z
+
+    _, zs = jax.lax.scan(down_t, z0, (lus[1:], pivs[1:], f.upper[:-1], rhs[1:]))
+    zs = jnp.concatenate([z0[None], zs])
+
+    def up_t(x_next, inp):
+        lu, piv, l_next, z_k = inp
+        x = z_k - lu_solve((lu, piv), l_next.T @ x_next, trans=1)
+        return x, x
+
+    _, xs = jax.lax.scan(up_t, zs[-1], (lus[:-1], pivs[:-1], f.lower[1:], zs[:-1]), reverse=True)
+    return jnp.concatenate([xs, zs[-1][None]])
+
+
+# --------------------------------------------------------------------------
 # Steady-state system G(x, theta) = [ddt(u); N_0 - n_up] = 0,  x = (u, s)
 
 
@@ -516,9 +581,11 @@ def _scales(u):
     return jnp.maximum(jnp.maximum(m, floor), 1e-30)
 
 
-def _residual_norm(ddt, u, params):
+def _residual_norm(ddt, u, params, con=0.0):
+    """``max_v ||dU_v/dt||_inf tau / ||U_v||_inf`` together with ``|N_0 - n_up| / ||N||``."""
     tau = params.length / params.rho_s0  # transit time at Cs0, normalised
-    return jnp.max(jnp.max(jnp.abs(ddt), axis=0) * tau / _scales(u))
+    scales = _scales(u)
+    return jnp.maximum(jnp.max(jnp.max(jnp.abs(ddt), axis=0) * tau / scales), jnp.abs(con) / scales[0])
 
 
 def _jacobian_blocks(u, s, theta, params, grid):
@@ -575,9 +642,10 @@ def _bordered_solve(factors, b_col, rhs_u, rhs_c, *, transpose=False, shift=0.0)
     return y - z * mu, mu
 
 
-@partial(jax.jit, static_argnums=(4,))
-def _ptc_step(u, s, theta, inv_dt, params):
-    grid = _grid(params)
+@partial(jax.jit, static_argnums=(5,))
+def _ptc_step(u, s, theta, inv_dt, grid, params):
+    # grid arrays are traced arguments: as embedded constants XLA constant-folds
+    # the Jacobian assembly and compile time grows with ny.
     ddt, con = _residual(u, s, theta, params, grid)
     lower, diag, upper, b_col = _jacobian_blocks(u, s, theta, params, grid)
     # backward Euler: (J - I/dt) du + b ds = -ddt ; e0.du = -con
@@ -586,13 +654,13 @@ def _ptc_step(u, s, theta, inv_dt, params):
     # the source amplitude relaxes in pseudo-time like SD1D's controller:
     # e0.du + (eps/dt) ds = -con, which becomes the exact constraint as dt -> inf
     du, ds = _bordered_solve(factors, b_col, -ddt, -con, shift=_SOURCE_INERTIA * inv_dt)
-    return du, ds, _residual_norm(ddt, u, params)
+    return du, ds, _residual_norm(ddt, u, params, con)
 
 
-@partial(jax.jit, static_argnums=(3,))
-def _norm_at(u, s, theta, params):
-    ddt, _ = _residual(u, s, theta, params, _grid(params))
-    return _residual_norm(ddt, u, params)
+@partial(jax.jit, static_argnums=(4,))
+def _norm_at(u, s, theta, grid, params):
+    ddt, con = _residual(u, s, theta, params, grid)
+    return _residual_norm(ddt, u, params, con)
 
 
 def detachment_initial_state(params: DetachmentSolParameters, *, upstream_ev: float = 60.0, target_ev: float = 20.0):
@@ -615,7 +683,7 @@ def _interp_state(state: DetachmentSolState, src: DetachmentSolParameters, dst: 
 
 
 def detachment_sol_run(params: DetachmentSolParameters, state: DetachmentSolState | None = None, *,
-                       source_scale: float = 0.1, tol: float = 1e-9, max_iter: int = 400,
+                       source_scale: float = 0.1, tol: float = 1e-8, max_iter: int = 400,
                        initial_dt: float = 1.0e2, newton_switch: float = 1e-5, source_params: DetachmentSolParameters | None = None,
                        verbose: bool = False) -> DetachmentSteadyResult:
     """Solve for the SD1D steady state by pseudo-transient Newton continuation.
@@ -639,17 +707,18 @@ def detachment_sol_run(params: DetachmentSolParameters, state: DetachmentSolStat
     s = jnp.asarray(float(source_scale))
     theta = _theta(params)
     dt = float(initial_dt)
-    res = float(_norm_at(u, s, theta, params))
+    grid = _grid(params)
+    res = float(_norm_at(u, s, theta, grid, params))
     it = 0
     for it in range(1, max_iter + 1):
         if res < tol:
             it -= 1
             break
-        du, ds, _ = _ptc_step(u, s, theta, 1.0 / dt if dt < 1e300 else 0.0, params)
+        du, ds, _ = _ptc_step(u, s, theta, 1.0 / dt if dt < 1e300 else 0.0, grid, params)
         un, sn = u + du, s + ds
         ok = bool(jnp.all(jnp.isfinite(un))) and float(jnp.min(un[:, 0])) > 0 and float(jnp.min(un[:, 2])) > 0 \
             and float(jnp.min(un[:, 3])) > -1e-12
-        rn = float(_norm_at(un, sn, theta, params)) if ok else np.inf
+        rn = float(_norm_at(un, sn, theta, grid, params)) if ok else np.inf
         if ok and ((dt < 1e299 and rn < 1e2 * res) or rn < res):
             growth = min(4.0, max(res / max(rn, 1e-300), 1.3))
             u, s, res = un, sn, rn
@@ -742,7 +811,7 @@ def _target_outputs_from(u, s, theta, params, grid):
 
 
 def detachment_target_outputs(theta, params: DetachmentSolParameters, guess: DetachmentSteadyResult | None = None,
-                              *, tol: float = 1e-10):
+                              *, tol: float = 1e-8):
     """``[T_t (eV), Gamma_t A_t]`` at steady state as a differentiable function of
     ``theta = [n_up (m^-3), power_flux (W/m^2)]``.
 
@@ -755,6 +824,13 @@ def detachment_target_outputs(theta, params: DetachmentSolParameters, guess: Det
     cache = {}
 
     def solve_primal(th):
+        # The Newton loop runs eagerly on concrete values even when a reverse-mode
+        # trace is active (grad traces the jvp rule with concrete primals).
+        with _eval_context():
+            return _solve_primal(th)
+
+    def _solve_primal(th):
+        th = np.asarray(th)
         p = replace(params, upstream_density=float(th[0]), power_flux=float(th[1]))
         start = guess.state if guess is not None else None
         s0 = guess.source_scale if guess is not None else 0.1
