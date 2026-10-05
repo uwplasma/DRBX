@@ -79,20 +79,20 @@ from jax._src.core import eval_context as _eval_context
 from jax.scipy.linalg import lu_factor, lu_solve
 
 __all__ = [
+    "DetachmentDiagnostics",
     "DetachmentSolParameters",
     "DetachmentSolState",
     "DetachmentSteadyResult",
-    "DetachmentDiagnostics",
+    "detachment_diagnostics",
+    "detachment_initial_state",
+    "detachment_ledger",
     "detachment_rhs",
     "detachment_sol_run",
-    "detachment_diagnostics",
-    "detachment_ledger",
-    "detachment_initial_state",
     "detachment_target_outputs",
+    "sd1d_charge_exchange_rate",
     "sd1d_grid",
     "sd1d_ionisation_rate",
     "sd1d_recombination_rate",
-    "sd1d_charge_exchange_rate",
 ]
 
 _QE = 1.602176634e-19
@@ -474,7 +474,7 @@ def _terms(u, s, theta, params: DetachmentSolParameters, grid: _Grid) -> _Terms:
     # Neutrals
     logPn = jnp.log(jnp.maximum(Pn, 1e-7))
     logPn_x = _ext(logPn, logPn[0], logPn[-1])
-    ext = lambda x: _ext(x, x[0], x[-1])  # noqa: E731  (guards irrelevant: zero boundary gradient)
+    ext = lambda x: _ext(x, x[0], x[-1])
     ddt_nn = -_div_fv(Nn_x, Vn_x, grid) + S + _div_diffusion(ext(Dn * Nn), logPn_x, grid)
     ddt_nvn = -_div_fv(NVn_x, Vn_x, grid) + F - _grad_c(Pn_x, grid) + _div_diffusion(ext(NVn * Dn), logPn_x, grid)
     ddt_pn = (-_div_fv(Pn_x, Vn_x, grid) - (2.0 / 3.0) * Pn * _grad_c(Vn_x, grid) + (2.0 / 3.0) * E
@@ -597,7 +597,7 @@ def _jacobian_blocks(u, s, theta, params, grid):
         for b in range(_NFIELDS):
             seeds.append(jnp.zeros((ny, _NFIELDS)).at[:, b].set((cells % 5 == c).astype(u.dtype)))
     seeds = jnp.stack(seeds)
-    f = lambda uu: _terms(uu, s, theta, params, grid).ddt  # noqa: E731
+    f = lambda uu: _terms(uu, s, theta, params, grid).ddt
     jt = jax.vmap(lambda t: jax.jvp(f, (u,), (t,))[1])(seeds)  # (30, ny, 6)
     jt = jt.reshape(5, _NFIELDS, ny, _NFIELDS)               # [color, b, i, a]
     b_col = jax.jvp(lambda ss: _terms(u, ss, theta, params, grid).ddt, (s,), (jnp.ones_like(s),))[1]

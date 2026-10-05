@@ -55,7 +55,10 @@ print(f"== start: n_up = {INITIAL_DENSITY:.3e}, residual {guess.residual:.1e}")
 density, history = INITIAL_DENSITY, []
 for iteration in range(ITERATIONS):
     theta = jnp.asarray([density, POWER_FLUX])
-    outputs = lambda th: detachment_target_outputs(th, params, guess)  # noqa: E731
+
+    def outputs(th, guess=guess):
+        return detachment_target_outputs(th, params, guess)
+
     value = outputs(theta)
     jac = jax.jacfwd(outputs)(theta)
     t_t, dt_dn = float(value[0]), float(jac[0, 0])

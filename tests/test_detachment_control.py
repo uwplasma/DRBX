@@ -12,7 +12,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from drbx.native.neutrals import DetachmentSolParameters, detachment_sol_run, detachment_target_outputs
+from drbx.native.neutrals import (
+    DetachmentSolParameters,
+    detachment_sol_run,
+    detachment_target_outputs,
+)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -21,7 +25,7 @@ def test_control_newton_step_reaches_requested_temperature() -> None:
     params = DetachmentSolParameters(ny=100, upstream_density=2.5e19)
     guess = detachment_sol_run(params)
     theta = jnp.asarray([2.5e19, 5.0e7])
-    outputs = lambda th: detachment_target_outputs(th, params, guess)  # noqa: E731
+    outputs = lambda th: detachment_target_outputs(th, params, guess)
     t0 = float(outputs(theta)[0])
     slope = float(jax.jacfwd(outputs)(theta)[0, 0])
     assert slope < 0.0

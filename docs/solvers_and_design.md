@@ -94,12 +94,16 @@ solver library extracted from this code family. `drbx` uses two pieces:
 - **Tridiagonal (Thomas) solves** — the implicit pieces of the 1-D neutral
   models: neutral parallel diffusion in
   [`neutrals/recycling_sol_model.py`](../src/drbx/native/neutrals/recycling_sol_model.py)
-  and both the neutral diffusion and the implicit Spitzer conduction
-  \(\kappa \sim T^{5/2}\) in
-  [`neutrals/detachment_sol_model.py`](../src/drbx/native/neutrals/detachment_sol_model.py)
-  call `solvax.tridiagonal_solve` (which lowers to
-  `jax.lax.linalg.tridiagonal_solve`), making the stiff parabolic terms
+  calls `solvax.tridiagonal_solve` (which lowers to
+  `jax.lax.linalg.tridiagonal_solve`), making the stiff parabolic term
   unconditionally stable while staying differentiable.
+- **Block-tridiagonal Newton** — the SD1D-matched steady solve in
+  [`neutrals/detachment_sol_model.py`](../src/drbx/native/neutrals/detachment_sol_model.py)
+  assembles the exact Jacobian from 30 colored forward-mode products (five-cell
+  stencil, six fields) into 2-cell blocks, borders it with the source amplitude
+  and the upstream-density constraint, and factors it with a block LU in
+  `lax.scan`; the same factors solve the transposed system for reverse-mode
+  implicit derivatives.
 
 ## Spectral Poisson solve in Hasegawa-Wakatani
 

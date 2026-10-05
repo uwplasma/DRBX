@@ -175,16 +175,17 @@ def test_sd1d_13p6ev_scan_target_values() -> None:
 @pytest.mark.parametrize("tag,n_up", [("n2e19", 2.000355e19), ("n5e19", 5.000658e19)])
 def test_sd1d_profiles(tag, n_up) -> None:
     ref = np.load(DATA)
-    params, result = _solve(ny=800, n_up=n_up)
+    _, result = _solve(ny=800, n_up=n_up)
     st = [np.asarray(f) for f in result.state]
     ne, nvi, p, nn = (ref[f"{tag}_{k}"] for k in ("Ne", "NVi", "P", "Nn"))
-    np.testing.assert_allclose(st[0], ne, rtol=0.02)
-    np.testing.assert_allclose(0.5 * st[2] / st[0], 0.5 * p / ne, rtol=0.02)
+    np.testing.assert_allclose(st[0], ne, rtol=2e-3)
+    np.testing.assert_allclose(0.5 * st[2] / st[0], 0.5 * p / ne, rtol=2e-3)
     mach, mach_ref = st[1] / st[0] / np.sqrt(st[2] / st[0]), nvi / ne / np.sqrt(p / ne)
-    np.testing.assert_allclose(mach, mach_ref, atol=0.01)
-    # neutral density: compare where it matters (above 1e-3 of its peak)
+    np.testing.assert_allclose(mach, mach_ref, atol=3e-3)
+    # observed: n, T within 5e-4, Mach within 1.2e-3, Nn within 2.3e-3 where
+    # Nn > 1e-3 of its peak (the upstream trace gas, < 1e15 m^-3, is not compared)
     mask = nn > 1e-3 * nn.max()
-    np.testing.assert_allclose(st[3][mask], nn[mask], rtol=0.05)
+    np.testing.assert_allclose(st[3][mask], nn[mask], rtol=1e-2)
 
 
 @pytest.mark.slow

@@ -55,6 +55,9 @@ SD1D = [
     (2.999828e19, 9.58, 4.691e24), (3.992420e19, 6.22, 6.861e24), (5.000658e19, 4.80, 8.460e24),
     (5.999908e19, 4.07, 9.577e24), (7.521918e19, 3.13, 1.102e25),
 ]
+# The last SD1D point is not a steady state (no PI integral in its restart file,
+# earlier simulation time than the 7e19 run it continues from, residual 100x the
+# other cases), so its ~10% T_t difference is not a model difference.
 OUTPUT_DIR = Path("output/b6_detachment")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
