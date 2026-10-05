@@ -287,6 +287,14 @@ def eta_planes(layout: NodalLayout) -> np.ndarray:
     return (np.arange(layout.n_eta) + 0.5) * layout.deta
 
 
+def node_points(layout: NodalLayout) -> np.ndarray:
+    """Logical node coordinates ``(n_eta, P, 3) = (u, theta, eta_k)`` of the nodal state."""
+    E, P = layout.n_eta, layout.P
+    eta = eta_planes(layout)
+    return np.stack([np.broadcast_to(layout.node_u, (E, P)), np.broadcast_to(layout.node_theta, (E, P)),
+                     np.broadcast_to(eta[:, None], (E, P))], axis=-1)
+
+
 def wall_points(layout: NodalLayout, wall: Wall) -> np.ndarray:
     """Face points ``(n_eta, N_w, 3)`` of ``wall`` as ``(u_face, delta + 2 pi j / N_w, eta_k)``."""
     side = layout.blocks[wall.block_idx].sides[wall.side]

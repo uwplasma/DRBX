@@ -19,7 +19,7 @@ import numpy as np
 jax.config.update("jax_enable_x64", True)
 
 from drbx.geometry.nodal_families import build_family_a_layout  # noqa: E402
-from drbx.geometry.nodal_layout import wall_points  # noqa: E402
+from drbx.geometry.nodal_layout import node_points, wall_points  # noqa: E402
 from drbx.geometry.sbp_laplacian import (build_laplacian_plan, laplacian_face_metric_from_callable,  # noqa: E402
                                          nodal_laplacian_metric_from_callable)
 
@@ -161,13 +161,6 @@ def wall_data(pts):
 
 
 # ----------------------------------------------------------------------------------------------- the case
-def node_points(layout):
-    E, P = layout.n_eta, layout.P
-    eta = (np.arange(E) + 0.5) * layout.deta
-    return np.stack([np.broadcast_to(layout.node_u, (E, P)), np.broadcast_to(layout.node_theta, (E, P)),
-                     np.broadcast_to(eta[:, None], (E, P))], axis=-1)
-
-
 class Case:
     """Family-A layout, Laplacian plan and exact data of the testbed at ``(n, n_eta)``."""
 
