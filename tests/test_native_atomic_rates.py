@@ -82,3 +82,18 @@ def test_rates_are_vectorized_and_jit_grad_transparent() -> None:
 def test_amjuel_fit_clamps_below_validity_range() -> None:
     # Below the fitted floor (0.1 eV) the clamp makes the rate constant.
     assert _iz(0.05) == pytest.approx(_iz(0.1), rel=1e-10)
+
+
+def test_hydrogen_rates_pin_amjuel_2020_values() -> None:
+    # <sigma v> [m^3/s] at n_e = 1e19 m^-3 from the AMJUEL report of
+    # January 13, 2020 (H.4 2.1.5 p.135, H.4 2.1.8 p.141, H.2 3.1.8 p.43),
+    # evaluated from coefficients transcribed independently of the package.
+    from drbx.native.neutrals.atomic_rates import charge_exchange_rate_coefficient, rate_coefficient
+
+    temperatures = np.array([1.0, 5.0, 20.0, 100.0])
+    ionization = np.array([2.03e-20, 1.67e-15, 2.15e-14, 4.04e-14])
+    charge_exchange = np.array([9.21e-15, 1.69e-14, 2.78e-14, 4.42e-14])
+    np.testing.assert_allclose(np.asarray(rate_coefficient("d", "iz", temperatures, 1.0e19)), ionization, rtol=3e-3)
+    np.testing.assert_allclose(np.asarray(charge_exchange_rate_coefficient(temperatures)), charge_exchange, rtol=3e-3)
+    np.testing.assert_allclose(float(rate_coefficient("d", "rec", 1.0, 1.0e19)), 8.57e-19, rtol=3e-3)
+    np.testing.assert_allclose(float(rate_coefficient("d", "rec", 100.0, 1.0e19)), 6.17e-21, rtol=3e-3)
