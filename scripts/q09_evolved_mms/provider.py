@@ -38,7 +38,11 @@ SOURCE_DEPENDENCIES = (
 def source_hash():
     """Explicit time/source/application dependency closure plus harness sources."""
     root = Path(__file__).resolve().parents[2]
-    paths = list(Path(__file__).parent.glob('*.py'))+[root/p for p in SOURCE_DEPENDENCIES]
+    # Bootstrap imports the frozen runtime, not concurrent production sources.
+    runtime = Path(__file__).parent/'runtime'
+    dependencies = [runtime/p.removeprefix('src/') if p.startswith('src/') else root/p
+                    for p in SOURCE_DEPENDENCIES]
+    paths = list(Path(__file__).parent.glob('*.py'))+dependencies
     paths += list((Path(__file__).parent/'runtime').rglob('*.py'))
     return digest({str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(paths)})
 

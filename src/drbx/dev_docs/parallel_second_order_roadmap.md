@@ -3455,11 +3455,11 @@ closeout is accepted after the focused Ti replay. The
 the shared Q08 application path and existing RK4 infrastructure. Analytic sources, phi and
 compatible D/physical-normal N data are refreshed at each integrator stage. Use continuum
 forcing, not the numerical RHS as its own scientific source. The first
-execution should be a short full-domain N32 evolution with timestep refinement,
-beginning with traced diffusion and then the six-field parallel RHS. This
+short full-domain N32 evolution with timestep refinement is now complete,
+covering traced diffusion and the six-field parallel RHS. This
 addresses the deferred traced Q04 evolution and avoids interpreting an
-artificially closed patch as the full-grid dynamics. Measure feasibility before
-launching N32/N48/N64 evolved qualification; no run is started by this note.
+artificially closed patch as the full-grid dynamics. Extend the duration and run N32/N48/N64 evolved spatial refinement; the user
+now requests one timestep per grid, retaining temporal-error separation as a limitation.
 
 The [parent implementation review](../../../../work/q09_harness_review_20261004/report.md)
 records 28 focused tests passed and one multi-device hardware skip; an independent
@@ -3484,8 +3484,59 @@ RHS, uniform D/N plus both mixed patterns, dt=1e-6/5e-7/2.5e-7 to t=1e-5
 CPU input/reference preparation; no retracing or CPU RHS fallback. Source/input
 hashes, checkpoint resume, stage validity and independent saved-state reductions
 are required. No temporal-order gate is inferred at this potentially roundoff-limited
-duration. Full-domain loading/evolution and GPU time
-integration are unperformed; bounded checks are not a solution/stability pass.
+duration.
+
+**N32 GPU refinement pilot completed and independently reviewed, 4 October.**
+[Returned-array analysis and report](../../../../work/q09_refinement_return_20261004/report.md)
+verify 86 source hashes, 64 completion artifacts, 256 prepared references and
+all 24 checkpoint identities/reductions. All 25,376 owners, eight mode/BC cases,
+560 accepted RK4 steps and 2,240 stages complete to t=1e-5, with positive
+n/Te/Ti and no failed admissibility gate. Independent RMS reduction discrepancy
+is <=4.24e-22. RK integral-balance residual <=1.03e-17 verifies bookkeeping,
+not exact spatial conservation. Timestep self differences are <=3.03e-15
+(complete RHS <=5.20e-16), so the displayed temporal orders are roundoff
+ratios rather than a measured fourth-order HSX result.
+
+Finest-dt diffusion RMS is 2.96e-11–1.12e-10. Complete RHS RMS for n/Te/Ti/Vi/omega
+is 1.78e-10–1.06e-9; Ve is 1.427–1.437e-6, at most 0.001768% of its field RMS.
+Ve error/time agrees with the prior static h/32 N-R RMS within 0.00311% for all
+four BC patterns and retains the same maximum-error owners. That prior Ve
+static discrepancy was predominantly O-R, consistent with accumulated spatial
+error; this does not independently prove a magnetic-reference defect. The
+exact Ve temporal change is only 1.446e-8 RMS, so small relative-to-field error
+must not be equated with accurate resolution of this tiny net evolution.
+
+All controller stages took about 5m29s. CPU preparation was 127.4s; steady
+synchronized RK4 steps on one A100 were 5.95–8.00ms (diffusion) and
+19.74–22.24ms (complete), including host validation. The first two calls per
+case contain startup outliers. Step-by-step checkpoint/report overhead raises
+warm wall time to 38–41ms and 65–69ms per step. Peak GPU allocation was 3.55GiB,
+driver host RSS 3.58GiB (scheduler MaxRSS 4.66GiB).
+
+**Full-domain remote extension prepared, 4 October.** The user requests the
+full evolved MMS handoff. [Runner and frozen contract](../../../scripts/q09_evolved_global/README.md)
+now prescribe N32/N48/N64 sequentially to the common nondimensional time
+1e-4, diffusion-only and the complete six-field parallel RHS, all four BC/phi
+patterns, and one timestep per resolution at the user's request. Step counts are 100/225/400
+(dt scales as N^-2): 24 integrations, 5,800 accepted steps. The N32 coarse dt remains the pilot's 1e-6; these are not
+accepted stability limits for the longer duration or finer grids; every RK stage retains finite/positive/admissible
+checks. Five full-state time snapshots per level permit growth diagnostics;
+restart writes every 25 accepted steps avoid the pilot's per-step compression
+cost. N32 runs first; failure stops the prescribed sequence without retuning.
+
+The numerical runtime is checked byte-for-byte against the successful pilot;
+concurrent hot-ion/production changes do not enter. Saved C3/RK4-64 traces,
+accepted support, h/32 base and h/16 outer sampling, and continuum forcing are
+unchanged. GPU integration uses one actual A100, with CPU preparation only.
+Local portable tests cover checkpoint interruption/recovery, final/snapshot
+reductions and unequal-grid spatial orders; full-grid GPU execution remains
+remote and pending. Evolved error is solution-minus-exact MMS, not static
+N-O-R. This is spatial refinement with one prescribed dt per resolution; temporal
+error/order is not independently measured. The user requested 24 runs rather
+than a Cartesian product with timestep levels. All cases use one manufactured
+field family; long-time evolution remains separate. A completed receipt will be operational evidence, not automatic Q09
+closure. Long-time/perturbation stability, reconstructed phi, multi-GPU
+evolution, perpendicular coupling and production remain open.
 
 - Evolve to a fixed physical time with timestep refinement and the same global
   solution-order target. First prescribe manufactured phi; then repeat with
@@ -3548,7 +3599,7 @@ The [original Phase A task](thread://01a0b561-d18d-78b1-b85f-bfe3d67efe49?hostId
 | Q06 | Certify parallel gradient/divergence pairs | Q05 closed by user acceptance | closed by user acceptance; scoped static qualification | [Contract](q06_traced_gradient_divergence_contract.md), [global traced G](../../../../work/q06_traced_gradient_global_20260930/parent_review.md), [global tube D](../../../../work/q06_tube_global_20260929/parent_review.md), [structural audit](../../../../work/q06_structural_boundary_audit_20260930/report.md). Exact adjointness and owner-weighted conservation do not hold. [Smooth bulk balance](../../../../work/q06_resolved_conservation_20260930/parent_review.md) improves for all eight fields; N64 imbalance/activity 0.004–0.115%. User closes Q06 on 30 September with unchanged operators and documented approximate-balance/non-adjointness exceptions; no evolved or production pass. Continuum N-R/local maximum limits retained. Exterior ghosts unexercised; D(G f) diffusion unnecessary for closure and deferred. |
 | Q07 | Transport and material blocks | Q06 closed with exceptions | five-field static material qualified; bounded prescribed-boundary six-field assembly passed; full closure pending | [Contract](q07_transport_contract.md), [C3 h/32 global review](../../../../work/q07_c3_global_review_20261001/report.md), [six-field assembly](../../../../work/q07_six_field_assembly_20261002/report.md). User accepts the five material fields with documented exceptions. Six-field owner-state assembly replays material, current/phi, vorticity and constant diffusion channels, including D/N/mixed BCs. Keep C3, RK4-64, h/32 material inner and h/16 outer separation, balanced material tube and frozen donors; diffusion spans remain explicit. Next: Q08 engineering consolidation/pilot and remaining C3 static coverage for current/phi, vorticity and diffusion transfer. General basis/enrichment searches are deferred. Physical sheath/SAT, exterior crossings, evolution and production remain open. |
 | Q08 | Traced-span selection, frozen coupled parallel RHS and performance audit | Q07; engineering audit may proceed alongside remaining Q07 coverage | closed by user acceptance, 4 October; frozen static/engineering scope with accuracy exceptions | [Shared extraction plan](q08_shared_extraction_plan.md), [GPU review](../../../../work/q08-verification-v2-149644b9-Apdb1a/local_report.md), [global MMS review](../../../../work/q08_rhs_mms_return_analysis_20261003/report.md), [local closeout](../../../../work/q08_closeout_20261004/report.md), [final Ti replay](../../../../work/q08_ti_return_20261004/report.md). All 1,056 implementation replays pass; N64 warmed RHS is 34.74/10.30 ms on one/four A100s. All base spans use h/32, with paired twice-inner outer characteristic sampling and five eta planes. Unequal-resolution check waived as a prerequisite, not tested. Focused Ti GPU replay covers 313,696 owners, 22 states and D/N; smooth N-O is approximately fourth order, N-R retains its O-R-dominated 0.883 fine-interval order. Every nonconstant regional RMS decreases; inner wave N-O minimum 1.973 and outermost Neumann wave relative N-R 7.82% remain explicit limits. No production or evolved-stability qualification is implied. |
-| Q09 | Evolved MMS and promotion | Q08; P07 for reconstructed phi | prescribed-phi harness and checked input adapter implemented/reviewed; remote N32 pilot pending | [Contract](q09_evolved_mms_contract.md), [harness review](../../../../work/q09_harness_review_20261004/report.md), [adapter audit](../../../../work/q09_input_adapter_20261004/report.md). 40 focused tests pass, one multi-device skip. Actual bounded HSX remote-reference reuse passes; full saved banks are retained remotely. Next timestep-refined N32 traced-diffusion and six-field evolution; measure cost before the spatial campaign. Both phi legs, solution gates, structural and execution qualification remain unperformed. Confirm Q08 span choices in evolution before production defaults. |
+| Q09 | Evolved MMS and promotion | Q08; P07 for reconstructed phi | short prescribed-phi N32 GPU pilot passed; longer temporal/spatial qualification pending | [Contract](q09_evolved_mms_contract.md), [pilot review](../../../../work/q09_refinement_return_20261004/report.md). All 24 dt-level runs complete on the full N32 domain with D/N/mixed BCs; 560 accepted steps, positive state, and independent artifact/reduction checks. Timestep differences are at roundoff; Ve error/time matches the prior predominantly O-R static discrepancy. Controller cost 5m29s; steady complete RK4 step 20–22ms on one A100. Full N32/N48/N64 prescribed-phi campaign prepared to t=1e-4 with one timestep per resolution and time snapshots; remote execution pending. No long-time stability, reconstructed-phi or production pass. |
 | Q traced-return research | Frozen selective-repair traced diffusion | Completed layered/balanced/selective campaigns and interface audit | static reconstruction accuracy accepted with documented exceptions; operator frozen | [Frozen contract](q_traced_diffusion_frozen_contract.md), [global result](../../../../work/q_fci_selective_global_20260929/report.md), [interface audit](../../../../work/q_fci_repair_interface_audit_20260929/report.md). Whole-inner nonconstant RMS order>2 for both intervals/spans; localized join/coarse-envelope and O-R limitations retained. Current implementation choice is selective gradient repair, not always-balanced28. Q05 extraction closed by user acceptance on reviewed bounded evidence; Q06 static traced G/D closed with exceptions; next Q07 bounded density-flux block. Production defaults and broader Q04 certification remain unchanged. Earlier projected-return failures remain historical evidence. |
 
 ### Q bounded interior return-map audit — 2026-09-23
