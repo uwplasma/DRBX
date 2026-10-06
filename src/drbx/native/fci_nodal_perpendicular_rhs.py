@@ -3,14 +3,16 @@
 Composes the nodal SBP perpendicular operators on one device for a state ``(E, P, F)`` of the fields ``opts.fields``
 (a subset of :data:`FIELD_NAMES`, in that order) with the terms of ``opts.terms``:
 
-* ``"bracket"``: ``sbp_bracket(plan, phi, state, SatBoundaryData((wall.value,)), rho_star, bracket_c_kappa)`` on every field;
-* ``"curvature"``: ``sbp_curvature`` on ``(n, Te, Ti, omega)`` with ``phi`` as the fifth column, scattered into the field slots
-  (the other fields get zero);
+* ``"bracket"``: ``rho_star * sbp_bracket(plan, phi, state, SatBoundaryData((wall.value,)), 1.0, bracket_c_kappa)`` on every
+  field (``opts.rho_star_convention == "single-length"``; the legacy convention passes ``rho_star`` to ``sbp_bracket`` as its
+  divisor);
+* ``"curvature"``: ``rho_star * sbp_curvature`` on ``(n, Te, Ti, omega)`` with ``phi`` as the fifth column, scattered into
+  the field slots (the other fields get zero; the legacy convention has no ``rho_star`` factor);
 * ``"diffusion"``: ``D_f * laplacian_action(...)`` per field, Dirichlet rows reading ``wall.value`` and Neumann rows
   ``wall.normal`` (``opts.neumann_mode``: the physical-normal derivative or the conormal flux).
 
-The potential is either solved (``phi_mode="solve"``) from the polarization equation ``L psi = omega - sigma`` with
-Dirichlet ``psi`` data, ``psi = phi + tau p`` (``p = n Ti`` for ``psi="phi_plus_tau_pi"``, ``p = Ti`` for the legacy
+The potential is either solved (``phi_mode="solve"``) from the polarization equation ``L psi = (Omega - sigma) / rho_star**2``
+(single-length; legacy: ``L psi = Omega - sigma``) with Dirichlet ``psi`` data, ``psi = phi + tau p`` (``p = n Ti`` for ``psi="phi_plus_tau_pi"``, ``p = Ti`` for the legacy
 ``"phi_plus_tau_ti"``), ``phi = psi - tau p``, or prescribed (``phi_mode="prescribed"``).
 
 Everything is jittable with the :class:`NodalPerpendicularContext` (built once per geometry on the host), ``params``,
@@ -18,6 +20,14 @@ Everything is jittable with the :class:`NodalPerpendicularContext` (built once p
 :data:`nodal_perpendicular_rhs_jit` and :data:`solve_potential_jit` are the jitted entry points. Wall data are the caller's
 (manufactured values for MMS; production applies :func:`bracket_rule_inflow`). Single device only: the ``eta`` operators
 wrap periodically and the layout is family A (one wall).
+
+``rho_star`` is the physical ``rho_s0 / L_ref`` (``NodalPerpendicularOptions.rho_star_convention``). ``"single-length"``
+(default) is the one-length normalization: the E x B bracket and the whole curvature term carry ``rho_star``, the
+polarization is ``rho_star**2 lap_perp(phi + tau p_i) = Omega`` (``Omega`` is the vorticity field in ``state``), and the
+diffusion is unchanged. ``"legacy-bracket-only"`` is the previous form (bracket divided by ``rho_star``, curvature and
+polarization free of it), which the frozen campaigns pin at ``rho_star = 0.05``. The scaling acts on the outputs and the
+solve right-hand side, never on the operators (``sbp_bracket`` and ``sbp_curvature`` keep their meaning), so the operators'
+dissipation and the fixed solver regularization are not rescaled.
 """
 from __future__ import annotations
 
@@ -41,7 +51,7 @@ from drbx.native.fci_perpendicular_sbp_laplacian_solve import build_dirichlet_pr
 from drbx.stencils.nodal_plan import NodalPlan
 
 __all__ = [
-    "FIELD_NAMES", "TERM_NAMES", "CURVATURE_FIELDS", "NodalPerpendicularContext", "NodalPerpendicularOptions",
+    "FIELD_NAMES", "TERM_NAMES", "CURVATURE_FIELDS", "RHO_STAR_CONVENTIONS", "NodalPerpendicularContext", "NodalPerpendicularOptions",
     "NodalPerpendicularParams", "NodalWallData", "NodalPerpendicularTerms", "build_nodal_perpendicular_context",
     "pressure_variable", "psi_wall_data", "solve_potential", "bracket_rule_inflow", "nodal_perpendicular_rhs",
     "nodal_perpendicular_rhs_jit", "solve_potential_jit",
@@ -50,6 +60,7 @@ __all__ = [
 FIELD_NAMES = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")          # Q09 order
 TERM_NAMES = ("bracket", "curvature", "diffusion")
 CURVATURE_FIELDS = ("density", "Te", "Ti", "vorticity")                  # the columns of the P06 curvature state
+RHO_STAR_CONVENTIONS = ("single-length", "legacy-bracket-only")
 _NEUMANN_MODES = ("physical", "conormal")
 _PHI_MODES = ("solve", "prescribed")
 
@@ -85,7 +96,8 @@ def build_nodal_perpendicular_context(plan: NodalPlan, lplan: LaplacianPlan, *, 
 
 @dataclass(frozen=True)
 class NodalPerpendicularOptions:
-    """Static (hashable) options; validated on construction."""
+    """Static (hashable) options; validated on construction. ``rho_star_convention`` is one of :data:`RHO_STAR_CONVENTIONS`
+    (see the module docstring)."""
 
     fields: tuple[str, ...] = ("density", "Te", "Ti", "vorticity")
     terms: tuple[str, ...] = ("bracket", "curvature", "diffusion")
@@ -100,6 +112,7 @@ class NodalPerpendicularOptions:
     laplacian_c_kappa: float = 1.0
     phi_rtol: float = 1e-10
     phi_maxit: int = 200
+    rho_star_convention: str = "single-length"
 
     def __post_init__(self):
         for name in ("fields", "terms", "diffusion_kinds"):
@@ -138,6 +151,8 @@ class NodalPerpendicularOptions:
             raise ValueError(f"psi must be one of {PSI_VARIANTS}, got {self.psi!r}")
         if self.absolute_method not in ABSOLUTE_METHODS:
             raise ValueError(f"absolute_method must be one of {ABSOLUTE_METHODS}, got {self.absolute_method!r}")
+        if self.rho_star_convention not in RHO_STAR_CONVENTIONS:
+            raise ValueError(f"rho_star_convention must be one of {RHO_STAR_CONVENTIONS}, got {self.rho_star_convention!r}")
         if not self.phi_maxit >= 1:
             raise ValueError(f"phi_maxit must be >= 1, got {self.phi_maxit}")
 
@@ -152,7 +167,7 @@ class NodalPerpendicularOptions:
 
 
 class NodalPerpendicularParams(NamedTuple):
-    rho_star: jax.Array          # scalar
+    rho_star: jax.Array          # scalar; rho_s0 / L_ref (single-length), the bracket divisor (legacy-bracket-only)
     tau: jax.Array               # scalar
     D: jax.Array                 # (F,) perpendicular diffusion per field in ``opts.fields`` order
 
@@ -195,12 +210,17 @@ def _no_solve_info():
 
 def solve_potential(ctx: NodalPerpendicularContext, opts: NodalPerpendicularOptions, params: NodalPerpendicularParams, omega, n,
                     Ti, psi_wall, *, sigma=None, x0=None):
-    """Solve ``L psi = omega - sigma`` (``sigma=None`` is zero) with Dirichlet ``psi_wall (E, N)`` by preconditioned CG with the
-    context's preconditioner; ``phi = psi - tau * pressure_variable(n, Ti)``. Returns ``(psi, phi, info)``."""
+    """Solve ``L psi = (Omega - sigma) / rho_star**2`` (``omega`` is the vorticity ``Omega``; ``sigma=None`` is zero) with Dirichlet
+    ``psi_wall (E, N)`` by preconditioned CG with the context's preconditioner; ``phi = psi - tau * pressure_variable(n, Ti)``.
+    ``opts.rho_star_convention == "legacy-bracket-only"`` solves ``L psi = Omega - sigma`` (no ``rho_star``). The right-hand side
+    is divided, not the operator, so the fixed regularization of the solve keeps its relative weight. Returns
+    ``(psi, phi, info)``."""
     if ctx.prec is None:
         raise ValueError("the context has no preconditioner (build it with build_preconditioner=True)")
     omega = jnp.asarray(omega)
     rhs = omega if sigma is None else omega - jnp.asarray(sigma)
+    if opts.rho_star_convention == "single-length":
+        rhs = rhs / params.rho_star ** 2
     psi, info = solve_dirichlet(ctx.lplan, rhs, LaplacianBoundaryData(value=(jnp.asarray(psi_wall),)), ctx.prec,
                                 c_kappa=opts.laplacian_c_kappa, x0=x0, rtol=opts.phi_rtol, maxit=opts.phi_maxit)
     phi = psi - params.tau * pressure_variable(opts, n, Ti)
@@ -256,7 +276,10 @@ def _check_inputs(ctx, opts, params, state, wall):
 
 
 def _bracket_term(ctx, opts, params, state, wall, phi):
-    return sbp_bracket(ctx.plan, phi, state, SatBoundaryData((wall.value,)), params.rho_star, opts.bracket_c_kappa)
+    bcd = SatBoundaryData((wall.value,))
+    if opts.rho_star_convention == "single-length":
+        return params.rho_star * sbp_bracket(ctx.plan, phi, state, bcd, 1.0, opts.bracket_c_kappa)
+    return sbp_bracket(ctx.plan, phi, state, bcd, params.rho_star, opts.bracket_c_kappa)
 
 
 def _curvature_term(ctx, opts, params, state, wall, phi):
@@ -265,6 +288,8 @@ def _curvature_term(ctx, opts, params, state, wall, phi):
     rhs = sbp_curvature(ctx.plan, q, SatBoundaryData((wall.value[..., idx],)), tau=params.tau, psi=opts.psi,
                         absolute_method=opts.absolute_method, jump_dissipation=opts.curvature_jump_dissipation,
                         c_kappa=opts.curvature_c_kappa, F=ctx.curvature_flux)
+    if opts.rho_star_convention == "single-length":
+        rhs = params.rho_star * rhs
     return jnp.zeros_like(state).at[..., idx].set(rhs)
 
 
@@ -283,8 +308,8 @@ def nodal_perpendicular_rhs(ctx: NodalPerpendicularContext, opts: NodalPerpendic
                             ) -> NodalPerpendicularTerms:
     """The perpendicular right-hand side of ``state (E, P, F)`` (see the module docstring).
 
-    ``phi_mode="solve"`` needs ``wall.psi`` and the vorticity field in ``state`` (``psi_x0`` warm-starts the CG, ``sigma``
-    is the extra polarization source of ``L psi = omega - sigma``); ``phi_mode="prescribed"`` needs ``phi (E, P)``
+    ``phi_mode="solve"`` needs ``wall.psi`` and the vorticity field ``Omega`` in ``state`` (``psi_x0`` warm-starts the CG,
+    ``sigma`` is the extra polarization source of ``L psi = (Omega - sigma) / rho_star**2``); ``phi_mode="prescribed"`` needs ``phi (E, P)``
     and reports ``psi = phi + tau p`` (``psi = phi`` when the pressure fields are not in ``opts.fields``: a bracket or
     diffusion subset that never uses ``psi``).
     """
