@@ -1,0 +1,34 @@
+{
+  "schema": "drbx.p10-evolved-mms-configuration-v1",
+  "provisional": true,
+  "note": "PROVISIONAL: the E0 preflight and the user set these (rho_star, a_phi, D, T, patterns). Single-length rho_star convention: the E x B bracket and the curvature term carry rho_star, the polarization is Omega = rho_star^2 lap_perp(phi + tau p_i), diffusion is unchanged. time_scale = rho_star multiplies every manufactured frequency (Omega_t and nu), so the fields evolve on t' = rho_star t and the advective dynamics equal rho_star = 1 with T = 1/30 (the diffusion then acts as D / rho_star in t' units).",
+  "family": "A",
+  "resolutions": [32, 48, 64],
+  "arms": ["raw", "filtered"],
+  "gated_arms": ["filtered"],
+  "rho_star": 4.5e-4,
+  "rho_star_convention": "single-length",
+  "time_scale": 4.5e-4,
+  "T": 74.07407407407408,
+  "T_note": "1 / (30 rho_star)",
+  "a_phi": 0.1,
+  "w1": 0.0,
+  "w1_note": "W1 variant flag: 1.0 adds the eta-harmonic-2 switch term to Omega (reported-only case)",
+  "tau": 1.0,
+  "psi": "phi_plus_tau_pi",
+  "fields": ["density", "Te", "Ti", "vorticity"],
+  "D": [1.0e-5, 1.2e-5, 1.4e-5, 0.8e-5],
+  "patterns": {
+    "NNN-D": ["neumann", "neumann", "neumann", "dirichlet"],
+    "DDDD": ["dirichlet", "dirichlet", "dirichlet", "dirichlet"]
+  },
+  "neumann_mode": "physical",
+  "bracket_c_kappa": 1.0,
+  "curvature": {"variant": "centred", "jump_dissipation": false, "c_kappa": 0.0, "absolute_method": "closed_form"},
+  "laplacian_c_kappa": 1.0,
+  "solve": {"rtol": 1e-11, "maxit": 50, "preconditioner": "core_schur", "factor_dtype": "float32"},
+  "roots": {
+    "nodal_metric": {"raw": "work/p09_m3_campaign_20261004", "filtered": "work/p09_m3_filtered_20261004"},
+    "laplacian_metric": "work/p09_m5_laplacian_20261004"
+  }
+}
