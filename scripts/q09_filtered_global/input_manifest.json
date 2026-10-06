@@ -1,0 +1,43 @@
+{
+  "files": {
+    "geometry_model/worker.py": "1dbd60cc3005daece0af8ee71b3d70f035f697cec54bc8a2f44c8f2157998bcb",
+    "geometry_model/trace.py": "4445859ad8f2b5625354bfe08151be05cfa839aa7fd5818df9984cc5c99541c7",
+    "geometry_model/input_manifest.json": "0c58b3094c97d156ed8cb0cdcdd5ab59578f5df4ca9fdce7f67ed3ef09e36803",
+    "geometry_model/support.py": "abf0697083c9f57efb5a5ad14b8602c3b6e9552e0d40b68f653c81db917bdd42",
+    "geometry_model/fields.py": "39ee78690c2532ad28d24d1a730a831f5a019999d342ffce658850f2934e8548",
+    "geometry_model/primitives.py": "180e50d0dcce0e976f0bb18d6402ccdb794c3506d28577c2da53ecec1cb3051d",
+    "geometry_model/wall.py": "253faaeabd85ca8055fe4c537fdb3890e2d76202a2563743b0f060133a1324df",
+    "geometry_model/__init__.py": "cd4f22128d3c25577eb05167b32aaab3c8dce8f0f5e64eee23517152cc17bc3d",
+    "geometry_model/local_balanced_validate.py": "ab783d7f0129d1a6b95cb46ba17e8067fd3f53bfcbcc5ae3a712603311859c86",
+    "geometry_model/model.py": "7ef677da08fa9df9576a6951f5e36d8c78c4a5d3bb054c8e5109c327c8873460",
+    "geometry_model/campaign.py": "acd85581c9ca56e2dee69a7bfcd4abddbed83c35d54d95410b023fdf2e5b8f04",
+    "geometry_model/vendor_receipt.json": "30da9b956003fb18060b74c72aa09b41d20d6d8d0571ec795112bea1f7a3ad09",
+    "geometry_model/inputs.json": "fc540a84c0eddb4f669c1b945c06487412d0ae8b6ff0368ca03cc727a00e5149",
+    "geometry_model/storage.py": "8aaf5af30017b2556954d95dd9fb3b0eee0ca1da62c4c32ab1a6f8b64ec527ef",
+    "geometry_model/local_validate.py": "0e990f7be0db9748c67bddbe76be5532d82be9bb0b61c1477598807d7ad2c57b",
+    "geometry_model/run_all.py": "dbc3272e88640354fa3f3c50a7e2b9897d4892d410ee080e2de1d5c3784f46d5",
+    "geometry_model/vendor/_host_guards.py": "1c0e9929ea4fcfd531e193faf74164f713cab735662923a6cacab1755b1e485a",
+    "geometry_model/vendor/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "geometry_model/vendor/geometry/solve_MMPDE.py": "a54ea29da75c87293d40f59fab75d14c648b5ed65973acdbc2c20175290ae25d",
+    "geometry_model/vendor/geometry/compact_toroidal.py": "85d662037bb6829a10ef399074ba866998a78234e07576f665819b925ee635df",
+    "geometry_model/vendor/geometry/Bfield_evaluator.py": "6d89b3f63a0f0ec7c1b1b11af6a3781f982fe29710e4d7dea0b022f42fe06f80",
+    "geometry_model/vendor/geometry/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "geometry_model/vendor/geometry/hsx_jax_field.py": "de5578ca2951d63e3fd2ceb8f09ed22b207e513d0c5a901a0bf67dc63dc9ca3f",
+    "geometry_model/vendor/geometry/jax_metric_evaluator.py": "0dbb7009a21bc9caa3b5e40707c8b9b810e82deb5d3ba80520f79f32e13ea5ad",
+    "geometry_model/vendor/geometry/MetricEvaluator.py": "fa97f44de97971d91ebdde2c83e69310c2d05023796e2aba33c61f441d5f25af",
+    "geometry_model/vendor/geometry/jax_bfield_evaluator.py": "9abb3d0a56c51c531a059f71050a60a083a059768e2398222190ffcdfb95ca7a",
+    "plan.json": "4a8bb84cf2d4ab88d7416b3bb01b4f53d3cde0c6daa6c3b09dd203cdc5a13426",
+    "eta_filter_table.npz": "345a287d7306e324c16b18281ddeb1a3319a10e76ac84493e36b4a136b9085ba"
+  },
+  "canonical": {
+    "hsx_metric_d58d392545fd3917efeb83b6.npz": "216dbcfb343fa23dd7ac9e60da6592f5757c7f5e45c8d96a5b642c6419dc10a1",
+    "mgrid_res2p5cm_180pln.nc": "45dd643a4ae3930386b8f8bff7a789c796a0d5174b5209e1202b5bfd4ac87e44",
+    "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/base_geometry.npz": "43a5490a319e1028fd8a7c01e4d9478d540e5ff01f8427a447d6c2d93dc1e91c",
+    "geometry_artifacts/rlp_convergence_32_48_64_20260917/32x32x32/rlp_topology.npz": "1ae442292262f711ce194263d9b3b70df7aca9d5404c0de40041cfec2d8f9970",
+    "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/base_geometry.npz": "fc8aa6f803ec09dd4e0f7d72726534452bae4b6e41d85e61b8ed76f1f2faf09d",
+    "geometry_artifacts/rlp_convergence_32_48_64_20260917/48x48x48/rlp_topology.npz": "02c516b32ca451522eddaf5720b7cafa242efce48a562427d0f46c24948c8e52",
+    "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/base_geometry.npz": "9cf7c047b38698d0e9fe043674ce29d13305c24579f17a859b604fcce217658d",
+    "geometry_artifacts/rlp_convergence_32_48_64_20260917/64x64x64/rlp_topology.npz": "468b10b36a1ebeaf912edc65ec64c7db6ef99e92931890707c4ce9f741e239ed"
+  },
+  "archive_sha256": "fc9670e49f41b7e84a69bd849429846dd545efdad7a3ef5aede1772016b0b3f8"
+}

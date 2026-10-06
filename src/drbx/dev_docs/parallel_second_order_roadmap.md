@@ -3538,6 +3538,230 @@ field family; long-time evolution remains separate. A completed receipt will be 
 closure. Long-time/perturbation stability, reconstructed phi, multi-GPU
 evolution, perpendicular coupling and production remain open.
 
+**Full-domain evolved return reviewed, 5 October.**
+[Independent returned-array audit](../../../../work/q09_evolved_return_20261005/report.md)
+validates commit `3adcbbb8`, all 69 source and 275 completion hashes, 3,174
+prepared-reference chunks, 24 final checkpoints and 120 snapshots. All 5,800
+steps complete to t=1e-4 with positive n/Te/Ti; independent final RMS replay
+differs by at most 3.39e-21. The controller takes 38m24s on one active A100;
+N64 warm complete-RHS RK4 steps are 138–153ms and peak device allocation
+30.74GiB. No numerical/source changes were made during local review.
+
+Diffusion errors decrease globally and in every reported region on both
+intervals; global fine orders are 2.036–2.466. Outermost-wall fine orders remain
+1.418–1.943 and some global coarse orders approximately 0.85–0.93. E(T)/T
+matches the previous static N-R global RMS within 0.127%, supporting the
+expected finite-duration accumulation of the known static discrepancy.
+
+For the complete six-field RHS, n/Te/Ti/Vi/Ve errors decrease globally and in
+all reported regions. Fine global orders are 3.82–5.50 / 3.89–5.66 /
+3.72–5.47 / 0.990–1.001 / 1.142–1.151 respectively. The high density/temperature
+orders include time-dependent error cancellation and do not establish a
+higher formal order. Vi/Ve E(T)/T remains within 0.284% of the prior static
+N-R RMS: their limited fine order is consistent with that static limitation.
+
+The genuine new coupled exception is omega. Uniform-N and mixed NDNDND/phi-D
+global RMS rebounds 12.46% and 11.92% from N48 to N64 (orders -0.408/-0.391).
+The other two cases decrease globally with order about 0.80, but bulk omega
+rebounds 16.5–17.3% for all four patterns; the last two aggregate rings rebound
+only about 0.50%, while transition RMS still decreases slightly. All negative
+fine-interval regional orders belong to omega. Saved times show the uniform-N
+N64 global error first below N48 and then above it by t=6e-5. Omega E(T)/T is
+1.62–4.81 times the old static N-R RMS, and a linear-plus-quadratic time fit
+captures the complete-case saved error vectors within 0.29% of final error.
+The current term (B^2/n) D[n(Vi-Ve)] makes propagation of velocity error a
+concrete candidate; snapshots do not prove that attribution or instability.
+Do not automatically relabel this as the coil-ripple/reference exception.
+
+**5 October bounded vorticity attribution:** the
+[saved-state audit](../../../../work/q09_vorticity_audit_20261005/report.md)
+covers all final omega regional/global maxima across four BC patterns plus
+accepted controls: 16 owners/144 raw members at N48 and 14/174 at N64.
+Only these rows were rebuilt from frozen source, existing RK4-64 endpoints
+and repair choices; no new tracing or evolution. Accepted action replay is
+within 1.86e-12. Integrating the separated static residual and field-error
+propagation over the saved snapshots reproduces sampled regional final
+errors within 0.00549% with Simpson quadrature (0.269% with trapezoidal).
+Electron-velocity error entering `(B^2/n) D[n(Vi-Ve)]` dominates the propagated
+current contribution; ion/density terms and direct omega advection/upwinding
+are much smaller. Replacing only Ve by exact MMS observations in the saved-state
+error budget reduces selected bulk RMS by 82–86%, and selected wall RMS by
+82–97%. These are bounded counterfactual estimates, not rerun solutions or
+global norms. The measured pathway explains the near-quadratic growth:
+`e_Ve ~ t r_Ve` feeds `e_omega ~ t r_omega - t^2/2 (B^2/n) D[n r_Ve]`.
+A decreasing velocity-error RMS need not imply a decreasing differentiated
+velocity error. This supports coupled truncation-error transfer, not a new
+wiring/sign error or a demonstrated exponential instability.
+
+**5 October electron-residual transfer audit:** the
+[donor-closure comparison](../../../../work/q09_ve_residual_transfer_20261005/report.md)
+now separates Ve N-O and O-R before the same homogeneous-error current
+response. It uses 1,670/1,580 complete donor owners (4,545/5,545 raw members)
+at N48/N64, frozen numerical rows and saved exact-slot/continuum references;
+no new tracing or evolution. Full frozen-action replay is within 3.06e-9
+and accepted persisted controls within 1.78e-9. Propagated O-R dominates:
+N-O/O-R RMS is 1.6–13.3% in sampled N48 bulk and 0.9–1.6% at N64;
+wall ratios are 0.6–3.6% and 0.3–1.3%. Inner/transition ratios also decline
+to about 0.6%. These are targeted sample norms, not new global orders.
+The upstream characteristic correction is the largest O-R source, partially
+cancelled by the centered term; diffusion is negligible in this transfer.
+At the N64 uniform-N bulk maximum, the initial-residual prediction
+`T^2/2 K(N_e-R_e)` is 1.41836e-8 versus 1.41761e-8 measured from saved states.
+Sampled bulk prediction mismatches are at most 2.54% at N48 and 0.056% at N64;
+wall mismatches reach 3.71% from higher-order time dependence. This closes the
+missing link to the earlier C3 velocity exact-stencil/sampling limitation.
+It supports retaining the reconstruction and BC policy, not a new donor-fit
+failure or a demonstrated instability. Earlier fixed-location span-order and
+eta-phase evidence remains relevant; physical ripple versus residual magnetic
+interpolation error is still not distinguished by an independent reference.
+
+**5 October fixed-location nested span audit:** the
+[common-location comparison](../../../../work/q09_common_location_span_20261005/report.md)
+holds the previous 30 patches/318 raw points and projection weights fixed,
+and tests nominal N32/N48/N64 with h/32, h/64 and h/128. It evaluates the
+exact electron residual `r = O_e - R_e` at nested current caps, then
+`q = -(B^2/n) D[n r]`; inner, outer characteristic and current spans shorten
+consistently. This is an exact-point consistency diagnostic, not a replay
+of owner-projected/reconstructed residuals or a new evolved campaign.
+Two wall patches (N48 owner 84282, N64 owner 199368) cross on the extended
+nested paths at some larger spans; all geometry evaluations remain valid.
+Primary norms use the same 28 complete noncrossing patches at every span.
+All 30 results and crossing/cancellation exceptions remain recorded, with
+exterior values labeled analytic continuation, not BC qualification.
+
+Primary electron O-R span-halving orders are 1.9998–2.0022; nested transfer
+orders are 2.0067–2.1174. At fixed denominator h/32, changing only nominal h
+on the same points gives residual orders 1.9984/2.0019 and transfer orders
+2.1345/2.0933. All sampled primary regional norms decrease; core, aggregate
+and transition orders approach 2. Characteristic correction dominates the
+transfer; its order and the centered contribution approach 2 independently.
+The tiny diffusion transfer is not independently second-order in this test
+(N48 orders 1.6945/1.5771; RMS about 7.6e-5 of combined at h/32).
+Native O/R replay is within 4.18e-12/5.26e-13. At the smallest span,
+RK64-to-128 changes combined transfer by 3.56e-6 relative RMS and reference
+step sensitivity is about 1.61e-7, far below the scientific span trend.
+
+This supports retaining h/32: the dominant exact-stencil pathway is already
+locally second order. It does not certify the actual owner composition.
+At the N64 bulk hotspot, exact nested O-R transfer is -7.7541 versus +2.8622
+for the existing owner response `K(O_e-R_e)`; projection/reconstruction and
+homogeneous perturbation BCs distinguish these operations. The sign
+difference is not a wiring test or proof of instability, but prevents
+identifying the oracle with the evolved response. If strict evolved omega
+order is pursued, isolate observation/projection and current reconstruction
+of the rapidly varying residual before another global run. No numerical
+configuration, production selector, or Q09 acceptance status changed.
+
+**5 October raw/eta-filtered bounded velocity control:** the
+[paired audit](../../../../work/q_filtered_velocity_20261005/report.md)
+uses P's verification-only m<=3-per-period filter of `J B^i` (same compact-C3
+baseline and unchanged logical map), fresh RK4-64 h/32 traces, 708 fixed indexed
+locations, all 22 catalogue states, and reconstruction on the 24 historical
+velocity-max owners for four D/N combinations. Each arm uses its own b, traces,
+and analytic velocity target; no production field or operator is changed.
+All sampled paths remain interior. This is static material Vi/Ve only, not
+current transfer, diffusion, evolution, or a global qualification.
+
+For the smooth field at the common 24 hotspots, filtered O-R RMS is about
+18x smaller at the N48 span. Dense-line reductions are 2.9-4.6x; error power
+in k38-58 drops from 85-88% to about 2.5% near the wall and below 0.0001% in
+the bulk. Native bulk-line orders recover approximately 2.0. The filtered
+wall-adjacent native line still has N48->N64 orders 0.450/0.559 (Vi/Ve), while
+identical-location span orders are about 2. A fixed-span dense error curve,
+resampled at native eta positions and scaled by span squared, predicts the
+smooth native errors within 0.23%; doubling dense samples 192->384 changes
+wall RMS by <6e-7 relative. Filtering J B^i does not band-limit the normalized
+field, traced field values, or their truncation-error envelope. The remaining
+sampled wall stall therefore does not demonstrate a first-order local stencil.
+
+Smooth reconstructed N-O changes by <=0.33% across the selected panel/BCs;
+worst-BC smooth N-R RMS improves about 8-80x. Wave controls do not share this
+uniform benefit: at N64, filtered/raw wave N-O RMS ratios are 5.31/5.37;
+Ve changes from 5.53 to 29.68 (about 0.73% to 4.33% of its corresponding
+wave R RMS). Donors and center reconstruction value/gradient rows are identical.
+Changing only b in the reconstructed-gradient continuum action predicts the
+uniform-D/N wave centered N-O change to 0.061%/0.148% relative RMS. This is a
+changed directional weighting of existing reconstruction errors, not a new
+support failure. Coarse short-wave panels remain poorly resolved.
+
+Direct-column regenerated-trace action checks differ from the table's O-R by
+about 2e-5 relative RMS across nonconstant states; RK128 sensitivity is about
+6e-10. The raw old-global maxima replay within 3.25e-11. Retain h/32 and the
+accepted reconstruction/BC policy. The filter is a useful magnetic-content
+control, not an automatic new Q pass or evidence for removing physical ripple.
+Any future filtered global comparison must distinguish smooth O-R sampling
+from wave N-O response. Physical ripple versus residual raw evaluator error
+is not independently separated by this experiment.
+
+**5 October prescribed-phi timestep-MMS acceptance, with accuracy exceptions.**
+Following the request to document both magnetic arms and assess the timestep
+MMS as passed, the prescribed-phi finite-duration evolved milestone is recorded
+as **passed with documented spatial-accuracy exceptions**. This is scoped
+acceptance of the frozen six-field parallel evolution/source/BC implementation,
+not a claim that every observed solution-order target passed. The full Q09
+integration/promotion gate below remains open.
+
+The raw compact-C3 field has the full-domain evolved evidence: 24 integrations,
+N32/N48/N64, diffusion-only and complete RHS, four D/N/mixed patterns, t=1e-4,
+and all 5,800 accepted steps. Vi/Ve fine global orders remain 0.990-1.001 and
+1.142-1.151; omega retains its 11.9-12.5% global rebound in two patterns and
+16.5-17.3% bulk rebound in all four. Saved-state and donor-closure audits
+identify the dominant upstream Ve O-R/current-divergence transfer, with no
+new wiring fault demonstrated. Common-location exact-stencil tests recover
+approximately second-order span dependence. These explain the exceptions;
+they do not erase the measured global/regional errors or prove uniformly
+second-order evolved accuracy.
+
+The filtered field has **bounded static evidence only**, not a filtered
+full-domain/evolved pass. Preserve the raw and filtered reports side by side:
+[raw evolved review](../../../../work/q09_evolved_return_20261005/report.md),
+[O-R transfer](../../../../work/q09_ve_residual_transfer_20261005/report.md),
+[fixed-location spans](../../../../work/q09_common_location_span_20261005/report.md),
+and [filtered comparison](../../../../work/q_filtered_velocity_20261005/report.md).
+The filter substantially reduces smooth O-R and restores sampled bulk-line
+orders, but sampled wall orders and changed wave N-O remain explicit. Keep
+the raw production field and h/32 numerical configuration unchanged.
+
+Production implication: resolving magnetic variation and the resulting
+field-line derivative/error scales matters; this is a demonstrated sensitivity,
+not proof that the proposed physical runs have severe error or that all removed
+spectral content is true coil ripple. The raw field is still interpolated
+MAKEGRID data, and filtering also changes direction and continuum dynamics.
+Before production-accuracy claims, perform raw-field anisotropic resolution
+checks on the intended parallel dynamics, current/divergence, transport
+observables and resolved fluctuation scales. Do not use filtering to hide an
+unresolved physical scale or infer a universal minimum eta resolution from
+these bounded MMS panels.
+
+The N32 dt-refinement pilot is at roundoff; a fourth-order HSX temporal rate
+is not measured. One dt per grid leaves temporal error unseparated in the
+longer refinement campaign. Scoped acceptance waives uniform observed spatial
+order as a prerequisite to the next integration work; it is not a new
+stability/CFL bound. Reconstructed phi/polarization coupling, perpendicular
+coupling, long-time/perturbation stability, multi-GPU evolution, and production
+promotion remain open. Physical live sheath and exterior crossings retain
+their separate unqualified scope. No source, operator, BC, tolerance, returned
+receipt or measured order is changed by this acceptance decision.
+
+**5 October filtered full-domain campaign prepared (execution pending).**
+The [filtered evolved runner](../../../scripts/q09_filtered_global/README.md)
+uses the same 24 smooth-MMS integrations, N32/N48/N64, prescribed phi,
+diffusion/complete RHS, four D/N/mixed patterns, h/32 inner/diffusion and h/16
+outer samples, and 100/225/400 steps to t=1e-4. Only the magnetic arm changes
+to P's fixed m<=3-per-period filter of `J B^i`; map and owner volumes remain
+unchanged. All field-dependent traces, support decisions, coefficients and
+continuum references are regenerated. Raw-field banks/references are not
+relabelled or reused. Numerical evolution uses the accepted frozen Q09 runtime.
+
+Preparation uses GPU RK4-64 batches and parallel CPU whole-owner chunks;
+CPU workers avoid constructing the raw MAKEGRID spline and prepare only the
+smooth analytic source. The remote campaign retains CPU/GPU replay, reference
+step sensitivity, chart/crossing, resource, restart, finite/positive-stage and
+complete-coverage gates. Final reduction independently checks all 24 saved
+solutions and 120 time snapshots. Filtered global/evolved accuracy remains
+unmeasured; this is an investigation of the raw-arm spatial exceptions, not
+automatic acceptance of uniform second order or a production magnetic filter.
+
 - Evolve to a fixed physical time with timestep refinement and the same global
   solution-order target. First prescribe manufactured phi; then repeat with
   the independently certified polarization closure. Keep the latter result
@@ -3593,13 +3817,13 @@ The [original Phase A task](thread://01a0b561-d18d-78b1-b85f-bfe3d67efe49?hostId
 | Q01 | HSX references and field catalogue | Q00 | passed | [Evidence](../../../../work/parallel_phase_a_q00_q04_20260918/PHASE_A_REPORT.md#q01--qualified-hsx-sources). Version-2 real-HSX midpoint sources cover radial–eta, angular-x, mixed-y-eta and constant fields at 32/48/64 with full-torus eta and explicit boundaries. Stratified requested-step sensitivity is at most `6.15e-8` relative; all-resolution position/B/J and bounded selected-owner quadrature are recorded. Q02 was next. |
 | Q02 | HSX diffusion error localization | Q01 | passed | [Supplement](../../../../work/parallel_phase_a_q00_q04_20260918/Q02_LOCALIZATION_SUPPLEMENT.md): corrected masks establish 81.9–98.6% of squared residual in ordinary unagglomerated interior. Selected-interface quadrature changes are small. The point-transfer comparison omitted amplitude=0.2 and is being corrected by the original task; its worsening is not valid evidence. Retracing also changes the evaluator, so it is not a pure step-size estimate. The user accepts the existing localization as sufficient to start a bounded Q03 hypothesis test; an exclusive moment defect or asymptotic floor is not yet proven. |
 | Q03 | Diffusion repair | Q02 | direct static accuracy qualified; frozen traced static reconstruction accepted with exceptions; minimum-principle repair deferred | [Reference closure](../../../../work/parallel_q03_reference_closure_20260922/report.md): orders radial `3.212/3.011`, angular `3.509/3.285`, mixed `3.346/3.168`; all bounded empirical reference-budget point estimates are below 10%, with narrow N64 angular margin and sampling spread explicitly reported. Numerical actions unchanged; only 0.317% of N64 reference faces refined. [N32 heat](../../../../work/parallel_q03_direct_heat_spot_20260922/analysis/report.md) undershoots to `0.9982975`; [actual N48-cubed heat](../../../../work/parallel_q03_direct_heat_spot_N48_20260922/analysis/report.md) undershoots to `0.9992172`. Both conserve heat, remain finite/nonnegative and have nonincreasing variance, but neither is a solution-order test or structural pass. User defers repair. |
-| Q04 | Diffusion certification | Q03 | direct evolved accuracy passed; traced static reconstruction accepted with exceptions; traced evolved/full certification pending | [Q1 results](../../../../work/parallel_q04_conduction_mms_20260922/report.md), [parent review](../../../../work/parallel_q_progress_review_20260922/report.md): solution orders radial `3.890/2.551`, angular `3.564/3.715`, mixed `3.592/3.389`; temporal fractions ≤`1.03e-9`, propagated reference fractions ≤`3.823%`. CPU/JIT/JVP checks pass; local static orders independently pass despite measurable local/remote differences. Monotonicity remains deferred; general dissipation and eta-sharding are not established. |
+| Q04 | Diffusion certification | Q03 | direct evolved accuracy passed; traced finite-duration evolution accepted with exceptions via Q09; full certification pending | [Q1 results](../../../../work/parallel_q04_conduction_mms_20260922/report.md), [parent review](../../../../work/parallel_q_progress_review_20260922/report.md): solution orders radial `3.890/2.551`, angular `3.564/3.715`, mixed `3.592/3.389`; temporal fractions ≤`1.03e-9`, propagated reference fractions ≤`3.823%`. CPU/JIT/JVP checks pass; local static orders independently pass despite measurable local/remote differences. Monotonicity remains deferred; general dissipation and eta-sharding are not established. |
 | Q05a | Bounded direct-cubic extraction/replay | Q04 accuracy exception | passed | [Evidence](../../../../work/parallel_q05a_direct_cubic_extraction_20260922/report.md): reusable geometry/observation/functional/sidecar and pure-JAX shared-face assembly extracted; frozen bounded N32/N48/N64 donors, coefficients and fluxes reproduce exactly; complete saved-coefficient actions replay at roundoff and agree with sparse actions. Returned-remote cause remains unresolved; no production promotion, Q04 structural pass or Q06 launch. |
 | Q05 | Shared traced preparation/application | Accepted traced-static preparation exception | closed by user acceptance | [Corrected extraction and second review](../../../../work/q05_traced_extraction_20260929/review_v2/report.md): 36 focused + 30 curated checks; 42 site/span replays and two full N64 chunks; max discrepancy 4.467e-10 < 1e-8. User closes Q05 on this evidence; complete-domain action replay remains unperformed and is waived as a Q06 prerequisite. No production promotion or Q04 structural/evolved pass. |
 | Q06 | Certify parallel gradient/divergence pairs | Q05 closed by user acceptance | closed by user acceptance; scoped static qualification | [Contract](q06_traced_gradient_divergence_contract.md), [global traced G](../../../../work/q06_traced_gradient_global_20260930/parent_review.md), [global tube D](../../../../work/q06_tube_global_20260929/parent_review.md), [structural audit](../../../../work/q06_structural_boundary_audit_20260930/report.md). Exact adjointness and owner-weighted conservation do not hold. [Smooth bulk balance](../../../../work/q06_resolved_conservation_20260930/parent_review.md) improves for all eight fields; N64 imbalance/activity 0.004–0.115%. User closes Q06 on 30 September with unchanged operators and documented approximate-balance/non-adjointness exceptions; no evolved or production pass. Continuum N-R/local maximum limits retained. Exterior ghosts unexercised; D(G f) diffusion unnecessary for closure and deferred. |
 | Q07 | Transport and material blocks | Q06 closed with exceptions | five-field static material qualified; bounded prescribed-boundary six-field assembly passed; full closure pending | [Contract](q07_transport_contract.md), [C3 h/32 global review](../../../../work/q07_c3_global_review_20261001/report.md), [six-field assembly](../../../../work/q07_six_field_assembly_20261002/report.md). User accepts the five material fields with documented exceptions. Six-field owner-state assembly replays material, current/phi, vorticity and constant diffusion channels, including D/N/mixed BCs. Keep C3, RK4-64, h/32 material inner and h/16 outer separation, balanced material tube and frozen donors; diffusion spans remain explicit. Next: Q08 engineering consolidation/pilot and remaining C3 static coverage for current/phi, vorticity and diffusion transfer. General basis/enrichment searches are deferred. Physical sheath/SAT, exterior crossings, evolution and production remain open. |
 | Q08 | Traced-span selection, frozen coupled parallel RHS and performance audit | Q07; engineering audit may proceed alongside remaining Q07 coverage | closed by user acceptance, 4 October; frozen static/engineering scope with accuracy exceptions | [Shared extraction plan](q08_shared_extraction_plan.md), [GPU review](../../../../work/q08-verification-v2-149644b9-Apdb1a/local_report.md), [global MMS review](../../../../work/q08_rhs_mms_return_analysis_20261003/report.md), [local closeout](../../../../work/q08_closeout_20261004/report.md), [final Ti replay](../../../../work/q08_ti_return_20261004/report.md). All 1,056 implementation replays pass; N64 warmed RHS is 34.74/10.30 ms on one/four A100s. All base spans use h/32, with paired twice-inner outer characteristic sampling and five eta planes. Unequal-resolution check waived as a prerequisite, not tested. Focused Ti GPU replay covers 313,696 owners, 22 states and D/N; smooth N-O is approximately fourth order, N-R retains its O-R-dominated 0.883 fine-interval order. Every nonconstant regional RMS decreases; inner wave N-O minimum 1.973 and outermost Neumann wave relative N-R 7.82% remain explicit limits. No production or evolved-stability qualification is implied. |
-| Q09 | Evolved MMS and promotion | Q08; P07 for reconstructed phi | short prescribed-phi N32 GPU pilot passed; longer temporal/spatial qualification pending | [Contract](q09_evolved_mms_contract.md), [pilot review](../../../../work/q09_refinement_return_20261004/report.md). All 24 dt-level runs complete on the full N32 domain with D/N/mixed BCs; 560 accepted steps, positive state, and independent artifact/reduction checks. Timestep differences are at roundoff; Ve error/time matches the prior predominantly O-R static discrepancy. Controller cost 5m29s; steady complete RK4 step 20–22ms on one A100. Full N32/N48/N64 prescribed-phi campaign prepared to t=1e-4 with one timestep per resolution and time snapshots; remote execution pending. No long-time stability, reconstructed-phi or production pass. |
+| Q09 | Evolved MMS and promotion | Q08; P07 for reconstructed phi | prescribed-phi finite-duration MMS passed with spatial-accuracy exceptions, 5 October; full integration pending | [Contract](q09_evolved_mms_contract.md), [pilot](../../../../work/q09_refinement_return_20261004/report.md), [raw evolved review](../../../../work/q09_evolved_return_20261005/report.md), [filtered control](../../../../work/q_filtered_velocity_20261005/report.md). Full raw-field N32/N48/N64, 24 integrations, 5,800 accepted steps to t=1e-4, D/N/mixed BCs. Vi/Ve fine-order limits and omega global/bulk rebounds remain; bounded audits explain dominant Ve O-R/current transfer and native-grid sampling. Filtered evidence is static/bounded only and retains wall/wave limits. N32 dt differences are at roundoff; longer one-dt-per-grid study does not measure temporal order. This is a scoped accuracy exception, not uniform second-order, long-time stability, reconstructed-phi, or production certification. Next: polarization/perpendicular integration and raw-field resolution checks for intended physical observables. |
 | Q traced-return research | Frozen selective-repair traced diffusion | Completed layered/balanced/selective campaigns and interface audit | static reconstruction accuracy accepted with documented exceptions; operator frozen | [Frozen contract](q_traced_diffusion_frozen_contract.md), [global result](../../../../work/q_fci_selective_global_20260929/report.md), [interface audit](../../../../work/q_fci_repair_interface_audit_20260929/report.md). Whole-inner nonconstant RMS order>2 for both intervals/spans; localized join/coarse-envelope and O-R limitations retained. Current implementation choice is selective gradient repair, not always-balanced28. Q05 extraction closed by user acceptance on reviewed bounded evidence; Q06 static traced G/D closed with exceptions; next Q07 bounded density-flux block. Production defaults and broader Q04 certification remain unchanged. Earlier projected-return failures remain historical evidence. |
 
 ### Q bounded interior return-map audit — 2026-09-23

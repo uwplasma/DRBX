@@ -1,9 +1,59 @@
 # Q09 prescribed-phi evolved MMS harness
 
-Status: research harness and portable/bounded verification only. No scientific
-full-domain evolution, temporal feasibility, solution-order, stability envelope,
-sharding, reconstructed-phi or production qualification has been performed.
-The shared roadmap remains the authority for those separate gates.
+Status: **prescribed-phi finite-duration evolved MMS passed with documented
+spatial-accuracy exceptions (5 October 2026)**. The raw compact-C3 N32/N48/N64
+campaign covers 24 integrations, diffusion-only and the six-field parallel RHS,
+four D/N/mixed patterns, 5,800 accepted steps and t=1e-4. This scoped acceptance
+covers the tested evolution/source/BC implementation; it does not assert
+uniformly second-order solution errors or close the full Q09 integration gate.
+The [roadmap](parallel_second_order_roadmap.md#q09--certify-evolved-coupled-mms-and-complete-final-integration)
+records the acceptance and remaining work.
+
+Vi/Ve fine global orders remain approximately 0.99-1.00 / 1.14-1.15. Omega
+retains a 11.9-12.5% global rebound in two BC patterns and 16.5-17.3% bulk
+rebound in all four. Subsequent saved-state/closure audits attribute the
+leading coupled omega error to Ve O-R propagated through current divergence.
+Fixed-location span and raw-versus-filtered magnetic comparisons support a
+geometry/error-sampling explanation, not a blanket reference-bug claim.
+Keep [raw evolved results](../../../../work/q09_evolved_return_20261005/report.md)
+and the [filtered control](../../../../work/q_filtered_velocity_20261005/report.md)
+separate: the latter is bounded static evidence only, with residual wall
+sampling and wave reconstruction limitations, not an evolved qualification.
+
+The N32 three-dt pilot has differences at roundoff; temporal convergence order
+is unmeasured, and the longer campaign uses one dt per resolution. Long-time
+stability/CFL, reconstructed phi, perpendicular coupling, multi-GPU evolution,
+physical sheath/exterior crossings and production remain unqualified. Magnetic
+filtering is a verification control, not a production field selection. Check
+raw-field anisotropic resolution and intended physical observables before
+making production-accuracy claims; this MMS does not quantify their error.
+
+## Filtered global comparison prepared — 5 October 2026
+
+[`scripts/q09_filtered_global`](../../../scripts/q09_filtered_global/README.md)
+prepares the matching 24-run evolved campaign for P's immutable m<=3-per-period
+Fourier filter of `J B^i` (four field periods, 64 samples/period, table arm
+`e61e1d70a7f14697a10a10fe2b1f1262a8f0a9752a79c237d78e3ebe83c23aae`).
+This changes the magnetic field only; the map, owner volumes, smooth MMS,
+prescribed phi, D/N/mixed cases, h/32 inner/diffusion and h/16 outer spans,
+100/225/400 time steps to t=1e-4 and five snapshots remain fixed.
+
+The filtered adapter regenerates RK4-64 traces, geometry-dependent repair
+choices, both paired reconstruction banks, tube coefficients and continuum
+forcing. It cannot consume raw-field banks/references under a filtered label.
+It reuses the frozen numerical runtime and evolution/source kernels. CPU
+workers prepare whole-owner chunks using the table/map only; smooth-only
+reference preparation is checked against the full-catalogue authority.
+GPU tracing and evolution remain mandatory remotely. New endpoint crossings
+stop the campaign; neither the filtered control nor this short-span test
+qualifies exterior ghosts or a live sheath law.
+
+Local bounded preparation and portable tests precede the remote hardware gate.
+Global filtered results are pending, with no promised second-order rate:
+compare all fields and regions, especially Vi/Ve, omega current transfer and
+wall errors, against the raw evolved results. This smooth-field campaign does
+not replace the documented short-wave reconstruction limitations. The raw
+production evaluator/default is unchanged.
 
 ## Selected state and exact observation
 
@@ -84,8 +134,10 @@ after-the-fact gate. Failure raises before accepting or checkpointing that step.
 Reports state actual start/end, accepted step count and stage times, regional and
 global volume-weighted RMS/relative/max solution error, integral change, integrated
 RK RHS, RK balance residual and signed manufactured-solution integral drift.
-Three sequential dt/dt2/dt4 runs compare temporal self differences separately
-from spatial MMS error. Completion of a finite run is not a stability pass.
+The N32 pilot uses three sequential dt/dt2/dt4 runs to compare temporal self
+differences separately from spatial MMS error. The full N32/N48/N64 extension
+uses one dt per resolution, as requested. Completion of a finite run is not a
+stability pass.
 
 ## Prepared provider and checkpoints
 
@@ -110,7 +162,7 @@ integral diagnostics. The CLI takes a single-writer output lock, binds the outpu
 directory to one run configuration and removes a prior completed report before
 attempting a resume. Failed runs emit no new completed report or pass receipt.
 
-## Saved-input adapter and next pilot
+## Saved-input adapter and pilot replay
 
 `scripts.q09_evolved_mms.inputs:load` is now the default CLI provider. Create a
 separate configuration directory and copy
@@ -158,7 +210,7 @@ JAX_ENABLE_X64=true PYTHONPATH=src:. python -m scripts.q09_evolved_mms.inputs \
   prepare --inputs /path/to/q09-config
 ```
 
-A short N32 pilot is now frozen in
+The completed N32 pilot is frozen in
 [`scripts/q09_evolved_mms/README.md`](../../../scripts/q09_evolved_mms/README.md).
 Use its `campaign.py verify/tests/preflight/run/validate` sequence for remote
 execution. The generic lower-level CLI remains available in this form:
@@ -177,10 +229,9 @@ Both commands run the three timestep levels sequentially. The campaign applies
 `DNDNDN`/`NDNDND` field patterns with the opposite phi kind for mixed data.
 Reuse the same arguments and add `--resume` for an interrupted low-level CLI
 run; `campaign.py run` already resumes checked levels/cases in the same RUN.
-First inspect N32
-compile/step cost, stage admissibility and timestep-refined errors; then decide
-on a longer interval and N32/N48/N64 solution campaign. No remote job, production
-selector is changed by pilot preparation. The frozen pilot is full-domain N32,
+The completed pilot and longer N32/N48/N64 extension are assessed in the
+roadmap; these commands retain the pilot replay interface. No remote job or
+production selector is changed by documenting their scoped acceptance. The frozen pilot is full-domain N32,
 eight mode/BC cases and three levels each, with 10/20/40 steps to exactly 1e-5.
 The timestep count tolerates a floating-point integral-ratio roundoff, avoiding
 a spurious eleventh step; each level finishes at the exact requested endpoint.

@@ -273,7 +273,7 @@ def validate_case(folder, provider, observations, mode, kinds, phi, *, dt0=DT, e
     return report
 
 
-def run_pilot(run, identity, *, dt0=DT, end=END, checkpoint_every=1, snapshots=False, modes=MODES, levels=3):
+def run_pilot(run, identity, *, dt0=DT, end=END, checkpoint_every=1, snapshots=False, modes=MODES, levels=3, provider_loader=None):
     verification = require(run, 'verification', identity)
     require(run, 'tests', identity); require(run, 'preflight', identity)
     if sha(run/'config/inputs.json') != verification['config_sha256']:
@@ -287,7 +287,7 @@ def run_pilot(run, identity, *, dt0=DT, end=END, checkpoint_every=1, snapshots=F
     from scripts.q09_evolved_mms.evolution import q_payload, q_stepper
     from scripts.q09_evolved_mms.cli import _run
     from scripts.q08_extraction_global.common import atomic_npz
-    tick = time.perf_counter(); provider = load(run/'config')
+    tick = time.perf_counter(); provider = (provider_loader or load)(run/'config')
     for key, value in verification['inputs'].items():
         if provider.input_hashes.get(key) != value: raise ValueError('verified input content changed')
     preparation_seconds = time.perf_counter()-tick; pid = provider.identity
