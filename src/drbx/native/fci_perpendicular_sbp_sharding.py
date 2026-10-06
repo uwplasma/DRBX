@@ -23,6 +23,21 @@ Needs ``p >= F_HALO = 4`` for more than one shard. CG runs in one ``shard_map``:
 (one exchange of the search direction per iteration), the dot products and norms are ``psum`` reductions (so the iterates
 agree with the single-device solve to round-off, not bitwise) and the plane-block preconditioner applies plane-locally to
 its shard of the factors (:func:`shard_core_schur_preconditioner`).
+
+Composed nodal perpendicular RHS (:func:`sharded_nodal_perpendicular_rhs`): the C1 composition of
+``fci_nodal_perpendicular_rhs`` (same options, parameters, wall data, ``rho_star`` conventions and ``phi_mode`` as
+:func:`~drbx.native.fci_nodal_perpendicular_rhs.nodal_perpendicular_rhs`) on global arrays, every stage calling the sharded
+operator above, so a stage is its own ``shard_map`` with its own halo exchanges (nothing is fused). Planes per shard
+``>= 4`` for more than one shard. Per evaluation, in terms of exchanges of the owned planes with the two neighbours:
+
+* ``phi_mode="solve"``: the CG of :func:`sharded_solve_dirichlet` (one halo-4 exchange of the search direction per
+  iteration, ``psum`` dot products, one halo-2 exchange of the ``psi`` wall data at the start), then ``phi = psi - tau p``
+  on the owned planes (no exchange);
+* bracket: halo 2 of ``phi``, halo 3 of ``[g, F]`` (two exchanges, as in :func:`sharded_sbp_bracket`);
+* curvature: halo 3 of ``[q, F]`` (one exchange);
+* diffusion: halo 4 of the state and halo 2 of each wall array (``value``, and ``normal`` for Neumann data): one to three exchanges.
+
+``rho_star`` and ``D_f`` scalings, the scatter of the curvature columns, the sum and the ``source`` act on the owned planes.
 """
 from __future__ import annotations
 
@@ -36,13 +51,18 @@ from jax import lax
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 from drbx.geometry.sbp_laplacian import LaplacianPlan
+from drbx.native.fci_nodal_perpendicular_rhs import (
+    NodalPerpendicularContext, NodalPerpendicularOptions, NodalPerpendicularParams, NodalPerpendicularTerms, NodalWallData,
+    _plan_wall_trace, assemble_terms, check_input_shapes, check_potential_arguments, curvature_operands,
+    diffusion_boundary_data, polarization_rhs, prescribed_potential, pressure_variable, scatter_curvature)
+from drbx.native.fci_perpendicular_reconstruction_state import DIRICHLET
 from drbx.native.fci_perpendicular_plane_preconditioner import CoreSchurPreconditioner, apply_core_schur_preconditioner
 from drbx.native.fci_perpendicular_sbp_boundary import SatBoundaryData
 from drbx.native.fci_perpendicular_sbp_bracket import sbp_bracket_ext, velocity_flux_ext
 from drbx.native.fci_perpendicular_sbp_curvature import curvature_flux, sbp_curvature_ext
 from drbx.native.fci_perpendicular_sbp_dissipation import HALO as CURVATURE_HALO
 from drbx.native.fci_perpendicular_sbp_laplacian import (
-    F_HALO, PLAN_HALO, PLANE_FIELDS, laplacian_action_ext, laplacian_form_ext, window_laplacian_plan)
+    F_HALO, PLAN_HALO, PLANE_FIELDS, LaplacianBoundaryData, laplacian_action_ext, laplacian_form_ext, window_laplacian_plan)
 from drbx.native.fci_perpendicular_sbp_laplacian_solve import _pcg
 from drbx.native.fci_perpendicular_sharding import AXIS, make_plane_mesh
 from drbx.native.owner_plane_layout import exchange_plane_halo
@@ -51,7 +71,9 @@ from drbx.stencils.nodal_plan import NodalPlan
 __all__ = ["NODAL_HALO", "PHI_HALO", "CURVATURE_HALO", "F_HALO", "PLAN_HALO", "ShardedNodalPlan", "nodal_plan_specs",
            "shard_nodal_plan", "sharded_sbp_bracket", "sharded_sbp_curvature", "ShardedLaplacianPlan",
            "laplacian_plan_specs", "shard_laplacian_plan", "sharded_laplacian_form", "sharded_laplacian_action",
-           "core_schur_specs", "shard_core_schur_preconditioner", "sharded_solve_dirichlet", "make_plane_mesh", "AXIS"]
+           "core_schur_specs", "shard_core_schur_preconditioner", "sharded_solve_dirichlet", "make_plane_mesh", "AXIS",
+           "RHS_HALO", "ShardedNodalPerpendicularContext", "shard_nodal_perpendicular_context",
+           "sharded_nodal_perpendicular_rhs", "sharded_nodal_perpendicular_rhs_jit", "sharded_bracket_rule_inflow"]
 
 NODAL_HALO = 3
 PHI_HALO = 2
@@ -332,3 +354,133 @@ def sharded_solve_dirichlet(sharded: ShardedLaplacianPlan, s, bcd, prec: CoreSch
                        out_specs=(P(AXIS), P(), P()), check_vma=False)
     x, it, rel = fn(lp, s, bcd, prec, x0, jnp.asarray(c_kappa), jnp.asarray(rtol), jnp.asarray(maxit))
     return x, {"iterations": it, "relative_residual": rel, "converged": rel <= rtol}
+
+
+# ---------------------------------------------------------------------------
+# Composed nodal perpendicular RHS
+# ---------------------------------------------------------------------------
+RHS_HALO = max(NODAL_HALO, CURVATURE_HALO, F_HALO)        # the largest halo of any stage: planes per shard must reach it
+
+
+class ShardedNodalPerpendicularContext(NamedTuple):
+    """Sharded :class:`~drbx.native.fci_nodal_perpendicular_rhs.NodalPerpendicularContext`: the nodal plan, the windowed Laplacian
+    plan, the (plane-sharded) core-Schur preconditioner or ``None``, and the curvature flux ``F (n_eta, P, 3)`` split on eta."""
+
+    plan: ShardedNodalPlan
+    lplan: ShardedLaplacianPlan
+    prec: CoreSchurPreconditioner | None
+    curvature_flux: jax.Array
+    n_shards: int
+
+
+jax.tree_util.register_pytree_node(
+    ShardedNodalPerpendicularContext, lambda s: ((s.plan, s.lplan, s.prec, s.curvature_flux), s.n_shards),
+    lambda n, c: ShardedNodalPerpendicularContext(*c, n))
+
+
+def shard_nodal_perpendicular_context(ctx: NodalPerpendicularContext, n_shards: int, mesh: Mesh | None = None
+                                      ) -> ShardedNodalPerpendicularContext:
+    """Shard a global single-device context over ``n_shards`` (and place it on ``mesh`` if given).
+
+    Validates ``n_eta % n_shards == 0`` and, for more than one shard, ``p = n_eta / n_shards >= RHS_HALO = 4``; shards the nodal
+    plan, the Laplacian plan, the preconditioner (``None`` stays ``None``: prescribed-``phi`` only; a ``PlanePreconditioner``
+    raises ``TypeError``, the sharded solve needs ``method="core_schur"``) and ``curvature_flux``.
+    """
+    n_eta = ctx.plan.structure.n_eta
+    _check_shards(n_eta, n_shards, RHS_HALO, "perpendicular RHS")
+    n_shards = int(n_shards)
+    if jnp.shape(ctx.curvature_flux) != (n_eta, ctx.plan.structure.P, 3):
+        raise ValueError(f"curvature_flux must have shape {(n_eta, ctx.plan.structure.P, 3)}, got {jnp.shape(ctx.curvature_flux)}")
+    plan = shard_nodal_plan(ctx.plan, n_shards, mesh)
+    lplan = shard_laplacian_plan(ctx.lplan, n_shards, mesh)
+    prec = None if ctx.prec is None else shard_core_schur_preconditioner(ctx.prec, n_shards, mesh)
+    flux = jnp.asarray(ctx.curvature_flux)
+    if mesh is not None:
+        flux = jax.device_put(flux, NamedSharding(mesh, P(AXIS)))
+    return ShardedNodalPerpendicularContext(plan, lplan, prec, flux, n_shards)
+
+
+def _check_context(sctx: ShardedNodalPerpendicularContext, mesh: Mesh) -> None:
+    _check_mesh(mesh, sctx.n_shards)
+    if sctx.plan.n_shards != sctx.n_shards or sctx.lplan.n_shards != sctx.n_shards:
+        raise ValueError(f"inconsistent shard counts: context {sctx.n_shards}, nodal plan {sctx.plan.n_shards}, "
+                         f"Laplacian plan {sctx.lplan.n_shards}")
+
+
+def sharded_bracket_rule_inflow(sctx: ShardedNodalPerpendicularContext, opts: NodalPerpendicularOptions, state, value, mesh: Mesh):
+    """Eta-sharded :func:`~drbx.native.fci_nodal_perpendicular_rhs.bracket_rule_inflow`: the wall trace of the nodal plan is plane-local,
+    so the body runs on the owned planes with no exchange. ``state (E, P, F)``, ``value (E, N, F)`` global; returns ``(E, N, F)``."""
+    _check_context(sctx, mesh)
+    kinds = opts.diffusion_kinds
+    if len(kinds) != opts.n_fields:
+        raise ValueError("bracket_rule_inflow needs opts.diffusion_kinds (one kind per field)")
+    state, value = jnp.asarray(state), jnp.asarray(value)
+    dirichlet = np.array([k == DIRICHLET for k in kinds])
+    if dirichlet.all():
+        return value
+    plan = sctx.plan.plan
+
+    def body(plan_l, state_l, value_l):
+        return jnp.where(dirichlet, value_l, _plan_wall_trace(plan_l, state_l))
+
+    fn = jax.shard_map(body, mesh=mesh, in_specs=(nodal_plan_specs(plan), P(AXIS), P(AXIS)), out_specs=P(AXIS), check_vma=False)
+    return fn(plan, state, value)
+
+
+def sharded_nodal_perpendicular_rhs(sctx: ShardedNodalPerpendicularContext, opts: NodalPerpendicularOptions,
+                                    params: NodalPerpendicularParams, state, wall: NodalWallData, mesh: Mesh, *, phi=None,
+                                    psi_x0=None, sigma=None, source=None) -> NodalPerpendicularTerms:
+    """Eta-sharded :func:`~drbx.native.fci_nodal_perpendicular_rhs.nodal_perpendicular_rhs` (see the module docstring).
+
+    ``state (E, P, F)``, ``wall.value / normal (E, N, F)``, ``wall.psi (E, N)``, ``phi``, ``psi_x0``, ``sigma (E, P)``, ``source``
+    are global arrays (the wall data are split along E inside the stages); the result holds global arrays and ``solve_info`` is
+    replicated. Same ``phi_mode`` and ``rho_star_convention`` semantics and the same errors as the single-device function. The CG
+    iterates equal the single-device ones to round-off (``psum`` dot products), so the iteration count may differ by one only
+    when the solve sits at the ``phi_rtol`` threshold.
+    """
+    _check_context(sctx, mesh)
+    state = jnp.asarray(state)
+    st, lst = sctx.plan.plan.structure, sctx.lplan.plan.structure
+    check_input_shapes(st.n_eta, st.P, lst.N, opts, params, state, wall)
+    if wall.psi is not None and jnp.shape(wall.psi) != (st.n_eta, lst.N):
+        raise ValueError(f"wall.psi must have shape {(st.n_eta, lst.N)}, got {jnp.shape(wall.psi)}")
+    n, Ti = check_potential_arguments(opts, state, wall, phi)
+    if opts.phi_mode == "solve":
+        if sctx.prec is None:
+            raise ValueError("the context has no preconditioner (build it with build_preconditioner=True)")
+        rhs = polarization_rhs(opts, params, state[..., opts.fields.index("vorticity")], sigma)
+        psi, info = sharded_solve_dirichlet(sctx.lplan, rhs, LaplacianBoundaryData(value=(jnp.asarray(wall.psi),)), sctx.prec,
+                                            mesh, c_kappa=opts.laplacian_c_kappa, x0=psi_x0, rtol=opts.phi_rtol,
+                                            maxit=opts.phi_maxit)
+        phi = psi - params.tau * pressure_variable(opts, n, Ti)
+    else:
+        phi, psi, info = prescribed_potential(opts, params, n, Ti, phi)
+    zeros = jnp.zeros_like(state)
+    single = opts.rho_star_convention == "single-length"
+    terms = opts.terms
+    if "bracket" in terms:
+        bcd = SatBoundaryData((wall.value,))
+        if single:
+            bracket = params.rho_star * sharded_sbp_bracket(sctx.plan, phi, state, bcd, 1.0, mesh, opts.bracket_c_kappa)
+        else:
+            bracket = sharded_sbp_bracket(sctx.plan, phi, state, bcd, params.rho_star, mesh, opts.bracket_c_kappa)
+    else:
+        bracket = zeros
+    if "curvature" in terms:
+        q, bcd = curvature_operands(opts, state, wall, phi)
+        curv = sharded_sbp_curvature(sctx.plan, q, bcd, mesh, tau=params.tau, psi=opts.psi, absolute_method=opts.absolute_method,
+                                     jump_dissipation=opts.curvature_jump_dissipation, c_kappa=opts.curvature_c_kappa,
+                                     F=sctx.curvature_flux)
+        curvature = scatter_curvature(opts, params, state, curv)
+    else:
+        curvature = zeros
+    if "diffusion" in terms:
+        lap = sharded_laplacian_action(sctx.lplan, state, diffusion_boundary_data(opts, wall), mesh, opts.diffusion_kinds, None,
+                                       opts.laplacian_c_kappa, neumann_mode=opts.neumann_mode)
+        diffusion = jnp.asarray(params.D) * lap
+    else:
+        diffusion = zeros
+    return assemble_terms(bracket, curvature, diffusion, phi, psi, info, source)
+
+
+sharded_nodal_perpendicular_rhs_jit = jax.jit(sharded_nodal_perpendicular_rhs, static_argnames=("opts", "mesh"))

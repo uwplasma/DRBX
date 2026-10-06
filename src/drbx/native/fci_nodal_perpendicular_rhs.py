@@ -208,6 +208,15 @@ def _no_solve_info():
     return {"iterations": jnp.asarray(0), "relative_residual": jnp.asarray(0.0), "converged": jnp.asarray(True)}
 
 
+def polarization_rhs(opts: NodalPerpendicularOptions, params: NodalPerpendicularParams, omega, sigma=None):
+    """Right-hand side ``(Omega - sigma) / rho_star**2`` of the polarization solve (no ``rho_star`` for the legacy convention)."""
+    omega = jnp.asarray(omega)
+    rhs = omega if sigma is None else omega - jnp.asarray(sigma)
+    if opts.rho_star_convention == "single-length":
+        rhs = rhs / params.rho_star ** 2
+    return rhs
+
+
 def solve_potential(ctx: NodalPerpendicularContext, opts: NodalPerpendicularOptions, params: NodalPerpendicularParams, omega, n,
                     Ti, psi_wall, *, sigma=None, x0=None):
     """Solve ``L psi = (Omega - sigma) / rho_star**2`` (``omega`` is the vorticity ``Omega``; ``sigma=None`` is zero) with Dirichlet
@@ -217,10 +226,7 @@ def solve_potential(ctx: NodalPerpendicularContext, opts: NodalPerpendicularOpti
     ``(psi, phi, info)``."""
     if ctx.prec is None:
         raise ValueError("the context has no preconditioner (build it with build_preconditioner=True)")
-    omega = jnp.asarray(omega)
-    rhs = omega if sigma is None else omega - jnp.asarray(sigma)
-    if opts.rho_star_convention == "single-length":
-        rhs = rhs / params.rho_star ** 2
+    rhs = polarization_rhs(opts, params, omega, sigma)
     psi, info = solve_dirichlet(ctx.lplan, rhs, LaplacianBoundaryData(value=(jnp.asarray(psi_wall),)), ctx.prec,
                                 c_kappa=opts.laplacian_c_kappa, x0=x0, rtol=opts.phi_rtol, maxit=opts.phi_maxit)
     phi = psi - params.tau * pressure_variable(opts, n, Ti)
@@ -259,11 +265,14 @@ def bracket_rule_inflow(ctx: NodalPerpendicularContext, opts: NodalPerpendicular
 # Terms
 # ---------------------------------------------------------------------------
 def _check_inputs(ctx, opts, params, state, wall):
-    E, P = ctx.plan.structure.n_eta, ctx.plan.structure.P
+    check_input_shapes(ctx.plan.structure.n_eta, ctx.plan.structure.P, ctx.lplan.structure.N, opts, params, state, wall)
+
+
+def check_input_shapes(E, P, N, opts, params, state, wall):
+    """Shape and presence checks of ``state (E, P, F)``, the wall data ``(E, N, F)`` and ``params.D`` (shared with the sharded RHS)."""
     F = opts.n_fields
     if state.shape != (E, P, F):
         raise ValueError(f"state must have shape {(E, P, F)}, got {state.shape}")
-    N = ctx.lplan.structure.N
     if wall.value is None or wall.value.shape != (E, N, F):
         raise ValueError(f"wall.value must have shape {(E, N, F)}, got {None if wall.value is None else wall.value.shape}")
     if wall.normal is not None and wall.normal.shape != (E, N, F):
@@ -282,24 +291,38 @@ def _bracket_term(ctx, opts, params, state, wall, phi):
     return sbp_bracket(ctx.plan, phi, state, bcd, params.rho_star, opts.bracket_c_kappa)
 
 
-def _curvature_term(ctx, opts, params, state, wall, phi):
+def curvature_operands(opts, state, wall, phi):
+    """``(q, bcd)`` of the curvature operator: ``q = (n, Te, Ti, omega, phi)`` and its wall inflow data."""
     idx = list(opts.curvature_index)
     q = jnp.concatenate([state[..., idx], phi[..., None]], axis=-1)
-    rhs = sbp_curvature(ctx.plan, q, SatBoundaryData((wall.value[..., idx],)), tau=params.tau, psi=opts.psi,
-                        absolute_method=opts.absolute_method, jump_dissipation=opts.curvature_jump_dissipation,
-                        c_kappa=opts.curvature_c_kappa, F=ctx.curvature_flux)
+    return q, SatBoundaryData((wall.value[..., idx],))
+
+
+def scatter_curvature(opts, params, state, rhs):
+    """Scale the curvature operator output by ``rho_star`` (single-length) and scatter it into the field slots of ``state``."""
     if opts.rho_star_convention == "single-length":
         rhs = params.rho_star * rhs
-    return jnp.zeros_like(state).at[..., idx].set(rhs)
+    return jnp.zeros_like(state).at[..., list(opts.curvature_index)].set(rhs)
+
+
+def _curvature_term(ctx, opts, params, state, wall, phi):
+    q, bcd = curvature_operands(opts, state, wall, phi)
+    rhs = sbp_curvature(ctx.plan, q, bcd, tau=params.tau, psi=opts.psi,
+                        absolute_method=opts.absolute_method, jump_dissipation=opts.curvature_jump_dissipation,
+                        c_kappa=opts.curvature_c_kappa, F=ctx.curvature_flux)
+    return scatter_curvature(opts, params, state, rhs)
+
+
+def diffusion_boundary_data(opts, wall):
+    """Laplacian wall data of the diffusion term: Dirichlet ``wall.value``, Neumann ``wall.normal`` (per ``opts.neumann_mode``)."""
+    if opts.neumann_mode == "physical":
+        return LaplacianBoundaryData(value=(wall.value,), normal_derivative=None if wall.normal is None else (wall.normal,))
+    return LaplacianBoundaryData(value=(wall.value,), conormal=None if wall.normal is None else (wall.normal,))
 
 
 def _diffusion_term(ctx, opts, params, state, wall):
-    if opts.neumann_mode == "physical":
-        bcd = LaplacianBoundaryData(value=(wall.value,), normal_derivative=None if wall.normal is None else (wall.normal,))
-    else:
-        bcd = LaplacianBoundaryData(value=(wall.value,), conormal=None if wall.normal is None else (wall.normal,))
-    lap = laplacian_action(ctx.lplan, state, bcd, opts.diffusion_kinds, None, opts.laplacian_c_kappa,
-                           neumann_mode=opts.neumann_mode)
+    lap = laplacian_action(ctx.lplan, state, diffusion_boundary_data(opts, wall), opts.diffusion_kinds, None,
+                           opts.laplacian_c_kappa, neumann_mode=opts.neumann_mode)
     return jnp.asarray(params.D) * lap
 
 
@@ -315,6 +338,21 @@ def nodal_perpendicular_rhs(ctx: NodalPerpendicularContext, opts: NodalPerpendic
     """
     state = jnp.asarray(state)
     _check_inputs(ctx, opts, params, state, wall)
+    n, Ti = check_potential_arguments(opts, state, wall, phi)
+    if opts.phi_mode == "solve":
+        psi, phi, info = solve_potential(ctx, opts, params, state[..., opts.fields.index("vorticity")], n, Ti, wall.psi,
+                                         sigma=sigma, x0=psi_x0)
+    else:
+        phi, psi, info = prescribed_potential(opts, params, n, Ti, phi)
+    zeros = jnp.zeros_like(state)
+    bracket = _bracket_term(ctx, opts, params, state, wall, phi) if "bracket" in opts.terms else zeros
+    curvature = _curvature_term(ctx, opts, params, state, wall, phi) if "curvature" in opts.terms else zeros
+    diffusion = _diffusion_term(ctx, opts, params, state, wall) if "diffusion" in opts.terms else zeros
+    return assemble_terms(bracket, curvature, diffusion, phi, psi, info, source)
+
+
+def check_potential_arguments(opts, state, wall, phi):
+    """Validate ``phi`` / ``wall.psi`` / the required fields against ``opts.phi_mode``; returns ``(n, Ti)`` (``None`` if absent)."""
     fields = opts.fields
     n = state[..., fields.index("density")] if "density" in fields else None
     Ti = state[..., fields.index("Ti")] if "Ti" in fields else None
@@ -325,19 +363,21 @@ def nodal_perpendicular_rhs(ctx: NodalPerpendicularContext, opts: NodalPerpendic
             raise ValueError("wall.psi is required for phi_mode == 'solve'")
         if n is None or Ti is None or "vorticity" not in fields:
             raise ValueError("the potential solve needs the fields density, Ti and vorticity")
-        psi, phi, info = solve_potential(ctx, opts, params, state[..., fields.index("vorticity")], n, Ti, wall.psi,
-                                         sigma=sigma, x0=psi_x0)
-    else:
-        if phi is None:
-            raise ValueError("phi is required for phi_mode == 'prescribed'")
-        phi = jnp.asarray(phi)
-        have_p = Ti is not None and (opts.psi != "phi_plus_tau_pi" or n is not None)
-        psi = phi + params.tau * pressure_variable(opts, n, Ti) if have_p else phi      # psi = phi without the pressure fields
-        info = _no_solve_info()
-    zeros = jnp.zeros_like(state)
-    bracket = _bracket_term(ctx, opts, params, state, wall, phi) if "bracket" in opts.terms else zeros
-    curvature = _curvature_term(ctx, opts, params, state, wall, phi) if "curvature" in opts.terms else zeros
-    diffusion = _diffusion_term(ctx, opts, params, state, wall) if "diffusion" in opts.terms else zeros
+    elif phi is None:
+        raise ValueError("phi is required for phi_mode == 'prescribed'")
+    return n, Ti
+
+
+def prescribed_potential(opts, params, n, Ti, phi):
+    """``(phi, psi, info)`` of a prescribed ``phi``: ``psi = phi + tau p`` (``psi = phi`` without the pressure fields)."""
+    phi = jnp.asarray(phi)
+    have_p = Ti is not None and (opts.psi != "phi_plus_tau_pi" or n is not None)
+    psi = phi + params.tau * pressure_variable(opts, n, Ti) if have_p else phi          # psi = phi without the pressure fields
+    return phi, psi, _no_solve_info()
+
+
+def assemble_terms(bracket, curvature, diffusion, phi, psi, info, source) -> NodalPerpendicularTerms:
+    """Sum the terms (plus the optional ``source``) into a :class:`NodalPerpendicularTerms`."""
     total = bracket + curvature + diffusion
     if source is not None:
         total = total + jnp.asarray(source)
