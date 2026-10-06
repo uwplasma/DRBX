@@ -114,8 +114,7 @@ class PreparedProvider:
         for actual, expected in ((m.boundary_initial, boundaries(b, 1)), (m.boundary_constant, boundaries(b, 0))):
             for a, e in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
                 np.testing.assert_array_equal(a, e)
-        if self.input_hashes.get('q08_receipt_identity') != FROZEN_IDENTITY or self.input_hashes.get('prepared_bank_identity') != b.identity:
-            raise ValueError('Q09 prepared input/accepted receipt lineage mismatch')
+        self._validate_lineage()
         if not self.input_hashes or any(len(h) != 64 or any(c not in '0123456789abcdef' for c in h) for h in self.input_hashes.values()):
             raise ValueError('explicit content input hashes required')
         for a in jax.tree.leaves((m.owner_initial, m.phi_initial, m.boundary_initial,
@@ -124,6 +123,11 @@ class PreparedProvider:
                 raise ValueError('nonfinite analytic/reference payload')
         self._validate_regions(no)
         return self
+
+    def _validate_lineage(self):
+        """Default authority is the accepted raw-field extraction receipt."""
+        if self.input_hashes.get('q08_receipt_identity') != FROZEN_IDENTITY or self.input_hashes.get('prepared_bank_identity') != self.bank.identity:
+            raise ValueError('Q09 prepared input/accepted receipt lineage mismatch')
 
     def _validate_regions(self, no):
         for name, mask in self.regions.items():
