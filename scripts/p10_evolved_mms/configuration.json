@@ -17,7 +17,7 @@
   "tau": 1.0,
   "psi": "phi_plus_tau_pi",
   "fields": ["density", "Te", "Ti", "vorticity"],
-  "D": [1.0e-5, 1.2e-5, 1.4e-5, 0.8e-5],
+  "D": [1.0e-7, 1.2e-7, 1.4e-7, 0.8e-7],
   "patterns": {
     "NNN-D": ["neumann", "neumann", "neumann", "dirichlet"],
     "DDDD": ["dirichlet", "dirichlet", "dirichlet", "dirichlet"]
