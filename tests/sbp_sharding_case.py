@@ -6,7 +6,8 @@ stdout line. Modes: ``agree`` (sharded against single-device ``sbp_bracket`` for
 for the family-A n = 16 layout with a Zernike core) and ``short`` (a plan with fewer than 3 planes per shard is rejected).
 Further modes: ``curvature`` (``sharded_sbp_curvature`` against ``sbp_curvature``), ``laplacian`` (``sharded_laplacian_form`` /
 ``action``, Dirichlet and both Neumann data types, against the single-device form), ``cg`` (``sharded_solve_dirichlet`` against
-``solve_dirichlet``) and ``laplacian_short`` (fewer than 4 planes per shard is rejected).
+``solve_dirichlet``) and ``laplacian_short`` (fewer than 4 planes per shard is rejected). ``nodal_rhs`` compares
+``sharded_nodal_perpendicular_rhs`` with ``nodal_perpendicular_rhs`` (prescribed ``phi``, potential solve, legacy convention).
 """
 from __future__ import annotations
 
@@ -27,7 +28,8 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp                                                                          # noqa: E402
 
 from drbx.geometry.nodal_families import build_family_a_layout                                    # noqa: E402
-from drbx.geometry.nodal_layout import build_nodal_layout                                        # noqa: E402
+from drbx.geometry.nodal_layout import build_nodal_layout, node_points, wall_points                                        # noqa: E402
+from drbx.native import fci_nodal_perpendicular_rhs as rhs_mod                                   # noqa: E402
 from drbx.native.fci_perpendicular_sbp_boundary import SatBoundaryData                           # noqa: E402
 from drbx.native.fci_perpendicular_sbp_bracket import sbp_bracket                                # noqa: E402
 from drbx.native.fci_perpendicular_sbp_curvature import sbp_curvature                            # noqa: E402
@@ -36,8 +38,9 @@ from drbx.native.fci_perpendicular_sbp_laplacian import (                       
 from drbx.native.fci_perpendicular_sbp_laplacian_solve import (                                  # noqa: E402
     build_dirichlet_preconditioner, solve_dirichlet)
 from drbx.native.fci_perpendicular_sbp_sharding import (                                         # noqa: E402
-    make_plane_mesh, shard_core_schur_preconditioner, shard_laplacian_plan, shard_nodal_plan, sharded_laplacian_action,
-    sharded_laplacian_form, sharded_sbp_bracket, sharded_sbp_curvature, sharded_solve_dirichlet)
+    make_plane_mesh, shard_core_schur_preconditioner, shard_laplacian_plan, shard_nodal_perpendicular_context, shard_nodal_plan,
+    sharded_bracket_rule_inflow, sharded_laplacian_action, sharded_laplacian_form, sharded_nodal_perpendicular_rhs_jit,
+    sharded_sbp_bracket, sharded_sbp_curvature, sharded_solve_dirichlet)
 from drbx.geometry.sbp_laplacian import build_laplacian_plan, nodal_laplacian_metric_from_callable  # noqa: E402
 from drbx.stencils.nodal_plan import build_nodal_plan, nodal_metric_from_callable                # noqa: E402
 from tests import sbp_laplacian_testbed as tb                                                    # noqa: E402
@@ -204,6 +207,97 @@ def run_cg(n_eta=16, shard_counts=(1, 2, 4)) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Composed nodal perpendicular RHS (family A n = 16, E = 16: p = 4 on four shards)
+# ---------------------------------------------------------------------------
+KINDS4 = ("dirichlet", "dirichlet", "neumann", "dirichlet")        # density, Te, Ti, vorticity
+
+
+def _nodal_metric_fn(pts):
+    """``(h, jac, B, K)`` with the testbed's jacobian, so ``Hp`` of the nodal and the Laplacian plans agree bitwise."""
+    _A, J, _G = tb._batched(tb._geometry_fn, pts)
+    u, th, et = np.asarray(pts).T
+    h = np.stack([0.1 * np.sin(th), 0.2 * np.cos(et), 1.0 + 0.1 * u], -1)
+    K = np.stack([0.3 * np.cos(th), 0.1 * u + 0.05, 0.2 * np.sin(et) + 0.1], -1)
+    return h, np.abs(J), 1.0 + 0.2 * u, K
+
+
+def _field_values(pts, k):
+    u, th, et = pts[..., 0], pts[..., 1], pts[..., 2]
+    x, y = u * np.cos(th), u * np.sin(th)
+    s = 2 * np.pi * (0.9 * x + 0.4 * y) + et
+    return [1.0 + 0.3 * np.cos(s), 0.9 + 0.2 * np.sin(s + 0.3), 1.1 + 0.25 * np.cos(2 * np.pi * (0.5 * x - 0.8 * y) + et),
+            0.2 * np.sin(s)][k]
+
+
+def _smooth_phi(pts):
+    return 0.4 * np.sin(2 * np.pi * pts[..., 0] * np.cos(pts[..., 1]) + pts[..., 2]) + 0.1
+
+
+def nodal_rhs_case(n_eta=16, build_preconditioner=True):
+    case_ = tb.case(16, n_eta, False)
+    lay = case_.layout
+    plan = build_nodal_plan(lay, nodal_metric_from_callable(lay, _nodal_metric_fn))
+    ctx = rhs_mod.build_nodal_perpendicular_context(plan, case_.plan, build_preconditioner=build_preconditioner)
+    pts, wpts = node_points(lay), wall_points(lay, lay.walls[0])
+    state = jnp.asarray(np.stack([_field_values(pts, k) for k in range(4)], -1))
+    value = jnp.asarray(np.stack([_field_values(wpts, k) for k in range(4)], -1))
+    normal = jnp.asarray(0.3 * np.cos(3.0 * wpts[..., 1])[..., None] + 0.1 * np.asarray(value))
+    return lay, ctx, pts, wpts, state, value, normal
+
+
+def run_nodal_rhs(n_eta=16, shard_counts=(1, 2, 4)) -> dict:
+    """Prescribed phi (physical-normal Neumann, source), potential solve (sigma and psi warm start) and one legacy case."""
+    lay, ctx, pts, wpts, state, value, normal = nodal_rhs_case(n_eta)
+    N = ctx.lplan.structure.N
+    phi = jnp.asarray(_smooth_phi(pts))
+    sigma = jnp.asarray(0.2 * np.sin(2.0 * pts[..., 2] + pts[..., 1]))
+    source = jnp.asarray(0.01 * np.cos(np.asarray(state)))
+    D = jnp.asarray(0.01 * (1 + np.arange(4)))
+    cases = {}
+    # (a) prescribed phi, all three terms, single-length rho_star = 0.7
+    opts = rhs_mod.NodalPerpendicularOptions(diffusion_kinds=KINDS4, phi_mode="prescribed")
+    params = rhs_mod.NodalPerpendicularParams(jnp.asarray(0.7), jnp.asarray(0.6), D)
+    cases["prescribed"] = (opts, params, rhs_mod.NodalWallData(value, normal, None), dict(phi=phi, source=source))
+    # (b) potential solve, sigma and a warm start, single-length
+    opts_b = rhs_mod.NodalPerpendicularOptions(diffusion_kinds=KINDS4, phi_mode="solve", phi_rtol=1e-11, phi_maxit=400)
+    psi_w = rhs_mod.psi_wall_data(opts_b, params.tau, jnp.asarray(_smooth_phi(wpts)), value[..., 0], value[..., 2])
+    psi_x0 = jnp.asarray(0.8 * (np.asarray(phi) + 0.6 * np.asarray(state[..., 0] * state[..., 2])))
+    cases["solve"] = (opts_b, params, rhs_mod.NodalWallData(value, normal, psi_w), dict(sigma=sigma, psi_x0=psi_x0, source=source))
+    # (c) legacy convention (bracket divisor, no rho_star in curvature and polarization), conormal Neumann, rho_star = 0.05
+    opts_c = rhs_mod.NodalPerpendicularOptions(diffusion_kinds=KINDS4, phi_mode="solve", phi_rtol=1e-11, phi_maxit=400,
+                                               rho_star_convention="legacy-bracket-only", neumann_mode="conormal",
+                                               psi="phi_plus_tau_ti")
+    params_c = params._replace(rho_star=jnp.asarray(0.05))
+    psi_w_c = rhs_mod.psi_wall_data(opts_c, params.tau, jnp.asarray(_smooth_phi(wpts)), value[..., 0], value[..., 2])
+    cases["legacy"] = (opts_c, params_c, rhs_mod.NodalWallData(value, normal, psi_w_c), dict(sigma=sigma))
+    out = {"P": lay.P, "N": N}
+    refs = {}
+    for name, (o, prm, wall, kw) in cases.items():
+        ref = rhs_mod.nodal_perpendicular_rhs_jit(ctx, o, prm, state, wall, **kw)
+        refs[name] = ref
+        out[f"{name}_ref_iterations"] = int(ref.solve_info["iterations"])
+        out[f"{name}_ref_converged"] = bool(ref.solve_info["converged"])
+        for term in ("total", "bracket", "curvature", "diffusion", "phi", "psi"):
+            out[f"{name}_ref_max_{term}"] = float(np.abs(np.asarray(getattr(ref, term))).max())
+    for sh in shard_counts:
+        mesh = make_plane_mesh(sh)
+        sctx = shard_nodal_perpendicular_context(ctx, sh, mesh)
+        for name, (o, prm, wall, kw) in cases.items():
+            ref = refs[name]
+            got = sharded_nodal_perpendicular_rhs_jit(sctx, o, prm, state, wall, mesh, **kw)
+            for term in ("total", "bracket", "curvature", "diffusion", "phi", "psi"):
+                _compare(out, f"{name}_S{sh}_{term}", getattr(got, term), getattr(ref, term))
+            out[f"{name}_S{sh}_iterations"] = int(got.solve_info["iterations"])
+            out[f"{name}_S{sh}_converged"] = bool(got.solve_info["converged"])
+        # wall rule of the bracket: plane-local trace, no exchange
+        o = cases["prescribed"][0]
+        ref_in = rhs_mod.bracket_rule_inflow(ctx, o, state, value)
+        got_in = jax.jit(lambda sc, st, v, mesh=mesh: sharded_bracket_rule_inflow(sc, o, st, v, mesh))(sctx, state, value)
+        _compare(out, f"inflow_S{sh}", got_in, ref_in)
+    return out
+
+
 def run_laplacian_short() -> dict:
     errors = {}
     for n_eta, s in ((8, 4), (12, 4), (16, 8)):
@@ -231,7 +325,8 @@ def run_short() -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     modes = {"agree": run_agree, "short": run_short, "family_a": run_family_a, "curvature": run_curvature,
-             "laplacian": run_laplacian, "cg": run_cg, "laplacian_short": run_laplacian_short}
+             "laplacian": run_laplacian, "cg": run_cg, "laplacian_short": run_laplacian_short,
+             "nodal_rhs": run_nodal_rhs}
     parser.add_argument("mode", choices=tuple(modes))
     args = parser.parse_args(argv)
     result = modes[args.mode]()
