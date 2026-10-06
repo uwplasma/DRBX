@@ -153,7 +153,7 @@ def test_configuration_is_marked_provisional_and_consistent():
     c = F.CONFIG
     assert c["provisional"] is True and c["psi"] == "phi_plus_tau_pi" and c["rho_star_convention"] == "single-length"
     assert c["time_scale"] == c["rho_star"] == 4.5e-4 and abs(c["T"] - 1.0 / (30 * c["rho_star"])) < 1e-9
-    assert c["a_phi"] == 0.1 and c["D"] == [1.0e-5, 1.2e-5, 1.4e-5, 0.8e-5] and c["tau"] == 1.0
+    assert c["a_phi"] == 0.1 and c["D"] == [1.0e-7, 1.2e-7, 1.4e-7, 0.8e-7] and c["tau"] == 1.0
     assert set(c["patterns"]) == {"NNN-D", "DDDD"} and c["curvature"]["c_kappa"] == 0.0 and not c["curvature"]["jump_dissipation"]
     opts = S.nodal_options("NNN-D")
     assert opts.diffusion_kinds == ("neumann", "neumann", "neumann", "dirichlet") and opts.psi == "phi_plus_tau_pi"

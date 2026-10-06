@@ -96,8 +96,8 @@ def test_continuum_structure_and_sigma_vanishes_for_synthetic_omega(bundle):
     assert c.q.shape == c.R.shape == c.S.shape == (E, P, 4) and c.sigma.shape == c.phi.shape == (E, P)
     np.testing.assert_allclose(np.asarray(c.R), np.asarray(c.bracket + c.curvature + c.diffusion), rtol=1e-13, atol=1e-13)
     np.testing.assert_allclose(np.asarray(c.S), np.asarray(c.dq - c.R), rtol=1e-13, atol=1e-13)
-    for term in (c.bracket, c.curvature, c.diffusion, c.dq, c.sigma):
-        assert float(jnp.abs(term).max()) > 1e-4                         # all pieces are active
+    for term in (c.bracket, c.curvature, c.diffusion / jnp.asarray(mp.D), c.dq, c.sigma):
+        assert float(jnp.abs(term).max()) > 1e-4                         # all pieces are active (diffusion per unit D)
     # psi = phi + tau n Ti at the nodes
     np.testing.assert_allclose(np.asarray(c.psi), np.asarray(c.phi + mp.tau * c.q[..., 0] * c.q[..., 2]), rtol=1e-14, atol=1e-14)
     # the polarization source is sigma = Omega - rho*^2 L_cont psi (the Omega of the fields), and vanishes for the synthetic
