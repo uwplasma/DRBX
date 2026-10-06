@@ -156,6 +156,10 @@ class HSXMetricContext:
     bfield: object
     nfp: int
     compiled_trace_field: object | None = None
+    # B0 [tesla] that normalized |B| and B_contra in the sampled geometry
+    # (the explicit request or the median |B| over cells).  ``None`` for
+    # contexts built by callers that do not know it.
+    reference_magnetic_field: float | None = None
 
 
 def _validate_hsx_metric_context(
@@ -2471,7 +2475,11 @@ def build_hsx_fci_geometry(
     )
     returned_metric_resource = (
         HSXMetricContext(
-            metric_evaluator, bfield, nfp, compiled_trace_field
+            metric_evaluator,
+            bfield,
+            nfp,
+            compiled_trace_field,
+            reference_magnetic_field=float(reference_magnetic_field),
         )
         if return_metric_context
         else metric_evaluator

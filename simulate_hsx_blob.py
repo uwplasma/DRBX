@@ -39,6 +39,12 @@ if str(DRBX_SRC) not in sys.path:
     sys.path.insert(0, str(DRBX_SRC))
 
 from drbx.runtime import configure_jax_runtime  # noqa: E402
+from drbx.runtime.reference_scales import (  # noqa: E402
+    ATOMIC_MASS_UNIT_KG,
+    ELEMENTARY_CHARGE_C,
+    HYDROGEN_ION_MASS_AMU,
+    reference_rho_star,
+)
 
 configure_jax_runtime(precision="float64")
 
@@ -3013,7 +3019,10 @@ def run_full_eb(
                         jnp.zeros_like(rhs.phi),
                         -jnp.asarray(model.parameters.tau, dtype=jnp.float64)
                         * pressure_action,
-                        -jnp.asarray(rhs.vorticity, dtype=jnp.float64),
+                        # Omega enters the phi equation as Omega/rho_star**2.
+                        -jnp.asarray(rhs.vorticity, dtype=jnp.float64)
+                        / jnp.asarray(model.parameters.rho_star, dtype=jnp.float64)
+                        ** 2,
                     ),
                     axis=0,
                 )
@@ -6569,6 +6578,140 @@ def _simplified_gbs_mpe_selector_bundle_is_exact(args: argparse.Namespace) -> bo
     )
 
 
+class _RecordExplicitFloat(argparse.Action):
+    """Store a float and record that the option was given on the command line.
+
+    ``--rho-star`` keeps its numeric default (1.0); the extra
+    ``<dest>_explicit`` flag lets the driver reject combining it with the
+    ``--reference-te-ev`` derivation.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        setattr(namespace, f"{self.dest}_explicit", True)
+
+
+def _validate_rho_star_options(args: argparse.Namespace) -> None:
+    """Reject inconsistent rho-star options before any artifact is loaded."""
+
+    if args.reference_te_ev is not None and getattr(
+        args, "rho_star_explicit", False
+    ):
+        raise ValueError(
+            "--rho-star and --reference-te-ev are mutually exclusive: give "
+            "an explicit rho_star or derive it from the reference electron "
+            "temperature and the artifact's B0, not both"
+        )
+    if args.reference_te_ev is not None and not (
+        np.isfinite(args.reference_te_ev) and args.reference_te_ev > 0.0
+    ):
+        raise ValueError("--reference-te-ev must be positive and finite")
+    if not (np.isfinite(args.ion_mass_amu) and args.ion_mass_amu > 0.0):
+        raise ValueError("--ion-mass-amu must be positive and finite")
+
+
+def _resolve_reference_scales(
+    args: argparse.Namespace, artifact_metadata: Mapping[str, object]
+) -> tuple[float, dict[str, object]]:
+    """Return ``(rho_star, record)`` for the run.
+
+    ``rho_star`` is the explicit ``--rho-star`` (default 1.0) or, with
+    ``--reference-te-ev``, ``rho_s0 / L_ref`` from the reference electron
+    temperature, the artifact's ``reference_magnetic_field_tesla`` and
+    ``--ion-mass-amu``.  ``record`` is a JSON-serializable summary of every
+    physical reference scale that is known (``None`` where it is not).
+    """
+
+    _validate_rho_star_options(args)
+    b0_raw = artifact_metadata.get("reference_magnetic_field_tesla")
+    try:
+        b0 = None if b0_raw is None else float(b0_raw)
+    except (TypeError, ValueError):
+        b0 = None
+    if b0 is not None and not (np.isfinite(b0) and b0 > 0.0):
+        b0 = None
+    length_unit = artifact_metadata.get("length_unit")
+    record: dict[str, object] = {
+        "reference_magnetic_field_tesla": b0,
+        "ion_mass_amu": float(args.ion_mass_amu),
+        "l_ref_m": 1.0,
+        "length_unit": "m" if length_unit is None else str(length_unit),
+        "length_unit_source": (
+            "assumed-legacy-artifact" if length_unit is None else "artifact"
+        ),
+        "reference_te_ev": None,
+        "rho_s0_m": None,
+        "c_s0_m_per_s": None,
+        "t_ref_s": None,
+        "implied_reference_te_ev": None,
+    }
+    if args.reference_te_ev is None:
+        rho_star = float(args.rho_star)
+        record["rho_star"] = rho_star
+        record["rho_star_source"] = (
+            "explicit" if getattr(args, "rho_star_explicit", False) else "default"
+        )
+        if b0 is not None and rho_star > 0.0:
+            # T_e0 [eV] that this rho_star would imply: rho_s0 = sqrt(m_i T_e0)/(e B0).
+            mass = float(args.ion_mass_amu) * ATOMIC_MASS_UNIT_KG
+            record["implied_reference_te_ev"] = float(
+                ELEMENTARY_CHARGE_C * (rho_star * b0) ** 2 / mass
+            )
+        return rho_star, record
+    if str(record["length_unit"]) != "m":
+        raise ValueError(
+            "--reference-te-ev derives rho_star with L_ref = 1 m, but the "
+            f"geometry artifact reports length_unit={record['length_unit']!r}"
+        )
+    if b0 is None:
+        raise ValueError(
+            "--reference-te-ev needs the physical reference field B0, but the "
+            "geometry artifact does not record a valid "
+            "'reference_magnetic_field_tesla' (artifacts produced before that "
+            "key was added lack it, and 'reference_magnetic_field' is null). "
+            "Pass an explicit --rho-star computed with "
+            "drbx.runtime.reference_scales.reference_rho_star instead, using "
+            "B0 from the artifact's producer metric checkpoint "
+            f"({artifact_metadata.get('producer_metric_checkpoint')!r}, key "
+            "'reference_magnetic_field') or a rebuilt artifact"
+        )
+    scales = reference_rho_star(
+        float(args.reference_te_ev),
+        b0,
+        ion_mass_amu=float(args.ion_mass_amu),
+        l_ref_m=float(record["l_ref_m"]),
+    )
+    record.update(
+        rho_star=float(scales.rho_star),
+        rho_star_source="derived",
+        reference_te_ev=float(scales.te_ev),
+        rho_s0_m=float(scales.rho_s0_m),
+        c_s0_m_per_s=float(scales.c_s0),
+        t_ref_s=float(scales.t_ref),
+    )
+    return float(scales.rho_star), record
+
+
+def _format_reference_scales(record: Mapping[str, object]) -> str:
+    def fmt(key: str) -> str:
+        value = record.get(key)
+        return "unknown" if value is None else f"{float(value):.6e}"
+
+    return (
+        "[simulation] reference scales: "
+        f"rho_star={float(record['rho_star']):.6e} "
+        f"(source={record['rho_star_source']}); "
+        f"Te_ref={fmt('reference_te_ev')} eV; "
+        f"B0={fmt('reference_magnetic_field_tesla')} T; "
+        f"m_i={float(record['ion_mass_amu']):.6f} u; "
+        f"L_ref={float(record['l_ref_m']):.6e} m "
+        f"({record['length_unit_source']}); "
+        f"rho_s0={fmt('rho_s0_m')} m; c_s0={fmt('c_s0_m_per_s')} m/s; "
+        f"t_ref={fmt('t_ref_s')} s; "
+        f"implied_Te_ref={fmt('implied_reference_te_ev')} eV"
+    )
+
+
 def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -7024,7 +7167,38 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         help="Initial toroidal perturbation phase in radians.",
     )
     parser.add_argument("--tau", type=float, default=1.0)
-    parser.add_argument("--rho-star", type=float, default=1.0)
+    parser.set_defaults(rho_star_explicit=False)
+    parser.add_argument(
+        "--rho-star",
+        type=float,
+        default=1.0,
+        action=_RecordExplicitFloat,
+        help=(
+            "rho_star = rho_s0 / L_ref (default 1.0). Mutually exclusive "
+            "with --reference-te-ev."
+        ),
+    )
+    parser.add_argument(
+        "--reference-te-ev",
+        type=float,
+        default=None,
+        help=(
+            "Derive rho_star = sqrt(m_i T_e0)/(e B0)/L_ref from this "
+            "reference electron temperature [eV], the artifact's "
+            "reference_magnetic_field_tesla (B0) and --ion-mass-amu, with "
+            "L_ref = 1 m. Mutually exclusive with --rho-star; fails if the "
+            "artifact does not record B0."
+        ),
+    )
+    parser.add_argument(
+        "--ion-mass-amu",
+        type=float,
+        default=HYDROGEN_ION_MASS_AMU,
+        help=(
+            "Ion mass in atomic mass units for the rho_star derivation "
+            "(default hydrogen, 1.00728; deuterium is 2.01355)."
+        ),
+    )
     parser.add_argument("--mi-over-me", type=float, default=1836.0)
     parser.add_argument("--perp-diffusion", type=float, default=1.0e-5)
     parser.add_argument("--parallel-diffusion", type=float, default=1.0e-5)
@@ -7158,6 +7332,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not args.geometry.is_dir():
         parser.error(f"--geometry must be an existing directory: {args.geometry}")
     try:
+        _validate_rho_star_options(args)
+    except ValueError as error:
+        parser.error(str(error))
+    try:
         simulation_geometry = load_fci_simulation_geometry(args.geometry)
         global_geometry = simulation_geometry.global_geometry
         cell_positions = simulation_geometry.cell_positions
@@ -7178,6 +7356,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     artifact_metadata = getattr(simulation_geometry, "metadata", {})
     if not isinstance(artifact_metadata, Mapping):
         artifact_metadata = {}
+    try:
+        rho_star_value, reference_scales_record = _resolve_reference_scales(
+            args, artifact_metadata
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    print(_format_reference_scales(reference_scales_record), flush=True)
     # These options belonged to the producer and are deliberately absent
     # from the consumer parser.  Keep local metadata defaults for the legacy
     # reporting fields below.
@@ -7578,7 +7763,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parameters = FciDrbEBRhsParameters(
         tau=float(args.tau),
         mi_over_me=float(args.mi_over_me),
-        rho_star=float(args.rho_star),
+        rho_star=float(rho_star_value),
         phi_inversion_iterations=int(args.gmres_max_iterations),
         phi_inversion_regularization=0.0,
         density_D_perp=diffusion,
@@ -7903,7 +8088,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                 artifact_metadata.get("reference_magnetic_field")
             ),
             "tau": float(args.tau),
-            "rho_star": float(args.rho_star),
+            "rho_star": float(rho_star_value),
+            "rho_star_normalization": "single-length",
+            "reference_scales": dict(reference_scales_record),
+            "reference_te_ev": reference_scales_record["reference_te_ev"],
+            "reference_magnetic_field_tesla": reference_scales_record[
+                "reference_magnetic_field_tesla"
+            ],
+            "ion_mass_amu": float(args.ion_mass_amu),
+            "l_ref_m": reference_scales_record["l_ref_m"],
+            "c_s0_m_per_s": reference_scales_record["c_s0_m_per_s"],
+            "t_ref_s": reference_scales_record["t_ref_s"],
             "mi_over_me": float(args.mi_over_me),
             "perp_diffusion": float(args.perp_diffusion),
             "parallel_diffusion": float(args.parallel_diffusion),

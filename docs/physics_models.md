@@ -16,7 +16,7 @@ families:
 - the **flux-coordinate-independent (FCI) operator stack** for reduced and
   drift-reduced Braginskii dynamics on tokamak and non-axisymmetric
   stellarator geometry, including the 2-field and 4-field reduced models, the
-  full electrostatic/electromagnetic drift-reduced Braginskii right-hand side,
+  full electrostatic drift-reduced Braginskii right-hand side,
   the 3-D FCI sheath closure, the neutral reaction-diffusion component, and the
   perpendicular vorticity inversion;
 - the **linear stability / dispersion solver** (`drbx.linear`);
@@ -126,11 +126,12 @@ with model-dependent coefficients `C` and metric terms.
 The FCI EB lane (`FciDrbEBRhsParameters`) uses the Boussinesq hot-ion form
 
 ```text
-ω = ∇⊥²(φ + τ p_i),    p_i = n T_i      (normalized, n0 = 1)
+Ω = ρ*² ∇⊥²(φ + τ p_i),    p_i = n T_i      (normalized, n0 = 1)
 ```
 
 so the potential solve keeps the constant-coefficient operator `A = -∇⊥²`
-and only its right-hand side, `-τ A(p_i) - ω`, carries the ion pressure. The
+and only its right-hand side, `-τ A(p_i) - Ω/ρ*²`, carries the ion pressure
+and the vorticity. The
 reason is energy consistency: the older `ω = ∇⊥²(φ + τ T_i)` form drops the
 `τ ñ` contribution, so the linear curvature pairs no longer match and
 unphysical growth proportional to `|k|` appears at `τ > 0`. Select the legacy
@@ -158,6 +159,34 @@ behaviour bit for bit. The two matrix functions
 (`curvature_principal_matrix`, `parallel_production_principal_matrix`) take a
 `psi=` keyword whose default is the legacy form, so external callers are
 unchanged; the RHS passes `polarization_variable` explicitly.
+
+**Normalization (single length).** The FCI EB lane and the nodal SBP
+perpendicular path use one reference length: lengths are in the geometry's own
+unit `L_ref` (1 m for the HSX producer), times in `t_ref = L_ref/c_s0`, the
+magnetic field in `B0` (the producer's median `|B|`, recorded in the artifact
+manifest as `reference_magnetic_field_tesla`), and
+
+```text
+ρ* = ρ_s0 / L_ref,    ρ_s0 = sqrt(m_i T_e0) / (e B0)
+```
+
+(about `4.5e-4` for hydrogen at 20 eV and 1.02 T). With this choice the E×B
+bracket on every field and the whole curvature family carry one factor `ρ*`,
+and the polarization carries `ρ*²`, as above. `Ω/ρ*²` is applied on the
+right-hand side of the potential solve and `ρ*²` on the ω-from-φ maps, so the
+operator and its fixed algebraic regularization are never rescaled. Parallel
+terms, wall closures, sources and diffusion carry no `ρ*`. This is the GBS
+normalization with `L_ref = R0` and the Hermes-3 normalization with lengths in
+`ρ_s`. The driver `simulate_hsx_blob.py` takes `--rho-star` explicitly or derives
+it with `--reference-te-ev` (and `--ion-mass-amu`) from the artifact's `B0`
+through `drbx.runtime.reference_scales.reference_rho_star`. Before October 2026
+the EB RHS divided the bracket by `ρ*` and left curvature and polarization
+unscaled, which is consistent only at `ρ* = 1`; the two forms are bitwise
+identical at `ρ* = 1`.
+
+At physical `ρ*` the electrostatic shear-Alfvén-like branch
+`ω_H = sqrt(μ) B k∥ / (ρ* k⊥)` (μ = m_i/m_e) is the stiffest explicit
+time-step limit, since `k⊥` is limited only by the domain.
 
 The corresponding vorticity transport equation is represented schematically as
 
@@ -346,7 +375,7 @@ payload:
   [native/fci_2_field_rhs.py](../src/drbx/native/fci_2_field_rhs.py);
 - the former global **4-field** model and its free-decay/blob variants are
   retired;
-- the full **electrostatic/electromagnetic drift-reduced Braginskii**
+- the full **electrostatic drift-reduced Braginskii**
   right-hand side (density, potential, `Te`, `Ti`, ion and electron parallel
   velocity, vorticity) in
   [native/fci_drb_EB_rhs.py](../src/drbx/native/fci_drb_EB_rhs.py).
@@ -406,9 +435,10 @@ together with the reduced parallel-force balance
 ```
 
 The electron-inertia shear-Alfven branch of this system is verified analytically
-by the `shear_alfven_operator` in the linear dispersion solver, and the full
-electromagnetic drift-reduced Braginskii RHS is provided by
-[native/fci_drb_EB_rhs.py](../src/drbx/native/fci_drb_EB_rhs.py).
+by the `shear_alfven_operator` in the linear dispersion solver. These
+operators are a slab fixture; the FCI drift-reduced Braginskii RHS
+[native/fci_drb_EB_rhs.py](../src/drbx/native/fci_drb_EB_rhs.py) is
+electrostatic (no `A∥`).
 
 ## Differentiable Analysis Surface
 
