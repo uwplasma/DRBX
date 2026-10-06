@@ -199,6 +199,18 @@ def _read_stage_checkpoint(
         return None
 
 
+def _finite_positive_or_none(value: Any) -> float | None:
+    """Return ``value`` as a float if it is finite and positive, else None."""
+
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if np.isfinite(number) and number > 0.0 else None
+
+
 def _call_builder(
     config: HsxSimulationGeometryConfig,
 ) -> tuple[
@@ -210,8 +222,13 @@ def _call_builder(
     Any | None,
     Any | None,
     Any | None,
+    float | None,
 ]:
-    """Call the established HSX builder, fixing the producer trace policy."""
+    """Call the established HSX builder, fixing the producer trace policy.
+
+    The last element is the physical reference field B0 [T] that the builder
+    used to normalize |B| (``None`` when the builder does not report it).
+    """
 
     # Geometry production is deliberately behind a package-owned boundary.
     # The simulation consumer never calls this function; it receives the
@@ -271,6 +288,9 @@ def _call_builder(
         metric_resource, "compiled_trace_field", None
     )
     curvature_edge_one_form = optional[0] if optional else None
+    reference_magnetic_field_tesla = _finite_positive_or_none(
+        getattr(metric_resource, "reference_magnetic_field", None)
+    )
     if tuple(int(v) for v in geometry.shape) != config.resolution:
         raise ValueError(f"builder returned shape {geometry.shape}, expected {config.resolution}")
     return (
@@ -282,6 +302,7 @@ def _call_builder(
         bfield_evaluator,
         compiled_trace_field,
         curvature_edge_one_form,
+        reference_magnetic_field_tesla,
     )
 
 
@@ -741,6 +762,8 @@ def build_hsx_simulation_geometry(
                 None,
                 builder_payload[-1],
             )
+        if len(builder_payload) == 8:  # doubles that predate B0 reporting
+            builder_payload = (*builder_payload, None)
         (
             geometry,
             positions,
@@ -750,6 +773,7 @@ def build_hsx_simulation_geometry(
             bfield_evaluator,
             compiled_trace_field,
             curvature_edge_one_form,
+            reference_magnetic_field_tesla,
         ) = builder_payload
         # Do not let the unpacking tuple retain a second reference to the
         # device-resident tracing state for the rest of geometry production.
@@ -921,6 +945,14 @@ def build_hsx_simulation_geometry(
                 ),
                 "axis_core_radius": float(config.axis_core_radius),
                 "reference_magnetic_field": config.reference_magnetic_field,
+                # Physical scales of the normalized geometry: lengths are in
+                # metres (L_ref = 1 m) and B is normalized by this B0 [T]
+                # (the explicit request or the median |B|).  Artifacts
+                # written before these keys existed load with them absent.
+                "reference_magnetic_field_tesla": (
+                    reference_magnetic_field_tesla
+                ),
+                "length_unit": "m",
                 "include_curvature_edge_one_form": bool(
                     config.include_curvature_edge_one_form
                 ),

@@ -42,7 +42,7 @@ class _FakeModel:
         # Legacy selector (q = Ti): these stubs pin the weighted raw-residual
         # convention and the raw-image arithmetic, which do not depend on q.
         self.parameters = SimpleNamespace(
-            tau=2.0, polarization_variable="phi_plus_tau_ti"
+            tau=2.0, polarization_variable="phi_plus_tau_ti", rho_star=1.0,
         )
         self.domain = SimpleNamespace(mesh_axis_names=())
         self.gmres_config = SolvaxGmresConfig(regularization_epsilon=0.0)
@@ -120,7 +120,7 @@ def test_non_augmented_model_has_zero_polarization_multiplier():
 
 def test_raw_polarization_image_is_not_multiplier_corrected():
     model = _FakeModel()
-    model.parameters = SimpleNamespace(tau=2.0)
+    model.parameters = SimpleNamespace(tau=2.0, rho_star=1.0)
     state = _state({"Ti": [1.0, 2.0, 3.0], "omega": [4.0, 5.0, 6.0]})
     face_bc = SimpleNamespace(phi=object(), Ti=object())
     raw = model._vorticity_from_polarization(

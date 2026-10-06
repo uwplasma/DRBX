@@ -53,7 +53,7 @@ def test_vorticity_polarization_splits_support_paired_affine_boundary_actions():
         return solver
 
     harness = SimpleNamespace(
-        parameters=SimpleNamespace(tau=tau),
+        parameters=SimpleNamespace(tau=tau, rho_star=1.0),
         gmres_config=solver.config,
         physical_wall_model_name="simplified-gbs-mpe",
         _polarization_solver=polarization_solver,

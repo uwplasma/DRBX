@@ -585,10 +585,32 @@ def _dirichlet_face_bc_from_values(
         layout=layout,
     )
 
+
+def _rho_star_squared(parameters) -> jnp.ndarray:
+    """Return ``rho_star**2``, the single-length polarization weight.
+
+    The polarization is ``Omega = rho_star**2 Lperp(phi + tau p_i)``.  It is
+    applied as ``Omega / rho_star**2`` on the right-hand side of the potential
+    solve and as ``rho_star**2`` on omega-from-phi maps, never by scaling the
+    operator, so the fixed algebraic ``phi_inversion_regularization`` keeps its
+    weight.
+    """
+
+    rho_star = jnp.asarray(parameters.rho_star, dtype=jnp.float64)
+    return rho_star * rho_star
+
+
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class FciDrbEBRhsParameters:
-    """Physical normalization constants for the electrostatic Boussinesq DRB scaffold."""
+    """Physical normalization constants for the electrostatic Boussinesq DRB scaffold.
+
+    Single-length normalization: lengths are in the geometry's own unit
+    ``L_ref`` (1 m for the HSX producer), times in ``t_ref = L_ref / c_s0``,
+    and ``rho_star = rho_s0 / L_ref``.  ``rho_star`` multiplies the E x B
+    bracket (all six fields) and the whole curvature family, and the
+    polarization is ``Omega = rho_star**2 Lperp(phi + tau p_i)``.
+    """
 
     n0: float = 1.0
     Te0: float = 1.0
@@ -597,6 +619,15 @@ class FciDrbEBRhsParameters:
     rhos_s0: float = 1.0
     tau: float = 1.0
     mi_over_me: float = 1836.0
+    # rho_star = rho_s0 / L_ref, where L_ref is the geometry's own length unit
+    # (1 m for the HSX producer) and the time unit is t_ref = L_ref / c_s0.
+    # The E x B bracket (all six fields) and the whole curvature family (all
+    # four rows, material and remainder parts, directional components) carry
+    # rho_star, and the polarization is Omega = rho_star**2 * Lperp(phi +
+    # tau p_i), applied as Omega / rho_star**2 on the right-hand side of the
+    # potential solve and as rho_star**2 on omega-from-phi maps (the operator
+    # is never scaled).  Parallel terms, walls, sources and diffusion are
+    # unchanged.
     rho_star: float = 1.0
     phi_inversion_iterations: int = 80
     phi_inversion_regularization: float = 1.0e-9
@@ -1819,6 +1850,9 @@ class LocalFciDrbEBRhs:
         ``-A(phi; phi_face_bc) - tau A(q; pressure_face_bc)``; this preserves
         distinct affine Dirichlet/Neumann data rather than combining fields
         before applying one boundary closure.
+
+        The vorticity variable is ``Omega = rho_star**2 Lperp(phi + tau q)``,
+        so the image above is multiplied by ``rho_star**2``.
         """
 
         solver = self._polarization_solver(
@@ -1837,10 +1871,11 @@ class LocalFciDrbEBRhs:
             jnp.asarray(pressure_owned, dtype=jnp.float64),
             pressure_face_bc,
         )
-        return (
+        omega = (
             -phi_action
             - jnp.asarray(self.parameters.tau, dtype=jnp.float64) * pressure_action
         )
+        return _rho_star_squared(self.parameters) * omega
 
     def recover_polarization_multiplier(
         self,
@@ -1857,6 +1892,11 @@ class LocalFciDrbEBRhs:
         ``lambda = -mean_M(A(phi) + tau*A(q) + omega)``.  This helper does
         not solve for ``phi`` and leaves the raw polarization image unchanged.
         Non-augmented wall models have no such multiplier and return zero.
+
+        The vorticity enters the phi-equation as ``Omega / rho_star**2``, so
+        the raw residual is
+        ``A(phi) + tau*A(q) + Omega/rho_star**2`` and ``lambda`` keeps phi
+        units (the omega-units multiplier is ``rho_star**2 * lambda``).
         """
         if self.physical_wall_model_name != "simplified-gbs-mpe":
             return jnp.asarray(0.0, dtype=jnp.float64)
@@ -1880,11 +1920,14 @@ class LocalFciDrbEBRhs:
         active, volume_weights = solver._operator_mass_weights()
         active = jnp.asarray(active, dtype=bool)
         weights = jnp.where(active, jnp.asarray(volume_weights, dtype=jnp.float64), 0.0)
+        vorticity_image = jnp.asarray(
+            state_owned.vorticity, dtype=jnp.float64
+        ) / _rho_star_squared(self.parameters)
         raw = jnp.where(
             active,
             phi_action
             + jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_action
-            + jnp.asarray(state_owned.vorticity, dtype=jnp.float64),
+            + vorticity_image,
             0.0,
         )
         numerator = _spmd_sum(jnp.sum(weights * raw), self.domain)
@@ -1934,9 +1977,12 @@ class LocalFciDrbEBRhs:
         # polarization solve.  Keep non-augmented wall models independent of
         # an accidentally supplied optional value.
         if self.physical_wall_model_name == "simplified-gbs-mpe":
-            omega_pol = omega_pol - jnp.asarray(
+            multiplier_image = jnp.asarray(
                 polarization_multiplier, dtype=omega_pol.dtype
             )
+            # The multiplier has phi units; omega = rho_star**2 * (...).
+            multiplier_image = _rho_star_squared(self.parameters) * multiplier_image
+            omega_pol = omega_pol - multiplier_image
         omega_pol_halo = self._prepare_scalar_halo(
             omega_pol,
             homogeneous_neumann_vorticity_bc,
@@ -2574,6 +2620,10 @@ class LocalFciDrbEBRhs:
         tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
         product_term = -(10.0 * tau * ti / (3.0 * bmag)) * ti_curvature
         flux_term = -(5.0 * tau / (3.0 * bmag)) * ti_squared_curvature
+        # Report the terms as they appear in the RHS (curvature * rho_star).
+        rho_star = jnp.asarray(self.parameters.rho_star, dtype=jnp.float64)
+        product_term = rho_star * product_term
+        flux_term = rho_star * flux_term
         defect = product_term - flux_term
         return jnp.stack(
             (
@@ -5723,9 +5773,15 @@ class LocalFciDrbEBRhs:
             pressure_bc,
         )
         ti_laplacian = -positive_ti_action
+        # Omega = rho_star**2 Lperp(phi + tau q): scale the right-hand side,
+        # not the operator, so the fixed algebraic regularization keeps its
+        # relative weight.
+        vorticity_image = jnp.asarray(
+            state_owned.vorticity, dtype=jnp.float64
+        ) / _rho_star_squared(self.parameters)
         phi_rhs = (
             jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_laplacian
-            - jnp.asarray(state_owned.vorticity, dtype=jnp.float64)
+            - vorticity_image
         )
         if self.physical_wall_model_name == "simplified-gbs-mpe":
             augmented_solver = self._polarization_solver(
@@ -5812,6 +5868,9 @@ class LocalFciDrbEBRhs:
     ) -> jnp.ndarray:
         """Return ``(-Lperp phi, tau Lperp q, -omega)`` in owner space.
 
+        The third entry is ``-Omega / rho_star**2`` (the polarization balance
+        is kept in phi units, ``Omega = rho_star**2 Lperp(phi + tau q)``).
+
         Here ``q = p_i = n Ti`` for the default hot-ion polarization
         (``q = Ti`` for the legacy ``phi_plus_tau_ti`` selector).  This
         diagnostic decomposition uses the exact production closures and
@@ -5843,12 +5902,15 @@ class LocalFciDrbEBRhs:
             pressure_owned,
             pressure_bc,
         )
+        vorticity_image = jnp.asarray(
+            state_owned.vorticity, dtype=jnp.float64
+        ) / _rho_star_squared(self.parameters)
         return jnp.stack(
             (
                 phi_action,
                 -jnp.asarray(self.parameters.tau, dtype=jnp.float64)
                 * ti_action,
-                -jnp.asarray(state_owned.vorticity, dtype=jnp.float64),
+                -vorticity_image,
             ),
             axis=0,
         )
@@ -6680,6 +6742,12 @@ class LocalFciDrbEBRhs:
             1.0e-30,
         )
         rho_star = jnp.asarray(self.parameters.rho_star, dtype=jnp.float64)
+
+        def scaled_poisson(value: jnp.ndarray) -> jnp.ndarray:
+            """E x B bracket term ``-rho_star [phi, g] / B``."""
+
+            return -(value * rho_star)
+
         tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
         mi_over_me = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
         Ve_nu = jnp.asarray(self.parameters.Ve_nu, dtype=jnp.float64)
@@ -6927,7 +6995,7 @@ class LocalFciDrbEBRhs:
                             name, raw_phi=raw_phi, raw_g=raw_g
                         )
                     )
-                    fields.append(-(value / rho_star))
+                    fields.append(scaled_poisson(value))
                 poisson_controls.append(jnp.stack(tuple(fields), axis=0))
             poisson_counterfactual_fields = jnp.stack(
                 tuple(poisson_controls), axis=0
@@ -7126,6 +7194,12 @@ class LocalFciDrbEBRhs:
             face_bc=face_bc,
             return_directional_components=return_curvature_component_fields,
         )
+        # The whole curvature family (material and remainder parts, all four
+        # rows and the directional component fields) carries rho_star.  The
+        # outputs are positively homogeneous of degree one in the curvature
+        # scale, so output scaling is exact; the curvature principal matrix
+        # itself is not rescaled.
+        curvature_outputs = tuple(rho_star * value for value in curvature_outputs)
         if return_curvature_component_fields:
             curvature_component_fields = jnp.stack(curvature_outputs, axis=0)
             (
@@ -7148,7 +7222,7 @@ class LocalFciDrbEBRhs:
             curvature_component_fields = None
 
         density_rhs = (
-            -(poisson_density / rho_star)
+            scaled_poisson(poisson_density)
             + (
                 production_material_residual[..., 0]
                 if production_parallel
@@ -7160,7 +7234,7 @@ class LocalFciDrbEBRhs:
             + material_upwind_correction[..., 0]
         )
         Te_rhs = (
-            -(poisson_Te / rho_star)
+            scaled_poisson(poisson_Te)
             + (
                 production_material_residual[..., 1]
                 if production_parallel
@@ -7178,7 +7252,7 @@ class LocalFciDrbEBRhs:
             + material_upwind_correction[..., 1]
         )
         Ti_rhs = (
-            -(poisson_Ti / rho_star)
+            scaled_poisson(poisson_Ti)
             + (
                 production_material_residual[..., 2]
                 if production_parallel
@@ -7196,12 +7270,12 @@ class LocalFciDrbEBRhs:
             + material_upwind_correction[..., 2]
         )
         Vi_perpendicular_rhs = (
-            -(poisson_Vi / rho_star)
+            scaled_poisson(poisson_Vi)
             + Vi_diff
         )
-        Ve_poisson_term = -(poisson_Ve / rho_star)
+        Ve_poisson_term = scaled_poisson(poisson_Ve)
         Ve_perpendicular_rhs = Ve_poisson_term + Ve_diff
-        Vi_poisson_term = -(poisson_Vi / rho_star)
+        Vi_poisson_term = scaled_poisson(poisson_Vi)
         Vi_diff_term = Vi_diff
         Ve_diff_term = Ve_diff
         Vi_rhs = (
@@ -7230,7 +7304,7 @@ class LocalFciDrbEBRhs:
             + (0.0 if production_parallel else Ve_characteristic_upwind_term)
         )
         vorticity_rhs = (
-            -(poisson_vorticity / rho_star)
+            scaled_poisson(poisson_vorticity)
             + vorticity_parallel_advection
             + vorticity_current_term
             + curvature_vorticity_contribution
@@ -7293,7 +7367,7 @@ class LocalFciDrbEBRhs:
         def all_rhs_term_fields() -> jnp.ndarray:
             density_terms = pack_rhs_terms(
                 (
-                    -(poisson_density / rho_star),
+                    scaled_poisson(poisson_density),
                     density_parallel_material_term,
                     curvature_density_contribution,
                     density_diff,
@@ -7304,7 +7378,7 @@ class LocalFciDrbEBRhs:
             )
             Te_terms = pack_rhs_terms(
                 (
-                    -(poisson_Te / rho_star),
+                    scaled_poisson(poisson_Te),
                     Te_parallel_material_term if production_parallel else Te_parallel_advection,
                     curvature_Te_contribution,
                     zero_term if production_parallel else (
@@ -7320,7 +7394,7 @@ class LocalFciDrbEBRhs:
             )
             Ti_terms = pack_rhs_terms(
                 (
-                    -(poisson_Ti / rho_star),
+                    scaled_poisson(poisson_Ti),
                     Ti_parallel_material_term if production_parallel else Ti_parallel_advection,
                     curvature_Ti_contribution,
                     zero_term if production_parallel else (
@@ -7361,7 +7435,7 @@ class LocalFciDrbEBRhs:
             )
             vorticity_terms = pack_rhs_terms(
                 (
-                    -(poisson_vorticity / rho_star),
+                    scaled_poisson(poisson_vorticity),
                     vorticity_parallel_advection,
                     vorticity_current_term,
                     curvature_vorticity_contribution,
