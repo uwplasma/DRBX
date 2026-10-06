@@ -101,8 +101,15 @@ def exact_equal(a, b):
 
 
 def direct_terms(geo, opts, params, state, wall, phi):
-    """The standalone operators called with the same arguments."""
-    bracket = sbp_bracket(geo.plan, phi, state, SatBoundaryData((wall.value,)), params.rho_star, opts.bracket_c_kappa)
+    """The standalone operators called with the same arguments, composed with the convention of ``opts``: single-length is
+    ``rho_star * sbp_bracket(..., 1.0, ...)`` and ``rho_star * sbp_curvature``; legacy is ``sbp_bracket(..., rho_star, ...)``
+    (the divisor) and the unscaled curvature."""
+    single = opts.rho_star_convention == "single-length"
+    bcd = SatBoundaryData((wall.value,))
+    if single:
+        bracket = params.rho_star * sbp_bracket(geo.plan, phi, state, bcd, 1.0, opts.bracket_c_kappa)
+    else:
+        bracket = sbp_bracket(geo.plan, phi, state, bcd, params.rho_star, opts.bracket_c_kappa)
     idx = list(opts.curvature_index) if "curvature" in opts.terms else None
     curv = jnp.zeros_like(state)
     if idx is not None:
@@ -110,7 +117,7 @@ def direct_terms(geo, opts, params, state, wall, phi):
         c = sbp_curvature(geo.plan, q, SatBoundaryData((wall.value[..., idx],)), tau=params.tau, psi=opts.psi,
                           absolute_method=opts.absolute_method, jump_dissipation=opts.curvature_jump_dissipation,
                           c_kappa=opts.curvature_c_kappa)
-        curv = curv.at[..., idx].set(c)
+        curv = curv.at[..., idx].set(params.rho_star * c if single else c)
     diff = jnp.zeros_like(state)
     if "diffusion" in opts.terms:
         key = "normal_derivative" if opts.neumann_mode == "physical" else "conormal"
@@ -141,12 +148,13 @@ def test_context_builds_and_checks_hp(geo):
 
 
 # ----------------------------------------------------------------------------------------------- composition
+@pytest.mark.parametrize("convention", rhs.RHO_STAR_CONVENTIONS)
 @pytest.mark.parametrize("psi", ["phi_plus_tau_pi", "phi_plus_tau_ti"])
 @pytest.mark.parametrize("neumann_mode", ["physical", "conormal"])
-def test_composition_is_bitwise_the_standalone_operators(geo, psi, neumann_mode):
+def test_composition_is_bitwise_the_standalone_operators(geo, psi, neumann_mode, convention):
     fields = ("density", "Te", "Ti", "vorticity")
     opts = rhs.NodalPerpendicularOptions(fields=fields, diffusion_kinds=KINDS4, phi_mode="prescribed", psi=psi,
-                                         neumann_mode=neumann_mode)
+                                         neumann_mode=neumann_mode, rho_star_convention=convention)
     state, params, wall = make_inputs(geo, fields)
     phi = phi_field(geo)
     out = rhs.nodal_perpendicular_rhs(geo.ctx_nosolve, opts, params, state, wall, phi=phi)
@@ -168,8 +176,8 @@ def test_curvature_options_pass_through(geo):
     out = rhs.nodal_perpendicular_rhs(geo.ctx_nosolve, opts, params, state, wall, phi=phi)
     idx = list(opts.curvature_index)
     q = jnp.concatenate([state, phi[..., None]], -1)
-    ref = sbp_curvature(geo.plan, q, SatBoundaryData((wall.value,)), tau=params.tau, psi=opts.psi, absolute_method="lapack4",
-                        jump_dissipation=True, c_kappa=0.5)
+    ref = params.rho_star * sbp_curvature(geo.plan, q, SatBoundaryData((wall.value,)), tau=params.tau, psi=opts.psi,
+                                          absolute_method="lapack4", jump_dissipation=True, c_kappa=0.5)
     assert idx == [0, 1, 2, 3] and exact_equal(out.curvature, ref)
     default = rhs.nodal_perpendicular_rhs(geo.ctx_nosolve, dataclasses.replace(opts, curvature_jump_dissipation=False,
                                                                                 curvature_c_kappa=0.0, absolute_method="closed_form"),
@@ -228,10 +236,12 @@ def test_field_subsets(geo, fields, terms):
 
 # ----------------------------------------------------------------------------------------------- psi solve
 def two_term_phi(geo, opts, params, omega, n, Ti, phi_w, n_w, Ti_w, sigma, rtol):
-    """``L phi = omega - sigma - tau L p`` with Dirichlet data ``phi_w`` and the pressure data ``p_w``."""
+    """``L phi = (Omega - sigma) / rho_star**2 - tau L p`` (single-length; ``rho_star**2 -> 1`` for the legacy convention)
+    with Dirichlet data ``phi_w`` and the pressure data ``p_w``."""
     p, p_w = rhs.pressure_variable(opts, n, Ti), rhs.pressure_variable(opts, n_w, Ti_w)
     Lp = laplacian_action(geo.lplan, p, LaplacianBoundaryData(value=(p_w,)), "dirichlet", None, opts.laplacian_c_kappa)
-    s = omega - params.tau * Lp - (0.0 if sigma is None else sigma)
+    r2 = params.rho_star ** 2 if opts.rho_star_convention == "single-length" else 1.0
+    s = (omega - (0.0 if sigma is None else sigma)) / r2 - params.tau * Lp
     phi, info = solve_dirichlet(geo.lplan, s, LaplacianBoundaryData(value=(phi_w,)), geo.ctx.prec,
                                 c_kappa=opts.laplacian_c_kappa, rtol=rtol, maxit=400)
     return phi, info
@@ -405,6 +415,8 @@ def test_jit_with_context_argument_does_not_retrace(geo):
     (dict(psi="phi"), "psi"),
     (dict(absolute_method="svd"), "absolute_method"),
     (dict(phi_maxit=0), "phi_maxit"),
+    (dict(rho_star_convention="legacy"), "rho_star_convention"),
+    (dict(rho_star_convention=None), "rho_star_convention"),
     (dict(fields="density"), "sequence"),
 ])
 def test_option_validation(kwargs, match):
@@ -434,3 +446,107 @@ def test_input_shape_and_missing_wall_data_errors(geo):
     dopts = dataclasses.replace(opts, diffusion_kinds=("dirichlet",) * 4)
     out = rhs.nodal_perpendicular_rhs(geo.ctx_nosolve, dopts, params, state, wall._replace(normal=None), phi=phi)
     assert out.diffusion.shape == state.shape
+
+
+# ----------------------------------------------------------------------------------------------- rho_star convention
+def _opts(fields, convention, **kw):
+    kinds = tuple(KINDS6[ALL.index(f)] for f in fields)
+    return rhs.NodalPerpendicularOptions(fields=fields, diffusion_kinds=kinds, rho_star_convention=convention, **kw)
+
+
+def _with_rho(params, rho):
+    return params._replace(rho_star=jnp.asarray(rho))
+
+
+def test_rho_star_convention_default_and_static_key():
+    default = rhs.NodalPerpendicularOptions(diffusion_kinds=KINDS4)
+    assert default.rho_star_convention == "single-length"
+    assert rhs.RHO_STAR_CONVENTIONS == ("single-length", "legacy-bracket-only")
+    legacy = rhs.NodalPerpendicularOptions(diffusion_kinds=KINDS4, rho_star_convention="legacy-bracket-only")
+    assert legacy != default and hash(legacy) != hash(default)
+
+
+def test_single_length_equals_legacy_bitwise_at_rho_star_one(geo):
+    """Prescribed phi (every term) and the potential solve (psi, phi, total): x * 1.0 and x / 1.0 are exact."""
+    fields = ("density", "Te", "Ti", "vorticity")
+    state, params, wall = make_inputs(geo, fields)
+    params = _with_rho(params, 1.0)
+    phi = phi_field(geo)
+    outs = {}
+    for conv in rhs.RHO_STAR_CONVENTIONS:
+        opts = _opts(fields, conv, phi_mode="prescribed")
+        outs[conv] = rhs.nodal_perpendicular_rhs(geo.ctx_nosolve, opts, params, state, wall, phi=phi)
+    a, b = outs["single-length"], outs["legacy-bracket-only"]
+    for name in ("total", "bracket", "curvature", "diffusion", "phi", "psi"):
+        assert exact_equal(getattr(a, name), getattr(b, name)), name
+    for term in (a.bracket, a.curvature, a.diffusion):
+        assert float(jnp.abs(term).max()) > 1e-3
+    # the solve: same psi, phi, total and iteration count
+    sigma = jnp.asarray(0.2 * np.sin(2.0 * np.asarray(geo.pts[..., 2]) + np.asarray(geo.pts[..., 1])))
+    opts_s = {conv: _opts(fields, conv, phi_rtol=1e-12, phi_maxit=400) for conv in rhs.RHO_STAR_CONVENTIONS}
+    psi_w = rhs.psi_wall_data(opts_s["single-length"], params.tau, phi_wall(geo), wall.value[..., 0], wall.value[..., 2])
+    wall_s = wall._replace(psi=psi_w)
+    res = {conv: rhs.nodal_perpendicular_rhs(geo.ctx, o, params, state, wall_s, sigma=sigma) for conv, o in opts_s.items()}
+    a, b = res["single-length"], res["legacy-bracket-only"]
+    assert bool(a.solve_info["converged"]) and int(a.solve_info["iterations"]) > 0
+    for name in ("total", "bracket", "curvature", "diffusion", "phi", "psi"):
+        assert exact_equal(getattr(a, name), getattr(b, name)), name
+    assert int(a.solve_info["iterations"]) == int(b.solve_info["iterations"])
+    sol = {conv: rhs.solve_potential(geo.ctx, o, params, state[..., 3], state[..., 0], state[..., 2], psi_w, sigma=sigma)
+           for conv, o in opts_s.items()}
+    assert exact_equal(sol["single-length"][0], sol["legacy-bracket-only"][0])
+    assert exact_equal(sol["single-length"][1], sol["legacy-bracket-only"][1])
+
+
+@pytest.mark.parametrize("rho", [0.05, 0.7, 2.5])
+def test_homogeneity_in_rho_star(geo, rho):
+    """Single-length bracket and curvature are rho_star times their rho_star = 1 values (diffusion unchanged); the legacy
+    bracket is 1 / rho_star times and its curvature unchanged."""
+    fields = ("density", "Te", "Ti", "vorticity")
+    state, params, wall = make_inputs(geo, fields)
+    phi = phi_field(geo)
+
+    def terms(conv, r):
+        out = rhs.nodal_perpendicular_rhs(geo.ctx_nosolve, _opts(fields, conv, phi_mode="prescribed"), _with_rho(params, r),
+                                          state, wall, phi=phi)
+        return out.bracket, out.curvature, out.diffusion
+
+    def close(x, y):
+        return float(jnp.abs(x - y).max()) <= 1e-13 * max(float(jnp.abs(y).max()), 1e-300) * max(rho, 1.0, 1.0 / rho)
+
+    for conv, (fb, fc) in (("single-length", (rho, rho)), ("legacy-bracket-only", (1.0 / rho, 1.0))):
+        b1, c1, d1 = terms(conv, 1.0)
+        b, c, d = terms(conv, rho)
+        assert close(b, fb * b1) and close(c, fc * c1) and exact_equal(d, d1), (conv, rho)
+        assert float(jnp.abs(b1).max()) > 1e-3 and float(jnp.abs(c1).max()) > 1e-3
+    # the single-length curvature at rho_star is not the legacy one (the factor does something)
+    assert float(jnp.abs(terms("single-length", rho)[1] - terms("legacy-bracket-only", rho)[1]).max()) > 1e-4 * abs(rho - 1.0)
+
+
+def test_solve_with_omega_scaled_by_rho_star_squared_returns_the_same_potential(geo):
+    """``L psi = (Omega - sigma) / rho_star**2``: scaling (Omega, sigma) by rho_star**2 leaves psi and phi unchanged; the
+    legacy convention solves ``L psi = Omega - sigma`` (no rho_star)."""
+    fields = ("density", "Te", "Ti", "vorticity")
+    state, params, wall = make_inputs(geo, fields)
+    n, Ti, omega = state[..., 0], state[..., 2], state[..., 3]
+    sigma = jnp.asarray(0.2 * np.sin(2.0 * np.asarray(geo.pts[..., 2]) + np.asarray(geo.pts[..., 1])))
+    opts = _opts(fields, "single-length", phi_rtol=1e-12, phi_maxit=400)
+    psi_w = rhs.psi_wall_data(opts, params.tau, phi_wall(geo), wall.value[..., 0], wall.value[..., 2])
+    ref_psi, ref_phi, ref_info = rhs.solve_potential(geo.ctx, opts, _with_rho(params, 1.0), omega, n, Ti, psi_w, sigma=sigma)
+    assert bool(ref_info["converged"])
+    scale = float(jnp.abs(ref_psi).max())
+    for rho in (0.05, 0.7):
+        r2 = rho ** 2
+        psi, phi, info = rhs.solve_potential(geo.ctx, opts, _with_rho(params, rho), r2 * omega, n, Ti, psi_w, sigma=r2 * sigma)
+        assert bool(info["converged"])
+        assert float(jnp.abs(psi - ref_psi).max()) <= 1e-9 * scale, rho
+        assert float(jnp.abs(phi - ref_phi).max()) <= 1e-9 * scale, rho
+        assert exact_equal(phi, psi - params.tau * rhs.pressure_variable(opts, n, Ti))      # phi = psi - tau p is unchanged
+        # the legacy solve ignores rho_star
+        lopts = _opts(fields, "legacy-bracket-only", phi_rtol=1e-12, phi_maxit=400)
+        lpsi, _lphi, _ = rhs.solve_potential(geo.ctx, lopts, _with_rho(params, rho), omega, n, Ti, psi_w, sigma=sigma)
+        assert exact_equal(lpsi, rhs.solve_potential(geo.ctx, lopts, _with_rho(params, 1.0), omega, n, Ti, psi_w, sigma=sigma)[0])
+    # and the full RHS reports that potential
+    out = rhs.nodal_perpendicular_rhs(geo.ctx, opts, _with_rho(params, 0.7), state.at[..., 3].set(0.49 * omega),
+                                      wall._replace(psi=psi_w), sigma=0.49 * sigma)
+    assert float(jnp.abs(out.phi - ref_phi).max()) <= 1e-9 * scale

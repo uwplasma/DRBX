@@ -402,3 +402,87 @@ def test_absolute_method_selector_reaches_the_curvature_and_keeps_the_default_bi
 def test_absolute_method_is_validated(plan, state, phi, bc5, params):
     with pytest.raises(ValueError, match="absolute_method"):
         perpendicular_rhs(plan, state, phi, bc5, KINDS, dataclasses.replace(params, absolute_method="svd"))
+
+
+# ----------------------------------------------------------------------------------------------- rho_star convention
+def _all_outputs(res):
+    """Every owner array of a result (terms, totals, details) keyed by a path."""
+    out = {}
+    for f in FIELDS:
+        out.update({(f, "terms", k): np.asarray(v) for k, v in res.terms[f].items()})
+        out[(f, "total")] = np.asarray(res.total[f])
+        out.update({(f, "detail", k): np.asarray(v) for k, v in res.detail[f].items()})
+    return out
+
+
+def test_rho_star_convention_default_is_legacy_and_bitwise(plan, state, phi, bc5, params, rhs):
+    assert PerpendicularParams().rho_star_convention == "legacy-bracket-only"
+    assert params.rho_star_convention == "legacy-bracket-only"
+    explicit = perpendicular_rhs(plan, state, phi, bc5, KINDS,
+                                 dataclasses.replace(params, rho_star_convention="legacy-bracket-only"))
+    ref, got = _all_outputs(rhs), _all_outputs(explicit)
+    assert ref.keys() == got.keys()
+    for key in ref:
+        assert np.array_equal(ref[key], got[key], equal_nan=True), key
+
+
+def test_single_length_equals_legacy_bitwise_at_rho_star_one(plan, state, phi, bc5, params):
+    legacy = perpendicular_rhs(plan, state, phi, bc5, KINDS, dataclasses.replace(params, rho_star=1.0))
+    single = perpendicular_rhs(plan, state, phi, bc5, KINDS,
+                               dataclasses.replace(params, rho_star=1.0, rho_star_convention="single-length"))
+    ref, got = _all_outputs(legacy), _all_outputs(single)
+    assert ref.keys() == got.keys()
+    for key in ref:
+        assert np.array_equal(ref[key], got[key], equal_nan=True), key
+    assert min(_scale(got[(f, "terms", t)]) for f in FIELDS for t in PRODUCTION) > 1e-3
+
+
+def test_single_length_homogeneity_in_rho_star(plan, state, phi, bc5, params):
+    """Bracket and curvature outputs (and every split detail) are rho_star times those at rho_star = 1; the diffusion is
+    unchanged. The legacy bracket is 1 / rho_star times, its curvature unchanged."""
+    one = dataclasses.replace(params, rho_star=1.0, rho_star_convention="single-length")
+    ref = _all_outputs(perpendicular_rhs(plan, state, phi, bc5, KINDS, one))
+    for rho in (0.05, 0.7, 3.0):
+        got = _all_outputs(perpendicular_rhs(plan, state, phi, bc5, KINDS, dataclasses.replace(one, rho_star=rho)))
+        legacy = _all_outputs(perpendicular_rhs(plan, state, phi, bc5, KINDS, dataclasses.replace(
+            one, rho_star=rho, rho_star_convention="legacy-bracket-only")))
+        for f in FIELDS:
+            for term, factor, lfactor in (("poisson_bracket", rho, 1.0 / rho), ("curvature", rho, 1.0),
+                                          ("perpendicular_diffusion", 1.0, 1.0)):
+                a, b, c = ref[(f, "terms", term)], got[(f, "terms", term)], legacy[(f, "terms", term)]
+                assert _max_diff(b, factor * a) <= 1e-13 * _scale(a) * max(factor, 1.0), (f, term, rho)
+                assert _max_diff(c, lfactor * a) <= 1e-13 * _scale(a) * max(lfactor, 1.0), (f, term, rho, "legacy")
+            for key in ("bracket_centered", "bracket_jump", "curvature_material", "curvature_remainder", "curvature_q1",
+                        "curvature_correction"):
+                factor = rho
+                a, b = ref[(f, "detail", key)], got[(f, "detail", key)]
+                assert _max_diff(b, factor * a) <= 1e-13 * max(_scale(a), 1e-300) * max(factor, 1.0), (f, key, rho)
+            d = got[(f, "detail", "curvature_q1")] + got[(f, "detail", "curvature_correction")]
+            assert _max_diff(d, got[(f, "terms", "curvature")]) <= 1e-13 * _scale(got[(f, "terms", "curvature")])
+            tot = sum(got[(f, "terms", t)] for t in PRODUCTION)
+            assert _max_diff(got[(f, "total")], tot) <= 1e-13 * max(_scale(tot), 1.0)
+    # raw pairs are unscaled in either convention
+    pair = [("phi", "Te")]
+    cols = perpendicular_columns(("Te",), ("bracket",), pair)
+    bc_pair = bc_columns(bc5, [(*FIELDS, PHI).index(c) for c in cols])
+    kinds = {c: KINDS[c] for c in cols}
+    r1 = perpendicular_rhs(plan, state, phi, bc_pair, kinds, one, fields=("Te",), terms=("bracket",), raw_pairs=pair)
+    r2 = perpendicular_rhs(plan, state, phi, bc_pair, kinds, dataclasses.replace(one, rho_star=0.3), fields=("Te",),
+                           terms=("bracket",), raw_pairs=pair)
+    assert np.array_equal(np.asarray(r1.raw_pairs.centered_owner), np.asarray(r2.raw_pairs.centered_owner))
+
+
+def test_rho_star_convention_is_validated_and_static(plan, state, phi, bc5, params):
+    with pytest.raises(ValueError, match="rho_star_convention"):
+        perpendicular_rhs(plan, state, phi, bc5, KINDS, dataclasses.replace(params, rho_star_convention="gbs"))
+    leaves, treedef = jax.tree_util.tree_flatten(dataclasses.replace(params, rho_star_convention="single-length"))
+    assert "single-length" not in leaves
+    assert treedef != jax.tree_util.tree_flatten(params)[1]
+
+
+def test_single_length_gradient_wrt_rho_star(plan, state, phi, bc5, params):
+    def bracket_sum(rho):
+        p = dataclasses.replace(params, rho_star=rho, rho_star_convention="single-length")
+        return perpendicular_rhs(plan, state, phi, bc5, KINDS, p, terms=("bracket",)).terms["Te"]["poisson_bracket"].sum()
+    g = jax.grad(bracket_sum)(0.7)
+    assert abs(float(g) - float(bracket_sum(0.7)) / 0.7) <= 1e-10 * abs(float(g))

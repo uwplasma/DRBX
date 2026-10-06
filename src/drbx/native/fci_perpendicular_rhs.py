@@ -60,7 +60,7 @@ from drbx.native.fci_perpendicular_reconstruction_state import (
 from drbx.stencils.operator_plan import PerpendicularPlan
 
 __all__ = [
-    "FIELDS", "PHI", "TERM_NAMES", "WALL_TRANSPORTS", "PerpendicularParams", "PerpendicularTerms",
+    "FIELDS", "PHI", "TERM_NAMES", "WALL_TRANSPORTS", "RHO_STAR_CONVENTIONS", "PerpendicularParams", "PerpendicularTerms",
     "perpendicular_columns", "perpendicular_rhs"]
 
 #: the fields of step 3, in the order of the P06 state / curvature output (Vi and Ve are not enabled)
@@ -72,6 +72,8 @@ _TERM_ORDER = tuple(TERM_NAMES)
 _CURVATURE_INDEX = {name: i for i, name in enumerate(FIELDS)}
 #: choices of ``PerpendicularParams.wall_transport``
 WALL_TRANSPORTS = ("dirichlet", "characteristic")
+#: choices of ``PerpendicularParams.rho_star_convention``
+RHO_STAR_CONVENTIONS = ("single-length", "legacy-bracket-only")
 
 
 @jax.tree_util.register_dataclass
@@ -79,7 +81,10 @@ WALL_TRANSPORTS = ("dirichlet", "characteristic")
 class PerpendicularParams:
     """Coefficients of the combined RHS (pytree; differentiable).
 
-    ``rho_star`` divides the bracket only, ``tau`` enters the curvature only, ``diffusion`` maps a field name to
+    ``rho_star`` divides the bracket only (``rho_star_convention="legacy-bracket-only"``, the default) or, under
+    ``rho_star_convention="single-length"`` (``rho_star = rho_s0 / L_ref``), multiplies the bracket and every curvature
+    output (``curvature``, ``curvature_material``, ``curvature_remainder``, ``curvature_q1``, ``curvature_correction``);
+    ``tau`` enters the curvature only, ``diffusion`` maps a field name to
     its ``D_perp`` (needed for every field when ``diffusion`` is requested), ``positivity_floor`` is the P06 q3
     thermodynamic floor. ``absolute_method`` is the static (not differentiable, part of the jit key) evaluation of the
     P06 q3 absolute-matrix action: ``"lapack4"`` (the campaign's 4x4 ``eig``; pin it to reproduce frozen campaigns bitwise) or
@@ -95,7 +100,16 @@ class PerpendicularParams:
     one-sided cubic on the cell's own radial column (no wall value); the value, the other components, P06, the face states,
     the diffusion, the explicit ``raw_pairs`` and the potential solve are unchanged. It needs the plan's ``wall_cells`` /
     ``wall_donors`` / ``wall_weights`` (:class:`~drbx.stencils.operator_plan.CellPlan`: full rings next to the wall) and
-    assumes ``rho_star > 0``; it is inert without the bracket. Being part of ``params`` it reaches the sharded RHS as well.
+    assumes ``rho_star > 0`` (only its sign matters there, in either convention); it is inert without the bracket. Being part
+    of ``params`` it reaches the sharded RHS as well.
+
+    ``rho_star_convention`` is the static (part of the jit key) placement of ``rho_star``, one of :data:`RHO_STAR_CONVENTIONS`.
+    ``"legacy-bracket-only"`` (the default; the P08 step-5/6 campaigns and their tests pin it) is the bracket divided by
+    ``rho_star`` and the curvature free of it, executed literally. ``"single-length"`` is the one-length normalization
+    (``rho_star = rho_s0 / L_ref``): the bracket times ``rho_star`` and the whole curvature times ``rho_star``; the
+    diffusion is unchanged. At ``rho_star = 1`` the two are bitwise equal. This RHS takes ``phi`` as given and has no
+    potential solve or vorticity-to-potential map (the polarization ``rho_star**2 lap(phi + tau p_i) = Omega`` belongs to
+    the caller); ``raw_pairs`` are unscaled in both conventions.
     """
 
     rho_star: object = 1.0
@@ -104,6 +118,7 @@ class PerpendicularParams:
     positivity_floor: object = FLOOR
     absolute_method: str = dataclasses.field(default="closed_form", metadata=dict(static=True))
     wall_transport: str = dataclasses.field(default="dirichlet", metadata=dict(static=True))
+    rho_star_convention: str = dataclasses.field(default="legacy-bracket-only", metadata=dict(static=True))
 
 
 class PerpendicularTerms(NamedTuple):
@@ -111,7 +126,7 @@ class PerpendicularTerms(NamedTuple):
 
     * ``terms[field][term]``: ``term`` in ``poisson_bracket`` / ``curvature`` / ``perpendicular_diffusion``;
     * ``total[field]``: the sum of the requested terms;
-    * ``detail[field]``: ``bracket_centered``, ``bracket_jump`` (already divided by ``rho_star``),
+    * ``detail[field]``: ``bracket_centered``, ``bracket_jump`` (already divided by ``rho_star``, or multiplied under ``rho_star_convention="single-length"``),
       ``curvature_material``, ``curvature_remainder``, ``curvature_q1`` (= ``total`` of P06: material + remainder),
       ``curvature_correction`` (q3, divided by the q1 evolution volume); ``curvature == q1 + correction``;
     * ``raw_pairs``: :class:`P05Terms` of the explicit ``raw_pairs`` (unscaled, pair axis in the order given);
@@ -176,6 +191,12 @@ def _validated_wall_transport(value) -> str:
     return value
 
 
+def _validated_rho_star_convention(value) -> str:
+    if value not in RHO_STAR_CONVENTIONS:
+        raise ValueError(f"rho_star_convention must be one of {RHO_STAR_CONVENTIONS}, got {value!r}")
+    return value
+
+
 def _check_wall_transport(plan, params, terms) -> None:
     """Host-side check that ``params.wall_transport`` can act on ``plan`` (a plan or the stacked plan of a sharded one):
     the characteristic closure needs the wall column stencils of the cell plan when the bracket is requested."""
@@ -226,6 +247,7 @@ def _characteristic_wall_gradient(cells, gradient, stacked, phi_column: int, fie
 @partial(jax.jit, static_argnames=("columns", "fields", "terms", "kinds", "pairs"))
 def _rhs(plan, state, phi, bc, params, jump_mask, face_multiplier, *, columns, fields, terms, kinds, pairs):
     nf = len(fields)
+    single_length = params.rho_star_convention == "single-length"
     col = {name: i for i, name in enumerate(columns)}
     stacked = jnp.stack([state[name] for name in columns[:-1]] + [phi], axis=1)          # (n_owners, ncol)
     need_bracket, need_curv = "bracket" in terms, "curvature" in terms
@@ -263,9 +285,14 @@ def _rhs(plan, state, phi, bc, params, jump_mask, face_multiplier, *, columns, f
                                          jump_mask=jump_mask, face_pairs=face_index[nb:])
             k = 0
         if need_bracket:
-            out["bracket_centered"] = t.centered_owner[:, :nf] / params.rho_star
-            out["bracket_jump"] = t.jump_owner[:, :nf] / params.rho_star
-            out["bracket"] = (t.centered_owner[:, :nf] + t.jump_owner[:, :nf]) / params.rho_star
+            if single_length:
+                out["bracket_centered"] = t.centered_owner[:, :nf] * params.rho_star
+                out["bracket_jump"] = t.jump_owner[:, :nf] * params.rho_star
+                out["bracket"] = (t.centered_owner[:, :nf] + t.jump_owner[:, :nf]) * params.rho_star
+            else:
+                out["bracket_centered"] = t.centered_owner[:, :nf] / params.rho_star
+                out["bracket_jump"] = t.jump_owner[:, :nf] / params.rho_star
+                out["bracket"] = (t.centered_owner[:, :nf] + t.jump_owner[:, :nf]) / params.rho_star
             diagnostics["antisymmetry"] = t.antisymmetry
         if pairs:
             out["raw_pairs"] = P05Terms(t_raw.centered_owner[:, k:], t_raw.jump_owner[:, k:],
@@ -278,6 +305,8 @@ def _rhs(plan, state, phi, bc, params, jump_mask, face_multiplier, *, columns, f
             plan.cells, plan.faces, cs.value, cs.gradient, fs.value, fs.lower, fs.upper, groups, params.tau,
             params.positivity_floor, face_multiplier, params.absolute_method, face_groups=face_groups)
         material, remainder, q1, correction = (x[0] for x in owner[:4])
+        if single_length:
+            material, remainder, q1, correction = (params.rho_star * x for x in (material, remainder, q1, correction))
         pick = np.asarray([_CURVATURE_INDEX[f] for f in fields])
         out["curvature_material"] = material[:, pick]
         out["curvature_remainder"] = remainder[:, pick]
@@ -321,11 +350,12 @@ def perpendicular_rhs(plan: PerpendicularPlan, state: Mapping[str, object], phi,
     ``params.wall_transport="characteristic"`` (the bracket's outflow wall closure, see :class:`PerpendicularParams`)
     needs the plan's wall column stencils (``plan.cells.wall_cells`` / ``wall_donors`` / ``wall_weights``, built by the
     lowering when the wall columns are full rings) and raises ``ValueError`` without them; it does not touch
-    ``raw_pairs``.
+    ``raw_pairs``. ``params.rho_star_convention`` places ``rho_star`` (see :class:`PerpendicularParams`).
     """
     fields, terms, pairs = _validate(fields, terms, raw_pairs)
     _validated_absolute_method(params.absolute_method)
     _validated_wall_transport(params.wall_transport)
+    _validated_rho_star_convention(params.rho_star_convention)
     columns = perpendicular_columns(fields, terms, pairs)
     missing = [c for c in columns[:-1] if c not in state]
     if missing:
