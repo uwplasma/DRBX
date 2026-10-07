@@ -86,7 +86,7 @@ Landed (Phase 0):
   README section "Incorporated FCI/Sharding Stack (from PR #3)" for the
   exact scope.
 
-## Validation
+### Validation
 
 The v2 validation program is the benchmark ladder B1-B10 tracked in the
 project planning notes. In this dev series the previously shipping gates remain
@@ -94,7 +94,7 @@ in force (operator kernels vs scalar references, MMS convergence order,
 Alfven-wave phase-speed check); the ladder rungs land phase by phase and are
 recorded here as they do.
 
-## Current Boundary
+### Current Boundary
 
 Differentiability claims apply only to pure-JAX paths with derivative tests;
 host-side SciPy paths are labeled as such.
