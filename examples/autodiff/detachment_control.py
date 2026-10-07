@@ -20,6 +20,7 @@ minute on a laptop CPU at the default 200 cells).
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import jax
@@ -36,9 +37,7 @@ from drbx.native.neutrals import (  # noqa: E402
     detachment_target_outputs,
 )
 
-# ----------------------------------------------------------------------------
-# PARAMETERS
-# ----------------------------------------------------------------------------
+# ---- PARAMETERS ----
 NY = 200                  # cells (SD1D grid shape; 800 reproduces the paper values)
 POWER_FLUX = 5.0e7        # W/m^2 into the first 10 m
 TARGET_EV = 10.0          # requested steady target temperature
@@ -47,6 +46,8 @@ ITERATIONS = 8
 TOLERANCE_EV = 1e-3
 OUTPUT_DIR = Path("output/detachment_control")
 
+wall_start = time.perf_counter()
+print(f"SD1D-matched detachment model: {NY} cells, power flux {POWER_FLUX:.2e} W/m^2, target T_t = {TARGET_EV} eV")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 params = DetachmentSolParameters(ny=NY, upstream_density=INITIAL_DENSITY, power_flux=POWER_FLUX)
 guess = detachment_sol_run(params)
@@ -63,7 +64,7 @@ for iteration in range(ITERATIONS):
     jac = jax.jacfwd(outputs)(theta)
     t_t, dt_dn = float(value[0]), float(jac[0, 0])
     history.append(dict(iteration=iteration, n_up=density, T_t=t_t, dT_dn=dt_dn))
-    print(f"   iter {iteration}: n_up = {density:.5e}  T_t = {t_t:8.4f} eV  dT_t/dn_up = {dt_dn:.3e} eV m^3")
+    print(f"   iter {iteration} ({time.perf_counter() - wall_start:6.1f} s): n_up = {density:.5e}  T_t = {t_t:8.4f} eV  dT_t/dn_up = {dt_dn:.3e} eV m^3")
     if iteration == 0:
         h = 1e-3 * density
         fd = (float(outputs(theta + jnp.asarray([h, 0.0]))[0]) - float(outputs(theta - jnp.asarray([h, 0.0]))[0])) / (2 * h)
@@ -87,4 +88,5 @@ ax.set_title("Target-temperature control with implicit derivatives")
 ax.grid(True, which="both", ls=":", alpha=0.4)
 fig.tight_layout()
 fig.savefig(OUTPUT_DIR / "detachment_control.png", dpi=150)
-print(f"wrote {OUTPUT_DIR / 'detachment_control.png'}")
+print(f"wrote {OUTPUT_DIR / 'detachment_control.png'} and {OUTPUT_DIR / 'summary.json'}")
+print(f"total wall time: {time.perf_counter() - wall_start:.1f} s")
