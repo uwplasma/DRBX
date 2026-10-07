@@ -2,6 +2,8 @@
 curvature continuum port. Fast (no geometry bundle)."""
 from __future__ import annotations
 
+import math
+
 import sys
 from pathlib import Path
 
@@ -22,6 +24,8 @@ from p10_evolved_mms import source as S          # noqa: E402
 
 PTS = np.random.default_rng(3).uniform([0.05, 0.0, 0.0], [1.0, 2 * np.pi, 2 * np.pi], size=(48, 3))
 PTS_J = jnp.asarray(PTS)
+#: ``a_omega * rho_star**2 == 1``: the vorticity is the unscaled P09 / step-6 shape (static-set identities, shape checks)
+UNIT_OMEGA = dict(rho_star=1.0, a_omega=1.0)
 
 
 def _static_reference(pts):
@@ -51,7 +55,7 @@ def test_time_derivative_matches_central_difference(mp):
 
 def test_time_scale_zero_is_the_static_set_bitwise():
     v0, g0, h0 = _static_reference(PTS)
-    mp = F.default_params(time_scale=0.0, a_phi=1.0)
+    mp = F.default_params(time_scale=0.0, a_phi=1.0, **UNIT_OMEGA)
     for t in (0.0, 0.37, 5.0):
         v, g, h = F.FIELDS.values_grad_hess(PTS_J, t, mp)
         assert np.array_equal(np.asarray(v), v0) and np.array_equal(np.asarray(h), h0)       # values, Hessians: bitwise
@@ -63,7 +67,7 @@ def test_time_scale_zero_is_the_static_set_bitwise():
     for got, want in zip(traced, (v0, g0, h0)):
         np.testing.assert_allclose(np.asarray(got), want, rtol=1e-13, atol=1e-14)         # different fusion: a few ulp
     # and at t = 0 the full time dependence reduces to the static set as well
-    v, g, h = F.FIELDS.values_grad_hess(PTS_J, 0.0, F.default_params(time_scale=1.0, a_phi=1.0))
+    v, g, h = F.FIELDS.values_grad_hess(PTS_J, 0.0, F.default_params(time_scale=1.0, a_phi=1.0, **UNIT_OMEGA))
     np.testing.assert_allclose(np.asarray(v), v0, rtol=0, atol=1e-15)
     np.testing.assert_allclose(np.asarray(g), g0, rtol=0, atol=1e-13)
 
@@ -86,7 +90,7 @@ def test_hessian_symmetry_and_gradient_vs_difference():
 
 
 def test_harness_parameters_a_phi_and_w1():
-    base = F.default_params(time_scale=1.0, a_phi=1.0)
+    base = F.default_params(time_scale=1.0, a_phi=1.0, **UNIT_OMEGA)
     v1, g1, _ = F.FIELDS.values_grad_hess(PTS_J, 0.3, base)
     # a_phi scales phi only
     v2, g2, _ = F.FIELDS.values_grad_hess(PTS_J, 0.3, base._replace(a_phi=0.1))
@@ -108,6 +112,34 @@ def test_harness_parameters_a_phi_and_w1():
     v12 = np.asarray(F.FIELDS.values(PTS_J + shift, 0.3, base))
     np.testing.assert_allclose(vw2[..., 3] - v12[..., 3], extra, rtol=1e-12, atol=1e-14)
     np.testing.assert_allclose(v12[..., 3], -np.asarray(v1)[..., 3], rtol=1e-12, atol=1e-14)
+
+
+def test_a_omega_scales_the_vorticity_by_a_omega_rho_star_squared():
+    """``Omega = a_omega rho_star^2 Omega_shape`` (W1 term included, value / gradient / Hessian / d_t); the other fields are
+    untouched; a Python-float product of 1 adds no operation; the jit cache keys on ``rho_star`` and ``a_omega`` and traced
+    values work inside an outer jit."""
+    t = 0.3
+    unit = F.default_params(time_scale=1.0, a_phi=1.0, w1=1.0, **UNIT_OMEGA)
+    ref = [np.asarray(x) for x in (*F.FIELDS.values_grad_hess(PTS_J, t, unit), F.FIELDS.values_dt(PTS_J, t, unit)[1])]
+    for rho, a_om in ((0.05, 3.0), (4.5e-4, 2200.0), (0.05, 7.0)):                  # one MmsFields instance: the cache key must tell them apart
+        mp = unit._replace(rho_star=rho, a_omega=a_om)
+        s = a_om * rho ** 2
+        v, g, h = (np.asarray(x) for x in F.FIELDS.values_grad_hess(PTS_J, t, mp))
+        dv = np.asarray(F.FIELDS.values_dt(PTS_J, t, mp)[1])
+        np.testing.assert_array_equal(v[..., [0, 1, 2, 4]], ref[0][..., [0, 1, 2, 4]])
+        np.testing.assert_allclose(v[..., 3], s * ref[0][..., 3], rtol=1e-14, atol=0)
+        np.testing.assert_allclose(g[..., 3, :], s * ref[1][..., 3, :], rtol=1e-13, atol=0)
+        np.testing.assert_allclose(h[..., 3, :, :], s * ref[2][..., 3, :, :], rtol=1e-13, atol=0)
+        np.testing.assert_allclose(dv[..., 3], s * ref[3][..., 3], rtol=1e-13, atol=0)
+        np.testing.assert_array_equal(dv[..., [0, 1, 2, 4]], ref[3][..., [0, 1, 2, 4]])
+        # traced a_omega, rho_star (and the scale of the W1 term riding inside Omega_shape) inside an outer jit
+        tr = jax.jit(lambda r, a: F.FIELDS.values(PTS_J, t, mp._replace(rho_star=r, a_omega=a)))(rho, a_om)
+        np.testing.assert_allclose(np.asarray(tr)[..., 3], v[..., 3], rtol=1e-12, atol=0)            # traced: different fusion
+    # the amplitude is the rho_star^2 scaling of the shape, not an O(1) field
+    assert float(np.abs(F.FIELDS.values(PTS_J, t, unit._replace(rho_star=4.5e-4, a_omega=1.0))[..., 3]).max()) < 1e-6
+    # a_omega * rho_star^2 == 1 (Python floats): bitwise the unscaled shape (no multiplication in the trace)
+    half = unit._replace(rho_star=0.5, a_omega=4.0)
+    assert np.array_equal(np.asarray(F.FIELDS.values(PTS_J, t, half)), ref[0])
 
 
 def test_positivity_of_state_fields_over_time():
@@ -151,9 +183,11 @@ def test_curvature_split_variants_agree_in_the_continuum():
 
 def test_configuration_is_marked_provisional_and_consistent():
     c = F.CONFIG
-    assert c["provisional"] is True and c["psi"] == "phi_plus_tau_pi" and c["rho_star_convention"] == "single-length"
-    assert c["time_scale"] == c["rho_star"] == 4.5e-4 and abs(c["T"] - 1.0 / (30 * c["rho_star"])) < 1e-9
-    assert c["a_phi"] == 0.1 and c["D"] == [1.0e-7, 1.2e-7, 1.4e-7, 0.8e-7] and c["tau"] == 1.0
+    assert c["provisional"] is True and c["psi"] == "phi_plus_tau_pi" and "rho_star_convention" not in c
+    assert c["a_omega"] == 2200.0                                   # provisional, from the t = 0 rms ratio on the filtered N32 bundle
+    assert c["rho_star"] == 4.5e-4 and c["time_scale"] == 1.0 and abs(c["T"] - 1.0 / 30) < 1e-15
+    assert c["nsteps"] == {str(n): math.ceil(50 * math.sqrt(n / 32)) for n in (32, 48, 64)} == {"32": 50, "48": 62, "64": 71}
+    assert c["a_phi"] == 0.1 and c["D"] == [1.0e-5, 1.2e-5, 1.4e-5, 0.8e-5] and c["tau"] == 1.0
     assert set(c["patterns"]) == {"NNN-D", "DDDD"} and c["curvature"]["c_kappa"] == 0.0 and not c["curvature"]["jump_dissipation"]
     opts = S.nodal_options("NNN-D")
     assert opts.diffusion_kinds == ("neumann", "neumann", "neumann", "dirichlet") and opts.psi == "phi_plus_tau_pi"

@@ -1,6 +1,6 @@
 """Continuum and discrete manufactured sources of the P10 evolved MMS (chunk C2): per stage time ``t``, all in ``jnp``.
 
-Conventions (``NodalPerpendicularOptions.rho_star_convention == "single-length"``): the E x B bracket and the curvature term
+Convention (single-length ``rho_star``): the E x B bracket and the curvature term
 carry ``rho_star``, the polarization is ``Omega = rho_star**2 lap_perp(phi + tau p_i)`` (solved as
 ``L psi = (Omega - sigma) / rho_star**2``, ``psi = phi + tau p_i``, ``p_i = n Ti`` for ``psi="phi_plus_tau_pi"``), the
 diffusion ``D_f lap_perp f`` is unchanged. With the manufactured ``q = (n, Te, Ti, Omega)`` and ``phi`` (:mod:`fields`):
@@ -74,7 +74,7 @@ def nodal_options(pattern: str, *, phi_mode: str = "prescribed", **override) -> 
               curvature_jump_dissipation=bool(c["curvature"]["jump_dissipation"]),
               curvature_c_kappa=float(c["curvature"]["c_kappa"]), absolute_method=c["curvature"]["absolute_method"],
               laplacian_c_kappa=float(c["laplacian_c_kappa"]), phi_rtol=float(c["solve"]["rtol"]),
-              phi_maxit=int(c["solve"]["maxit"]), rho_star_convention=c["rho_star_convention"])
+              phi_maxit=int(c["solve"]["maxit"]))
     kw.update(override)
     return NodalPerpendicularOptions(**kw)
 
@@ -218,7 +218,7 @@ def discrete(bundle, ctx, opts: NodalPerpendicularOptions, params, t, p: MmsPara
 
     ``R_h`` is :func:`nodal_perpendicular_rhs` of the exact nodal state with the prescribed exact ``phi`` (``opts.phi_mode`` is
     replaced by ``"prescribed"``) and the wall data of :func:`wall_data` (or ``wall``); ``sigma_h = Omega - rho_star^2
-    L_h(psi; psi_w)`` (``rho_star`` factor only for the single-length convention), so ``solve_potential(..., sigma=sigma_h)``
+    L_h(psi; psi_w)``, so ``solve_potential(..., sigma=sigma_h)``
     returns the exact ``psi`` up to the solver tolerance."""
     ctx = bundle.ctx if ctx is None else ctx
     params = p.nodal() if params is None else params
@@ -231,8 +231,7 @@ def discrete(bundle, ctx, opts: NodalPerpendicularOptions, params, t, p: MmsPara
     out = nodal_perpendicular_rhs(ctx, opts, params, q, wall, phi=phi)
     psi_v = out.psi
     lap_psi = laplacian_action(ctx.lplan, psi_v, LaplacianBoundaryData(value=(wall.psi,)), "dirichlet", None, opts.laplacian_c_kappa)
-    r2 = params.rho_star ** 2 if opts.rho_star_convention == "single-length" else 1.0
-    sigma = q[..., 3] - r2 * lap_psi
+    sigma = q[..., 3] - params.rho_star ** 2 * lap_psi
     return Discrete(q, dq, phi, psi_v, out.bracket, out.curvature, out.diffusion, out.total, dq - out.total, lap_psi, sigma)
 
 
