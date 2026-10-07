@@ -24,6 +24,7 @@ the rotating cross-sections, initial vs evolved) and a JSON summary.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import jax
@@ -53,6 +54,8 @@ from drbx.native.stellarator_turbulence import (  # noqa: E402
     build_free_decay_boundary_conditions,
     four_field_rk4_step,
 )
+
+_T0 = time.perf_counter()
 
 # ----------------------------- PARAMETERS -----------------------------------
 # Rotating-ellipse geometry (arguments of build_rotating_ellipse_geometry):
@@ -214,3 +217,4 @@ fig.tight_layout()
 fig.savefig(OUTPUT_DIR / "rotating_ellipse_filament.png", dpi=170)
 plt.close(fig)
 print(f"[done] wrote {OUTPUT_DIR / 'rotating_ellipse_filament.png'}")
+print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")

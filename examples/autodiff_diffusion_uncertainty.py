@@ -20,16 +20,18 @@ Run from the repository root:
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from drbx.validation import create_autodiff_diffusion_uncertainty_package
 
-# --- PARAMETERS ------------------------------------------------------------------
+# ---- PARAMETERS ----
 OUTPUT_ROOT = Path("docs/data/autodiff_diffusion_uncertainty_artifacts")  # artifact root (cwd-relative)
 SAMPLE_COUNT = 96   # Monte Carlo ensemble size; raise for smoother statistics
 RANDOM_SEED = 7     # PRNG seed for the parameter samples
 
 # --- run the uncertainty package --------------------------------------------------
+wall_start = time.perf_counter()
 print("running the autodiff diffusion uncertainty package "
       f"({SAMPLE_COUNT} Monte Carlo samples, seed {RANDOM_SEED})...")
 artifacts = create_autodiff_diffusion_uncertainty_package(
@@ -42,3 +44,4 @@ print("== Autodiff Diffusion Uncertainty ==")
 print(f"  - analysis_json: {artifacts.analysis_json_path}")
 print(f"  - arrays_npz: {artifacts.arrays_npz_path}")
 print(f"  - plot_png: {artifacts.plot_png_path}")
+print(f"total wall time: {time.perf_counter() - wall_start:.1f} s")

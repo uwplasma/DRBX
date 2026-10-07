@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 
 import jax.numpy as jnp
@@ -33,6 +34,7 @@ from drbx.validation import (
     create_stellarator_vorticity_campaign_package,
 )
 from drbx.validation.essos_imported_fci_campaign import (
+    create_essos_imported_fci_dry_run_artifact_package,
     _IMPORTED_FCI_DIAGNOSTIC_SCHEMA,
     _IMPORTED_FCI_REQUIRED_REPORT_FIELDS,
     build_essos_imported_connection_length_refinement_diagnostics,
@@ -134,62 +136,21 @@ def test_fci_vorticity_boussinesq_non_boussinesq_limit_and_contrast() -> None:
     assert np.max(np.abs(np.asarray(constant_boussinesq - constant_non_boussinesq))) < 1.0e-10
 
 
-def test_imported_fci_example_resolves_source_specific_artifact_defaults(capsys) -> None:
-    module = _load_imported_fci_campaign_example()
-
-    settings = module.build_run_settings(
-        map_sources=("coil", "vmec", "hybrid"),
-        nx=3,
-        ny=4,
-        nz=8,
-    )
-
-    assert [item.map_source for item in settings] == ["coil", "vmec", "hybrid"]
-    assert [item.case_label for item in settings] == [
-        "essos_imported_fci_campaign",
-        "essos_imported_fci_vmec_campaign",
-        "essos_imported_fci_hybrid_campaign",
-    ]
-    assert [str(item.output_root) for item in settings] == [
-        "docs/data/essos_imported_fci_artifacts",
-        "docs/data/essos_imported_fci_vmec_artifacts",
-        "docs/data/essos_imported_fci_hybrid_artifacts",
-    ]
-    assert all((item.nx, item.ny, item.nz) == (3, 4, 8) for item in settings)
-    assert all(item.require_connection_resolution is False for item in settings)
-
-    custom_settings = module.build_run_settings(
-        map_sources=("hybrid",),
-        output_root=Path("tmp/hybrid"),
-        case_label="custom",
-    )
-    module.run_resolved_campaigns(custom_settings, dry_run=True)
-    captured = capsys.readouterr()
-    assert "map_source=hybrid" in captured.out
-    assert "output_root=tmp/hybrid" in captured.out
-    assert "case_label=custom" in captured.out
-
-
-def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path, capsys) -> None:
-    module = _load_imported_fci_campaign_example()
+def test_imported_fci_dry_run_artifact_schema_is_self_contained(tmp_path: Path) -> None:
     output_root = tmp_path / "imported_fci_contract"
-
-    settings = module.build_run_settings(
-        map_sources=("hybrid",),
+    artifacts = create_essos_imported_fci_dry_run_artifact_package(
         output_root=output_root,
         case_label="custom_imported_fci",
+        map_source="hybrid",
         nx=3,
         ny=4,
         nz=8,
         require_connection_resolution=True,
     )
-    module.run_resolved_campaigns(settings, dry_run=True, dry_run_artifacts=True)
-
-    captured = capsys.readouterr()
     contract_path = output_root / "data" / "custom_imported_fci_dry_run_contract.json"
+    assert artifacts.contract_json_path == contract_path
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
 
-    assert "wrote dry-run contract" in captured.out
     assert contract["self_contained"] is True
     assert contract["requires_essos_runtime"] is False
     assert contract["live_run_requires_essos_runtime"] is True
@@ -250,11 +211,6 @@ def test_imported_artifact_schema_audit_flags_stale_fci_report(
     ]
 
 
-_SCHEMA_AUDIT_PROBE = (
-    REPO_ROOT / "docs/data/essos_imported_fci_artifacts/data/essos_imported_fci_campaign.json"
-)
-
-
 def _require_local_artifacts(*paths: Path) -> None:
     """Skip when regenerable docs/data artifacts are absent (docs/data is gitignored)."""
 
@@ -263,33 +219,28 @@ def _require_local_artifacts(*paths: Path) -> None:
         pytest.skip(f"local artifacts not present (docs/data is gitignored): {missing}")
 
 
-def test_imported_artifact_schema_audit_example_reports_committed_current_artifacts(
-    capsys,
-) -> None:
-    _require_local_artifacts(_SCHEMA_AUDIT_PROBE)
-    module = _load_imported_artifact_schema_audit_example()
-    settings = module.build_audit_settings(require_all_current=False)
+_IMPORTED_REPORT_PATHS = tuple(
+    REPO_ROOT / "docs/data" / relative
+    for relative in (
+        "essos_imported_fci_artifacts/data/essos_imported_fci_campaign.json",
+        "essos_imported_fci_vmec_artifacts/data/essos_imported_fci_vmec_campaign.json",
+        "essos_imported_fci_hybrid_artifacts/data/essos_imported_fci_hybrid_campaign.json",
+        "essos_imported_drb_movie_artifacts/data/essos_imported_drb_movie_campaign.json",
+        "essos_imported_drb_movie_hybrid_artifacts/data/essos_imported_drb_movie_hybrid_campaign.json",
+    )
+)
 
-    summary = module.run_artifact_schema_audit(settings)
-    output = capsys.readouterr().out
+
+def test_imported_artifact_schema_audit_reports_committed_current_artifacts() -> None:
+    _require_local_artifacts(*_IMPORTED_REPORT_PATHS)
+    summary = audit_essos_imported_artifact_reports(_IMPORTED_REPORT_PATHS)
 
     assert summary["report_count"] == 5
     assert summary["stale_report_count"] == 0
     assert summary["schema_passed"] is True
-    assert output.count("status=stale") == 0
-    assert output.count("status=current, kind=fci") == 3
-    assert output.count("status=current, kind=movie") == 2
-
-
-def test_imported_artifact_schema_audit_example_requires_current_artifacts() -> None:
-    _require_local_artifacts(_SCHEMA_AUDIT_PROBE)
-    module = _load_imported_artifact_schema_audit_example()
-    settings = module.build_audit_settings(require_all_current=True)
-
-    summary = module.run_artifact_schema_audit(settings)
-
-    assert summary["schema_passed"] is True
-    assert summary["stale_report_count"] == 0
+    kinds = [report["artifact_kind"] for report in summary["reports"]]
+    assert kinds.count("fci") == 3
+    assert kinds.count("movie") == 2
 
 
 def test_hybrid_open_sol_promotion_evidence_audit_accepts_committed_bundle() -> None:
@@ -365,106 +316,27 @@ def test_hybrid_open_sol_promotion_evidence_audit_rejects_stale_media_manifest(
     )
 
 
-def test_imported_connection_length_refinement_example_resolves_live_sources(
-    tmp_path: Path,
-) -> None:
-    module = _load_connection_length_refinement_example()
+def test_imported_connection_length_refinement_example_runs_manufactured_gate(tmp_path: Path) -> None:
+    script = REPO_ROOT / "examples/geometry-3D/essos-field-lines/imported_connection_length_refinement.py"
+    environment = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src"), "MPLBACKEND": "Agg"}
+    completed = subprocess.run([sys.executable, str(script)], cwd=tmp_path, env=environment,
+                               capture_output=True, text=True, timeout=300, check=False)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
-    settings = module.build_run_settings(
-        live_import=True,
-        map_sources=("coil", "vmec", "hybrid"),
-        output_root=tmp_path / "live_refinement",
-        case_label="demo",
-        live_level_shapes=((3, 4, 6), (6, 8, 12), (12, 16, 24)),
-        live_convergence_threshold=0.11,
-        live_linf_threshold=0.22,
-        require_pass=False,
-    )
-
-    assert [item.map_source for item in settings] == ["coil", "vmec", "hybrid"]
-    assert [item.case_label for item in settings] == [
-        "demo_coil_live",
-        "demo_vmec_live",
-        "demo_hybrid_live",
-    ]
-    assert [item.connection_quantity for item in settings] == [
-        "adjacent_step_length",
-        "parallel_step_per_toroidal_radian",
-        "parallel_step_per_toroidal_radian",
-    ]
-    assert all(item.live_import is True for item in settings)
-    assert all(item.require_pass is False for item in settings)
-    assert all(item.convergence_threshold == 0.11 for item in settings)
-    assert all(item.linf_threshold == 0.22 for item in settings)
-    assert module.resolve_connection_quantity("hybrid", "target-exit-length") == (
-        "target_exit_length"
-    )
-    with pytest.raises(ValueError, match="Unsupported imported map_source"):
-        module.resolve_connection_quantity("bad_source")
-
-    entries = [
-        {
-            "case_label": item.case_label,
-            "promotion_ready": item.map_source != "coil",
-            "advisory_only": item.map_source == "coil",
-            "evidence_role": (
-                "negative_observed_order_control"
-                if item.map_source == "coil"
-                else "promotion_ready"
-            ),
-        }
-        for item in settings
-    ]
-    summary_path = module.write_refinement_sweep_summary(settings, entries)
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary_path.name == "demo_summary.json"
-    assert summary["report_count"] == 3
-    assert summary["promotion_ready_count"] == 2
-    assert summary["advisory_count"] == 1
-    assert summary["negative_control_count"] == 1
-    assert summary["all_promotion_ready"] is False
-
-
-def test_imported_connection_length_refinement_example_runs_manufactured_gate(
-    tmp_path: Path,
-    capsys,
-) -> None:
-    module = _load_connection_length_refinement_example()
-    output_root = tmp_path / "manufactured_refinement"
-    settings = module.build_run_settings(
-        live_import=False,
-        output_root=output_root,
-        case_label="manufactured_gate",
-        level_shapes=((4, 6, 8), (8, 12, 16), (16, 24, 32)),
-    )
-
-    assert len(settings) == 1
-    assert settings[0].map_source == "manufactured"
-    assert settings[0].connection_quantity == "manufactured"
-    summary = module.run_resolved_campaigns(settings)
-    output = capsys.readouterr().out
-
-    report_path = output_root / "data" / "manufactured_gate.json"
-    arrays_path = output_root / "data" / "manufactured_gate.npz"
-    plot_path = output_root / "images" / "manufactured_gate.png"
-    summary_path = output_root / "data" / "manufactured_gate_summary.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
+    output_root = tmp_path / "docs/data/essos_imported_connection_length_refinement_artifacts"
+    label = "essos_imported_connection_length_refinement"
+    report = json.loads((output_root / "data" / f"{label}.json").read_text(encoding="utf-8"))
+    summary = json.loads((output_root / "data" / f"{label}_summary.json").read_text(encoding="utf-8"))
     assert report["passed"] is True
     assert report["promotion_ready"] is True
     assert report["evidence_role"] == "promotion_ready"
     assert report["promotion_rejection_reasons"] == []
     assert summary["report_count"] == 1
-    assert summary["promotion_ready_count"] == 1
     assert summary["all_promotion_ready"] is True
-    assert summary["summary_json_path"] == str(summary_path)
-    summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary_payload["entries"][0]["case_label"] == "manufactured_gate"
-    assert summary_payload["entries"][0]["promotion_ready"] is True
-    assert arrays_path.exists()
-    assert plot_path.exists()
-    assert summary_path.exists()
-    assert "wrote sweep summary" in output
-    assert "connection-length refinement gate passed" in output
+    assert summary["entries"][0]["case_label"] == label
+    assert (output_root / "data" / f"{label}.npz").exists()
+    assert (output_root / "images" / f"{label}.png").exists()
+    assert "connection-length refinement gate passed" in completed.stdout
 
 
 def test_imported_fci_map_diagnostics_verify_consumed_endpoint_masks() -> None:
@@ -957,67 +829,6 @@ def test_imported_fci_connection_length_refinement_rejects_non_nested_grids() ->
             [coarse, non_nested],
             labels=["coarse", "bad"],
         )
-
-
-def _load_imported_fci_campaign_example():
-    module_path = REPO_ROOT / "examples" / "geometry-3D" / "essos-field-lines" / "imported_fci_campaign.py"
-    spec = importlib.util.spec_from_file_location("imported_fci_campaign_example", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_imported_artifact_schema_audit_example():
-    module_path = (
-        REPO_ROOT
-        / "examples"
-        / "geometry-3D"
-        / "essos-field-lines"
-        / "imported_artifact_schema_audit.py"
-    )
-    source = module_path.read_text(encoding="utf-8").replace(
-        "RUN_EXAMPLE = True",
-        "RUN_EXAMPLE = False",
-        1,
-    )
-    spec = importlib.util.spec_from_loader(
-        "imported_artifact_schema_audit_example",
-        loader=None,
-    )
-    assert spec is not None
-    module = importlib.util.module_from_spec(spec)
-    module.__file__ = str(module_path)
-    sys.modules[spec.name] = module
-    exec(compile(source, str(module_path), "exec"), module.__dict__)
-    return module
-
-
-def _load_connection_length_refinement_example():
-    module_path = (
-        REPO_ROOT
-        / "examples"
-        / "geometry-3D"
-        / "essos-field-lines"
-        / "imported_connection_length_refinement.py"
-    )
-    source = module_path.read_text(encoding="utf-8").replace(
-        "RUN_EXAMPLE = True",
-        "RUN_EXAMPLE = False",
-        1,
-    )
-    spec = importlib.util.spec_from_loader(
-        "imported_connection_length_refinement_example",
-        loader=None,
-    )
-    assert spec is not None
-    module = importlib.util.module_from_spec(spec)
-    module.__file__ = str(module_path)
-    sys.modules[spec.name] = module
-    exec(compile(source, str(module_path), "exec"), module.__dict__)
-    return module
 
 
 def test_stellarator_fci_geometry_campaign_generates_passing_artifacts(tmp_path: Path) -> None:

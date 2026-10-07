@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import importlib.util
 import os
 from pathlib import Path
-import sys
 from types import SimpleNamespace
 
 import jax.numpy as jnp
@@ -740,8 +738,9 @@ def test_essos_imported_drb_movie_refinement_campaign_reuses_matching_reports(
     assert len(calls) == 6
 
 
-def test_imported_drb_movie_refinement_summary_example_runs_on_reports(tmp_path: Path) -> None:
-    module = _load_imported_drb_movie_refinement_summary_example()
+def test_imported_drb_movie_refinement_summary_package_runs_on_reports(tmp_path: Path) -> None:
+    from drbx.validation import create_essos_imported_drb_movie_refinement_summary_package
+
     first = _movie_report(grid=(4, 8, 16), dt=2.0e-3, substeps_per_frame=2)
     second = _movie_report(grid=(8, 16, 32), dt=1.0e-3, substeps_per_frame=2)
     first_path = tmp_path / "first.json"
@@ -749,94 +748,17 @@ def test_imported_drb_movie_refinement_summary_example_runs_on_reports(tmp_path:
     first_path.write_text(json.dumps(first), encoding="utf-8")
     second_path.write_text(json.dumps(second), encoding="utf-8")
 
-    settings = module.build_refinement_summary_settings(
+    artifacts = create_essos_imported_drb_movie_refinement_summary_package(
         output_root=tmp_path / "movie_refinement_summary",
         case_label="example_summary",
         grid_report_json_paths=(first_path, second_path),
         time_report_json_paths=(first_path, second_path),
         relative_tolerance=0.25,
-        require_publication_ready=True,
     )
-    report = module.run_refinement_summary(settings)
+    report = json.loads(artifacts.report_json_path.read_text(encoding="utf-8"))
 
     assert report["publication_ready"] is True
-    assert (
-        tmp_path
-        / "movie_refinement_summary"
-        / "data"
-        / "example_summary.json"
-    ).exists()
-
-
-def test_imported_drb_movie_refinement_campaign_example_runs_with_fake_builder(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    module = _load_imported_drb_movie_refinement_campaign_example()
-
-    def fake_create_campaign(**kwargs: object) -> SimpleNamespace:
-        root = Path(kwargs["output_root"])
-        data_dir = root / "data"
-        data_dir.mkdir(parents=True)
-        grid_paths = (data_dir / "grid0.json", data_dir / "grid1.json")
-        time_paths = (data_dir / "time0.json", data_dir / "time1.json")
-        for path in (*grid_paths, *time_paths):
-            path.write_text(json.dumps(_movie_report(grid=(4, 8, 16))), encoding="utf-8")
-        report_path = data_dir / f"{kwargs['case_label']}_summary.json"
-        report_path.write_text(
-            json.dumps(
-                {
-                    "publication_ready": True,
-                    "grid_refinement_passed": True,
-                    "time_refinement_passed": True,
-                    "movie_promotion_rejection_reasons": [],
-                }
-            ),
-            encoding="utf-8",
-        )
-        return SimpleNamespace(
-            report_json_path=report_path,
-            grid_report_json_paths=grid_paths,
-            time_report_json_paths=time_paths,
-        )
-
-    monkeypatch.setattr(
-        module,
-        "create_essos_imported_drb_movie_refinement_campaign_package",
-        fake_create_campaign,
-    )
-    settings = module.build_refinement_campaign_settings(
-        output_root=tmp_path / "movie_refinement_campaign",
-        case_label="example_campaign",
-        grid_shapes=((4, 8, 16), (8, 16, 32)),
-        time_shape=(8, 16, 32),
-        time_dt_values=(2.0e-3, 1.0e-3),
-        require_publication_ready=True,
-    )
-    report = module.run_refinement_campaign(settings)
-
-    assert report["publication_ready"] is True
-    assert (
-        tmp_path
-        / "movie_refinement_campaign"
-        / "data"
-        / "example_campaign_summary.json"
-    ).exists()
-
-
-def test_imported_drb_movie_refinement_campaign_example_exposes_publication_candidate() -> None:
-    module = _load_imported_drb_movie_refinement_campaign_example()
-
-    settings = module.build_publication_candidate_refinement_settings()
-
-    assert settings.grid_shapes == ((4, 6, 12), (8, 12, 24))
-    assert settings.time_shape == (8, 12, 24)
-    assert settings.time_dt_values == (2.0e-3, 1.0e-3)
-    assert settings.potential_iterations == 3072
-    assert settings.reuse_existing_reports is True
-    assert str(settings.output_root).endswith(
-        "essos_imported_drb_movie_refinement_publication_artifacts"
-    )
+    assert (tmp_path / "movie_refinement_summary" / "data" / "example_summary.json").exists()
 
 
 def test_imported_drb_movie_stationarity_report_passes_stable_tail() -> None:
@@ -926,50 +848,6 @@ def test_imported_drb_movie_stationarity_package_writes_report_only_json(
     assert artifacts.report_json_path.name == "stationarity.json"
     assert not (tmp_path / "stationarity" / "movies").exists()
     assert not (tmp_path / "stationarity" / "images").exists()
-
-
-def test_imported_drb_movie_stationarity_example_runs_with_fake_builder(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    module = _load_imported_drb_movie_stationarity_example()
-
-    def fake_create_stationarity(**kwargs: object) -> SimpleNamespace:
-        root = Path(kwargs["output_root"])
-        data_dir = root / "data"
-        data_dir.mkdir(parents=True)
-        report_path = data_dir / f"{kwargs['case_label']}.json"
-        report_path.write_text(
-            json.dumps(
-                {
-                    "stationarity_passed": True,
-                    "publication_ready": True,
-                    "movie_promotion_rejection_reasons": [],
-                }
-            ),
-            encoding="utf-8",
-        )
-        return SimpleNamespace(report_json_path=report_path)
-
-    monkeypatch.setattr(
-        module,
-        "create_essos_imported_drb_movie_stationarity_package",
-        fake_create_stationarity,
-    )
-    settings = module.build_stationarity_settings(
-        output_root=tmp_path / "stationarity",
-        case_label="example_stationarity",
-        require_stationarity_ready=True,
-    )
-    report = module.run_stationarity_campaign(settings)
-
-    assert report["stationarity_passed"] is True
-    assert (
-        tmp_path
-        / "stationarity"
-        / "data"
-        / "example_stationarity.json"
-    ).exists()
 
 
 def test_imported_drb_movie_strict_json_payload_replaces_nonfinite_values() -> None:
@@ -1226,81 +1104,6 @@ def test_committed_imported_drb_movie_refinement_poloidal_96_jacobi_summary_pass
     assert suggestion["dominant_grid_blockers"] == []
     assert suggestion["dominant_time_blockers"] == []
     assert suggestion["suggested_grid_shapes"] == []
-
-
-def _load_imported_drb_movie_refinement_summary_example():
-    module_path = (
-        REPO_ROOT
-        / "examples"
-        / "geometry-3D"
-        / "essos-field-lines"
-        / "imported_drb_movie_refinement_summary.py"
-    )
-    source = module_path.read_text(encoding="utf-8").replace(
-        "RUN_EXAMPLE = True",
-        "RUN_EXAMPLE = False",
-        1,
-    )
-    spec = importlib.util.spec_from_loader(
-        "imported_drb_movie_refinement_summary_example",
-        loader=None,
-    )
-    assert spec is not None
-    module = importlib.util.module_from_spec(spec)
-    module.__file__ = str(module_path)
-    sys.modules[spec.name] = module
-    exec(compile(source, str(module_path), "exec"), module.__dict__)
-    return module
-
-
-def _load_imported_drb_movie_refinement_campaign_example():
-    module_path = (
-        REPO_ROOT
-        / "examples"
-        / "geometry-3D"
-        / "essos-field-lines"
-        / "imported_drb_movie_refinement_campaign.py"
-    )
-    source = module_path.read_text(encoding="utf-8").replace(
-        "RUN_EXAMPLE = True",
-        "RUN_EXAMPLE = False",
-        1,
-    )
-    spec = importlib.util.spec_from_loader(
-        "imported_drb_movie_refinement_campaign_example",
-        loader=None,
-    )
-    assert spec is not None
-    module = importlib.util.module_from_spec(spec)
-    module.__file__ = str(module_path)
-    sys.modules[spec.name] = module
-    exec(compile(source, str(module_path), "exec"), module.__dict__)
-    return module
-
-
-def _load_imported_drb_movie_stationarity_example():
-    module_path = (
-        REPO_ROOT
-        / "examples"
-        / "geometry-3D"
-        / "essos-field-lines"
-        / "imported_drb_movie_stationarity_campaign.py"
-    )
-    source = module_path.read_text(encoding="utf-8").replace(
-        "RUN_EXAMPLE = True",
-        "RUN_EXAMPLE = False",
-        1,
-    )
-    spec = importlib.util.spec_from_loader(
-        "imported_drb_movie_stationarity_example",
-        loader=None,
-    )
-    assert spec is not None
-    module = importlib.util.module_from_spec(spec)
-    module.__file__ = str(module_path)
-    sys.modules[spec.name] = module
-    exec(compile(source, str(module_path), "exec"), module.__dict__)
-    return module
 
 
 def test_imported_connection_length_refinement_campaign_is_self_contained(tmp_path: Path) -> None:

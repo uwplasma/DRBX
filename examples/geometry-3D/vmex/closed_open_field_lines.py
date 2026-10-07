@@ -32,14 +32,15 @@ from the wout.
 
 Requires ESSOS and VMEX checkouts:
 
-    DRBX_ESSOS_ROOT=~/local/ESSOS_test \
+    DRBX_ESSOS_ROOT=/path/to/ESSOS \
         PYTHONPATH=src python examples/geometry-3D/vmex/closed_open_field_lines.py
 
-writes ``output/vmex_closed_open/closed_open_field_lines.png``.
+writes ``output/closed_open_field_lines/closed_open_field_lines.png``.
 """
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -47,6 +48,7 @@ import numpy as np
 from matplotlib.path import Path as PolygonPath
 
 from drbx.geometry import (
+    resolve_essos_landreman_qa_wout,
     essos_runtime_available,
     load_vmex_wout,
     trace_essos_coil_initial_conditions,
@@ -57,11 +59,11 @@ from drbx.geometry import (
 )
 
 # PARAMETERS ---------------------------------------------------------------
-# Landreman-Paul 2021 precise QA (reactor scale) wout from the local
-# ESSOS_test checkout; wout files are external inputs, never committed here.
+# Landreman-Paul 2021 precise QA (reactor scale) wout; None -> the copy in the
+# ESSOS checkout (DRBX_ESSOS_ROOT). wout files are external inputs, never committed.
 # The ESSOS coil JSON used for tracing is resolved by the ESSOS adapter from
 # the same checkout (DRBX_ESSOS_ROOT).
-WOUT_PATH = Path.home() / "local" / "ESSOS_test" / "examples" / "input_files" / "wout_LandremanPaul2021_QA_reactorScale_lowres.nc"
+WOUT_PATH: Path | None = None
 AXIS_PROBE_R = 1.21        # midplane seed radius [m] used to locate the vacuum axis
 AXIS_PROBE_MAXTIME = 800.0  # integration time for the axis probe line
 CLOSED_FRACTIONS = (0.15, 0.35, 0.55, 0.75, 0.90)  # seed positions as fractions of the LCFS outboard minor radius
@@ -74,27 +76,22 @@ EDGE_OFFSETS = tuple(round(0.02 * k, 2) for k in range(1, 5)) + tuple(round(0.09
 MAXTIME = 4000.0           # integration time per field line (ESSOS units; long, to resolve the layer)
 TIMES_TO_TRACE = 16000     # trajectory samples per line
 RHO_WALL = 0.8             # escape distance from the vacuum axis circle [m]: beyond this = open
-OUTPUT_DIR = Path("output/vmex_closed_open")
+OUTPUT_DIR = Path("output/closed_open_field_lines")
 
 # setup --------------------------------------------------------------------
 if not vmex_runtime_available():
     raise SystemExit(
         "VMEX is not importable. Point DRBX_VMEX_ROOT at a checkout, e.g.\n"
-        "    DRBX_VMEX_ROOT=~/local/VMEX DRBX_ESSOS_ROOT=~/local/ESSOS_test "
+        "    DRBX_VMEX_ROOT=/path/to/VMEX DRBX_ESSOS_ROOT=/path/to/ESSOS "
         "PYTHONPATH=src python examples/geometry-3D/vmex/closed_open_field_lines.py"
     )
 if not essos_runtime_available():
     raise SystemExit(
         "ESSOS is not importable. Point DRBX_ESSOS_ROOT at a checkout, e.g.\n"
-        "    DRBX_ESSOS_ROOT=~/local/ESSOS_test PYTHONPATH=src python "
+        "    DRBX_ESSOS_ROOT=/path/to/ESSOS PYTHONPATH=src python "
         "examples/geometry-3D/vmex/closed_open_field_lines.py"
     )
-if not WOUT_PATH.exists():
-    raise SystemExit(
-        f"VMEC wout file not found: {WOUT_PATH}\n"
-        "Edit the WOUT_PATH parameter to point at the Landreman-Paul QA wout NetCDF "
-        "from an ESSOS checkout; wout files are not committed here."
-    )
+WOUT_PATH = resolve_essos_landreman_qa_wout(WOUT_PATH)  # raises with a hint if missing
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # stage 1: the VMEC side (VMEX) ----------------------------------------
@@ -147,10 +144,11 @@ print(f"seeding {n_closed_seeded} lines inside the LCFS "
       f"{edge_seeds_r.max():.3f} m)")
 print(f"tracing {len(seeds_r)} field lines through the ESSOS Biot-Savart coil field "
       f"(maxtime = {MAXTIME:g}, {TIMES_TO_TRACE} samples each)...")
+start = time.perf_counter()
 trajectories = trace_essos_coil_initial_conditions(
     seeds, maxtime=MAXTIME, times_to_trace=TIMES_TO_TRACE
 )
-print(f"  traced array: {trajectories.shape}")
+print(f"  traced array: {trajectories.shape} in {time.perf_counter() - start:.1f} s")
 
 print(f"classifying each line (open = escapes {RHO_WALL} m from the axis circle):")
 sections, line_is_open, inside_fractions = [], [], []

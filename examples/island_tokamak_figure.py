@@ -28,13 +28,20 @@ Four modes:
   evolving mean profile, the evolving turbulent radial particle flux, and
   the fluctuation-energy / sinks-over-source time traces with a cursor.
 
-    python examples/island_tokamak_figure.py poincare
-    python examples/island_tokamak_figure.py dashboard output/island_tokamak/island_tokamak.npz
+Run (pick figures and the input npz in the PARAMETERS block):
+
+    PYTHONPATH=src python examples/island_tokamak_figure.py
+
+Figures go to ``output/island_tokamak/``; set ``OUT_DIR = Path("docs/media")``
+to regenerate the documentation media (only from a production npz). The
+default renders ``poincare`` (no data needed) plus ``evolution`` and ``3d``
+when ``NPZ_PATH`` exists (e.g. after ``island_tokamak_profiles.py``, whose
+default is a quick, non-converged preset).
 """
 
 from __future__ import annotations
 
-import sys
+import time
 from pathlib import Path
 
 import matplotlib
@@ -43,13 +50,18 @@ import numpy as np
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
+# ---- PARAMETERS ----
+FIGURES = ("poincare", "evolution", "3d")  # also: "dashboard" (slow movie)
+NPZ_PATH = Path("output/island_tokamak/island_tokamak.npz")
+OUT_DIR = Path("output/island_tokamak")
+EPS_RUN = 0.03  # island amplitude of the production run (separatrix overlay)
+
 # The reduced field of the example (island_tokamak_profiles.py).
 X_MIN, X_MAX = 0.2, 1.0
 IOTA_AXIS, IOTA_EDGE = 0.56, 0.44
 M_RES, N_RES = 2, 1
 IOTA_PRIME = (IOTA_EDGE - IOTA_AXIS) / (X_MAX - X_MIN)
 X_RES = X_MIN + (N_RES / M_RES - IOTA_AXIS) / IOTA_PRIME
-MEDIA = Path("docs/media")
 
 
 def iota(x):
@@ -131,7 +143,7 @@ def fig_poincare():
                  "Poincare sections and the pendulum-model width",
                  fontweight="bold", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.90))
-    fig.savefig(MEDIA / "island_tokamak_poincare.png", dpi=150)
+    fig.savefig(OUT_DIR / "island_tokamak_poincare.png", dpi=150)
     small = eps_scan <= 0.004
     rms = float(np.sqrt(np.mean((Wm[small] / Wp[small] - 1) ** 2)))
     print(f"poincare figure written; pendulum-regime rms dev {100*rms:.0f}%")
@@ -147,7 +159,6 @@ def fig_evolution(npz_path):
     sinks = np.asarray(d["sheath_loss"]) + np.asarray(d["wall_loss"])
     theta = np.linspace(0, 2 * np.pi, sl_n.shape[2], endpoint=False)
 
-    EPS_RUN = 0.03                    # the production run's island amplitude
     xres_n = (X_RES - X_MIN) / (X_MAX - X_MIN)
 
     def separatrix_xn(th):
@@ -201,7 +212,7 @@ def fig_evolution(npz_path):
     fig.suptitle("Source-driven profile evolution across the internal island chain",
                  fontweight="bold", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.91))
-    fig.savefig(MEDIA / "island_tokamak_evolution.png", dpi=150)
+    fig.savefig(OUT_DIR / "island_tokamak_evolution.png", dpi=150)
     print("evolution figure written")
 
     # the movie: zeta = 0 density cross-section over time
@@ -227,7 +238,7 @@ def fig_evolution(npz_path):
         f.canvas.draw()
         frames.append(np.asarray(f.canvas.buffer_rgba())[:, :, :3].copy())
         plt.close(f)
-    imageio.mimsave(MEDIA / "island_tokamak_evolution.gif", frames, fps=12, loop=0)
+    imageio.mimsave(OUT_DIR / "island_tokamak_evolution.gif", frames, fps=12, loop=0)
     print(f"movie written ({len(frames)} frames)")
 
 
@@ -326,7 +337,7 @@ def fig_3d(npz_path, eps_run=0.03):
     fig.suptitle("The tokamak with an internal (2,1) island chain",
                  fontweight="bold", fontsize=12.5)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
-    fig.savefig(MEDIA / "island_tokamak_3d.png", dpi=150)
+    fig.savefig(OUT_DIR / "island_tokamak_3d.png", dpi=150)
     print("3-D figure written")
 
 def fig_dashboard(npz_path, eps_run=0.03):
@@ -492,20 +503,18 @@ def fig_dashboard(npz_path, eps_run=0.03):
         fig.canvas.draw()
         frames.append(np.asarray(fig.canvas.buffer_rgba())[:, :, :3].copy())
         plt.close(fig)
-    imageio.mimsave(MEDIA / "island_tokamak_3d.gif", frames, fps=10, loop=0)
+    imageio.mimsave(OUT_DIR / "island_tokamak_3d.gif", frames, fps=10, loop=0)
     print(f"dashboard movie written ({len(frames)} frames)")
 
 
-if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "poincare"
-    if mode == "poincare":
-        fig_poincare()
-    elif mode == "3d":
-        fig_3d(sys.argv[2] if len(sys.argv) > 2 else
-               "output/island_tokamak/island_media.npz")
-    elif mode == "dashboard":
-        fig_dashboard(sys.argv[2] if len(sys.argv) > 2 else
-                      "output/island_tokamak/island_turb.npz")
-    else:
-        fig_evolution(sys.argv[2] if len(sys.argv) > 2 else
-                      "output/island_tokamak/island_media.npz")
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+for name in FIGURES:
+    t0 = time.perf_counter()
+    if name != "poincare" and not NPZ_PATH.exists():
+        print(f"[{name}] skipped: {NPZ_PATH} missing (run island_tokamak_profiles.py)")
+        continue
+    print(f"[{name}] rendering into {OUT_DIR}/ ...", flush=True)
+    {"poincare": lambda: fig_poincare(), "evolution": lambda: fig_evolution(NPZ_PATH),
+     "3d": lambda: fig_3d(NPZ_PATH, EPS_RUN),
+     "dashboard": lambda: fig_dashboard(NPZ_PATH, EPS_RUN)}[name]()
+    print(f"[{name}] done in {time.perf_counter() - t0:.1f} s")
