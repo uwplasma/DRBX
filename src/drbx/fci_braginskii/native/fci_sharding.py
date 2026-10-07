@@ -60,6 +60,17 @@ from .fci_halo import (
 )
 from .fci_model import inject_owned_vector_field_to_halo
 
+# Definitions identical to (and closure-equivalent with) the shared module;
+# re-exported here so existing import paths keep working.
+from ...native.fci_sharding import (  # noqa: F401
+    make_shard_mesh,
+    _assert_shape_divisible_by_shards,
+    _UniformAxisMeta,
+    _uniform_axis_meta,
+    _axis_slice,
+    _lift_cell_halo_to_faces,
+)
+
 
 _MESH_AXIS_NAMES = ("x", "y", "z")
 _METRIC_NAMES = (
@@ -127,67 +138,6 @@ _AXIS_REGULAR_CELL_FIELD_PARITY = (
     -1.0, +1.0, +1.0,  # B^i
     +1.0, +1.0, +1.0,  # logical cell widths
 )
-
-
-def make_shard_mesh(shard_counts: tuple[int, int, int]) -> Mesh:
-    """Build the ``("x", "y", "z")`` execution mesh for the requested layout."""
-
-    shard_counts = tuple(int(value) for value in shard_counts)
-    if len(shard_counts) != 3 or any(value <= 0 for value in shard_counts):
-        raise ValueError(f"shard_counts must contain three positive integers, got {shard_counts}")
-
-    ndevices = math.prod(shard_counts)
-    devices = np.asarray(jax.devices()[:ndevices], dtype=object)
-    if devices.size < ndevices:
-        raise RuntimeError(
-            f"shard_counts={shard_counts} requires {ndevices} devices, "
-            f"but only {devices.size} are available"
-        )
-    return Mesh(devices.reshape(shard_counts), _MESH_AXIS_NAMES)
-
-
-def _assert_shape_divisible_by_shards(
-    shape: tuple[int, int, int],
-    shard_counts: tuple[int, int, int],
-) -> None:
-    """Require equal-sized local blocks on every mesh axis."""
-
-    for axis, (size, count) in enumerate(zip(shape, shard_counts)):
-        if int(size) % int(count):
-            raise ValueError(
-                f"global shape axis {axis} with size {size} is not divisible by "
-                f"shard count {count}; shape={shape}, shard_counts={shard_counts}"
-            )
-
-
-@dataclass(frozen=True)
-class _UniformAxisMeta:
-    """Static uniform-axis coordinate metadata for one logical axis."""
-
-    center0: float
-    face0: float
-    spacing: float
-
-
-def _uniform_axis_meta(grid_axis, *, axis: int) -> _UniformAxisMeta:
-    centers = np.asarray(grid_axis.centers, dtype=np.float64)
-    faces = np.asarray(grid_axis.faces, dtype=np.float64)
-    if centers.size < 2:
-        raise ValueError(f"sharded axis {axis} requires at least two cells, got {centers.size}")
-    spacing = float((centers[-1] - centers[0]) / (centers.size - 1))
-    deltas = np.diff(centers)
-    tolerance = 1.0e-12 * max(1.0, abs(spacing))
-    if np.max(np.abs(deltas - spacing)) > tolerance:
-        raise ValueError(
-            "build_local_fci_geometries requires uniformly spaced grid axes; "
-            f"axis {axis} center spacings deviate by "
-            f"{float(np.max(np.abs(deltas - spacing))):.3e}"
-        )
-    return _UniformAxisMeta(
-        center0=float(centers[0]),
-        face0=float(faces[0]),
-        spacing=spacing,
-    )
 
 
 @dataclass(frozen=True)
@@ -686,21 +636,6 @@ def _local_axis_grid(
         owned_start_global=0,
         owned_stop_global=local_size,
     )
-
-
-def _axis_slice(values: jnp.ndarray, axis: int, start: int | None, stop: int | None) -> jnp.ndarray:
-    index = [slice(None)] * values.ndim
-    index[axis] = slice(start, stop)
-    return values[tuple(index)]
-
-
-def _lift_cell_halo_to_faces(values: jnp.ndarray, *, axis: int) -> jnp.ndarray:
-    """Midpoint-interpolate a halo-shaped cell array onto one face family."""
-
-    lower = _axis_slice(values, axis, 0, 1)
-    upper = _axis_slice(values, axis, values.shape[axis] - 1, None)
-    interior = 0.5 * (_axis_slice(values, axis, 0, -1) + _axis_slice(values, axis, 1, None))
-    return jnp.concatenate((lower, interior, upper), axis=axis)
 
 
 def assemble_local_fci_geometry(

@@ -33,6 +33,16 @@ from .fci_helpers import (
     _as_local_wall_stencil_weight_array,
 )
 
+# Definitions identical to (and closure-equivalent with) the shared module;
+# re-exported here so existing import paths keep working.
+from ...native.fci_boundaries import (  # noqa: F401
+    LocalBoundaryData3D,
+    LocalCoordinateSideValues1D,
+    FaceGradientStencil3D,
+    FaceFluxStencil3D,
+    LocalBoundaryFaceBC3D,
+)
+
 
 _pytree_base = jax.tree_util.register_pytree_node_class
 
@@ -53,37 +63,6 @@ CV_RECONSTRUCTION_EQUATION_NONE = 0
 CV_RECONSTRUCTION_EQUATION_CELL = 1
 CV_RECONSTRUCTION_EQUATION_DIRICHLET = 2
 CV_RECONSTRUCTION_EQUATION_REMOTE_CELL = 3
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class LocalBoundaryData3D(_DataclassPyTreeMixin):
-    """Model-shaped local boundary payload bundle.
-
-    ``face_bc`` and ``cut_wall_bc`` are field bundles: each bundle field names
-    the model field whose boundary payload it contains.  This allows a
-    boundary builder to construct coupled BCs from the complete pre-BC state
-    while preserving an unambiguous field-to-BC association.
-    """
-
-    face_bc: FciFieldBundle | None = None
-    cut_wall_bc: FciFieldBundle | None = None
-
-    def __post_init__(self) -> None:
-        if self.face_bc is not None and not isinstance(self.face_bc, FciFieldBundle):
-            raise TypeError("LocalBoundaryData3D.face_bc must be an FciFieldBundle or None")
-        if self.cut_wall_bc is not None and not isinstance(self.cut_wall_bc, FciFieldBundle):
-            raise TypeError(
-                "LocalBoundaryData3D.cut_wall_bc must be an FciFieldBundle or None"
-            )
-
-    def tree_flatten(self):
-        return ((self.face_bc, self.cut_wall_bc), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        face_bc, cut_wall_bc = children
-        return cls(face_bc=face_bc, cut_wall_bc=cut_wall_bc)
 
 
 @_pytree_base
@@ -383,57 +362,6 @@ class LocalCoordinateFaceValueReconstructor3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class LocalCoordinateSideValues1D(_DataclassPyTreeMixin):
-    """Lower/upper side-plane payloads for one coordinate axis."""
-
-    lower: jnp.ndarray
-    upper: jnp.ndarray
-    mask_lower: jnp.ndarray
-    mask_upper: jnp.ndarray
-
-    def __post_init__(self) -> None:
-        lower = jnp.asarray(self.lower, dtype=jnp.float64)
-        upper = jnp.asarray(self.upper, dtype=jnp.float64)
-        mask_lower = jnp.asarray(self.mask_lower, dtype=bool)
-        mask_upper = jnp.asarray(self.mask_upper, dtype=bool)
-        if lower.shape != upper.shape:
-            raise ValueError(
-                "LocalCoordinateSideValues1D.lower and upper must have the same shape; "
-                f"got lower={lower.shape}, upper={upper.shape}"
-            )
-        if mask_lower.shape != lower.shape or mask_upper.shape != lower.shape:
-            raise ValueError(
-                "LocalCoordinateSideValues1D masks must match the side-plane shape; "
-                f"got lower={lower.shape}, mask_lower={mask_lower.shape}, mask_upper={mask_upper.shape}"
-            )
-        object.__setattr__(self, "lower", lower)
-        object.__setattr__(self, "upper", upper)
-        object.__setattr__(self, "mask_lower", mask_lower)
-        object.__setattr__(self, "mask_upper", mask_upper)
-
-    def replace(self, **updates: object) -> "LocalCoordinateSideValues1D":
-        allowed = {"lower", "upper", "mask_lower", "mask_upper"}
-        unknown = set(updates) - allowed
-        if unknown:
-            names = ", ".join(sorted(unknown))
-            raise ValueError(f"Unknown LocalCoordinateSideValues1D field(s): {names}")
-        return LocalCoordinateSideValues1D(
-            lower=updates.get("lower", self.lower),
-            upper=updates.get("upper", self.upper),
-            mask_lower=updates.get("mask_lower", self.mask_lower),
-            mask_upper=updates.get("mask_upper", self.mask_upper),
-        )
-
-    def tree_flatten(self):
-        return ((self.lower, self.upper, self.mask_lower, self.mask_upper), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
 class LocalStencil1D:
     """Field-dependent 1D stencil values for one coordinate direction."""
 
@@ -635,42 +563,6 @@ class LocalCellGradient3D:
 
 @_pytree_base
 @dataclass(frozen=True)
-class FaceGradientStencil3D:
-    """Face-centered coordinate gradients for a scalar field."""
-
-    x: jnp.ndarray
-    y: jnp.ndarray
-    z: jnp.ndarray
-
-    def __post_init__(self) -> None:
-        x = jnp.asarray(self.x, dtype=jnp.float64)
-        y = jnp.asarray(self.y, dtype=jnp.float64)
-        z = jnp.asarray(self.z, dtype=jnp.float64)
-
-        for name, value in (("x", x), ("y", y), ("z", z)):
-            if value.ndim != 4 or value.shape[-1] != 3:
-                raise ValueError(
-                    f"FaceGradientStencil3D.{name} must have shape (nx, ny, nz, 3), got {value.shape}"
-                )
-
-        object.__setattr__(self, "x", x)
-        object.__setattr__(self, "y", y)
-        object.__setattr__(self, "z", z)
-
-    @property
-    def shape(self) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
-        return tuple(int(v) for v in self.x.shape[:-1]), tuple(int(v) for v in self.y.shape[:-1]), tuple(int(v) for v in self.z.shape[:-1])
-
-    def tree_flatten(self):
-        return ((self.x, self.y, self.z), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
 class CoordinateFaceValues3D:
     """Scalar values on the three coordinate-face grids.
 
@@ -803,196 +695,6 @@ class ConservativeStencil3D:
     @classmethod
     def tree_unflatten(cls, _aux_data, children):
         return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class FaceFluxStencil3D:
-    """Face-centered flux arrays for the three coordinate directions.
-
-    In the local domain-decomposed path, the inferred shape is the local
-    owned-cell shape. These are the control faces needed to update owned
-    cells, not necessarily uniquely owned global faces.
-    """
-
-    x: jnp.ndarray
-    y: jnp.ndarray
-    z: jnp.ndarray
-
-    def __post_init__(self) -> None:
-        x = _as_face_flux_array(self.x, "FaceFluxStencil3D.x")
-        y = _as_face_flux_array(self.y, "FaceFluxStencil3D.y")
-        z = _as_face_flux_array(self.z, "FaceFluxStencil3D.z")
-
-        cell_shape = (x.shape[0] - 1, y.shape[1] - 1, z.shape[2] - 1)
-        expected_x = (cell_shape[0] + 1, cell_shape[1], cell_shape[2])
-        expected_y = (cell_shape[0], cell_shape[1] + 1, cell_shape[2])
-        expected_z = (cell_shape[0], cell_shape[1], cell_shape[2] + 1)
-        if x.shape != expected_x or y.shape != expected_y or z.shape != expected_z:
-            raise ValueError(
-                "FaceFluxStencil3D axis shapes must match the face-grid layout; "
-                f"expected x={expected_x}, y={expected_y}, z={expected_z}, got "
-                f"x={x.shape}, y={y.shape}, z={z.shape}"
-            )
-
-        object.__setattr__(self, "x", x)
-        object.__setattr__(self, "y", y)
-        object.__setattr__(self, "z", z)
-
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return (int(self.x.shape[0] - 1), int(self.y.shape[1] - 1), int(self.z.shape[2] - 1))
-
-    def tree_flatten(self):
-        return ((self.x, self.y, self.z), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class LocalBoundaryFaceBC3D(_DataclassPyTreeMixin):
-    """
-    Local physical regular-coordinate face boundary-condition payload.
-
-    Arrays are dense over local owned control faces, but masks are true only on
-    true physical coordinate boundary faces touched by this local shard.
-
-    Internal shard interfaces, periodic interfaces, axis/topological fills, and
-    ordinary interior faces must have mask=False.
-
-    This object is the single source of truth for physical coordinate-face BCs.
-    It is consumed by conservative flux builders and, optionally, by ghost-cell
-    fillers for operators that choose ghost-materialized BC enforcement.
-    """
-
-    kind_x: jnp.ndarray
-    kind_y: jnp.ndarray
-    kind_z: jnp.ndarray
-    value_x: jnp.ndarray
-    value_y: jnp.ndarray
-    value_z: jnp.ndarray
-    mask_x: jnp.ndarray
-    mask_y: jnp.ndarray
-    mask_z: jnp.ndarray
-    layout: HaloLayout3D
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.layout, HaloLayout3D):
-            raise TypeError("layout must be a HaloLayout3D instance")
-
-        expected_x = self.layout.face_control_shape(axis=0)
-        expected_y = self.layout.face_control_shape(axis=1)
-        expected_z = self.layout.face_control_shape(axis=2)
-
-        kind_x = jnp.asarray(self.kind_x, dtype=jnp.int32)
-        kind_y = jnp.asarray(self.kind_y, dtype=jnp.int32)
-        kind_z = jnp.asarray(self.kind_z, dtype=jnp.int32)
-        value_x = jnp.asarray(self.value_x, dtype=jnp.float64)
-        value_y = jnp.asarray(self.value_y, dtype=jnp.float64)
-        value_z = jnp.asarray(self.value_z, dtype=jnp.float64)
-        mask_x = jnp.asarray(self.mask_x, dtype=bool)
-        mask_y = jnp.asarray(self.mask_y, dtype=bool)
-        mask_z = jnp.asarray(self.mask_z, dtype=bool)
-
-        for name, value, expected in (
-            ("kind_x", kind_x, expected_x),
-            ("kind_y", kind_y, expected_y),
-            ("kind_z", kind_z, expected_z),
-            ("value_x", value_x, expected_x),
-            ("value_y", value_y, expected_y),
-            ("value_z", value_z, expected_z),
-            ("mask_x", mask_x, expected_x),
-            ("mask_y", mask_y, expected_y),
-            ("mask_z", mask_z, expected_z),
-        ):
-            if value.shape != expected:
-                raise ValueError(
-                    f"LocalBoundaryFaceBC3D.{name} must have shape {expected}, got {value.shape}"
-                )
-
-        kind_x = jnp.where(mask_x, kind_x, BC_NONE)
-        kind_y = jnp.where(mask_y, kind_y, BC_NONE)
-        kind_z = jnp.where(mask_z, kind_z, BC_NONE)
-        value_x = jnp.where(mask_x, value_x, 0.0)
-        value_y = jnp.where(mask_y, value_y, 0.0)
-        value_z = jnp.where(mask_z, value_z, 0.0)
-
-        object.__setattr__(self, "kind_x", kind_x)
-        object.__setattr__(self, "kind_y", kind_y)
-        object.__setattr__(self, "kind_z", kind_z)
-        object.__setattr__(self, "value_x", value_x)
-        object.__setattr__(self, "value_y", value_y)
-        object.__setattr__(self, "value_z", value_z)
-        object.__setattr__(self, "mask_x", mask_x)
-        object.__setattr__(self, "mask_y", mask_y)
-        object.__setattr__(self, "mask_z", mask_z)
-
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return self.layout.owned_shape
-
-    @classmethod
-    def empty(cls, layout: HaloLayout3D) -> "LocalBoundaryFaceBC3D":
-        x_shape = layout.face_control_shape(axis=0)
-        y_shape = layout.face_control_shape(axis=1)
-        z_shape = layout.face_control_shape(axis=2)
-        return cls(
-            kind_x=jnp.zeros(x_shape, dtype=jnp.int32),
-            kind_y=jnp.zeros(y_shape, dtype=jnp.int32),
-            kind_z=jnp.zeros(z_shape, dtype=jnp.int32),
-            value_x=jnp.zeros(x_shape, dtype=jnp.float64),
-            value_y=jnp.zeros(y_shape, dtype=jnp.float64),
-            value_z=jnp.zeros(z_shape, dtype=jnp.float64),
-            mask_x=jnp.zeros(x_shape, dtype=bool),
-            mask_y=jnp.zeros(y_shape, dtype=bool),
-            mask_z=jnp.zeros(z_shape, dtype=bool),
-            layout=layout,
-        )
-
-    def tree_flatten(self):
-        children = (
-            self.kind_x,
-            self.kind_y,
-            self.kind_z,
-            self.value_x,
-            self.value_y,
-            self.value_z,
-            self.mask_x,
-            self.mask_y,
-            self.mask_z,
-        )
-        aux_data = self.layout
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        layout = aux_data
-        (
-            kind_x,
-            kind_y,
-            kind_z,
-            value_x,
-            value_y,
-            value_z,
-            mask_x,
-            mask_y,
-            mask_z,
-        ) = children
-        return cls(
-            kind_x=kind_x,
-            kind_y=kind_y,
-            kind_z=kind_z,
-            value_x=value_x,
-            value_y=value_y,
-            value_z=value_z,
-            mask_x=mask_x,
-            mask_y=mask_y,
-            mask_z=mask_z,
-            layout=layout,
-        )
 
 
 @_pytree_base
