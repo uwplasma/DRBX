@@ -142,7 +142,9 @@ The same run can be described as a TOML deck and launched with
 `drbx run examples/inputs/hsx_fci_blob.toml` (`drbx inspect` prints the
 resolved configuration). The deck's `[fci_braginskii]` keys are the option
 names above with underscores; omitted keys take the same defaults and unknown
-keys are errors. Both routes call `drbx.fci_braginskii.run.run`.
+keys are errors. Both routes call `drbx.fci_braginskii.run.run`, print one
+progress line per step (step, time, timings, ETA) and write the history to
+`--output` (the deck's `output` key).
 
 The defaults run to t = 0.15 in 200 steps (dt = 7.5e-4) at rho* = 5e-4 with
 the implicit current/potential pair. With the explicit pair this rho* limits
@@ -207,6 +209,27 @@ rejected. On CPU, emulate N devices with
 `DRBX_HOST_DEVICE_COUNT`). Every flag in `XLA_FLAGS` needs its `--` prefix: a
 bare token such as `intra_op_parallelism_threads=4` stops XLA from parsing the
 flags after it, and the run falls back to one device.
+
+## Example script
+
+`examples/stellarator/hsx_fci_blob_render.py` runs the same driver and renders
+the result. Its parameters are module-level constants at the top of the file
+(geometry bundle, final time, steps, save cadence, output directory). From the
+repository root, with the bundle at `artifacts/geometry/hsx_fci_32x32x32`:
+
+```bash
+PYTHONPATH=src python examples/stellarator/hsx_fci_blob_render.py
+```
+
+The driver prints the geometry and model setup, then one progress line per
+step (progress bar, step, time, step/operator/GMRES timings, ETA, density
+range) plus per-step field diagnostics, and finally where the history was
+written. Everything goes to `output/hsx_fci_blob/`: `history.npz`,
+`hsx_fci_blob.png` (3-D context and R-Z sections) and `hsx_fci_blob.gif`.
+The default is a quick 5-step preset to t = 0.00375 (about two minutes on an
+M1 laptop including compilation), not the converged case; the figures in
+`docs/media/hsx_fci_blob.*` use FINAL_TIME = 0.15, NUM_STEPS = 200,
+SAVE_EVERY = 10. Set `RUN_SIMULATION = False` to re-render an existing history.
 
 ## Neutral-model coupling
 
