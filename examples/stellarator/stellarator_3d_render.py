@@ -25,6 +25,7 @@ writes ``output/stellarator_3d/``. Both are release-hosted, not committed.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import jax
@@ -57,6 +58,8 @@ from drbx.native.stellarator_turbulence import (  # noqa: E402
     build_free_decay_boundary_conditions,
     four_field_rk4_step,
 )
+
+_T0 = time.perf_counter()
 
 # ----------------------------- PARAMETERS -----------------------------------
 # Rotating-ellipse geometry (arguments of build_rotating_ellipse_geometry):
@@ -303,3 +306,4 @@ else:
 # ------------------------------ Cutaway movie -------------------------------
 print("[movie] rendering cutaway turbulence movie...")
 render_turbulence_movie(run, geometry, OUTPUT_DIR / "stellarator_3d_turbulence.gif")
+print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")

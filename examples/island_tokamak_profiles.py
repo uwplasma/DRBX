@@ -26,7 +26,7 @@ default weak drive the state is laminar and the profile does NOT flatten
 (gradient ratio inside/outside ~1.3), while ``S0 = 24, D = 0.005,
 HYPER = 0.3`` gives a turbulent state (fluctuation energy ~2) whose profile
 flattens across the separatrix (ratio ~0.8). The parallel-flow friction
-``mu`` (``DRBX_ISLAND_MU``) stays at 8 in both regimes; lowering it far
+``mu`` (``FRICTION_MU``) stays at 8 in both regimes; lowering it far
 (0.5) under-damps the drift-acoustic channel and the run goes unstable.
 
 The whole step -- the RK4 advance of ``four_field_rk4_step`` plus source,
@@ -35,16 +35,12 @@ what makes long profile-evolution runs practical (the same pattern as
 :func:`drbx.native.stellarator_turbulence.run_stellarator_turbulence`; a raw
 Python composition costs ~50x more in dispatch overhead).
 
-Run it:
+Run it (the default is a quick laptop preset, ~1 minute, NOT the converged
+case; production used SHAPE=(48, 96, 32), DT=2.5e-4, N_STEPS=24000, EPS=0.03,
+SRC_S0=24, DENS_DIFF=0.005, NU_HYPER=0.3 in fp32 via DRBX_PRECISION=float32
+on a GPU):
 
-    # laptop smoke test (~1 minute)
-    DRBX_ISLAND_SHAPE=16,32,12 DRBX_ISLAND_STEPS=400 \
-      python examples/island_tokamak_profiles.py
-
-    # GPU production (fp32; fp64 is 1/64-rate on consumer GPUs)
-    DRBX_PRECISION=float32 DRBX_ISLAND_SHAPE=48,96,32 \
-      DRBX_ISLAND_DT=2.5e-4 DRBX_ISLAND_STEPS=40000 \
-      python examples/island_tokamak_profiles.py
+    PYTHONPATH=src python examples/island_tokamak_profiles.py
 
 Writes ``output/island_tokamak/island_tokamak.npz`` (profile history, flux
 profiles, 2-D snapshots, particle-balance trace) and prints the balance
@@ -54,44 +50,44 @@ table; ``examples/island_tokamak_figure.py`` renders the summary figure.
 from __future__ import annotations
 
 import json
-import os
+import time
 from pathlib import Path
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-# CONFIG ----------------------------------------------------------------------
-SHAPE = tuple(int(v) for v in os.environ.get("DRBX_ISLAND_SHAPE", "28,56,20").split(","))
-DT = float(os.environ.get("DRBX_ISLAND_DT", "5e-4"))
-N_STEPS = int(os.environ.get("DRBX_ISLAND_STEPS", "8000"))
-FRAME_STRIDE = int(os.environ.get("DRBX_ISLAND_STRIDE", "100"))
-SPINUP = int(os.environ.get("DRBX_ISLAND_SPINUP", str(N_STEPS // 2)))
+# ---- PARAMETERS ----------------------------------------------------------------------
+SHAPE = (16, 32, 12)     # (radial, poloidal, toroidal)
+DT = 5e-4
+N_STEPS = 400
+FRAME_STRIDE = 20
+SPINUP = N_STEPS // 2
 
 # The tokamak-like field: iota crosses 1/2 mid-domain; one (2,1) resonance
 # opens the internal island chain. EPS sets the island width.
 IOTA_AXIS, IOTA_EDGE = 0.56, 0.44
 RESONANCE_M, RESONANCE_N = 2, 1
-EPS = float(os.environ.get("DRBX_ISLAND_EPS", "0.012"))
+EPS = 0.012
 R0, ELONGATION = 3.0, 0.35
 
 # Flux-driven knobs: source shell near the inner boundary, wall buffer at the
 # outer one. S0 (the particle throughput) is the only physical drive.
 SRC_X0, SRC_W = 0.12, 0.07
-SRC_S0 = float(os.environ.get("DRBX_ISLAND_S0", "1.5"))
+SRC_S0 = 1.5
 WALL_X0, NU_WALL = 0.92, 60.0
-DENS_DIFF = float(os.environ.get("DRBX_ISLAND_D", "0.04"))
+DENS_DIFF = 0.04
 OMEGA_DIFF = 0.15
 # Parallel-flow friction: heavy damping suppresses the parallel
 # equilibration that flattens density along the island flux surfaces --
 # use small values when the island response is the observable.
-FRICTION_MU = float(os.environ.get("DRBX_ISLAND_MU", "8.0"))
-NU_HYPER = float(os.environ.get("DRBX_ISLAND_HYPER", "1.5"))
+FRICTION_MU = 8.0
+NU_HYPER = 1.5
 N_FLOOR = 0.05
 SEED, AMP = 7, 0.05
 MODES = ((2, 1), (3, 1), (4, 2), (5, 2))
 
-LABEL = os.environ.get("DRBX_ISLAND_LABEL", "island_tokamak")
+LABEL = "island_tokamak"
 OUT = Path("output/island_tokamak")
 OUT.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
@@ -209,6 +205,7 @@ frames = {k: [] for k in ("profile", "energy", "flux_profile", "wall_loss",
 snap = {}
 print(f"stepping {N_STEPS} flux-driven steps (dt={DT}, D_perp={DENS_DIFF}, "
       f"island eps={EPS}) ...")
+t0 = time.perf_counter()
 for step in range(1, N_STEPS + 1):
     state, phi_guess, sheath_total, wall_total = fused_step(state, phi_guess)
     if step % FRAME_STRIDE == 0:
@@ -230,10 +227,11 @@ for step in range(1, N_STEPS + 1):
     if step == N_STEPS:                       # final 2-D snapshots for the figure
         snap["density"] = np.asarray(state.density, dtype=np.float32)
         snap["phi"] = np.asarray(phi_guess, dtype=np.float32)
-    if step % max(500, FRAME_STRIDE) == 0:
+    if step % max(100, FRAME_STRIDE) == 0:
         sink = float(sheath_total + wall_total) / src_total
         print(f"  step {step}/{N_STEPS}  E_fluct={frames['energy'][-1]:.3f}  "
-              f"sinks/source = {sink:.2f}", flush=True)
+              f"sinks/source = {sink:.2f}  "
+              f"wall {time.perf_counter() - t0:.1f} s", flush=True)
 
 n_win = max(1, (N_STEPS - SPINUP) // FRAME_STRIDE)
 prof = np.stack(frames["profile"])

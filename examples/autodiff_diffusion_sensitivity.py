@@ -22,6 +22,7 @@ Run from the repository root:
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import matplotlib
@@ -42,7 +43,7 @@ from drbx.validation.autodiff_diffusion import (
 )
 from drbx.validation.publication_plotting import annotate_bars, save_publication_figure, style_axis
 
-# --- PARAMETERS ------------------------------------------------------------------
+# ---- PARAMETERS ----
 OUTPUT_ROOT = Path("docs/data/autodiff_diffusion_sensitivity_artifacts")  # artifact root (cwd-relative)
 NX = 160                  # radial grid points; lower for a faster demo
 NY = 24                   # poloidal grid points
@@ -56,6 +57,7 @@ SWEEP_RANGE = (0.2, 0.6)  # anomalous-diffusivity range for the objective sweep
 SWEEP_POINTS = 60         # sweep resolution (each point is one objective evaluation)
 
 # --- problem setup through the public autodiff-diffusion API ----------------------
+wall_start = time.perf_counter()
 print("building differentiable diffusion setup "
       f"(nx={NX}, ny={NY}, timestep={TIMESTEP}, steps={STEPS})...")
 setup = build_diffusion_autodiff_setup(nx=NX, ny=NY, timestep=TIMESTEP, steps=STEPS)
@@ -190,3 +192,4 @@ axes[2].legend(frameon=False)
 plot_path = images_dir / "autodiff_diffusion_sensitivity.png"
 save_publication_figure(figure, plot_path)
 print(f"wrote summary plot: {plot_path}")
+print(f"total wall time: {time.perf_counter() - wall_start:.1f} s")

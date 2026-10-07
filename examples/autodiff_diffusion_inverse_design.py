@@ -24,6 +24,7 @@ Run from the repository root:
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import matplotlib
@@ -45,7 +46,7 @@ from drbx.validation.autodiff_diffusion import (
 )
 from drbx.validation.publication_plotting import annotate_bars, save_publication_figure, style_axis
 
-# --- PARAMETERS ------------------------------------------------------------------
+# ---- PARAMETERS ----
 OUTPUT_ROOT = Path("docs/data/autodiff_diffusion_inverse_design_artifacts")  # artifact root (cwd-relative)
 NX = 128                  # radial grid points; lower for a faster demo
 NY = 20                   # poloidal grid points
@@ -58,6 +59,7 @@ ITERATIONS = 55           # optimizer iterations; raise for a tighter recovery
 LEARNING_RATE = 0.05      # optimizer learning rate
 
 # --- problem setup through the public autodiff-diffusion API ----------------------
+wall_start = time.perf_counter()
 print("building differentiable diffusion setup "
       f"(nx={NX}, ny={NY}, timestep={TIMESTEP}, steps={STEPS})...")
 setup = build_diffusion_autodiff_setup(nx=NX, ny=NY, timestep=TIMESTEP, steps=STEPS)
@@ -203,3 +205,4 @@ annotate_bars(axes[2], x, optimized_parameters, fmt="{:.2f}", fontsize=8.2)
 plot_path = images_dir / "autodiff_diffusion_inverse_design.png"
 save_publication_figure(figure, plot_path)
 print(f"wrote summary plot: {plot_path}")
+print(f"total wall time: {time.perf_counter() - wall_start:.1f} s")

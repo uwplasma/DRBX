@@ -17,7 +17,10 @@ polynomial `<sigma v>(Teff)`. The coefficient tables ship with the package
 rates are physically correct -- ionization rises steeply through 3-30 eV,
 **recombination rises as the plasma cools** (the detachment driver), and charge
 exchange grows with the collision energy -- and every routine is
-`jit`/`grad`/`vmap` transparent.
+`jit`/`grad`/`vmap` transparent. The hydrogen fits (H.4/H.10 2.1.5 and 2.1.8,
+H.2 3.1.8) are pinned to the AMJUEL report version of January 13, 2020; the
+2011 version differs by up to ~5% in recombination. Inputs are clamped to
+0.1-1e4 eV and 1e14-1e22 m^-3.
 
 [`compute_hydrogen_reaction_sources`](../src/drbx/native/neutrals/reactions.py)
 assembles the plasma <-> neutral source channels following the hermes-3 closure:

@@ -37,6 +37,7 @@ writes ``output/landreman_paul_turbulence/landreman_paul_turbulence.png``.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import jax
@@ -69,6 +70,8 @@ from drbx.native.stellarator_turbulence import (  # noqa: E402
     four_field_rk4_step,
     multi_mode_state,
 )
+
+_T0 = time.perf_counter()
 
 # PARAMETERS ---------------------------------------------------------------
 # Geometry: an FCI grid traced on the Landreman-Paul QA VMEC equilibrium. The
@@ -255,3 +258,4 @@ figure_path = OUTPUT_DIR / "landreman_paul_turbulence.png"
 fig.savefig(figure_path, dpi=150)
 plt.close(fig)
 print(f"wrote {figure_path}")
+print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")

@@ -31,10 +31,13 @@ Regimes surveyed (references in ``docs/linear_dispersion_benchmark.md``):
 Run:
 
     PYTHONPATH=src python examples/benchmarks/linear_drb_survey.py
+
+It writes ``output/linear_drb_survey/linear_drb_survey.png`` (cwd-relative).
 """
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import jax
@@ -60,7 +63,7 @@ from drbx.linear import (  # noqa: E402
     shear_alfven_operator,
 )
 
-# --- PARAMETERS -----------------------------------------------------------------
+# ---- PARAMETERS ----
 OUTPUT_DIR = Path("output/linear_drb_survey")   # artifact directory (cwd-relative)
 
 
@@ -163,6 +166,7 @@ def survey_general_engine():
 
 
 # --- run the three regime surveys plus the general engine -------------------------
+wall_start = time.perf_counter()
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 alphas, dw_growth, dw_frequency, omega_star = survey_drift_wave()
 kperps, sa_numeric, sa_analytic = survey_shear_alfven()
@@ -215,5 +219,6 @@ fig.tight_layout()
 fig.savefig(OUTPUT_DIR / "linear_drb_survey.png", dpi=170)
 plt.close(fig)
 print(f"\nwrote {OUTPUT_DIR / 'linear_drb_survey.png'}")
+print(f"total wall time: {time.perf_counter() - wall_start:.1f} s")
 
 

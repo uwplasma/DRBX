@@ -10,7 +10,7 @@ relative to the current working directory), parses those decks with the runtime
 configuration layer, prints the full decision guide, and prints the API calls a
 user would make when they are ready to inspect or run a case. Edit the
 PARAMETERS constants below to change the output location or to actually run the
-generated tiny diffusion deck.
+generated tiny diffusion deck. Outputs go to ``output/model_selection_guide/``.
 
 Run from the repository root:
 
@@ -20,6 +20,7 @@ Run from the repository root:
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from textwrap import dedent, indent
@@ -30,11 +31,9 @@ from drbx.native import run_input_case
 from drbx.runtime import RunConfiguration
 
 
-# --- PARAMETERS ------------------------------------------------------------------
+# ---- PARAMETERS ----
 OUTPUT_ROOT = Path("output/model_selection_guide")  # artifact root (cwd-relative)
-WRITE_STARTER_DECKS = True         # write starter decks + JSON/Markdown summaries
 RUN_TINY_DIFFUSION_SMOKE = False   # set True to actually run the tiny diffusion deck
-QUIET = False                      # set True to write artifacts without printing the guide
 
 
 @dataclass(frozen=True)
@@ -451,16 +450,13 @@ def maybe_run_tiny_diffusion(deck_path: Path) -> dict[str, Any]:
 
 
 # --- write starter decks, print the guide, optionally run the tiny deck -----------
-DECK_SUMMARIES: tuple[DeckSummary, ...] = ()
-if WRITE_STARTER_DECKS:
-    DECK_SUMMARIES = write_starter_artifacts(OUTPUT_ROOT)
-    print(f"wrote starter decks and summaries under {OUTPUT_ROOT}")
-if not QUIET:
-    print_model_guide()
-    print_api_discovery(OUTPUT_ROOT, DECK_SUMMARIES)
+wall_start = time.perf_counter()
+DECK_SUMMARIES = write_starter_artifacts(OUTPUT_ROOT)
+print(f"wrote starter decks, model_selection_summary.json and model_selection_guide.md under {OUTPUT_ROOT}")
+print_model_guide()
+print_api_discovery(OUTPUT_ROOT, DECK_SUMMARIES)
 if RUN_TINY_DIFFUSION_SMOKE:
+    print(f"running the tiny diffusion deck {OUTPUT_ROOT / 'diffusion_start.toml'} (1 output step)...")
     RESULT = maybe_run_tiny_diffusion(OUTPUT_ROOT / "diffusion_start.toml")
-    print_mapping(
-        "Tiny diffusion smoke result",
-        {key: str(value) for key, value in RESULT.items()},
-    )
+    print_mapping("Tiny diffusion smoke result", {key: str(value) for key, value in RESULT.items()})
+print(f"\ntotal wall time: {time.perf_counter() - wall_start:.2f} s")

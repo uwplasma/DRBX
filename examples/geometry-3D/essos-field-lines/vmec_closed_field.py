@@ -1,23 +1,22 @@
-"""VMEC closed-field control campaign (dry-run contracts by default).
+"""VMEC closed-field control campaign: steady case and reduced transient.
 
-The script drives the closed-field-line control lane on VMEC flux coordinates:
-the steady closed-field campaign and its reduced transient companion. By
-default (``RUN_LIVE_VMEC = False``) it writes self-contained dry-run contract
-JSONs describing exactly what a live run would produce; with an ESSOS checkout
-and a Landreman-Paul QA VMEC wout (set ``COIL_JSON_PATH``/``VMEC_WOUT_PATH``/
-``ESSOS_ROOT`` and the ``RUN_LIVE_*`` flags) it produces the live report,
-arrays, plot, and optional transient GIF instead.
+The closed-field-line control lane on VMEC flux coordinates of the
+Landreman-Paul QA equilibrium: a steady closed-field FCI campaign and its
+reduced transient companion (optionally with a GIF). ``RUN_LIVE_VMEC`` /
+``RUN_LIVE_VMEC_TRANSIENT`` off (default) writes self-contained dry-run
+contract JSONs describing exactly what a live run produces; on, they need an
+ESSOS checkout (``DRBX_ESSOS_ROOT`` or ``ESSOS_ROOT``) and write the live
+report, arrays, plot and movie. Outputs land under
+``output/vmec_closed_field`` (cwd-relative); every path is printed.
 
-Artifacts land under ``artifacts/essos_vmec_closed_field`` (relative to the
-current working directory) and every written path is printed.
-
-Edit the PARAMETERS constants below and run from the repository root:
+Run from the repository root:
 
     PYTHONPATH=src python examples/geometry-3D/essos-field-lines/vmec_closed_field.py
 """
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from drbx.runtime import configure_jax_runtime
@@ -28,98 +27,43 @@ from drbx.validation import (
     create_essos_vmec_closed_field_transient_package,
 )
 
-
-# --- PARAMETERS: edit these values, then run this file -----------------------------
-RUN_EXAMPLE = True
-
-# The default writes a self-contained live-run contract. Set RUN_LIVE_VMEC=True
-# when an ESSOS checkout and the Landreman-Paul QA VMEC wout are available.
+# --- PARAMETERS ------------------------------------------------------------------
 RUN_LIVE_VMEC = False
 RUN_LIVE_VMEC_TRANSIENT = False
-
-OUTPUT_ROOT = Path("artifacts/essos_vmec_closed_field")
+OUTPUT_ROOT = Path("output/vmec_closed_field")
 CASE_LABEL = "essos_vmec_closed_field_campaign"
 TRANSIENT_CASE_LABEL = "essos_vmec_closed_field_transient"
-COIL_JSON_PATH: Path | None = None
-VMEC_WOUT_PATH: Path | None = None
-ESSOS_ROOT: Path | None = None
+SOURCE = dict(coil_json_path=None, vmec_wout_path=None, essos_root=None)  # None -> ESSOS checkout
 PRECISION = "float64"
-
-NX = 5
-NY = 8
-NZ = 20
-RHO_MIN = 0.20
-RHO_MAX = 0.82
-
+NX, NY, NZ = 5, 8, 20
+RHO_MIN, RHO_MAX = 0.20, 0.82
 TRANSIENT_FRAMES = 14
 TRANSIENT_SUBSTEPS_PER_FRAME = 3
 TRANSIENT_DT = 2.0e-3
 TRANSIENT_WRITE_MOVIE = True
 
-
-if RUN_EXAMPLE:
-    configure_jax_runtime(precision=PRECISION)
-    if RUN_LIVE_VMEC:
-        artifacts = create_essos_vmec_closed_field_package(
-            output_root=OUTPUT_ROOT,
-            case_label=CASE_LABEL,
-            coil_json_path=COIL_JSON_PATH,
-            vmec_wout_path=VMEC_WOUT_PATH,
-            essos_root=ESSOS_ROOT,
-            nx=NX,
-            ny=NY,
-            nz=NZ,
-            rho_min=RHO_MIN,
-            rho_max=RHO_MAX,
-        )
-        print(f"wrote report: {artifacts.report_json_path}")
-        print(f"wrote arrays: {artifacts.arrays_npz_path}")
-        print(f"wrote plot: {artifacts.plot_png_path}")
-    else:
-        artifacts = create_essos_vmec_closed_field_dry_run_package(
-            output_root=OUTPUT_ROOT,
-            case_label=CASE_LABEL,
-            nx=NX,
-            ny=NY,
-            nz=NZ,
-            rho_min=RHO_MIN,
-            rho_max=RHO_MAX,
-        )
-        print(f"wrote dry-run contract: {artifacts.contract_json_path}")
-    if RUN_LIVE_VMEC_TRANSIENT:
-        transient_artifacts = create_essos_vmec_closed_field_transient_package(
-            output_root=OUTPUT_ROOT,
-            case_label=TRANSIENT_CASE_LABEL,
-            coil_json_path=COIL_JSON_PATH,
-            vmec_wout_path=VMEC_WOUT_PATH,
-            essos_root=ESSOS_ROOT,
-            nx=NX,
-            ny=NY,
-            nz=NZ,
-            rho_min=RHO_MIN,
-            rho_max=RHO_MAX,
-            frames=TRANSIENT_FRAMES,
-            substeps_per_frame=TRANSIENT_SUBSTEPS_PER_FRAME,
-            dt=TRANSIENT_DT,
-            write_movie=TRANSIENT_WRITE_MOVIE,
-        )
-        print(f"wrote transient report: {transient_artifacts.report_json_path}")
-        print(f"wrote transient arrays: {transient_artifacts.arrays_npz_path}")
-        print(f"wrote transient plot: {transient_artifacts.plot_png_path}")
-        if transient_artifacts.movie_gif_path is not None:
-            print(f"wrote transient movie: {transient_artifacts.movie_gif_path}")
-    else:
-        transient_artifacts = create_essos_vmec_closed_field_transient_dry_run_package(
-            output_root=OUTPUT_ROOT,
-            case_label=TRANSIENT_CASE_LABEL,
-            nx=NX,
-            ny=NY,
-            nz=NZ,
-            rho_min=RHO_MIN,
-            rho_max=RHO_MAX,
-            frames=TRANSIENT_FRAMES,
-            substeps_per_frame=TRANSIENT_SUBSTEPS_PER_FRAME,
-            dt=TRANSIENT_DT,
-            write_movie=TRANSIENT_WRITE_MOVIE,
-        )
-        print(f"wrote transient dry-run contract: {transient_artifacts.contract_json_path}")
+# --- run --------------------------------------------------------------------------
+configure_jax_runtime(precision=PRECISION)
+grid = dict(output_root=OUTPUT_ROOT, nx=NX, ny=NY, nz=NZ, rho_min=RHO_MIN, rho_max=RHO_MAX)
+transient = dict(frames=TRANSIENT_FRAMES, substeps_per_frame=TRANSIENT_SUBSTEPS_PER_FRAME, dt=TRANSIENT_DT,
+                 write_movie=TRANSIENT_WRITE_MOVIE)
+print(f"VMEC closed-field control: grid=({NX}, {NY}, {NZ}), rho=[{RHO_MIN}, {RHO_MAX}], "
+      f"steady={'live' if RUN_LIVE_VMEC else 'dry run'}, transient={'live' if RUN_LIVE_VMEC_TRANSIENT else 'dry run'} "
+      f"({TRANSIENT_FRAMES} frames x {TRANSIENT_SUBSTEPS_PER_FRAME}, dt={TRANSIENT_DT:g})")
+start = time.perf_counter()
+if RUN_LIVE_VMEC:
+    steady = create_essos_vmec_closed_field_package(case_label=CASE_LABEL, **grid, **SOURCE)
+    print(f"steady case done in {time.perf_counter() - start:.1f} s")
+    print(f"wrote report: {steady.report_json_path}\nwrote arrays: {steady.arrays_npz_path}\nwrote plot:   {steady.plot_png_path}")
+else:
+    steady = create_essos_vmec_closed_field_dry_run_package(case_label=CASE_LABEL, **grid)
+    print(f"wrote steady dry-run contract: {steady.contract_json_path}")
+start = time.perf_counter()
+if RUN_LIVE_VMEC_TRANSIENT:
+    result = create_essos_vmec_closed_field_transient_package(case_label=TRANSIENT_CASE_LABEL, **grid, **SOURCE, **transient)
+    print(f"transient done in {time.perf_counter() - start:.1f} s")
+    print(f"wrote transient report: {result.report_json_path}\nwrote transient arrays: {result.arrays_npz_path}")
+    print(f"wrote transient plot:   {result.plot_png_path}\nwrote transient movie:  {result.movie_gif_path}")
+else:
+    result = create_essos_vmec_closed_field_transient_dry_run_package(case_label=TRANSIENT_CASE_LABEL, **grid, **transient)
+    print(f"wrote transient dry-run contract: {result.contract_json_path}")

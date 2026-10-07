@@ -8,7 +8,7 @@ arrays for downstream geometry, FCI, and SOL-operator workflows.
 
 The active completion sequence is tracked in the project planning notes.
 For `main`, the next direct-coil open-field target is the
-`direct_coil_open_sol.py` workflow: first validate pure-coil FCI maps,
+`open_sol_workflow.py` workflow with `MAP_SOURCE = "coil"`: first validate pure-coil FCI maps,
 endpoint masks, connection-length refinement, sheath/recycling/neutral source
 accounting, the explicit source/profile gate, stationarity reports, and the
 optional diagnostic media stage; only then promote a direct-coil turbulence
