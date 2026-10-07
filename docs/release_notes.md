@@ -1,4 +1,44 @@
-# Release Notes: 2.0.0
+# Release Notes
+
+## 2.1.0
+
+**New: experimental HSX FCI Braginskii backend** (`drbx.fci_braginskii`, #6).
+A seven-field electrostatic Braginskii model on stellarator-following FCI
+geometry for the HSX scrape-off layer, with an implicit current/potential stage,
+owner-cell agglomeration at the wall, sharded GMRES, a geometry builder, and
+`drbx run <deck>.toml` input decks. Wall-limited: no sheath, neutral or
+recycling coupling yet. Verified: stage continuity of the returned state
+~1e-16, bitwise restart, equal GMRES counts on 1/2/4 devices, normalization
+tests, real-geometry tests. Measured temporal order: ~2 for vorticity, 1.4-1.6
+for n, T, Vi, ~1 for phi and Ve (stiff electrons at the physical mass ratio).
+
+**New: SD1D-matched 1D divertor model** (#18). Steady-state Newton solve of the
+SD1D equations; against the published SD1D hydrogen scan the target
+temperature agrees within 0.35% and the target flux within 0.15% (800 cells);
+particle/power ledgers close; implicit-function gradients of target quantities.
+Replaces the previous reduced detachment model, which was not grid-converged.
+
+**Physics fixes**
+- Neutral reaction sources conserve thermal plus kinetic energy (2/3
+  energy-to-pressure conversion, receiver mixing heat) (#8).
+- 1D conduction is driven by the temperature gradient; CX damping uses K_cx n_n (#8).
+- Implicit current/potential stage uses one owner-level gradient in the solve
+  and in Ve, consistent under agglomeration (#13).
+
+**Solvers and performance**
+- GMRES keeps the requested restart length (it was silently reduced to
+  gcd(restart, maxiter)); strict vs relaxed acceptance reported (#10, #12).
+- GPU: small batched eigen-solves no longer serialize on the device; an HSX
+  step on an RTX A4000 went from ~555 s to ~35 s (#33).
+
+**Data and provenance**: hydrogen AMJUEL fits pinned to the January 13, 2020
+report (#16).
+
+**Footprint**: duplicated helpers, pytree boilerplate and duplicated backend
+modules removed (#9, #17, #22-#26, #30-#32), test-only plotting code removed;
+the README follows the feature-section layout with a sourced comparison table (#15).
+
+## 2.0.0
 
 The v2.0.0 release of the research-grade program tracked in the project
 planning notes. This is the first stable release under the **DRBX** name
