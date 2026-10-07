@@ -25,7 +25,7 @@ agree with the single-device solve to round-off, not bitwise) and the plane-bloc
 its shard of the factors (:func:`shard_core_schur_preconditioner`).
 
 Composed nodal perpendicular RHS (:func:`sharded_nodal_perpendicular_rhs`): the C1 composition of
-``fci_nodal_perpendicular_rhs`` (same options, parameters, wall data, ``rho_star`` conventions and ``phi_mode`` as
+``fci_nodal_perpendicular_rhs`` (same options, parameters, wall data, single-length ``rho_star`` scaling and ``phi_mode`` as
 :func:`~drbx.native.fci_nodal_perpendicular_rhs.nodal_perpendicular_rhs`) on global arrays, every stage calling the sharded
 operator above, so a stage is its own ``shard_map`` with its own halo exchanges (nothing is fused). Planes per shard
 ``>= 4`` for more than one shard. Per evaluation, in terms of exchanges of the owned planes with the two neighbours:
@@ -434,7 +434,7 @@ def sharded_nodal_perpendicular_rhs(sctx: ShardedNodalPerpendicularContext, opts
 
     ``state (E, P, F)``, ``wall.value / normal (E, N, F)``, ``wall.psi (E, N)``, ``phi``, ``psi_x0``, ``sigma (E, P)``, ``source``
     are global arrays (the wall data are split along E inside the stages); the result holds global arrays and ``solve_info`` is
-    replicated. Same ``phi_mode`` and ``rho_star_convention`` semantics and the same errors as the single-device function. The CG
+    replicated. Same ``phi_mode`` and ``rho_star`` semantics and the same errors as the single-device function. The CG
     iterates equal the single-device ones to round-off (``psum`` dot products), so the iteration count may differ by one only
     when the solve sits at the ``phi_rtol`` threshold.
     """
@@ -456,14 +456,10 @@ def sharded_nodal_perpendicular_rhs(sctx: ShardedNodalPerpendicularContext, opts
     else:
         phi, psi, info = prescribed_potential(opts, params, n, Ti, phi)
     zeros = jnp.zeros_like(state)
-    single = opts.rho_star_convention == "single-length"
     terms = opts.terms
     if "bracket" in terms:
         bcd = SatBoundaryData((wall.value,))
-        if single:
-            bracket = params.rho_star * sharded_sbp_bracket(sctx.plan, phi, state, bcd, 1.0, mesh, opts.bracket_c_kappa)
-        else:
-            bracket = sharded_sbp_bracket(sctx.plan, phi, state, bcd, params.rho_star, mesh, opts.bracket_c_kappa)
+        bracket = params.rho_star * sharded_sbp_bracket(sctx.plan, phi, state, bcd, 1.0, mesh, opts.bracket_c_kappa)
     else:
         bracket = zeros
     if "curvature" in terms:

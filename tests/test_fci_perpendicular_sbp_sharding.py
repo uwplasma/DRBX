@@ -236,7 +236,7 @@ TERMS = ("total", "bracket", "curvature", "diffusion", "phi", "psi")
 def test_nodal_perpendicular_rhs_sharded_matches_single_device_in_subprocess():
     res = _subprocess("nodal_rhs")
     assert res["P"] == 254 and res["devices"] == 4
-    for name in ("prescribed", "solve", "legacy"):
+    for name in ("prescribed", "solve", "conormal"):
         for term in TERMS:
             assert res[f"{name}_ref_max_{term}"] > 1e-3, (name, term)              # every term is active and nontrivial
         assert res[f"{name}_ref_converged"]
@@ -246,7 +246,7 @@ def test_nodal_perpendicular_rhs_sharded_matches_single_device_in_subprocess():
             assert res[f"{name}_S{s}_converged"], (name, s)
             assert res[f"{name}_S{s}_iterations"] == res[f"{name}_ref_iterations"], (name, s, res)
     assert res["prescribed_ref_iterations"] == 0 and 5 <= res["solve_ref_iterations"] < 100
-    assert 5 <= res["legacy_ref_iterations"] < 100
+    assert 5 <= res["conormal_ref_iterations"] < 100
     for s in (1, 2, 4):
         assert res[f"inflow_S{s}"] <= 1e-14, res
 
