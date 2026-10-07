@@ -1175,6 +1175,24 @@ def _format_state_diagnostics(
     return " ".join(parts)
 
 
+def _grid_scale_line(
+    prefix: str, field_names: Sequence[str], diagnostic_values: np.ndarray
+) -> str:
+    """Format one inspection payload (max|Ve| and wall/bulk high-pass sums)."""
+
+    high_pass = diagnostic_values[2:].reshape(7, 2)
+    return (
+        f"[{prefix}] grid-scale: "
+        f"max|Ve|={diagnostic_values[0]:.6e} "
+        f"global_index={int(diagnostic_values[1])}; "
+        + ", ".join(
+            f"{name}=({values[0]:.3e},{values[1]:.3e})"
+            for name, values in zip(field_names, high_pass, strict=True)
+        )
+        + " [wall,bulk]"
+    )
+
+
 def _format_phi_solver_diagnostics(
     info: object,
 ) -> jax.Array:
@@ -1489,41 +1507,10 @@ def run_full_eb(
     )
 
     def materialized_state(current_state: FciDrbEBState) -> FciDrbEBState:
-        materialized = (
-            current_state if owner_host_geometry is None
-            else _materialize_owner_state(current_state, owner_host_geometry)
-        )
-        return materialized
-
-    def diagnostic_state(
-        current_state: FciDrbEBState,
-        local_control_volume_geometry,
-    ) -> FciDrbEBState:
-        if local_control_volume_geometry is None:
+        if owner_host_geometry is None:
             return current_state
-        return current_state.replace(
-            density=expand_local_control_volume_owner_field(
-                current_state.density, local_control_volume_geometry.cells
-            ),
-            phi=expand_local_control_volume_owner_field(
-                current_state.phi, local_control_volume_geometry.cells
-            ),
-            Te=expand_local_control_volume_owner_field(
-                current_state.Te, local_control_volume_geometry.cells
-            ),
-            Ti=expand_local_control_volume_owner_field(
-                current_state.Ti, local_control_volume_geometry.cells
-            ),
-            Vi=expand_local_control_volume_owner_field(
-                current_state.Vi, local_control_volume_geometry.cells
-            ),
-            Ve=expand_local_control_volume_owner_field(
-                current_state.Ve, local_control_volume_geometry.cells
-            ),
-            vorticity=expand_local_control_volume_owner_field(
-                current_state.vorticity, local_control_volume_geometry.cells
-            ),
-        )
+        return _materialize_owner_state(current_state, owner_host_geometry)
+
     geometry_field_count = int(sharded_geometry.cell_fields.shape[-1])
     curvature_face_field_count = 0
     cell_fields_host = np.asarray(
@@ -2569,6 +2556,7 @@ def run_full_eb(
         jax.block_until_ready(result)
         return tuple(np.asarray(value) for value in result)
 
+    run_meta = run_metadata or {}
     base_output_payload = {
         "u": np.asarray(global_geometry.grid.x.centers, dtype=np.float64),
         "v": np.asarray(global_geometry.grid.y.centers, dtype=np.float64),
@@ -2580,49 +2568,49 @@ def run_full_eb(
         "toroidal_extent": np.asarray(2.0 * np.pi, dtype=np.float64),
         "shard_counts": np.asarray(sharded_geometry.shard_counts, dtype=np.int32),
         "periodic_axes": np.asarray(
-            (run_metadata or {}).get("periodic_axes", PERIODIC_AXES), dtype=bool
+            run_meta.get("periodic_axes", PERIODIC_AXES), dtype=bool
         ),
         "axis_regular_axes": np.asarray(
-            (run_metadata or {}).get("axis_regular_axes", AXIS_REGULAR_AXES),
+            run_meta.get("axis_regular_axes", AXIS_REGULAR_AXES),
             dtype=bool,
         ),
         "phi_solver_space": np.asarray(solver_space),
         "parallel_operator_scheme": np.asarray(str(parallel_operator_scheme)),
         "fci_trace_substeps": np.asarray(
-            int((run_metadata or {}).get("fci_trace_substeps", 4)),
+            int(run_meta.get("fci_trace_substeps", 4)),
             dtype=np.int64,
         ),
         "axis_treatment": np.asarray(
-            str((run_metadata or {}).get("axis_treatment", "none"))
+            str(run_meta.get("axis_treatment", "none"))
         ),
         "angular_owner_count": np.asarray(
             int(
                 -1
-                if (run_metadata or {}).get("angular_owner_count") is None
-                else (run_metadata or {})["angular_owner_count"]
+                if run_meta.get("angular_owner_count") is None
+                else run_meta["angular_owner_count"]
             ),
             dtype=np.int64,
         ),
         "angular_alias_count": np.asarray(
             int(
                 -1
-                if (run_metadata or {}).get("angular_alias_count") is None
-                else (run_metadata or {})["angular_alias_count"]
+                if run_meta.get("angular_alias_count") is None
+                else run_meta["angular_alias_count"]
             ),
             dtype=np.int64,
         ),
         "angular_owner_profile": np.asarray(
-            str((run_metadata or {}).get("angular_owner_profile", "none"))
+            str(run_meta.get("angular_owner_profile", "none"))
         ),
         "angular_group_sizes": np.asarray(
-            (run_metadata or {}).get("angular_group_sizes") or (), dtype=np.int32
+            run_meta.get("angular_group_sizes") or (), dtype=np.int32
         ),
         "angular_profile_safety_ratio": np.asarray(
-            float((run_metadata or {}).get("angular_profile_safety_ratio") or -1.0), dtype=np.float64
+            float(run_meta.get("angular_profile_safety_ratio") or -1.0), dtype=np.float64
         ),
     }
     output_topology = topology_descriptor(
-        str((run_metadata or {}).get("topology", "square"))
+        str(run_meta.get("topology", "square"))
     )
     base_output_payload.update(
         {
@@ -2634,23 +2622,23 @@ def run_full_eb(
                 output_topology.logical_extents, dtype=np.float64
             ),
             "metric_mesh_shape": np.asarray(
-                (run_metadata or {}).get("metric_mesh_shape") or (-1, -1, -1),
+                run_meta.get("metric_mesh_shape") or (-1, -1, -1),
                 dtype=np.int64,
             ),
             "metric_radial_degree": np.asarray(
-                int((run_metadata or {}).get("metric_radial_degree", -1)),
+                int(run_meta.get("metric_radial_degree", -1)),
                 dtype=np.int64,
             ),
             "metric_poloidal_modes": np.asarray(
-                int((run_metadata or {}).get("metric_poloidal_modes", -1)),
+                int(run_meta.get("metric_poloidal_modes", -1)),
                 dtype=np.int64,
             ),
             "metric_toroidal_modes": np.asarray(
-                int((run_metadata or {}).get("metric_toroidal_modes", -1)),
+                int(run_meta.get("metric_toroidal_modes", -1)),
                 dtype=np.int64,
             ),
             "eta_projection_iterations": np.asarray(
-                int((run_metadata or {}).get("eta_projection_iterations", -1)),
+                int(run_meta.get("eta_projection_iterations", -1)),
                 dtype=np.int64,
             ),
         }
@@ -2658,7 +2646,7 @@ def run_full_eb(
     base_output_payload.update(_snapshot_metric_payload(global_geometry))
     snapshot_schedule = tuple(sorted(float(value) for value in snapshot_times))
     snapshot_root = Path(snapshot_dir) if snapshot_dir is not None else output_path.parent
-    metadata = dict(run_metadata or {})
+    metadata = dict(run_meta)
     metadata.update(
         {
             "time_integrator": str(time_integrator),
@@ -2667,7 +2655,7 @@ def run_full_eb(
             "phi_solver_space": solver_space,
             "parallel_operator_scheme": str(parallel_operator_scheme),
             "fci_trace_substeps": int(
-                (run_metadata or {}).get("fci_trace_substeps", 4)
+                run_meta.get("fci_trace_substeps", 4)
             ),
             "checkpoint_every": int(checkpoint_every),
             "field_names": list(initial_state.field_names()),
@@ -2786,16 +2774,9 @@ def run_full_eb(
                 ),
             }
             print(
-                "[snapshot] grid-scale: "
-                f"max|Ve|={diagnostic_values[0]:.6e} "
-                f"global_index={int(diagnostic_values[1])}; "
-                + ", ".join(
-                    f"{name}=({values[0]:.3e},{values[1]:.3e})"
-                    for name, values in zip(
-                        initial_state.field_names(), high_pass_values, strict=True
-                    )
-                )
-                + " [wall,bulk]",
+                _grid_scale_line(
+                    "snapshot", initial_state.field_names(), diagnostic_values
+                ),
                 flush=True,
             )
         payload["run_metadata_json"] = np.asarray(json.dumps(snapshot_metadata, sort_keys=True))
@@ -2848,6 +2829,14 @@ def run_full_eb(
     accumulated_gmres_seconds = 0.0
     accumulated_gmres_iterations = 0.0
     relaxed_phi_acceptances = 0
+
+    def fail_step(message: str, reason: str, error: str) -> None:
+        """Report a rejected step, write a failure checkpoint and stop."""
+
+        print(message, flush=True)
+        _print_rk_stage_diagnostics(field_names, rk_stage_diagnostics_host)
+        save_snapshot(current_time, current_time, step, failure_reason=reason)
+        raise FloatingPointError(error)
 
     def execute_advance(*advance_args):
         with jax.disable_jit(advance_execution == "eager"):
@@ -2951,25 +2940,13 @@ def run_full_eb(
             or stage_Te_min <= 0.0
             or stage_Ti_min <= 0.0
         ):
-            print(
+            fail_step(
                 f"[diagnostics] step={step} invalid "
                 f"{time_integrator} stage: "
                 f"finite={stage_finite}, n_min={stage_density_min:.6e}, "
                 f"Te_min={stage_Te_min:.6e}, Ti_min={stage_Ti_min:.6e}",
-                flush=True,
-            )
-            _print_rk_stage_diagnostics(
-                field_names,
-                rk_stage_diagnostics_host,
-            )
-            save_snapshot(
-                current_time,
-                current_time,
-                step,
-                failure_reason=f"invalid-{time_integrator}-stage",
-            )
-            raise FloatingPointError(
-                f"invalid {time_integrator} stage after step {step}"
+                f"invalid-{time_integrator}-stage",
+                f"invalid {time_integrator} stage after step {step}",
             )
         if gmres_failed_host:
             stage_text = ", ".join(
@@ -2983,63 +2960,29 @@ def run_full_eb(
                     strict=True,
                 )
             )
-            print(
+            fail_step(
                 f"[diagnostics] step={step} rejected phi inversion: "
                 f"{stage_text}; state={state_diagnostics}",
-                flush=True,
-            )
-            _print_rk_stage_diagnostics(
-                field_names,
-                rk_stage_diagnostics_host,
-            )
-            save_snapshot(
-                current_time,
-                current_time,
-                step,
-                failure_reason="unaccepted-phi-inversion",
-            )
-            raise FloatingPointError(
-                f"unaccepted phi inversion after step {step}"
+                "unaccepted-phi-inversion",
+                f"unaccepted phi inversion after step {step}",
             )
         density_finite = np.isfinite(density_min) and np.isfinite(density_max)
         temperature_finite = all(
             np.isfinite(value) for value in (Te_min, Te_max, Ti_min, Ti_max)
         )
         if not density_finite or not temperature_finite:
-            print(
+            fail_step(
                 f"[diagnostics] step={step} nonfinite: {state_diagnostics}",
-                flush=True,
+                "nonfinite-eb-state",
+                f"nonfinite EB state after step {step}",
             )
-            _print_rk_stage_diagnostics(
-                field_names,
-                rk_stage_diagnostics_host,
-            )
-            save_snapshot(
-                current_time,
-                current_time,
-                step,
-                failure_reason="nonfinite-eb-state",
-            )
-            raise FloatingPointError(f"nonfinite EB state after step {step}")
         if density_min <= 0.0 or temperature_min <= 0.0:
-            print(
+            fail_step(
                 f"[diagnostics] step={step} positivity failure: "
                 f"{state_diagnostics}",
-                flush=True,
-            )
-            _print_rk_stage_diagnostics(
-                field_names,
-                rk_stage_diagnostics_host,
-            )
-            save_snapshot(
-                current_time,
-                current_time,
-                step,
-                failure_reason="nonpositive-eb-state",
-            )
-            raise FloatingPointError(
+                "nonpositive-eb-state",
                 f"nonpositive density/temperature after step {step}: "
-                f"n_min={density_min:.6e}, T_min={temperature_min:.6e}"
+                f"n_min={density_min:.6e}, T_min={temperature_min:.6e}",
             )
         inspection_host = None
         snapshot_due = (
@@ -3062,19 +3005,10 @@ def run_full_eb(
                 flush=True,
             )
             if inspection_host is not None:
-                diagnostic_values = inspection_host[0]
-                high_pass = diagnostic_values[2:].reshape(7, 2)
                 print(
-                    "[diagnostics] grid-scale: "
-                    f"max|Ve|={diagnostic_values[0]:.6e} "
-                    f"global_index={int(diagnostic_values[1])}; "
-                    + ", ".join(
-                        f"{name}=({values[0]:.3e},{values[1]:.3e})"
-                        for name, values in zip(
-                            initial_state.field_names(), high_pass, strict=True
-                        )
-                    )
-                    + " [wall,bulk]",
+                    _grid_scale_line(
+                        "diagnostics", field_names, inspection_host[0]
+                    ),
                     flush=True,
                 )
         while next_snapshot < len(snapshot_schedule) and snapshot_schedule[next_snapshot] <= current_time + 1.0e-14:
@@ -3156,51 +3090,51 @@ def run_full_eb(
         toroidal_extent=np.asarray(2.0 * np.pi, dtype=np.float64),
         shard_counts=np.asarray(sharded_geometry.shard_counts, dtype=np.int32),
         periodic_axes=np.asarray(
-            (metadata or {}).get("periodic_axes", PERIODIC_AXES), dtype=bool
+            metadata.get("periodic_axes", PERIODIC_AXES), dtype=bool
         ),
         axis_regular_axes=np.asarray(
-            (metadata or {}).get("axis_regular_axes", AXIS_REGULAR_AXES),
+            metadata.get("axis_regular_axes", AXIS_REGULAR_AXES),
             dtype=bool,
         ),
-        topology=np.asarray(str((metadata or {}).get("topology", "square"))),
+        topology=np.asarray(str(metadata.get("topology", "square"))),
         coordinate_names_json=np.asarray(
             json.dumps(
-                (metadata or {}).get(
+                metadata.get(
                     "coordinate_names", ("u", "v", "eta")
                 )
             )
         ),
         logical_extents=np.asarray(
-            (metadata or {}).get(
+            metadata.get(
                 "logical_extents", ((0.0, 1.0), (0.0, 1.0), (0.0, 2.0 * np.pi))
             ),
             dtype=np.float64,
         ),
         metric_mesh_shape=np.asarray(
-            (metadata or {}).get("metric_mesh_shape") or (-1, -1, -1),
+            metadata.get("metric_mesh_shape") or (-1, -1, -1),
             dtype=np.int64,
         ),
         metric_radial_degree=np.asarray(
-            int((metadata or {}).get("metric_radial_degree", -1)),
+            int(metadata.get("metric_radial_degree", -1)),
             dtype=np.int64,
         ),
         metric_poloidal_modes=np.asarray(
-            int((metadata or {}).get("metric_poloidal_modes", -1)),
+            int(metadata.get("metric_poloidal_modes", -1)),
             dtype=np.int64,
         ),
         metric_toroidal_modes=np.asarray(
-            int((metadata or {}).get("metric_toroidal_modes", -1)),
+            int(metadata.get("metric_toroidal_modes", -1)),
             dtype=np.int64,
         ),
         eta_projection_iterations=np.asarray(
-            int((metadata or {}).get("eta_projection_iterations", -1)),
+            int(metadata.get("eta_projection_iterations", -1)),
             dtype=np.int64,
         ),
         parallel_operator_scheme=np.asarray(
-            str((metadata or {}).get("parallel_operator_scheme", parallel_operator_scheme))
+            str(metadata.get("parallel_operator_scheme", parallel_operator_scheme))
         ),
         fci_trace_substeps=np.asarray(
-            int((metadata or {}).get("fci_trace_substeps", 4)),
+            int(metadata.get("fci_trace_substeps", 4)),
             dtype=np.int64,
         ),
         history_dtype=np.asarray(history_dtype),
