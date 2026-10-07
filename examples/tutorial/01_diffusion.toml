@@ -1,0 +1,53 @@
+# Tutorial 01 deck: one hydrogen species spreading by anomalous diffusion.
+# Same layout as examples/inputs/restartable_diffusion.toml, with a larger D so
+# the spreading is visible after a few outputs.
+#
+#   drbx inspect examples/tutorial/01_diffusion.toml   # print the resolved plan
+#   drbx run examples/tutorial/01_diffusion.toml       # run, write output/tutorial/01_first_run/deck
+
+[time]
+nout = 3          # number of output intervals
+timestep = 5.0    # time between outputs (normalized)
+
+[runtime]
+precision = "float64"   # or "float32" (also: drbx run ... --precision float32)
+
+[runtime.logging]
+verbose = true          # staged event log in the terminal
+
+[mesh]
+nx = 16                              # radial cells
+ny = 24                              # poloidal cells
+nz = 1                               # one toroidal plane: a 2-D case
+dx = { expr = "0.0075 + 0.005*x" }   # non-uniform radial spacing (x runs 0..1)
+dy = 0.01
+dz = 0.01
+J = 1                                # Jacobian
+
+[solver]
+mxstep = 1000
+
+[output]
+directory = "output/tutorial/01_first_run/deck"
+write_summary = true    # <case>_summary.json
+write_arrays = true     # <case>_arrays.npz (all outputs)
+write_restart = true    # <case>_restart.npz (resume point)
+write_log = true        # <case>_run_log.json (event stream)
+
+[model]
+components = ["h"]      # one species named h
+
+[species.h]
+type = ["evolve_density", "evolve_pressure", "anomalous_diffusion"]
+AA = 1                  # mass number
+charge = 1
+anomalous_D = 200.0     # radial diffusion coefficient D
+thermal_conduction = false
+
+[fields.Nh]             # initial density: radial top hat x Gaussian in y
+function = { expr = "1 + H(x - 0.25) * H(0.75-x) * exp(-(y-pi)^2)" }
+bndry_all = "neumann"
+
+[fields.Ph]             # initial pressure = initial density (T = 1)
+function = { ref = "Nh:function" }
+bndry_all = "neumann"
