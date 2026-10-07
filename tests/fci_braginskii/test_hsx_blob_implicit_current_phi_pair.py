@@ -84,12 +84,10 @@ def test_run_full_eb_both_implicit_stage_paths_dispatch_on_the_flag():
         node
         for node in ast.walk(run_full_eb)
         if isinstance(node, ast.FunctionDef)
-        and node.name in ("implicit_stage", "staged_implicit_kernel")
+        and node.name == "implicit_solve"
     ]
-    assert {node.name for node in stage_functions} == {
-        "implicit_stage",
-        "staged_implicit_kernel",
-    }
+    # One implicit stage body serves the compiled, eager and staged paths.
+    assert {node.name for node in stage_functions} == {"implicit_solve"}
 
     for stage_function in stage_functions:
         segment = ast.get_source_segment(source, stage_function)

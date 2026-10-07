@@ -1789,57 +1789,119 @@ def run_full_eb(
 
     def evaluate_operators(
         stage_state: FciDrbEBState,
-        phi: jax.Array,
         model: LocalFciDrbEBRhs,
+        short_leg_selection_dt: jax.Array,
     ) -> FciDrbEBState:
         with jax.named_scope("operators"):
             rhs = model.evaluate_stage(
                 stage_state,
-                phi_owned=phi,
-                short_leg_selection_dt=dt,
+                phi_owned=stage_state.phi,
+                short_leg_selection_dt=short_leg_selection_dt,
             )
         rhs = model.project_galerkin_state(rhs)
         mark_operator(rhs)
         return rhs
 
+    def implicit_solve(
+        base: FciDrbEBState,
+        model: LocalFciDrbEBRhs,
+        solve_dt: jax.Array,
+        selection_dt: jax.Array,
+    ):
+        """One complete short-wall implicit stage plus its phi (or pair) solve.
+
+        Returns the stage state, its implicit increment and the packed phi
+        solver diagnostics.
+        """
+
+        updated, increment, _info = model.apply_short_leg_implicit_material_step(
+            base,
+            solve_dt=solve_dt,
+            selection_dt=selection_dt,
+            phi_owned=base.phi,
+            return_increment=True,
+        )
+        if model.implicit_current_phi_pair:
+            with jax.named_scope("gmres"):
+                stage, pair_increment, pair_solver_info = (
+                    model.solve_implicit_current_phi_pair(updated, solve_dt=solve_dt)
+                )
+            mark_pair_solve_phi(stage.phi)
+            phi_info = _format_phi_solver_diagnostics(pair_solver_info)
+            return stage, increment.axpy(pair_increment, scale=1.0), phi_info
+        stage_phi, phi_info = reconstruct_stage_phi(updated, model)
+        return updated.replace(phi=stage_phi), increment, phi_info
+
+    def ssp222_stages(current, implicit, explicit, solve_phi, step_dt):
+        """IMEX-SSP222 stage algebra shared by every advance_execution mode.
+
+        ``implicit(base, gamma_dt)``, ``explicit(stage)`` and
+        ``solve_phi(state)`` are either in-kernel model calls (compiled and
+        eager) or separately compiled shard_map kernels (staged-compiled).
+        Returns the stage states, stage rates and phi diagnostics consumed by
+        ``finalize_advance``.
+        """
+
+        gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * step_dt
+        # The persisted current state already carries its consistent algebraic
+        # potential.  Solve the complete selected-wall residual before the
+        # first explicit evaluation, not after a finished timestep.
+        stage_1, increment_1, gmres_info_1 = implicit(current, gamma_dt)
+        implicit_1 = increment_1.map_fields(lambda value: value / gamma_dt)
+        explicit_1 = explicit(stage_1)
+        stage_2_base = current.axpy(explicit_1, scale=step_dt).axpy(
+            implicit_1,
+            scale=(1.0 - 2.0 * IMEX_SSP222_GAMMA) * step_dt,
+        )
+        stage_2_base_phi, gmres_info_2_base = solve_phi(stage_2_base)
+        stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
+        stage_2, increment_2, gmres_info_2 = implicit(stage_2_base, gamma_dt)
+        implicit_2 = increment_2.map_fields(lambda value: value / gamma_dt)
+        explicit_2 = explicit(stage_2)
+        weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
+            implicit_1, scale=1.0
+        ).axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value)
+        next_state = current.axpy(weighted_rate, scale=step_dt)
+        next_phi, gmres_info_next = solve_phi(next_state)
+        next_state = next_state.replace(phi=next_phi)
+        return (
+            (current, stage_1, stage_2_base, stage_2, next_state),
+            (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
+            (gmres_info_1, gmres_info_2_base, gmres_info_2, gmres_info_next),
+        )
+
     def finalize_advance(
-        next_state: FciDrbEBState,
         model: LocalFciDrbEBRhs,
         stage_states: tuple[FciDrbEBState, ...],
         stage_rates: tuple[FciDrbEBState, ...],
         gmres_infos: tuple[jax.Array, ...],
     ):
-        """Build the common fixed-shape diagnostics for either integrator."""
+        """Build the fixed-shape step diagnostics; the last stage is the new state.
+
+        Each reduction is local to the shard first and then made global over
+        all three shard_map mesh axes.
+        """
 
         gmres_stage_diagnostics = jnp.stack(gmres_infos, axis=0)
         gmres_iterations = jnp.mean(gmres_stage_diagnostics[:, 0])
+
+        def reduce_fields(states, reducer):
+            return jnp.stack(tuple(
+                jnp.stack(tuple(reducer(value) for _, value in stage.field_items()))
+                for stage in states
+            ))
+
+        def abs_max(value):
+            return jnp.max(jnp.abs(value))
+
         diagnostic_states = tuple(
-            diagnostic_state(
-                stage,
-                model.control_volume_geometry,
-            )
+            diagnostic_state(stage, model.control_volume_geometry)
             for stage in stage_states
         )
-        state_mins = jnp.stack(tuple(
-            jnp.stack(tuple(jnp.min(value) for _, value in stage.field_items()))
-            for stage in diagnostic_states
-        ))
-        state_maxs = jnp.stack(tuple(
-            jnp.stack(tuple(jnp.max(value) for _, value in stage.field_items()))
-            for stage in diagnostic_states
-        ))
-        state_abs_maxs = jnp.stack(tuple(
-            jnp.stack(tuple(
-                jnp.max(jnp.abs(value)) for _, value in stage.field_items()
-            ))
-            for stage in diagnostic_states
-        ))
-        rhs_abs_maxs = jnp.stack(tuple(
-            jnp.stack(tuple(
-                jnp.max(jnp.abs(value)) for _, value in rhs.field_items()
-            ))
-            for rhs in stage_rates
-        ))
+        state_mins = reduce_fields(diagnostic_states, jnp.min)
+        state_maxs = reduce_fields(diagnostic_states, jnp.max)
+        state_abs_maxs = reduce_fields(diagnostic_states, abs_max)
+        rhs_abs_maxs = reduce_fields(stage_rates, abs_max)
         for mesh_axis_name in ("x", "y", "z"):
             state_mins = jax.lax.pmin(state_mins, mesh_axis_name)
             state_maxs = jax.lax.pmax(state_maxs, mesh_axis_name)
@@ -1848,29 +1910,12 @@ def run_full_eb(
         stage_diagnostics = jnp.stack(
             (state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs), axis=-1
         )
-
-        # Keep this a fixed-shape compiled payload.  Each reduction is local
-        # to the shard first and then made global over all three shard_map
-        # mesh axes.
-        field_values = tuple(
-            value
-            for _, value in diagnostic_state(
-                next_state,
-                model.control_volume_geometry,
-            ).field_items()
+        # min/max are exact, so the new-state rows equal a separate reduction.
+        diagnostics = jnp.stack(
+            (state_mins[-1], state_maxs[-1], state_abs_maxs[-1]), axis=1
         )
-        field_mins = jnp.stack(tuple(jnp.min(value) for value in field_values))
-        field_maxs = jnp.stack(tuple(jnp.max(value) for value in field_values))
-        field_abs_maxs = jnp.stack(
-            tuple(jnp.max(jnp.abs(value)) for value in field_values)
-        )
-        for mesh_axis_name in ("x", "y", "z"):
-            field_mins = jax.lax.pmin(field_mins, mesh_axis_name)
-            field_maxs = jax.lax.pmax(field_maxs, mesh_axis_name)
-            field_abs_maxs = jax.lax.pmax(field_abs_maxs, mesh_axis_name)
-        diagnostics = jnp.stack((field_mins, field_maxs, field_abs_maxs), axis=1)
         return (
-            next_state,
+            stage_states[-1],
             diagnostics,
             gmres_iterations,
             gmres_stage_diagnostics,
@@ -1892,73 +1937,20 @@ def run_full_eb(
             map_fields_owned,
             control_volume_fields_owned,
         )
-        gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * dt
-
-        def implicit_stage(base: FciDrbEBState):
-            updated, increment, _info = (
-                model.apply_short_leg_implicit_material_step(
-                    base,
-                    solve_dt=gamma_dt,
-                    selection_dt=dt,
-                    phi_owned=base.phi,
-                    return_increment=True,
-                )
-            )
-            if model.implicit_current_phi_pair:
-                with jax.named_scope("gmres"):
-                    stage, pair_increment, pair_solver_info = (
-                        model.solve_implicit_current_phi_pair(
-                            updated, solve_dt=gamma_dt,
-                        )
-                    )
-                mark_pair_solve_phi(stage.phi)
-                phi_info = _format_phi_solver_diagnostics(pair_solver_info)
-                total_increment = increment.axpy(pair_increment, scale=1.0)
-            else:
-                stage_phi, phi_info = reconstruct_stage_phi(updated, model)
-                stage = updated.replace(phi=stage_phi)
-                total_increment = increment
-            implicit_rate = total_increment.map_fields(
-                lambda value: value / gamma_dt
-            )
-            return stage, implicit_rate, phi_info
-
-        # The persisted current state already carries its consistent algebraic
-        # potential.  Solve the complete selected-wall residual before the
-        # first explicit evaluation, not after a finished timestep.
-        stage_1, implicit_1, gmres_info_1 = implicit_stage(current)
-        explicit_1 = evaluate_operators(
-            stage_1, stage_1.phi, model
-        )
-
-        stage_2_base = current.axpy(explicit_1, scale=dt).axpy(
-            implicit_1,
-            scale=(1.0 - 2.0 * IMEX_SSP222_GAMMA) * dt,
-        )
-        stage_2_base_phi, gmres_info_2_base = reconstruct_stage_phi(
-            stage_2_base, model
-        )
-        stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
-        stage_2, implicit_2, gmres_info_2 = implicit_stage(stage_2_base)
-        explicit_2 = evaluate_operators(
-            stage_2, stage_2.phi, model
-        )
-
-        weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
-            implicit_1, scale=1.0
-        ).axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value)
-        next_state = current.axpy(weighted_rate, scale=dt)
-        next_phi, gmres_info_next = reconstruct_stage_phi(next_state, model)
-        next_state = next_state.replace(phi=next_phi)
         return finalize_advance(
-            next_state,
             model,
-            (current, stage_1, stage_2_base, stage_2, next_state),
-            (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
-            (gmres_info_1, gmres_info_2_base, gmres_info_2, gmres_info_next),
+            *ssp222_stages(
+                current,
+                lambda base, gamma_dt: implicit_solve(
+                    base, model, solve_dt=gamma_dt, selection_dt=dt
+                ),
+                lambda stage: evaluate_operators(
+                    stage, model, short_leg_selection_dt=dt
+                ),
+                lambda state: reconstruct_stage_phi(state, model),
+                dt,
+            ),
         )
-
-    full_advance = full_imex_advance
     stage_description = (
         "2 explicit operator stages, 2 complete short-wall solves, "
         "4 SOLVAX FGMRES solves"
@@ -1993,7 +1985,7 @@ def run_full_eb(
         replicated_spec,
     )
     sharded_advance = jax.shard_map(
-        full_advance,
+        full_imex_advance,
         mesh=mesh,
         in_specs=(
             state_spec,
@@ -2026,178 +2018,53 @@ def run_full_eb(
             flush=True,
         )
     else:
-        # Keep the existing monolithic compiled/eager paths unchanged.  The
-        # staged path is an IMEX short-diagnostic mode: each reusable kernel
-        # is compiled once, then the SSP222 algebra is orchestrated with
-        # device-side array operations between kernel calls.
-        scalar_spec = replicated_spec
-
-        def staged_implicit_kernel(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-            solve_dt: jax.Array,
-            selection_dt: jax.Array,
-        ):
-            model = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            )
-            updated, increment, _info = (
-                model.apply_short_leg_implicit_material_step(
-                    local_state,
-                    solve_dt=solve_dt,
-                    selection_dt=selection_dt,
-                    phi_owned=local_state.phi,
-                    return_increment=True,
-                )
-            )
-            if model.implicit_current_phi_pair:
-                with jax.named_scope("gmres"):
-                    stage, pair_increment, pair_solver_info = (
-                        model.solve_implicit_current_phi_pair(
-                            updated, solve_dt=solve_dt,
-                        )
-                    )
-                mark_pair_solve_phi(stage.phi)
-                phi_info = _format_phi_solver_diagnostics(pair_solver_info)
-                total_increment = increment.axpy(pair_increment, scale=1.0)
-                return stage, total_increment, phi_info
-            stage_phi, phi_info = reconstruct_stage_phi(updated, model)
-            return updated.replace(phi=stage_phi), increment, phi_info
-
-        staged_implicit_sharded = jax.shard_map(
-            staged_implicit_kernel,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-                scalar_spec,
-                scalar_spec,
-            ),
-            out_specs=(state_spec, state_spec, replicated_spec),
-            check_vma=False,
-        )
-
-        def staged_explicit_kernel(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-            selection_dt: jax.Array,
-        ):
-            model = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            )
-            rhs = model.evaluate_stage(
+        # The staged path compiles each reusable kernel once, then runs the
+        # same SSP222 algebra with device-side array operations between
+        # kernel calls.
+        def with_model(kernel):
+            def wrapped(
                 local_state,
-                phi_owned=local_state.phi,
-                short_leg_selection_dt=selection_dt,
-            )
-            rhs = model.project_galerkin_state(rhs)
-            mark_operator(rhs)
-            return rhs
-
-        staged_explicit_sharded = jax.shard_map(
-            staged_explicit_kernel,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-                scalar_spec,
-            ),
-            out_specs=state_spec,
-            check_vma=False,
-        )
-
-        def staged_phi_kernel(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-        ):
-            model = build_local_model(
                 cell_fields_owned,
                 map_fields_owned,
                 control_volume_fields_owned,
-            )
-            return reconstruct_stage_phi(local_state, model)
+                *scalars,
+            ):
+                model = build_local_model(
+                    cell_fields_owned,
+                    map_fields_owned,
+                    control_volume_fields_owned,
+                )
+                return kernel(local_state, model, *scalars)
 
-        staged_phi_sharded = jax.shard_map(
-            staged_phi_kernel,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-            ),
-            out_specs=(spatial_spec, replicated_spec),
-            check_vma=False,
+            return wrapped
+
+        def staged_kernel(kernel, scalar_count, out_specs):
+            return jax.shard_map(
+                with_model(kernel),
+                mesh=mesh,
+                in_specs=(state_spec,) + (geometry_spec,) * 3
+                + (replicated_spec,) * scalar_count,
+                out_specs=out_specs,
+                check_vma=False,
+            )
+
+        staged_implicit_sharded = staged_kernel(
+            implicit_solve, 2, (state_spec, state_spec, replicated_spec)
         )
-
-        def staged_finalize_kernel(
-            current: FciDrbEBState,
-            stage_1: FciDrbEBState,
-            stage_2_base: FciDrbEBState,
-            stage_2: FciDrbEBState,
-            next_state: FciDrbEBState,
-            implicit_1: FciDrbEBState,
-            explicit_1: FciDrbEBState,
-            implicit_2: FciDrbEBState,
-            explicit_2: FciDrbEBState,
-            weighted_rate: FciDrbEBState,
-            gmres_info_1: jax.Array,
-            gmres_info_2_base: jax.Array,
-            gmres_info_2: jax.Array,
-            gmres_info_next: jax.Array,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-        ):
-            model = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            )
-            return finalize_advance(
-                next_state,
-                model,
-                (current, stage_1, stage_2_base, stage_2, next_state),
-                (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
-                (gmres_info_1, gmres_info_2_base, gmres_info_2, gmres_info_next),
-            )
-
+        staged_explicit_sharded = staged_kernel(evaluate_operators, 1, state_spec)
+        staged_phi_sharded = staged_kernel(
+            reconstruct_stage_phi, 0, (spatial_spec, replicated_spec)
+        )
         staged_finalize_sharded = jax.shard_map(
-            staged_finalize_kernel,
+            lambda states, rates, infos, *fields: finalize_advance(
+                build_local_model(*fields), states, rates, infos
+            ),
             mesh=mesh,
             in_specs=(
-                state_spec,
-                state_spec,
-                state_spec,
-                state_spec,
-                state_spec,
-                state_spec,
-                state_spec,
-                state_spec,
-                state_spec,
-                state_spec,
-                replicated_spec,
-                replicated_spec,
-                replicated_spec,
-                replicated_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-            ),
+                (state_spec,) * 5,
+                (state_spec,) * 5,
+                (replicated_spec,) * 4,
+            ) + (geometry_spec,) * 3,
             out_specs=advance_out_specs,
             check_vma=False,
         )
@@ -2220,13 +2087,12 @@ def run_full_eb(
             return executable
 
         staged_compile_start = time.perf_counter()
+        geometry_args = (cell_fields, map_fields, control_volume_fields)
         staged_implicit = compile_staged_kernel(
             "implicit+phi",
             staged_implicit_sharded,
             state,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
+            *geometry_args,
             jnp.asarray(
                 IMEX_SSP222_GAMMA * float(timestep), dtype=jnp.float64
             ),
@@ -2236,40 +2102,23 @@ def run_full_eb(
             "explicit-rhs",
             staged_explicit_sharded,
             state,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
+            *geometry_args,
             jnp.asarray(float(timestep), dtype=jnp.float64),
         )
         staged_phi = compile_staged_kernel(
             "standalone-phi",
             staged_phi_sharded,
             state,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
+            *geometry_args,
         )
         zero_info = jnp.zeros((7,), dtype=jnp.float64)
         staged_finalize = compile_staged_kernel(
             "stage-diagnostics",
             staged_finalize_sharded,
-            state,
-            state,
-            state,
-            state,
-            state,
-            state,
-            state,
-            state,
-            state,
-            state,
-            zero_info,
-            zero_info,
-            zero_info,
-            zero_info,
-            cell_fields,
-            map_fields,
-            control_volume_fields,
+            (state,) * 5,
+            (state,) * 5,
+            (zero_info,) * 4,
+            *geometry_args,
         )
         print(
             "[simulation] compiled staged IMEX kernels (implicit+phi, "
@@ -2278,97 +2127,20 @@ def run_full_eb(
             flush=True,
         )
 
-        def staged_execute_advance(*advance_args):
-            (
-                current,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                _current_time,
-            ) = advance_args
+        def staged_execute_advance(current, *advance_args):
+            fields = advance_args[:3]
             dt_dynamic = jnp.asarray(float(timestep), dtype=jnp.float64)
-            gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * dt_dynamic
-
-            stage_1, increment_1, gmres_info_1 = staged_implicit(
-                current,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                gamma_dt,
-                dt_dynamic,
-            )
-            implicit_1 = increment_1.map_fields(
-                lambda value: value / gamma_dt
-            )
-            explicit_1 = staged_explicit(
-                stage_1,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                dt_dynamic,
-            )
-            stage_2_base_before_phi = current.axpy(
-                explicit_1, scale=dt_dynamic
-            ).axpy(
-                implicit_1,
-                scale=(1.0 - 2.0 * IMEX_SSP222_GAMMA) * dt_dynamic,
-            )
-            stage_2_base_phi, gmres_info_2_base = staged_phi(
-                stage_2_base_before_phi,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            )
-            stage_2_base = stage_2_base_before_phi.replace(phi=stage_2_base_phi)
-            stage_2, increment_2, gmres_info_2 = staged_implicit(
-                stage_2_base,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                gamma_dt,
-                dt_dynamic,
-            )
-            implicit_2 = increment_2.map_fields(
-                lambda value: value / gamma_dt
-            )
-            explicit_2 = staged_explicit(
-                stage_2,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-                dt_dynamic,
-            )
-            weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
-                implicit_1, scale=1.0
-            ).axpy(implicit_2, scale=1.0).map_fields(
-                lambda value: 0.5 * value
-            )
-            next_state = current.axpy(weighted_rate, scale=dt_dynamic)
-            next_phi, gmres_info_next = staged_phi(
-                next_state,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            )
-            next_state = next_state.replace(phi=next_phi)
             return staged_finalize(
-                current,
-                stage_1,
-                stage_2_base,
-                stage_2,
-                next_state,
-                implicit_1,
-                explicit_1,
-                implicit_2,
-                explicit_2,
-                weighted_rate,
-                gmres_info_1,
-                gmres_info_2_base,
-                gmres_info_2,
-                gmres_info_next,
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
+                *ssp222_stages(
+                    current,
+                    lambda base, gamma_dt: staged_implicit(
+                        base, *fields, gamma_dt, dt_dynamic
+                    ),
+                    lambda stage: staged_explicit(stage, *fields, dt_dynamic),
+                    lambda state: staged_phi(state, *fields),
+                    dt_dynamic,
+                ),
+                *fields,
             )
 
         compiled_advance = staged_execute_advance

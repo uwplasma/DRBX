@@ -95,20 +95,19 @@ def test_time_advance_exposes_true_eager_mode_and_staged_compiled_default():
     source = DRIVER_SOURCE.read_text(encoding="utf-8")
     assert "with jax.disable_jit(advance_execution == \"eager\")" in source
     assert "compiled_advance = sharded_advance" in source
-    assert "staged_implicit_sharded = jax.shard_map(" in source
-    assert "staged_explicit_sharded = jax.shard_map(" in source
-    assert "staged_phi_sharded = jax.shard_map(" in source
+    assert "staged_implicit_sharded = staged_kernel(" in source
+    assert "staged_explicit_sharded = staged_kernel(" in source
+    assert "staged_phi_sharded = staged_kernel(" in source
     assert "staged_finalize_sharded = jax.shard_map(" in source
     assert "def compile_staged_kernel(label: str, sharded_kernel" in source
     assert '"implicit+phi"' in source
     assert '"explicit-rhs"' in source
     assert '"standalone-phi"' in source
     assert '"stage-diagnostics"' in source
-    # The staged device-side operations must retain the SSP222 stage algebra
-    # of full_imex_advance.
-    assert "stage_2_base_before_phi = current.axpy(" in source
+    # The staged and monolithic advances share one SSP222 stage algebra.
+    assert source.count("ssp222_stages(") == 3
     assert "weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(" in source
-    assert "next_state = current.axpy(weighted_rate, scale=dt_dynamic)" in source
+    assert "next_state = current.axpy(weighted_rate, scale=step_dt)" in source
 
 
 def test_eager_advance_keeps_cell_centered_setup_kernels_compiled():
