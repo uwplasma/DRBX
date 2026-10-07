@@ -157,6 +157,23 @@ in the bulk around the filament, not at the walls. Ve behaves the same way,
 and vorticity converges more slowly. Where the potential matters, use more
 steps: 400 steps (dt = 3.75e-4) bring the potential error to about 5%.
 
+Measured temporal order (HSX 32-cubed, t = 0.003, dt = 7.5e-4 down to dt/8,
+tight GMRES tolerances; investigation in PR #28):
+
+| Field | Order | Cause of the reduction |
+|---|---|---|
+| vorticity | 1.8-1.9 | none (design order) |
+| n, Te, Ti, Vi | 1.4-1.6 | one Gauss-Seidel pass between the wall backward-Euler block and the current/potential pair per implicit stage; converging the stage gives about 1.8 at roughly twice the GMRES cost |
+| phi | 1.0-1.2 | stiff electron relaxation (mi/me = 1836): phi acts as an algebraic multiplier and the stage-order-1 implicit scheme loses order; with mi/me = 100 phi converges at 1.6-1.9 and with 10 at 1.9-2.0 |
+| Ve | 1.3-1.6 | same mechanism as phi |
+
+The order is not set by the IMEX tableau (SSP2, ARS(2,2,2) and a stiffly
+accurate stage-order-2 ARK2 give the same orders), by GMRES tolerance, by the
+wall closure (no clipping or flux fallback fires) or by the initial state.
+Second-order phi at the physical mass ratio needs a higher-stage-order implicit
+treatment of the current/potential block; until then, refine dt for
+potential-sensitive observables as above.
+
 The driver imports `drbx` from this repository's `src`; `DRBX_SOURCE_ROOT`
 overrides that. Set `DRBX_CACHE_DIR` to a writable, run-local JAX compilation
 cache so repeated runs skip compilation.
