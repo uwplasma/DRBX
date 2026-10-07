@@ -3352,7 +3352,7 @@ def load_hsx_blob_deck(path: str | Path) -> HsxBlobConfig:
     are errors.
     """
 
-    import tomllib
+    from ..config.boutinp import tomllib
 
     source = Path(path)
     data = tomllib.loads(source.read_text(encoding="utf-8"))

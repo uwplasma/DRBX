@@ -130,7 +130,7 @@ _NATIVE_RUN_OPTIONS = (
 def _is_fci_braginskii_deck(path: Path) -> bool:
     if path.suffix.lower() != ".toml":
         return False
-    import tomllib
+    from .config.boutinp import tomllib
 
     model = tomllib.loads(path.read_text(encoding="utf-8")).get("model", {})
     return isinstance(model, dict) and model.get("backend") == _FCI_BRAGINSKII_BACKEND
