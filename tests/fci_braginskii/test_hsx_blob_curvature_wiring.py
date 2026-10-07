@@ -68,11 +68,18 @@ def test_hsx_gmres_uses_tight_target_and_preserves_looser_acceptance():
 
 
 def test_hsx_gmres_cli_separates_target_and_acceptance_with_legacy_alias():
+    from drbx.fci_braginskii.run import _build_parser
+
     source = DRIVER_SOURCE.read_text()
-    assert '"--gmres-target-tolerance"' in source
-    assert '"--gmres-acceptance-tolerance"' in source
-    assert '"--gmres-tolerance"' in source
-    assert 'dest="gmres_acceptance_tolerance"' in source
+    parser = _build_parser()
+    options = {
+        option: action.dest
+        for action in parser._actions
+        for option in action.option_strings
+    }
+    assert options["--gmres-target-tolerance"] == "gmres_target_tolerance"
+    assert options["--gmres-acceptance-tolerance"] == "gmres_acceptance_tolerance"
+    assert options["--gmres-tolerance"] == "gmres_acceptance_tolerance"
     assert 'gmres_target_tolerance: float = GMRES_TARGET_TOLERANCE' in source
     assert 'gmres_acceptance_tolerance: float = 5.0e-5' in source
     assert 'gmres_target_tolerance=float(args.gmres_target_tolerance)' in source
