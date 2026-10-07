@@ -23,9 +23,9 @@ def _package_name(requirement: str) -> str:
     return package_requirement.strip()
 
 
-# solvax carries the extracted structured-solver machinery; the Fourier--Helmholtz
-# elliptic solve the vorticity model uses landed in solvax 0.8.1, so it is the one
-# runtime dependency allowed a lower-bound version floor.
+# solvax carries the extracted structured-solver machinery and is the one runtime
+# dependency allowed a lower-bound version floor (0.28.2: the FGMRES Givens loop
+# with a static bound, which removes per-rotation host round trips on GPU).
 _VERSION_FLOOR_EXCEPTIONS = {"solvax"}
 
 
