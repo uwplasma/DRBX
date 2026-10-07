@@ -18,6 +18,8 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from drbx.fci_braginskii.native.fci_helpers import small_batched_eig
+
 
 Array = jax.Array
 STATE_SIZE = 4
@@ -125,7 +127,7 @@ def _safe_spectral_data(
     """
 
     frozen = jax.lax.stop_gradient(matrix)
-    eigenvalues, vectors = jnp.linalg.eig(frozen)
+    eigenvalues, vectors = small_batched_eig(frozen)
     # These are small square characteristic bases.  A direct inverse avoids
     # the SVD used by ``pinv``; defective/ill-conditioned bases are rejected
     # below and use the finite Rusanov fallback instead.
