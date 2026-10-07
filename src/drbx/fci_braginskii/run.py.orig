@@ -1074,51 +1074,6 @@ def _state_marker_dependencies(state: FciDrbEBState) -> tuple[jax.Array, ...]:
 
 IMEX_SSP222_GAMMA = 1.0 - 1.0 / np.sqrt(2.0)
 
-# Block Gauss-Seidel sweeps over the two implicit blocks of one IMEX stage
-# (selected-wall material block, current/phi pair).  One sweep evaluates the
-# material rate at the post-material state, before the pair has updated Ve,
-# vorticity and phi: a first-order splitting inside the stage.  Each extra
-# sweep re-solves both blocks from the stage base with the other block's
-# latest increment, so both rates are evaluated at the same stage value.
-IMPLICIT_STAGE_SWEEPS = 1
-IMEX_SCHEME = "ssp222"
-MATERIAL_NEWTON_ITERATIONS = 0
-
-
-def coupled_implicit_stage(model, base, *, solve_dt, selection_dt, sweeps=None):
-    """Return ``(stage, total_increment, pair_info)`` for one implicit stage.
-
-    Solves ``Y = base + solve_dt*(I_material(Y) + I_pair(Y))`` by block
-    Gauss-Seidel; requires ``model.implicit_current_phi_pair``.
-    """
-
-    sweeps = IMPLICIT_STAGE_SWEEPS if sweeps is None else int(sweeps)
-    pair_increment = None
-    material_increment = None
-    phi = base.phi
-    for _ in range(max(sweeps, 1)):
-        outer_base = (
-            base if pair_increment is None
-            else base.axpy(pair_increment, scale=1.0)
-        ).replace(phi=phi)
-        for _ in range(max(MATERIAL_NEWTON_ITERATIONS, 1)):
-            newton = material_increment is not None and MATERIAL_NEWTON_ITERATIONS > 0
-            _, material_increment, _ = model.apply_short_leg_implicit_material_step(
-                outer_base.axpy(material_increment, scale=1.0) if newton
-                else outer_base,
-                linearization_increment=material_increment if newton else None,
-                solve_dt=solve_dt,
-                selection_dt=selection_dt,
-                phi_owned=phi,
-                return_increment=True,
-            )
-        pair_base = base.axpy(material_increment, scale=1.0).replace(phi=phi)
-        stage, pair_increment, pair_info = model.solve_implicit_current_phi_pair(
-            pair_base, solve_dt=solve_dt,
-        )
-        phi = stage.phi
-    return stage, material_increment.axpy(pair_increment, scale=1.0), pair_info
-
 
 def _pack_curvature_face_coefficients(
     coefficients: LocalCurvatureFaceCoefficients3D,
@@ -1953,25 +1908,26 @@ def run_full_eb(
         gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * dt
 
         def implicit_stage(base: FciDrbEBState):
+            updated, increment, _info = (
+                model.apply_short_leg_implicit_material_step(
+                    base,
+                    solve_dt=gamma_dt,
+                    selection_dt=dt,
+                    phi_owned=base.phi,
+                    return_increment=True,
+                )
+            )
             if model.implicit_current_phi_pair:
                 with jax.named_scope("gmres"):
-                    stage, total_increment, pair_solver_info = (
-                        coupled_implicit_stage(
-                            model, base, solve_dt=gamma_dt, selection_dt=dt,
+                    stage, pair_increment, pair_solver_info = (
+                        model.solve_implicit_current_phi_pair(
+                            updated, solve_dt=gamma_dt,
                         )
                     )
                 mark_pair_solve_phi(stage.phi)
                 phi_info = _format_phi_solver_diagnostics(pair_solver_info)
+                total_increment = increment.axpy(pair_increment, scale=1.0)
             else:
-                updated, increment, _info = (
-                    model.apply_short_leg_implicit_material_step(
-                        base,
-                        solve_dt=gamma_dt,
-                        selection_dt=dt,
-                        phi_owned=base.phi,
-                        return_increment=True,
-                    )
-                )
                 stage_phi, phi_info = reconstruct_stage_phi(updated, model)
                 stage = updated.replace(phi=stage_phi)
                 total_increment = increment
@@ -2102,17 +2058,6 @@ def run_full_eb(
                 map_fields_owned,
                 control_volume_fields_owned,
             )
-            if model.implicit_current_phi_pair:
-                with jax.named_scope("gmres"):
-                    stage, total_increment, pair_solver_info = (
-                        coupled_implicit_stage(
-                            model, local_state,
-                            solve_dt=solve_dt, selection_dt=selection_dt,
-                        )
-                    )
-                mark_pair_solve_phi(stage.phi)
-                phi_info = _format_phi_solver_diagnostics(pair_solver_info)
-                return stage, total_increment, phi_info
             updated, increment, _info = (
                 model.apply_short_leg_implicit_material_step(
                     local_state,
@@ -2122,6 +2067,17 @@ def run_full_eb(
                     return_increment=True,
                 )
             )
+            if model.implicit_current_phi_pair:
+                with jax.named_scope("gmres"):
+                    stage, pair_increment, pair_solver_info = (
+                        model.solve_implicit_current_phi_pair(
+                            updated, solve_dt=solve_dt,
+                        )
+                    )
+                mark_pair_solve_phi(stage.phi)
+                phi_info = _format_phi_solver_diagnostics(pair_solver_info)
+                total_increment = increment.axpy(pair_increment, scale=1.0)
+                return stage, total_increment, phi_info
             stage_phi, phi_info = reconstruct_stage_phi(updated, model)
             return updated.replace(phi=stage_phi), increment, phi_info
 
@@ -2137,48 +2093,6 @@ def run_full_eb(
                 scalar_spec,
             ),
             out_specs=(state_spec, state_spec, replicated_spec),
-            check_vma=False,
-        )
-
-        def staged_implicit_rate_kernel(
-            local_state: FciDrbEBState,
-            cell_fields_owned: jax.Array,
-            map_fields_owned: jax.Array,
-            control_volume_fields_owned: jax.Array,
-            selection_dt: jax.Array,
-        ):
-            model = build_local_model(
-                cell_fields_owned,
-                map_fields_owned,
-                control_volume_fields_owned,
-            )
-            # Material wall rate r = lim (I - eps J)^-1 eps r / eps; the
-            # increment is formed directly (no state difference), so a tiny
-            # eps is exact to O(eps*|J|).
-            eps = 1.0e-12 * selection_dt
-            _, material_increment, _ = model.apply_short_leg_implicit_material_step(
-                local_state,
-                solve_dt=eps,
-                selection_dt=selection_dt,
-                phi_owned=local_state.phi,
-                return_increment=True,
-            )
-            material_rate = material_increment.map_fields(lambda v: v / eps)
-            return material_rate.axpy(
-                model.implicit_current_phi_pair_rate(local_state), scale=1.0
-            )
-
-        staged_implicit_rate_sharded = jax.shard_map(
-            staged_implicit_rate_kernel,
-            mesh=mesh,
-            in_specs=(
-                state_spec,
-                geometry_spec,
-                geometry_spec,
-                geometry_spec,
-                scalar_spec,
-            ),
-            out_specs=state_spec,
             check_vma=False,
         )
 
@@ -2340,18 +2254,6 @@ def run_full_eb(
             control_volume_fields,
             jnp.asarray(float(timestep), dtype=jnp.float64),
         )
-        staged_implicit_rate = (
-            compile_staged_kernel(
-                "implicit-rate",
-                staged_implicit_rate_sharded,
-                state,
-                cell_fields,
-                map_fields,
-                control_volume_fields,
-                jnp.asarray(float(timestep), dtype=jnp.float64),
-            )
-            if IMEX_SCHEME == "ark2" else None
-        )
         staged_phi = compile_staged_kernel(
             "standalone-phi",
             staged_phi_sharded,
@@ -2399,82 +2301,6 @@ def run_full_eb(
             ) = advance_args
             dt_dynamic = jnp.asarray(float(timestep), dtype=jnp.float64)
             gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * dt_dynamic
-            geometry_args = (
-                cell_fields_owned, map_fields_owned, control_volume_fields_owned,
-            )
-            if IMEX_SCHEME == "ark2":
-                # Giraldo-Kelly-Constantinescu ARK2: ESDIRK implicit part
-                # with stage order 2, stiffly accurate, L-stable.
-                g = IMEX_SSP222_GAMMA
-                d = 1.0 / (2.0 * np.sqrt(2.0))
-                a = (3.0 + 2.0 * np.sqrt(2.0)) / 6.0
-                h = dt_dynamic
-                explicit_1 = staged_explicit(current, *geometry_args, h)
-                implicit_1 = staged_implicit_rate(current, *geometry_args, h)
-                base_2 = current.axpy(explicit_1, scale=2.0 * g * h).axpy(
-                    implicit_1, scale=g * h
-                )
-                base_2_phi, gmres_info_1 = staged_phi(base_2, *geometry_args)
-                base_2 = base_2.replace(phi=base_2_phi)
-                stage_2, increment_2, gmres_info_2 = staged_implicit(
-                    base_2, *geometry_args, gamma_dt, h,
-                )
-                implicit_2 = increment_2.map_fields(lambda value: value / gamma_dt)
-                explicit_2 = staged_explicit(stage_2, *geometry_args, h)
-                base_3 = (
-                    current.axpy(explicit_1, scale=(1.0 - a) * h)
-                    .axpy(explicit_2, scale=a * h)
-                    .axpy(implicit_1, scale=d * h)
-                    .axpy(implicit_2, scale=d * h)
-                )
-                base_3_phi, gmres_info_3_base = staged_phi(base_3, *geometry_args)
-                base_3 = base_3.replace(phi=base_3_phi)
-                stage_3, increment_3, gmres_info_3 = staged_implicit(
-                    base_3, *geometry_args, gamma_dt, h,
-                )
-                implicit_3 = increment_3.map_fields(lambda value: value / gamma_dt)
-                explicit_3 = staged_explicit(stage_3, *geometry_args, h)
-                next_state = (
-                    stage_3.axpy(explicit_1, scale=(d - (1.0 - a)) * h)
-                    .axpy(explicit_2, scale=(d - a) * h)
-                    .axpy(explicit_3, scale=g * h)
-                )
-                next_phi, _ = staged_phi(next_state, *geometry_args)
-                next_state = next_state.replace(phi=next_phi)
-                return staged_finalize(
-                    current, base_2, stage_2, stage_3, next_state,
-                    explicit_1, implicit_2, explicit_2, implicit_3,
-                    explicit_3,
-                    gmres_info_1, gmres_info_2, gmres_info_3_base, gmres_info_3,
-                    *geometry_args,
-                )
-            if IMEX_SCHEME == "ars222":
-                delta = 1.0 - 1.0 / (2.0 * IMEX_SSP222_GAMMA)
-                explicit_1 = staged_explicit(current, *geometry_args, dt_dynamic)
-                base_2 = current.axpy(explicit_1, scale=gamma_dt)
-                base_2_phi, gmres_info_1 = staged_phi(base_2, *geometry_args)
-                base_2 = base_2.replace(phi=base_2_phi)
-                stage_2, increment_2, gmres_info_2 = staged_implicit(
-                    base_2, *geometry_args, gamma_dt, dt_dynamic,
-                )
-                implicit_2 = increment_2.map_fields(lambda value: value / gamma_dt)
-                explicit_2 = staged_explicit(stage_2, *geometry_args, dt_dynamic)
-                base_3 = current.axpy(explicit_1, scale=delta * dt_dynamic).axpy(
-                    explicit_2, scale=(1.0 - delta) * dt_dynamic
-                ).axpy(implicit_2, scale=(1.0 - IMEX_SSP222_GAMMA) * dt_dynamic)
-                base_3_phi, gmres_info_3_base = staged_phi(base_3, *geometry_args)
-                base_3 = base_3.replace(phi=base_3_phi)
-                next_state, increment_3, gmres_info_3 = staged_implicit(
-                    base_3, *geometry_args, gamma_dt, dt_dynamic,
-                )
-                implicit_3 = increment_3.map_fields(lambda value: value / gamma_dt)
-                return staged_finalize(
-                    current, base_2, stage_2, base_3, next_state,
-                    explicit_1, implicit_2, explicit_2, implicit_3,
-                    implicit_3,
-                    gmres_info_1, gmres_info_2, gmres_info_3_base, gmres_info_3,
-                    *geometry_args,
-                )
 
             stage_1, increment_1, gmres_info_1 = staged_implicit(
                 current,

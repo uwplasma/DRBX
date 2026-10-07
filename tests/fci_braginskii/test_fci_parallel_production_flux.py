@@ -629,3 +629,27 @@ def test_failed_two_wall_hotspot_is_admissible():
     assert bool(jnp.all(jnp.isfinite(wall["selected_residual"])))
     assert bool(jnp.all(jnp.isfinite(wall["selected_jacobian"])))
     assert bool(info["admissible"])
+
+
+def test_short_wall_backward_euler_linearization_increment_is_a_newton_step():
+    center = _state()
+    candidate = jnp.asarray([2.0, 3.0, 5.0, 0.0, 0.0])
+    dt = 2.0e-4
+    kwargs = dict(selection_dt=dt, solve_dt=dt, backward_wall=True,
+                  backward_wall_state=candidate)
+    _, plain, info = parallel_short_wall_backward_euler(
+        center, center, center, 0.01, 1.0, 4.0, 10.0, **kwargs)
+    _, zero, _ = parallel_short_wall_backward_euler(
+        center, center, center, 0.01, 1.0, 4.0, 10.0,
+        linearization_increment=jnp.zeros(5), **kwargs)
+    np.testing.assert_array_equal(np.asarray(plain), np.asarray(zero))
+    m_k = jnp.asarray([1e-3, -2e-3, 5e-4, 1e-3, -1e-3])
+    _, newton, _ = parallel_short_wall_backward_euler(
+        center, center, center, 0.01, 1.0, 4.0, 10.0,
+        linearization_increment=m_k, **kwargs)
+    jac = np.asarray(info["selected_jacobian"])
+    expected = np.linalg.solve(
+        np.eye(5) - dt * jac,
+        dt * (np.asarray(info["backward_residual"]) - jac @ np.asarray(m_k)),
+    )
+    np.testing.assert_allclose(newton, expected, rtol=2e-9, atol=2e-9)

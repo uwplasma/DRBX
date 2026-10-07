@@ -22,6 +22,7 @@ import jax.numpy as jnp
 
 STATE_SIZE = 5
 _LOG_FLOOR = 1.0e-30
+_DIAG_SMOOTH_SIGN_WIDTH = 0.0  # diagnostic-only switch; 0 keeps the sharp split
 _DEFAULT_EIG_TOL = 1.0e-10
 _DEFAULT_MAX_CONDITION = 1.0e10
 
@@ -158,6 +159,13 @@ def _projectors_from_basis(
     eye = jnp.broadcast_to(jnp.eye(STATE_SIZE, dtype=jnp.float64), vectors.shape)
     positive = oriented_values > eigenvalue_tolerance
     negative = oriented_values < -eigenvalue_tolerance
+    if _DIAG_SMOOTH_SIGN_WIDTH > 0.0:
+        scale = _DIAG_SMOOTH_SIGN_WIDTH * jnp.maximum(
+            jnp.max(jnp.abs(jnp.real(oriented_values)), axis=-1, keepdims=True),
+            _LOG_FLOOR,
+        )
+        positive = 0.5 * (1.0 + jnp.tanh(jnp.real(oriented_values) / scale))
+        negative = 1.0 - positive
     p_plus_char = jnp.einsum(
         "...ik,...k,...kj->...ij", vectors, positive, inverse
     )
@@ -433,6 +441,13 @@ def _live_characteristic_leg_action(
         if branch == "plus"
         else jnp.where(oriented_values < -eigenvalue_tolerance, oriented_values, 0.0)
     )
+    if _DIAG_SMOOTH_SIGN_WIDTH > 0.0:
+        scale = _DIAG_SMOOTH_SIGN_WIDTH * jnp.maximum(
+            jnp.max(jnp.abs(jnp.real(oriented_values)), axis=-1, keepdims=True),
+            _LOG_FLOOR,
+        )
+        weight = 0.5 * (1.0 + jnp.tanh(jnp.real(oriented_values) / scale))
+        selected = oriented_values * (weight if branch == "plus" else 1.0 - weight)
     action = jnp.real(_matvec(vectors, selected * coefficients))
     normal_matrix = normal[..., None, None] * matrix
     safe_normal_matrix = jnp.where(jnp.isfinite(normal_matrix), normal_matrix, 0.0)
@@ -1177,11 +1192,18 @@ def parallel_short_wall_backward_euler(
     forward_wall_state: jnp.ndarray | None = None,
     equilibrium: jnp.ndarray | None = None,
     coupled_residual: jnp.ndarray | None = None,
+    linearization_increment: jnp.ndarray | None = None,
     positivity_floor: float = 1.0e-12,
     eigenvalue_tolerance: float = _DEFAULT_EIG_TOL,
     max_condition: float = _DEFAULT_MAX_CONDITION,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Apply one local backward-Euler increment to selected wall rows.
+
+    ``linearization_increment`` (``m_k``) is the stage increment already
+    contained in ``center``; the returned increment then solves
+    ``(I - solve_dt*J) m = solve_dt*(r - J m_k)``, one frozen-Jacobian Newton
+    step for ``m = solve_dt*r(base + m)`` linearized at ``base + m_k``.  With
+    ``None`` (``m_k = 0``) this is the single linearized step below.
 
     ``coupled_residual`` lets the caller hand off a residual term that
     belongs to the same selected-row principal balance but is assembled
@@ -1234,6 +1256,15 @@ def parallel_short_wall_backward_euler(
     )
     system = eye - solve_dt[..., None, None] * selected_jacobian
     rhs = solve_dt[..., None] * selected_residual
+    if linearization_increment is not None:
+        linearization_increment = jnp.where(
+            selected_wall[..., None],
+            jnp.asarray(linearization_increment, dtype=jnp.float64),
+            0.0,
+        )
+        rhs = rhs - solve_dt[..., None] * jnp.einsum(
+            "...ij,...j->...i", selected_jacobian, linearization_increment
+        )
     # Explicitly add a singleton RHS dimension for JAX's batched solve API;
     # newer JAX releases no longer infer a batched one-vector solve.
     delta = jnp.linalg.solve(system, rhs[..., None])[..., 0]
