@@ -3099,23 +3099,35 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
             "Boussinesq model on a precomputed FCI simulation geometry artifact."
         )
     )
-    parser.add_argument(
-        "--geometry",
-        type=Path,
-        default=_DEFAULTS.geometry,
+
+    def option(name: str, *aliases: str, **kwargs: object) -> None:
+        """Add ``--name`` with its default (and type/nargs) from HsxBlobConfig."""
+
+        default = getattr(_DEFAULTS, name)
+        if isinstance(default, bool) and "action" not in kwargs:
+            kwargs["action"] = "store_true"
+        else:
+            kwargs.setdefault("default", default)
+        if "action" not in kwargs and "choices" not in kwargs:
+            if name in _SEQUENCE_ITEM_TYPES:
+                kind, length = _SEQUENCE_ITEM_TYPES[name]
+                kwargs.update(nargs=length or "+", type=kind)
+            else:
+                kwargs["type"] = Path if name in _PATH_FIELDS else type(default)
+        parser.add_argument("--" + name.replace("_", "-"), *aliases, **kwargs)
+
+    option(
+        "geometry",
         required=require_geometry,
         help=(
             "Directory containing the precomputed FCI simulation geometry "
             "artifact. It sets the topology, resolution and RLP owner profile."
         ),
     )
-    parser.add_argument(
-        "--shard-counts",
+    option(
+        "shard_counts",
         "--shards",
-        nargs=3,
-        type=int,
         metavar=("SU", "SV", "SETA"),
-        default=_DEFAULTS.shard_counts,
         help=(
             "Production JAX decomposition in u, the second logical "
             "coordinate, and eta. Only eta decomposition is supported, so "
@@ -3123,44 +3135,31 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
             "SETA, whose value must not exceed the available JAX device count."
         ),
     )
-    parser.add_argument("--halo-width", type=int, default=_DEFAULTS.halo_width)
-    parser.add_argument(
-        "--filament-cache-dir",
-        type=Path,
-        default=_DEFAULTS.filament_cache_dir,
+    option("halo_width")
+    option(
+        "filament_cache_dir",
         help="Directory for reusable initial-filament field-line label caches.",
     )
-    parser.add_argument(
-        "--no-filament-cache",
-        action="store_true",
+    option(
+        "no_filament_cache",
         help="Disable loading and writing initial-filament label caches.",
     )
-    parser.add_argument(
-        "--rebuild-filament-cache",
-        action="store_true",
+    option(
+        "rebuild_filament_cache",
         help="Ignore a matching filament cache and replace it after tracing.",
     )
-    parser.add_argument(
-        "--final-time",
-        type=float,
-        default=_DEFAULTS.final_time,
-        help="Final normalized simulation time.",
-    )
-    parser.add_argument(
-        "--num-steps",
-        type=int,
-        default=_DEFAULTS.num_steps,
+    option("final_time", help="Final normalized simulation time.")
+    option(
+        "num_steps",
         help=(
             "Number of equal IMEX-SSP222 steps used to reach --final-time. "
             "The default gives dt = 7.5e-4 (0.15/200), validated with the "
             "implicit current/phi pair at the default rho*."
         ),
     )
-    parser.add_argument("--save-every", type=int, default=_DEFAULTS.save_every)
-    parser.add_argument(
-        "--checkpoint-every",
-        type=int,
-        default=_DEFAULTS.checkpoint_every,
+    option("save_every")
+    option(
+        "checkpoint_every",
         metavar="N",
         help=(
             "Write an atomic restartable checkpoint after every N completed "
@@ -3168,11 +3167,8 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
             "step-indexed NPZ files and survive a later run failure."
         ),
     )
-    parser.add_argument(
-        "--snapshot-times",
-        nargs="+",
-        type=float,
-        default=_DEFAULTS.snapshot_times,
+    option(
+        "snapshot_times",
         metavar="T",
         help=(
             "Absolute physical times at which durable atomic checkpoint NPZ "
@@ -3180,114 +3176,83 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
             "the first completed step at or after each requested time."
         ),
     )
-    parser.add_argument(
-        "--snapshot-dir",
-        type=Path,
-        default=_DEFAULTS.snapshot_dir,
+    option(
+        "snapshot_dir",
         help="Directory for scheduled snapshot NPZ files; defaults to the output directory.",
     )
-    parser.add_argument(
-        "--restart-from",
-        type=Path,
-        default=_DEFAULTS.restart_from,
+    option(
+        "restart_from",
         help="Restart from a snapshot NPZ or a saved history NPZ.",
     )
-    parser.add_argument(
-        "--restart-frame",
-        type=int,
-        default=_DEFAULTS.restart_frame,
+    option(
+        "restart_frame",
         help="Frame to load from a history NPZ; ignored for a single snapshot.",
     )
-    parser.add_argument(
-        "--diagnostic-every",
-        type=int,
-        default=_DEFAULTS.diagnostic_every,
+    option(
+        "diagnostic_every",
         metavar="N",
         help=(
             "Print compiled min/max/max-absolute diagnostics for every state "
             "field every N steps; 0 disables periodic detailed output."
         ),
     )
-    parser.add_argument(
-        "--blob-initialization",
+    option(
+        "blob_initialization",
         choices=("field-aligned", "logical"),
-        default=_DEFAULTS.blob_initialization,
         help=(
             "Use a backtraced, finite field-aligned density filament by "
             "default. 'logical' restores the eta-copied Gaussian."
         ),
     )
-    parser.add_argument("--density-amplitude", type=float, default=_DEFAULTS.density_amplitude)
-    parser.add_argument(
-        "--temperature-amplitude",
-        type=float,
-        default=_DEFAULTS.temperature_amplitude,
+    option("density_amplitude")
+    option(
+        "temperature_amplitude",
         help=(
             "Electron-temperature perturbation used only by the legacy "
             "logical initialization. The field-aligned filament is "
             "density-only."
         ),
     )
-    parser.add_argument(
-        "--blob-center",
-        nargs=2,
-        type=float,
-        metavar=("U0", "V0"),
-        default=_DEFAULTS.blob_center,
-    )
-    parser.add_argument("--blob-width", type=float, default=_DEFAULTS.blob_width)
-    parser.add_argument(
-        "--blob-reference-eta",
-        type=float,
-        default=_DEFAULTS.blob_reference_eta,
+    option("blob_center", metavar=("U0", "V0"))
+    option("blob_width")
+    option(
+        "blob_reference_eta",
         help="Toroidal reference plane of the field-aligned filament.",
     )
-    parser.add_argument(
-        "--blob-parallel-half-length",
-        type=float,
-        default=_DEFAULTS.blob_parallel_half_length,
+    option(
+        "blob_parallel_half_length",
         help=(
             "Half-length in eta radians of the compact cos^2 filament "
             "envelope. It must be no larger than pi so the perturbation "
             "vanishes at or before the full-torus periodic seam."
         ),
     )
-    parser.add_argument(
-        "--fieldline-substeps-per-plane",
-        type=int,
-        default=_DEFAULTS.fieldline_substeps_per_plane,
+    option(
+        "fieldline_substeps_per_plane",
         help=(
             "RK4 tracing substeps per toroidal plane spacing, used only to "
             "construct the initial field-line labels."
         ),
     )
-    parser.add_argument(
-        "--toroidal-perturbation-amplitude",
-        type=float,
-        default=_DEFAULTS.toroidal_perturbation_amplitude,
+    option(
+        "toroidal_perturbation_amplitude",
         help=(
             "Relative cosine modulation used only by the legacy logical "
             "blob. The finite field-aligned filament already breaks "
             "field-period symmetry."
         ),
     )
-    parser.add_argument(
-        "--toroidal-perturbation-mode",
-        type=int,
-        default=_DEFAULTS.toroidal_perturbation_mode,
+    option(
+        "toroidal_perturbation_mode",
         help="Full-torus integer mode number used by the initial perturbation.",
     )
-    parser.add_argument(
-        "--toroidal-perturbation-phase",
-        type=float,
-        default=_DEFAULTS.toroidal_perturbation_phase,
+    option(
+        "toroidal_perturbation_phase",
         help="Initial toroidal perturbation phase in radians.",
     )
-    parser.add_argument("--tau", type=float, default=_DEFAULTS.tau)
-    parser.add_argument(
-        "--rho-star",
-        type=float,
-        default=_DEFAULTS.rho_star,
+    option("tau")
+    option(
+        "rho_star",
         help=(
             "rho_s / L_ref with L_ref = 1 m (lengths in the geometry are in "
             "metres). Scales E x B and curvature drifts by rho*, "
@@ -3297,12 +3262,12 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
             "operators."
         ),
     )
-    parser.add_argument("--mi-over-me", type=float, default=_DEFAULTS.mi_over_me)
-    parser.add_argument("--perp-diffusion", type=float, default=_DEFAULTS.perp_diffusion)
-    parser.add_argument("--parallel-diffusion", type=float, default=_DEFAULTS.parallel_diffusion)
-    parser.add_argument("--electron-collision-frequency", type=float, default=_DEFAULTS.electron_collision_frequency)
-    parser.add_argument(
-        "--implicit-current-phi-pair",
+    option("mi_over_me")
+    option("perp_diffusion")
+    option("parallel_diffusion")
+    option("electron_collision_frequency")
+    option(
+        "implicit_current_phi_pair",
         action=argparse.BooleanOptionalAction,
         default=_DEFAULTS.implicit_current_phi_pair,
         help=(
@@ -3313,10 +3278,9 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
             "treatment, which at rho* = 5e-4 limits dt to about 1e-4."
         ),
     )
-    parser.add_argument(
-        "--advance-execution",
+    option(
+        "advance_execution",
         choices=("compiled", "staged-compiled", "eager"),
-        default=_DEFAULTS.advance_execution,
         help=(
             "Execution mode for time advancement. 'compiled' builds one "
             "fused advance executable. 'staged-compiled' compiles reusable "
@@ -3325,61 +3289,46 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
             "JAX backend may still compile kernels."
         ),
     )
-    parser.add_argument(
-        "--gmres-acceptance-tolerance",
+    option(
+        "gmres_acceptance_tolerance",
         "--gmres-tolerance",
-        dest="gmres_acceptance_tolerance",
-        type=float,
-        default=_DEFAULTS.gmres_acceptance_tolerance,
         help=(
             "Relative and absolute residual accepted after GMRES stops. "
             "--gmres-tolerance is a backward-compatible alias."
         ),
     )
-    parser.add_argument(
-        "--gmres-target-tolerance",
-        type=float,
-        default=_DEFAULTS.gmres_target_tolerance,
+    option(
+        "gmres_target_tolerance",
         help="Relative and absolute residual target used to stop GMRES.",
     )
-    parser.add_argument("--gmres-max-iterations", type=int, default=_DEFAULTS.gmres_max_iterations)
-    parser.add_argument(
-        "--gmres-restart",
-        type=int,
-        default=_DEFAULTS.gmres_restart,
+    option("gmres_max_iterations")
+    option(
+        "gmres_restart",
         help="GMRES restart length; capped at --gmres-max-iterations.",
     )
-    parser.add_argument(
-        "--gmres-residual-correction-steps",
-        type=int,
-        default=_DEFAULTS.gmres_residual_correction_steps,
+    option(
+        "gmres_residual_correction_steps",
         help=(
             "Number of reliable true-residual correction solves attempted "
             "only when the primary GMRES result would otherwise be rejected."
         ),
     )
-    parser.add_argument(
-        "--no-phase-timing",
-        action="store_true",
+    option(
+        "no_phase_timing",
         help=(
             "Disable ordered in-executable timing markers for the operator "
             "and GMRES portions of an advance. Phase timing is disabled "
             "automatically for eager execution and multi-device shard_map."
         ),
     )
-    parser.add_argument(
-        "--geometry-only",
-        action="store_true",
+    option(
+        "geometry_only",
         help=(
             "Stop after loading the geometry artifact and shard-local "
             "geometry lowering."
         ),
     )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=_DEFAULTS.output,
-    )
+    option("output")
     return parser
 
 
