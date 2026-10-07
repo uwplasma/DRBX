@@ -1,0 +1,19 @@
+# HSX FCI drift-reduced Braginskii blob (drbx.fci_braginskii.run).
+#
+#   drbx inspect examples/inputs/hsx_fci_blob.toml   # resolved configuration
+#   drbx run examples/inputs/hsx_fci_blob.toml
+#
+# Keys are the HsxBlobConfig fields (the simulate_hsx_blob.py options with
+# dashes as underscores); omitted keys take the same defaults as the script,
+# unknown keys are errors.  Relative paths resolve against this file.
+# The geometry artifact is produced by generate_hsx_fci_geometry.py.
+
+[model]
+backend = "fci_braginskii"
+
+[fci_braginskii]
+geometry = "../../hsx_fci_32x32x32"
+final_time = 0.00375
+num_steps = 5
+save_every = 5
+output = "../../output/hsx_fci_blob/hsx"

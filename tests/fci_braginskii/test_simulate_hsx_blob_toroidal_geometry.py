@@ -92,7 +92,7 @@ def test_parser_exposes_eta_sharding_without_a_topology_specific_option():
 
 
 def test_toroidal_production_requirements_are_explicit_in_main_source():
-    source = open(hsx.__file__, encoding="utf-8").read()
+    source = open(hsx._driver.__file__, encoding="utf-8").read()
     main = source[source.index("def main("):]
     # The redundant post-hoc topology check is gone; topology_descriptor()
     # itself is the single place that rejects a non-toroidal artifact, and

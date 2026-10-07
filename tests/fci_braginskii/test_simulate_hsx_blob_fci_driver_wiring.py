@@ -19,10 +19,11 @@ import pytest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
+DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 
 def _tree() -> ast.Module:
-    return ast.parse(DRIVER_PATH.read_text())
+    return ast.parse(DRIVER_SOURCE.read_text())
 
 
 def _function(tree: ast.AST, name: str) -> ast.FunctionDef:
@@ -113,7 +114,7 @@ def test_periodic_checkpoint_interval_is_validated_before_lowering(
 
 
 def test_periodic_checkpoint_is_step_indexed_and_plumbed_to_full_run():
-    source = DRIVER_PATH.read_text()
+    source = DRIVER_SOURCE.read_text()
     run = _function(_tree(), "run_full_eb")
     argument_names = [argument.arg for argument in run.args.args]
     argument_names.extend(argument.arg for argument in run.args.kwonlyargs)
@@ -246,7 +247,7 @@ def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
         }
         assert "map_fields_owned" in arguments, name
         assert "control_volume_fields_owned" in arguments, name
-        source = ast.get_source_segment(DRIVER_PATH.read_text(), kernel)
+        source = ast.get_source_segment(DRIVER_SOURCE.read_text(), kernel)
         assert source is not None
 
     shard_maps = [
@@ -354,7 +355,7 @@ def test_fci_main_passes_production_scheme_and_metadata_to_run(
 
 
 def test_production_split_metadata_contract_is_recorded():
-    source = DRIVER_PATH.read_text()
+    source = DRIVER_SOURCE.read_text()
     assert '"flux_framework": "production-split"' in source
     assert '"flux_framework_source": "fixed production configuration"' in source
     assert '"curvature_operator": "production-characteristic-owner-face"' in source
