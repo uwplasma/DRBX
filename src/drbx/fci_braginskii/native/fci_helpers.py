@@ -9,21 +9,20 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..geometry.fci_geometry import HaloLayout3D, LocalDomain3D
-
 # Definitions identical to (and closure-equivalent with) the shared module;
 # re-exported here so existing import paths keep working.
 from ...native.fci_helpers import (  # noqa: F401
-    _as_float64_array,
     _as_face_flux_array,
-    _validate_axis,
-    local_side_plane_shape,
+    _as_float64_array,
     _as_local_wall_array,
-    _as_local_wall_int_array,
     _as_local_wall_bool_array,
+    _as_local_wall_int_array,
     _as_local_wall_stencil_index_array,
     _as_local_wall_stencil_weight_array,
+    _validate_axis,
+    local_side_plane_shape,
 )
+from ..geometry.fci_geometry import HaloLayout3D, LocalDomain3D
 
 
 def local_physical_side_active(
