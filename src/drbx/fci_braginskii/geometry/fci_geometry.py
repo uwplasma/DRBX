@@ -9,38 +9,33 @@ from jax import lax
 
 from .._host_guards import host_bool
 
+# Definitions identical to (and closure-equivalent with) the shared module;
+# re-exported here so existing import paths keep working.
+from ...geometry.fci_geometry import (  # noqa: F401
+    _DataclassPyTreeMixin,
+    _as_float_array,
+    _require_shape,
+    _require_float_shape,
+    _metric_from_components,
+    HaloLayout3D,
+    FciMaps3D,
+    LocalFciLocalDependencyTable,
+    NeighborMap3D,
+    Spacing3D,
+    MetricGeometry,
+    FaceMetricGeometry,
+    BFieldGeometry,
+    FaceBFieldGeometry,
+    _shift_owned_slices,
+    _local_axis_plane_slice,
+    _axis_index_nd,
+    _first_derivative_3d,
+    _bracket_axis,
+    _trilinear_sample,
+)
+
 
 _pytree_base = jax.tree_util.register_pytree_node_class
-
-class _DataclassPyTreeMixin:
-    """Generic PyTree support for frozen dataclasses.
-    All dataclass fields with init=True are treated as dynamic PyTree children.
-    Computed fields with init=False are rebuilt in __post_init__.
-    """
-    def tree_flatten(self):
-        children = tuple(getattr(self, f.name) for f in fields(self) if f.init)
-        return children, None
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        init_names = [f.name for f in fields(cls) if f.init]
-        return cls(**dict(zip(init_names, children)))
-
-def _as_float_array(value, name: str):
-    return jnp.asarray(value, dtype=jnp.float64)
-
-def _require_shape(value, expected_shape: tuple[int, ...], name: str):
-    arr = jnp.asarray(value)
-    if arr.shape != expected_shape:
-        raise ValueError(f"{name} must have shape {expected_shape}, got {arr.shape}")
-    return arr
-
-def _require_float_shape(value, expected_shape: tuple[int, ...], name: str):
-    arr = jnp.asarray(value, dtype=jnp.float64)
-    if arr.shape != expected_shape:
-        raise ValueError(f"{name} must have shape {expected_shape}, got {arr.shape}")
-    return arr
-
 
 def _validate_coordinate_stencil_dependency_rows(
     *,
@@ -94,24 +89,6 @@ def _coordinate_stencil_dependency_keys(
     return keys
 
 
-def _metric_from_components(
-    g11: jnp.ndarray,
-    g22: jnp.ndarray,
-    g33: jnp.ndarray,
-    g12: jnp.ndarray,
-    g13: jnp.ndarray,
-    g23: jnp.ndarray,
-) -> jnp.ndarray:
-    return jnp.stack(
-        [
-            jnp.stack([g11, g12, g13], axis=-1),
-            jnp.stack([g12, g22, g23], axis=-1),
-            jnp.stack([g13, g23, g33], axis=-1),
-        ],
-        axis=-2,
-    )
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class Grid1D(_DataclassPyTreeMixin):
@@ -146,111 +123,6 @@ class Grid1D(_DataclassPyTreeMixin):
     @property
     def upper_center_to_face(self):
         return self.faces[-1] - self.centers[-1]
-
-
-@dataclass(frozen=True)
-class HaloLayout3D:
-    """Shared halo metadata for shard-local 3D geometry."""
-
-    owned_shape: tuple[int, int, int]
-    halo_width: int
-
-    def __post_init__(self) -> None:
-        owned_shape = tuple(int(v) for v in self.owned_shape)
-        if len(owned_shape) != 3:
-            raise ValueError(f"HaloLayout3D.owned_shape must have length 3, got {owned_shape}")
-        if any(size <= 0 for size in owned_shape):
-            raise ValueError(f"HaloLayout3D.owned_shape must contain positive integers, got {owned_shape}")
-        halo_width = int(self.halo_width)
-        if halo_width < 0:
-            raise ValueError(f"HaloLayout3D.halo_width must be non-negative, got {halo_width}")
-        object.__setattr__(self, "owned_shape", owned_shape)
-        object.__setattr__(self, "halo_width", halo_width)
-
-    @property
-    def cell_halo_shape(self) -> tuple[int, int, int]:
-        h = self.halo_width
-        nx, ny, nz = self.owned_shape
-        return nx + 2 * h, ny + 2 * h, nz + 2 * h
-
-    @property
-    def owned_slices_cell(self) -> tuple[slice, slice, slice]:
-        h = self.halo_width
-        nx, ny, nz = self.owned_shape
-        return (
-            slice(h, h + nx),
-            slice(h, h + ny),
-            slice(h, h + nz),
-        )
-
-    def face_halo_shape(self, axis: int) -> tuple[int, int, int]:
-        axis = int(axis)
-        if axis < 0 or axis > 2:
-            raise ValueError(f"axis must be 0, 1, or 2, got {axis}")
-        shape = list(self.cell_halo_shape)
-        shape[axis] += 1
-        return tuple(shape)
-
-    def face_control_shape(self, axis: int) -> tuple[int, int, int]:
-        axis = int(axis)
-        if axis < 0 or axis > 2:
-            raise ValueError(f"axis must be 0, 1, or 2, got {axis}")
-        nx, ny, nz = self.owned_shape
-        shape = [nx, ny, nz]
-        shape[axis] += 1
-        return tuple(shape)
-
-    def face_control_slices(self, axis: int) -> tuple[slice, slice, slice]:
-        axis = int(axis)
-        if axis < 0 or axis > 2:
-            raise ValueError(f"axis must be 0, 1, or 2, got {axis}")
-        h = self.halo_width
-        nx, ny, nz = self.owned_shape
-        extents = [nx, ny, nz]
-        extents[axis] += 1
-        return tuple(slice(h, h + n) for n in extents)
-
-    def location_halo_shape(self, location: str) -> tuple[int, int, int]:
-        if location == "cell":
-            return self.cell_halo_shape
-        if location == "x_face":
-            return self.face_halo_shape(0)
-        if location == "y_face":
-            return self.face_halo_shape(1)
-        if location == "z_face":
-            return self.face_halo_shape(2)
-        raise ValueError(
-            'location must be one of "cell", "x_face", "y_face", or "z_face", '
-            f"got {location!r}"
-        )
-
-    def location_owned_slices(self, location: str) -> tuple[slice, slice, slice]:
-        if location == "cell":
-            return self.owned_slices_cell
-        if location == "x_face":
-            return self.face_control_slices(0)
-        if location == "y_face":
-            return self.face_control_slices(1)
-        if location == "z_face":
-            return self.face_control_slices(2)
-        raise ValueError(
-            'location must be one of "cell", "x_face", "y_face", or "z_face", '
-            f"got {location!r}"
-        )
-
-    def location_owned_shape(self, location: str) -> tuple[int, int, int]:
-        if location == "cell":
-            return self.owned_shape
-        if location == "x_face":
-            return self.face_control_shape(0)
-        if location == "y_face":
-            return self.face_control_shape(1)
-        if location == "z_face":
-            return self.face_control_shape(2)
-        raise ValueError(
-            'location must be one of "cell", "x_face", "y_face", or "z_face", '
-            f"got {location!r}"
-        )
 
 
 @_pytree_base
@@ -491,142 +363,12 @@ class LocalCellCenteredGrid3D(_DataclassPyTreeMixin):
         return self.z.faces
 
 
-@_pytree_base
-@dataclass(frozen=True)
-class FciMaps3D(_DataclassPyTreeMixin):
-    # Fractional interpolation indices into cell-centered field arrays.
-    # These are meaningful for non-boundary traces. For boundary traces,
-    # use the boundary mask and endpoint coordinates instead.
-    forward_x: jnp.ndarray
-    forward_y: jnp.ndarray
-    backward_x: jnp.ndarray
-    backward_y: jnp.ndarray
-
-    # Logical endpoint coordinates of the trace.
-    # If boundary=False: endpoint is on the target toroidal plane.
-    # If boundary=True: endpoint is the estimated physical boundary hit point.
-    forward_endpoint_x: jnp.ndarray
-    forward_endpoint_y: jnp.ndarray
-    forward_endpoint_z: jnp.ndarray
-    backward_endpoint_x: jnp.ndarray
-    backward_endpoint_y: jnp.ndarray
-    backward_endpoint_z: jnp.ndarray
-
-    # Physical arclengths from cell center to endpoint.
-    forward_length: jnp.ndarray
-    backward_length: jnp.ndarray
-
-    # True if the trace hit/exited a nonperiodic physical boundary before
-    # reaching the target toroidal plane.
-    forward_boundary: jnp.ndarray
-    backward_boundary: jnp.ndarray
-
-    def __post_init__(self) -> None:
-        forward_x = jnp.asarray(self.forward_x, dtype=jnp.float64)
-        shape = tuple(int(v) for v in forward_x.shape)
-
-        if len(shape) != 3:
-            raise ValueError(f"FciMaps3D fields must have shape (nx, ny, nz), got {shape}")
-
-        object.__setattr__(self, "forward_x", forward_x)
-
-        float_fields = (
-            "forward_y",
-            "backward_x",
-            "backward_y",
-            "forward_endpoint_x",
-            "forward_endpoint_y",
-            "forward_endpoint_z",
-            "backward_endpoint_x",
-            "backward_endpoint_y",
-            "backward_endpoint_z",
-            "forward_length",
-            "backward_length",
-        )
-        bool_fields = (
-            "forward_boundary",
-            "backward_boundary",
-        )
-        for name in float_fields:
-            value = _require_float_shape(getattr(self, name), shape, f"FciMaps3D.{name}")
-            object.__setattr__(self, name, value)
-        for name in bool_fields:
-            value = jnp.asarray(getattr(self, name), dtype=bool)
-            if value.shape != shape:
-                raise ValueError(f"FciMaps3D.{name} must have shape {shape}, got {value.shape}")
-            object.__setattr__(self, name, value)
-
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return tuple(int(v) for v in self.forward_x.shape)
-
-
 # Dependency kinds are shared by local and remote FCI dependency metadata.
 FCI_DEP_INVALID = 0
 FCI_DEP_FIELD_INTERIOR = 1
 FCI_DEP_PHYSICAL_BOUNDARY = 2
 FCI_DEP_CUT_WALL = 3
 
-
-@_pytree_base
-@dataclass(frozen=True)
-class LocalFciLocalDependencyTable(_DataclassPyTreeMixin):
-    """Sparse interpolation rows that can be satisfied locally.
-
-    Interior rows read from the local field halo. Boundary and cut-wall rows
-    may instead use a prepared value identified by ``value_slot``. The rows
-    are padded to a fixed maximum length so the object stays JAX compilation
-    friendly. Only the ``active`` rows participate in interpolation.
-    """
-
-    target_flat: jnp.ndarray  # (max_entries,)
-    source_i: jnp.ndarray  # (max_entries,)
-    source_j: jnp.ndarray  # (max_entries,)
-    source_k: jnp.ndarray  # (max_entries,)
-    weight: jnp.ndarray  # (max_entries,)
-    active: jnp.ndarray  # (max_entries,)
-    dependency_kind: jnp.ndarray | None = None  # (max_entries,), int32
-    value_slot: jnp.ndarray | None = None  # (max_entries,), int32
-
-    def __post_init__(self) -> None:
-        target_flat = jnp.asarray(self.target_flat, dtype=jnp.int32)
-        shape = tuple(int(v) for v in target_flat.shape)
-        if target_flat.ndim != 1:
-            raise ValueError(f"LocalFciLocalDependencyTable.target_flat must be 1D, got {target_flat.shape}")
-        object.__setattr__(self, "target_flat", target_flat)
-        for name in ("source_i", "source_j", "source_k"):
-            object.__setattr__(self, name, _require_shape(getattr(self, name), shape, f"LocalFciLocalDependencyTable.{name}"))
-        object.__setattr__(self, "weight", _require_float_shape(self.weight, shape, "LocalFciLocalDependencyTable.weight"))
-        active = jnp.asarray(self.active, dtype=bool)
-        if active.shape != shape:
-            raise ValueError(f"LocalFciLocalDependencyTable.active must have shape {shape}, got {active.shape}")
-        object.__setattr__(self, "active", active)
-
-        if self.dependency_kind is None:
-            dependency_kind = jnp.full(shape, FCI_DEP_FIELD_INTERIOR, dtype=jnp.int32)
-        else:
-            dependency_kind = jnp.asarray(self.dependency_kind, dtype=jnp.int32)
-            if dependency_kind.shape != shape:
-                raise ValueError(
-                    "LocalFciLocalDependencyTable.dependency_kind must have "
-                    f"shape {shape}, got {dependency_kind.shape}"
-                )
-        object.__setattr__(self, "dependency_kind", dependency_kind)
-
-        if self.value_slot is None:
-            value_slot = jnp.zeros(shape, dtype=jnp.int32)
-        else:
-            value_slot = jnp.asarray(self.value_slot, dtype=jnp.int32)
-            if value_slot.shape != shape:
-                raise ValueError(
-                    "LocalFciLocalDependencyTable.value_slot must have "
-                    f"shape {shape}, got {value_slot.shape}"
-                )
-        object.__setattr__(self, "value_slot", value_slot)
-
-    @property
-    def max_entries(self) -> int:
-        return int(self.target_flat.size)
 
 @_pytree_base
 @dataclass(frozen=True)
@@ -2109,47 +1851,6 @@ class ShardSpec3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class NeighborMap3D(_DataclassPyTreeMixin):
-    """Shard-adjacency metadata for one local 3D domain."""
-
-    minus: tuple[OptionalNeighborIndex3D, OptionalNeighborIndex3D, OptionalNeighborIndex3D]
-    plus: tuple[OptionalNeighborIndex3D, OptionalNeighborIndex3D, OptionalNeighborIndex3D]
-
-    def __post_init__(self) -> None:
-        minus = tuple(self.minus)
-        plus = tuple(self.plus)
-        if len(minus) != 3:
-            raise ValueError(f"NeighborMap3D.minus must have length 3, got {minus}")
-        if len(plus) != 3:
-            raise ValueError(f"NeighborMap3D.plus must have length 3, got {plus}")
-        normalized_minus = []
-        normalized_plus = []
-        for name, side, normalized in (
-            ("minus", minus, normalized_minus),
-            ("plus", plus, normalized_plus),
-        ):
-            for entry in side:
-                if entry is None:
-                    normalized.append(None)
-                    continue
-                if len(entry) != 3:
-                    raise ValueError(f"NeighborMap3D.{name} entries must be length-3 tuples or None, got {entry}")
-                normalized.append(tuple(int(v) for v in entry))
-        object.__setattr__(self, "minus", tuple(normalized_minus))
-        object.__setattr__(self, "plus", tuple(normalized_plus))
-
-    def tree_flatten(self):
-        return (), (self.minus, self.plus)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        del children
-        minus, plus = aux_data
-        return cls(minus=minus, plus=plus)
-
-
-@_pytree_base
-@dataclass(frozen=True)
 class LocalDomain3D(_DataclassPyTreeMixin):
     """Metadata for one local shard/domain.
 
@@ -2339,27 +2040,6 @@ class StencilBuilderContext(_DataclassPyTreeMixin):
     def tree_unflatten(cls, aux_data, children):
         del aux_data
         return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class Spacing3D(_DataclassPyTreeMixin):
-    """Logical spacings evaluated at active cell centers.
-    These are usually broadcast arrays with shape (nx, ny, nz)."""
-    dx: jnp.ndarray
-    dy: jnp.ndarray
-    dz: jnp.ndarray
-    def __post_init__(self) -> None:
-        dx = jnp.asarray(self.dx, dtype=jnp.float64)
-        if dx.ndim != 3:
-            raise ValueError(f"Spacing3D.dx must have shape (nx, ny, nz), got {dx.shape}")
-        shape = tuple(int(v) for v in dx.shape)
-        object.__setattr__(self, "dx", dx)
-        object.__setattr__(self, "dy", _require_float_shape(self.dy, shape, "Spacing3D.dy"))
-        object.__setattr__(self, "dz", _require_float_shape(self.dz, shape, "Spacing3D.dz"))
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return tuple(int(v) for v in self.dx.shape)
 
 
 @_pytree_base
@@ -2600,54 +2280,6 @@ class LocalMetricGeometry(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class MetricGeometry(_DataclassPyTreeMixin):
-    """Metric/Jacobian data on one grid location family.
-    This class is used both for cell centers and for each face family."""
-    J: jnp.ndarray
-    g11: jnp.ndarray
-    g22: jnp.ndarray
-    g33: jnp.ndarray
-    g12: jnp.ndarray
-    g13: jnp.ndarray
-    g23: jnp.ndarray
-    g_11: jnp.ndarray
-    g_22: jnp.ndarray
-    g_33: jnp.ndarray
-    g_12: jnp.ndarray
-    g_13: jnp.ndarray
-    g_23: jnp.ndarray
-    def __post_init__(self) -> None:
-        J = jnp.asarray(self.J, dtype=jnp.float64)
-        if J.ndim != 3:
-            raise ValueError(f"MetricGeometry.J must have shape (a, b, c), got {J.shape}")
-        shape = tuple(int(v) for v in J.shape)
-        object.__setattr__(self, "J", J)
-        for name in ("g11", "g22", "g33", "g12", "g13", "g23", "g_11", "g_22", "g_33", "g_12", "g_13", "g_23"):
-            value = _require_float_shape(getattr(self, name), shape, f"MetricGeometry.{name}")
-            object.__setattr__(self, name, value)
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return tuple(int(v) for v in self.J.shape)
-    @property
-    def g_contra(self) -> jnp.ndarray:
-        return _metric_from_components(self.g11, self.g22, self.g33, self.g12, self.g13, self.g23)
-    @property
-    def g_cov(self) -> jnp.ndarray:
-        return _metric_from_components(self.g_11, self.g_22, self.g_33, self.g_12, self.g_13, self.g_23)
-
-@_pytree_base
-@dataclass(frozen=True)
-class FaceMetricGeometry(_DataclassPyTreeMixin):
-    x: MetricGeometry  # (nx + 1, ny, nz)
-    y: MetricGeometry  # (nx, ny + 1, nz)
-    z: MetricGeometry  # (nx, ny, nz + 1)
-    @property
-    def axes(self) -> tuple[MetricGeometry, MetricGeometry, MetricGeometry]:
-        return self.x, self.y, self.z
-
-
-@_pytree_base
-@dataclass(frozen=True)
 class LocalFaceMetricGeometry(_DataclassPyTreeMixin):
     """Local metric bundles on the x/y/z face families.
 
@@ -2687,40 +2319,6 @@ class LocalFaceMetricGeometry(_DataclassPyTreeMixin):
     @property
     def shape(self) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
         return self.x.shape, self.y.shape, self.z.shape
-
-@_pytree_base
-@dataclass(frozen=True)
-class BFieldGeometry(_DataclassPyTreeMixin):
-    B_contra: jnp.ndarray
-    Bmag: jnp.ndarray
-    def __post_init__(self) -> None:
-        B_contra = jnp.asarray(self.B_contra, dtype=jnp.float64)
-        if B_contra.ndim != 4 or B_contra.shape[-1] != 3:
-            raise ValueError(f"BFieldGeometry.B_contra must have shape (a, b, c, 3), got {B_contra.shape}")
-        shape = tuple(int(v) for v in B_contra.shape[:-1])
-        Bmag = _require_float_shape(self.Bmag, shape, "BFieldGeometry.Bmag")
-        object.__setattr__(self, "B_contra", B_contra)
-        object.__setattr__(self, "Bmag", Bmag)
-
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return tuple(int(v) for v in self.Bmag.shape)
-
-    @property
-    def b_contra(self) -> jnp.ndarray:
-        return self.B_contra / self.Bmag[..., None]
-
-@_pytree_base
-@dataclass(frozen=True)
-class FaceBFieldGeometry(_DataclassPyTreeMixin):
-    x: BFieldGeometry  # (nx + 1, ny, nz, 3)
-    y: BFieldGeometry  # (nx, ny + 1, nz, 3)
-    z: BFieldGeometry  # (nx, ny, nz + 1, 3)
-
-    @property
-    def axes(self) -> tuple[BFieldGeometry, BFieldGeometry, BFieldGeometry]:
-        return self.x, self.y, self.z
-
 
 @_pytree_base
 @dataclass(frozen=True)
@@ -3575,17 +3173,6 @@ def _coordinate_face_values_type():
     from ..native.fci_boundaries import CoordinateFaceValues3D
 
     return CoordinateFaceValues3D
-
-
-def _shift_owned_slices(layout: HaloLayout3D, axis: int, offset: int) -> tuple[slice, slice, slice]:
-    h = layout.halo_width
-    nx, ny, nz = layout.owned_shape
-    extents = [nx, ny, nz]
-    start = h + offset
-    stop = start + extents[axis]
-    slices = [slice(h, h + ext) for ext in extents]
-    slices[axis] = slice(start, stop)
-    return tuple(slices)
 
 
 def _local_axis_stencil_from_halo(
@@ -4494,53 +4081,6 @@ build_local_conservative_stencil_from_field = LocalConservativeStencilBuilder(
 )
 
 
-def _local_axis_plane_slice(axis: int, index: int | slice) -> tuple[object, object, object]:
-    """Return a 3D slice tuple with ``index`` applied along one axis."""
-
-    axis = int(axis)
-    if axis == 0:
-        return index, slice(None), slice(None)
-    if axis == 1:
-        return slice(None), index, slice(None)
-    if axis == 2:
-        return slice(None), slice(None), index
-    raise ValueError(f"axis must be 0, 1, or 2, got {axis}")
-
-
-def _axis_index_nd(axis: int, index: int, ndim: int) -> tuple[object, ...]:
-    slices: list[object] = [slice(None)] * ndim
-    slices[axis] = index
-    return tuple(slices)
-
-
-def _first_derivative_3d(
-    values: jnp.ndarray,
-    spacing: jnp.ndarray | float,
-    *,
-    axis: int,
-    periodic: bool,
-) -> jnp.ndarray:
-    """Centered first derivative with periodic or second-order edge treatment."""
-
-    values = jnp.asarray(values, dtype=jnp.float64)
-    h = jnp.asarray(spacing, dtype=jnp.float64)
-    if h.ndim == 0:
-        h = jnp.ones_like(values) * h
-    centered = (jnp.roll(values, -1, axis=axis) - jnp.roll(values, 1, axis=axis)) / jnp.maximum(2.0 * h, 1.0e-30)
-    if periodic:
-        return centered
-
-    first = _axis_index_nd(axis, 0, values.ndim)
-    second = _axis_index_nd(axis, 1, values.ndim)
-    third = _axis_index_nd(axis, 2, values.ndim)
-    last = _axis_index_nd(axis, -1, values.ndim)
-    penultimate = _axis_index_nd(axis, -2, values.ndim)
-    antepenultimate = _axis_index_nd(axis, -3, values.ndim)
-    forward = (-3.0 * values[first] + 4.0 * values[second] - values[third]) / jnp.maximum(2.0 * h[first], 1.0e-30)
-    backward = (3.0 * values[last] - 4.0 * values[penultimate] + values[antepenultimate]) / jnp.maximum(2.0 * h[last], 1.0e-30)
-    return centered.at[first].set(forward).at[last].set(backward)
-
-
 def _physical_domain_valid_mask(
     grid: CellCenteredGrid3D,
     x: jnp.ndarray,
@@ -4734,71 +4274,4 @@ def interpolate_B_contravariant(
         periodic_axes=periodic_axes,
         boundary_value=boundary_value,
     )
-
-
-def _bracket_axis(
-    axis: jnp.ndarray,
-    values: jnp.ndarray,
-    *,
-    periodic: bool,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    axis = jnp.asarray(axis, dtype=jnp.float64)
-    values = jnp.asarray(values, dtype=jnp.float64)
-    if axis.size == 1:
-        zero = jnp.zeros_like(values, dtype=jnp.int32)
-        return zero, zero, jnp.zeros_like(values, dtype=jnp.float64), jnp.isfinite(values)
-    if axis.size < 1:
-        raise ValueError("Each logical axis must contain at least one point for interpolation.")
-
-    if periodic:
-        spacing = axis[1] - axis[0]
-        period = (axis[-1] - axis[0]) + spacing
-        wrapped = jnp.mod(values - axis[0], period) + axis[0]
-        upper = jnp.searchsorted(axis, wrapped, side="right")
-        lower = jnp.clip(upper - 1, 0, int(axis.size) - 1)
-        next_index = jnp.mod(lower + 1, int(axis.size))
-        lower_coord = axis[lower]
-        upper_coord = jnp.where(lower == int(axis.size) - 1, axis[0] + period, axis[next_index])
-        weight = (wrapped - lower_coord) / (upper_coord - lower_coord)
-        valid = jnp.isfinite(values)
-        return lower, next_index, jnp.clip(weight, 0.0, 1.0), valid
-
-    upper = jnp.searchsorted(axis, values, side="right")
-    lower = jnp.clip(upper - 1, 0, int(axis.size) - 2)
-    upper = lower + 1
-    lower_coord = axis[lower]
-    upper_coord = axis[upper]
-    weight = (values - lower_coord) / (upper_coord - lower_coord)
-    valid = (values >= axis[0]) & (values <= axis[-1]) & jnp.isfinite(values)
-    return lower, upper, jnp.clip(weight, 0.0, 1.0), valid
-
-
-def _trilinear_sample(
-    values: jnp.ndarray,
-    x0: jnp.ndarray,
-    x1: jnp.ndarray,
-    wx: jnp.ndarray,
-    y0: jnp.ndarray,
-    y1: jnp.ndarray,
-    wy: jnp.ndarray,
-    z0: jnp.ndarray,
-    z1: jnp.ndarray,
-    wz: jnp.ndarray,
-) -> jnp.ndarray:
-    c000 = values[x0, y0, z0]
-    c100 = values[x1, y0, z0]
-    c010 = values[x0, y1, z0]
-    c110 = values[x1, y1, z0]
-    c001 = values[x0, y0, z1]
-    c101 = values[x1, y0, z1]
-    c011 = values[x0, y1, z1]
-    c111 = values[x1, y1, z1]
-    c00 = c000 * (1.0 - wx) + c100 * wx
-    c10 = c010 * (1.0 - wx) + c110 * wx
-    c01 = c001 * (1.0 - wx) + c101 * wx
-    c11 = c011 * (1.0 - wx) + c111 * wx
-    c0 = c00 * (1.0 - wy) + c10 * wy
-    c1 = c01 * (1.0 - wy) + c11 * wy
-    return c0 * (1.0 - wz) + c1 * wz
-
 
