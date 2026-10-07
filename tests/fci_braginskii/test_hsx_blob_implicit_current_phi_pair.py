@@ -95,12 +95,16 @@ def test_run_full_eb_both_implicit_stage_paths_dispatch_on_the_flag():
         segment = ast.get_source_segment(source, stage_function)
         assert segment is not None
         assert "if model.implicit_current_phi_pair:" in segment
-        assert "model.solve_implicit_current_phi_pair(" in segment
+        assert "coupled_implicit_stage(" in segment
         assert "reconstruct_stage_phi(updated, model)" in segment
         # The guard must precede the fallback in source order.
         assert segment.index("if model.implicit_current_phi_pair:") < segment.index(
             "reconstruct_stage_phi(updated, model)"
         )
+
+    helper = ast.get_source_segment(source, _function(tree, "coupled_implicit_stage"))
+    assert "model.solve_implicit_current_phi_pair(" in helper
+    assert "model.apply_short_leg_implicit_material_step(" in helper
 
 
 def test_run_metadata_records_implicit_current_phi_pair():

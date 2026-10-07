@@ -2238,6 +2238,7 @@ class LocalFciDrbEBRhs:
         *,
         phi_owned: jnp.ndarray | None = None,
         return_increment: bool = False,
+        linearization_increment: FciDrbEBState | None = None,
     ) -> FciDrbEBState | tuple[FciDrbEBState, FciDrbEBState, dict[str, jnp.ndarray]]:
         """Apply the complete selected-wall-leg backward-Euler stage.
 
@@ -2359,6 +2360,15 @@ class LocalFciDrbEBRhs:
             backward_wall_state=minus,
             forward_wall_state=plus,
             coupled_residual=coupled_residual,
+            linearization_increment=(
+                None if linearization_increment is None
+                else jnp.stack(tuple(
+                    self._expand_owner_field_for_stencil(
+                        getattr(linearization_increment, name)
+                    )
+                    for name in primitive_names
+                ), axis=-1)
+            ),
         )
 
         if self._uses_projected_fine_grid:
@@ -2419,6 +2429,56 @@ class LocalFciDrbEBRhs:
             )
         info["selected_complete_residual_owner"] = complete_residual_owner
         return updated_state, increment_state, info
+
+    def implicit_current_phi_pair_rate(
+        self, state_owned: FciDrbEBState
+    ) -> FciDrbEBState:
+        """Evaluate the rate that :meth:`solve_implicit_current_phi_pair`
+        treats implicitly, at ``state_owned`` and its carried ``phi``.
+
+        ``dVe/dt = mu*P(G phi)`` and
+        ``dvorticity/dt = P(kappa*D(n*(Vi - Ve)))`` with the same
+        homogeneous weighted-adjoint pair and coefficients as the solve.
+        """
+
+        state_owned = self._owner_state(state_owned)
+        face_bc = self._face_bcs(state_owned)
+        state_halo = self._prepare_state_halo(state_owned, face_bc)
+        context = self._stencil_builder_context()
+        owned = self.domain.layout.owned_slices_cell
+        density_dense = jnp.asarray(state_halo.density[owned], dtype=jnp.float64)
+        Vi_dense = jnp.asarray(state_halo.Vi[owned], dtype=jnp.float64)
+        Ve_dense = jnp.asarray(state_halo.Ve[owned], dtype=jnp.float64)
+        bmag = jnp.maximum(
+            jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
+            1.0e-30,
+        )
+        kappa_dense = bmag * bmag / jnp.maximum(density_dense, 1.0e-30)
+        mu = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
+        gradient, divergence, _ = self._fci_current_phi_boundary_pair(
+            face_bc=face_bc,
+            context=context,
+            wall_endpoint_current_values=(
+                jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+                jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
+            ),
+        )
+        phi_owned = self._owner_field(
+            _mask_inactive_owned(state_owned.phi, self.geometry)
+        )
+        g_dense = self._owner_current_gradient(phi_owned, gradient)
+        zero = jnp.zeros_like(state_owned.density)
+        return self._owner_state(FciDrbEBState(
+            density=zero,
+            phi=zero,
+            Te=zero,
+            Ti=zero,
+            Vi=zero,
+            Ve=mu * self._project_fine_cell_term(g_dense),
+            vorticity=self._project_fine_cell_term(
+                kappa_dense * divergence(density_dense * (Vi_dense - Ve_dense))
+            ),
+        ))
 
     def solve_implicit_current_phi_pair(
         self,
