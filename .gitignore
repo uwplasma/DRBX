@@ -16,6 +16,7 @@ profiles/
 profiling/
 artifacts/
 .jax_cache/
+.hsx_filament_cache/
 xla_dumps/
 jax_traces/
 tmp/

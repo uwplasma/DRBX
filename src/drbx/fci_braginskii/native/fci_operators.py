@@ -1,0 +1,5848 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, replace as dataclass_replace
+from typing import Callable, Literal
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+from solvax.precond import (
+    additive_tridiagonal_line_preconditioner as solvax_line_preconditioner,
+    jacobi as solvax_jacobi,
+)
+
+_pytree_base = jax.tree_util.register_pytree_node_class
+
+from .._host_guards import host_bool, host_asarray
+from ..geometry.fci_geometry import (
+    HaloLayout3D,
+    LocalBFieldGeometry,
+    LocalAggregateCellGeometry3D,
+    LocalControlVolumeCellGeometry3D,
+    LocalCellVolumeGeometry3D,
+    LocalDomain3D,
+    LocalFciDirectionMap,
+    LocalFciGeometry3D,
+    FCI_DEP_CUT_WALL,
+    FCI_DEP_INVALID,
+    LocalCurvatureFaceCoefficients3D,
+    LocalFciMaps3D,
+    LocalFciStencilBuilder,
+    LocalRegularFaceGeometry3D,
+    LocalConservativeStencilBuilder,
+    build_local_conservative_stencil_from_field,
+    build_local_fci_stencil_from_field,
+)
+from ..geometry.fci_geometry import (
+    StencilBuilderContext,
+    _axis_index_nd,
+    _first_derivative_3d,
+    _lift_cell_field_to_faces,
+)
+from .fci_helpers import small_batched_eig
+from .fci_halo import (
+    HaloExchange3D,
+    accumulate_halo_contributions_to_owned,
+    LocalHaloClosure3D,
+    PhysicalGhostCellFiller3D,
+    TopologyHaloFiller3D,
+)
+from .fci_gmres import (
+    SolvaxGmresConfig,
+    SolvaxGmresInfo,
+    _spmd_remove_weighted_mean,
+    solvax_gmres_solve,
+)
+from .fci_model import (
+    inject_owned_field_to_halo,
+)
+from .characteristic_wall_residual import (
+    solve_incoming_characteristic_state,
+)
+from .fci_boundaries import (
+    BC_DIRICHLET,
+    BC_NEUMANN,
+    BC_NONE,
+    BC_NORMALFLUX,
+    BC_NOFLUX,
+    LocalBoundaryFaceBC3D,
+    LocalBoundaryFaceTrace3D,
+    LocalControlVolumeFluxStencil3D,
+    LocalCellGradient3D,
+    LocalControlVolumeBoundaryBC3D,
+    LocalControlVolumeFieldClosure3D,
+    LocalMomentFittedFaceRows3D,
+    LocalControlVolumePolynomial3D,
+    LocalEmbeddedControlVolumeGeometry3D,
+    LocalRegularBoundaryMomentClosure3D,
+    LocalCutWallBC3D,
+    LocalCutWallGeometry3D,
+    LocalRegularFaceContributionRows3D,
+    FaceFluxStencil3D,
+    CoordinateFaceValues3D,
+    ConservativeStencil3D,
+    LocalStencil1D,
+    CV_FACE_CUT_WALL,
+    CV_RECONSTRUCTION_EQUATION_CELL,
+    CV_RECONSTRUCTION_EQUATION_DIRICHLET,
+    CV_RECONSTRUCTION_EQUATION_REMOTE_CELL,
+)
+from .fci_curvature_production_flux import (
+    curvature_face_linearized_fluctuations,
+    curvature_strict_principal_matrix,
+    reconstruct_third_order_face_states,
+)
+
+
+# =============================================================================
+# Parallel-gradient operators
+# =============================================================================
+
+def _take_stencil_finite_difference(stencil: LocalStencil1D) -> jnp.ndarray:
+    """Apply a reconstructed 1D derivative stencil.
+
+    The stencil arrays may represent either global/reference cells or local
+    owned cells. The output has the same shape as the stencil.
+    """
+
+    if stencil.center.ndim != 3:
+        raise ValueError(
+            f"stencil center must be 3D, got shape {stencil.center.shape}"
+        )
+
+    minus = jnp.asarray(stencil.minus, dtype=jnp.float64)
+    center = jnp.asarray(stencil.center, dtype=jnp.float64)
+    plus = jnp.asarray(stencil.plus, dtype=jnp.float64)
+
+    c_minus = jnp.asarray(stencil.derivative_minus_weight, dtype=jnp.float64)
+    c_center = jnp.asarray(stencil.derivative_center_weight, dtype=jnp.float64)
+    c_plus = jnp.asarray(stencil.derivative_plus_weight, dtype=jnp.float64)
+
+    return c_minus * minus + c_center * center + c_plus * plus
+
+
+def _active_cell_mask_owned(geometry: LocalFciGeometry3D) -> jnp.ndarray:
+    """Return the owned active-cell mask for local/SPMD operator outputs."""
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "_active_cell_mask_owned requires LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+    return jnp.asarray(geometry.active_cell_mask_owned, dtype=bool)
+
+
+def _mask_inactive_owned(
+    values: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    inactive_value: float | jnp.ndarray = 0.0,
+    *,
+    active_mask: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Mask inactive owned cells in scalar or component-valued owned arrays."""
+
+    array = jnp.asarray(values)
+    mask = (
+        _active_cell_mask_owned(geometry)
+        if active_mask is None
+        else jnp.asarray(active_mask, dtype=bool)
+    )
+    if mask.shape != geometry.owned_shape:
+        raise ValueError(
+            "active_mask must have shape "
+            f"{geometry.owned_shape}, got {mask.shape}"
+        )
+    if array.shape[:3] != geometry.owned_shape:
+        raise ValueError(
+            "values must begin with geometry.owned_shape "
+            f"{geometry.owned_shape}, got {array.shape}"
+        )
+    for _ in range(array.ndim - 3):
+        mask = mask[..., None]
+    return jnp.where(mask, array, jnp.asarray(inactive_value, dtype=array.dtype))
+
+
+def _solver_active_mask(
+    geometry: LocalFciGeometry3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None,
+) -> jnp.ndarray:
+    """Return the algebraic unknown mask for the perpendicular inverse.
+
+    A control-volume solve has one degree of freedom per active aggregate
+    owner.  Merged storage cells are representation aliases and must not be
+    exposed to GMRES as additional unknowns.
+    """
+
+    if control_volume_geometry is None:
+        return _active_cell_mask_owned(geometry)
+    mask = jnp.asarray(
+        control_volume_geometry.cells.is_active_owner,
+        dtype=bool,
+    )
+    if mask.shape != geometry.owned_shape:
+        raise ValueError(
+            "control-volume owner mask must have shape "
+            f"{geometry.owned_shape}, got {mask.shape}"
+        )
+    return mask
+
+
+def _solver_volume_weights(
+    geometry: LocalFciGeometry3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None,
+) -> jnp.ndarray | None:
+    """Return explicit mean/norm weights for an optional CV solve."""
+
+    if control_volume_geometry is None:
+        return None
+    weights = jnp.asarray(
+        control_volume_geometry.cells.aggregate_volume,
+        dtype=jnp.float64,
+    )
+    if weights.shape != geometry.owned_shape:
+        raise ValueError(
+            "control-volume aggregate_volume must have shape "
+            f"{geometry.owned_shape}, got {weights.shape}"
+        )
+    return weights
+
+
+def _mask_state_inactive_owned(
+    state,
+    geometry: LocalFciGeometry3D,
+    inactive_value: float | jnp.ndarray = 0.0,
+):
+    """Mask inactive owned cells in each owned-array leaf of a local RHS state."""
+
+    def _mask_leaf(leaf):
+        array = jnp.asarray(leaf)
+        if array.ndim >= 3 and array.shape[:3] == geometry.owned_shape:
+            return _mask_inactive_owned(array, geometry, inactive_value)
+        return leaf
+
+    return jax.tree_util.tree_map(_mask_leaf, state)
+
+
+def local_grad_parallel_op_fci(
+    stencil: LocalStencil1D,
+    geometry: LocalFciGeometry3D,
+) -> jnp.ndarray:
+    """Local/domain-decomposed centered FCI parallel gradient.
+
+    Computes ``grad_parallel(f)`` from a field-line stencil on owned cells.
+    The stencil builder is responsible for using the prepared halo field,
+    topology information, and cut-wall/boundary information to construct the
+    stencil.
+    """
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "local_grad_parallel_op_fci requires LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+
+    if stencil.shape != geometry.owned_shape:
+        raise ValueError(
+            f"stencil must have shape {geometry.owned_shape}, "
+            f"got {stencil.shape}"
+        )
+
+    return _mask_inactive_owned(_take_stencil_finite_difference(stencil), geometry)
+
+
+def _normalize_fci_endpoint_values(
+    values: jnp.ndarray | None,
+    *,
+    dtype: jnp.dtype,
+    name: str,
+) -> jnp.ndarray:
+    """Normalize a direction's explicit cut-wall endpoint payload.
+
+    The FCI dependency tables use a compact value-slot index.  An empty
+    payload is retained as a valid homogeneous fallback for compatibility
+    with the prototype builder; callers that have a physical wall closure
+    should pass the corresponding direction's payload explicitly.
+    """
+
+    if values is None:
+        return jnp.zeros((0,), dtype=dtype)
+    values = jnp.asarray(values, dtype=dtype)
+    if values.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional, got {values.shape}")
+    return values
+
+
+def _sample_fci_endpoint_rows(
+    field_halo: jnp.ndarray,
+    direction: LocalFciDirectionMap,
+    *,
+    remote_values: jnp.ndarray | None,
+    cut_wall_values: jnp.ndarray,
+    n_owned: int,
+) -> jnp.ndarray:
+    """Evaluate one mapped endpoint, including local/remote wall rows.
+
+    This mirrors ``LocalFciStencilBuilder`` locally so the operator family can
+    accept separate forward and backward wall payloads without changing the
+    geometry module's public builder contract.
+    """
+
+    table = direction.local
+    nx, ny, nz = field_halo.shape
+    source_i = jnp.clip(table.source_i, 0, nx - 1)
+    source_j = jnp.clip(table.source_j, 0, ny - 1)
+    source_k = jnp.clip(table.source_k, 0, nz - 1)
+    field_samples = field_halo[source_i, source_j, source_k]
+    if int(cut_wall_values.size) == 0:
+        wall_samples = jnp.zeros(table.value_slot.shape, dtype=field_halo.dtype)
+    else:
+        wall_samples = cut_wall_values[
+            jnp.clip(table.value_slot, 0, int(cut_wall_values.size) - 1)
+        ]
+    samples = jnp.where(
+        table.dependency_kind == FCI_DEP_CUT_WALL,
+        wall_samples,
+        field_samples,
+    )
+    active = table.active & (table.dependency_kind != FCI_DEP_INVALID)
+    target = jnp.clip(table.target_flat, 0, n_owned - 1)
+    endpoint = jnp.zeros((n_owned,), dtype=field_halo.dtype)
+    endpoint = endpoint.at[target].add(jnp.where(active, table.weight * samples, 0.0))
+
+    remote = direction.remote
+    if remote is not None and remote.max_entries:
+        expected = (remote.max_receive_values,)
+        if remote.max_receive_values == 0:
+            remote_samples = jnp.zeros(remote.receive_slot.shape, dtype=field_halo.dtype)
+        else:
+            if remote_values is None:
+                raise ValueError("remote endpoint values are required for remote FCI rows")
+            remote_values = jnp.asarray(remote_values, dtype=field_halo.dtype)
+            if remote_values.shape != expected:
+                raise ValueError(
+                    "remote endpoint values must have shape "
+                    f"{expected}, got {remote_values.shape}"
+                )
+            receive_slot = jnp.clip(remote.receive_slot, 0, remote.max_receive_values - 1)
+            remote_samples = remote_values[receive_slot]
+        remote_target = jnp.clip(remote.target_flat, 0, n_owned - 1)
+        endpoint = endpoint.at[remote_target].add(
+            jnp.where(remote.active, remote.weight * remote_samples, 0.0)
+        )
+
+    center = field_halo[direction.layout.owned_slices_cell].reshape((n_owned,))
+    return jnp.where(direction.target_valid.reshape((n_owned,)), endpoint, center)
+
+
+def _build_mapped_stencil_with_directional_walls(
+    field_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    forward_remote_values: jnp.ndarray | None,
+    backward_remote_values: jnp.ndarray | None,
+    forward_cut_wall_values: jnp.ndarray | None,
+    backward_cut_wall_values: jnp.ndarray | None,
+) -> LocalStencil1D:
+    """Build a mapped stencil with independent forward/backward wall values."""
+
+    field_halo_full = jnp.asarray(field_halo_full, dtype=jnp.float64)
+    n_owned = int(np.prod(geometry.owned_shape))
+    forward_values = _normalize_fci_endpoint_values(
+        forward_cut_wall_values,
+        dtype=field_halo_full.dtype,
+        name="forward_cut_wall_values",
+    )
+    backward_values = _normalize_fci_endpoint_values(
+        backward_cut_wall_values,
+        dtype=field_halo_full.dtype,
+        name="backward_cut_wall_values",
+    )
+    center = field_halo_full[geometry.layout.owned_slices_cell]
+    forward = _sample_fci_endpoint_rows(
+        field_halo_full,
+        geometry.maps.forward,
+        remote_values=forward_remote_values,
+        cut_wall_values=forward_values,
+        n_owned=n_owned,
+    ).reshape(geometry.owned_shape)
+    backward = _sample_fci_endpoint_rows(
+        field_halo_full,
+        geometry.maps.backward,
+        remote_values=backward_remote_values,
+        cut_wall_values=backward_values,
+        n_owned=n_owned,
+    ).reshape(geometry.owned_shape)
+    if geometry.maps.forward.connection_length is None:
+        raise ValueError("geometry.maps.forward.connection_length is required")
+    if geometry.maps.backward.connection_length is None:
+        raise ValueError("geometry.maps.backward.connection_length is required")
+    dx_plus = jnp.maximum(
+        jnp.asarray(geometry.maps.forward.connection_length, dtype=field_halo_full.dtype),
+        1.0e-30,
+    )
+    dx_min = jnp.maximum(
+        jnp.asarray(geometry.maps.backward.connection_length, dtype=field_halo_full.dtype),
+        1.0e-30,
+    )
+    valid = geometry.maps.forward.target_valid & geometry.maps.backward.target_valid
+    return LocalStencil1D(
+        center=center,
+        minus=jnp.where(valid, backward, center),
+        plus=jnp.where(valid, forward, center),
+        dx_min=jnp.where(valid, dx_min, 1.0),
+        dx_plus=jnp.where(valid, dx_plus, 1.0),
+    )
+
+
+def _build_mapped_stencil(
+    field_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    context: StencilBuilderContext,
+    *,
+    fci_stencil_builder: LocalFciStencilBuilder,
+    forward_remote_values: jnp.ndarray | None,
+    backward_remote_values: jnp.ndarray | None,
+    cut_wall_values: jnp.ndarray | None,
+    forward_cut_wall_values: jnp.ndarray | None,
+    backward_cut_wall_values: jnp.ndarray | None,
+) -> LocalStencil1D:
+    if forward_cut_wall_values is None and backward_cut_wall_values is None:
+        return fci_stencil_builder(
+            field_halo_full,
+            geometry,
+            context,
+            forward_remote_values=forward_remote_values,
+            backward_remote_values=backward_remote_values,
+            cut_wall_values=cut_wall_values,
+        )
+    if fci_stencil_builder is not build_local_fci_stencil_from_field:
+        raise ValueError(
+            "direction-aware wall endpoint values require the built-in "
+            "LocalFciStencilBuilder"
+        )
+    shared = _normalize_fci_endpoint_values(
+        cut_wall_values,
+        dtype=jnp.float64,
+        name="cut_wall_values",
+    )
+    forward = shared if forward_cut_wall_values is None else forward_cut_wall_values
+    backward = shared if backward_cut_wall_values is None else backward_cut_wall_values
+    return _build_mapped_stencil_with_directional_walls(
+        field_halo_full,
+        geometry,
+        forward_remote_values=forward_remote_values,
+        backward_remote_values=backward_remote_values,
+        forward_cut_wall_values=forward,
+        backward_cut_wall_values=backward,
+    )
+
+
+# =============================================================================
+def local_parallel_q_flux_div_fci_op(
+    q_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    fci_stencil_builder: LocalFciStencilBuilder = build_local_fci_stencil_from_field,
+    forward_remote_q_values: jnp.ndarray | None = None,
+    backward_remote_q_values: jnp.ndarray | None = None,
+    cut_wall_q_values: jnp.ndarray | None = None,
+    forward_cut_wall_q_values: jnp.ndarray | None = None,
+    backward_cut_wall_q_values: jnp.ndarray | None = None,
+    b_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Low-level mapped ``div(F b)`` for a prepared ``q=F/B`` halo.
+
+    ``q_halo_full`` must already include the physical ghost/leg values filled
+    by the EB boundary preparation.  This function never divides by the
+    halo-shaped ``Bmag`` field.  Endpoint wall payloads are values of this
+    same prepared ``q`` quantity and may be supplied independently for the
+    forward and backward traces.
+    """
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "local_parallel_q_flux_div_fci_op requires LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+    if not isinstance(context, StencilBuilderContext):
+        raise TypeError(
+            "context must be a StencilBuilderContext, "
+            f"got {type(context).__name__}"
+        )
+    q_halo_full = jnp.asarray(q_halo_full, dtype=jnp.float64)
+    if q_halo_full.shape != geometry.halo_shape:
+        raise ValueError(
+            "q_halo_full must match geometry.halo_shape; "
+            f"got {q_halo_full.shape}, expected {geometry.halo_shape}"
+        )
+    q_stencil = _build_mapped_stencil(
+        q_halo_full,
+        geometry,
+        context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_q_values,
+        backward_remote_values=backward_remote_q_values,
+        cut_wall_values=cut_wall_q_values,
+        forward_cut_wall_values=forward_cut_wall_q_values,
+        backward_cut_wall_values=backward_cut_wall_q_values,
+    )
+    grad_q = local_grad_parallel_op_fci(q_stencil, geometry)
+    Bmag_owned = jnp.maximum(
+        jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
+        float(b_floor),
+    )
+    return _mask_inactive_owned(Bmag_owned * grad_q, geometry)
+
+
+def local_parallel_div_b_fci_from_q_op(
+    inverse_b_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    **kwargs,
+) -> jnp.ndarray:
+    """Low-level mapped ``div(b)`` from a prepared ``q=1/B`` halo."""
+
+    return local_parallel_q_flux_div_fci_op(
+        inverse_b_halo_full,
+        geometry,
+        context=context,
+        **kwargs,
+    )
+
+
+def local_grad_parallel_op_fci_compatible_from_q(
+    q_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    field_owned: jnp.ndarray | None = None,
+    inverse_b_halo_full: jnp.ndarray | None = None,
+    div_b: jnp.ndarray | None = None,
+    fci_stencil_builder: LocalFciStencilBuilder = build_local_fci_stencil_from_field,
+    forward_remote_q_values: jnp.ndarray | None = None,
+    backward_remote_q_values: jnp.ndarray | None = None,
+    cut_wall_q_values: jnp.ndarray | None = None,
+    forward_cut_wall_q_values: jnp.ndarray | None = None,
+    backward_cut_wall_q_values: jnp.ndarray | None = None,
+    b_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Compatible mapped gradient from a prepared ``q=f/B`` halo.
+
+    ``field_owned`` is the prepared physical field on owned cells.  If it is
+    omitted, the field is reconstructed only on owned cells as
+    ``B_owned*q_owned``; no physical ``B`` ghost value is read.  ``div_b`` should be the cached
+    result of :func:`local_parallel_div_b_fci_from_q_op` using the matching
+    prepared ``q=1/B`` endpoint closure.
+    """
+
+    q_halo_full = jnp.asarray(q_halo_full, dtype=jnp.float64)
+    if q_halo_full.shape != geometry.halo_shape:
+        raise ValueError(
+            "q_halo_full must match geometry.halo_shape; "
+            f"got {q_halo_full.shape}, expected {geometry.halo_shape}"
+        )
+    if div_b is None and inverse_b_halo_full is None:
+        raise ValueError(
+            "provide div_b or a prepared inverse_b_halo_full; the low-level "
+            "q API does not read physical Bmag ghost cells"
+        )
+    if div_b is None:
+        div_b = local_parallel_div_b_fci_from_q_op(
+            inverse_b_halo_full,
+            geometry,
+            context=context,
+            fci_stencil_builder=fci_stencil_builder,
+            forward_remote_q_values=forward_remote_q_values,
+            backward_remote_q_values=backward_remote_q_values,
+            cut_wall_q_values=cut_wall_q_values,
+            forward_cut_wall_q_values=forward_cut_wall_q_values,
+            backward_cut_wall_q_values=backward_cut_wall_q_values,
+            b_floor=b_floor,
+        )
+    div_b = jnp.asarray(div_b, dtype=jnp.float64)
+    if div_b.shape != geometry.owned_shape:
+        raise ValueError(
+            f"div_b must have shape {geometry.owned_shape}, got {div_b.shape}"
+        )
+    if field_owned is None:
+        Bmag_owned = jnp.maximum(
+            jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
+            float(b_floor),
+        )
+        field_owned = q_halo_full[geometry.layout.owned_slices_cell] * Bmag_owned
+    else:
+        field_owned = jnp.asarray(field_owned, dtype=jnp.float64)
+        if field_owned.shape != geometry.owned_shape:
+            raise ValueError(
+                f"field_owned must have shape {geometry.owned_shape}, "
+                f"got {field_owned.shape}"
+            )
+    div_fb = local_parallel_q_flux_div_fci_op(
+        q_halo_full,
+        geometry,
+        context=context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_q_values=forward_remote_q_values,
+        backward_remote_q_values=backward_remote_q_values,
+        cut_wall_q_values=cut_wall_q_values,
+        forward_cut_wall_q_values=forward_cut_wall_q_values,
+        backward_cut_wall_q_values=backward_cut_wall_q_values,
+        b_floor=b_floor,
+    )
+    return _mask_inactive_owned(div_fb - field_owned * div_b, geometry)
+
+
+def local_grad_parallel_op_fci_compatible_from_q_components(
+    q_halo_full: jnp.ndarray,
+    inverse_b_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    field_owned: jnp.ndarray,
+    forward_remote_q_values: jnp.ndarray | None = None,
+    backward_remote_q_values: jnp.ndarray | None = None,
+    forward_remote_inverse_b_values: jnp.ndarray | None = None,
+    backward_remote_inverse_b_values: jnp.ndarray | None = None,
+    fci_stencil_builder: LocalFciStencilBuilder = build_local_fci_stencil_from_field,
+    b_floor: float = 1.0e-30,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Split the compatible mapped gradient into its three stencil lanes.
+
+    The returned component order is ``(backward, center, forward)``.  Their
+    sum reconstructs :func:`local_grad_parallel_op_fci_compatible_from_q`
+    when the latter uses the same prepared ``q=f/B`` and ``q=1/B`` payloads.
+    The second return value contains the physical field reconstructed at the
+    backward and forward mapped endpoints.  This helper is diagnostic-only;
+    it deliberately reuses the production mapped-stencil builder so wall and
+    remote endpoint semantics cannot drift from the operator being audited.
+    """
+
+    q_halo_full = jnp.asarray(q_halo_full, dtype=jnp.float64)
+    inverse_b_halo_full = jnp.asarray(inverse_b_halo_full, dtype=jnp.float64)
+    field_owned = jnp.asarray(field_owned, dtype=jnp.float64)
+    if q_halo_full.shape != geometry.halo_shape:
+        raise ValueError(
+            "q_halo_full must match geometry.halo_shape; "
+            f"got {q_halo_full.shape}, expected {geometry.halo_shape}"
+        )
+    if inverse_b_halo_full.shape != geometry.halo_shape:
+        raise ValueError(
+            "inverse_b_halo_full must match geometry.halo_shape; "
+            f"got {inverse_b_halo_full.shape}, expected {geometry.halo_shape}"
+        )
+    if field_owned.shape != geometry.owned_shape:
+        raise ValueError(
+            f"field_owned must have shape {geometry.owned_shape}, "
+            f"got {field_owned.shape}"
+        )
+
+    q_stencil = _build_mapped_stencil(
+        q_halo_full,
+        geometry,
+        context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_q_values,
+        backward_remote_values=backward_remote_q_values,
+        cut_wall_values=None,
+        forward_cut_wall_values=None,
+        backward_cut_wall_values=None,
+    )
+    inverse_b_stencil = _build_mapped_stencil(
+        inverse_b_halo_full,
+        geometry,
+        context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_inverse_b_values,
+        backward_remote_values=backward_remote_inverse_b_values,
+        cut_wall_values=None,
+        forward_cut_wall_values=None,
+        backward_cut_wall_values=None,
+    )
+    Bmag_owned = jnp.maximum(
+        jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
+        float(b_floor),
+    )
+    q_values = (q_stencil.minus, q_stencil.center, q_stencil.plus)
+    inverse_b_values = (
+        inverse_b_stencil.minus,
+        inverse_b_stencil.center,
+        inverse_b_stencil.plus,
+    )
+    weights = (
+        q_stencil.derivative_minus_weight,
+        q_stencil.derivative_center_weight,
+        q_stencil.derivative_plus_weight,
+    )
+    components = jnp.stack(
+        tuple(
+            Bmag_owned
+            * jnp.asarray(weight, dtype=jnp.float64)
+            * (
+                jnp.asarray(q_value, dtype=jnp.float64)
+                - field_owned * jnp.asarray(inverse_b_value, dtype=jnp.float64)
+            )
+            for weight, q_value, inverse_b_value in zip(
+                weights, q_values, inverse_b_values, strict=True
+            )
+        ),
+        axis=0,
+    )
+    components = jax.vmap(lambda value: _mask_inactive_owned(value, geometry))(
+        components
+    )
+    endpoint_values = jnp.stack(
+        (
+            q_stencil.minus
+            / jnp.maximum(inverse_b_stencil.minus, float(b_floor)),
+            q_stencil.plus
+            / jnp.maximum(inverse_b_stencil.plus, float(b_floor)),
+        ),
+        axis=0,
+    )
+    endpoint_values = jax.vmap(
+        lambda value: _mask_inactive_owned(value, geometry)
+    )(endpoint_values)
+    return components, endpoint_values
+
+
+def local_parallel_diffusion_fci_op(
+    field_halo_full: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    context: StencilBuilderContext,
+    diffusivity_halo_full: jnp.ndarray | None = None,
+    inverse_b_halo_full: jnp.ndarray | None = None,
+    b_floor: float = 1.0e-30,
+    fci_stencil_builder: LocalFciStencilBuilder = build_local_fci_stencil_from_field,
+    forward_remote_values: jnp.ndarray | None = None,
+    backward_remote_values: jnp.ndarray | None = None,
+    cut_wall_values: jnp.ndarray | None = None,
+    forward_cut_wall_values: jnp.ndarray | None = None,
+    backward_cut_wall_values: jnp.ndarray | None = None,
+    forward_remote_diffusivity_values: jnp.ndarray | None = None,
+    backward_remote_diffusivity_values: jnp.ndarray | None = None,
+    cut_wall_diffusivity_values: jnp.ndarray | None = None,
+    forward_cut_wall_diffusivity_values: jnp.ndarray | None = None,
+    backward_cut_wall_diffusivity_values: jnp.ndarray | None = None,
+    forward_cut_wall_bmag_values: jnp.ndarray | None = None,
+    backward_cut_wall_bmag_values: jnp.ndarray | None = None,
+    forward_remote_inverse_b_values: jnp.ndarray | None = None,
+    backward_remote_inverse_b_values: jnp.ndarray | None = None,
+    forward_cut_wall_inverse_b_values: jnp.ndarray | None = None,
+    backward_cut_wall_inverse_b_values: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Return a mapped conservative/support-form parallel diffusion.
+
+    With ``F = kappa * grad_parallel(f)``, the local support form is
+
+        ``B * (q_plus - q_minus) / ((d_plus + d_minus)/2)``,
+        ``q_side = (kappa_face / B_face) * delta_f / d_side``.
+
+    This is second-order for smooth fields and coefficients on smooth unequal
+    legs.  It uses midpoint coefficient and ``B`` averages, and the same
+    mapped endpoints as the gradient/divergence family.  It is conservative
+    in this local flux-difference sense, but exact global conservation is not
+    guaranteed because FCI interpolation does not enforce shared face rows.
+    For production EB use, pass a prepared ``inverse_b_halo_full`` (and its
+    remote/wall endpoint payloads) so no physical ``B`` ghost is read.  If it
+    is omitted, the legacy convenience path derives ``B`` from the geometry
+    halo.  Physical wall values for the field, diffusivity, and inverse ``B``
+    must be supplied through their direction-aware endpoint arguments when a
+    trace terminates at a wall.
+    """
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "local_parallel_diffusion_fci_op requires LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+    field_halo_full = jnp.asarray(field_halo_full, dtype=jnp.float64)
+    if field_halo_full.shape != geometry.halo_shape:
+        raise ValueError(
+            "field_halo_full must match geometry.halo_shape; "
+            f"got {field_halo_full.shape}, expected {geometry.halo_shape}"
+        )
+    if diffusivity_halo_full is None:
+        diffusivity_halo_full = jnp.ones_like(field_halo_full)
+    else:
+        diffusivity_halo_full = jnp.asarray(diffusivity_halo_full, dtype=jnp.float64)
+        if diffusivity_halo_full.shape != geometry.halo_shape:
+            raise ValueError(
+                "diffusivity_halo_full must match geometry.halo_shape; "
+                f"got {diffusivity_halo_full.shape}, expected {geometry.halo_shape}"
+            )
+
+    field_stencil = _build_mapped_stencil(
+        field_halo_full,
+        geometry,
+        context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_values,
+        backward_remote_values=backward_remote_values,
+        cut_wall_values=cut_wall_values,
+        forward_cut_wall_values=forward_cut_wall_values,
+        backward_cut_wall_values=backward_cut_wall_values,
+    )
+    diffusivity_stencil = _build_mapped_stencil(
+        diffusivity_halo_full,
+        geometry,
+        context,
+        fci_stencil_builder=fci_stencil_builder,
+        forward_remote_values=forward_remote_diffusivity_values,
+        backward_remote_values=backward_remote_diffusivity_values,
+        cut_wall_values=cut_wall_diffusivity_values,
+        forward_cut_wall_values=forward_cut_wall_diffusivity_values,
+        backward_cut_wall_values=backward_cut_wall_diffusivity_values,
+    )
+    if inverse_b_halo_full is None:
+        bmag_halo = jnp.maximum(
+            jnp.asarray(geometry.cell_bfield.Bmag_halo, dtype=jnp.float64),
+            float(b_floor),
+        )
+        bmag_stencil = _build_mapped_stencil(
+            bmag_halo,
+            geometry,
+            context,
+            fci_stencil_builder=fci_stencil_builder,
+            forward_remote_values=None,
+            backward_remote_values=None,
+            cut_wall_values=None,
+            forward_cut_wall_values=forward_cut_wall_bmag_values,
+            backward_cut_wall_values=backward_cut_wall_bmag_values,
+        )
+        b_center = jnp.maximum(bmag_stencil.center, float(b_floor))
+        b_minus = jnp.maximum(
+            0.5 * (b_center + bmag_stencil.minus), float(b_floor)
+        )
+        b_plus = jnp.maximum(
+            0.5 * (b_center + bmag_stencil.plus), float(b_floor)
+        )
+    else:
+        inverse_b_halo_full = jnp.asarray(inverse_b_halo_full, dtype=jnp.float64)
+        if inverse_b_halo_full.shape != geometry.halo_shape:
+            raise ValueError(
+                "inverse_b_halo_full must match geometry.halo_shape; "
+                f"got {inverse_b_halo_full.shape}, expected {geometry.halo_shape}"
+            )
+        inverse_b_stencil = _build_mapped_stencil(
+            inverse_b_halo_full,
+            geometry,
+            context,
+            fci_stencil_builder=fci_stencil_builder,
+            forward_remote_values=forward_remote_inverse_b_values,
+            backward_remote_values=backward_remote_inverse_b_values,
+            cut_wall_values=None,
+            forward_cut_wall_values=forward_cut_wall_inverse_b_values,
+            backward_cut_wall_values=backward_cut_wall_inverse_b_values,
+        )
+        b_center = 1.0 / jnp.maximum(inverse_b_stencil.center, float(b_floor))
+        b_minus = 1.0 / jnp.maximum(
+            0.5 * (inverse_b_stencil.center + inverse_b_stencil.minus),
+            float(b_floor),
+        )
+        b_plus = 1.0 / jnp.maximum(
+            0.5 * (inverse_b_stencil.center + inverse_b_stencil.plus),
+            float(b_floor),
+        )
+    dm = jnp.maximum(field_stencil.dx_min, 1.0e-30)
+    dp = jnp.maximum(field_stencil.dx_plus, 1.0e-30)
+    width = jnp.maximum(dm + dp, 1.0e-30)
+    k_center = diffusivity_stencil.center
+    k_minus = 0.5 * (k_center + diffusivity_stencil.minus)
+    k_plus = 0.5 * (k_center + diffusivity_stencil.plus)
+    q_minus = k_minus * (field_stencil.center - field_stencil.minus) / (dm * b_minus)
+    q_plus = k_plus * (field_stencil.plus - field_stencil.center) / (dp * b_plus)
+    result = b_center * 2.0 * (q_plus - q_minus) / width
+    return _mask_inactive_owned(result, geometry)
+
+
+def _compatible_flux_face_one_form(
+    geometry: LocalFciGeometry3D,
+    axis: int,
+    *,
+    b_floor: float,
+) -> jnp.ndarray:
+    """Return ``A_beta = (b/B)_beta`` on one owned coordinate-face family."""
+
+    metric = geometry.face_metric.axes[axis]
+    bfield = geometry.face_bfield.axes[axis]
+    bmag = jnp.maximum(jnp.asarray(bfield.Bmag_owned, dtype=jnp.float64), b_floor)
+    b_contra = jnp.asarray(bfield.B_contra_owned, dtype=jnp.float64) / bmag[..., None]
+    b_covariant = jnp.einsum(
+        "...ij,...j->...i",
+        jnp.asarray(metric.g_cov_owned, dtype=jnp.float64),
+        b_contra,
+    )
+    return b_covariant / bmag[..., None]
+
+
+def _compatible_flux_divergence(
+    flux: FaceFluxStencil3D,
+    geometry: LocalFciGeometry3D,
+    *,
+    jacobian_floor: float,
+) -> jnp.ndarray:
+    """Evaluate the logical incidence divergence of a face flux density."""
+
+    divergence = (
+        (flux.x[1:] - flux.x[:-1])
+        / jnp.maximum(jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64), jacobian_floor)
+        + (flux.y[:, 1:] - flux.y[:, :-1])
+        / jnp.maximum(jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64), jacobian_floor)
+        + (flux.z[:, :, 1:] - flux.z[:, :, :-1])
+        / jnp.maximum(jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64), jacobian_floor)
+    )
+    return divergence
+
+
+def _compatible_flux_generator(
+    stencil: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    *,
+    domain: LocalDomain3D | None,
+    axis_regular_axes: tuple[bool, bool, bool],
+    b_floor: float,
+) -> FaceFluxStencil3D:
+    """Build ``U_s^alpha = epsilon^(alpha beta gamma) A_beta s_gamma``."""
+
+    gradients = stencil.face_grad
+    A_x_face, A_y_face, A_z_face = tuple(
+        _compatible_flux_face_one_form(geometry, axis, b_floor=b_floor)
+        for axis in range(3)
+    )
+    grad_x, grad_y, grad_z = gradients.x, gradients.y, gradients.z
+    flux = FaceFluxStencil3D(
+        x=A_x_face[..., 1] * grad_x[..., 2] - A_x_face[..., 2] * grad_x[..., 1],
+        y=A_y_face[..., 2] * grad_y[..., 0] - A_y_face[..., 0] * grad_y[..., 2],
+        z=A_z_face[..., 0] * grad_z[..., 1] - A_z_face[..., 1] * grad_z[..., 0],
+    )
+
+    # The collapsed lower-x face is a topological face, not a physical face.
+    # Only the shard that owns the global lower side may alter it.
+    if axis_regular_axes[0]:
+        if domain is None:
+            raise ValueError(
+                "domain is required when axis_regular_axes[0] is enabled"
+            )
+        axis_owner = domain.runtime_has_axis_regular_lower(0)
+        lower_x = flux.x[0]
+        flux = FaceFluxStencil3D(
+            x=flux.x.at[0].set(
+                jnp.where(axis_owner, jnp.zeros_like(lower_x), lower_x)
+            ),
+            y=flux.y,
+            z=flux.z,
+        )
+    return flux
+
+
+def _axis_face_samples_from_halo(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    axis: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Return the four cell samples surrounding every owned coordinate face.
+
+    Face ``f`` lies between the second and third returned samples.  A two-cell
+    halo therefore supplies the canonical third-order pair on shard and
+    periodic faces without any special casing.  With a one-cell halo the
+    outer samples are duplicated from their adjacent cells; callers then use
+    the corresponding first-order fallback.
+    """
+
+    values = jnp.asarray(field_halo, dtype=jnp.float64)
+    if values.shape != geometry.halo_shape:
+        raise ValueError(
+            "field_halo must match geometry.halo_shape; "
+            f"got {values.shape}, expected {geometry.halo_shape}"
+        )
+    axis = int(axis)
+    if axis not in (0, 1, 2):
+        raise ValueError(f"axis must be 0, 1, or 2, got {axis}")
+    layout = geometry.layout
+    halo = int(layout.halo_width)
+    if halo < 1:
+        raise ValueError("characteristic face reconstruction requires halo_width >= 1")
+    owned_shape = tuple(int(value) for value in geometry.owned_shape)
+
+    def take(offset: int) -> jnp.ndarray:
+        slices = [
+            slice(halo, halo + owned_shape[component])
+            for component in range(3)
+        ]
+        start = halo + int(offset)
+        stop = start + owned_shape[axis] + 1
+        slices[axis] = slice(start, stop)
+        return values[tuple(slices)]
+
+    left_owner = take(-1)
+    right_owner = take(0)
+    if halo >= 2:
+        left_outer = take(-2)
+        right_outer = take(1)
+    else:
+        left_outer = left_owner
+        right_outer = right_owner
+    return left_outer, left_owner, right_owner, right_outer
+
+
+def _boundary_trace_planes(
+    trace: LocalBoundaryFaceTrace3D | None,
+    *,
+    axis: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray] | None:
+    """Return lower/upper physical trace masks and values for one face axis."""
+
+    if trace is None:
+        return None
+    names = ("x", "y", "z")
+    values = jnp.asarray(getattr(trace, f"value_{names[axis]}"), dtype=jnp.float64)
+    masks = jnp.asarray(getattr(trace, f"mask_{names[axis]}"), dtype=bool)
+    if axis == 0:
+        return masks[0], values[0], masks[-1], values[-1]
+    if axis == 1:
+        return masks[:, 0, :], values[:, 0, :], masks[:, -1, :], values[:, -1, :]
+    return masks[:, :, 0], values[:, :, 0], masks[:, :, -1], values[:, :, -1]
+
+
+def _third_order_scalar_face_states_from_halo(
+    field_halo: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    *,
+    boundary_trace: LocalBoundaryFaceTrace3D | None,
+    axis_regular_axes: tuple[bool, bool, bool],
+    positivity_floor: float | None,
+) -> tuple[CoordinateFaceValues3D, CoordinateFaceValues3D, CoordinateFaceValues3D]:
+    """Build scalar third-order left/right states and fallback masks.
+
+    The reconstruction matches the production curvature/parallel stencil,
+
+    ``qL=(-q[i-1]+5q[i]+2q[i+1])/6`` and
+    ``qR=(2q[i]+5q[i+1]-q[i+2])/6``.
+
+    Each side independently falls back to its adjacent first-order owner when
+    the reconstruction is non-finite or violates a requested positivity
+    floor.  Physical coordinate boundaries always use the established
+    operator trace and adjacent owner state, exactly as the characteristic
+    curvature/parallel paths fall back at a wall.  The returned mask is one
+    where either side used a fallback.
+    """
+
+    boundary_trace = _validate_local_boundary_face_trace(
+        boundary_trace, geometry.layout
+    )
+    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
+    if len(axis_regular_axes) != 3:
+        raise ValueError("axis_regular_axes must have length 3")
+    if positivity_floor is not None:
+        positivity_floor = float(positivity_floor)
+        if not np.isfinite(positivity_floor) or positivity_floor <= 0.0:
+            raise ValueError("positivity_floor must be finite and positive")
+
+    left_faces = []
+    right_faces = []
+    fallback_faces = []
+    for axis in range(3):
+        qm, q0, q1, qp = _axis_face_samples_from_halo(
+            field_halo, geometry, axis=axis
+        )
+        if int(geometry.layout.halo_width) >= 2:
+            left = (-qm + 5.0 * q0 + 2.0 * q1) / 6.0
+            right = (2.0 * q0 + 5.0 * q1 - qp) / 6.0
+            left_ok = jnp.isfinite(left)
+            right_ok = jnp.isfinite(right)
+            if positivity_floor is not None:
+                left_ok = left_ok & (left > positivity_floor)
+                right_ok = right_ok & (right > positivity_floor)
+        else:
+            left = q0
+            right = q1
+            left_ok = jnp.zeros_like(left, dtype=bool)
+            right_ok = jnp.zeros_like(right, dtype=bool)
+
+        # Match the established characteristic reconstruction contract: a
+        # failed high-order side falls back to its adjacent owner, but a
+        # non-finite owner is not silently repaired.  It must remain visible
+        # to the stage-validity checks.
+        q0_safe = q0
+        q1_safe = q1
+        if positivity_floor is not None:
+            q0_safe = jnp.maximum(q0_safe, positivity_floor)
+            q1_safe = jnp.maximum(q1_safe, positivity_floor)
+        left = jnp.where(left_ok, left, q0_safe)
+        right = jnp.where(right_ok, right, q1_safe)
+        fallback = ~(left_ok & right_ok)
+
+        trace_planes = _boundary_trace_planes(boundary_trace, axis=axis)
+        if trace_planes is not None:
+            lower_mask, lower_value, upper_mask, upper_value = trace_planes
+            if positivity_floor is not None:
+                lower_value = jnp.maximum(lower_value, positivity_floor)
+                upper_value = jnp.maximum(upper_value, positivity_floor)
+            if not (axis == 0 and axis_regular_axes[0]):
+                lower_index = _axis_index_nd(axis, 0, left.ndim)
+                left = left.at[lower_index].set(
+                    jnp.where(lower_mask, lower_value, left[lower_index])
+                )
+                right = right.at[lower_index].set(
+                    jnp.where(lower_mask, q1_safe[lower_index], right[lower_index])
+                )
+                fallback = fallback.at[lower_index].set(
+                    jnp.where(lower_mask, True, fallback[lower_index])
+                )
+            upper_index = _axis_index_nd(axis, -1, left.ndim)
+            left = left.at[upper_index].set(
+                jnp.where(upper_mask, q0_safe[upper_index], left[upper_index])
+            )
+            right = right.at[upper_index].set(
+                jnp.where(upper_mask, upper_value, right[upper_index])
+            )
+            fallback = fallback.at[upper_index].set(
+                jnp.where(upper_mask, True, fallback[upper_index])
+            )
+
+        left_faces.append(left)
+        right_faces.append(right)
+        fallback_faces.append(fallback.astype(jnp.float64))
+
+    return (
+        CoordinateFaceValues3D(*left_faces),
+        CoordinateFaceValues3D(*right_faces),
+        CoordinateFaceValues3D(*fallback_faces),
+    )
+
+
+def _compatible_characteristic_regular_flux(
+    generator_flux: FaceFluxStencil3D,
+    left_argument: CoordinateFaceValues3D,
+    right_argument: CoordinateFaceValues3D,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Return the complete ``U * q_upwind,3`` flux on shared regular faces."""
+
+    fluxes = []
+    for velocity, left, right in zip(
+        (generator_flux.x, generator_flux.y, generator_flux.z),
+        (left_argument.x, left_argument.y, left_argument.z),
+        (right_argument.x, right_argument.y, right_argument.z),
+        strict=True,
+    ):
+        upwind = jnp.where(velocity >= 0.0, left, right)
+        fluxes.append(velocity * upwind)
+    return tuple(fluxes)
+
+
+def local_poisson_bracket_compatible_flux_op(
+    f_stencil: ConservativeStencil3D,
+    g_stencil: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    *,
+    domain: LocalDomain3D | None = None,
+    f_boundary_trace: LocalBoundaryFaceTrace3D | None = None,
+    g_boundary_trace: LocalBoundaryFaceTrace3D | None = None,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
+    f_field_closure: LocalControlVolumeFieldClosure3D | None = None,
+    g_field_closure: LocalControlVolumeFieldClosure3D | None = None,
+    f_control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
+    g_control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    characteristic_scheme: str = "centered",
+    g_field_halo: jnp.ndarray | None = None,
+    g_positivity_floor: float | None = None,
+    b_floor: float = 1.0e-30,
+    jacobian_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Compatible-face Poisson bracket, already divided by ``B``.
+
+    Both inputs are conservative scalar stencils.  For each generator ``s``
+    this constructs the shared face flux density
+
+        ``U_s^alpha = epsilon^(alpha beta gamma) A_beta partial_gamma s``,
+        ``A_beta = (b/B)_beta``.
+
+    The action is evaluated as
+
+        ``A_s(q) = [D(U_s q_face) - q_center D(U_s)] / J``.
+
+    If supplied, ``f_boundary_trace`` and ``g_boundary_trace`` provide the
+    operator-specific physical face values for ``f`` and ``g``.  The trace for
+    the advected argument is applied inside each action, while topological
+    axis faces remain untouched.  The centered selector returns
+    ``0.5 * (A_f(g) - A_g(f))``.  The
+    ``scalar-third-order-upwind`` selector replaces the advected scalar
+    channel by third-order characteristic upwinding.  Its characteristic
+    speed is the physical normal E x B face flux ``U_f``; no dissipation
+    coefficient is tunable.  Regular bulk and
+    shard faces use the same third-order reconstruction as the production
+    curvature/parallel systems.  Physical coordinate faces and compact RLP
+    faces use first-order owner/wall traces.  Thermodynamic callers may supply
+    ``g_positivity_floor`` for the same side-wise admissibility fallback used
+    by those systems.
+    """
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "local_poisson_bracket_compatible_flux_op requires LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+    for name, stencil in (("f_stencil", f_stencil), ("g_stencil", g_stencil)):
+        if not isinstance(stencil, ConservativeStencil3D):
+            raise TypeError(
+                f"{name} must be a ConservativeStencil3D, "
+                f"got {type(stencil).__name__}"
+            )
+        if stencil.shape != geometry.owned_shape:
+            raise ValueError(
+                f"{name} must have shape {geometry.owned_shape}, got {stencil.shape}"
+            )
+    if characteristic_scheme not in ("centered", "scalar-third-order-upwind"):
+        raise ValueError(
+            "characteristic_scheme must be 'centered' or "
+            "'scalar-third-order-upwind', got "
+            f"{characteristic_scheme!r}"
+        )
+    characteristic_upwind = characteristic_scheme == "scalar-third-order-upwind"
+    if characteristic_upwind:
+        if g_field_halo is None:
+            raise ValueError(
+                "g_field_halo is required for third-order characteristic "
+                "Poisson-bracket upwinding"
+            )
+        g_field_halo = jnp.asarray(g_field_halo, dtype=jnp.float64)
+        if g_field_halo.shape != geometry.halo_shape:
+            raise ValueError(
+                "g_field_halo must match geometry.halo_shape; "
+                f"got {g_field_halo.shape}, expected {geometry.halo_shape}"
+            )
+        left_g, right_g, _g_reconstruction_fallback = (
+            _third_order_scalar_face_states_from_halo(
+                g_field_halo,
+                geometry,
+                boundary_trace=g_boundary_trace,
+                axis_regular_axes=axis_regular_axes,
+                positivity_floor=g_positivity_floor,
+            )
+        )
+
+    supplied_geometries = tuple(
+        geometry_value for geometry_value in (
+            control_volume_geometry,
+            f_control_volume_geometry,
+            g_control_volume_geometry,
+        ) if geometry_value is not None
+    )
+    if supplied_geometries:
+        if control_volume_geometry is None:
+            control_volume_geometry = supplied_geometries[0]
+        if any(value is not control_volume_geometry for value in supplied_geometries):
+            raise ValueError("f/g control-volume geometries must be the same topology")
+    if control_volume_geometry is not None:
+        if not isinstance(domain, LocalDomain3D):
+            raise ValueError("domain is required with control_volume_geometry")
+        if not isinstance(control_volume_geometry, LocalEmbeddedControlVolumeGeometry3D):
+            raise TypeError("control_volume_geometry must be LocalEmbeddedControlVolumeGeometry3D")
+        if control_volume_geometry.cells.layout != geometry.layout:
+            raise ValueError("control-volume geometry must share geometry.layout")
+        f_closure = _require_local_control_volume_field_closure(
+            f_field_closure, control_volume_geometry
+        )
+        g_closure = _require_local_control_volume_field_closure(
+            g_field_closure, control_volume_geometry
+        )
+        f_boundary_trace = _validate_local_boundary_face_trace(
+            f_boundary_trace, geometry.layout
+        )
+        g_boundary_trace = _validate_local_boundary_face_trace(
+            g_boundary_trace, geometry.layout
+        )
+        regular_faces = control_volume_geometry.regular_faces
+
+        def _compact_action_flux(generator_closure, argument_closure):
+            faces = control_volume_geometry.irregular_faces
+            A = jnp.einsum(
+                "...ab,...b->...a", jnp.asarray(faces.g_cov, dtype=jnp.float64),
+                jnp.asarray(faces.B_contra, dtype=jnp.float64),
+            ) / jnp.maximum(jnp.asarray(faces.Bmag, dtype=jnp.float64), b_floor)[..., None]**2
+            grad = jnp.asarray(generator_closure.face_gradient, dtype=jnp.float64)
+            U = jnp.stack((
+                A[..., 1] * grad[..., 2] - A[..., 2] * grad[..., 1],
+                A[..., 2] * grad[..., 0] - A[..., 0] * grad[..., 2],
+                A[..., 0] * grad[..., 1] - A[..., 1] * grad[..., 0],
+            ), axis=-1)
+            normal = jnp.sum(
+                jnp.asarray(faces.area_covector_weight, dtype=jnp.float64) * U,
+                axis=-1,
+            )
+            valid = (
+                jnp.asarray(generator_closure.face_gradient_valid, dtype=bool)
+                & jnp.asarray(argument_closure.face_value_valid, dtype=bool)
+                & jnp.asarray(faces.quadrature_active, dtype=bool)
+            )
+            weighted = jnp.sum(
+                jnp.where(~jnp.asarray(faces.quadrature_active, dtype=bool), 0.0,
+                          jnp.where(valid, normal * argument_closure.face_value, jnp.nan)),
+                axis=(1, 2),
+            )
+            generator_only = jnp.sum(
+                jnp.where(~jnp.asarray(faces.quadrature_active, dtype=bool), 0.0,
+                          jnp.where(valid, normal, jnp.nan)), axis=(1, 2)
+            )
+            return weighted, generator_only
+
+        def _compact_characteristic_flux(
+            generator_closure,
+            argument,
+            argument_closure,
+            argument_halo,
+            positivity_floor,
+        ):
+            faces = control_volume_geometry.irregular_faces
+            A = jnp.einsum(
+                "...ab,...b->...a",
+                jnp.asarray(faces.g_cov, dtype=jnp.float64),
+                jnp.asarray(faces.B_contra, dtype=jnp.float64),
+            ) / jnp.maximum(
+                jnp.asarray(faces.Bmag, dtype=jnp.float64), b_floor
+            )[..., None] ** 2
+            grad = jnp.asarray(generator_closure.face_gradient, dtype=jnp.float64)
+            U = jnp.stack(
+                (
+                    A[..., 1] * grad[..., 2] - A[..., 2] * grad[..., 1],
+                    A[..., 2] * grad[..., 0] - A[..., 0] * grad[..., 2],
+                    A[..., 0] * grad[..., 1] - A[..., 1] * grad[..., 0],
+                ),
+                axis=-1,
+            )
+            normal = jnp.sum(
+                jnp.asarray(faces.area_covector_weight, dtype=jnp.float64) * U,
+                axis=-1,
+            )
+            center = jnp.asarray(argument.x.center, dtype=jnp.float64)
+            minus = center[
+                faces.minus_owner_i,
+                faces.minus_owner_j,
+                faces.minus_owner_k,
+            ]
+            plus_local = center[
+                faces.plus_owner_i,
+                faces.plus_owner_j,
+                faces.plus_owner_k,
+            ]
+            plus_remote = argument_halo[
+                faces.remote_halo_i,
+                faces.remote_halo_j,
+                faces.remote_halo_k,
+            ]
+            centered = jnp.asarray(argument_closure.face_value, dtype=jnp.float64)
+            plus = jnp.where(
+                faces.has_plus_owner[:, None, None],
+                plus_local[:, None, None],
+                jnp.where(
+                    faces.has_remote_owner[:, None, None],
+                    plus_remote[:, None, None],
+                    centered,
+                ),
+            )
+            minus = jnp.broadcast_to(minus[:, None, None], centered.shape)
+            if positivity_floor is not None:
+                floor = float(positivity_floor)
+                minus = jnp.maximum(minus, floor)
+                plus = jnp.maximum(plus, floor)
+            upwind = jnp.where(normal >= 0.0, minus, plus)
+            valid = (
+                jnp.asarray(generator_closure.face_gradient_valid, dtype=bool)
+                & jnp.asarray(argument_closure.face_value_valid, dtype=bool)
+                & jnp.asarray(faces.quadrature_active, dtype=bool)
+                & jnp.isfinite(upwind)
+            )
+            weighted = jnp.sum(
+                jnp.where(
+                    ~jnp.asarray(faces.quadrature_active, dtype=bool),
+                    0.0,
+                    jnp.where(valid, normal * upwind, jnp.nan),
+                ),
+                axis=(1, 2),
+            )
+            generator_only = jnp.sum(
+                jnp.where(
+                    ~jnp.asarray(faces.quadrature_active, dtype=bool),
+                    0.0,
+                    jnp.where(valid, normal, jnp.nan),
+                ),
+                axis=(1, 2),
+            )
+            return weighted, generator_only
+
+        def _action(generator, argument, generator_closure, argument_closure, argument_trace):
+            dense_generator = _compatible_flux_generator(
+                generator, geometry, domain=domain,
+                axis_regular_axes=axis_regular_axes, b_floor=b_floor,
+            )
+            dense_argument = argument.face_values
+            if argument_trace is not None:
+                dense_argument = CoordinateFaceValues3D(
+                    x=_apply_local_face_trace(dense_argument.x, axis=0, trace_value=argument_trace.value_x, trace_mask=argument_trace.mask_x, axis_regular_axes=axis_regular_axes),
+                    y=_apply_local_face_trace(dense_argument.y, axis=1, trace_value=argument_trace.value_y, trace_mask=argument_trace.mask_y, axis_regular_axes=axis_regular_axes),
+                    z=_apply_local_face_trace(dense_argument.z, axis=2, trace_value=argument_trace.value_z, trace_mask=argument_trace.mask_z, axis_regular_axes=axis_regular_axes),
+                )
+            weighted_dense = (
+                dense_generator.x * dense_argument.x,
+                dense_generator.y * dense_argument.y,
+                dense_generator.z * dense_argument.z,
+            )
+            compact_weighted, compact_generator = _compact_action_flux(
+                generator_closure, argument_closure
+            )
+            weighted_div = _local_control_volume_integrated_divergence(
+                weighted_dense, compact_weighted, geometry, domain,
+                control_volume_geometry, volume_floor=jacobian_floor,
+            )
+            generator_div = _local_control_volume_integrated_divergence(
+                (dense_generator.x, dense_generator.y, dense_generator.z),
+                compact_generator, geometry, domain,
+                control_volume_geometry, volume_floor=jacobian_floor,
+            )
+            return weighted_div - argument.x.center * generator_div
+
+        def _characteristic_action(
+            generator,
+            argument,
+            generator_closure,
+            argument_closure,
+            left_argument,
+            right_argument,
+            argument_halo,
+            positivity_floor,
+        ):
+            dense_generator = _compatible_flux_generator(
+                generator,
+                geometry,
+                domain=domain,
+                axis_regular_axes=axis_regular_axes,
+                b_floor=b_floor,
+            )
+            regular_weighted = _compatible_characteristic_regular_flux(
+                dense_generator,
+                left_argument,
+                right_argument,
+            )
+            compact_weighted, compact_generator = _compact_characteristic_flux(
+                generator_closure,
+                argument,
+                argument_closure,
+                argument_halo,
+                positivity_floor,
+            )
+            weighted_div = _local_control_volume_integrated_divergence(
+                regular_weighted,
+                compact_weighted,
+                geometry,
+                domain,
+                control_volume_geometry,
+                volume_floor=jacobian_floor,
+            )
+            generator_div = _local_control_volume_integrated_divergence(
+                (dense_generator.x, dense_generator.y, dense_generator.z),
+                compact_generator,
+                geometry,
+                domain,
+                control_volume_geometry,
+                volume_floor=jacobian_floor,
+            )
+            return weighted_div - argument.x.center * generator_div
+
+        centered_f_action = _action(
+            f_stencil,
+            g_stencil,
+            f_closure,
+            g_closure,
+            g_boundary_trace,
+        )
+        centered_result = 0.5 * (
+            centered_f_action
+            - _action(
+                g_stencil,
+                f_stencil,
+                g_closure,
+                f_closure,
+                f_boundary_trace,
+            )
+        )
+        if characteristic_upwind:
+            assert g_field_halo is not None
+            characteristic_f_action = _characteristic_action(
+                f_stencil,
+                g_stencil,
+                f_closure,
+                g_closure,
+                left_g,
+                right_g,
+                g_field_halo,
+                g_positivity_floor,
+            )
+            result = characteristic_f_action
+        else:
+            result = centered_result
+        return _mask_inactive_owned(result, geometry)
+
+    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
+    if len(axis_regular_axes) != 3:
+        raise ValueError("axis_regular_axes must have length 3")
+    if axis_regular_axes[1] or axis_regular_axes[2]:
+        raise NotImplementedError(
+            "local_poisson_bracket_compatible_flux_op only supports a lower x axis"
+        )
+    if axis_regular_axes[0] and domain is None:
+        raise ValueError(
+            "domain is required when axis_regular_axes[0] is enabled"
+        )
+    f_boundary_trace = _validate_local_boundary_face_trace(
+        f_boundary_trace, geometry.layout
+    )
+    g_boundary_trace = _validate_local_boundary_face_trace(
+        g_boundary_trace, geometry.layout
+    )
+    if domain is not None:
+        if not isinstance(domain, LocalDomain3D):
+            raise TypeError(
+                "domain must be a LocalDomain3D or None, "
+                f"got {type(domain).__name__}"
+            )
+        if domain.layout != geometry.layout:
+            raise ValueError("domain and geometry must share the same HaloLayout3D")
+    if b_floor <= 0.0 or jacobian_floor <= 0.0:
+        raise ValueError("b_floor and jacobian_floor must be positive")
+
+    def _action(
+        generator: ConservativeStencil3D,
+        argument: ConservativeStencil3D,
+        argument_boundary_trace: LocalBoundaryFaceTrace3D | None,
+    ) -> jnp.ndarray:
+        flux = _compatible_flux_generator(
+            generator,
+            geometry,
+            domain=domain,
+            axis_regular_axes=axis_regular_axes,
+            b_floor=b_floor,
+        )
+        argument_face_values = argument.face_values
+        if argument_boundary_trace is not None:
+            argument_face_values = CoordinateFaceValues3D(
+                x=_apply_local_face_trace(
+                    argument_face_values.x,
+                    axis=0,
+                    trace_value=argument_boundary_trace.value_x,
+                    trace_mask=argument_boundary_trace.mask_x,
+                    axis_regular_axes=axis_regular_axes,
+                ),
+                y=_apply_local_face_trace(
+                    argument_face_values.y,
+                    axis=1,
+                    trace_value=argument_boundary_trace.value_y,
+                    trace_mask=argument_boundary_trace.mask_y,
+                    axis_regular_axes=axis_regular_axes,
+                ),
+                z=_apply_local_face_trace(
+                    argument_face_values.z,
+                    axis=2,
+                    trace_value=argument_boundary_trace.value_z,
+                    trace_mask=argument_boundary_trace.mask_z,
+                    axis_regular_axes=axis_regular_axes,
+                ),
+            )
+        generator_divergence = _compatible_flux_divergence(
+            flux, geometry, jacobian_floor=jacobian_floor
+        )
+        weighted_flux = FaceFluxStencil3D(
+            x=flux.x * argument_face_values.x,
+            y=flux.y * argument_face_values.y,
+            z=flux.z * argument_face_values.z,
+        )
+        weighted_divergence = _compatible_flux_divergence(
+            weighted_flux, geometry, jacobian_floor=jacobian_floor
+        )
+        J = jnp.maximum(
+            jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64),
+            jacobian_floor,
+        )
+        return (weighted_divergence - argument.x.center * generator_divergence) / J
+
+    def _characteristic_action(
+        generator: ConservativeStencil3D,
+        argument: ConservativeStencil3D,
+        left_argument: CoordinateFaceValues3D,
+        right_argument: CoordinateFaceValues3D,
+    ) -> jnp.ndarray:
+        generator_flux = _compatible_flux_generator(
+            generator,
+            geometry,
+            domain=domain,
+            axis_regular_axes=axis_regular_axes,
+            b_floor=b_floor,
+        )
+        weighted_flux = _compatible_characteristic_regular_flux(
+            generator_flux,
+            left_argument,
+            right_argument,
+        )
+        weighted_divergence = _compatible_flux_divergence(
+            FaceFluxStencil3D(*weighted_flux),
+            geometry,
+            jacobian_floor=jacobian_floor,
+        )
+        generator_divergence = _compatible_flux_divergence(
+            generator_flux,
+            geometry,
+            jacobian_floor=jacobian_floor,
+        )
+        J = jnp.maximum(
+            jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64),
+            jacobian_floor,
+        )
+        return (
+            weighted_divergence
+            - argument.x.center * generator_divergence
+        ) / J
+
+    centered_f_action = _action(f_stencil, g_stencil, g_boundary_trace)
+    centered_result = 0.5 * (
+        centered_f_action
+        - _action(g_stencil, f_stencil, f_boundary_trace)
+    )
+    if characteristic_upwind:
+        characteristic_f_action = _characteristic_action(
+            f_stencil, g_stencil, left_g, right_g
+        )
+        result = characteristic_f_action
+    else:
+        result = centered_result
+    return _mask_inactive_owned(result, geometry)
+
+
+def _build_local_laplacian_face_projectors(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    b_floor: float = 1.0e-30,
+    parallel: bool,
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Build owned-face projectors for local projected Laplacians."""
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "_build_local_laplacian_face_projectors requires "
+            f"LocalFciGeometry3D, got {type(geometry).__name__}"
+        )
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError(
+            "_build_local_laplacian_face_projectors requires "
+            f"LocalDomain3D, got {type(domain).__name__}"
+        )
+    if geometry.layout != domain.layout:
+        raise ValueError("geometry and domain must share the same HaloLayout3D")
+
+    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
+    if len(axis_regular_axes) != 3:
+        raise ValueError("axis_regular_axes must have length 3")
+    if axis_regular_axes[1] or axis_regular_axes[2]:
+        raise NotImplementedError(
+            "axis_regular_axes currently only supports the lower x axis; "
+            f"got axis_regular_axes={axis_regular_axes}"
+        )
+
+    b_floor_value = float(b_floor)
+    if b_floor_value < 0.0:
+        raise ValueError(f"b_floor must be nonnegative, got {b_floor}")
+
+    face_locations = ("x_face", "y_face", "z_face")
+    expected_face_shapes = tuple(
+        domain.layout.location_owned_shape(location)
+        for location in face_locations
+    )
+
+    def _face_projector(metric, bfield, *, family_axis: int) -> jnp.ndarray:
+        g_contra = jnp.asarray(metric.g_contra_owned, dtype=jnp.float64)
+        B_contra = jnp.asarray(bfield.B_contra_owned, dtype=jnp.float64)
+        Bmag = jnp.asarray(bfield.Bmag_owned, dtype=jnp.float64)
+
+        B_contra = jnp.where(jnp.isfinite(B_contra), B_contra, 0.0)
+        Bmag = jnp.where(jnp.isfinite(Bmag), Bmag, b_floor_value)
+        b = B_contra / jnp.maximum(Bmag[..., None], b_floor_value)
+
+        projector = jnp.einsum("...i,...j->...ij", b, b)
+        if not bool(parallel):
+            projector = g_contra - projector
+        projector = jnp.where(jnp.isfinite(projector), projector, 0.0)
+
+        # The x-face owned index 0 is the global lower-x face only on the
+        # shard that touches that side. Other shards also have a local index 0,
+        # but that face is an internal shard interface and must not be zeroed.
+        if family_axis == 0 and axis_regular_axes[0]:
+            do_axis_lower = domain.runtime_has_axis_regular_lower(0)
+            lower = jnp.where(
+                do_axis_lower,
+                jnp.zeros_like(projector[0]),
+                projector[0],
+            )
+            projector = projector.at[0].set(lower)
+
+        expected_shape = expected_face_shapes[family_axis] + (3, 3)
+        if projector.shape != expected_shape:
+            raise ValueError(
+                f"local face projector for {face_locations[family_axis]} must "
+                f"have shape {expected_shape}, got {projector.shape}"
+            )
+        return projector
+
+    return (
+        _face_projector(
+            geometry.face_metric.x,
+            geometry.face_bfield.x,
+            family_axis=0,
+        ),
+        _face_projector(
+            geometry.face_metric.y,
+            geometry.face_bfield.y,
+            family_axis=1,
+        ),
+        _face_projector(
+            geometry.face_metric.z,
+            geometry.face_bfield.z,
+            family_axis=2,
+        ),
+    )
+
+
+def build_local_perp_laplacian_face_projectors(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    b_floor: float = 1.0e-30,
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Build owned-face projectors for the local perpendicular Laplacian."""
+
+    return _build_local_laplacian_face_projectors(
+        geometry,
+        domain,
+        b_floor=b_floor,
+        parallel=False,
+        axis_regular_axes=axis_regular_axes,
+    )
+
+
+def _patch_local_axis_face_gradients(
+    face_grad: jnp.ndarray,
+    *,
+    values_owned: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    axis: int,
+    axis_kind: jnp.ndarray,
+    axis_value: jnp.ndarray,
+    axis_mask: jnp.ndarray,
+    axis_regular_axes: tuple[bool, bool, bool],
+    neumann_normal_scheme: str = "logical",
+    regular_boundary_closure: (
+        LocalRegularBoundaryMomentClosure3D | None
+    ) = None,
+) -> jnp.ndarray:
+    """Apply local physical face-gradient closures on the owned face grid."""
+
+    if neumann_normal_scheme not in ("logical", "physical"):
+        raise ValueError(
+            "neumann_normal_scheme must be 'logical' or 'physical', got "
+            f"{neumann_normal_scheme!r}"
+        )
+
+    if axis_regular_axes[1] or axis_regular_axes[2]:
+        raise NotImplementedError(
+            "axis_regular_axes currently only supports the lower x axis; "
+            f"got axis_regular_axes={axis_regular_axes}"
+        )
+
+    if axis == 0 and axis_regular_axes[0]:
+        # The global lower-x face is handled by the axis-regular topology path,
+        # not by physical face closures.
+        lower_patch_allowed = False
+    else:
+        lower_patch_allowed = True
+
+    face_grad = jnp.asarray(face_grad, dtype=jnp.float64)
+    values_owned = jnp.asarray(values_owned, dtype=jnp.float64)
+    kind = jnp.asarray(axis_kind, dtype=jnp.int32)
+    value = jnp.asarray(axis_value, dtype=jnp.float64)
+    mask = jnp.asarray(axis_mask, dtype=bool)
+    boundary_weights = None
+    boundary_weights_valid = None
+    if regular_boundary_closure is not None:
+        if regular_boundary_closure.layout != geometry.layout:
+            raise ValueError(
+                "regular boundary normal derivative and geometry must share "
+                "the same HaloLayout3D"
+            )
+        boundary_weights, _owner_weights, boundary_weights_valid = (
+            regular_boundary_closure.axis_payload(axis)
+        )
+
+    if axis == 0:
+        lower_value = value[0]
+        upper_value = value[-1]
+        lower_kind = kind[0]
+        upper_kind = kind[-1]
+        lower_mask = mask[0]
+        upper_mask = mask[-1]
+        lower_distance = jnp.asarray(geometry.grid.x.lower_center_to_face, dtype=jnp.float64)
+        upper_distance = jnp.asarray(geometry.grid.x.upper_center_to_face, dtype=jnp.float64)
+        lower_center = values_owned[0]
+        upper_center = values_owned[-1]
+        lower_next_center = values_owned[1] if geometry.owned_shape[0] > 1 else lower_center
+        upper_prev_center = values_owned[-2] if geometry.owned_shape[0] > 1 else upper_center
+    elif axis == 1:
+        lower_value = value[:, 0, :]
+        upper_value = value[:, -1, :]
+        lower_kind = kind[:, 0, :]
+        upper_kind = kind[:, -1, :]
+        lower_mask = mask[:, 0, :]
+        upper_mask = mask[:, -1, :]
+        lower_distance = jnp.asarray(geometry.grid.y.lower_center_to_face, dtype=jnp.float64)
+        upper_distance = jnp.asarray(geometry.grid.y.upper_center_to_face, dtype=jnp.float64)
+        lower_center = values_owned[:, 0, :]
+        upper_center = values_owned[:, -1, :]
+        lower_next_center = values_owned[:, 1, :] if geometry.owned_shape[1] > 1 else lower_center
+        upper_prev_center = values_owned[:, -2, :] if geometry.owned_shape[1] > 1 else upper_center
+    else:
+        lower_value = value[:, :, 0]
+        upper_value = value[:, :, -1]
+        lower_kind = kind[:, :, 0]
+        upper_kind = kind[:, :, -1]
+        lower_mask = mask[:, :, 0]
+        upper_mask = mask[:, :, -1]
+        lower_distance = jnp.asarray(geometry.grid.z.lower_center_to_face, dtype=jnp.float64)
+        upper_distance = jnp.asarray(geometry.grid.z.upper_center_to_face, dtype=jnp.float64)
+        lower_center = values_owned[:, :, 0]
+        upper_center = values_owned[:, :, -1]
+        lower_next_center = values_owned[:, :, 1] if geometry.owned_shape[2] > 1 else lower_center
+        upper_prev_center = values_owned[:, :, -2] if geometry.owned_shape[2] > 1 else upper_center
+
+    def _boundary_spacing(component: int, side: str) -> jnp.ndarray:
+        spacing = (
+            geometry.spacing.dx_owned,
+            geometry.spacing.dy_owned,
+            geometry.spacing.dz_owned,
+        )[component]
+        index = 0 if side == "lower" else -1
+        if axis == 0:
+            return spacing[index, :, :]
+        if axis == 1:
+            return spacing[:, index, :]
+        return spacing[:, :, index]
+
+    def _patch_tangential_components(
+        plane: jnp.ndarray,
+        *,
+        face_value: jnp.ndarray,
+        patch_mask: jnp.ndarray,
+        side: str,
+    ) -> jnp.ndarray:
+        for component in range(3):
+            if component == axis:
+                continue
+            plane_axis = component if component < axis else component - 1
+            tangent = _first_derivative_3d(
+                face_value,
+                _boundary_spacing(component, side),
+                axis=plane_axis,
+                periodic=domain.periodic_axes[component],
+            )
+            plane = plane.at[..., component].set(
+                jnp.where(patch_mask, tangent, plane[..., component])
+            )
+        return plane
+
+    def _physical_neumann_coordinate_derivative(
+        plane: jnp.ndarray,
+        *,
+        prescribed_outward: jnp.ndarray,
+        side: str,
+    ) -> jnp.ndarray:
+        face_metric = (
+            geometry.face_metric.x,
+            geometry.face_metric.y,
+            geometry.face_metric.z,
+        )[axis].g_contra_owned
+        metric_plane = face_metric[
+            _axis_index_nd(axis, 0 if side == "lower" else -1, face_metric.ndim)
+        ]
+        gaa = jnp.maximum(metric_plane[..., axis, axis], 1.0e-30)
+        cross = jnp.zeros_like(prescribed_outward, dtype=jnp.float64)
+        for component in range(3):
+            if component != axis:
+                cross = cross + (
+                    metric_plane[..., axis, component] * plane[..., component]
+                )
+        outward_sign = -1.0 if side == "lower" else 1.0
+        return (
+            outward_sign * prescribed_outward * jnp.sqrt(gaa) - cross
+        ) / gaa
+
+    lower_plane = face_grad[_axis_index_nd(axis, 0, face_grad.ndim)]
+    lower_normal = lower_plane[..., axis]
+    lower_coord = (
+        -8.0 * lower_value
+        + 9.0 * lower_center
+        - lower_next_center
+    ) / jnp.maximum(6.0 * lower_distance, 1.0e-30)
+    upper_coord = (
+        8.0 * upper_value
+        - 9.0 * upper_center
+        + upper_prev_center
+    ) / jnp.maximum(6.0 * upper_distance, 1.0e-30)
+    if boundary_weights is not None and boundary_weights_valid is not None:
+        if geometry.owned_shape[axis] < 3:
+            raise ValueError(
+                "finite-volume regular boundary derivative requires at least "
+                "three owned cells in the normal direction"
+            )
+        inward_values = jnp.moveaxis(values_owned, axis, 0)
+        lower_samples = inward_values[:3]
+        upper_samples = jnp.flip(inward_values[-3:], axis=0)
+        lower_weights = boundary_weights[
+            _axis_index_nd(axis, 0, boundary_weights.ndim)
+        ]
+        upper_weights = boundary_weights[
+            _axis_index_nd(axis, -1, boundary_weights.ndim)
+        ]
+        lower_valid = boundary_weights_valid[
+            _axis_index_nd(axis, 0, boundary_weights_valid.ndim)
+        ]
+        upper_valid = boundary_weights_valid[
+            _axis_index_nd(axis, -1, boundary_weights_valid.ndim)
+        ]
+        lower_fv_coord = (
+            lower_weights[..., 0] * lower_value
+            + jnp.einsum("...m,m...->...", lower_weights[..., 1:], lower_samples)
+        )
+        upper_fv_coord = (
+            upper_weights[..., 0] * upper_value
+            + jnp.einsum("...m,m...->...", upper_weights[..., 1:], upper_samples)
+        )
+        lower_coord = jnp.where(lower_valid, lower_fv_coord, lower_coord)
+        upper_coord = jnp.where(upper_valid, upper_fv_coord, upper_coord)
+    if lower_patch_allowed:
+        lower_tangent_mask = lower_mask & (
+            (lower_kind == BC_DIRICHLET)
+            | (
+                (lower_kind == BC_NEUMANN)
+                & (neumann_normal_scheme == "logical")
+            )
+        )
+        lower_face_value = jnp.where(
+            lower_kind == BC_DIRICHLET,
+            lower_value,
+            lower_center + lower_value * lower_distance,
+        )
+        lower_plane = _patch_tangential_components(
+            lower_plane,
+            face_value=lower_face_value,
+            patch_mask=lower_tangent_mask,
+            side="lower",
+        )
+        lower_plane = lower_plane.at[..., axis].set(
+            jnp.where(lower_mask & (lower_kind == BC_DIRICHLET), lower_coord, lower_normal)
+        )
+        lower_neumann_coord = (
+            _physical_neumann_coordinate_derivative(
+                lower_plane,
+                prescribed_outward=lower_value,
+                side="lower",
+            )
+            if neumann_normal_scheme == "physical"
+            else -lower_value
+        )
+        lower_plane = lower_plane.at[..., axis].set(
+            jnp.where(
+                lower_mask & (lower_kind == BC_NEUMANN),
+                lower_neumann_coord,
+                lower_plane[..., axis],
+            )
+        )
+        face_grad = face_grad.at[_axis_index_nd(axis, 0, face_grad.ndim)].set(lower_plane)
+
+    upper_plane = face_grad[_axis_index_nd(axis, -1, face_grad.ndim)]
+    upper_normal = upper_plane[..., axis]
+    upper_tangent_mask = upper_mask & (
+        (upper_kind == BC_DIRICHLET)
+        | (
+            (upper_kind == BC_NEUMANN)
+            & (neumann_normal_scheme == "logical")
+        )
+    )
+    upper_face_value = jnp.where(
+        upper_kind == BC_DIRICHLET,
+        upper_value,
+        upper_center + upper_value * upper_distance,
+    )
+    upper_plane = _patch_tangential_components(
+        upper_plane,
+        face_value=upper_face_value,
+        patch_mask=upper_tangent_mask,
+        side="upper",
+    )
+    upper_plane = upper_plane.at[..., axis].set(
+        jnp.where(upper_mask & (upper_kind == BC_DIRICHLET), upper_coord, upper_normal)
+    )
+    upper_neumann_coord = (
+        _physical_neumann_coordinate_derivative(
+            upper_plane,
+            prescribed_outward=upper_value,
+            side="upper",
+        )
+        if neumann_normal_scheme == "physical"
+        else upper_value
+    )
+    upper_plane = upper_plane.at[..., axis].set(
+        jnp.where(
+            upper_mask & (upper_kind == BC_NEUMANN),
+            upper_neumann_coord,
+            upper_plane[..., axis],
+        )
+    )
+    face_grad = face_grad.at[_axis_index_nd(axis, -1, face_grad.ndim)].set(upper_plane)
+
+    return face_grad
+
+
+def _apply_local_face_flux_bc(
+    flux: jnp.ndarray,
+    *,
+    axis: int,
+    axis_kind: jnp.ndarray,
+    axis_value: jnp.ndarray,
+    axis_mask: jnp.ndarray,
+    axis_regular_axes: tuple[bool, bool, bool],
+) -> jnp.ndarray:
+    """Apply local physical face flux boundary conditions on owned faces."""
+
+    if axis_regular_axes[1] or axis_regular_axes[2]:
+        raise NotImplementedError(
+            "axis_regular_axes currently only supports the lower x axis; "
+            f"got axis_regular_axes={axis_regular_axes}"
+        )
+
+    result = jnp.asarray(flux, dtype=jnp.float64)
+    kind = jnp.asarray(axis_kind, dtype=jnp.int32)
+    value = jnp.asarray(axis_value, dtype=jnp.float64)
+    mask = jnp.asarray(axis_mask, dtype=bool)
+
+    if axis == 0:
+        lower_kind = kind[0]
+        upper_kind = kind[-1]
+        lower_value = value[0]
+        upper_value = value[-1]
+        lower_mask = mask[0]
+        upper_mask = mask[-1]
+        skip_lower = bool(axis_regular_axes[0])
+    elif axis == 1:
+        lower_kind = kind[:, 0, :]
+        upper_kind = kind[:, -1, :]
+        lower_value = value[:, 0, :]
+        upper_value = value[:, -1, :]
+        lower_mask = mask[:, 0, :]
+        upper_mask = mask[:, -1, :]
+        skip_lower = False
+    else:
+        lower_kind = kind[:, :, 0]
+        upper_kind = kind[:, :, -1]
+        lower_value = value[:, :, 0]
+        upper_value = value[:, :, -1]
+        lower_mask = mask[:, :, 0]
+        upper_mask = mask[:, :, -1]
+        skip_lower = False
+
+    if not skip_lower:
+        lower_plane = result[_axis_index_nd(axis, 0, result.ndim)]
+        lower_plane = jnp.where(lower_mask & (lower_kind == BC_NORMALFLUX), lower_value, lower_plane)
+        lower_plane = jnp.where(lower_mask & (lower_kind == BC_NOFLUX), 0.0, lower_plane)
+        result = result.at[_axis_index_nd(axis, 0, result.ndim)].set(lower_plane)
+
+    upper_plane = result[_axis_index_nd(axis, -1, result.ndim)]
+    upper_plane = jnp.where(upper_mask & (upper_kind == BC_NORMALFLUX), upper_value, upper_plane)
+    upper_plane = jnp.where(upper_mask & (upper_kind == BC_NOFLUX), 0.0, upper_plane)
+    result = result.at[_axis_index_nd(axis, -1, result.ndim)].set(upper_plane)
+    return result
+
+
+def _apply_local_face_value_dirichlet_bc(
+    face_value: jnp.ndarray,
+    *,
+    axis: int,
+    axis_kind: jnp.ndarray,
+    axis_value: jnp.ndarray,
+    axis_mask: jnp.ndarray,
+    axis_regular_axes: tuple[bool, bool, bool],
+) -> jnp.ndarray:
+    """Patch physical boundary scalar face values for Dirichlet data."""
+
+    if axis_regular_axes[1] or axis_regular_axes[2]:
+        raise NotImplementedError(
+            "axis_regular_axes currently only supports the lower x axis; "
+            f"got axis_regular_axes={axis_regular_axes}"
+        )
+
+    result = jnp.asarray(face_value, dtype=jnp.float64)
+    kind = jnp.asarray(axis_kind, dtype=jnp.int32)
+    value = jnp.asarray(axis_value, dtype=jnp.float64)
+    mask = jnp.asarray(axis_mask, dtype=bool)
+
+    if axis == 0:
+        lower_kind = kind[0]
+        upper_kind = kind[-1]
+        lower_value = value[0]
+        upper_value = value[-1]
+        lower_mask = mask[0]
+        upper_mask = mask[-1]
+        skip_lower = bool(axis_regular_axes[0])
+    elif axis == 1:
+        lower_kind = kind[:, 0, :]
+        upper_kind = kind[:, -1, :]
+        lower_value = value[:, 0, :]
+        upper_value = value[:, -1, :]
+        lower_mask = mask[:, 0, :]
+        upper_mask = mask[:, -1, :]
+        skip_lower = False
+    else:
+        lower_kind = kind[:, :, 0]
+        upper_kind = kind[:, :, -1]
+        lower_value = value[:, :, 0]
+        upper_value = value[:, :, -1]
+        lower_mask = mask[:, :, 0]
+        upper_mask = mask[:, :, -1]
+        skip_lower = False
+
+    if not skip_lower:
+        lower_plane = result[_axis_index_nd(axis, 0, result.ndim)]
+        lower_plane = jnp.where(
+            lower_mask & (lower_kind == BC_DIRICHLET),
+            lower_value,
+            lower_plane,
+        )
+        result = result.at[_axis_index_nd(axis, 0, result.ndim)].set(lower_plane)
+
+    upper_plane = result[_axis_index_nd(axis, -1, result.ndim)]
+    upper_plane = jnp.where(
+        upper_mask & (upper_kind == BC_DIRICHLET),
+        upper_value,
+        upper_plane,
+    )
+    result = result.at[_axis_index_nd(axis, -1, result.ndim)].set(upper_plane)
+    return result
+
+
+def _validate_local_boundary_face_trace(
+    boundary_trace: LocalBoundaryFaceTrace3D | None,
+    layout: HaloLayout3D,
+) -> LocalBoundaryFaceTrace3D | None:
+    """Validate the explicit scalar boundary-trace payload."""
+    if boundary_trace is None:
+        return None
+    if not isinstance(boundary_trace, LocalBoundaryFaceTrace3D):
+        raise TypeError(
+            "boundary_trace must be a LocalBoundaryFaceTrace3D or None, "
+            f"got {type(boundary_trace).__name__}"
+        )
+    if boundary_trace.layout != layout:
+        raise ValueError("boundary_trace and geometry must share the same HaloLayout3D")
+    for axis, name in enumerate(("x", "y", "z")):
+        expected = layout.face_control_shape(axis=axis)
+        for prefix in ("value", "mask"):
+            value = jnp.asarray(getattr(boundary_trace, f"{prefix}_{name}"))
+            if value.shape != expected:
+                raise ValueError(
+                    f"boundary_trace.{prefix}_{name} must have shape {expected}, "
+                    f"got {value.shape}"
+                )
+    return boundary_trace
+
+
+def _apply_local_face_trace(
+    face_value: jnp.ndarray,
+    *,
+    axis: int,
+    trace_value: jnp.ndarray,
+    trace_mask: jnp.ndarray,
+    axis_regular_axes: tuple[bool, bool, bool],
+) -> jnp.ndarray:
+    """Patch an explicit physical scalar trace, excluding topology faces."""
+    result = jnp.asarray(face_value, dtype=jnp.float64)
+    value = jnp.asarray(trace_value, dtype=jnp.float64)
+    mask = jnp.asarray(trace_mask, dtype=bool)
+    if axis == 0:
+        lower_mask, upper_mask = mask[0], mask[-1]
+        lower_value, upper_value = value[0], value[-1]
+        skip_lower = bool(axis_regular_axes[0])
+    elif axis == 1:
+        lower_mask, upper_mask = mask[:, 0, :], mask[:, -1, :]
+        lower_value, upper_value = value[:, 0, :], value[:, -1, :]
+        skip_lower = False
+    else:
+        lower_mask, upper_mask = mask[:, :, 0], mask[:, :, -1]
+        lower_value, upper_value = value[:, :, 0], value[:, :, -1]
+        skip_lower = False
+    if not skip_lower:
+        result = result.at[_axis_index_nd(axis, 0, result.ndim)].set(
+            jnp.where(lower_mask, lower_value, result[_axis_index_nd(axis, 0, result.ndim)])
+        )
+    upper_index = _axis_index_nd(axis, -1, result.ndim)
+    return result.at[upper_index].set(
+        jnp.where(upper_mask, upper_value, result[upper_index])
+    )
+
+
+def _curvature_bc_characteristic_wall_states(
+    interior: jnp.ndarray,
+    boundary_trace: jnp.ndarray,
+    bmag: jnp.ndarray,
+    tau: float | jnp.ndarray,
+    normal: jnp.ndarray,
+    *,
+    interior_on_right: bool,
+    positivity_floor: float = 1.0e-12,
+    eigenvalue_tolerance: float = 1.0e-10,
+    max_condition: float = 1.0e8,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Solve copied-Neumann wall residuals for incoming curvature modes.
+
+    ``boundary_trace`` is the numerical primitive trace already constructed
+    from the model's physical BC and metric-aware ghost closure.  In the HSX
+    wall model its thermodynamic entries are the existing homogeneous-Neumann
+    copy/extrapolation.  They are *constraints*, not a complete exterior
+    Riemann state: the outgoing and stationary characteristic content must
+    still come from ``interior``.
+
+    The strict curvature symbol has two electron-family modes, one ion-family
+    mode, and one stationary vorticity mode.  At a one-sided face either the
+    two electron modes or the one ion mode enter the domain.  All three
+    thermodynamic primitive residuals are reduced onto that complete incoming
+    subspace in one least-residual solve.  The vorticity Dirichlet condition
+    belongs to the stationary/elliptic closure and is deliberately excluded
+    from this propagating curvature block.
+
+    ``interior_on_right`` selects modes travelling to increasing coordinate
+    index at the lower wall and modes travelling to decreasing coordinate
+    index at the upper wall.  The characteristic matrix is frozen at the raw
+    operator trace, which remains the canonical face state used by the
+    fluctuation solver.
+
+    No limiter or physical-state fallback is applied.  Non-finite spectra or
+    residual solves propagate non-finite wall states, and negative
+    thermodynamic results remain visible to the RK stage validity checks.
+    """
+
+    interior = jnp.asarray(interior, dtype=jnp.float64)
+    boundary_trace = jnp.asarray(boundary_trace, dtype=jnp.float64)
+    interior, boundary_trace = jnp.broadcast_arrays(interior, boundary_trace)
+    if interior.shape[-1] != 4:
+        raise ValueError(
+            "curvature wall states require a trailing four-field dimension"
+        )
+    if not isinstance(interior_on_right, bool):
+        raise TypeError("interior_on_right must be bool")
+    floor = jnp.asarray(positivity_floor, dtype=jnp.float64)
+    trace_finite = jnp.all(jnp.isfinite(boundary_trace), axis=-1)
+    trace_thermo_ok = jnp.all(boundary_trace[..., :3] > floor, axis=-1)
+    # Do not sanitize a failed physical trace.  A non-finite or inadmissible
+    # trace must remain visible in the eigensystem/solve and ultimately fail
+    # the RK stage rather than selecting an interior or floored wall state.
+    matrix = curvature_strict_principal_matrix(boundary_trace, bmag, tau)
+    normal_matrix = jnp.asarray(normal, dtype=jnp.float64)[..., None, None] * matrix
+    frozen = jax.lax.stop_gradient(normal_matrix)
+    eigenvalues, eigenvectors = small_batched_eig(frozen)
+    inverse = jnp.linalg.inv(eigenvectors)
+    real_values = jnp.real(eigenvalues)
+    imaginary = jnp.abs(jnp.imag(eigenvalues))
+    tolerance = jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)
+    incoming = (
+        real_values > tolerance
+        if interior_on_right
+        else real_values < -tolerance
+    )
+    projector = jnp.einsum(
+        "...ik,...k,...kj->...ij",
+        eigenvectors,
+        incoming.astype(jnp.float64),
+        inverse,
+    )
+    projector = jax.lax.stop_gradient(jnp.real(projector))
+
+    vector_norm = jnp.linalg.norm(eigenvectors, axis=(-2, -1))
+    inverse_norm = jnp.linalg.norm(inverse, axis=(-2, -1))
+    condition = vector_norm * inverse_norm
+    spectral_valid = (
+        jnp.all(jnp.isfinite(normal_matrix), axis=(-2, -1))
+        & jnp.all(
+            imaginary <= tolerance * (1.0 + jnp.abs(real_values)), axis=-1
+        )
+        & jnp.isfinite(condition)
+        & (condition <= jnp.asarray(max_condition, dtype=jnp.float64))
+    )
+
+    incoming_count = jnp.sum(incoming, axis=-1)
+    solved, residual_info = solve_incoming_characteristic_state(
+        interior,
+        boundary_trace,
+        projector,
+        incoming_basis=eigenvectors,
+        incoming_active=incoming,
+        # Vorticity is the stationary/elliptic field in this strict
+        # curvature block.  All three thermodynamic boundary equations are
+        # presented to the incoming solve; no electron/ion primitive rows are
+        # selected by hand.
+        residual_weights=jnp.asarray((1.0, 1.0, 1.0, 0.0)),
+        thermodynamic_components=3,
+        positivity_floor=positivity_floor,
+        spectral_valid=spectral_valid,
+    )
+    solve_valid = residual_info["solve_valid"]
+    # Tangential faces have no incoming curvature modes and need no wall lift.
+    tangent = spectral_valid & (incoming_count == 0)
+    solved = jnp.where(tangent[..., None], interior, solved)
+    solve_valid = solve_valid | tangent
+
+    exterior = solved
+    fallback = (
+        (~trace_finite)
+        | (~trace_thermo_ok)
+        | (~solve_valid)
+        | (~residual_info["thermodynamic_admissible"])
+    )
+    return exterior, boundary_trace, fallback
+
+
+def local_curvature_production_path_op(
+    stencils: tuple[ConservativeStencil3D, ConservativeStencil3D,
+                    ConservativeStencil3D, ConservativeStencil3D],
+    geometry: LocalFciGeometry3D,
+    coefficients: LocalCurvatureFaceCoefficients3D,
+    *,
+    tau: float | jnp.ndarray,
+    domain: LocalDomain3D | None = None,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
+    equilibrium: jnp.ndarray | None = None,
+    boundary_traces: tuple[
+        LocalBoundaryFaceTrace3D,
+        LocalBoundaryFaceTrace3D,
+        LocalBoundaryFaceTrace3D,
+        LocalBoundaryFaceTrace3D,
+    ] | None = None,
+    wall_flux_closure: Literal[
+        "equilibrium-exterior-canonical-face-state",
+        "bc-characteristic-operator-trace-canonical-face-state",
+    ] = "equilibrium-exterior-canonical-face-state",
+    positivity_floor: float = 1.0e-12,
+    return_diagnostics: bool = False,
+) -> jnp.ndarray | tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+    """Apply the owner-face production curvature wave-propagation operator.
+
+    The four coupled variables are reconstructed on every active coordinate
+    face and advanced with one canonical-face characteristic split.  Face
+    contributions are scattered
+    with equal/opposite signs to the two actual aggregate
+    owners, then divided by the summed owner ``raw_volume/B`` measure.  This is
+    a wave-propagation update; it does not add a centered scalar operator or a
+    post-hoc penalty.  The first output is the full residual, while optional
+    diagnostics expose its ``(u, theta, eta)`` directional residuals.
+    """
+    if len(stencils) != 4:
+        raise ValueError("production curvature requires four coupled stencils")
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError("geometry must be LocalFciGeometry3D")
+    if not isinstance(coefficients, LocalCurvatureFaceCoefficients3D):
+        raise TypeError("coefficients must be LocalCurvatureFaceCoefficients3D")
+    centers = tuple(jnp.asarray(stencil.x.center, dtype=jnp.float64) for stencil in stencils)
+    if any(value.shape != geometry.owned_shape for value in centers):
+        raise ValueError("coupled curvature stencils must match geometry.owned_shape")
+    state = jnp.stack(centers, axis=-1)
+    if equilibrium is None:
+        equilibrium = jnp.asarray((1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
+    else:
+        equilibrium = jnp.asarray(equilibrium, dtype=jnp.float64)
+    if equilibrium.shape != (4,):
+        raise ValueError("equilibrium must have shape (4,)")
+    valid_wall_flux_closures = (
+        "equilibrium-exterior-canonical-face-state",
+        "bc-characteristic-operator-trace-canonical-face-state",
+    )
+    if wall_flux_closure not in valid_wall_flux_closures:
+        raise ValueError(
+            "wall_flux_closure must be one of "
+            f"{valid_wall_flux_closures!r}, got {wall_flux_closure!r}"
+        )
+    if wall_flux_closure == "bc-characteristic-operator-trace-canonical-face-state":
+        if boundary_traces is None or len(boundary_traces) != 4:
+            raise ValueError(
+                "the BC-characteristic curvature wall closure requires four "
+                "primitive boundary traces"
+            )
+        for trace in boundary_traces:
+            if not isinstance(trace, LocalBoundaryFaceTrace3D):
+                raise TypeError(
+                    "curvature boundary traces must be LocalBoundaryFaceTrace3D"
+                )
+            if trace.layout != geometry.layout:
+                raise ValueError(
+                    "curvature boundary traces must share geometry.layout"
+                )
+    if not (np.isfinite(float(positivity_floor)) and float(positivity_floor) > 0.0):
+        raise ValueError("positivity_floor must be finite and positive")
+    cells = control_volume_geometry.cells if control_volume_geometry is not None else None
+    if cells is None:
+        ni, nj, nk = geometry.owned_shape
+        oi, oj, ok = jnp.meshgrid(
+            jnp.arange(ni, dtype=jnp.int32),
+            jnp.arange(nj, dtype=jnp.int32),
+            jnp.arange(nk, dtype=jnp.int32), indexing="ij",
+        )
+        owner_active = _active_cell_mask_owned(geometry)
+        bcell = jnp.maximum(jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), 1.0e-30)
+        cell_volume = (
+            jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64)
+            * jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
+            * jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
+            * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
+            / bcell
+        )
+        owner_is_remote = jnp.zeros_like(owner_active)
+    else:
+        oi = jnp.asarray(cells.owner_i, dtype=jnp.int32)
+        oj = jnp.asarray(cells.owner_j, dtype=jnp.int32)
+        ok = jnp.asarray(cells.owner_k, dtype=jnp.int32)
+        owner_active = jnp.asarray(cells.is_active_owner, dtype=bool)
+        owner_is_remote = jnp.asarray(cells.owner_is_remote, dtype=bool)
+        cell_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64) / jnp.maximum(
+            jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), 1.0e-30
+        )
+    owner_volume = jnp.zeros(geometry.owned_shape, dtype=jnp.float64).at[oi, oj, ok].add(cell_volume)
+
+    if domain is None:
+        periodic = (False, False, False)
+    else:
+        periodic = tuple(bool(value) for value in domain.periodic_axes)
+    face_residuals = []
+    total_owner_integrated = jnp.zeros(
+        geometry.owned_shape + (4,), dtype=jnp.float64
+    )
+    axis_names = ("x", "y", "z")
+    face_bfields = (geometry.face_bfield.x, geometry.face_bfield.y, geometry.face_bfield.z)
+    for axis, (name, coefficient, bfield) in enumerate(zip(axis_names, coefficients.axes, face_bfields)):
+        moved = tuple(jnp.moveaxis(getattr(stencil, name).center, axis, 0) for stencil in stencils)
+        # The LocalStencil's minus/plus entries are already the mapped halo
+        # values, so they provide the support cells at an owned-domain edge.
+        minus_values = tuple(jnp.moveaxis(getattr(stencil, name).minus, axis, 0) for stencil in stencils)
+        plus_values = tuple(jnp.moveaxis(getattr(stencil, name).plus, axis, 0) for stencil in stencils)
+        c = jnp.stack(moved, axis=-1)
+        m = jnp.stack(minus_values, axis=-1)
+        p = jnp.stack(plus_values, axis=-1)
+        wall_trace_values = None
+        wall_trace_mask = None
+        if boundary_traces is not None:
+            wall_trace_values = jnp.stack(
+                tuple(
+                    jnp.moveaxis(
+                        jnp.asarray(
+                            getattr(trace, f"value_{name}"), dtype=jnp.float64
+                        ),
+                        axis,
+                        0,
+                    )
+                    for trace in boundary_traces
+                ),
+                axis=-1,
+            )
+            wall_trace_mask = jnp.all(
+                jnp.stack(
+                    tuple(
+                        jnp.moveaxis(
+                            jnp.asarray(getattr(trace, f"mask_{name}"), dtype=bool),
+                            axis,
+                            0,
+                        )
+                        for trace in boundary_traces
+                    ),
+                    axis=-1,
+                ),
+                axis=-1,
+            )
+        n = c.shape[0]
+        if n < 2:
+            interior_left = jnp.zeros((0,) + c.shape[1:], dtype=jnp.float64)
+            interior_right = interior_left
+        else:
+            interior_left, interior_right, _ = reconstruct_third_order_face_states(
+                m[:-1], c[:-1], c[1:], p[1:], positivity_floor=positivity_floor
+            )
+        is_periodic = periodic[axis]
+        if is_periodic:
+            lower_left, lower_right = m[:1], c[:1]
+            upper_left, upper_right = c[-1:], p[-1:]
+        elif axis == 0:
+            lower_left = jnp.broadcast_to(equilibrium, c[:1].shape)
+            lower_right = c[:1]
+            upper_left = c[-1:]
+            upper_right = jnp.broadcast_to(equilibrium, c[-1:].shape)
+        else:
+            # Non-periodic transverse boundaries are represented by the same
+            # equilibrium exterior convention as the radial wall closure.
+            lower_left = jnp.broadcast_to(equilibrium, c[:1].shape)
+            lower_right = c[:1]
+            upper_left = c[-1:]
+            upper_right = jnp.broadcast_to(equilibrium, c[-1:].shape)
+        # Work in an axis-first temporary layout.  Besides the fluctuation
+        # update below, the physical face coefficient is needed here to decide
+        # which curvature modes enter at each one-sided wall.
+        qface = jnp.moveaxis(
+            jnp.asarray(coefficient, dtype=jnp.float64), axis, 0
+        )
+        bface = jnp.moveaxis(
+            jnp.asarray(bfield.Bmag_owned, dtype=jnp.float64), axis, 0
+        )
+        qnormal = qface / jnp.maximum(jnp.abs(bface), 1.0e-30)
+        lower_wall_face_state = None
+        upper_wall_face_state = None
+        if (
+            not is_periodic
+            and wall_flux_closure
+            == "bc-characteristic-operator-trace-canonical-face-state"
+        ):
+            assert wall_trace_values is not None
+            assert wall_trace_mask is not None
+            lower_exterior, lower_bc_face, _ = (
+                _curvature_bc_characteristic_wall_states(
+                    c[:1],
+                    wall_trace_values[:1],
+                    bface[:1],
+                    tau,
+                    qnormal[:1],
+                    interior_on_right=True,
+                    positivity_floor=positivity_floor,
+                )
+            )
+            upper_exterior, upper_bc_face, _ = (
+                _curvature_bc_characteristic_wall_states(
+                    c[-1:],
+                    wall_trace_values[-1:],
+                    bface[-1:],
+                    tau,
+                    qnormal[-1:],
+                    interior_on_right=False,
+                    positivity_floor=positivity_floor,
+                )
+            )
+            lower_active = wall_trace_mask[:1]
+            upper_active = wall_trace_mask[-1:]
+            lower_left = jnp.where(
+                lower_active[..., None], lower_exterior, lower_left
+            )
+            upper_right = jnp.where(
+                upper_active[..., None], upper_exterior, upper_right
+            )
+            lower_wall_face_state = jnp.where(
+                lower_active[..., None], lower_bc_face, lower_right
+            )
+            upper_wall_face_state = jnp.where(
+                upper_active[..., None], upper_bc_face, upper_left
+            )
+        left_face = jnp.concatenate((lower_left, interior_left, upper_left), axis=0)
+        right_face = jnp.concatenate((lower_right, interior_right, upper_right), axis=0)
+        # The axis-first layout keeps the face index at zero for all three
+        # directions, while owner coordinates below are explicitly mapped
+        # back to native (i,j,k) order.
+        # ``face_values`` is the canonical conservative face reconstruction,
+        # in native (i,j,k) face-grid order.  It supplies the material state
+        # at ordinary faces independently of the one-sided traces used for
+        # the jump.  A physical wall must not linearize against its exterior
+        # equilibrium; use the adjacent interior reconstructed trace there.
+        canonical_face_state = jnp.stack(
+            tuple(
+                jnp.moveaxis(
+                    jnp.asarray(getattr(stencil.face_values, name), dtype=jnp.float64),
+                    axis,
+                    0,
+                )
+                for stencil in stencils
+            ),
+            axis=-1,
+        )
+        face_state = canonical_face_state
+        if not is_periodic:
+            face_state = face_state.at[0].set(
+                right_face[0]
+                if lower_wall_face_state is None
+                else lower_wall_face_state[0]
+            )
+            face_state = face_state.at[-1].set(
+                left_face[-1]
+                if upper_wall_face_state is None
+                else upper_wall_face_state[0]
+            )
+        # Coefficients store Q=J*K and owner measures are raw_volume/B;
+        # the material matrix is the physical K-symbol, so use Q/B as its
+        # face normal to avoid inserting an extra B in the update.
+        dplus, dminus = curvature_face_linearized_fluctuations(
+            left_face, right_face, face_state, bface, tau, normal=qnormal,
+            positivity_floor=positivity_floor,
+        )
+        # Face areas are physical regular-face measures.  Use the control
+        # volume's fractions/open masks when available so merged owners see
+        # the same measures as the scalar conservative operator.
+        if control_volume_geometry is not None:
+            regular = control_volume_geometry.regular_faces
+            area = jnp.asarray(getattr(regular, f"{name}_area"), dtype=jnp.float64)
+            area = area * jnp.asarray(getattr(regular, f"{name}_area_fraction"), dtype=jnp.float64)
+            area = jnp.where(jnp.asarray(getattr(regular, f"{name}_open_mask"), dtype=bool), area, 0.0)
+            # ``regular_faces.*_area`` is a dimensionless open-face factor
+            # (one for an uncut coordinate face).  The physical transverse
+            # coordinate measure is supplied separately by the conservative
+            # control-volume divergence, via dy*dz, dx*dz, or dx*dy.  Keep
+            # the production wave-propagation path on the same measure so
+            # an angular owner topology cannot amplify every face by the
+            # inverse logical cell area.
+            logical_measure = (
+                jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
+                * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
+                if axis == 0 else
+                jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
+                * jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64)
+                if axis == 1 else
+                jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64)
+                * jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64)
+            )
+            area = area * _lift_cell_field_to_faces(
+                logical_measure,
+                axis=axis,
+                periodic=False,
+            )
+            area = jnp.moveaxis(area, axis, 0)
+        else:
+            cell_area = (
+                jnp.asarray(geometry.spacing.dy_owned) * jnp.asarray(geometry.spacing.dz_owned)
+                if axis == 0 else
+                jnp.asarray(geometry.spacing.dx_owned) * jnp.asarray(geometry.spacing.dz_owned)
+                if axis == 1 else
+                jnp.asarray(geometry.spacing.dx_owned) * jnp.asarray(geometry.spacing.dy_owned)
+            )
+            cell_area = jnp.moveaxis(cell_area, axis, 0)
+            area = jnp.concatenate((cell_area[:1], 0.5 * (cell_area[:-1] + cell_area[1:]), cell_area[-1:]), axis=0)
+        face_shape = qface.shape
+        grid = jnp.indices(face_shape, dtype=jnp.int32)
+        face_index = grid[0]
+        # ``grid`` is axis-first; convert the two transverse coordinates back
+        # to native array order before gathering owner maps.
+        axis_coords = [grid[1], grid[2]]
+        native_face_coords = [None, None, None]
+        transverse_index = 0
+        for native_axis in range(3):
+            if native_axis == axis:
+                native_face_coords[native_axis] = face_index
+            else:
+                native_face_coords[native_axis] = axis_coords[transverse_index]
+                transverse_index += 1
+        left_axis = face_index - 1
+        right_axis = face_index
+        left_valid = jnp.ones(face_shape, dtype=bool)
+        right_valid = jnp.ones(face_shape, dtype=bool)
+        if is_periodic:
+            left_axis = jnp.mod(left_axis, n)
+            right_axis = jnp.mod(right_axis, n)
+            # Face n duplicates the lower periodic face and is not scattered.
+            duplicate = face_index == n
+            left_valid = left_valid & ~duplicate
+            right_valid = right_valid & ~duplicate
+        else:
+            left_valid = left_valid & (face_index > 0)
+            right_valid = right_valid & (face_index < n)
+            left_axis = jnp.clip(left_axis, 0, n - 1)
+            right_axis = jnp.clip(right_axis, 0, n - 1)
+        raw_left = list(native_face_coords)
+        raw_right = list(native_face_coords)
+        raw_left[axis] = left_axis
+        raw_right[axis] = right_axis
+        left_owner = (oi[tuple(raw_left)], oj[tuple(raw_left)], ok[tuple(raw_left)])
+        right_owner = (oi[tuple(raw_right)], oj[tuple(raw_right)], ok[tuple(raw_right)])
+        same_owner = (
+            left_valid & right_valid
+            & (left_owner[0] == right_owner[0])
+            & (left_owner[1] == right_owner[1])
+            & (left_owner[2] == right_owner[2])
+        )
+        left_remote = jnp.asarray(owner_is_remote)[tuple(raw_left)]
+        right_remote = jnp.asarray(owner_is_remote)[tuple(raw_right)]
+        valid_left = left_valid & ~same_owner & ~left_remote
+        valid_right = right_valid & ~same_owner & ~right_remote
+        integrated_plus = jnp.where(valid_right[..., None], -dplus * area[..., None], 0.0)
+        integrated_minus = jnp.where(valid_left[..., None], -dminus * area[..., None], 0.0)
+        owner_integrated = jnp.zeros(geometry.owned_shape + (4,), dtype=jnp.float64)
+        # D+ is right-going and updates the right owner; D- is left-going and
+        # updates the left owner.
+        owner_integrated = owner_integrated.at[left_owner].add(integrated_minus)
+        owner_integrated = owner_integrated.at[right_owner].add(integrated_plus)
+        # The interface fluctuations carry only the jump correction.  The
+        # smooth physical transport is the total within-cell fluctuation
+        # between the reconstructed left/right boundary states.
+        cell_left = right_face[:-1]
+        cell_right = left_face[1:]
+        cell_q = 0.5 * (qnormal[:-1] + qnormal[1:])
+        cell_b = jnp.moveaxis(jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64), axis, 0)
+        cell_state = 0.5 * (cell_left + cell_right)
+        cell_plus, cell_minus = curvature_face_linearized_fluctuations(
+            cell_left, cell_right, cell_state, cell_b, tau, normal=cell_q,
+            positivity_floor=positivity_floor,
+        )
+        cell_area = 0.5 * (area[:-1] + area[1:])
+        cell_raw_coords = [grid[d][:-1] for d in range(3)]
+        # Cell coordinates in this axis-first layout map back to native order.
+        cell_native_coords = [None, None, None]
+        transverse_index = 0
+        for native_axis in range(3):
+            if native_axis == axis:
+                cell_native_coords[native_axis] = grid[0][:-1]
+            else:
+                cell_native_coords[native_axis] = axis_coords[transverse_index][:-1]
+                transverse_index += 1
+        cell_owner = (
+            oi[tuple(cell_native_coords)], oj[tuple(cell_native_coords)],
+            ok[tuple(cell_native_coords)],
+        )
+        cell_remote = jnp.asarray(owner_is_remote)[tuple(cell_native_coords)]
+        total_integrated = jnp.where(
+            (~cell_remote)[..., None],
+            -(cell_plus + cell_minus) * cell_area[..., None],
+            0.0,
+        )
+        cell_path_integrated = jnp.zeros(
+            geometry.owned_shape + (4,), dtype=jnp.float64
+        ).at[cell_owner].add(total_integrated)
+        owner_integrated = owner_integrated + cell_path_integrated
+        if return_diagnostics:
+            owner_update = jnp.where(
+                owner_active[..., None],
+                owner_integrated / jnp.maximum(owner_volume[..., None], 1.0e-30),
+                0.0,
+            )
+            expanded = owner_update[oi, oj, ok]
+            expanded = jnp.where(cell_volume[..., None] > 0.0, expanded, 0.0)
+            face_residuals.append(expanded)
+        else:
+            total_owner_integrated = total_owner_integrated + owner_integrated
+    if not return_diagnostics:
+        owner_update = jnp.where(
+            owner_active[..., None],
+            total_owner_integrated
+            / jnp.maximum(owner_volume[..., None], 1.0e-30),
+            0.0,
+        )
+        result = owner_update[oi, oj, ok]
+        result = jnp.where(cell_volume[..., None] > 0.0, result, 0.0)
+        return result
+    directional = jnp.stack(face_residuals, axis=0)
+    result = jnp.sum(directional, axis=0)
+    return result, {"directional_residual": directional}
+
+
+def local_curvature_conservative_op(
+    local: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    coefficients: LocalCurvatureFaceCoefficients3D,
+    *,
+    domain: LocalDomain3D | None = None,
+    face_bc: LocalBoundaryFaceBC3D | None = None,
+    boundary_trace: LocalBoundaryFaceTrace3D | None = None,
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    jacobian_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Apply the regular-grid conservative curvature operator.
+
+    ``coefficients.x/y/z`` are the geometry-only shared-face flux densities
+    ``Q^alpha = J K^alpha``.  The returned quantity is
+
+        ``C(f) = B/J * partial_alpha(Q^alpha f_face)``.
+
+    This deliberately uses only shared regular-coordinate faces. In
+    particular, it does not construct a ``LocalControlVolumeFluxStencil3D``
+    and does not apply normal-flux or no-flux boundary conditions: those BC
+    kinds describe the physical scalar flux and are not curvature scalar
+    values. Only Dirichlet scalar values are patched on boundary faces.
+
+    Projected-fine aggregation is applied outside this regular-face operator.
+    """
+    if not isinstance(local, ConservativeStencil3D):
+        raise TypeError(
+            "local_curvature_conservative_op requires ConservativeStencil3D, "
+            f"got {type(local).__name__}"
+        )
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "local_curvature_conservative_op requires LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+    if not isinstance(coefficients, LocalCurvatureFaceCoefficients3D):
+        raise TypeError(
+            "coefficients must be LocalCurvatureFaceCoefficients3D, "
+            f"got {type(coefficients).__name__}"
+        )
+    if local.shape != geometry.owned_shape:
+        raise ValueError(
+            f"local stencil must have shape {geometry.owned_shape}, got {local.shape}"
+        )
+    if coefficients.layout != geometry.layout:
+        raise ValueError("geometry and coefficients must share the same HaloLayout3D")
+    expected = tuple(geometry.layout.face_control_shape(axis=a) for a in range(3))
+    for axis, name, value in zip((0, 1, 2), ("x", "y", "z"), (coefficients.x, coefficients.y, coefficients.z)):
+        if jnp.asarray(value).shape != expected[axis]:
+            raise ValueError(
+                f"coefficients.{name} must have shape {expected[axis]}, got {jnp.asarray(value).shape}"
+            )
+
+    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
+    if len(axis_regular_axes) != 3:
+        raise ValueError("axis_regular_axes must have length 3")
+    if axis_regular_axes[1] or axis_regular_axes[2]:
+        raise NotImplementedError(
+            "axis_regular_axes currently only supports the lower x axis; "
+            f"got axis_regular_axes={axis_regular_axes}"
+        )
+    if axis_regular_axes[0] and domain is None:
+        raise ValueError(
+            "domain is required when axis_regular_axes[0] is enabled so the "
+            "runtime lower-x axis owner can be identified"
+        )
+    if domain is not None and domain.layout != geometry.layout:
+        raise ValueError("domain and geometry must share the same HaloLayout3D")
+    face_bc = face_bc or LocalBoundaryFaceBC3D.empty(geometry.layout)
+    if not isinstance(face_bc, LocalBoundaryFaceBC3D):
+        raise TypeError("face_bc must be LocalBoundaryFaceBC3D or None")
+    if face_bc.layout != geometry.layout:
+        raise ValueError("face_bc and geometry must share the same HaloLayout3D")
+    boundary_trace = _validate_local_boundary_face_trace(boundary_trace, geometry.layout)
+
+    x_face = _apply_local_face_value_dirichlet_bc(
+        local.face_values.x, axis=0,
+        axis_kind=face_bc.kind_x, axis_value=face_bc.value_x,
+        axis_mask=face_bc.mask_x, axis_regular_axes=axis_regular_axes,
+    )
+    y_face = _apply_local_face_value_dirichlet_bc(
+        local.face_values.y, axis=1,
+        axis_kind=face_bc.kind_y, axis_value=face_bc.value_y,
+        axis_mask=face_bc.mask_y, axis_regular_axes=axis_regular_axes,
+    )
+    z_face = _apply_local_face_value_dirichlet_bc(
+        local.face_values.z, axis=2,
+        axis_kind=face_bc.kind_z, axis_value=face_bc.value_z,
+        axis_mask=face_bc.mask_z, axis_regular_axes=axis_regular_axes,
+    )
+    if boundary_trace is not None:
+        x_face = _apply_local_face_trace(
+            x_face, axis=0, trace_value=boundary_trace.value_x,
+            trace_mask=boundary_trace.mask_x, axis_regular_axes=axis_regular_axes,
+        )
+        y_face = _apply_local_face_trace(
+            y_face, axis=1, trace_value=boundary_trace.value_y,
+            trace_mask=boundary_trace.mask_y, axis_regular_axes=axis_regular_axes,
+        )
+        z_face = _apply_local_face_trace(
+            z_face, axis=2, trace_value=boundary_trace.value_z,
+            trace_mask=boundary_trace.mask_z, axis_regular_axes=axis_regular_axes,
+        )
+    # Axis regularity is part of the coefficient complex: the geometry
+    # builder supplies Q^rho=0 on a collapsed lower face while preserving
+    # div_h(Q)=0.  Do not patch a completed curvature flux here; doing so
+    # breaks the discrete div(curl) identity for constants.
+    fluxes = (
+        jnp.asarray(coefficients.x, dtype=jnp.float64) * x_face,
+        jnp.asarray(coefficients.y, dtype=jnp.float64) * y_face,
+        jnp.asarray(coefficients.z, dtype=jnp.float64) * z_face,
+    )
+    spacings = (geometry.spacing.dx_owned, geometry.spacing.dy_owned, geometry.spacing.dz_owned)
+    divergence = sum(
+        (
+            flux[_axis_slice_nd(axis, 1, None, flux.ndim)]
+            - flux[_axis_slice_nd(axis, None, -1, flux.ndim)]
+        ) / jnp.maximum(jnp.asarray(spacing, dtype=jnp.float64), float(jacobian_floor))
+        for axis, (flux, spacing) in enumerate(zip(fluxes, spacings))
+    )
+    J = jnp.maximum(jnp.asarray(geometry.cell_metric.J_owned, dtype=jnp.float64), float(jacobian_floor))
+    B = jnp.asarray(geometry.cell_bfield.Bmag_owned, dtype=jnp.float64)
+    return _mask_inactive_owned(B * divergence / J, geometry)
+
+
+def local_curvature_conservative_components_op(
+    local: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    coefficients: LocalCurvatureFaceCoefficients3D,
+    **kwargs,
+) -> jnp.ndarray:
+    """Return radial, poloidal, and toroidal curvature divergences.
+
+    The leading output axis is ``(u, theta, eta)``.  Each component is
+    evaluated by the unchanged regular-face operator with the other two face
+    coefficient families set to zero.  The sum therefore closes to
+    :func:`local_curvature_conservative_op` to roundoff without introducing
+    an alternative diagnostic discretization.
+
+    This routine is intentionally diagnostic: it performs three operator
+    applications and should not replace the single production evaluation.
+    """
+
+    if not isinstance(coefficients, LocalCurvatureFaceCoefficients3D):
+        raise TypeError(
+            "coefficients must be LocalCurvatureFaceCoefficients3D, "
+            f"got {type(coefficients).__name__}"
+        )
+    zero_axes = tuple(jnp.zeros_like(value) for value in coefficients.axes)
+    components = []
+    for active_axis in range(3):
+        axes = list(zero_axes)
+        axes[active_axis] = coefficients.axes[active_axis]
+        directional_coefficients = LocalCurvatureFaceCoefficients3D(
+            layout=coefficients.layout,
+            x=axes[0],
+            y=axes[1],
+            z=axes[2],
+        )
+        components.append(
+            local_curvature_conservative_op(
+                local,
+                geometry,
+                directional_coefficients,
+                **kwargs,
+            )
+        )
+    return jnp.stack(tuple(components), axis=0)
+
+
+def _regular_face_row_legacy_flux(
+    regular_flux: FaceFluxStencil3D,
+    rows: LocalRegularFaceContributionRows3D,
+) -> jnp.ndarray:
+    face_axis = jnp.asarray(rows.face_axis, dtype=jnp.int32)
+    face_i = jnp.asarray(rows.face_i, dtype=jnp.int32)
+    face_j = jnp.asarray(rows.face_j, dtype=jnp.int32)
+    face_k = jnp.asarray(rows.face_k, dtype=jnp.int32)
+    x_value = regular_flux.x[
+        jnp.clip(face_i, 0, regular_flux.x.shape[0] - 1),
+        jnp.clip(face_j, 0, regular_flux.x.shape[1] - 1),
+        jnp.clip(face_k, 0, regular_flux.x.shape[2] - 1),
+    ]
+    y_value = regular_flux.y[
+        jnp.clip(face_i, 0, regular_flux.y.shape[0] - 1),
+        jnp.clip(face_j, 0, regular_flux.y.shape[1] - 1),
+        jnp.clip(face_k, 0, regular_flux.y.shape[2] - 1),
+    ]
+    z_value = regular_flux.z[
+        jnp.clip(face_i, 0, regular_flux.z.shape[0] - 1),
+        jnp.clip(face_j, 0, regular_flux.z.shape[1] - 1),
+        jnp.clip(face_k, 0, regular_flux.z.shape[2] - 1),
+    ]
+    return jnp.where(face_axis == 0, x_value, jnp.where(face_axis == 1, y_value, z_value))
+
+
+def _regular_face_row_face_metric_values(
+    geometry: LocalFciGeometry3D,
+    rows: LocalRegularFaceContributionRows3D,
+    *,
+    b_floor: float,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    face_axis = jnp.asarray(rows.face_axis, dtype=jnp.int32)
+    face_i = jnp.asarray(rows.face_i, dtype=jnp.int32)
+    face_j = jnp.asarray(rows.face_j, dtype=jnp.int32)
+    face_k = jnp.asarray(rows.face_k, dtype=jnp.int32)
+
+    def _axis_values(axis: int) -> tuple[jnp.ndarray, jnp.ndarray]:
+        metric = geometry.face_metric.axes[axis]
+        bfield = geometry.face_bfield.axes[axis]
+        J = jnp.asarray(metric.J_owned, dtype=jnp.float64)
+        B_contra = jnp.asarray(bfield.B_contra_owned, dtype=jnp.float64)
+        Bmag = jnp.maximum(jnp.asarray(bfield.Bmag_owned, dtype=jnp.float64), float(b_floor))
+        return (
+            J[
+                jnp.clip(face_i, 0, J.shape[0] - 1),
+                jnp.clip(face_j, 0, J.shape[1] - 1),
+                jnp.clip(face_k, 0, J.shape[2] - 1),
+            ],
+            (B_contra[..., axis] / Bmag)[
+                jnp.clip(face_i, 0, Bmag.shape[0] - 1),
+                jnp.clip(face_j, 0, Bmag.shape[1] - 1),
+                jnp.clip(face_k, 0, Bmag.shape[2] - 1),
+            ],
+        )
+
+    x_J, x_b = _axis_values(0)
+    y_J, y_b = _axis_values(1)
+    z_J, z_b = _axis_values(2)
+    J = jnp.where(face_axis == 0, x_J, jnp.where(face_axis == 1, y_J, z_J))
+    b_axis = jnp.where(face_axis == 0, x_b, jnp.where(face_axis == 1, y_b, z_b))
+    return J, b_axis
+
+
+def _regular_face_row_projector_values(
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    rows: LocalRegularFaceContributionRows3D,
+) -> jnp.ndarray:
+    face_axis = jnp.asarray(rows.face_axis, dtype=jnp.int32)
+    face_i = jnp.asarray(rows.face_i, dtype=jnp.int32)
+    face_j = jnp.asarray(rows.face_j, dtype=jnp.int32)
+    face_k = jnp.asarray(rows.face_k, dtype=jnp.int32)
+    x_projector, y_projector, z_projector = face_projectors
+    x_value = x_projector[
+        jnp.clip(face_i, 0, x_projector.shape[0] - 1),
+        jnp.clip(face_j, 0, x_projector.shape[1] - 1),
+        jnp.clip(face_k, 0, x_projector.shape[2] - 1),
+        0,
+        :,
+    ]
+    y_value = y_projector[
+        jnp.clip(face_i, 0, y_projector.shape[0] - 1),
+        jnp.clip(face_j, 0, y_projector.shape[1] - 1),
+        jnp.clip(face_k, 0, y_projector.shape[2] - 1),
+        1,
+        :,
+    ]
+    z_value = z_projector[
+        jnp.clip(face_i, 0, z_projector.shape[0] - 1),
+        jnp.clip(face_j, 0, z_projector.shape[1] - 1),
+        jnp.clip(face_k, 0, z_projector.shape[2] - 1),
+        2,
+        :,
+    ]
+    return jnp.where(
+        face_axis[:, None] == 0,
+        x_value,
+        jnp.where(face_axis[:, None] == 1, y_value, z_value),
+    )
+
+
+def _regular_face_row_owner_payload(
+    values_owned: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    rows: LocalRegularFaceContributionRows3D,
+    aggregate_geometry: LocalAggregateCellGeometry3D | None,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    shape = geometry.owned_shape
+    minus_i = jnp.clip(jnp.asarray(rows.minus_owner_i, dtype=jnp.int32), 0, shape[0] - 1)
+    minus_j = jnp.clip(jnp.asarray(rows.minus_owner_j, dtype=jnp.int32), 0, shape[1] - 1)
+    minus_k = jnp.clip(jnp.asarray(rows.minus_owner_k, dtype=jnp.int32), 0, shape[2] - 1)
+    plus_i = jnp.clip(jnp.asarray(rows.plus_owner_i, dtype=jnp.int32), 0, shape[0] - 1)
+    plus_j = jnp.clip(jnp.asarray(rows.plus_owner_j, dtype=jnp.int32), 0, shape[1] - 1)
+    plus_k = jnp.clip(jnp.asarray(rows.plus_owner_k, dtype=jnp.int32), 0, shape[2] - 1)
+
+    values = jnp.asarray(values_owned, dtype=jnp.float64)
+    active = _active_cell_mask_owned(geometry)
+    if aggregate_geometry is None:
+        positions = _owned_cell_logical_positions(geometry)
+    else:
+        positions = jnp.asarray(aggregate_geometry.centroid, dtype=jnp.float64)
+
+    minus_value = values[minus_i, minus_j, minus_k]
+    plus_value = values[plus_i, plus_j, plus_k]
+    minus_position = positions[minus_i, minus_j, minus_k]
+    plus_position = positions[plus_i, plus_j, plus_k]
+    owner_valid = (
+        active[minus_i, minus_j, minus_k]
+        & active[plus_i, plus_j, plus_k]
+        & jnp.isfinite(minus_value)
+        & jnp.isfinite(plus_value)
+    )
+    return minus_value, plus_value, minus_position, plus_position, owner_valid
+
+
+def _build_regular_face_contribution_projected_flux(
+    values_owned: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    rows: LocalRegularFaceContributionRows3D,
+    *,
+    aggregate_geometry: LocalAggregateCellGeometry3D | None = None,
+    cell_gradient: LocalCellGradient3D | None = None,
+) -> jnp.ndarray | None:
+    if int(rows.max_rows) == 0 or cell_gradient is None:
+        return None
+    _minus_value, _plus_value, _minus_position, _plus_position, owner_valid = (
+        _regular_face_row_owner_payload(values_owned, geometry, rows, aggregate_geometry)
+    )
+    shape = geometry.owned_shape
+    minus_i = jnp.clip(jnp.asarray(rows.minus_owner_i, dtype=jnp.int32), 0, shape[0] - 1)
+    minus_j = jnp.clip(jnp.asarray(rows.minus_owner_j, dtype=jnp.int32), 0, shape[1] - 1)
+    minus_k = jnp.clip(jnp.asarray(rows.minus_owner_k, dtype=jnp.int32), 0, shape[2] - 1)
+    plus_i = jnp.clip(jnp.asarray(rows.plus_owner_i, dtype=jnp.int32), 0, shape[0] - 1)
+    plus_j = jnp.clip(jnp.asarray(rows.plus_owner_j, dtype=jnp.int32), 0, shape[1] - 1)
+    plus_k = jnp.clip(jnp.asarray(rows.plus_owner_k, dtype=jnp.int32), 0, shape[2] - 1)
+    gradient = jnp.asarray(cell_gradient.gradient, dtype=jnp.float64)
+    row_gradient = 0.5 * (
+        gradient[minus_i, minus_j, minus_k]
+        + gradient[plus_i, plus_j, plus_k]
+    )
+    row_projector = _regular_face_row_projector_values(face_projectors, rows)
+    J, _b_axis = _regular_face_row_face_metric_values(geometry, rows, b_floor=1.0)
+    row_flux = J * jnp.einsum("...i,...i->...", row_projector, row_gradient)
+    valid = (
+        jnp.asarray(rows.active, dtype=bool)
+        & jnp.asarray(rows.use_reconstructed_flux, dtype=bool)
+        & owner_valid
+        & jnp.all(jnp.isfinite(row_gradient), axis=-1)
+        & jnp.isfinite(row_flux)
+    )
+    return jnp.where(valid, row_flux, 0.0)
+
+
+def _corrected_dirichlet_wall_normal_gradient(
+    *,
+    cut_wall_value: jnp.ndarray,
+    f_cell: jnp.ndarray,
+    grad_tangent: jnp.ndarray,
+    wall_center: jnp.ndarray,
+    owner_center: jnp.ndarray,
+    normal_contra: jnp.ndarray,
+    normal_cov: jnp.ndarray,
+    fallback_distance: jnp.ndarray,
+) -> jnp.ndarray:
+    """Dirichlet normal gradient with tangential owner-to-wall jump removed."""
+
+    delta = jnp.asarray(wall_center, dtype=jnp.float64) - jnp.asarray(
+        owner_center,
+        dtype=jnp.float64,
+    )
+    normal_delta = jnp.einsum("...i,...i->...", normal_cov, delta)
+    delta_tangent = delta - normal_delta[..., None] * normal_contra
+    tangent_jump = jnp.einsum("...i,...i->...", grad_tangent, delta_tangent)
+
+    safe_normal_delta = jnp.where(
+        jnp.abs(normal_delta) > 1.0e-30,
+        normal_delta,
+        jnp.sign(normal_delta) * 1.0e-30,
+    )
+    safe_normal_delta = jnp.where(normal_delta == 0.0, 1.0e-30, safe_normal_delta)
+    corrected = (cut_wall_value - f_cell - tangent_jump) / safe_normal_delta
+
+    safe_distance = jnp.maximum(jnp.abs(fallback_distance), 1.0e-30)
+    fallback = (cut_wall_value - f_cell) / safe_distance
+    return jnp.where(jnp.abs(normal_delta) > 1.0e-30, corrected, fallback)
+
+
+def _build_local_cut_wall_flux_payload(
+    *,
+    local: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    cut_wall_geometry: LocalCutWallGeometry3D,
+    cut_wall_bc: LocalCutWallBC3D,
+    cell_gradient: LocalCellGradient3D | None = None,
+    b_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Build the padded embedded-wall flux payload for the conservative control volume."""
+
+    if not isinstance(cut_wall_geometry, LocalCutWallGeometry3D):
+        raise TypeError(
+            "_build_local_cut_wall_flux_payload requires LocalCutWallGeometry3D, "
+            f"got {type(cut_wall_geometry).__name__}"
+        )
+    if not isinstance(cut_wall_bc, LocalCutWallBC3D):
+        raise TypeError(
+            "_build_local_cut_wall_flux_payload requires LocalCutWallBC3D, "
+            f"got {type(cut_wall_bc).__name__}"
+        )
+    if cut_wall_geometry.max_wall_faces != cut_wall_bc.max_wall_faces:
+        raise ValueError(
+            "cut_wall_geometry and cut_wall_bc must use the same padded wall-face length"
+        )
+
+    max_wall_faces = int(cut_wall_geometry.max_wall_faces)
+    if max_wall_faces == 0:
+        return jnp.zeros((0,), dtype=jnp.float64)
+
+    active = jnp.asarray(cut_wall_geometry.active, dtype=bool) & jnp.asarray(cut_wall_bc.active, dtype=bool)
+    cut_wall_kind = jnp.asarray(cut_wall_bc.kind, dtype=jnp.int32)
+    cut_wall_value = jnp.asarray(cut_wall_bc.value, dtype=jnp.float64)
+
+    supported = (
+        (cut_wall_kind == BC_NONE)
+        | (cut_wall_kind == BC_DIRICHLET)
+        | (cut_wall_kind == BC_NEUMANN)
+        | (cut_wall_kind == BC_NORMALFLUX)
+        | (cut_wall_kind == BC_NOFLUX)
+    )
+    active = active & supported
+    cut_wall_kind = jnp.where(supported, cut_wall_kind, BC_NONE)
+    cut_wall_value = jnp.where(supported, cut_wall_value, 0.0)
+
+    owner_i = jnp.asarray(cut_wall_geometry.owner_i, dtype=jnp.int32)
+    owner_j = jnp.asarray(cut_wall_geometry.owner_j, dtype=jnp.int32)
+    owner_k = jnp.asarray(cut_wall_geometry.owner_k, dtype=jnp.int32)
+
+    field = jnp.asarray(local.x.center, dtype=jnp.float64)
+    dfdx_cell = _take_stencil_finite_difference(local.x)
+    dfdy_cell = _take_stencil_finite_difference(local.y)
+    dfdz_cell = _take_stencil_finite_difference(local.z)
+
+    raw_grad_cell = jnp.stack(
+        (
+            dfdx_cell[owner_i, owner_j, owner_k],
+            dfdy_cell[owner_i, owner_j, owner_k],
+            dfdz_cell[owner_i, owner_j, owner_k],
+        ),
+        axis=-1,
+    )
+    if cell_gradient is not None:
+        if not isinstance(cell_gradient, LocalCellGradient3D):
+            raise TypeError(
+                "cell_gradient must be a LocalCellGradient3D or None, "
+                f"got {type(cell_gradient).__name__}"
+            )
+        if cell_gradient.shape != geometry.owned_shape:
+            raise ValueError(
+                f"cell_gradient must have shape {geometry.owned_shape}, "
+                f"got {cell_gradient.shape}"
+            )
+        repaired_grad_cell = jnp.asarray(cell_gradient.gradient, dtype=jnp.float64)[
+            owner_i,
+            owner_j,
+            owner_k,
+        ]
+        repaired_valid = jnp.asarray(cell_gradient.valid, dtype=bool)[
+            owner_i,
+            owner_j,
+            owner_k,
+        ]
+        grad_cell = jnp.where(repaired_valid[..., None], repaired_grad_cell, raw_grad_cell)
+    else:
+        grad_cell = raw_grad_cell
+    f_cell = field[owner_i, owner_j, owner_k]
+    owner_center = jnp.stack(
+        (
+            jnp.asarray(geometry.grid.x.centers_owned, dtype=jnp.float64)[owner_i],
+            jnp.asarray(geometry.grid.y.centers_owned, dtype=jnp.float64)[owner_j],
+            jnp.asarray(geometry.grid.z.centers_owned, dtype=jnp.float64)[owner_k],
+        ),
+        axis=-1,
+    )
+
+    normal_contra = jnp.asarray(cut_wall_geometry.normal_contra, dtype=jnp.float64)
+    normal_cov = jnp.einsum(
+        "...ij,...j->...i",
+        jnp.asarray(cut_wall_geometry.g_cov, dtype=jnp.float64),
+        normal_contra,
+    )
+    g_cell = jnp.einsum("...i,...i->...", normal_contra, grad_cell)
+    grad_tangent = grad_cell - g_cell[..., None] * normal_cov
+
+    distance = jnp.asarray(cut_wall_geometry.distance, dtype=jnp.float64)
+    g_dirichlet = _corrected_dirichlet_wall_normal_gradient(
+        cut_wall_value=cut_wall_value,
+        f_cell=f_cell,
+        grad_tangent=grad_tangent,
+        wall_center=jnp.asarray(cut_wall_geometry.center, dtype=jnp.float64),
+        owner_center=owner_center,
+        normal_contra=normal_contra,
+        normal_cov=normal_cov,
+        fallback_distance=distance,
+    )
+    g_neumann = cut_wall_value
+    g_wall = g_cell
+    g_wall = jnp.where(cut_wall_kind == BC_DIRICHLET, g_dirichlet, g_wall)
+    g_wall = jnp.where(cut_wall_kind == BC_NEUMANN, g_neumann, g_wall)
+    grad_wall = grad_tangent + g_wall[..., None] * normal_cov
+
+    bmag = jnp.maximum(jnp.asarray(cut_wall_geometry.Bmag, dtype=jnp.float64), float(b_floor))
+    b_wall = jnp.asarray(cut_wall_geometry.B_contra, dtype=jnp.float64) / bmag[..., None]
+    projector = jnp.asarray(cut_wall_geometry.g_contra, dtype=jnp.float64) - jnp.einsum(
+        "...i,...j->...ij",
+        b_wall,
+        b_wall,
+    )
+    wall_flux_area = jnp.asarray(cut_wall_geometry.J, dtype=jnp.float64) * jnp.einsum(
+        "...i,...ij,...j->...",
+        jnp.asarray(cut_wall_geometry.area_covector, dtype=jnp.float64),
+        projector,
+        grad_wall,
+    )
+    wall_flux_area = jnp.where(cut_wall_kind == BC_NORMALFLUX, cut_wall_value, wall_flux_area)
+    wall_flux_area = jnp.where(cut_wall_kind == BC_NOFLUX, 0.0, wall_flux_area)
+    wall_flux_area = jnp.where(active, wall_flux_area, 0.0)
+
+    sign = jnp.asarray(cut_wall_geometry.sign, dtype=jnp.float64)
+    if sign.shape != wall_flux_area.shape:
+        raise ValueError(
+            f"cut_wall_geometry.sign must have shape {wall_flux_area.shape}, got {sign.shape}"
+        )
+    return sign * wall_flux_area
+
+
+def _shift_bool_mask(mask: jnp.ndarray, *, axis: int, offset: int, periodic: bool) -> jnp.ndarray:
+    """Shift a cell mask by one index without wrapping on nonperiodic axes."""
+
+    if offset == 0:
+        return mask
+    if periodic:
+        return jnp.roll(mask, offset, axis=axis)
+
+    shifted = jnp.zeros_like(mask, dtype=bool)
+    if offset > 0:
+        src = _axis_slice_nd(axis, None, -offset, mask.ndim)
+        dst = _axis_slice_nd(axis, offset, None, mask.ndim)
+    else:
+        src = _axis_slice_nd(axis, -offset, None, mask.ndim)
+        dst = _axis_slice_nd(axis, None, offset, mask.ndim)
+    return shifted.at[dst].set(mask[src])
+
+
+def _cut_wall_owner_cell_mask(
+    geometry: LocalFciGeometry3D,
+    *,
+    cut_wall_geometry: LocalCutWallGeometry3D,
+    cut_wall_bc: LocalCutWallBC3D,
+) -> jnp.ndarray:
+    """Owned-cell mask for cells carrying active cut-wall coordinate legs."""
+
+    if int(cut_wall_geometry.max_wall_faces) == 0:
+        return jnp.zeros(geometry.owned_shape, dtype=bool)
+
+    active = (
+        jnp.asarray(cut_wall_geometry.active, dtype=bool)
+        & jnp.asarray(cut_wall_bc.active, dtype=bool)
+    )
+    owner_i = jnp.clip(
+        jnp.asarray(cut_wall_geometry.owner_i, dtype=jnp.int32),
+        0,
+        geometry.owned_shape[0] - 1,
+    )
+    owner_j = jnp.clip(
+        jnp.asarray(cut_wall_geometry.owner_j, dtype=jnp.int32),
+        0,
+        geometry.owned_shape[1] - 1,
+    )
+    owner_k = jnp.clip(
+        jnp.asarray(cut_wall_geometry.owner_k, dtype=jnp.int32),
+        0,
+        geometry.owned_shape[2] - 1,
+    )
+    count = jnp.zeros(geometry.owned_shape, dtype=jnp.int32).at[
+        owner_i,
+        owner_j,
+        owner_k,
+    ].add(active.astype(jnp.int32))
+    return count > 0
+
+
+def _dilate_cut_wall_owner_mask_for_face_axis(
+    owner_mask: jnp.ndarray,
+    *,
+    face_axis: int,
+    periodic_axes: tuple[bool, bool, bool],
+) -> jnp.ndarray:
+    """Dilate owner cells in directions tangential to a face-gradient location."""
+
+    result = jnp.asarray(owner_mask, dtype=bool)
+    for axis in range(3):
+        if axis == face_axis:
+            continue
+        result = (
+            result
+            | _shift_bool_mask(result, axis=axis, offset=1, periodic=periodic_axes[axis])
+            | _shift_bool_mask(result, axis=axis, offset=-1, periodic=periodic_axes[axis])
+        )
+    return result
+
+
+def _average_cell_gradients_to_faces(
+    cell_grad: jnp.ndarray,
+    *,
+    face_axis: int,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Average owned cell gradients onto the face grid for ``face_axis``."""
+
+    face_shape = list(cell_grad.shape[:3])
+    face_shape[face_axis] += 1
+    face_grad_sum = jnp.zeros(tuple(face_shape) + (3,), dtype=jnp.float64)
+    face_grad_count = jnp.zeros(tuple(face_shape), dtype=jnp.float64)
+    ones = jnp.ones(cell_grad.shape[:3], dtype=jnp.float64)
+    n = int(cell_grad.shape[face_axis])
+
+    lower_faces = _axis_slice_nd(face_axis, 0, n, 3)
+    upper_faces = _axis_slice_nd(face_axis, 1, n + 1, 3)
+    face_grad_sum = face_grad_sum.at[lower_faces + (slice(None),)].add(cell_grad)
+    face_grad_sum = face_grad_sum.at[upper_faces + (slice(None),)].add(cell_grad)
+    face_grad_count = face_grad_count.at[lower_faces].add(ones)
+    face_grad_count = face_grad_count.at[upper_faces].add(ones)
+    averaged = face_grad_sum / jnp.maximum(face_grad_count[..., None], 1.0)
+    return averaged, face_grad_count
+
+
+def _cell_mask_to_adjacent_face_mask(
+    cell_mask: jnp.ndarray,
+    *,
+    face_axis: int,
+) -> jnp.ndarray:
+    """Mark faces adjacent to any masked cell."""
+
+    face_shape = list(cell_mask.shape)
+    face_shape[face_axis] += 1
+    face_count = jnp.zeros(tuple(face_shape), dtype=jnp.int32)
+    n = int(cell_mask.shape[face_axis])
+    lower_faces = _axis_slice_nd(face_axis, 0, n, 3)
+    upper_faces = _axis_slice_nd(face_axis, 1, n + 1, 3)
+    cell_count = jnp.asarray(cell_mask, dtype=jnp.int32)
+    face_count = face_count.at[lower_faces].add(cell_count)
+    face_count = face_count.at[upper_faces].add(cell_count)
+    return face_count > 0
+
+
+def _shift_cell_array(
+    values: jnp.ndarray,
+    *,
+    axis: int,
+    offset: int,
+    periodic: bool,
+    fill_value: float | bool = 0.0,
+) -> jnp.ndarray:
+    """Shift an owned-cell array without wrapping on nonperiodic axes."""
+
+    if offset == 0:
+        return values
+    if periodic:
+        return jnp.roll(values, offset, axis=axis)
+
+    shifted = jnp.full_like(values, fill_value)
+    if offset > 0:
+        src = _axis_slice_nd(axis, None, -offset, values.ndim)
+        dst = _axis_slice_nd(axis, offset, None, values.ndim)
+    else:
+        src = _axis_slice_nd(axis, -offset, None, values.ndim)
+        dst = _axis_slice_nd(axis, None, offset, values.ndim)
+    return shifted.at[dst].set(values[src])
+
+
+def _shift_cell_sample(
+    value: jnp.ndarray,
+    position: jnp.ndarray,
+    valid: jnp.ndarray,
+    *,
+    shifts: tuple[int, int, int],
+    periodic_axes: tuple[bool, bool, bool],
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Shift cell samples and their validity mask by a static 3D offset."""
+
+    shifted_value = value
+    shifted_position = position
+    shifted_valid = valid
+    for axis, offset in enumerate(shifts):
+        if int(offset) == 0:
+            continue
+        shifted_value = _shift_cell_array(
+            shifted_value,
+            axis=axis,
+            offset=int(offset),
+            periodic=periodic_axes[axis],
+            fill_value=0.0,
+        )
+        shifted_position = _shift_cell_array(
+            shifted_position,
+            axis=axis,
+            offset=int(offset),
+            periodic=periodic_axes[axis],
+            fill_value=0.0,
+        )
+        shifted_valid = _shift_cell_array(
+            shifted_valid,
+            axis=axis,
+            offset=int(offset),
+            periodic=periodic_axes[axis],
+            fill_value=False,
+        )
+    return shifted_value, shifted_position, shifted_valid
+
+
+def _owned_cell_logical_positions(geometry: LocalFciGeometry3D) -> jnp.ndarray:
+    """Owned cell-center logical coordinates with shape ``owned_shape + (3,)``."""
+
+    x = jnp.asarray(geometry.grid.x.centers_owned, dtype=jnp.float64)
+    y = jnp.asarray(geometry.grid.y.centers_owned, dtype=jnp.float64)
+    z = jnp.asarray(geometry.grid.z.centers_owned, dtype=jnp.float64)
+    xx, yy, zz = jnp.meshgrid(x, y, z, indexing="ij")
+    return jnp.stack((xx, yy, zz), axis=-1)
+
+
+def _owned_face_logical_positions(
+    geometry: LocalFciGeometry3D,
+    regular_face_geometry: LocalRegularFaceGeometry3D,
+    *,
+    face_axis: int,
+) -> jnp.ndarray:
+    """Open regular-face centroid logical coordinates for one face axis."""
+
+    x_cells = jnp.asarray(geometry.grid.x.centers_owned, dtype=jnp.float64)
+    y_cells = jnp.asarray(geometry.grid.y.centers_owned, dtype=jnp.float64)
+    z_cells = jnp.asarray(geometry.grid.z.centers_owned, dtype=jnp.float64)
+    x_faces = jnp.asarray(geometry.grid.x.faces_owned, dtype=jnp.float64)
+    y_faces = jnp.asarray(geometry.grid.y.faces_owned, dtype=jnp.float64)
+    z_faces = jnp.asarray(geometry.grid.z.faces_owned, dtype=jnp.float64)
+
+    if face_axis == 0:
+        xx, yy, zz = jnp.meshgrid(x_faces, y_cells, z_cells, indexing="ij")
+        offset = regular_face_geometry.x_centroid_offset
+    elif face_axis == 1:
+        xx, yy, zz = jnp.meshgrid(x_cells, y_faces, z_cells, indexing="ij")
+        offset = regular_face_geometry.y_centroid_offset
+    else:
+        xx, yy, zz = jnp.meshgrid(x_cells, y_cells, z_faces, indexing="ij")
+        offset = regular_face_geometry.z_centroid_offset
+    return jnp.stack((xx, yy, zz), axis=-1) + jnp.asarray(offset, dtype=jnp.float64)
+
+
+def _cut_wall_face_gradient_sample_shifts(face_axis: int) -> tuple[tuple[int, int, int], ...]:
+    """Static tangential sample offsets used for face-local reconstruction."""
+
+    tangential_axes = tuple(axis for axis in range(3) if axis != face_axis)
+    shifts: list[tuple[int, int, int]] = [(0, 0, 0)]
+    for axis in tangential_axes:
+        for offset in (-1, 1):
+            current = [0, 0, 0]
+            current[axis] = offset
+            shifts.append(tuple(current))
+    for offset_a in (-1, 1):
+        for offset_b in (-1, 1):
+            current = [0, 0, 0]
+            current[tangential_axes[0]] = offset_a
+            current[tangential_axes[1]] = offset_b
+            shifts.append(tuple(current))
+    return tuple(shifts)
+
+
+def _accumulate_face_linear_sample(
+    ata: jnp.ndarray,
+    atb: jnp.ndarray,
+    sample_count: jnp.ndarray,
+    *,
+    face_axis: int,
+    face_positions: jnp.ndarray,
+    sample_value: jnp.ndarray,
+    sample_position: jnp.ndarray,
+    sample_valid: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Add one owned-cell sample field to both adjacent face-local fits."""
+
+    n = int(sample_value.shape[face_axis])
+    ones = jnp.ones_like(sample_value, dtype=jnp.float64)
+    valid_weight = jnp.asarray(sample_valid, dtype=jnp.float64)
+    sample_value = jnp.nan_to_num(
+        jnp.asarray(sample_value, dtype=jnp.float64),
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
+    sample_position = jnp.asarray(sample_position, dtype=jnp.float64)
+    for start, stop in ((0, n), (1, n + 1)):
+        face_slice = _axis_slice_nd(face_axis, start, stop, 3)
+        delta = sample_position - face_positions[face_slice + (slice(None),)]
+        row = jnp.concatenate((ones[..., None], delta), axis=-1)
+        weighted_row = valid_weight[..., None] * row
+        ata_update = weighted_row[..., :, None] * row[..., None, :]
+        atb_update = weighted_row * sample_value[..., None]
+        ata = ata.at[face_slice + (slice(None), slice(None))].add(ata_update)
+        atb = atb.at[face_slice + (slice(None),)].add(atb_update)
+        sample_count = sample_count.at[face_slice].add(valid_weight)
+    return ata, atb, sample_count
+
+
+def _least_squares_cut_wall_face_gradient(
+    field_owned: jnp.ndarray,
+    *,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    regular_face_geometry: LocalRegularFaceGeometry3D,
+    face_axis: int,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Reconstruct face gradients from active-cell samples around a cut face.
+
+    The fitted model is ``f = a + grad . (x - x_face_centroid)``.  The
+    centroid is the open regular-face centroid, not the coordinate face center,
+    so partial regular faces in edge/corner cut cells no longer project fluxes
+    through the wrong point.  This intentionally targets only the cut-wall
+    correction path; ordinary faces continue to use the original fast lifted
+    face-gradient stencil.
+    """
+
+    face_shape = list(geometry.owned_shape)
+    face_shape[face_axis] += 1
+    face_shape_tuple = tuple(face_shape)
+    ata = jnp.zeros(face_shape_tuple + (4, 4), dtype=jnp.float64)
+    atb = jnp.zeros(face_shape_tuple + (4,), dtype=jnp.float64)
+    sample_count = jnp.zeros(face_shape_tuple, dtype=jnp.float64)
+
+    field = jnp.asarray(field_owned, dtype=jnp.float64)
+    active = _active_cell_mask_owned(geometry) & jnp.isfinite(field)
+    cell_positions = _owned_cell_logical_positions(geometry)
+    face_positions = _owned_face_logical_positions(
+        geometry,
+        regular_face_geometry,
+        face_axis=face_axis,
+    )
+    for shifts in _cut_wall_face_gradient_sample_shifts(face_axis):
+        shifted_value, shifted_position, shifted_active = _shift_cell_sample(
+            field,
+            cell_positions,
+            active,
+            shifts=shifts,
+            periodic_axes=domain.periodic_axes,
+        )
+        ata, atb, sample_count = _accumulate_face_linear_sample(
+            ata,
+            atb,
+            sample_count,
+            face_axis=face_axis,
+            face_positions=face_positions,
+            sample_value=shifted_value,
+            sample_position=shifted_position,
+            sample_valid=shifted_active,
+        )
+
+    eps = jnp.asarray(1.0e-14, dtype=jnp.float64)
+    eye = jnp.eye(4, dtype=jnp.float64)
+    coeff = jnp.linalg.solve(ata + eps * eye, atb[..., None])[..., 0]
+    gradient = jnp.nan_to_num(coeff[..., 1:4], nan=0.0, posinf=0.0, neginf=0.0)
+    valid = (sample_count >= 4.0) & jnp.all(jnp.isfinite(gradient), axis=-1)
+    return gradient, valid
+
+
+def expand_local_control_volume_owner_field(
+    values_owned: jnp.ndarray,
+    cells: LocalControlVolumeCellGeometry3D,
+    *,
+    owner_values_halo: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Fill each positive-volume storage cell from its active owner.
+
+    This storage expansion is used only while preparing halos and dense face
+    stencils.  Conservative outputs are still accumulated into unique owners,
+    and merged source output remains zero.
+    """
+
+    values = jnp.asarray(values_owned, dtype=jnp.float64)
+    if values.shape != cells.shape:
+        raise ValueError(
+            f"values_owned must have shape {cells.shape}, got {values.shape}"
+        )
+    expanded = values[cells.owner_i, cells.owner_j, cells.owner_k]
+    if owner_values_halo is None:
+        try:
+            if host_bool(jnp.any(cells.owner_is_remote)):
+                raise ValueError("owner_values_halo is required when control-volume owners are remote")
+        except jax.errors.TracerBoolConversionError:
+            pass
+    else:
+        halo = jnp.asarray(owner_values_halo, dtype=values.dtype)
+        if halo.shape[:3] != cells.layout.cell_halo_shape:
+            raise ValueError("owner_values_halo must match cells.layout.cell_halo_shape")
+        remote = halo[cells.remote_owner_halo_i, cells.remote_owner_halo_j, cells.remote_owner_halo_k]
+        expanded = jnp.where(cells.owner_is_remote, remote, expanded)
+    return jnp.where(cells.raw_volume > 0.0, expanded, 0.0)
+
+
+def aggregate_local_control_volume_average(
+    values_raw: jnp.ndarray,
+    cells: LocalControlVolumeCellGeometry3D,
+    domain: LocalDomain3D,
+) -> jnp.ndarray:
+    """Aggregate raw-cell averages onto unique local control-volume owners."""
+
+    if not isinstance(cells, LocalControlVolumeCellGeometry3D):
+        raise TypeError(
+            "cells must be LocalControlVolumeCellGeometry3D, "
+            f"got {type(cells).__name__}"
+        )
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError(
+            "domain must be LocalDomain3D, "
+            f"got {type(domain).__name__}"
+        )
+    if cells.layout != domain.layout:
+        raise ValueError("cells.layout must match domain.layout")
+
+    values = jnp.asarray(values_raw)
+    if values.ndim != 3 or tuple(values.shape) != tuple(cells.shape):
+        raise ValueError(
+            "values_raw must be a scalar field with cells.shape; "
+            f"got {values.shape}, expected {cells.shape}"
+        )
+    if not jnp.issubdtype(values.dtype, jnp.floating):
+        raise TypeError(
+            "values_raw must have a floating-point dtype, "
+            f"got {values.dtype}"
+        )
+    values = jnp.asarray(values, dtype=jnp.float64)
+
+    raw_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64)
+    integrated = raw_volume * values
+    local_source = (raw_volume > 0.0) & ~cells.owner_is_remote
+    owner_sum = jnp.zeros(cells.shape, dtype=jnp.float64).at[
+        cells.owner_i,
+        cells.owner_j,
+        cells.owner_k,
+    ].add(jnp.where(local_source, integrated, 0.0))
+
+    remote_halo = jnp.zeros(cells.layout.cell_halo_shape, dtype=jnp.float64).at[
+        cells.remote_owner_halo_i,
+        cells.remote_owner_halo_j,
+        cells.remote_owner_halo_k,
+    ].add(jnp.where(cells.owner_is_remote & (raw_volume > 0.0), integrated, 0.0))
+    owner_sum = owner_sum + accumulate_halo_contributions_to_owned(
+        remote_halo,
+        domain,
+    )
+
+    active = jnp.asarray(cells.is_active_owner, dtype=bool)
+    safe_volume = jnp.where(
+        active,
+        jnp.asarray(cells.aggregate_volume, dtype=jnp.float64),
+        1.0,
+    )
+    result = owner_sum / safe_volume
+    return jnp.where(active, result, 0.0).astype(jnp.float64)
+
+
+def _require_local_control_volume_field_closure(
+    field_closure: LocalControlVolumeFieldClosure3D | None,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+) -> LocalControlVolumeFieldClosure3D:
+    """Validate the direct field closure against the compiled face rows."""
+
+    if field_closure is None:
+        raise ValueError("field_closure is required with control_volume_geometry")
+    if not isinstance(field_closure, LocalControlVolumeFieldClosure3D):
+        raise TypeError(
+            "field_closure must be LocalControlVolumeFieldClosure3D with "
+            "control_volume_geometry"
+        )
+    faces = control_volume_geometry.irregular_faces
+    rows = control_volume_geometry.face_functionals
+    if not isinstance(rows, LocalMomentFittedFaceRows3D):
+        raise ValueError("control-volume geometry requires direct face functionals")
+    if rows.max_rows != faces.max_rows:
+        raise ValueError("face functionals must align with irregular face rows")
+    if field_closure.max_rows != faces.max_rows:
+        raise ValueError("field_closure.max_rows must align with irregular face rows")
+    if field_closure.max_patches != faces.max_patches:
+        raise ValueError(
+            "field_closure.max_patches must align with irregular face-row geometry"
+        )
+    try:
+        active_aligned = host_bool(
+            jnp.all(field_closure.active == (rows.active & faces.active))
+        )
+        valid_aligned = host_bool(jnp.all(field_closure.valid == field_closure.active))
+        trace_aligned = host_bool(
+            jnp.all(
+                (~jnp.asarray(faces.quadrature_active, dtype=bool))
+                | jnp.asarray(field_closure.face_value_valid, dtype=bool)
+            )
+            & jnp.all(
+                (~jnp.asarray(faces.quadrature_active, dtype=bool))
+                | jnp.asarray(field_closure.face_gradient_valid, dtype=bool)
+            )
+        )
+    except jax.errors.TracerBoolConversionError:
+        active_aligned = True
+        valid_aligned = True
+        trace_aligned = True
+    if not active_aligned:
+        raise ValueError("field_closure.active must align with compiled face rows")
+    if not valid_aligned:
+        raise ValueError("every active direct face-functional row must be valid")
+    if not trace_aligned:
+        raise ValueError("direct face-value and face-gradient traces must be valid on active quadrature")
+    return field_closure
+
+
+def _local_control_volume_integrated_divergence(
+    regular_flux: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    irregular_flux: jnp.ndarray,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    *,
+    volume_floor: float,
+) -> jnp.ndarray:
+    """Divergence of dense and compact integrated face fluxes."""
+
+    regular_faces = control_volume_geometry.regular_faces
+    spacing = (
+        jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64),
+        jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64),
+        jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64),
+    )
+    logical_cell_measure = (
+        spacing[1] * spacing[2],
+        spacing[0] * spacing[2],
+        spacing[0] * spacing[1],
+    )
+    face_area = (
+        regular_faces.x_area,
+        regular_faces.y_area,
+        regular_faces.z_area,
+    )
+    face_fraction = (
+        regular_faces.x_area_fraction,
+        regular_faces.y_area_fraction,
+        regular_faces.z_area_fraction,
+    )
+    face_open = (
+        regular_faces.x_open_mask,
+        regular_faces.y_open_mask,
+        regular_faces.z_open_mask,
+    )
+    integrated_sum = jnp.zeros(geometry.owned_shape, dtype=jnp.float64)
+    for axis in range(3):
+        logical_area = _lift_cell_field_to_faces(
+            logical_cell_measure[axis],
+            axis=axis,
+            periodic=False,
+        )
+        open_measure = (
+            logical_area
+            * jnp.asarray(face_area[axis], dtype=jnp.float64)
+            * jnp.asarray(face_fraction[axis], dtype=jnp.float64)
+        )
+        integrated_face = jnp.where(
+            jnp.asarray(face_open[axis], dtype=bool)
+            & (open_measure > 0.0),
+            jnp.asarray(regular_flux[axis], dtype=jnp.float64)
+            * open_measure,
+            0.0,
+        )
+        integrated_sum = integrated_sum + (
+            integrated_face[_axis_slice_nd(axis, 1, None, 3)]
+            - integrated_face[_axis_slice_nd(axis, None, -1, 3)]
+        )
+
+    cells = control_volume_geometry.cells
+    local_source = (cells.raw_volume > 0.0) & ~cells.owner_is_remote
+    owner_sum = jnp.zeros(geometry.owned_shape, dtype=jnp.float64).at[
+        cells.owner_i,
+        cells.owner_j,
+        cells.owner_k,
+    ].add(
+        jnp.where(local_source, integrated_sum, 0.0)
+    )
+    remote_halo = jnp.zeros(cells.layout.cell_halo_shape, dtype=jnp.float64).at[
+        cells.remote_owner_halo_i, cells.remote_owner_halo_j, cells.remote_owner_halo_k
+    ].add(jnp.where((cells.raw_volume > 0.0) & cells.owner_is_remote, integrated_sum, 0.0))
+
+    faces = control_volume_geometry.irregular_faces
+    if int(faces.max_rows) > 0:
+        row_flux = jnp.where(faces.active, irregular_flux, 0.0)
+        owner_sum = owner_sum.at[
+            faces.minus_owner_i,
+            faces.minus_owner_j,
+            faces.minus_owner_k,
+        ].add(row_flux)
+        owner_sum = owner_sum.at[
+            faces.plus_owner_i,
+            faces.plus_owner_j,
+            faces.plus_owner_k,
+        ].add(jnp.where(faces.has_plus_owner, -row_flux, 0.0))
+        remote_halo = remote_halo.at[
+            faces.remote_residual_halo_i, faces.remote_residual_halo_j, faces.remote_residual_halo_k
+        ].add(jnp.where(faces.has_remote_residual, -row_flux, 0.0))
+
+    owner_sum = owner_sum + accumulate_halo_contributions_to_owned(remote_halo, domain)
+
+    result = owner_sum / jnp.maximum(
+        cells.aggregate_volume,
+        float(volume_floor),
+    )
+    return jnp.where(cells.is_active_owner, result, 0.0)
+
+
+def _patch_cut_wall_local_face_gradients(
+    x_face_grad: jnp.ndarray,
+    y_face_grad: jnp.ndarray,
+    z_face_grad: jnp.ndarray,
+    *,
+    local: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    regular_face_geometry: LocalRegularFaceGeometry3D,
+    cut_wall_geometry: LocalCutWallGeometry3D,
+    cut_wall_bc: LocalCutWallBC3D,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Replace cut-wall-neighborhood face gradients with cut-cell-aware fits.
+
+    The default face-gradient reconstruction differentiates a lifted face field.
+    Near embedded-wall edges that lifted field can sample diagonal inactive cells.
+    The cut-wall patch uses active-cell samples around the open face centroid
+    where possible and falls back to averaged patched-cell gradients otherwise.
+    """
+
+    if int(cut_wall_geometry.max_wall_faces) == 0:
+        return x_face_grad, y_face_grad, z_face_grad
+
+    owner_mask = _cut_wall_owner_cell_mask(
+        geometry,
+        cut_wall_geometry=cut_wall_geometry,
+        cut_wall_bc=cut_wall_bc,
+    )
+    dfdx_cell = _take_stencil_finite_difference(local.x)
+    dfdy_cell = _take_stencil_finite_difference(local.y)
+    dfdz_cell = _take_stencil_finite_difference(local.z)
+    cell_grad = jnp.nan_to_num(
+        jnp.stack((dfdx_cell, dfdy_cell, dfdz_cell), axis=-1),
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
+
+    face_grads = (x_face_grad, y_face_grad, z_face_grad)
+    open_masks = (
+        regular_face_geometry.x_open_mask,
+        regular_face_geometry.y_open_mask,
+        regular_face_geometry.z_open_mask,
+    )
+    patched: list[jnp.ndarray] = []
+    for face_axis, face_grad in enumerate(face_grads):
+        dilated_owner_mask = _dilate_cut_wall_owner_mask_for_face_axis(
+            owner_mask,
+            face_axis=face_axis,
+            periodic_axes=domain.periodic_axes,
+        )
+        face_mask = _cell_mask_to_adjacent_face_mask(
+            dilated_owner_mask,
+            face_axis=face_axis,
+        )
+        averaged, _count = _average_cell_gradients_to_faces(
+            cell_grad,
+            face_axis=face_axis,
+        )
+        fitted, fit_valid = _least_squares_cut_wall_face_gradient(
+            local.x.center,
+            geometry=geometry,
+            domain=domain,
+            regular_face_geometry=regular_face_geometry,
+            face_axis=face_axis,
+        )
+        open_mask = jnp.asarray(open_masks[face_axis], dtype=bool)
+        replace_mask = face_mask & open_mask
+        closed_cut_wall_mask = face_mask & (~open_mask)
+        raw_face_grad = jnp.asarray(face_grad, dtype=jnp.float64)
+        averaged = jnp.nan_to_num(averaged, nan=0.0, posinf=0.0, neginf=0.0)
+        fitted = jnp.nan_to_num(fitted, nan=0.0, posinf=0.0, neginf=0.0)
+        replacement = jnp.where(fit_valid[..., None], fitted, averaged)
+        current = jnp.where(replace_mask[..., None], replacement, raw_face_grad)
+        current = jnp.where(closed_cut_wall_mask[..., None], 0.0, current)
+        patched.append(current)
+    return patched[0], patched[1], patched[2]
+
+
+def build_local_projected_laplacian_flux_stencil(
+    local: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None = None,
+    face_bc: LocalBoundaryFaceBC3D | None = None,
+    regular_face_geometry: LocalRegularFaceGeometry3D | None = None,
+    regular_face_contribution_rows: LocalRegularFaceContributionRows3D | None = None,
+    cell_volume: LocalCellVolumeGeometry3D | None = None,
+    cut_wall_geometry: LocalCutWallGeometry3D | None = None,
+    cut_wall_bc: LocalCutWallBC3D | None = None,
+    cell_gradient: LocalCellGradient3D | None = None,
+    aggregate_geometry: LocalAggregateCellGeometry3D | None = None,
+    regular_boundary_closure: (
+        LocalRegularBoundaryMomentClosure3D | None
+    ) = None,
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    neumann_normal_scheme: str = "logical",
+    b_floor: float = 1.0e-30,
+) -> LocalControlVolumeFluxStencil3D:
+    """Build the local face-flux stencil for a projected Laplacian."""
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "build_local_projected_laplacian_flux_stencil requires LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+    if not isinstance(domain, LocalDomain3D):
+        raise TypeError(
+            "build_local_projected_laplacian_flux_stencil requires LocalDomain3D, "
+            f"got {type(domain).__name__}"
+        )
+    if geometry.layout != domain.layout:
+        raise ValueError("geometry and domain must share the same HaloLayout3D")
+    if local.shape != geometry.owned_shape:
+        raise ValueError(
+            f"local stencil must have shape {geometry.owned_shape}, got {local.shape}"
+        )
+    if not hasattr(local, "face_grad"):
+        raise TypeError("local must provide face_grad")
+
+    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
+    if len(axis_regular_axes) != 3:
+        raise ValueError("axis_regular_axes must have length 3")
+    if axis_regular_axes[1] or axis_regular_axes[2]:
+        raise NotImplementedError(
+            "axis_regular_axes currently only supports the lower x axis; "
+            f"got axis_regular_axes={axis_regular_axes}"
+        )
+
+    regular_face_geometry = regular_face_geometry or geometry.regular_face_geometry
+    cell_volume = cell_volume or geometry.cell_volume_geometry
+    face_bc = face_bc or LocalBoundaryFaceBC3D.empty(geometry.layout)
+    if cut_wall_geometry is None and cut_wall_bc is None:
+        cut_wall_geometry = LocalCutWallGeometry3D.empty(0)
+        cut_wall_bc = LocalCutWallBC3D.empty(0)
+    elif cut_wall_geometry is None:
+        cut_wall_geometry = LocalCutWallGeometry3D.empty(cut_wall_bc.n_wall_faces)
+    elif cut_wall_bc is None:
+        cut_wall_bc = LocalCutWallBC3D.empty(cut_wall_geometry.max_wall_faces)
+
+    if face_projectors is None:
+        face_projectors = build_local_perp_laplacian_face_projectors(
+            geometry,
+            domain,
+            b_floor=b_floor,
+            axis_regular_axes=axis_regular_axes,
+        )
+    x_face_projector, y_face_projector, z_face_projector = face_projectors
+
+    x_face_grad = jnp.asarray(local.face_grad.x, dtype=jnp.float64)
+    y_face_grad = jnp.asarray(local.face_grad.y, dtype=jnp.float64)
+    z_face_grad = jnp.asarray(local.face_grad.z, dtype=jnp.float64)
+
+    x_face_grad, y_face_grad, z_face_grad = _patch_cut_wall_local_face_gradients(
+        x_face_grad,
+        y_face_grad,
+        z_face_grad,
+        local=local,
+        geometry=geometry,
+        domain=domain,
+        regular_face_geometry=regular_face_geometry,
+        cut_wall_geometry=cut_wall_geometry,
+        cut_wall_bc=cut_wall_bc,
+    )
+
+    values_owned = jnp.asarray(local.x.center, dtype=jnp.float64)
+    x_face_grad = _patch_local_axis_face_gradients(
+        x_face_grad,
+        values_owned=values_owned,
+        geometry=geometry,
+        domain=domain,
+        axis=0,
+        axis_kind=face_bc.kind_x,
+        axis_value=face_bc.value_x,
+        axis_mask=face_bc.mask_x,
+        axis_regular_axes=axis_regular_axes,
+        neumann_normal_scheme=neumann_normal_scheme,
+        regular_boundary_closure=regular_boundary_closure,
+    )
+    y_face_grad = _patch_local_axis_face_gradients(
+        y_face_grad,
+        values_owned=values_owned,
+        geometry=geometry,
+        domain=domain,
+        axis=1,
+        axis_kind=face_bc.kind_y,
+        axis_value=face_bc.value_y,
+        axis_mask=face_bc.mask_y,
+        axis_regular_axes=axis_regular_axes,
+        neumann_normal_scheme=neumann_normal_scheme,
+        regular_boundary_closure=regular_boundary_closure,
+    )
+    z_face_grad = _patch_local_axis_face_gradients(
+        z_face_grad,
+        values_owned=values_owned,
+        geometry=geometry,
+        domain=domain,
+        axis=2,
+        axis_kind=face_bc.kind_z,
+        axis_value=face_bc.value_z,
+        axis_mask=face_bc.mask_z,
+        axis_regular_axes=axis_regular_axes,
+        neumann_normal_scheme=neumann_normal_scheme,
+        regular_boundary_closure=regular_boundary_closure,
+    )
+
+    x_face_metric = geometry.face_metric.x
+    y_face_metric = geometry.face_metric.y
+    z_face_metric = geometry.face_metric.z
+
+    x_flux = jnp.asarray(x_face_metric.J_owned, dtype=jnp.float64) * jnp.einsum(
+        "...j,...j->...", x_face_projector[..., 0, :], x_face_grad
+    )
+    if axis_regular_axes[0]:
+        do_axis_lower = domain.runtime_has_axis_regular_lower(0)
+        lower = jnp.where(do_axis_lower, jnp.zeros_like(x_flux[0]), x_flux[0])
+        x_flux = x_flux.at[0].set(lower)
+    y_flux = jnp.asarray(y_face_metric.J_owned, dtype=jnp.float64) * jnp.einsum(
+        "...j,...j->...", y_face_projector[..., 1, :], y_face_grad
+    )
+    z_flux = jnp.asarray(z_face_metric.J_owned, dtype=jnp.float64) * jnp.einsum(
+        "...j,...j->...", z_face_projector[..., 2, :], z_face_grad
+    )
+
+    x_flux = _apply_local_face_flux_bc(
+        x_flux,
+        axis=0,
+        axis_kind=face_bc.kind_x,
+        axis_value=face_bc.value_x,
+        axis_mask=face_bc.mask_x,
+        axis_regular_axes=axis_regular_axes,
+    )
+    y_flux = _apply_local_face_flux_bc(
+        y_flux,
+        axis=1,
+        axis_kind=face_bc.kind_y,
+        axis_value=face_bc.value_y,
+        axis_mask=face_bc.mask_y,
+        axis_regular_axes=axis_regular_axes,
+    )
+    z_flux = _apply_local_face_flux_bc(
+        z_flux,
+        axis=2,
+        axis_kind=face_bc.kind_z,
+        axis_value=face_bc.value_z,
+        axis_mask=face_bc.mask_z,
+        axis_regular_axes=axis_regular_axes,
+    )
+
+    cut_wall_flux = _build_local_cut_wall_flux_payload(
+        local=local,
+        geometry=geometry,
+        cut_wall_geometry=cut_wall_geometry,
+        cut_wall_bc=cut_wall_bc,
+        cell_gradient=cell_gradient,
+        b_floor=b_floor,
+    )
+    regular_face_contribution_flux = None
+    if regular_face_contribution_rows is not None:
+        regular_face_contribution_flux = _build_regular_face_contribution_projected_flux(
+            values_owned,
+            geometry,
+            face_projectors,
+            regular_face_contribution_rows,
+            aggregate_geometry=aggregate_geometry,
+            cell_gradient=cell_gradient,
+        )
+
+    return LocalControlVolumeFluxStencil3D(
+        regular_flux=FaceFluxStencil3D(x=x_flux, y=y_flux, z=z_flux),
+        regular_face_geometry=regular_face_geometry,
+        cell_volume=cell_volume,
+        cut_wall_geometry=cut_wall_geometry,
+        cut_wall_flux=cut_wall_flux,
+        regular_face_contribution_rows=regular_face_contribution_rows,
+        regular_face_contribution_flux=regular_face_contribution_flux,
+    )
+
+
+def local_divergence_conservative_op(
+    cv_flux: LocalControlVolumeFluxStencil3D,
+    geometry: LocalFciGeometry3D,
+    *,
+    jacobian_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Return the local conservative divergence from a completed face-flux stencil."""
+
+    if not isinstance(geometry, LocalFciGeometry3D):
+        raise TypeError(
+            "local_divergence_conservative_op requires LocalFciGeometry3D, "
+            f"got {type(geometry).__name__}"
+        )
+    if cv_flux.shape != geometry.owned_shape:
+        raise ValueError(
+            f"cv_flux must have shape {geometry.owned_shape}, got {cv_flux.shape}"
+        )
+
+    def _divergence_from_face_flux(
+        flux: jnp.ndarray,
+        spacing: jnp.ndarray,
+        *,
+        axis: int,
+        area: jnp.ndarray,
+    ) -> jnp.ndarray:
+        face_flux = jnp.asarray(flux, dtype=jnp.float64) * jnp.asarray(area, dtype=jnp.float64)
+        h = jnp.asarray(spacing, dtype=jnp.float64)
+        if h.shape != face_flux[_axis_slice_nd(axis, 1, None, face_flux.ndim)].shape:
+            raise ValueError(
+                f"local spacing for axis {axis} must match the owned cell shape; got {h.shape}"
+            )
+        return (
+            face_flux[_axis_slice_nd(axis, 1, None, face_flux.ndim)]
+            - face_flux[_axis_slice_nd(axis, None, -1, face_flux.ndim)]
+        ) / jnp.maximum(h, 1.0e-30)
+
+    div_flux = (
+        _divergence_from_face_flux(
+            cv_flux.regular_flux.x,
+            geometry.spacing.dx_owned,
+            axis=0,
+            area=
+                cv_flux.regular_face_geometry.x_area
+                * cv_flux.regular_face_geometry.x_area_fraction
+                * cv_flux.regular_face_geometry.x_open_mask,
+        )
+        + _divergence_from_face_flux(
+            cv_flux.regular_flux.y,
+            geometry.spacing.dy_owned,
+            axis=1,
+            area=
+                cv_flux.regular_face_geometry.y_area
+                * cv_flux.regular_face_geometry.y_area_fraction
+                * cv_flux.regular_face_geometry.y_open_mask,
+        )
+        + _divergence_from_face_flux(
+            cv_flux.regular_flux.z,
+            geometry.spacing.dz_owned,
+            axis=2,
+            area=
+                cv_flux.regular_face_geometry.z_area
+                * cv_flux.regular_face_geometry.z_area_fraction
+                * cv_flux.regular_face_geometry.z_open_mask,
+        )
+    )
+
+    regular_face_rows = cv_flux.regular_face_contribution_rows
+    if regular_face_rows is not None and int(regular_face_rows.max_rows) > 0:
+        active = jnp.asarray(regular_face_rows.active, dtype=bool)
+
+        row_face_value = _regular_face_row_legacy_flux(cv_flux.regular_flux, regular_face_rows)
+        if cv_flux.regular_face_contribution_flux is not None:
+            reconstructed = jnp.asarray(
+                cv_flux.regular_face_contribution_flux,
+                dtype=jnp.float64,
+            )
+            use_reconstructed = jnp.asarray(
+                regular_face_rows.use_reconstructed_flux,
+                dtype=bool,
+            ) & jnp.isfinite(reconstructed)
+            row_face_value = jnp.where(use_reconstructed, reconstructed, row_face_value)
+        regular_face_contrib = jnp.zeros(geometry.owned_shape, dtype=jnp.float64)
+        regular_face_contrib = regular_face_contrib.at[
+            jnp.asarray(regular_face_rows.owner_i, dtype=jnp.int32),
+            jnp.asarray(regular_face_rows.owner_j, dtype=jnp.int32),
+            jnp.asarray(regular_face_rows.owner_k, dtype=jnp.int32),
+        ].add(
+            jnp.where(
+                active,
+                row_face_value
+                * jnp.asarray(regular_face_rows.area, dtype=jnp.float64)
+                * jnp.asarray(regular_face_rows.sign, dtype=jnp.float64),
+                0.0,
+            )
+        )
+        div_flux = div_flux + regular_face_contrib
+
+    if cv_flux.cut_wall_geometry is not None and cv_flux.cut_wall_flux is not None and cv_flux.cut_wall_flux.size:
+        cut_wall_contrib = jnp.zeros(geometry.owned_shape, dtype=jnp.float64)
+        cut_wall_contrib = cut_wall_contrib.at[
+            jnp.asarray(cv_flux.cut_wall_geometry.owner_i, dtype=jnp.int32),
+            jnp.asarray(cv_flux.cut_wall_geometry.owner_j, dtype=jnp.int32),
+            jnp.asarray(cv_flux.cut_wall_geometry.owner_k, dtype=jnp.int32),
+        ].add(jnp.asarray(cv_flux.cut_wall_flux, dtype=jnp.float64))
+        div_flux = div_flux + cut_wall_contrib
+
+    effective_volume = jnp.asarray(cv_flux.cell_volume.volume, dtype=jnp.float64) * jnp.asarray(
+        cv_flux.cell_volume.volume_fraction, dtype=jnp.float64
+    )
+    result = div_flux / jnp.maximum(effective_volume, float(jacobian_floor))
+    return _mask_inactive_owned(result, geometry)
+
+
+def build_local_perp_laplacian_stencil(
+    local: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None = None,
+    face_bc: LocalBoundaryFaceBC3D | None = None,
+    regular_face_geometry: LocalRegularFaceGeometry3D | None = None,
+    regular_face_contribution_rows: LocalRegularFaceContributionRows3D | None = None,
+    cell_volume: LocalCellVolumeGeometry3D | None = None,
+    cut_wall_geometry: LocalCutWallGeometry3D | None = None,
+    cut_wall_bc: LocalCutWallBC3D | None = None,
+    cell_gradient: LocalCellGradient3D | None = None,
+    aggregate_geometry: LocalAggregateCellGeometry3D | None = None,
+    regular_boundary_closure: (
+        LocalRegularBoundaryMomentClosure3D | None
+    ) = None,
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    neumann_normal_scheme: str = "logical",
+    b_floor: float = 1.0e-30,
+) -> LocalControlVolumeFluxStencil3D:
+    """Build the local conservative flux stencil for ``-∇·(P⊥∇f)``."""
+
+    if face_projectors is None:
+        face_projectors = build_local_perp_laplacian_face_projectors(
+            geometry,
+            domain,
+            b_floor=b_floor,
+            axis_regular_axes=axis_regular_axes,
+        )
+    return build_local_projected_laplacian_flux_stencil(
+        local,
+        geometry,
+        domain,
+        face_projectors=face_projectors,
+        face_bc=face_bc,
+        regular_face_geometry=regular_face_geometry,
+        regular_face_contribution_rows=regular_face_contribution_rows,
+        cell_volume=cell_volume,
+        cut_wall_geometry=cut_wall_geometry,
+        cut_wall_bc=cut_wall_bc,
+        cell_gradient=cell_gradient,
+        aggregate_geometry=aggregate_geometry,
+        regular_boundary_closure=regular_boundary_closure,
+        axis_regular_axes=axis_regular_axes,
+        neumann_normal_scheme=neumann_normal_scheme,
+        b_floor=b_floor,
+    )
+
+
+def local_perp_laplacian_conservative_op(
+    local: ConservativeStencil3D,
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    *,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None = None,
+    face_bc: LocalBoundaryFaceBC3D | None = None,
+    regular_face_geometry: LocalRegularFaceGeometry3D | None = None,
+    regular_face_contribution_rows: LocalRegularFaceContributionRows3D | None = None,
+    cell_volume: LocalCellVolumeGeometry3D | None = None,
+    cut_wall_geometry: LocalCutWallGeometry3D | None = None,
+    cut_wall_bc: LocalCutWallBC3D | None = None,
+    cell_gradient: LocalCellGradient3D | None = None,
+    aggregate_geometry: LocalAggregateCellGeometry3D | None = None,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
+    field_closure: LocalControlVolumeFieldClosure3D | None = None,
+    control_volume_polynomial: LocalControlVolumePolynomial3D | None = None,
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
+    neumann_normal_scheme: str = "logical",
+    b_floor: float = 1.0e-30,
+    jacobian_floor: float = 1.0e-30,
+) -> jnp.ndarray:
+    """Return the domain-decomposed conservative perpendicular Laplacian."""
+
+    effective_face_projectors = face_projectors
+    if effective_face_projectors is None:
+        effective_face_projectors = build_local_perp_laplacian_face_projectors(
+            geometry,
+            domain,
+            b_floor=b_floor,
+            axis_regular_axes=axis_regular_axes,
+        )
+    effective_regular_faces = (
+        control_volume_geometry.regular_faces
+        if control_volume_geometry is not None
+        else regular_face_geometry
+    )
+    cv_flux = build_local_perp_laplacian_stencil(
+        local,
+        geometry,
+        domain,
+        face_projectors=effective_face_projectors,
+        face_bc=face_bc,
+        regular_face_geometry=effective_regular_faces,
+        regular_face_contribution_rows=(
+            None
+            if control_volume_geometry is not None
+            else regular_face_contribution_rows
+        ),
+        cell_volume=cell_volume,
+        cut_wall_geometry=(
+            None if control_volume_geometry is not None else cut_wall_geometry
+        ),
+        cut_wall_bc=None if control_volume_geometry is not None else cut_wall_bc,
+        cell_gradient=(
+            None if control_volume_geometry is not None else cell_gradient
+        ),
+        aggregate_geometry=(
+            None if control_volume_geometry is not None else aggregate_geometry
+        ),
+        regular_boundary_closure=(
+            control_volume_geometry.regular_boundary_closure
+            if control_volume_geometry is not None
+            else None
+        ),
+        axis_regular_axes=axis_regular_axes,
+        neumann_normal_scheme=neumann_normal_scheme,
+        b_floor=b_floor,
+    )
+    if control_volume_geometry is not None:
+        if not isinstance(
+            control_volume_geometry,
+            LocalEmbeddedControlVolumeGeometry3D,
+        ):
+            raise TypeError(
+                "control_volume_geometry must be "
+                "LocalEmbeddedControlVolumeGeometry3D or None"
+            )
+        regular_flux = (
+            cv_flux.regular_flux.x,
+            cv_flux.regular_flux.y,
+            cv_flux.regular_flux.z,
+        )
+        field_closure = _require_local_control_volume_field_closure(
+            field_closure,
+            control_volume_geometry,
+        )
+        return _local_control_volume_integrated_divergence(
+            regular_flux,
+            field_closure.projected_flux,
+            geometry,
+            domain,
+            control_volume_geometry,
+            volume_floor=jacobian_floor,
+        )
+    return local_divergence_conservative_op(cv_flux, geometry, jacobian_floor=jacobian_floor)
+
+
+def _axis_slice_nd(axis: int, start: int | None, stop: int | None, ndim: int) -> tuple[object, ...]:
+    slices: list[object] = [slice(None)] * ndim
+    slices[axis] = slice(start, stop)
+    return tuple(slices)
+
+
+def _homogeneous_local_face_bc(
+    face_bc: LocalBoundaryFaceBC3D,
+) -> LocalBoundaryFaceBC3D:
+    """Keep local face BC kinds and masks while removing affine data."""
+
+    return dataclass_replace(
+        face_bc,
+        value_x=jnp.zeros_like(face_bc.value_x, dtype=jnp.float64),
+        value_y=jnp.zeros_like(face_bc.value_y, dtype=jnp.float64),
+        value_z=jnp.zeros_like(face_bc.value_z, dtype=jnp.float64),
+    )
+
+
+def _dirichlet_lift_correction_local_face_bc(
+    face_bc: LocalBoundaryFaceBC3D,
+) -> LocalBoundaryFaceBC3D:
+    """Return local correction BCs for ``phi = phi_lift + u``."""
+
+    return dataclass_replace(
+        face_bc,
+        value_x=jnp.where(face_bc.kind_x == BC_DIRICHLET, 0.0, face_bc.value_x),
+        value_y=jnp.where(face_bc.kind_y == BC_DIRICHLET, 0.0, face_bc.value_y),
+        value_z=jnp.where(face_bc.kind_z == BC_DIRICHLET, 0.0, face_bc.value_z),
+    )
+
+
+def _homogeneous_local_control_volume_boundary_bc(
+    boundary_bc: LocalControlVolumeBoundaryBC3D,
+) -> LocalControlVolumeBoundaryBC3D:
+    """Keep compact boundary kinds while removing affine field data."""
+
+    return LocalControlVolumeBoundaryBC3D(
+        kind=boundary_bc.kind,
+        centroid_value=jnp.zeros_like(
+            boundary_bc.centroid_value,
+            dtype=jnp.float64,
+        ),
+        quadrature_value=jnp.zeros_like(
+            boundary_bc.quadrature_value,
+            dtype=jnp.float64,
+        ),
+        active=boundary_bc.active,
+        max_rows=boundary_bc.max_rows,
+        max_patches=boundary_bc.max_patches,
+    )
+
+
+def _dirichlet_lift_correction_local_control_volume_boundary_bc(
+    boundary_bc: LocalControlVolumeBoundaryBC3D,
+) -> LocalControlVolumeBoundaryBC3D:
+    """Return compact correction BCs for ``phi = phi_lift + u``."""
+
+    is_dirichlet = boundary_bc.kind == BC_DIRICHLET
+    return LocalControlVolumeBoundaryBC3D(
+        kind=boundary_bc.kind,
+        centroid_value=jnp.where(
+            is_dirichlet,
+            0.0,
+            boundary_bc.centroid_value,
+        ),
+        quadrature_value=jnp.where(
+            is_dirichlet[:, None, None],
+            0.0,
+            boundary_bc.quadrature_value,
+        ),
+        active=boundary_bc.active,
+        max_rows=boundary_bc.max_rows,
+        max_patches=boundary_bc.max_patches,
+    )
+
+
+def _principal_perp_laplacian_bands(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    face_bc: LocalBoundaryFaceBC3D,
+    *,
+    regularization_epsilon: float = 0.0,
+    regular_face_geometry: LocalRegularFaceGeometry3D | None = None,
+) -> tuple[
+    jnp.ndarray,
+    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+]:
+    """Approximate ``-div(P_perp grad)`` by its axis-normal bands.
+
+    Mixed metric couplings are deliberately omitted.  The resulting diagonal
+    and nearest-neighbor bands are inexpensive geometry-aware inputs for
+    SOLVAX point and line preconditioners; the full matrix-free operator
+    remains unchanged.
+    """
+
+    use_explicit_geometry = regular_face_geometry is not None
+    locations = ("x_face", "y_face", "z_face")
+    grids = (geometry.grid.x, geometry.grid.y, geometry.grid.z)
+    spacings = (
+        geometry.spacing.dx_owned,
+        geometry.spacing.dy_owned,
+        geometry.spacing.dz_owned,
+    )
+    face_metrics = (
+        geometry.face_metric.x,
+        geometry.face_metric.y,
+        geometry.face_metric.z,
+    )
+    regular_faces = (
+        geometry.regular_face_geometry
+        if regular_face_geometry is None
+        else regular_face_geometry
+    )
+    face_areas = (
+        regular_faces.x_area,
+        regular_faces.y_area,
+        regular_faces.z_area,
+    )
+    face_area_fractions = (
+        regular_faces.x_area_fraction,
+        regular_faces.y_area_fraction,
+        regular_faces.z_area_fraction,
+    )
+    face_open_masks = (
+        regular_faces.x_open_mask,
+        regular_faces.y_open_mask,
+        regular_faces.z_open_mask,
+    )
+    bc_kinds = (face_bc.kind_x, face_bc.kind_y, face_bc.kind_z)
+    bc_masks = (face_bc.mask_x, face_bc.mask_y, face_bc.mask_z)
+    effective_volume = (
+        jnp.asarray(geometry.cell_volume_geometry.volume, dtype=jnp.float64)
+        * jnp.asarray(
+            geometry.cell_volume_geometry.volume_fraction,
+            dtype=jnp.float64,
+        )
+    )
+
+    diagonal = jnp.zeros(geometry.owned_shape, dtype=jnp.float64)
+    lower_bands: list[jnp.ndarray] = []
+    upper_bands: list[jnp.ndarray] = []
+    for axis in range(3):
+        face_slices = geometry.layout.location_owned_slices(locations[axis])
+        axis_slice = face_slices[axis]
+        if axis_slice.start is None or axis_slice.stop is None:
+            raise ValueError("owned face slices must have finite bounds")
+        centers_halo = jnp.asarray(grids[axis].centers_halo, dtype=jnp.float64)
+        center_distance_1d = (
+            centers_halo[axis_slice.start:axis_slice.stop]
+            - centers_halo[axis_slice.start - 1:axis_slice.stop - 1]
+        )
+        distance_shape = [1, 1, 1]
+        distance_shape[axis] = int(center_distance_1d.shape[0])
+        center_distance = jnp.reshape(center_distance_1d, distance_shape)
+
+        projector = jnp.asarray(face_projectors[axis], dtype=jnp.float64)
+        face_coefficient = (
+            jnp.asarray(face_metrics[axis].J_owned, dtype=jnp.float64)
+            * jnp.asarray(projector[..., axis, axis], dtype=jnp.float64)
+            * jnp.asarray(face_areas[axis], dtype=jnp.float64)
+            * jnp.asarray(face_area_fractions[axis], dtype=jnp.float64)
+            * jnp.asarray(face_open_masks[axis], dtype=jnp.float64)
+            / jnp.maximum(center_distance, 1.0e-30)
+        )
+
+        kind = jnp.asarray(bc_kinds[axis], dtype=jnp.int32)
+        mask = jnp.asarray(bc_masks[axis], dtype=bool)
+        prescribed_flux = mask & (
+            (kind == BC_NEUMANN)
+            | (kind == BC_NORMALFLUX)
+            | (kind == BC_NOFLUX)
+        )
+        face_coefficient = jnp.where(
+            prescribed_flux,
+            0.0,
+            face_coefficient,
+        )
+        # The production Dirichlet closure uses a second-order one-sided
+        # normal derivative.  Its owner-cell diagonal coefficient is three
+        # times the centered ghost-to-owner estimate used above.
+        face_coefficient = jnp.where(
+            mask & (kind == BC_DIRICHLET),
+            3.0 * face_coefficient,
+            face_coefficient,
+        )
+
+        lower_face = face_coefficient[
+            _axis_slice_nd(axis, None, -1, face_coefficient.ndim)
+        ]
+        upper_face = face_coefficient[
+            _axis_slice_nd(axis, 1, None, face_coefficient.ndim)
+        ]
+        cell_scale = (
+            jnp.asarray(spacings[axis], dtype=jnp.float64)
+            * jnp.maximum(effective_volume, 1.0e-30)
+        )
+        lower = -lower_face / jnp.maximum(cell_scale, 1.0e-30)
+        upper = -upper_face / jnp.maximum(cell_scale, 1.0e-30)
+        diagonal = diagonal - lower - upper
+        lower_bands.append(lower)
+        upper_bands.append(upper)
+
+    diagonal = diagonal + jnp.asarray(
+        regularization_epsilon,
+        dtype=jnp.float64,
+    )
+    active = jnp.asarray(geometry.active_cell_mask_owned, dtype=bool)
+    if not use_explicit_geometry:
+        # Preserve the historical regular-storage behavior exactly.
+        local_scale = jnp.max(jnp.where(active, jnp.abs(diagonal), 0.0))
+        floor = jnp.maximum(local_scale * 1.0e-12, 1.0e-30)
+        diagonal = jnp.where(active, jnp.maximum(jnp.abs(diagonal), floor), 1.0)
+    else:
+        # The pole path must see the assembled stiffness sign and must not
+        # repair an invalid principal block by taking an absolute value or
+        # inserting a diagonal floor.
+        diagonal = jnp.where(active, diagonal, 0.0)
+    lower_bands = [jnp.where(active, value, 0.0) for value in lower_bands]
+    upper_bands = [jnp.where(active, value, 0.0) for value in upper_bands]
+    return diagonal, tuple(lower_bands), tuple(upper_bands)
+
+
+def _validate_concrete_angular_agglomeration_tree_assembly(
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    diagonal: jnp.ndarray,
+    child_edge: jnp.ndarray,
+    parent_i: jnp.ndarray,
+    parent_j: jnp.ndarray,
+    parent_k: jnp.ndarray,
+    active: jnp.ndarray,
+) -> None:
+    """Validate the concrete nested owner tree before entering JAX tracing."""
+    profile = control_volume_geometry.angular_group_sizes
+    if profile is None:
+        raise ValueError("angular-agglomeration tree requires angular_group_sizes")
+
+    # The topology/profile is static, but the lowered owner payload can be a
+    # dynamic shard_map argument.  Keep the cheap structural checks available
+    # while tracing and defer only host-side NumPy/value/SPD checks.
+    diagonal_shape = tuple(int(value) for value in diagonal.shape)
+    if len(diagonal_shape) != 3:
+        raise ValueError(
+            "angular tree diagonal must be three-dimensional, "
+            f"got shape={diagonal.shape}"
+        )
+    nx, ny, _nz = diagonal_shape
+    q = tuple(int(value) for value in profile)
+    if len(q) != nx or q[0] != ny:
+        raise ValueError("angular group profile must have q[0] == ny and one entry per ring")
+    for ring, value in enumerate(q):
+        if value <= 0 or ny % value:
+            raise ValueError("angular group profile must contain positive divisors of ny")
+        if ring and (value > q[ring - 1] or q[ring - 1] % value):
+            raise ValueError("angular group profile must be concretely nested and non-increasing")
+
+    payload = (diagonal, child_edge, parent_i, parent_j, parent_k, active)
+    cv_payload = (
+        control_volume_geometry.cells.owner_i,
+        control_volume_geometry.cells.owner_j,
+        control_volume_geometry.cells.owner_k,
+        control_volume_geometry.cells.aggregate_volume,
+    )
+    if any(isinstance(value, jax.core.Tracer) for value in (*payload, *cv_payload)):
+        return
+    try:
+        diag = host_asarray(diagonal, dtype=np.float64)
+        edge = host_asarray(child_edge, dtype=np.float64)
+        pi = host_asarray(parent_i, dtype=np.int32)
+        pj = host_asarray(parent_j, dtype=np.int32)
+        pk = host_asarray(parent_k, dtype=np.int32)
+        owner_active = host_asarray(active, dtype=bool)
+        aggregate_volume = host_asarray(
+            control_volume_geometry.cells.aggregate_volume, dtype=np.float64
+        )
+    except (jax.errors.TracerArrayConversionError, jax.errors.ConcretizationTypeError):
+        return
+    nx, ny, nz = diag.shape
+    expected_active = np.zeros((nx, ny, nz), dtype=bool)
+    for i, value in enumerate(q):
+        expected_active[i, ::value, :] = True
+    if not np.array_equal(owner_active, expected_active):
+        raise ValueError("angular-agglomeration active owners do not match the nested profile")
+    owner_i = np.asarray(control_volume_geometry.cells.owner_i, dtype=np.int32)
+    owner_j = np.asarray(control_volume_geometry.cells.owner_j, dtype=np.int32)
+    owner_k = np.asarray(control_volume_geometry.cells.owner_k, dtype=np.int32)
+    expected_i = np.broadcast_to(np.arange(nx)[:, None, None], (nx, ny, nz))
+    expected_j = np.empty((nx, ny, nz), dtype=np.int32)
+    for i, value in enumerate(q):
+        expected_j[i] = np.broadcast_to(
+            ((np.arange(ny) // value) * value)[:, None], (ny, nz)
+        )
+    expected_k = np.broadcast_to(np.arange(nz)[None, None, :], (nx, ny, nz))
+    if not (
+        np.array_equal(owner_i, expected_i)
+        and np.array_equal(owner_j, expected_j)
+        and np.array_equal(owner_k, expected_k)
+    ):
+        raise ValueError("angular-agglomeration owner map does not match the nested profile")
+    if not np.all(np.isfinite(diag[owner_active])) or np.any(diag[owner_active] <= 0.0):
+        raise ValueError("angular tree requires finite positive owner diagonals")
+    if not np.all(np.isfinite(aggregate_volume[owner_active])) or np.any(aggregate_volume[owner_active] <= 0.0):
+        raise ValueError("angular tree requires finite positive aggregate volumes")
+    roots = owner_active.copy()
+    roots[1:] = False
+    if np.any(edge[roots] != 0.0):
+        raise ValueError("angular tree roots cannot carry parent edges")
+    for i in range(1, nx):
+        for j in range(0, ny, q[i]):
+            expected_j = (j // q[i - 1]) * q[i - 1]
+            for k in range(nz):
+                if (pi[i, j, k], pj[i, j, k], pk[i, j, k]) != (i - 1, expected_j, k):
+                    raise ValueError("angular tree parent indices do not match the nested profile")
+                if not np.isfinite(edge[i, j, k]) or edge[i, j, k] <= 0.0:
+                    raise ValueError("each nonroot angular owner requires one finite positive total radial edge")
+    if np.any(edge[~owner_active] != 0.0):
+        raise ValueError("angular tree aliases cannot carry radial edges")
+
+    # The stored graph is symmetric by construction: each child owns exactly
+    # one scalar edge used in both matrix entries.  Positive Schur pivots are
+    # the concrete SPD check for that symmetric tree matrix.
+    pivots = diag.copy()
+    for i in range(nx - 1, 0, -1):
+        for j in range(0, ny, q[i]):
+            p_j = (j // q[i - 1]) * q[i - 1]
+            for k in range(nz):
+                pivot = pivots[i, j, k]
+                if not np.isfinite(pivot) or pivot <= 0.0:
+                    raise ValueError("angular tree principal matrix is not positive definite")
+                t = edge[i, j, k]
+                pivots[i - 1, p_j, k] -= t * t / pivot
+    if not np.all(np.isfinite(pivots[0, 0, :])) or np.any(pivots[0, 0, :] <= 0.0):
+        raise ValueError("angular tree principal matrix is not positive definite")
+
+
+def _assemble_angular_agglomeration_tree_principal_coefficients(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    face_bc: LocalBoundaryFaceBC3D,
+    config: SolvaxGmresConfig,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+) -> tuple[
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+]:
+    """Assemble the nested radial owner graph for angular agglomeration.
+
+    ``child_edge[i,j,k]`` is the summed physical conductance between active
+    owner ``(i,j,k)`` and its unique parent.  The coefficients are assembled
+    directly as the owner-space principal operator ``P.T @ A_f @ P`` from
+    the ordinary fine-grid faces.  Theta and eta owner couplings remain in
+    the diagonal but are deliberately omitted from this line-u graph.
+    """
+    shard_counts = tuple(int(v) for v in domain.shard_spec.shard_counts)
+    if shard_counts[0] != 1 or shard_counts[1] != 1:
+        raise ValueError(
+            "angular-agglomeration line-u supports eta-only sharding; "
+            f"got shard_counts={shard_counts}"
+        )
+    if not control_volume_geometry.has_angular_agglomeration:
+        raise ValueError("angular-agglomeration tree requires an angular group profile")
+    cells = control_volume_geometry.cells
+    nx, ny, nz = geometry.owned_shape
+    profile = tuple(int(value) for value in control_volume_geometry.angular_group_sizes)
+
+    # Static topology arrays.  Their values depend only on the nested profile,
+    # so they are closed over by the runtime solve rather than rebuilt there.
+    parent_i_np = np.full((nx, ny, nz), -1, dtype=np.int32)
+    parent_j_np = np.full((nx, ny, nz), -1, dtype=np.int32)
+    parent_k_np = np.full((nx, ny, nz), -1, dtype=np.int32)
+    for i in range(1, nx):
+        q_parent = profile[i - 1]
+        for j in range(0, ny, profile[i]):
+            parent_i_np[i, j, :] = i - 1
+            parent_j_np[i, j, :] = (j // q_parent) * q_parent
+            parent_k_np[i, j, :] = np.arange(nz, dtype=np.int32)
+    parent_i = jnp.asarray(parent_i_np)
+    parent_j = jnp.asarray(parent_j_np)
+    parent_k = jnp.asarray(parent_k_np)
+
+    spacing = (
+        jnp.asarray(geometry.spacing.dx_owned, dtype=jnp.float64),
+        jnp.asarray(geometry.spacing.dy_owned, dtype=jnp.float64),
+        jnp.asarray(geometry.spacing.dz_owned, dtype=jnp.float64),
+    )
+    logical_measure = (
+        spacing[1] * spacing[2],
+        spacing[0] * spacing[2],
+        spacing[0] * spacing[1],
+    )
+    # RLP uses the unmodified fine-grid operator.  In particular, do not use
+    # ``control_volume_geometry.regular_faces`` here: that legacy compact-face
+    # payload closes faces crossed by an aggregate and therefore cannot form
+    # P.T @ A_f @ P.
+    regular = geometry.regular_face_geometry
+    face_areas = (regular.x_area, regular.y_area, regular.z_area)
+    face_fractions = (regular.x_area_fraction, regular.y_area_fraction, regular.z_area_fraction)
+    face_open = (regular.x_open_mask, regular.y_open_mask, regular.z_open_mask)
+    face_metrics = (geometry.face_metric.x, geometry.face_metric.y, geometry.face_metric.z)
+    grids = (geometry.grid.x, geometry.grid.y, geometry.grid.z)
+    locations = ("x_face", "y_face", "z_face")
+    kinds = (face_bc.kind_x, face_bc.kind_y, face_bc.kind_z)
+    masks = (face_bc.mask_x, face_bc.mask_y, face_bc.mask_z)
+    conductances: list[jnp.ndarray] = []
+    for axis in range(3):
+        face_slices = geometry.layout.location_owned_slices(locations[axis])
+        axis_slice = face_slices[axis]
+        if axis_slice.start is None or axis_slice.stop is None:
+            raise ValueError("owned face slices must have finite bounds")
+        centers = jnp.asarray(grids[axis].centers_halo, dtype=jnp.float64)
+        distance_1d = centers[axis_slice.start:axis_slice.stop] - centers[
+            axis_slice.start - 1:axis_slice.stop - 1
+        ]
+        distance_shape = [1, 1, 1]
+        distance_shape[axis] = int(distance_1d.shape[0])
+        logical_area = _lift_cell_field_to_faces(
+            logical_measure[axis], axis=axis, periodic=False
+        )
+        T = (
+            jnp.asarray(face_metrics[axis].J_owned, dtype=jnp.float64)
+            * jnp.asarray(face_projectors[axis][..., axis, axis], dtype=jnp.float64)
+            * jnp.asarray(face_areas[axis], dtype=jnp.float64)
+            * jnp.asarray(face_fractions[axis], dtype=jnp.float64)
+            * jnp.asarray(face_open[axis], dtype=jnp.float64)
+            * logical_area
+            / jnp.maximum(jnp.reshape(distance_1d, distance_shape), 1.0e-30)
+        )
+        kind = jnp.asarray(kinds[axis], dtype=jnp.int32)
+        mask = jnp.asarray(masks[axis], dtype=bool)
+        prescribed_flux = mask & (
+            (kind == BC_NEUMANN) | (kind == BC_NORMALFLUX) | (kind == BC_NOFLUX)
+        )
+        T = jnp.where(prescribed_flux, 0.0, T)
+        T = jnp.where(mask & (kind == BC_DIRICHLET), 3.0 * T, T)
+        conductances.append(T)
+    Tx, Ty, Tz = conductances
+
+    owner_i = jnp.asarray(cells.owner_i, dtype=jnp.int32)
+    owner_j = jnp.asarray(cells.owner_j, dtype=jnp.int32)
+    owner_k = jnp.asarray(cells.owner_k, dtype=jnp.int32)
+    active = jnp.asarray(cells.is_active_owner, dtype=bool)
+    aggregate_volume = jnp.asarray(cells.aggregate_volume, dtype=jnp.float64)
+    diagonal = jnp.where(
+        active,
+        jnp.asarray(config.regularization_epsilon, dtype=jnp.float64)
+        * aggregate_volume,
+        0.0,
+    )
+    child_edge = jnp.zeros((nx, ny, nz), dtype=jnp.float64)
+
+    def add_owner_edge(
+        current_diagonal: jnp.ndarray,
+        conductance: jnp.ndarray,
+        left: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+        right: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        distinct = (left[0] != right[0]) | (left[1] != right[1]) | (left[2] != right[2])
+        edge_T = jnp.where(distinct, conductance, 0.0)
+        current_diagonal = current_diagonal.at[left].add(edge_T)
+        current_diagonal = current_diagonal.at[right].add(edge_T)
+        return current_diagonal, edge_T
+
+    fine_j = jnp.broadcast_to(jnp.arange(ny)[:, None], (ny, nz))
+    fine_k = jnp.broadcast_to(jnp.arange(nz)[None, :], (ny, nz))
+
+    # Radial fine faces map every child owner to its unique owner on the next
+    # inner ring.  Multiple fine subfaces naturally sum into one tree edge.
+    if nx > 1:
+        for i in range(1, nx):
+            left = (
+                owner_i[i - 1, fine_j, fine_k],
+                owner_j[i - 1, fine_j, fine_k],
+                owner_k[i - 1, fine_j, fine_k],
+            )
+            right = (
+                owner_i[i, fine_j, fine_k],
+                owner_j[i, fine_j, fine_k],
+                owner_k[i, fine_j, fine_k],
+            )
+            distinct = (left[0] != right[0]) | (left[1] != right[1]) | (left[2] != right[2])
+            expected = (
+                (right[0] == i)
+                & (left[0] == parent_i[right])
+                & (left[1] == parent_j[right])
+                & (left[2] == parent_k[right])
+            )
+            fine_T = jnp.asarray(Tx[i], dtype=jnp.float64)
+            try:
+                if host_bool(jnp.any(~jnp.isfinite(fine_T) | (fine_T < 0.0))):
+                    raise ValueError("fine radial conductances must be finite and nonnegative")
+                if host_bool(jnp.any((fine_T > 0.0) & distinct & ~expected)):
+                    raise ValueError("fine radial face does not connect a child to its declared parent")
+            except jax.errors.TracerBoolConversionError:
+                pass
+            diagonal, edge_T = add_owner_edge(diagonal, fine_T, left, right)
+            child_edge = child_edge.at[right].add(edge_T)
+
+    # The lower radial face is the coordinate axis, not a physical boundary.
+    # The upper radial wall contributes the one-sided boundary conductance.
+    outer = (owner_i[-1], owner_j[-1], owner_k[-1])
+    diagonal = diagonal.at[outer].add(jnp.asarray(Tx[-1], dtype=jnp.float64))
+
+    # One representative of each periodic theta face.  Face j=0 connects the
+    # final fine cell to cell zero; face j=ny duplicates it and is omitted.
+    fine_i_y = jnp.broadcast_to(jnp.arange(nx)[:, None], (nx, nz))
+    fine_k_y = jnp.broadcast_to(jnp.arange(nz)[None, :], (nx, nz))
+    for j in range(ny):
+        left_j = (j - 1) % ny
+        left = (
+            owner_i[fine_i_y, left_j, fine_k_y],
+            owner_j[fine_i_y, left_j, fine_k_y],
+            owner_k[fine_i_y, left_j, fine_k_y],
+        )
+        right = (
+            owner_i[fine_i_y, j, fine_k_y],
+            owner_j[fine_i_y, j, fine_k_y],
+            owner_k[fine_i_y, j, fine_k_y],
+        )
+        diagonal, _ = add_owner_edge(
+            diagonal, jnp.asarray(Ty[:, j, :], dtype=jnp.float64), left, right
+        )
+
+    # Eta is the only decomposed direction supported by this path.  A local
+    # eta slab is not periodic: when it has a neighboring slab, both of its
+    # local endpoint faces contribute to the diagonal of the adjacent local
+    # owner, while their off-diagonal entries are handled by the distributed
+    # operator.  On one device the final face is the duplicate periodic
+    # representative of face zero, so retain the old one-face-per-edge loop.
+    fine_i_z = jnp.broadcast_to(jnp.arange(nx)[:, None], (nx, ny))
+    fine_j_z = jnp.broadcast_to(jnp.arange(ny)[None, :], (nx, ny))
+    if shard_counts[2] == 1:
+        for k in range(nz):
+            left_k = (k - 1) % nz
+            left = (
+                owner_i[fine_i_z, fine_j_z, left_k],
+                owner_j[fine_i_z, fine_j_z, left_k],
+                owner_k[fine_i_z, fine_j_z, left_k],
+            )
+            right = (
+                owner_i[fine_i_z, fine_j_z, k],
+                owner_j[fine_i_z, fine_j_z, k],
+                owner_k[fine_i_z, fine_j_z, k],
+            )
+            diagonal, _ = add_owner_edge(
+                diagonal, jnp.asarray(Tz[:, :, k], dtype=jnp.float64), left, right
+            )
+    else:
+        # Every owned eta face is included.  At k=0 only the right local
+        # cell exists; at k=nz only the left local cell exists.  Thus a
+        # cross-shard face contributes its conductance to this shard's
+        # endpoint diagonal without manufacturing a local periodic edge.
+        for k in range(nz + 1):
+            conductance = jnp.asarray(Tz[:, :, k], dtype=jnp.float64)
+            if k > 0:
+                left = (
+                    owner_i[fine_i_z, fine_j_z, k - 1],
+                    owner_j[fine_i_z, fine_j_z, k - 1],
+                    owner_k[fine_i_z, fine_j_z, k - 1],
+                )
+                diagonal = diagonal.at[left].add(conductance)
+            if k < nz:
+                right = (
+                    owner_i[fine_i_z, fine_j_z, k],
+                    owner_j[fine_i_z, fine_j_z, k],
+                    owner_k[fine_i_z, fine_j_z, k],
+                )
+                diagonal = diagonal.at[right].add(conductance)
+
+    diagonal = jnp.where(active, diagonal, 0.0)
+    child_edge = jnp.where(active, child_edge, 0.0)
+    result = (
+        aggregate_volume,
+        diagonal,
+        child_edge,
+        parent_i,
+        parent_j,
+        parent_k,
+        active,
+    )
+    _validate_concrete_angular_agglomeration_tree_assembly(
+        control_volume_geometry,
+        diagonal,
+        child_edge,
+        parent_i,
+        parent_j,
+        parent_k,
+        active,
+    )
+    return result
+
+
+def _build_angular_agglomeration_line_u_preconditioner(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    face_bc: LocalBoundaryFaceBC3D,
+    config: SolvaxGmresConfig,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    """Build the exact per-eta nested radial-tree line-u solve."""
+    shard_counts = tuple(int(v) for v in domain.shard_spec.shard_counts)
+    if shard_counts[0] != 1 or shard_counts[1] != 1:
+        raise ValueError(
+            "angular-agglomeration line-u supports eta-only sharding; "
+            f"got shard_counts={shard_counts}"
+        )
+    principal_coefficients = _assemble_angular_agglomeration_tree_principal_coefficients(
+        geometry, domain, face_projectors, face_bc, config,
+        control_volume_geometry,
+    )
+    aggregate_volume, diagonal, child_edge, parent_i, parent_j, parent_k, active = principal_coefficients
+    _validate_concrete_angular_agglomeration_tree_assembly(
+        control_volume_geometry, diagonal, child_edge,
+        parent_i, parent_j, parent_k, active,
+    )
+    nx, ny, nz = geometry.owned_shape
+    eta_index = jnp.broadcast_to(jnp.arange(nz, dtype=jnp.int32)[None, :], (ny, nz))
+
+    def solve(residual: jnp.ndarray) -> jnp.ndarray:
+        residual = jnp.asarray(residual, dtype=jnp.float64)
+        if residual.shape != geometry.owned_shape:
+            raise ValueError("angular tree residual must match geometry.owned_shape")
+        rhs = jnp.where(active, aggregate_volume * residual, 0.0)
+        pivots = jnp.asarray(diagonal, dtype=jnp.float64)
+
+        def eliminate(level, state):
+            current_pivots, current_rhs = state
+            i = nx - 1 - level
+            mask = active[i]
+            edge = jnp.where(mask, child_edge[i], 0.0)
+            pivot = current_pivots[i]
+            p_j = jnp.maximum(parent_j[i], 0)
+            schur = jnp.where(mask, -(edge * edge) / pivot, 0.0)
+            rhs_update = jnp.where(mask, edge * current_rhs[i] / pivot, 0.0)
+            current_pivots = current_pivots.at[i - 1, p_j, eta_index].add(schur)
+            current_rhs = current_rhs.at[i - 1, p_j, eta_index].add(rhs_update)
+            return current_pivots, current_rhs
+
+        pivots, rhs = jax.lax.fori_loop(0, nx - 1, eliminate, (pivots, rhs))
+        solution = jnp.zeros_like(residual).at[0, 0, :].set(rhs[0, 0, :] / pivots[0, 0, :])
+
+        def substitute(level, current_solution):
+            i = level + 1
+            mask = active[i]
+            p_j = jnp.maximum(parent_j[i], 0)
+            parent_value = current_solution[i - 1, p_j, eta_index]
+            value = (rhs[i] + child_edge[i] * parent_value) / pivots[i]
+            return current_solution.at[i].set(jnp.where(mask, value, 0.0))
+
+        solution = jax.lax.fori_loop(0, nx - 1, substitute, solution)
+        return jnp.where(active, solution, 0.0)
+
+    return solve
+
+
+def _build_projected_owner_line_u_preconditioner(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    face_bc: LocalBoundaryFaceBC3D,
+    config: SolvaxGmresConfig,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    """Build a fine-line/prolong/restrict preconditioner for plane-local owners.
+
+    Corner/edge aggregates do not form the nested radial tree used by the
+    angular RLP preconditioner.  Use the ordinary fine-grid line-u inverse as
+    an approximation, prolonging each owner residual to its members and
+    volume-averaging the resulting correction back to owner space.  The
+    production operator remains the exact projected control-volume operator.
+    """
+    shard_counts = tuple(int(v) for v in domain.shard_spec.shard_counts)
+    if shard_counts[0] != 1 or shard_counts[1] != 1:
+        raise ValueError(
+            "projected-owner line-u supports eta-only sharding; "
+            f"got shard_counts={shard_counts}"
+        )
+    cells = control_volume_geometry.cells
+    owner_i = jnp.asarray(cells.owner_i, dtype=jnp.int32)
+    owner_j = jnp.asarray(cells.owner_j, dtype=jnp.int32)
+    owner_k = jnp.asarray(cells.owner_k, dtype=jnp.int32)
+    active = jnp.asarray(cells.is_active_owner, dtype=bool)
+    raw_volume = jnp.asarray(cells.raw_volume, dtype=jnp.float64)
+    aggregate_volume = jnp.asarray(cells.aggregate_volume, dtype=jnp.float64)
+    diagonal, lower, upper = _principal_perp_laplacian_bands(
+        geometry,
+        domain,
+        face_projectors,
+        face_bc,
+        regularization_epsilon=config.regularization_epsilon,
+    )
+    fine_line_solve = solvax_line_preconditioner(
+        diagonal,
+        ((0, lower[0], upper[0]),),
+    )
+
+    def solve(residual: jnp.ndarray) -> jnp.ndarray:
+        residual = jnp.asarray(residual, dtype=jnp.float64)
+        if residual.shape != geometry.owned_shape:
+            raise ValueError(
+                "projected-owner residual must match geometry.owned_shape"
+            )
+        prolonged = residual[owner_i, owner_j, owner_k]
+        fine_correction = fine_line_solve(prolonged)
+        restricted = jnp.zeros_like(residual).at[
+            owner_i, owner_j, owner_k
+        ].add(raw_volume * fine_correction)
+        owner_correction = restricted / jnp.maximum(aggregate_volume, 1.0e-30)
+        return jnp.where(active, owner_correction, 0.0)
+
+    return solve
+
+
+def build_solvax_perp_laplacian_preconditioner(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    face_bc: LocalBoundaryFaceBC3D,
+    config: SolvaxGmresConfig,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
+) -> Callable[[jnp.ndarray], jnp.ndarray] | None:
+    """Build the configured local right preconditioner for SOLVAX FGMRES.
+
+    This returns a fixed-cost local approximation to the inverse of the
+    positive operator ``-L_perp``.  It intentionally does *not* invoke an
+    inner Krylov solve, so it is safe to reuse as a block inside a larger
+    matrix-free Newton--FGMRES preconditioner.
+    """
+
+    kind = config.preconditioner
+    if kind == "none":
+        return None
+    if control_volume_geometry is not None:
+        if kind != "line-u":
+            raise ValueError(
+                "RLP control-volume preconditioning supports only 'none' or 'line-u'"
+            )
+        if bool(getattr(control_volume_geometry, "has_angular_agglomeration", False)):
+            return _build_angular_agglomeration_line_u_preconditioner(
+                geometry,
+                domain,
+                face_projectors,
+                face_bc,
+                config,
+                control_volume_geometry,
+            )
+        if bool(getattr(control_volume_geometry, "has_projected_owner_agglomeration", False)):
+            return _build_projected_owner_line_u_preconditioner(
+                geometry,
+                domain,
+                face_projectors,
+                face_bc,
+                config,
+                control_volume_geometry,
+            )
+        raise ValueError(
+            "control-volume line-u preconditioning requires a projected-owner "
+            "agglomeration topology"
+        )
+    diagonal, lower, upper = _principal_perp_laplacian_bands(
+        geometry,
+        domain,
+        face_projectors,
+        face_bc,
+        regularization_epsilon=config.regularization_epsilon,
+    )
+    if kind == "jacobi":
+        return solvax_jacobi(diagonal)
+    selected_axes = {
+        "line-u": (0,),
+        "line-v": (1,),
+        "line-uv": (0, 1),
+    }[kind]
+    directions = tuple(
+        (axis, lower[axis], upper[axis])
+        for axis in selected_axes
+    )
+    return solvax_line_preconditioner(diagonal, directions)
+
+
+@_pytree_base
+@dataclass(frozen=True)
+class LocalPerpLaplacianInverseSolver:
+    """SOLVAX FGMRES adapter for local conservative perpendicular-Laplacian inversion."""
+
+    geometry: LocalFciGeometry3D
+    domain: LocalDomain3D
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None
+    control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None = None
+    stencil_builder: LocalConservativeStencilBuilder = (
+        build_local_conservative_stencil_from_field
+    )
+    halo_exchange: HaloExchange3D | None = None
+    topology_filler: TopologyHaloFiller3D | None = None
+    physical_ghost_filler: PhysicalGhostCellFiller3D | None = None
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None = None
+    face_bc: LocalBoundaryFaceBC3D | None = None
+    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False)
+    neumann_normal_scheme: str = "logical"
+    b_floor: float = 1.0e-30
+    jacobian_floor: float = 1.0e-30
+    config: SolvaxGmresConfig = SolvaxGmresConfig()
+    # Optional configured context for cut-wall stencil policies.
+    stencil_builder_context: StencilBuilderContext | None = None
+    # Optional additional linear operator added to ``-L_perp`` in the
+    # solver's own unknown space (used by the implicit current/phi pair).
+    # Applied inside ``_apply_A``, so it is picked up consistently by the
+    # GMRES action, the zero-field boundary source, and the Dirichlet-lift
+    # correction.  ``None`` (the default) keeps this solver unchanged.
+    extra_operator: Callable[[jnp.ndarray], jnp.ndarray] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.geometry, LocalFciGeometry3D):
+            raise TypeError("geometry must be a LocalFciGeometry3D instance")
+        if not isinstance(self.domain, LocalDomain3D):
+            raise TypeError("domain must be a LocalDomain3D instance")
+        if self.geometry.layout != self.domain.layout:
+            raise ValueError("geometry and domain must share the same HaloLayout3D")
+        if not isinstance(self.stencil_builder, LocalConservativeStencilBuilder):
+            raise TypeError("stencil_builder must be a LocalConservativeStencilBuilder")
+        if self.stencil_builder_context is not None:
+            if not isinstance(self.stencil_builder_context, StencilBuilderContext):
+                raise TypeError(
+                    "stencil_builder_context must be a StencilBuilderContext or None"
+                )
+            if self.stencil_builder_context.layout != self.domain.layout:
+                raise ValueError(
+                    "stencil_builder_context must share the solver domain layout"
+                )
+            context_domain = self.stencil_builder_context.domain
+            if context_domain is None:
+                raise ValueError(
+                    "stencil_builder_context must include the solver domain"
+                )
+            if (
+                context_domain.layout != self.domain.layout
+                or context_domain.shard_spec != self.domain.shard_spec
+                or context_domain.mesh_axis_names != self.domain.mesh_axis_names
+            ):
+                raise ValueError(
+                    "stencil_builder_context must share the solver domain metadata"
+                )
+        if self.halo_exchange is not None and not isinstance(self.halo_exchange, HaloExchange3D):
+            raise TypeError("halo_exchange must be a HaloExchange3D or None")
+        if self.topology_filler is not None and not isinstance(
+            self.topology_filler,
+            TopologyHaloFiller3D,
+        ):
+            raise TypeError("topology_filler must be a TopologyHaloFiller3D or None")
+        if self.physical_ghost_filler is not None and not isinstance(
+            self.physical_ghost_filler,
+            PhysicalGhostCellFiller3D,
+        ):
+            raise TypeError(
+                "physical_ghost_filler must be a PhysicalGhostCellFiller3D or None"
+            )
+        has_control_volume_geometry = self.control_volume_geometry is not None
+        has_control_volume_bc = self.control_volume_boundary_bc is not None
+        if has_control_volume_geometry != has_control_volume_bc:
+            raise ValueError(
+                "control_volume_geometry and control_volume_boundary_bc must "
+                "either both be supplied or both be None"
+            )
+        if self.control_volume_geometry is not None:
+            if not isinstance(
+                self.control_volume_geometry,
+                LocalEmbeddedControlVolumeGeometry3D,
+            ):
+                raise TypeError(
+                    "control_volume_geometry must be a "
+                    "LocalEmbeddedControlVolumeGeometry3D or None"
+                )
+            if self.control_volume_geometry.layout != self.geometry.layout:
+                raise ValueError(
+                    "control_volume_geometry must share geometry.layout"
+                )
+            if not isinstance(
+                self.control_volume_boundary_bc,
+                LocalControlVolumeBoundaryBC3D,
+            ):
+                raise TypeError(
+                    "control_volume_boundary_bc must be a "
+                    "LocalControlVolumeBoundaryBC3D or None"
+                )
+            if (
+                self.control_volume_boundary_bc.max_rows
+                != self.control_volume_geometry.irregular_faces.max_rows
+            ):
+                raise ValueError(
+                    "control_volume_boundary_bc must align with irregular "
+                    "face rows"
+                )
+        if self.face_bc is not None and not isinstance(self.face_bc, LocalBoundaryFaceBC3D):
+            raise TypeError("face_bc must be a LocalBoundaryFaceBC3D or None")
+        axis_regular_axes = tuple(bool(value) for value in self.axis_regular_axes)
+        if len(axis_regular_axes) != 3:
+            raise ValueError("axis_regular_axes must have length 3")
+        object.__setattr__(self, "axis_regular_axes", axis_regular_axes)
+        if self.neumann_normal_scheme not in ("logical", "physical"):
+            raise ValueError(
+                "neumann_normal_scheme must be 'logical' or 'physical'"
+            )
+        if not isinstance(self.config, SolvaxGmresConfig):
+            raise TypeError("config must be a SolvaxGmresConfig instance")
+        if self.extra_operator is not None and not callable(self.extra_operator):
+            raise TypeError("extra_operator must be callable or None")
+        object.__setattr__(self, "b_floor", float(self.b_floor))
+        object.__setattr__(self, "jacobian_floor", float(self.jacobian_floor))
+
+    def _default_control_volume_boundary_bc(
+        self,
+    ) -> LocalControlVolumeBoundaryBC3D | None:
+        return self.control_volume_boundary_bc
+
+    def _apply_A(
+        self,
+        field_owned: jnp.ndarray,
+        *,
+        face_bc: LocalBoundaryFaceBC3D,
+        control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None,
+        project_mean_zero: bool,
+    ) -> jnp.ndarray:
+        active_mask = _solver_active_mask(
+            self.geometry,
+            self.control_volume_geometry,
+        )
+        volume_weights = _solver_volume_weights(
+            self.geometry,
+            self.control_volume_geometry,
+        )
+        values = _mask_inactive_owned(
+            field_owned,
+            self.geometry,
+            active_mask=active_mask,
+        )
+        if project_mean_zero:
+            values = _spmd_remove_weighted_mean(
+                values,
+                self.geometry,
+                self.domain,
+                active_mask,
+                volume_weights,
+            )
+
+        storage_values = values
+        if self.control_volume_geometry is not None:
+            owner_halo = inject_owned_field_to_halo(values, self.domain.layout)
+            if self.halo_exchange is not None:
+                owner_halo = self.halo_exchange(owner_halo, self.domain)
+            storage_values = expand_local_control_volume_owner_field(
+                values,
+                self.control_volume_geometry.cells,
+                owner_values_halo=owner_halo,
+            )
+        field_halo = inject_owned_field_to_halo(
+            storage_values,
+            self.domain.layout,
+        )
+        if self.physical_ghost_filler is not None:
+            field_halo = LocalHaloClosure3D(
+                physical_ghost_filler=self.physical_ghost_filler,
+                halo_exchange=self.halo_exchange,
+                topology_filler=self.topology_filler,
+            )(
+                field_halo,
+                self.domain,
+                face_bc,
+            )
+        else:
+            if self.halo_exchange is not None:
+                field_halo = self.halo_exchange(field_halo, self.domain)
+            if self.topology_filler is not None:
+                field_halo = self.topology_filler(field_halo, self.domain)
+
+        context = self.stencil_builder_context
+        if context is None and self.control_volume_geometry is not None:
+            raise ValueError(
+                "control-volume solves require an explicit StencilBuilderContext"
+            )
+        if context is None:
+            context = StencilBuilderContext(
+                layout=self.domain.layout,
+                domain=self.domain,
+            )
+        local = self.stencil_builder(field_halo, self.geometry, context)
+        face_projectors = self.face_projectors
+        if face_projectors is None:
+            face_projectors = build_local_perp_laplacian_face_projectors(
+                self.geometry,
+                self.domain,
+                b_floor=self.b_floor,
+                axis_regular_axes=self.axis_regular_axes,
+            )
+        if self.control_volume_geometry is not None:
+            # Apply the ordinary direct-polar conservative operator on the
+            # materialized fine storage, then restrict its volume average back
+            # to the unique owner space.  In particular, do not pass compact
+            # control-volume geometry or its projected field closure here:
+            # those replace the fine-grid face fluxes and define the separate
+            # independently fitted coarse-face operator.
+            assert self.control_volume_geometry is not None
+            fine_result = -local_perp_laplacian_conservative_op(
+                local,
+                self.geometry,
+                self.domain,
+                face_projectors=face_projectors,
+                face_bc=face_bc,
+                axis_regular_axes=self.axis_regular_axes,
+                neumann_normal_scheme=self.neumann_normal_scheme,
+                b_floor=self.b_floor,
+                jacobian_floor=self.jacobian_floor,
+            )
+            result = aggregate_local_control_volume_average(
+                fine_result,
+                self.control_volume_geometry.cells,
+                self.domain,
+            )
+        else:
+            result = -local_perp_laplacian_conservative_op(
+                local,
+                self.geometry,
+                self.domain,
+                face_projectors=face_projectors,
+                face_bc=face_bc,
+                axis_regular_axes=self.axis_regular_axes,
+                neumann_normal_scheme=self.neumann_normal_scheme,
+                b_floor=self.b_floor,
+                jacobian_floor=self.jacobian_floor,
+            )
+        if self.extra_operator is not None:
+            # ``values`` is the same masked (and, if applicable, mean-removed)
+            # owned-shape representation of the unknown that the base -L_perp
+            # action above was built from.  Adding the extra term here means
+            # every ``_apply_A`` call site -- the GMRES action, the
+            # zero-field boundary source, and the Dirichlet-lift correction
+            # ``A(lift)`` -- picks it up automatically and consistently.
+            result = result + self.extra_operator(values)
+        if self.config.regularization_epsilon != 0.0:
+            result = result + self.config.regularization_epsilon * values
+        if project_mean_zero:
+            result = _spmd_remove_weighted_mean(
+                result,
+                self.geometry,
+                self.domain,
+                active_mask,
+                volume_weights,
+            )
+        return _mask_inactive_owned(
+            result,
+            self.geometry,
+            active_mask=active_mask,
+        )
+
+    def solve_full_grid(
+        self,
+        rhs_owned: jnp.ndarray,
+        *,
+        guess_owned: jnp.ndarray | None = None,
+        phi_guess_owned: jnp.ndarray | None = None,
+        phi_lift_owned: jnp.ndarray | None = None,
+        lift_owned: jnp.ndarray | None = None,
+        return_diagnostics: bool = False,
+    ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
+        """Solve on the ordinary owned grid.
+
+        Angular-RLP systems have a different unknown space and must use
+        :meth:`solve_rlp_owner` explicitly.
+        """
+        if self.control_volume_geometry is not None or self.control_volume_boundary_bc is not None:
+            raise ValueError(
+                "solve_full_grid cannot be used with control-volume geometry/BC; "
+                "use solve_rlp_owner"
+            )
+        return self._solve_common(
+            rhs_owned,
+            guess_owned=guess_owned,
+            phi_guess_owned=phi_guess_owned,
+            phi_lift_owned=phi_lift_owned,
+            lift_owned=lift_owned,
+            return_diagnostics=return_diagnostics,
+            solve_mode="full-grid",
+        )
+
+    def solve_rlp_owner(
+        self,
+        rhs_owned: jnp.ndarray,
+        *,
+        guess_owned: jnp.ndarray | None = None,
+        phi_guess_owned: jnp.ndarray | None = None,
+        phi_lift_owned: jnp.ndarray | None = None,
+        lift_owned: jnp.ndarray | None = None,
+        return_diagnostics: bool = False,
+    ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
+        """Solve a projected-owner-space system explicitly.
+
+        Angular RLP additionally requires lower-radial axis regularity;
+        corner-edge owner agglomeration uses the ordinary square topology.
+        """
+        if self.control_volume_geometry is None or self.control_volume_boundary_bc is None:
+            raise ValueError(
+                "solve_rlp_owner requires control_volume_geometry and "
+                "control_volume_boundary_bc"
+            )
+        if (
+            self.control_volume_geometry.has_angular_agglomeration
+            and self.axis_regular_axes[0] is not True
+        ):
+            raise ValueError(
+                "angular solve_rlp_owner requires axis_regular_axes[0]=True"
+            )
+        context = self.stencil_builder_context
+        if context is None:
+            raise ValueError(
+                "solve_rlp_owner requires an explicit StencilBuilderContext"
+            )
+        return self._solve_common(
+            rhs_owned,
+            guess_owned=guess_owned,
+            phi_guess_owned=phi_guess_owned,
+            phi_lift_owned=phi_lift_owned,
+            lift_owned=lift_owned,
+            return_diagnostics=return_diagnostics,
+            solve_mode="rlp-owner",
+        )
+
+    def __call__(
+        self,
+        rhs_owned: jnp.ndarray,
+        *,
+        guess_owned: jnp.ndarray | None = None,
+        phi_guess_owned: jnp.ndarray | None = None,
+        phi_lift_owned: jnp.ndarray | None = None,
+        lift_owned: jnp.ndarray | None = None,
+        return_diagnostics: bool = False,
+    ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
+        """Backward-compatible ordinary-grid entry point."""
+        return self.solve_full_grid(
+            rhs_owned,
+            guess_owned=guess_owned,
+            phi_guess_owned=phi_guess_owned,
+            phi_lift_owned=phi_lift_owned,
+            lift_owned=lift_owned,
+            return_diagnostics=return_diagnostics,
+        )
+
+    def _solve_common(
+        self,
+        rhs_owned: jnp.ndarray,
+        *,
+        guess_owned: jnp.ndarray | None = None,
+        phi_guess_owned: jnp.ndarray | None = None,
+        phi_lift_owned: jnp.ndarray | None = None,
+        lift_owned: jnp.ndarray | None = None,
+        return_diagnostics: bool = False,
+        solve_mode: Literal["full-grid", "rlp-owner"],
+    ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
+        if solve_mode not in ("full-grid", "rlp-owner"):
+            raise ValueError(f"unknown phi solve mode: {solve_mode!r}")
+        if solve_mode == "rlp-owner":
+            if self.control_volume_geometry is None or self.control_volume_boundary_bc is None:
+                raise ValueError("rlp-owner mode requires control-volume geometry and BC")
+            if (
+                self.control_volume_geometry.has_angular_agglomeration
+                and self.axis_regular_axes[0] is not True
+            ):
+                raise ValueError(
+                    "angular rlp-owner mode requires axis_regular_axes[0]=True"
+                )
+            context = self.stencil_builder_context
+            if context is None:
+                raise ValueError("rlp-owner mode requires an explicit stencil context")
+        elif self.control_volume_geometry is not None or self.control_volume_boundary_bc is not None:
+            raise ValueError("full-grid mode cannot carry control-volume geometry/BC")
+        rhs = jnp.asarray(rhs_owned, dtype=jnp.float64)
+        if rhs.shape != self.geometry.owned_shape:
+            raise ValueError(
+                f"rhs_owned must have shape {self.geometry.owned_shape}, got {rhs.shape}"
+            )
+        if guess_owned is not None and phi_guess_owned is not None:
+            raise ValueError("use only one of guess_owned or phi_guess_owned")
+        if guess_owned is None:
+            guess_owned = phi_guess_owned
+        if guess_owned is None:
+            guess = jnp.zeros_like(rhs)
+        else:
+            guess = jnp.asarray(guess_owned, dtype=jnp.float64)
+            if guess.shape != self.geometry.owned_shape:
+                raise ValueError(
+                    "guess_owned must have shape "
+                    f"{self.geometry.owned_shape}, got {guess.shape}"
+                )
+        if phi_lift_owned is not None and lift_owned is not None:
+            raise ValueError("use only one of phi_lift_owned or lift_owned")
+        if phi_lift_owned is None:
+            phi_lift_owned = lift_owned
+        if phi_lift_owned is not None:
+            lift = jnp.asarray(phi_lift_owned, dtype=jnp.float64)
+            if lift.shape != self.geometry.owned_shape:
+                raise ValueError(
+                    "phi_lift_owned must have shape "
+                    f"{self.geometry.owned_shape}, got {lift.shape}"
+                )
+        else:
+            lift = None
+
+        face_bc = self.face_bc or LocalBoundaryFaceBC3D.empty(self.domain.layout)
+        control_volume_boundary_bc = self._default_control_volume_boundary_bc()
+        project_mean_zero = bool(self.config.project_mean_zero)
+        active_mask = _solver_active_mask(
+            self.geometry,
+            self.control_volume_geometry,
+        )
+        volume_weights = _solver_volume_weights(
+            self.geometry,
+            self.control_volume_geometry,
+        )
+        rhs = _mask_inactive_owned(
+            rhs,
+            self.geometry,
+            active_mask=active_mask,
+        )
+        guess = _mask_inactive_owned(
+            guess,
+            self.geometry,
+            active_mask=active_mask,
+        )
+        if lift is not None:
+            lift = jnp.asarray(lift, dtype=jnp.float64)
+            if self.control_volume_geometry is not None:
+                lift = _mask_inactive_owned(
+                    lift,
+                    self.geometry,
+                    active_mask=active_mask,
+                )
+
+        if lift is None:
+            homogeneous_face_bc = _homogeneous_local_face_bc(face_bc)
+            homogeneous_control_volume_boundary_bc = (
+                None
+                if control_volume_boundary_bc is None
+                else _homogeneous_local_control_volume_boundary_bc(
+                    control_volume_boundary_bc,
+                )
+            )
+            boundary_source = self._apply_A(
+                jnp.zeros_like(rhs),
+                face_bc=face_bc,
+                control_volume_boundary_bc=control_volume_boundary_bc,
+                project_mean_zero=project_mean_zero,
+            )
+            linear_rhs = _mask_inactive_owned(
+                rhs - boundary_source,
+                self.geometry,
+                active_mask=active_mask,
+            )
+            initial_guess = _mask_inactive_owned(
+                guess,
+                self.geometry,
+                active_mask=active_mask,
+            )
+        else:
+            homogeneous_face_bc = _dirichlet_lift_correction_local_face_bc(face_bc)
+            homogeneous_control_volume_boundary_bc = (
+                None
+                if control_volume_boundary_bc is None
+                else _dirichlet_lift_correction_local_control_volume_boundary_bc(
+                    control_volume_boundary_bc,
+                )
+            )
+            lift_source = self._apply_A(
+                lift,
+                face_bc=face_bc,
+                control_volume_boundary_bc=control_volume_boundary_bc,
+                project_mean_zero=project_mean_zero,
+            )
+            linear_rhs = _mask_inactive_owned(
+                rhs - lift_source,
+                self.geometry,
+                active_mask=active_mask,
+            )
+            initial_guess = _mask_inactive_owned(
+                guess - lift,
+                self.geometry,
+                active_mask=active_mask,
+            )
+
+        if project_mean_zero:
+            linear_rhs = _spmd_remove_weighted_mean(
+                linear_rhs,
+                self.geometry,
+                self.domain,
+                active_mask,
+                volume_weights,
+            )
+            initial_guess = _spmd_remove_weighted_mean(
+                initial_guess,
+                self.geometry,
+                self.domain,
+                active_mask,
+                volume_weights,
+            )
+
+        def apply_A(field_owned: jnp.ndarray) -> jnp.ndarray:
+            return self._apply_A(
+                field_owned,
+                face_bc=homogeneous_face_bc,
+                control_volume_boundary_bc=homogeneous_control_volume_boundary_bc,
+                project_mean_zero=project_mean_zero,
+            )
+
+        preconditioner_projectors = self.face_projectors
+        if preconditioner_projectors is None:
+            preconditioner_projectors = build_local_perp_laplacian_face_projectors(
+                self.geometry,
+                self.domain,
+                b_floor=self.b_floor,
+                axis_regular_axes=self.axis_regular_axes,
+            )
+        raw_preconditioner = build_solvax_perp_laplacian_preconditioner(
+            self.geometry,
+            self.domain,
+            preconditioner_projectors,
+            homogeneous_face_bc,
+            self.config,
+            control_volume_geometry=self.control_volume_geometry,
+        )
+        preconditioner = None
+        if raw_preconditioner is not None:
+            def preconditioner(residual: jnp.ndarray) -> jnp.ndarray:
+                residual = _mask_inactive_owned(
+                    residual,
+                    self.geometry,
+                    active_mask=active_mask,
+                )
+                # CV line-u is already an owner-space pole-star solve.  The
+                # non-CV branch remains the historical regular-storage path.
+                correction = raw_preconditioner(residual)
+                return _mask_inactive_owned(
+                    correction,
+                    self.geometry,
+                    active_mask=active_mask,
+                )
+        solution, info = solvax_gmres_solve(
+            apply_A,
+            linear_rhs,
+            initial_guess,
+            self.geometry,
+            self.domain,
+            self.config,
+            active_cell_mask=active_mask,
+            preconditioner=preconditioner,
+            volume_weights=volume_weights,
+        )
+        if lift is not None:
+            inactive_solution = (
+                0.0 if self.control_volume_geometry is not None else lift
+            )
+            solution = jnp.where(active_mask, lift + solution, inactive_solution)
+        else:
+            solution = _mask_inactive_owned(
+                solution,
+                self.geometry,
+                active_mask=active_mask,
+            )
+        if return_diagnostics:
+            return solution, info
+        return solution
+
+    def tree_flatten(self):
+        children = (
+            self.geometry,
+            self.domain,
+            self.stencil_builder,
+            self.stencil_builder_context,
+            self.halo_exchange,
+            self.topology_filler,
+            self.physical_ghost_filler,
+            self.face_projectors,
+            self.control_volume_geometry,
+            self.control_volume_boundary_bc,
+            self.face_bc,
+            self.config,
+            self.extra_operator,
+        )
+        aux_data = (
+            self.axis_regular_axes,
+            self.neumann_normal_scheme,
+            self.b_floor,
+            self.jacobian_floor,
+        )
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        (
+            geometry,
+            domain,
+            stencil_builder,
+            stencil_builder_context,
+            halo_exchange,
+            topology_filler,
+            physical_ghost_filler,
+            face_projectors,
+            control_volume_geometry,
+            control_volume_boundary_bc,
+            face_bc,
+            config,
+            extra_operator,
+        ) = children
+        (
+            axis_regular_axes,
+            neumann_normal_scheme,
+            b_floor,
+            jacobian_floor,
+        ) = aux_data
+        return cls(
+            geometry=geometry,
+            domain=domain,
+            stencil_builder=stencil_builder,
+            stencil_builder_context=stencil_builder_context,
+            halo_exchange=halo_exchange,
+            topology_filler=topology_filler,
+            physical_ghost_filler=physical_ghost_filler,
+            face_projectors=face_projectors,
+            control_volume_geometry=control_volume_geometry,
+            control_volume_boundary_bc=control_volume_boundary_bc,
+            face_bc=face_bc,
+            axis_regular_axes=axis_regular_axes,
+            neumann_normal_scheme=neumann_normal_scheme,
+            b_floor=b_floor,
+            jacobian_floor=jacobian_floor,
+            config=config,
+            extra_operator=extra_operator,
+        )
