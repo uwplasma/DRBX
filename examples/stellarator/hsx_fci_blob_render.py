@@ -1,10 +1,25 @@
-"""Render the HSX FCI filament: 3-D context plus R-Z cross-sections.
+"""HSX FCI Braginskii filament: run the backend, then render 3-D context, R-Z sections and a movie.
 
-Usage: python examples/stellarator/hsx_fci_blob_render.py history.npz [outdir]
-where history.npz is written by simulate_hsx_blob.py (--save-every 10).
+Runs ``drbx.fci_braginskii.run.run`` (the same driver as ``simulate_hsx_blob.py``
+and ``drbx run examples/inputs/hsx_fci_blob.toml``) on the canonical 32^3 HSX
+geometry bundle, then renders the saved history.
+
+Run from the repository root:
+
+    PYTHONPATH=src python examples/stellarator/hsx_fci_blob_render.py
+
+The driver prints the geometry, model parameters, one progress line per step
+(step, time, timings, field extrema) and where the history is written. Outputs
+go to ``output/hsx_fci_blob/``: ``history.npz``, ``hsx_fci_blob.png`` and
+``hsx_fci_blob.gif``.
+
+The default is a quick 5-step preset (t = 0.00375), not the converged case. The
+figure in ``docs/media`` uses the documented default run: FINAL_TIME = 0.15,
+NUM_STEPS = 200, SAVE_EVERY = 10 (see docs/fci_braginskii_hsx_backend.md).
+Set RUN_SIMULATION = False to only re-render an existing HISTORY_PATH.
 """
 
-import sys
+import time
 from pathlib import Path
 
 import matplotlib
@@ -14,11 +29,34 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.animation import FuncAnimation, PillowWriter  # noqa: E402
 
-data = np.load(sys.argv[1])
-out = Path(sys.argv[2] if len(sys.argv) > 2 else "docs/media")
+from drbx.fci_braginskii.run import HsxBlobConfig, run  # noqa: E402
+
+# ---- PARAMETERS ----------------------------------------------------------
+GEOMETRY = Path("artifacts/geometry/hsx_fci_32x32x32")  # canonical geometry bundle
+FINAL_TIME = 0.00375        # quick preset; documented run uses 0.15
+NUM_STEPS = 5               # quick preset; documented run uses 200 (dt = 7.5e-4)
+SAVE_EVERY = 1              # history frames (movie frames); documented run uses 10
+OUTPUT_DIR = Path("output/hsx_fci_blob")
+HISTORY_PATH = OUTPUT_DIR / "history.npz"
+RUN_SIMULATION = True       # False: re-render an existing HISTORY_PATH only
+# ---------------------------------------------------------------------------
+
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+if RUN_SIMULATION:
+    print(f"HSX FCI blob: geometry={GEOMETRY} final_time={FINAL_TIME} "
+          f"num_steps={NUM_STEPS} save_every={SAVE_EVERY} -> {HISTORY_PATH}", flush=True)
+    start = time.perf_counter()
+    run(HsxBlobConfig(geometry=GEOMETRY, final_time=FINAL_TIME, num_steps=NUM_STEPS,
+                      save_every=SAVE_EVERY, diagnostic_every=1, output=HISTORY_PATH))
+    print(f"simulation finished in {time.perf_counter() - start:.1f} s", flush=True)
+
+start = time.perf_counter()
+data = np.load(HISTORY_PATH)
+out = OUTPUT_DIR
 xyz, times, active = data["cartesian"], data["times"], data["owner_active"]
 dn = data["density"].astype(np.float64) - 1.0
 phi = data["phi"].astype(np.float64)
+print(f"rendering {len(times)} frames from {HISTORY_PATH} (t = {times[0]:.4g} .. {times[-1]:.4g})", flush=True)
 R, Z = np.hypot(xyz[..., 0], xyz[..., 1]), xyz[..., 2]
 planes = np.linspace(0, dn.shape[3], 4, endpoint=False).astype(int)
 last = len(times) - 1
@@ -72,8 +110,8 @@ for r, (label, field, cmap) in enumerate(rows):
             ax.set_xlabel("R [m]", fontsize=7)
     fig.colorbar(mesh, ax=fig.axes[-4:], fraction=0.02, pad=0.02).ax.tick_params(labelsize=6)
 fig.suptitle("HSX FCI Braginskii backend: seeded filament on the canonical 32^3 geometry", fontsize=10)
-out.mkdir(parents=True, exist_ok=True)
 fig.savefig(out / "hsx_fci_blob.png", metadata={"Software": None})
+print(f"saved {out / 'hsx_fci_blob.png'}", flush=True)
 
 # Movie: n - 1 and phi on the same four planes, fixed colour scales.
 fig, axs = plt.subplots(2, len(planes), figsize=(2.2 * len(planes), 4.6), dpi=80)
@@ -93,3 +131,4 @@ def frame(it):
 
 
 FuncAnimation(fig, frame, frames=len(times)).save(out / "hsx_fci_blob.gif", writer=PillowWriter(fps=5))
+print(f"saved {out / 'hsx_fci_blob.gif'}; max |n-1| = {np.abs(dn[last]).max():.3e}, max |phi| = {np.abs(phi[last]).max():.3e} at t = {times[last]:.4g}; render {time.perf_counter() - start:.1f} s")
