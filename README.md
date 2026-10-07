@@ -308,7 +308,7 @@ More in [docs/validation_gallery.md](docs/validation_gallery.md).
   [performance_and_differentiability.md](docs/performance_and_differentiability.md),
   [profiling_runtime.md](docs/profiling_runtime.md).
 - Testing policy: [testing_strategy.md](docs/testing_strategy.md).
-- Release notes: [release_notes_2_0_0.md](docs/release_notes_2_0_0.md).
+- Release notes: [release_notes.md](docs/release_notes.md).
 
 ## Testing
 
