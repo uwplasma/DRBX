@@ -8,105 +8,18 @@ import jax.numpy as jnp
 
 from .fci_geometry import HaloLayout3D
 
+# Definitions identical to (and closure-equivalent with) the shared module;
+# re-exported here so existing import paths keep working.
+from ...native.fci_model import (  # noqa: F401
+    update_halo_owned_slice,
+    inject_owned_field_to_halo,
+    inject_owned_vector_field_to_halo,
+    extract_owned_field_from_halo,
+)
+
 
 FciFieldBundleT = TypeVar("FciFieldBundleT", bound="FciFieldBundle")
 FciModelStateT = TypeVar("FciModelStateT", bound="FciModelState")
-
-
-def update_halo_owned_slice(
-    field_halo: jax.Array,
-    field_owned: jax.Array,
-    layout: HaloLayout3D,
-) -> jax.Array:
-    """Overwrite the owned interior of a halo field and preserve its halos."""
-
-    if not isinstance(layout, HaloLayout3D):
-        raise TypeError("layout must be a HaloLayout3D instance")
-    field_halo = jnp.asarray(field_halo)
-    field_owned = jnp.asarray(field_owned)
-    if field_halo.shape != layout.cell_halo_shape:
-        raise ValueError(
-            "field_halo must have shape "
-            f"{layout.cell_halo_shape}, got {field_halo.shape}"
-        )
-    if field_owned.shape != layout.owned_shape:
-        raise ValueError(
-            f"field_owned must have shape {layout.owned_shape}, "
-            f"got {field_owned.shape}"
-        )
-    return field_halo.at[layout.owned_slices_cell].set(field_owned)
-
-
-def inject_owned_field_to_halo(
-    field_owned: jax.Array,
-    layout: HaloLayout3D,
-    fill_value: object = 0.0,
-) -> jax.Array:
-    """Allocate a halo field, fill it, and insert an owned field in its interior."""
-
-    if not isinstance(layout, HaloLayout3D):
-        raise TypeError("layout must be a HaloLayout3D instance")
-    field_owned = jnp.asarray(field_owned)
-    if field_owned.shape != layout.owned_shape:
-        raise ValueError(
-            f"field_owned must have shape {layout.owned_shape}, "
-            f"got {field_owned.shape}"
-        )
-    field_halo = jnp.full(
-        layout.cell_halo_shape,
-        fill_value,
-        dtype=field_owned.dtype,
-    )
-    return field_halo.at[layout.owned_slices_cell].set(field_owned)
-
-
-def inject_owned_vector_field_to_halo(
-    field_owned: jax.Array,
-    layout: HaloLayout3D,
-    fill_value: object = 0.0,
-) -> jax.Array:
-    """Insert an owned vector/trailing-component field into a halo field.
-
-    The first three axes are the spatial axes and must have
-    ``layout.owned_shape``. Any remaining axes are preserved verbatim. This
-    lets one halo exchange carry all vector components in a single collective.
-    """
-
-    if not isinstance(layout, HaloLayout3D):
-        raise TypeError("layout must be a HaloLayout3D instance")
-    field_owned = jnp.asarray(field_owned)
-    if field_owned.ndim < 4 or field_owned.shape[:3] != layout.owned_shape:
-        raise ValueError(
-            "field_owned must have spatial shape layout.owned_shape and at least "
-            "one trailing component axis; "
-            f"got {field_owned.shape}, expected prefix {layout.owned_shape}"
-        )
-
-    trailing_shape = tuple(field_owned.shape[3:])
-    trailing = (slice(None),) * len(trailing_shape)
-    field_halo = jnp.full(
-        layout.cell_halo_shape + trailing_shape,
-        fill_value,
-        dtype=field_owned.dtype,
-    )
-    return field_halo.at[layout.owned_slices_cell + trailing].set(field_owned)
-
-
-def extract_owned_field_from_halo(
-    field_halo: jax.Array,
-    layout: HaloLayout3D,
-) -> jax.Array:
-    """Extract the owned interior from a halo-padded field."""
-
-    if not isinstance(layout, HaloLayout3D):
-        raise TypeError("layout must be a HaloLayout3D instance")
-    field_halo = jnp.asarray(field_halo)
-    if field_halo.shape != layout.cell_halo_shape:
-        raise ValueError(
-            "field_halo must have shape "
-            f"{layout.cell_halo_shape}, got {field_halo.shape}"
-        )
-    return field_halo[layout.owned_slices_cell]
 
 
 def assert_matching_field_names(
