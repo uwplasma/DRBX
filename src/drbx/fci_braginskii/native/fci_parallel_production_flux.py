@@ -19,6 +19,8 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 
+from .fci_helpers import small_batched_eig
+
 
 STATE_SIZE = 5
 _LOG_FLOOR = 1.0e-30
@@ -116,7 +118,7 @@ def _spectral_basis(
     matrix = jnp.asarray(matrix, dtype=jnp.float64)
     eye = jnp.broadcast_to(jnp.eye(STATE_SIZE, dtype=jnp.float64), matrix.shape)
     frozen = jax.lax.stop_gradient(matrix)
-    values, vectors = jnp.linalg.eig(frozen)
+    values, vectors = small_batched_eig(frozen)
     values_real = jnp.real(values)
     finite = jnp.all(jnp.isfinite(values_real), axis=-1)
     finite = finite & jnp.all(jnp.isfinite(jnp.imag(values)), axis=-1)

@@ -4,6 +4,7 @@ from typing import Literal
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from ..geometry.fci_geometry import HaloLayout3D, LocalDomain3D
 
@@ -53,3 +54,33 @@ def _local_side_mask(
     active = local_physical_side_active(domain, axis, side)
     shape = local_side_plane_shape(layout, axis)
     return jnp.broadcast_to(jnp.asarray(active, dtype=bool), shape)
+
+
+def _host_eig(matrix):
+    values, vectors = np.linalg.eig(np.asarray(matrix))
+    return values.astype(np.complex128), vectors.astype(np.complex128)
+
+
+def small_batched_eig(matrix: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """``jnp.linalg.eig`` for batches of small real matrices on any backend.
+
+    CPU lowers to the LAPACK ``geev`` custom call exactly as before.  Other
+    backends call the same LAPACK routine on the host: XLA's GPU ``eig``
+    solves one matrix at a time (about 20 ms per 4x4 matrix on an RTX A4000),
+    which made the explicit operator two orders of magnitude slower than on
+    CPU.  The input must already be stopped-gradient.
+    """
+
+    matrix = jnp.asarray(matrix, dtype=jnp.float64)
+    cplx = jnp.complex128
+    shapes = (
+        jax.ShapeDtypeStruct(matrix.shape[:-1], cplx),
+        jax.ShapeDtypeStruct(matrix.shape, cplx),
+    )
+
+    def host(m):
+        return jax.pure_callback(_host_eig, shapes, m, vmap_method="broadcast_all")
+
+    return jax.lax.platform_dependent(
+        matrix, cpu=lambda m: tuple(jnp.linalg.eig(m)), default=host
+    )
