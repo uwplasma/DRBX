@@ -1,26 +1,28 @@
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
+from functools import cache
 from typing import Literal
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..geometry.fci_geometry import HaloLayout3D, LocalDomain3D
-
 # Definitions identical to (and closure-equivalent with) the shared module;
 # re-exported here so existing import paths keep working.
 from ...native.fci_helpers import (  # noqa: F401
-    _as_float64_array,
     _as_face_flux_array,
-    _validate_axis,
-    local_side_plane_shape,
+    _as_float64_array,
     _as_local_wall_array,
-    _as_local_wall_int_array,
     _as_local_wall_bool_array,
+    _as_local_wall_int_array,
     _as_local_wall_stencil_index_array,
     _as_local_wall_stencil_weight_array,
+    _validate_axis,
+    local_side_plane_shape,
 )
+from ..geometry.fci_geometry import HaloLayout3D, LocalDomain3D
 
 
 def local_physical_side_active(
@@ -56,9 +58,33 @@ def _local_side_mask(
     return jnp.broadcast_to(jnp.asarray(active, dtype=bool), shape)
 
 
+_HOST_EIG_MIN_CHUNK = 4096
+
+
+@cache
+def _host_eig_pool() -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(max(1, min(8, os.cpu_count() or 1)))
+
+
 def _host_eig(matrix):
-    values, vectors = np.linalg.eig(np.asarray(matrix))
-    return values.astype(np.complex128), vectors.astype(np.complex128)
+    # NumPy's batched eig runs one LAPACK geev per matrix on one thread and
+    # releases the GIL, so contiguous chunks on a few threads return the
+    # same bits several times faster (34816 5x5 matrices: 527 -> 77 ms on
+    # 8 threads).  The callback is the dominant cost of the GPU operator.
+    matrix = np.asarray(matrix)
+    flat = matrix.reshape((-1,) + matrix.shape[-2:])
+    pool = _host_eig_pool()
+    chunks = min(pool._max_workers, flat.shape[0] // _HOST_EIG_MIN_CHUNK)
+    if chunks > 1:
+        parts = list(pool.map(np.linalg.eig, np.array_split(flat, chunks)))
+        values = np.concatenate([part[0] for part in parts])
+        vectors = np.concatenate([part[1] for part in parts])
+    else:
+        values, vectors = np.linalg.eig(flat)
+    return (
+        values.astype(np.complex128).reshape(matrix.shape[:-1]),
+        vectors.astype(np.complex128).reshape(matrix.shape),
+    )
 
 
 def small_batched_eig(matrix: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
