@@ -205,6 +205,36 @@ by hand; CI tests CPU only.
 
 *[`examples/benchmarks/fci_sharded_strong_scaling.py`](examples/benchmarks/fci_sharded_strong_scaling.py)*
 
+## HSX stellarator scrape-off layer (experimental FCI backend)
+
+An experimental seven-field electrostatic Braginskii backend runs a seeded
+filament in the full HSX scrape-off layer, up to the vessel wall. Its eta
+slices are surfaces of a scalar potential that follow the stellarator; small
+wall-cut cells are merged into owner cells; the current and potential are
+advanced together in an implicit stage; and the potential is solved with GMRES
+sharded over eta. Verified on the canonical 32-cubed geometry: continuity of
+the returned (Ve, vorticity) across the implicit stage to about 1e-16, restarts
+bitwise equal to straight runs, identical GMRES counts on 1, 2 and 4 devices,
+normalization tests, and the real-geometry tests. Vorticity converges at about
+second order in time; n, T and Vi at 1.4-1.6, and phi near first order because
+the electron response is stiff at the physical mass ratio (see the
+[backend notes](docs/fci_braginskii_hsx_backend.md)). A step takes about 6 s on
+a laptop CPU and about 35 s on a shared RTX A4000, where GMRES dominates.
+
+![HSX FCI filament](docs/media/hsx_fci_blob.png)
+
+![HSX FCI filament evolution](docs/media/hsx_fci_blob.gif)
+
+```bash
+drbx run examples/inputs/hsx_fci_blob.toml          # or: python simulate_hsx_blob.py --geometry <bundle> ...
+python examples/stellarator/hsx_fci_blob_render.py run/history.npz docs/media
+```
+
+The geometry bundle is distributed separately; see
+[docs/fci_braginskii_hsx_backend.md](docs/fci_braginskii_hsx_backend.md).
+*Scope:* experimental and wall-limited: no sheath, neutral or recycling
+coupling yet.
+
 ## Comparison with other edge and SOL codes
 
 ✅ supported, 🟡 partial or reduced, ❌ not supported, ❔ not verified from a public source.
@@ -265,6 +295,7 @@ Each benchmark has a test and an example that regenerates its figure:
 | Open-field-line SOL | Stangeby, *The Plasma Boundary of Magnetic Fusion Devices* (2000) | Mach 1 at targets; target density half upstream; Bohm particle balance |
 | Neutrals and recycling | Dudson et al., *Comput. Phys. Commun.* 296, 108991 (2024); AMJUEL | exact plasma-neutral particle and momentum conservation |
 | SD1D 1D divertor leg | Dudson et al., *PPCF* 61, 065008 (2019) and its published dataset | 13.6 eV hydrogen scan: target T within 0.35%, target flux within 0.15% (800 cells); ledgers closed; grid convergence 100–1600 cells (~3% between 800 and 1600) |
+| HSX scrape-off-layer filament (experimental) | HSX geometry; FCI construction of Stegmeir et al., *Comput. Phys. Commun.* 198, 139 (2016) | implicit-stage continuity ~1e-16; bitwise restart; equal GMRES counts on 1/2/4 devices; time order 1.8-1.9 (vorticity), 1.4-1.6 (n, T, Vi), ~1 (phi, stiff electrons) |
 
 More in [docs/validation_gallery.md](docs/validation_gallery.md).
 

@@ -120,7 +120,52 @@ def _normalize_cli_argv(argv: list[str]) -> list[str]:
     return ["run", *argv]
 
 
+_FCI_BRAGINSKII_BACKEND = "fci_braginskii"
+_NATIVE_RUN_OPTIONS = (
+    "precision", "case_name", "output_dir", "json_out", "arrays_out",
+    "restart_out", "log_out", "restart_in", "resume_steps",
+)
+
+
+def _is_fci_braginskii_deck(path: Path) -> bool:
+    if path.suffix.lower() != ".toml":
+        return False
+    from .config.boutinp import tomllib
+
+    model = tomllib.loads(path.read_text(encoding="utf-8")).get("model", {})
+    return isinstance(model, dict) and model.get("backend") == _FCI_BRAGINSKII_BACKEND
+
+
+def _fci_braginskii_command(args: argparse.Namespace, *, inspect_only: bool) -> int:
+    """Inspect or run an HSX FCI Braginskii deck (``[fci_braginskii]`` table)."""
+
+    from dataclasses import fields
+
+    from .fci_braginskii.run import load_hsx_blob_deck, run
+
+    try:
+        config = load_hsx_blob_deck(args.input_file)
+    except ValueError as error:
+        raise SystemExit(f"{args.input_file}: {error}") from None
+    if inspect_only:
+        print(f"input: {args.input_file}")
+        print(f"backend: {_FCI_BRAGINSKII_BACKEND}")
+        for field in fields(config):
+            print(f"{field.name} = {getattr(config, field.name)!r}")
+        return 0
+    given = [name for name in _NATIVE_RUN_OPTIONS if getattr(args, name, None) is not None]
+    if given:
+        raise SystemExit(
+            f"{', '.join('--' + name.replace('_', '-') for name in given)} not supported "
+            f"for {_FCI_BRAGINSKII_BACKEND} decks; set the [fci_braginskii] keys instead"
+        )
+    run(config)
+    return 0
+
+
 def _inspect_command(args: argparse.Namespace) -> int:
+    if _is_fci_braginskii_deck(args.input_file):
+        return _fci_braginskii_command(args, inspect_only=True)
     config = load_bout_input(args.input_file)
     configure_jax_runtime(precision=resolve_runtime_precision(config=config))
     run_config = RunConfiguration.from_config(config)
@@ -158,6 +203,8 @@ def _inspect_command(args: argparse.Namespace) -> int:
 def _run_command(args: argparse.Namespace) -> int:
     if args.dry_run:
         return _inspect_command(args)
+    if _is_fci_braginskii_deck(args.input_file):
+        return _fci_braginskii_command(args, inspect_only=False)
     config = load_bout_input(args.input_file)
     run_config = RunConfiguration.from_config(config)
     resolved_precision = resolve_runtime_precision(
