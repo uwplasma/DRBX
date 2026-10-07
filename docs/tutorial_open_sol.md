@@ -7,9 +7,9 @@ steps, each one a runnable example:
    ([`examples/sol/open_sol_flux_tube.py`](../examples/sol/open_sol_flux_tube.py));
 2. add **neutrals and recycling** with the hermes-3 atomic reactions
    ([`examples/sol/recycling_sol.py`](../examples/sol/recycling_sol.py));
-3. evolve the **temperature** and reach detachment — the SD1D target-flux
-   rollover
-   ([`examples/benchmarks/b6_detachment_rollover.py`](../examples/benchmarks/b6_detachment_rollover.py)).
+3. evolve the **temperature** with the SD1D-matched model and compare with
+   SD1D's 13.6 eV scan
+   ([`examples/benchmarks/b6_detachment_sd1d.py`](../examples/benchmarks/b6_detachment_sd1d.py)).
 
 The equations for each stage are on
 [Models and Governing Equations](models_and_equations.md); physics pages:
@@ -133,59 +133,43 @@ with the temperature still held fixed.
 PYTHONPATH=src python examples/sol/recycling_sol.py
 ```
 
-## Step 3 — evolved temperature and the detachment rollover
+## Step 3 — evolved temperature: the SD1D benchmark
 
-![Detachment rollover](media/b6_detachment.png)
+![B6 SD1D 13.6 eV scan](media/b6_detachment.png)
 
-Detachment proper needs the target temperature to *respond*: cooling raises
-recombination, which removes plasma before it reaches the plate, which cools
-the target further. `detachment_sol_model` adds the plasma pressure equation
-with three stiff ingredients, each handled implicitly:
+Detachment proper needs the target temperature to *respond*.
+`detachment_sol_model` reproduces SD1D (Dudson et al., *PPCF* 61, 065008
+(2019)) for hydrogen with a fixed ionisation cost and solves it to steady
+state with pseudo-transient Newton:
 
 ```python
 params = DetachmentSolParameters(
-    parallel_length=30.0,
-    upstream_density=upstream,      # the scan variable
-    upstream_power=6.0,             # fixed: this is a density scan at constant power
-    power_width=0.2,                # power deposited in the upstream 20% of the tube
-    conduction_coefficient=2.0,     # Spitzer kappa0: q = -kappa0 T^{5/2} dT/dz
-    sheath_transmission=7.0,        # gamma: Bohm heat sink gamma n c_s T at the target
-    recycling_fraction=0.95,
-    neutral_diffusion=8.0,
-    ion_mass=2.0,
-    normalization=PlasmaNormalization(Tnorm=50.0),   # SOL reference: 50 eV
+    ny=800,                      # SD1D grid: 7 cm upstream -> 4 mm at the target
+    upstream_density=3.0e19,     # held at cell 0 by the particle source amplitude
+    power_flux=5.0e7,            # W/m^2 over the first 10 m
+    ionisation_energy=13.6,      # eV lost per ionisation
+    recycling_fraction=0.99,
 )
+result = detachment_sol_run(params)          # result.residual: steady residual
+diag = detachment_diagnostics(result.state, params, result.source_scale)
 ```
 
-- **Implicit Spitzer conduction** \(\kappa \sim T^{5/2}\): a solvax
-  tridiagonal solve per step, because explicit parabolic conduction at
-  \(T^{5/2}\) stiffness would force a hopeless timestep.
-- **Self-limiting radiation**: the AMJUEL radiative/ionization energy loss is
-  applied as \(P \leftarrow P/(1 + \Delta t\, \mathrm{rate})\) — it can never
-  drive \(P < 0\) and switches itself off as the plasma cools past the
-  radiation peak.
-- **`sheath_transmission = 7.0`** is the standard total sheath heat
-  transmission \(\gamma \approx 7\) for \(T_e = T_i\) hydrogen.
-- **`Tnorm = 50 eV`** centers the normalization on SOL temperatures so the
-  detachment transition (~1 eV) is well-resolved numerically.
-
-The scan `DENSITY_SCAN = [1 ... 40]` relaxes each upstream density from a
-cold start (`INITIAL_TEMPERATURE = 0.6`, i.e. 30 eV) for 45,000 operator-split
-steps and records the target flux and temperature. The two signatures of the
-SD1D benchmark (Dudson et al., *PPCF* 61, 065008 (2019)) appear: the target
-ion flux **rises then rolls over**, and the target temperature crosses 1 eV
-into the recombining regime.
+The example scans the upstream density and reproduces SD1D's target
+temperature to 0.35% and target flux to 0.15% at the same 800-cell resolution.
+In this hydrogen-only scan the target cools from 29 eV to 3.4 eV and the flux
+keeps rising: the flux rollover of the paper needs impurity radiation and
+excitation, which are not in this model.
 
 ```bash
-PYTHONPATH=src python examples/benchmarks/b6_detachment_rollover.py
+PYTHONPATH=src python examples/benchmarks/b6_detachment_sd1d.py
 ```
 
-## Coda — controlling detachment with a gradient
+## Coda — controlling the target temperature with a gradient
 
-The entire detaching solve is differentiable, so "find the upstream density
-that puts the target exactly at 1 eV" is a Newton iteration on
-\(T_{e,\mathrm{target}}(n_{\mathrm{up}})\) with the sensitivity from
-forward-mode autodiff **through the full stiff solve**:
+The steady state is differentiable through the implicit-function theorem, so
+"find the upstream density that puts the target at 10 eV" is a Newton
+iteration on \(T_t(n_{\mathrm{up}})\) with the exact sensitivity from the
+converged state (no differentiation through the pseudo-time iterations):
 
 ![Detachment control](media/detachment_control.png)
 

@@ -378,15 +378,6 @@ class LocalFciCutWallValueEvaluator(_DataclassPyTreeMixin):
         values = wall_values[safe_slot]
         return jnp.where(active & slot_active, values, jnp.zeros_like(values))
 
-    def tree_flatten(self):
-        return (), None
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        del children
-        return cls()
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class RemoteFciDependencyExchange(_DataclassPyTreeMixin):
@@ -1262,18 +1253,6 @@ class GhostFillWeights1D(_DataclassPyTreeMixin):
     def stencil_width(self) -> int:
         return int(self.owned_weights.shape[1])
 
-    def tree_flatten(self):
-        return (self.owned_weights, self.bc_weights), None
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        owned_weights, bc_weights = children
-        return cls(
-            owned_weights=owned_weights,
-            bc_weights=bc_weights,
-        )
-
-
 def _validate_axis_weights(
     weights: tuple[GhostFillWeights1D, GhostFillWeights1D, GhostFillWeights1D],
     name: str,
@@ -1443,14 +1422,6 @@ class PhysicalGhostCellFiller3D(_DataclassPyTreeMixin):
         slices = [slice(h, h + n) for n in ext]
         slices[axis] = slice(0, h) if side == "lower" else slice(h + ext[axis], h + ext[axis] + h)
         return field.at[tuple(slices)].set(raw)
-
-    def tree_flatten(self):
-        return (self.dirichlet, self.neumann_lower, self.neumann_upper), None
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
 
 @_pytree_base
 @dataclass(frozen=True)

@@ -23,8 +23,9 @@ from .detachment_sol_model import (
     DetachmentSolParameters,
     DetachmentSolState,
     detachment_diagnostics,
+    detachment_ledger,
     detachment_sol_run,
-    detachment_sol_step,
+    detachment_target_outputs,
 )
 from .recycling_sol_model import (
     SolRecyclingParameters,
@@ -54,5 +55,6 @@ __all__ = [
     "DetachmentSolState",
     "detachment_diagnostics",
     "detachment_sol_run",
-    "detachment_sol_step",
+    "detachment_ledger",
+    "detachment_target_outputs",
 ]

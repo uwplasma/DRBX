@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 from ..geometry import build_essos_imported_fci_geometry
+from ..geometry.essos_import import _normalize_essos_map_source as _normalize_imported_fci_map_source
 from ..native.fci_neutral import compute_fci_neutral_reaction_diffusion
 from ..native.fci_sheath_recycling import compute_fci_sheath_recycling
 
@@ -4172,21 +4173,6 @@ def save_essos_imported_fci_campaign_plot(
     fig.savefig(resolved, dpi=190)
     plt.close(fig)
     return resolved
-
-
-def _normalize_imported_fci_map_source(map_source: str) -> str:
-    normalized = str(map_source).strip().lower().replace("-", "_")
-    aliases = {
-        "essos": "coil",
-        "essos_coil": "coil",
-        "coil_map": "coil",
-        "vmec_map": "vmec",
-        "hybrid_map": "hybrid",
-    }
-    normalized = aliases.get(normalized, normalized)
-    if normalized not in {"coil", "vmec", "hybrid"}:
-        raise ValueError("map_source must be one of 'coil', 'vmec', or 'hybrid'")
-    return normalized
 
 
 def _validate_imported_fci_grid(*, nx: int, ny: int, nz: int) -> None:
