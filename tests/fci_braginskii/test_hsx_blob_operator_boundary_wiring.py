@@ -10,10 +10,11 @@ import numpy as np
 
 
 DRIVER = Path(__file__).parents[2] / "simulate_hsx_blob.py"
+DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 
 def _source():
-    return DRIVER.read_text()
+    return DRIVER_SOURCE.read_text()
 
 
 def _load_driver():

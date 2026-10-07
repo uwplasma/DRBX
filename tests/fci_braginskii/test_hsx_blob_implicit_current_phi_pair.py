@@ -17,6 +17,7 @@ import sys
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
+DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 RHS_PATH = REPOSITORY / "src" / "drbx" / "fci_braginskii" / "native" / "fci_drb_EB_rhs.py"
 OPERATORS_PATH = (
     REPOSITORY / "src" / "drbx" / "fci_braginskii" / "native" / "fci_operators.py"
@@ -61,7 +62,7 @@ def test_parser_defaults_enable_implicit_pair_at_the_validated_rho_star():
 
 
 def test_library_entry_points_default_the_flag_off():
-    tree = _tree(DRIVER_PATH)
+    tree = _tree(DRIVER_SOURCE)
     for name in ("build_local_eb_model", "run_full_eb"):
         function = _function(tree, name)
         pair_argument = next(
@@ -75,9 +76,9 @@ def test_library_entry_points_default_the_flag_off():
 
 
 def test_run_full_eb_both_implicit_stage_paths_dispatch_on_the_flag():
-    tree = _tree(DRIVER_PATH)
+    tree = _tree(DRIVER_SOURCE)
     run_full_eb = _function(tree, "run_full_eb")
-    source = DRIVER_PATH.read_text()
+    source = DRIVER_SOURCE.read_text()
 
     stage_functions = [
         node
@@ -103,7 +104,7 @@ def test_run_full_eb_both_implicit_stage_paths_dispatch_on_the_flag():
 
 
 def test_run_metadata_records_implicit_current_phi_pair():
-    source = DRIVER_PATH.read_text()
+    source = DRIVER_SOURCE.read_text()
     assert '"implicit_current_phi_pair": bool(args.implicit_current_phi_pair)' in source
     assert "implicit_current_phi_pair=bool(args.implicit_current_phi_pair)" in source
 
@@ -222,7 +223,7 @@ def test_local_perp_laplacian_inverse_solver_carries_extra_operator():
 
 
 def test_no_production_wording_labels_the_implicit_pair_as_experimental():
-    for path in (RHS_PATH, OPERATORS_PATH, DRIVER_PATH):
+    for path in (RHS_PATH, OPERATORS_PATH, DRIVER_SOURCE):
         source = path.read_text()
         lowered = source.lower()
         for needle in ("experiment:", "experimental:", "# experiment ("):

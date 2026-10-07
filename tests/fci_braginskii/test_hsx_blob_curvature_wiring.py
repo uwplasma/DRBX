@@ -7,6 +7,7 @@ from pathlib import Path
 REPOSITORY = Path(__file__).resolve().parents[2]
 RHS_PATH = REPOSITORY / "src" / "drbx" / "fci_braginskii" / "native" / "fci_drb_EB_rhs.py"
 DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
+DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 
 def _tree(path: Path) -> ast.Module:
@@ -22,7 +23,7 @@ def _function(tree: ast.Module, name: str) -> ast.FunctionDef:
 
 
 def test_advance_wires_out_specs_to_shard_map():
-    driver_tree = _tree(DRIVER_PATH)
+    driver_tree = _tree(DRIVER_SOURCE)
     run_full_eb = _function(driver_tree, "run_full_eb")
     out_spec_assignment = next(
         node
@@ -55,9 +56,9 @@ def test_advance_wires_out_specs_to_shard_map():
 
 
 def test_hsx_gmres_uses_tight_target_and_preserves_looser_acceptance():
-    source = DRIVER_PATH.read_text()
+    source = DRIVER_SOURCE.read_text()
     assert "GMRES_TARGET_TOLERANCE = 1.0e-8" in source
-    build = _function(_tree(DRIVER_PATH), "build_local_eb_model")
+    build = _function(_tree(DRIVER_SOURCE), "build_local_eb_model")
     build_source = ast.get_source_segment(source, build)
     assert build_source is not None
     assert "tol=float(gmres_target_tolerance)" in build_source
@@ -67,13 +68,13 @@ def test_hsx_gmres_uses_tight_target_and_preserves_looser_acceptance():
 
 
 def test_hsx_gmres_cli_separates_target_and_acceptance_with_legacy_alias():
-    source = DRIVER_PATH.read_text()
+    source = DRIVER_SOURCE.read_text()
     assert '"--gmres-target-tolerance"' in source
     assert '"--gmres-acceptance-tolerance"' in source
     assert '"--gmres-tolerance"' in source
     assert 'dest="gmres_acceptance_tolerance"' in source
-    assert 'default=GMRES_TARGET_TOLERANCE' in source
-    assert 'default=5.0e-5' in source
+    assert 'gmres_target_tolerance: float = GMRES_TARGET_TOLERANCE' in source
+    assert 'gmres_acceptance_tolerance: float = 5.0e-5' in source
     assert 'gmres_target_tolerance=float(args.gmres_target_tolerance)' in source
     assert (
         'gmres_acceptance_tolerance=float(args.gmres_acceptance_tolerance)'
@@ -82,10 +83,10 @@ def test_hsx_gmres_cli_separates_target_and_acceptance_with_legacy_alias():
 
 
 def test_hsx_imex_returns_replicated_solvax_diagnostics():
-    source = DRIVER_PATH.read_text()
+    source = DRIVER_SOURCE.read_text()
     run_source = ast.get_source_segment(
         source,
-        _function(_tree(DRIVER_PATH), "run_full_eb"),
+        _function(_tree(DRIVER_SOURCE), "run_full_eb"),
     )
     assert run_source is not None
     assert "_format_phi_solver_diagnostics(info)" in run_source

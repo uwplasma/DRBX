@@ -48,6 +48,7 @@ jax.config.update("jax_enable_x64", True)
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
+DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 DOCS_PATH = REPOSITORY / "docs" / "fci_braginskii_hsx_backend.md"
 
 # CODATA 2018 exact / recommended values.
@@ -147,7 +148,7 @@ def test_documented_sound_speed_and_time_unit_follow_from_the_formula():
 
 
 def test_run_metadata_records_rho_star_for_unit_reconstruction():
-    source = DRIVER_PATH.read_text()
+    source = DRIVER_SOURCE.read_text()
     assert '"rho_star": float(args.rho_star)' in source
 
 

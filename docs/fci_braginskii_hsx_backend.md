@@ -138,6 +138,12 @@ python simulate_hsx_blob.py --geometry artifacts/geometry/hsx_fci_32x32x32 \
   --output /path/to/run/history.npz
 ```
 
+The same run can be described as a TOML deck and launched with
+`drbx run examples/inputs/hsx_fci_blob.toml` (`drbx inspect` prints the
+resolved configuration). The deck's `[fci_braginskii]` keys are the option
+names above with underscores; omitted keys take the same defaults and unknown
+keys are errors. Both routes call `drbx.fci_braginskii.run.run`.
+
 The defaults run to t = 0.15 in 200 steps (dt = 7.5e-4) at rho* = 5e-4 with
 the implicit current/potential pair. With the explicit pair this rho* limits
 dt to about 1e-4. With the implicit pair, 32-cubed runs are stable at dt =
