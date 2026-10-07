@@ -4,15 +4,14 @@ Composes the nodal SBP perpendicular operators on one device for a state ``(E, P
 (a subset of :data:`FIELD_NAMES`, in that order) with the terms of ``opts.terms``:
 
 * ``"bracket"``: ``rho_star * sbp_bracket(plan, phi, state, SatBoundaryData((wall.value,)), 1.0, bracket_c_kappa)`` on every
-  field (``opts.rho_star_convention == "single-length"``; the legacy convention passes ``rho_star`` to ``sbp_bracket`` as its
-  divisor);
+  field (``sbp_bracket`` is called with the unit divisor; ``rho_star`` multiplies its output);
 * ``"curvature"``: ``rho_star * sbp_curvature`` on ``(n, Te, Ti, omega)`` with ``phi`` as the fifth column, scattered into
-  the field slots (the other fields get zero; the legacy convention has no ``rho_star`` factor);
+  the field slots (the other fields get zero);
 * ``"diffusion"``: ``D_f * laplacian_action(...)`` per field, Dirichlet rows reading ``wall.value`` and Neumann rows
   ``wall.normal`` (``opts.neumann_mode``: the physical-normal derivative or the conormal flux).
 
 The potential is either solved (``phi_mode="solve"``) from the polarization equation ``L psi = (Omega - sigma) / rho_star**2``
-(single-length; legacy: ``L psi = Omega - sigma``) with Dirichlet ``psi`` data, ``psi = phi + tau p`` (``p = n Ti`` for ``psi="phi_plus_tau_pi"``, ``p = Ti`` for the legacy
+with Dirichlet ``psi`` data, ``psi = phi + tau p`` (``p = n Ti`` for ``psi="phi_plus_tau_pi"``, ``p = Ti`` for the legacy
 ``"phi_plus_tau_ti"``), ``phi = psi - tau p``, or prescribed (``phi_mode="prescribed"``).
 
 Everything is jittable with the :class:`NodalPerpendicularContext` (built once per geometry on the host), ``params``,
@@ -21,13 +20,11 @@ Everything is jittable with the :class:`NodalPerpendicularContext` (built once p
 (manufactured values for MMS; production applies :func:`bracket_rule_inflow`). Single device only: the ``eta`` operators
 wrap periodically and the layout is family A (one wall).
 
-``rho_star`` is the physical ``rho_s0 / L_ref`` (``NodalPerpendicularOptions.rho_star_convention``). ``"single-length"``
-(default) is the one-length normalization: the E x B bracket and the whole curvature term carry ``rho_star``, the
-polarization is ``rho_star**2 lap_perp(phi + tau p_i) = Omega`` (``Omega`` is the vorticity field in ``state``), and the
-diffusion is unchanged. ``"legacy-bracket-only"`` is the previous form (bracket divided by ``rho_star``, curvature and
-polarization free of it), which the frozen campaigns pin at ``rho_star = 0.05``. The scaling acts on the outputs and the
-solve right-hand side, never on the operators (``sbp_bracket`` and ``sbp_curvature`` keep their meaning), so the operators'
-dissipation and the fixed solver regularization are not rescaled.
+``rho_star`` is the physical ``rho_s0 / L_ref`` and the normalization is single-length: the E x B bracket and the whole
+curvature term carry ``rho_star``, the polarization is ``rho_star**2 lap_perp(phi + tau p_i) = Omega`` (``Omega`` is the
+vorticity field in ``state``), and the diffusion is unchanged. The scaling acts on the outputs and the solve right-hand side,
+never on the operators (``sbp_bracket`` and ``sbp_curvature`` keep their meaning), so the operators' dissipation and the
+fixed solver regularization are not rescaled.
 """
 from __future__ import annotations
 
@@ -51,7 +48,7 @@ from drbx.native.fci_perpendicular_sbp_laplacian_solve import build_dirichlet_pr
 from drbx.stencils.nodal_plan import NodalPlan
 
 __all__ = [
-    "FIELD_NAMES", "TERM_NAMES", "CURVATURE_FIELDS", "RHO_STAR_CONVENTIONS", "NodalPerpendicularContext", "NodalPerpendicularOptions",
+    "FIELD_NAMES", "TERM_NAMES", "CURVATURE_FIELDS", "NodalPerpendicularContext", "NodalPerpendicularOptions",
     "NodalPerpendicularParams", "NodalWallData", "NodalPerpendicularTerms", "build_nodal_perpendicular_context",
     "pressure_variable", "psi_wall_data", "solve_potential", "bracket_rule_inflow", "nodal_perpendicular_rhs",
     "nodal_perpendicular_rhs_jit", "solve_potential_jit",
@@ -60,7 +57,6 @@ __all__ = [
 FIELD_NAMES = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")          # Q09 order
 TERM_NAMES = ("bracket", "curvature", "diffusion")
 CURVATURE_FIELDS = ("density", "Te", "Ti", "vorticity")                  # the columns of the P06 curvature state
-RHO_STAR_CONVENTIONS = ("single-length", "legacy-bracket-only")
 _NEUMANN_MODES = ("physical", "conormal")
 _PHI_MODES = ("solve", "prescribed")
 
@@ -96,8 +92,7 @@ def build_nodal_perpendicular_context(plan: NodalPlan, lplan: LaplacianPlan, *, 
 
 @dataclass(frozen=True)
 class NodalPerpendicularOptions:
-    """Static (hashable) options; validated on construction. ``rho_star_convention`` is one of :data:`RHO_STAR_CONVENTIONS`
-    (see the module docstring)."""
+    """Static (hashable) options; validated on construction (see the module docstring)."""
 
     fields: tuple[str, ...] = ("density", "Te", "Ti", "vorticity")
     terms: tuple[str, ...] = ("bracket", "curvature", "diffusion")
@@ -112,7 +107,6 @@ class NodalPerpendicularOptions:
     laplacian_c_kappa: float = 1.0
     phi_rtol: float = 1e-10
     phi_maxit: int = 200
-    rho_star_convention: str = "single-length"
 
     def __post_init__(self):
         for name in ("fields", "terms", "diffusion_kinds"):
@@ -151,8 +145,6 @@ class NodalPerpendicularOptions:
             raise ValueError(f"psi must be one of {PSI_VARIANTS}, got {self.psi!r}")
         if self.absolute_method not in ABSOLUTE_METHODS:
             raise ValueError(f"absolute_method must be one of {ABSOLUTE_METHODS}, got {self.absolute_method!r}")
-        if self.rho_star_convention not in RHO_STAR_CONVENTIONS:
-            raise ValueError(f"rho_star_convention must be one of {RHO_STAR_CONVENTIONS}, got {self.rho_star_convention!r}")
         if not self.phi_maxit >= 1:
             raise ValueError(f"phi_maxit must be >= 1, got {self.phi_maxit}")
 
@@ -167,7 +159,7 @@ class NodalPerpendicularOptions:
 
 
 class NodalPerpendicularParams(NamedTuple):
-    rho_star: jax.Array          # scalar; rho_s0 / L_ref (single-length), the bracket divisor (legacy-bracket-only)
+    rho_star: jax.Array          # scalar; rho_s0 / L_ref (multiplies the bracket and the curvature, divides the polarization twice)
     tau: jax.Array               # scalar
     D: jax.Array                 # (F,) perpendicular diffusion per field in ``opts.fields`` order
 
@@ -209,20 +201,17 @@ def _no_solve_info():
 
 
 def polarization_rhs(opts: NodalPerpendicularOptions, params: NodalPerpendicularParams, omega, sigma=None):
-    """Right-hand side ``(Omega - sigma) / rho_star**2`` of the polarization solve (no ``rho_star`` for the legacy convention)."""
+    """Right-hand side ``(Omega - sigma) / rho_star**2`` of the polarization solve."""
     omega = jnp.asarray(omega)
     rhs = omega if sigma is None else omega - jnp.asarray(sigma)
-    if opts.rho_star_convention == "single-length":
-        rhs = rhs / params.rho_star ** 2
-    return rhs
+    return rhs / params.rho_star ** 2
 
 
 def solve_potential(ctx: NodalPerpendicularContext, opts: NodalPerpendicularOptions, params: NodalPerpendicularParams, omega, n,
                     Ti, psi_wall, *, sigma=None, x0=None):
     """Solve ``L psi = (Omega - sigma) / rho_star**2`` (``omega`` is the vorticity ``Omega``; ``sigma=None`` is zero) with Dirichlet
     ``psi_wall (E, N)`` by preconditioned CG with the context's preconditioner; ``phi = psi - tau * pressure_variable(n, Ti)``.
-    ``opts.rho_star_convention == "legacy-bracket-only"`` solves ``L psi = Omega - sigma`` (no ``rho_star``). The right-hand side
-    is divided, not the operator, so the fixed regularization of the solve keeps its relative weight. Returns
+    The right-hand side is divided, not the operator, so the fixed regularization of the solve keeps its relative weight. Returns
     ``(psi, phi, info)``."""
     if ctx.prec is None:
         raise ValueError("the context has no preconditioner (build it with build_preconditioner=True)")
@@ -286,9 +275,7 @@ def check_input_shapes(E, P, N, opts, params, state, wall):
 
 def _bracket_term(ctx, opts, params, state, wall, phi):
     bcd = SatBoundaryData((wall.value,))
-    if opts.rho_star_convention == "single-length":
-        return params.rho_star * sbp_bracket(ctx.plan, phi, state, bcd, 1.0, opts.bracket_c_kappa)
-    return sbp_bracket(ctx.plan, phi, state, bcd, params.rho_star, opts.bracket_c_kappa)
+    return params.rho_star * sbp_bracket(ctx.plan, phi, state, bcd, 1.0, opts.bracket_c_kappa)
 
 
 def curvature_operands(opts, state, wall, phi):
@@ -299,10 +286,8 @@ def curvature_operands(opts, state, wall, phi):
 
 
 def scatter_curvature(opts, params, state, rhs):
-    """Scale the curvature operator output by ``rho_star`` (single-length) and scatter it into the field slots of ``state``."""
-    if opts.rho_star_convention == "single-length":
-        rhs = params.rho_star * rhs
-    return jnp.zeros_like(state).at[..., list(opts.curvature_index)].set(rhs)
+    """Scale the curvature operator output by ``rho_star`` and scatter it into the field slots of ``state``."""
+    return jnp.zeros_like(state).at[..., list(opts.curvature_index)].set(params.rho_star * rhs)
 
 
 def _curvature_term(ctx, opts, params, state, wall, phi):

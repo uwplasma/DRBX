@@ -7,7 +7,7 @@ for the family-A n = 16 layout with a Zernike core) and ``short`` (a plan with f
 Further modes: ``curvature`` (``sharded_sbp_curvature`` against ``sbp_curvature``), ``laplacian`` (``sharded_laplacian_form`` /
 ``action``, Dirichlet and both Neumann data types, against the single-device form), ``cg`` (``sharded_solve_dirichlet`` against
 ``solve_dirichlet``) and ``laplacian_short`` (fewer than 4 planes per shard is rejected). ``nodal_rhs`` compares
-``sharded_nodal_perpendicular_rhs`` with ``nodal_perpendicular_rhs`` (prescribed ``phi``, potential solve, legacy convention).
+``sharded_nodal_perpendicular_rhs`` with ``nodal_perpendicular_rhs`` (prescribed ``phi``, potential solve, conormal Neumann with ``phi_plus_tau_ti`` at ``rho_star = 0.05``).
 """
 from __future__ import annotations
 
@@ -247,7 +247,7 @@ def nodal_rhs_case(n_eta=16, build_preconditioner=True):
 
 
 def run_nodal_rhs(n_eta=16, shard_counts=(1, 2, 4)) -> dict:
-    """Prescribed phi (physical-normal Neumann, source), potential solve (sigma and psi warm start) and one legacy case."""
+    """Prescribed phi (physical-normal Neumann, source), potential solve (sigma and psi warm start) and a conormal-Neumann solve."""
     lay, ctx, pts, wpts, state, value, normal = nodal_rhs_case(n_eta)
     N = ctx.lplan.structure.N
     phi = jnp.asarray(_smooth_phi(pts))
@@ -264,13 +264,12 @@ def run_nodal_rhs(n_eta=16, shard_counts=(1, 2, 4)) -> dict:
     psi_w = rhs_mod.psi_wall_data(opts_b, params.tau, jnp.asarray(_smooth_phi(wpts)), value[..., 0], value[..., 2])
     psi_x0 = jnp.asarray(0.8 * (np.asarray(phi) + 0.6 * np.asarray(state[..., 0] * state[..., 2])))
     cases["solve"] = (opts_b, params, rhs_mod.NodalWallData(value, normal, psi_w), dict(sigma=sigma, psi_x0=psi_x0, source=source))
-    # (c) legacy convention (bracket divisor, no rho_star in curvature and polarization), conormal Neumann, rho_star = 0.05
+    # (c) potential solve with sigma, conormal Neumann, psi = phi + tau Ti, rho_star = 0.05
     opts_c = rhs_mod.NodalPerpendicularOptions(diffusion_kinds=KINDS4, phi_mode="solve", phi_rtol=1e-11, phi_maxit=400,
-                                               rho_star_convention="legacy-bracket-only", neumann_mode="conormal",
-                                               psi="phi_plus_tau_ti")
+                                               neumann_mode="conormal", psi="phi_plus_tau_ti")
     params_c = params._replace(rho_star=jnp.asarray(0.05))
     psi_w_c = rhs_mod.psi_wall_data(opts_c, params.tau, jnp.asarray(_smooth_phi(wpts)), value[..., 0], value[..., 2])
-    cases["legacy"] = (opts_c, params_c, rhs_mod.NodalWallData(value, normal, psi_w_c), dict(sigma=sigma))
+    cases["conormal"] = (opts_c, params_c, rhs_mod.NodalWallData(value, normal, psi_w_c), dict(sigma=sigma))
     out = {"P": lay.P, "N": N}
     refs = {}
     for name, (o, prm, wall, kw) in cases.items():
