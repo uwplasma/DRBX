@@ -27,6 +27,7 @@ from ..native.fci_drb_rhs import FciDrbRhsParameters, FciDrbState, compute_fci_d
 from ..native.fci_neutral import compute_fci_neutral_reaction_diffusion
 from ..native.fci_sheath_recycling import compute_fci_sheath_recycling
 from .essos_imported_pytree_campaign import initial_essos_imported_drb_state
+from .essos_vmec_closed_field_transient_campaign import _strict_json_payload
 
 
 @dataclass(frozen=True)
@@ -84,25 +85,6 @@ ESSOS_IMPORTED_DRB_MOVIE_REFINEMENT_NEAR_TOLERANCE_FACTOR = 1.05
 ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_ITERATIONS = 768
 ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_REGULARIZATION = 5.0
 ESSOS_IMPORTED_DRB_MOVIE_DEFAULT_POTENTIAL_PRECONDITIONER: str | None = None
-
-
-def _strict_json_payload(value: Any) -> Any:
-    """Return a JSON-standards-compliant payload with nonfinite values as null."""
-
-    if isinstance(value, dict):
-        return {str(key): _strict_json_payload(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_strict_json_payload(item) for item in value]
-    if isinstance(value, np.ndarray):
-        return _strict_json_payload(value.tolist())
-    if isinstance(value, np.bool_):
-        return bool(value)
-    if isinstance(value, np.integer):
-        return int(value)
-    if isinstance(value, (float, np.floating)):
-        scalar = float(value)
-        return scalar if np.isfinite(scalar) else None
-    return value
 
 
 def _write_strict_json(path: Path, payload: Any) -> None:

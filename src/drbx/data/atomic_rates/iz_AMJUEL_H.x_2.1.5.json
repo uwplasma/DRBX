@@ -1,5 +1,5 @@
 {
-    "info": {
+    "info": {"amjuel_version": "Reiter et al., AMJUEL, version of January 13, 2020 (2.1.5/2.1.8 Sawada-Fujimoto fits refitted 2016-17 to T = 0.1-2e4 eV)", 
         "sigma_v_coeffs_ref": "Amjuel H.4 2.1.5, page 135",
         "sigma_v_E_coeffs_ref": "Amjuel H.10 2.1.5, page 280",
         "reaction_lbl": "h + e -> h+ + 2e",
