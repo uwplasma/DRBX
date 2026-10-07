@@ -10,6 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import numpy as np
 
+# Definitions identical to (and closure-equivalent with) the shared module;
+# re-exported here so existing import paths keep working.
+from ..geometry.fci_control_volumes import (  # noqa: F401
+    GlobalControlVolumeTopology3D,
+)
+
 def _quadratic_chart_exponents() -> tuple[tuple[int, int, int], ...]:
     """Deterministic total-degree-two monomials in ``(x, y, eta)``."""
 
@@ -470,104 +476,6 @@ def combine_volume_moments(
     aggregate_third = np.einsum("n,nijk->ijk", volume, translated_third)
     aggregate_third /= total_volume
     return total_volume, aggregate_centroid, aggregate_second, aggregate_third
-
-
-@dataclass(frozen=True)
-class GlobalControlVolumeTopology3D:
-    """Canonical aggregate ownership and unique external face topology."""
-
-    shape: tuple[int, int, int]
-    aggregate_id: np.ndarray
-    owner_index: np.ndarray
-    is_merge_source: np.ndarray
-    is_active_owner: np.ndarray
-    retained_cut_cell: np.ndarray
-    aggregate_volume: np.ndarray
-    aggregate_centroid: np.ndarray
-    aggregate_second_moment: np.ndarray
-    aggregate_third_moment: np.ndarray
-    face_id: np.ndarray
-    face_axis: np.ndarray
-    face_storage_index: np.ndarray
-    face_minus_aggregate_id: np.ndarray
-    face_plus_aggregate_id: np.ndarray
-    face_measure: np.ndarray
-
-    def __post_init__(self) -> None:
-        shape = tuple(int(value) for value in self.shape)
-        if len(shape) != 3 or any(value <= 0 for value in shape):
-            raise ValueError("shape must contain three positive dimensions")
-        cell_shape = shape
-        arrays = {
-            "aggregate_id": (self.aggregate_id, cell_shape, np.int64),
-            "owner_index": (self.owner_index, cell_shape + (3,), np.int32),
-            "is_merge_source": (self.is_merge_source, cell_shape, bool),
-            "is_active_owner": (self.is_active_owner, cell_shape, bool),
-            "retained_cut_cell": (self.retained_cut_cell, cell_shape, bool),
-            "aggregate_volume": (self.aggregate_volume, cell_shape, np.float64),
-            "aggregate_centroid": (
-                self.aggregate_centroid,
-                cell_shape + (3,),
-                np.float64,
-            ),
-            "aggregate_second_moment": (
-                self.aggregate_second_moment,
-                cell_shape + (3, 3),
-                np.float64,
-            ),
-            "aggregate_third_moment": (
-                self.aggregate_third_moment,
-                cell_shape + (3, 3, 3),
-                np.float64,
-            ),
-        }
-        for name, (value, expected_shape, dtype) in arrays.items():
-            array = np.asarray(value, dtype=dtype)
-            if array.shape != expected_shape:
-                raise ValueError(
-                    f"{name} must have shape {expected_shape}, got {array.shape}"
-                )
-            object.__setattr__(self, name, array)
-        face_arrays = {
-            "face_id": (self.face_id, np.int64),
-            "face_axis": (self.face_axis, np.int32),
-            "face_storage_index": (self.face_storage_index, np.int32),
-            "face_minus_aggregate_id": (
-                self.face_minus_aggregate_id,
-                np.int64,
-            ),
-            "face_plus_aggregate_id": (
-                self.face_plus_aggregate_id,
-                np.int64,
-            ),
-            "face_measure": (self.face_measure, np.float64),
-        }
-        count = None
-        for name, (value, dtype) in face_arrays.items():
-            array = np.asarray(value, dtype=dtype)
-            if name == "face_storage_index":
-                if array.ndim != 2 or array.shape[1:] != (3,):
-                    raise ValueError(
-                        "face_storage_index must have shape (face_count, 3)"
-                    )
-            else:
-                array = array.reshape((-1,))
-            if count is None:
-                count = array.shape[0]
-            elif array.shape[0] != count:
-                raise ValueError("global face arrays must have matching lengths")
-            object.__setattr__(self, name, array)
-        if not np.array_equal(
-            self.aggregate_id,
-            np.ravel_multi_index(
-                tuple(np.moveaxis(self.owner_index, -1, 0)), shape
-            ),
-        ):
-            raise ValueError("aggregate_id must equal the canonical owner index")
-        if np.any(self.is_merge_source & self.is_active_owner):
-            raise ValueError("a merge source cannot be an active owner")
-        if np.any(self.aggregate_volume[self.is_active_owner] <= 0.0):
-            raise ValueError("active aggregate owners need positive volume")
 
 
 @dataclass(frozen=True)
