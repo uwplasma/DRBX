@@ -50,6 +50,15 @@ from .fci_model import (
     inject_owned_state_to_halo,
 )
 
+# Definitions identical to (and closure-equivalent with) the shared module;
+# re-exported here so existing import paths keep working.
+from ...native.fci_halo import (  # noqa: F401
+    _trailing_slices,
+    GhostFillWeights1D,
+    _validate_axis_weights,
+    PreparedLocalState3D,
+)
+
 
 _pytree_base = jax.tree_util.register_pytree_node_class
 
@@ -70,14 +79,6 @@ def _validate_halo_spatial_prefix(
             f"got {field_halo.shape}, expected prefix {expected_shape}"
         )
     return field_halo
-
-
-def _trailing_slices(ndim: int) -> tuple[slice, ...]:
-    """Return full slices for every non-spatial axis of a field."""
-
-    if ndim < 3:
-        raise ValueError(f"a halo field must have at least three axes, got ndim={ndim}")
-    return (slice(None),) * (ndim - 3)
 
 
 def _distributed_half_turn(
@@ -1639,72 +1640,6 @@ def make_default_topology_halo_filler_3d(
 
 @_pytree_base
 @dataclass(frozen=True)
-class GhostFillWeights1D(_DataclassPyTreeMixin):
-    """Weights for one coordinate direction and one ghost-fill rule.
-
-    ``owned_weights[r, m]`` multiplies the ``m``-th owned cell inward from
-    the boundary when constructing ghost layer ``r``. ``bc_weights[r]``
-    multiplies the supplied boundary value. The weights are deliberately
-    supplied by the caller so they can encode nonuniform spacing and any
-    desired reconstruction order.
-    """
-
-    owned_weights: jnp.ndarray
-    bc_weights: jnp.ndarray
-
-    def __post_init__(self) -> None:
-        owned_weights = jnp.asarray(self.owned_weights, dtype=jnp.float64)
-        bc_weights = jnp.asarray(self.bc_weights, dtype=jnp.float64)
-        if owned_weights.ndim != 2:
-            raise ValueError(
-                "GhostFillWeights1D.owned_weights must have shape "
-                "(halo_width, stencil_width)"
-            )
-        if bc_weights.ndim != 1:
-            raise ValueError(
-                "GhostFillWeights1D.bc_weights must have shape (halo_width,)"
-            )
-        if bc_weights.shape[0] != owned_weights.shape[0]:
-            raise ValueError(
-                "GhostFillWeights1D.bc_weights length must match halo_width"
-            )
-        object.__setattr__(self, "owned_weights", owned_weights)
-        object.__setattr__(self, "bc_weights", bc_weights)
-
-    @property
-    def halo_width(self) -> int:
-        return int(self.owned_weights.shape[0])
-
-    @property
-    def stencil_width(self) -> int:
-        return int(self.owned_weights.shape[1])
-
-    def tree_flatten(self):
-        return (self.owned_weights, self.bc_weights), None
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        owned_weights, bc_weights = children
-        return cls(
-            owned_weights=owned_weights,
-            bc_weights=bc_weights,
-        )
-
-
-def _validate_axis_weights(
-    weights: tuple[GhostFillWeights1D, GhostFillWeights1D, GhostFillWeights1D],
-    name: str,
-) -> tuple[GhostFillWeights1D, GhostFillWeights1D, GhostFillWeights1D]:
-    weights = tuple(weights)
-    if len(weights) != 3:
-        raise ValueError(f"{name} must contain one weight set per axis")
-    if not all(isinstance(value, GhostFillWeights1D) for value in weights):
-        raise TypeError(f"{name} entries must be GhostFillWeights1D instances")
-    return weights  # type: ignore[return-value]
-
-
-@_pytree_base
-@dataclass(frozen=True)
 class PhysicalGhostCellFiller3D(_DataclassPyTreeMixin):
     """Fill regular-coordinate physical face ghost slabs.
 
@@ -2495,23 +2430,6 @@ class LocalHaloClosure3D(_DataclassPyTreeMixin):
             topology_filler=topology_filler,
             corner_filler=corner_filler,
         )
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class PreparedLocalState3D(_DataclassPyTreeMixin):
-    """Fully prepared local state and its model-shaped boundary payloads."""
-
-    state_halo: FciModelState
-    boundary_data: LocalBoundaryData3D
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.state_halo, FciModelState):
-            raise TypeError("PreparedLocalState3D.state_halo must be an FciModelState")
-        if not isinstance(self.boundary_data, LocalBoundaryData3D):
-            raise TypeError(
-                "PreparedLocalState3D.boundary_data must be a LocalBoundaryData3D"
-            )
 
 
 @_pytree_base
