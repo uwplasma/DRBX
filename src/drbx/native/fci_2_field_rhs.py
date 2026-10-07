@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from ..geometry.fci_geometry import _DataclassPyTreeMixin
 from ..geometry import (
     FciGeometry3D,
     LocalFciGeometry3D,
@@ -34,33 +35,15 @@ class Fci2FieldState(FciModelState):
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class Fci2FieldRhsParameters:
+class Fci2FieldRhsParameters(_DataclassPyTreeMixin):
     """Placeholder parameter bundle for the reduced two-field FCI model."""
 
     rho_star: float = 1.0
 
-    def tree_flatten(self):
-        return ((self.rho_star,), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        (rho_star,) = children
-        return cls(rho_star=rho_star)
-
-
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class Fci2FieldRhsResult:
+class Fci2FieldRhsResult(_DataclassPyTreeMixin):
     rhs: Fci2FieldState
-
-    def tree_flatten(self):
-        return ((self.rhs,), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        (rhs,) = children
-        return cls(rhs=rhs)
-
 
 def compute_2field_rhs(
     state: Fci2FieldState,

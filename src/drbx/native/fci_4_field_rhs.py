@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from ..geometry.fci_geometry import _DataclassPyTreeMixin
 from ..geometry import (
     ConservativeStencilBuilder,
     FciGeometry3D,
@@ -21,6 +22,7 @@ from .fci_boundaries import (
     FourFieldBoundaryConditions,
 )
 from .fci_operators import (
+    _cell_volume_weights,
     PerpLaplacianInverseSolver,
     PerpLaplacianMgHierarchy,
     curvature_op,
@@ -41,7 +43,7 @@ class Fci4FieldState(FciModelState):
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class Fci4FieldRhsParameters:
+class Fci4FieldRhsParameters(_DataclassPyTreeMixin):
     """Physical and inversion parameters for the four-field model."""
 
     rho_star: float = 1.0
@@ -52,45 +54,9 @@ class Fci4FieldRhsParameters:
     phi_inversion_restart: int = 50
     phi_inversion_regularization: float = 0.0
 
-    def tree_flatten(self):
-        return (
-            (
-                self.rho_star,
-                self.Te,
-                self.mi_over_me,
-                self.phi_inversion_tol,
-                self.phi_inversion_maxiter,
-                self.phi_inversion_restart,
-                self.phi_inversion_regularization,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        (
-            rho_star,
-            Te,
-            mi_over_me,
-            phi_inversion_tol,
-            phi_inversion_maxiter,
-            phi_inversion_restart,
-            phi_inversion_regularization,
-        ) = children
-        return cls(
-            rho_star=rho_star,
-            Te=Te,
-            mi_over_me=mi_over_me,
-            phi_inversion_tol=phi_inversion_tol,
-            phi_inversion_maxiter=phi_inversion_maxiter,
-            phi_inversion_restart=phi_inversion_restart,
-            phi_inversion_regularization=phi_inversion_regularization,
-        )
-
-
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class Fci4FieldFreeDecayParameters:
+class Fci4FieldFreeDecayParameters(_DataclassPyTreeMixin):
     """Four-field free-decay parameters, including perpendicular diffusion."""
 
     rho_star: float = 1.0
@@ -116,57 +82,9 @@ class Fci4FieldFreeDecayParameters:
             phi_inversion_regularization=self.phi_inversion_regularization,
         )
 
-    def tree_flatten(self):
-        return (
-            (
-                self.rho_star,
-                self.Te,
-                self.mi_over_me,
-                self.phi_inversion_tol,
-                self.phi_inversion_maxiter,
-                self.phi_inversion_restart,
-                self.phi_inversion_regularization,
-                self.density_perp_diffusion,
-                self.omega_perp_diffusion,
-                self.v_ion_parallel_perp_diffusion,
-                self.v_electron_parallel_perp_diffusion,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        (
-            rho_star,
-            Te,
-            mi_over_me,
-            phi_inversion_tol,
-            phi_inversion_maxiter,
-            phi_inversion_restart,
-            phi_inversion_regularization,
-            density_perp_diffusion,
-            omega_perp_diffusion,
-            v_ion_parallel_perp_diffusion,
-            v_electron_parallel_perp_diffusion,
-        ) = children
-        return cls(
-            rho_star=rho_star,
-            Te=Te,
-            mi_over_me=mi_over_me,
-            phi_inversion_tol=phi_inversion_tol,
-            phi_inversion_maxiter=phi_inversion_maxiter,
-            phi_inversion_restart=phi_inversion_restart,
-            phi_inversion_regularization=phi_inversion_regularization,
-            density_perp_diffusion=density_perp_diffusion,
-            omega_perp_diffusion=omega_perp_diffusion,
-            v_ion_parallel_perp_diffusion=v_ion_parallel_perp_diffusion,
-            v_electron_parallel_perp_diffusion=v_electron_parallel_perp_diffusion,
-        )
-
-
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class Fci4FieldBlobParameters:
+class Fci4FieldBlobParameters(_DataclassPyTreeMixin):
     """Four-field blob/interchange parameters."""
 
     rho_star: float = 1.0
@@ -192,67 +110,10 @@ class Fci4FieldBlobParameters:
             phi_inversion_regularization=self.phi_inversion_regularization,
         )
 
-    def tree_flatten(self):
-        return (
-            (
-                self.rho_star,
-                self.Te,
-                self.mi_over_me,
-                self.phi_inversion_tol,
-                self.phi_inversion_maxiter,
-                self.phi_inversion_restart,
-                self.phi_inversion_regularization,
-                self.density_perp_diffusion,
-                self.omega_perp_diffusion,
-                self.v_ion_parallel_perp_diffusion,
-                self.v_electron_parallel_perp_diffusion,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        (
-            rho_star,
-            Te,
-            mi_over_me,
-            phi_inversion_tol,
-            phi_inversion_maxiter,
-            phi_inversion_restart,
-            phi_inversion_regularization,
-            density_perp_diffusion,
-            omega_perp_diffusion,
-            v_ion_parallel_perp_diffusion,
-            v_electron_parallel_perp_diffusion,
-        ) = children
-        return cls(
-            rho_star=rho_star,
-            Te=Te,
-            mi_over_me=mi_over_me,
-            phi_inversion_tol=phi_inversion_tol,
-            phi_inversion_maxiter=phi_inversion_maxiter,
-            phi_inversion_restart=phi_inversion_restart,
-            phi_inversion_regularization=phi_inversion_regularization,
-            density_perp_diffusion=density_perp_diffusion,
-            omega_perp_diffusion=omega_perp_diffusion,
-            v_ion_parallel_perp_diffusion=v_ion_parallel_perp_diffusion,
-            v_electron_parallel_perp_diffusion=v_electron_parallel_perp_diffusion,
-        )
-
-
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class Fci4FieldRhsResult:
+class Fci4FieldRhsResult(_DataclassPyTreeMixin):
     rhs: Fci4FieldState
-
-    def tree_flatten(self):
-        return ((self.rhs,), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        (rhs,) = children
-        return cls(rhs=rhs)
-
 
 _FOUR_FIELD_FACE_BC_NAMES = (
     "phi_face_bc",
@@ -289,15 +150,6 @@ def _resolve_four_field_bcs(
             f"also passed explicitly: {', '.join(conflicts)}"
         )
     return boundary_conditions
-
-
-def _cell_volume_weights(geometry: FciGeometry3D) -> jnp.ndarray:
-    return (
-        jnp.asarray(geometry.cell_metric.J, dtype=jnp.float64)
-        * jnp.asarray(geometry.spacing.dx, dtype=jnp.float64)
-        * jnp.asarray(geometry.spacing.dy, dtype=jnp.float64)
-        * jnp.asarray(geometry.spacing.dz, dtype=jnp.float64)
-    )
 
 
 def _weighted_mean(field: jnp.ndarray, geometry: FciGeometry3D) -> jnp.ndarray:

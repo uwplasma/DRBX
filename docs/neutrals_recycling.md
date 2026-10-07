@@ -58,64 +58,95 @@ metric-Jacobian-weighted volume, and that on the **open** slab the Bohm-sheath
 recycling turns the target ion flux into a neutral source matching the recycled
 accounting (residuals ~1e-16), landing only on the two open target planes.
 
-## Self-consistent detachment (B6)
+## SD1D-matched detachment model (B6)
 
 [`detachment_sol_model`](../src/drbx/native/neutrals/detachment_sol_model.py)
-evolves the plasma pressure as well, so the target temperature responds
-self-consistently to the plasma conditions -- the ingredient a detachment study
-needs. It adds **Spitzer parallel conduction** `kappa ~ T^{5/2}` solved
-implicitly (a solvax tridiagonal, so the stiff parabolic heat transport is
-unconditionally stable) and a **self-limiting radiative / ionization energy
-loss** (applied semi-implicitly, `P <- P / (1 + dt * loss_rate)`, so the loss
-cannot drive the pressure negative and switches off as the plasma cools), on top
-of the Bohm sheath heat sink and the recycling neutral coupling.
+reproduces SD1D (Dudson et al., *PPCF* 61, 065008 (2019); source commit
+e4417531) term by term for the hydrogen-only, fixed-ionisation-cost
+configuration: density, momentum and pressure (`P = 2NT`, `Te = Ti`) for the
+plasma; density, momentum and pressure for the neutrals; SD1D's flux-split
+MinMod advection, area-weighted finite volumes on the stretched grid, upwinded
+Spitzer conduction with no flux limiter, SD1D's own hydrogen rate fits
+(`UpdatedRadiatedPower`: Janev ionisation, AMJUEL-form recombination with
+radiative and three-body terms, CX at 10 eV) integrated with SD1D's Simpson rule,
+neutral diffusion `dneut vth^2/(nu_cx + nu_iz + nu_nn)` with the 0.1 m
+mean-free-path cap and 0.5 eV floor, the sheath outflow `max(c_s, V)` with
+linearly extrapolated density and pressure and no conduction through the target
+face (so `gamma = 6` is the total energy flux), recycling of the actual target
+flux at 3.5 eV, and the upstream particle/power sources over the first 10 m. The
+module docstring is the equation ledger. SD1D's PI density controller is
+replaced, at steady state, by its fixed point: the constraint `N_0 = n_up` with
+the source amplitude as an extra unknown.
 
-![B6 detachment rollover](media/b6_detachment.png)
+The steady state is found by pseudo-transient continuation (backward-Euler
+steps solved by Newton with the exact Jacobian, assembled from 30 colored
+forward-mode products in 2-cell block-tridiagonal form and bordered by the
+source/constraint pair). The run reports the scaled steady residual
+`max_v ||dU_v/dt|| tau / ||U_v||` (`tau` = sound transit time), typically
+1e-10 to 1e-8; an 800-cell solve takes about 3 s warm-started and 20 s cold on
+a laptop CPU.
 
-Scanning the upstream density at fixed upstream power reproduces the classic
-SD1D detachment picture (Dudson et al., *PPCF* 61, 065008 (2019)): the target
-cools from an attached hot target through a sharp thermal collapse into the
-recombining regime **below 1 eV**, and the target ion flux rises then **rolls
-over** — on the shipped scan the rollover sits at upstream density
-`n_up = 8` with a **23% flux reduction** in the deepest detached point. The gate
-[`tests/test_native_detachment_sol.py`](../tests/test_native_detachment_sol.py)
-pins the monotonic cooling, the attached/detached temperatures, the flux
-rollover, and differentiability; the example
-[`examples/benchmarks/b6_detachment_rollover.py`](../examples/benchmarks/b6_detachment_rollover.py)
-draws the figure. The whole solve is differentiable, so the detachment front
-responds to `jax.grad` -- the basis for gradient-based detachment control.
+![B6 SD1D 13.6 eV scan](media/b6_detachment.png)
+
+**What is verified** (`tests/test_native_detachment_sol.py`; slow tests marked):
+
+| check | result |
+|---|---|
+| SD1D's own 2e19 final state in this module's residual | 0.05, vs 30-2000 with one ingredient changed (Eiz 30 eV, no CX, frecycle 0.98, dneut 5) |
+| SD1D 13.6eV scan, 18 steady points 1.7-7.0e19, 800 cells | T_t within 0.35%, Gamma_t A_t within 0.15% (tolerance 1%) |
+| profiles at 2e19 and 5e19 (800 cells) | N, T within 5e-4; Mach within 1.2e-3; Nn within 2.3e-3 where Nn > 1e-3 of its peak |
+| steady particle and power ledgers | close to 1e-8 or better, machine precision at residual < 1e-9 (source + net ionisation = target flux; input = target advected power + radiation + transfer to neutrals + compression work) |
+| implicit gradient of T_t and Gamma_t A_t w.r.t. n_up and power | jacfwd = grad; central differences converge at second order to 3e-6 |
+
+The scan does **not** roll over: with hydrogen only and a 13.6 eV ionisation
+cost the target cools from 29 eV to 3.4 eV while the flux keeps rising. SD1D's
+rollover needs the impurity radiation and excitation of the paper's baseline,
+which this module does not include. SD1D's 7.5e19 restart is not a steady
+state (no PI integral saved, residual ~100x the others); there DRBX gives
+3.43 eV against SD1D's 3.13 eV.
+
+**Grid convergence** (SD1D's nonuniform grid, last-cell values):
+
+| n_up | T_t (100/200/400/800/1600 cells) | 800 vs 1600 | observed order (400-800-1600) |
+|---|---|---|---|
+| 2.0e19 | 15.50 / 18.74 / 20.25 / 21.30 / 21.96 eV | 3.0% | 0.7 |
+| 4.0e19 | 5.04 / 5.65 / 5.94 / 6.20 / 6.39 eV | 2.9% | 0.45 |
+| 7.0e19 | 3.17 / 3.43 / 3.53 / 3.62 / 3.69 eV | 2.1% | 0.1 |
+
+Gamma_t A_t changes 2.3-4.0% from 800 to 1600 cells. The last-cell quantities
+converge slowly because the flow accelerates to the sound speed at the target
+face and the last cell shrinks with resolution (last-cell Mach 0.77 -> 0.85 at
+2e19). The 800-cell numbers therefore match SD1D's 800-cell runs, not a
+grid-converged limit; SD1D's published values carry the same few-percent
+resolution dependence. Upstream temperature changes by 0.2%.
 
 ## Gradient-based detachment control
 
-Because the detaching solve is differentiable, the exhaust-control problem
-becomes a gradient computation: find the upstream density that places the
-target exactly at the 1 eV detachment threshold. The sensitivity
-`dTe_target/dn_up` comes from forward-mode autodiff through the entire
-20,000-step stiff solve, and a trust-region Newton iteration (contracting when
-the residual changes sign, since the detachment cliff is steeper than any local
-derivative) converges onto the threshold in ~11 solves:
+The sensitivity of the steady target temperature to the upstream density
+(or power) comes from the implicit-function theorem at the converged state
+(`detachment_target_outputs`, `jax.custom_jvp` + `lax.custom_linear_solve`
+with the transposed block solve; call outside `jit`). The example finds the
+upstream density that gives a requested target temperature with Newton steps
+on `ln T_t` (four solves from 2e19 to 10.000 eV on 200 cells) and checks the
+derivative against a central difference (3e-5):
 
 ![Detachment control](media/detachment_control.png)
 
 The gate [`tests/test_detachment_control.py`](../tests/test_detachment_control.py)
-verifies the autodiff sensitivity against a central finite difference (to 1e-4)
-in the attached regime and the sign of the physics (raising the upstream
-density cools the target). Reproduce with
-`examples/autodiff/detachment_control.py`.
+checks that one Newton step with the implicit derivative lands within 1% of a
+requested temperature. Reproduce with `examples/autodiff/detachment_control.py`.
 
 ## Reproduce
 
-Both examples are flat scripts: the physically meaningful knobs —
-`PlasmaNormalization(Tnorm=...)`, the connection length, the conduction and
-sheath-transmission coefficients, recycling fraction, and the density scans —
-are top-of-file constants. They print stage-by-stage progress (setup block,
-per-chunk relaxation lines with target Mach/flux/temperature, per-density
-convergence lines, and the final rollover summary).
+The examples are flat scripts with their knobs as top-of-file constants. The
+B6 script prints, per density, the Newton iterations, the steady residual, the
+SD1D comparison, and the particle/power ledger closures.
 
 ```bash
 PYTHONPATH=src python examples/sol/recycling_sol.py
-PYTHONPATH=src python examples/benchmarks/b6_detachment_rollover.py
+PYTHONPATH=src python examples/benchmarks/b6_detachment_sd1d.py
 pytest -q tests/test_native_atomic_rates.py tests/test_native_reactions.py \
           tests/test_native_recycling_sol.py tests/test_fci_neutrals_3d.py \
           tests/test_native_detachment_sol.py
+pytest -q -m slow tests/test_native_detachment_sol.py   # SD1D scan, profiles, grid convergence
 ```

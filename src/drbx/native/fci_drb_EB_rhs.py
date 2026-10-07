@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
+from ..geometry.fci_geometry import _DataclassPyTreeMixin
 from ..geometry import (
     ConservativeStencilBuilder,
     FciGeometry3D,
@@ -46,7 +47,7 @@ class FciDrbEBState(FciModelState):
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class FciDrbEBBoundaryConditions:
+class FciDrbEBBoundaryConditions(_DataclassPyTreeMixin):
     """Per-field boundary payload for the electrostatic Boussinesq DRB model."""
 
     density_face_bc: BoundaryFaceBC3D
@@ -64,35 +65,9 @@ class FciDrbEBBoundaryConditions:
     Ve_face_bc: BoundaryFaceBC3D
     Ve_cut_wall_bc: CutWallBC3D
 
-    def tree_flatten(self):
-        return (
-            (
-                self.density_face_bc,
-                self.density_cut_wall_bc,
-                self.potential_face_bc,
-                self.potential_cut_wall_bc,
-                self.vorticity_face_bc,
-                self.vorticity_cut_wall_bc,
-                self.Te_face_bc,
-                self.Te_cut_wall_bc,
-                self.Ti_face_bc,
-                self.Ti_cut_wall_bc,
-                self.Vi_face_bc,
-                self.Vi_cut_wall_bc,
-                self.Ve_face_bc,
-                self.Ve_cut_wall_bc,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class FciDrbEBRhsParameters:
+class FciDrbEBRhsParameters(_DataclassPyTreeMixin):
     """Physical normalization constants for the electrostatic Boussinesq DRB scaffold."""
 
     n0: float = 1.0
@@ -119,105 +94,12 @@ class FciDrbEBRhsParameters:
     vorticity_D_perp: float = 0.0
     vorticity_D_parallel: float = 0.0
 
-    def tree_flatten(self):
-        return (
-            (
-                self.n0,
-                self.Te0,
-                self.Ti0,
-                self.cs_0,
-                self.rhos_s0,
-                self.tau,
-                self.mi_over_me,
-                self.rho_star,
-                self.phi_inversion_iterations,
-                self.phi_inversion_regularization,
-                self.density_D_perp,
-                self.density_D_parallel,
-                self.electron_temperature_chi_parallel,
-                self.electron_temperature_D_perp,
-                self.ion_temperature_chi_parallel,
-                self.ion_temperature_D_perp,
-                self.Ve_nu,
-                self.Ve_D_perp,
-                self.Ve_D_parallel,
-                self.Vi_D_perp,
-                self.Vi_D_parallel,
-                self.vorticity_D_perp,
-                self.vorticity_D_parallel,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        (
-            n0,
-            Te0,
-            Ti0,
-            cs_0,
-            rhos_s0,
-            tau,
-            mi_over_me,
-            rho_star,
-            phi_inversion_iterations,
-            phi_inversion_regularization,
-            density_D_perp,
-            density_D_parallel,
-            electron_temperature_chi_parallel,
-            electron_temperature_D_perp,
-            ion_temperature_chi_parallel,
-            ion_temperature_D_perp,
-            Ve_nu,
-            Ve_D_perp,
-            Ve_D_parallel,
-            Vi_D_perp,
-            Vi_D_parallel,
-            vorticity_D_perp,
-            vorticity_D_parallel,
-        ) = children
-        return cls(
-            n0=n0,
-            Te0=Te0,
-            Ti0=Ti0,
-            cs_0=cs_0,
-            rhos_s0=rhos_s0,
-            tau=tau,
-            mi_over_me=mi_over_me,
-            rho_star=rho_star,
-            phi_inversion_iterations=phi_inversion_iterations,
-            phi_inversion_regularization=phi_inversion_regularization,
-            density_D_perp=density_D_perp,
-            density_D_parallel=density_D_parallel,
-            electron_temperature_chi_parallel=electron_temperature_chi_parallel,
-            electron_temperature_D_perp=electron_temperature_D_perp,
-            ion_temperature_chi_parallel=ion_temperature_chi_parallel,
-            ion_temperature_D_perp=ion_temperature_D_perp,
-            Ve_nu=Ve_nu,
-            Ve_D_perp=Ve_D_perp,
-            Ve_D_parallel=Ve_D_parallel,
-            Vi_D_perp=Vi_D_perp,
-            Vi_D_parallel=Vi_D_parallel,
-            vorticity_D_perp=vorticity_D_perp,
-            vorticity_D_parallel=vorticity_D_parallel,
-        )
-
-
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class FciDrbEBRhsResult:
+class FciDrbEBRhsResult(_DataclassPyTreeMixin):
     rhs: FciDrbEBState
     potential: jax.Array
     potential_residual_l2: jax.Array
-
-    def tree_flatten(self):
-        return ((self.rhs, self.potential, self.potential_residual_l2), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        rhs, potential, potential_residual_l2 = children
-        return cls(rhs=rhs, potential=potential, potential_residual_l2=potential_residual_l2)
-
 
 def _multiply_local_stencils(left: LocalStencil3D, right: LocalStencil3D) -> LocalStencil3D:
     """Multiply two boundary-complete local stencils pointwise."""
