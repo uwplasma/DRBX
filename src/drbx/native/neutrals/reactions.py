@@ -7,7 +7,9 @@ momentum, ``Tn``), following the hermes-3 hydrogen reaction closure. Particle,
 momentum, and (thermal) energy transfers use the Galilean-invariant form: each
 particle transfer carries the source species' momentum ``m V`` and thermal
 energy ``1.5 T``, and charge exchange adds a frictional heating ``0.5 m R dV^2``
-from the ion-atom velocity difference. The electron channel is the ionization
+from the ion-atom velocity difference; ionization and recombination
+heat the receiving fluid by the bulk kinetic energy their momentum transfer
+removes, so thermal plus kinetic energy is conserved. The electron channel is the ionization
 cost / recombination radiation from the AMJUEL energy-loss fits.
 
 All fields are in hermes-3 normalized units (density / ``Nnorm``, temperature /
@@ -125,6 +127,10 @@ def compute_hydrogen_reaction_sources(
     cx_ion_thermal = 1.5 * charge_exchange_rate * ion_temperature
     velocity_delta = ion_velocity - neutral_velocity
     cx_frictional_heat = 0.5 * mass * charge_exchange_rate * velocity_delta**2
+    # Receiver-fluid mixing heat: a particle born with the donor's mean velocity
+    # thermalizes the bulk kinetic energy lost by the pair.
+    ionization_mixing_heat = 0.5 * mass * ionization_rate * velocity_delta**2
+    recombination_mixing_heat = 0.5 * mass * recombination_rate * velocity_delta**2
 
     ion_density_source = ionization_rate - recombination_rate
     neutral_density_source = -ionization_rate + recombination_rate
@@ -140,6 +146,7 @@ def compute_hydrogen_reaction_sources(
         + cx_neutral_thermal
         - cx_ion_thermal
         + cx_frictional_heat
+        + ionization_mixing_heat
     )
     neutral_energy_source = (
         -ionization_energy_transfer
@@ -147,6 +154,7 @@ def compute_hydrogen_reaction_sources(
         - cx_neutral_thermal
         + cx_ion_thermal
         + cx_frictional_heat
+        + recombination_mixing_heat
     )
     electron_energy_source = -ionization_radiation - recombination_radiation
 

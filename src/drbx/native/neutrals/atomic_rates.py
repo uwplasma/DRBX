@@ -10,8 +10,11 @@ transparent; the coefficient tables ship with the package under
 hermes-3 database provenance), so there is no runtime external dependency.
 
 Temperatures are in eV and densities in m^-3; rate coefficients are returned in
-m^3 / s. The AMJUEL fits are clamped to their fitted range
-(``T in [0.1, 1e4] eV``, ``n in [1e14, 1e22] m^-3``).
+m^3 / s. The hydrogen fits (H.4/H.10 2.1.5 and 2.1.8, H.2 3.1.8) are those of
+the AMJUEL report version of January 13, 2020; the 2011 version differs by up
+to ~5% in recombination. Inputs are clamped to ``T in [0.1, 1e4] eV`` and
+``n in [1e14, 1e22] m^-3`` (the 2020 ionisation/recombination fits extend to
+2e4 eV; the density range is the report's 1e8-1e16 cm^-3).
 """
 
 from __future__ import annotations

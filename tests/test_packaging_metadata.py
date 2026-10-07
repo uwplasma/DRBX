@@ -42,8 +42,11 @@ def test_pyproject_dependencies_are_unpinned() -> None:
         for item in project_dependencies
         if _package_name(item) not in _VERSION_FLOOR_EXCEPTIONS
     )
-    for items in optional_dependencies.values():
-        assert all(not _has_version_specifier(item) for item in items)
+    for name, items in optional_dependencies.items():
+        if name == "essos":
+            assert items == ["essos>=0.19.4"]
+        else:
+            assert all(not _has_version_specifier(item) for item in items)
 
 
 def test_core_runtime_dependencies_are_installed_by_default() -> None:

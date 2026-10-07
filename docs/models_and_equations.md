@@ -261,41 +261,49 @@ hot-upstream/cold-target temperature profile) to a recycled neutral density:
   update (stable against the stiff ionization source),
 - charge-exchange + recombination friction dragging the ion flow.
 
-### Self-consistent detachment
+### SD1D-matched detachment
 
 [`detachment_sol_model.py`](../src/drbx/native/neutrals/detachment_sol_model.py)
-also evolves the plasma pressure \(P\), adding
+reproduces SD1D (Dudson et al. 2019) for hydrogen with a fixed ionisation cost.
+With \(P = 2NT\), area \(A(l)\), and SD1D normalisation,
 
 $$
-\partial_t P \supset
-\partial_z\!\left(\kappa_0\, T^{5/2}\, \partial_z T\right)
-\;-\; n_e\, n_Z\, L(T)\; -\; \gamma\, n\, c_s\, T\big|_{\mathrm{target}}
-\;+\; S_P ,
+\begin{aligned}
+\partial_t N &= -\tfrac{1}{A}\partial_l(A N V) + S + s\,S_N,\\
+\partial_t (NV) &= -\tfrac{1}{A}\partial_l(A N V^2) - \partial_l P - F,\\
+\partial_t P &= -\tfrac{1}{A}\partial_l(A P V) - \tfrac23 P\,\partial_l V
+ + \tfrac23\tfrac{1}{A}\partial_l(A\kappa_\parallel \partial_l T) - \tfrac23(R + E) + S_P,
+\end{aligned}
 $$
 
-with **Spitzer parallel conduction** \(\kappa \sim T^{5/2}\) solved implicitly
-(solvax tridiagonal), the **self-limiting** radiative/ionization energy sink
-applied semi-implicitly as \(P \leftarrow P / (1 + \Delta t\,
-\mathrm{loss\ rate})\) (cannot drive \(P < 0\), switches off as the plasma
-cools), a Bohm sheath heat sink \(\gamma\, n c_s T\) at the target, and an
-upstream power source. Scanning upstream density at fixed power reproduces the
-SD1D detachment signature: the target cools through 1 eV into the recombining
-regime and the target ion flux **rolls over**.
+and the neutral density, momentum and pressure equations with diffusion
+\(D_n = d_n v_{th}^2/\nu\), with SD1D's discretisation, rates (its own fits,
+not AMJUEL), sheath and recycling closures; the compression and pressure-gradient
+terms carry no area factor, as in SD1D. Here \(S\) is the ionisation minus
+recombination source, \(R\) the ionisation cost plus recombination radiation,
+\(E\) the energy transfer to neutrals, \(F\) the friction, and \(s\) the
+particle-source amplitude fixed by \(N_0 = n_{up}\). The module docstring is
+the term ledger; [Neutrals and Recycling](neutrals_recycling.md) has the
+verification against the SD1D 13.6 eV scan (0.35% in \(T_t\) at 800 cells),
+ledgers, grid convergence and gradient checks.
 
 - **Unknowns:** \(n_i\), \(m_i = A\, n_i v\), \(n_n\) (recycling model);
-  plus \(P\) (detachment model).
+  \(N, NV, P, N_n, N_nV_n, P_n\) plus the source amplitude (detachment model,
+  SD1D normalisation).
 - **Normalization:** hermes-3 units — density\(/N_{\mathrm{norm}}\),
   temperature\(/T_{\mathrm{norm}}\) (eV), velocity over the reference sound
   speed; the atomic rates use physical units internally
   (`PlasmaNormalization`).
-- **Boundary conditions:** upstream density Dirichlet-pinned at the
-  stagnation point, Bohm outflow at the target, recycled-neutral influx at the
-  target.
+- **Boundary conditions:** recycling model: upstream density Dirichlet-pinned,
+  Bohm outflow and recycled-neutral influx at the target. Detachment model:
+  upstream symmetry with the density held by the particle source, SD1D sheath
+  (\(V \ge c_s\), extrapolated \(N, P\), no conduction through the face) and
+  recycling at 3.5 eV.
 - **Gates:** `tests/test_native_atomic_rates.py`,
   `tests/test_native_reactions.py`, `tests/test_native_recycling_sol.py`,
   `tests/test_native_detachment_sol.py`, `tests/test_fci_neutrals_3d.py`
-  (3-D FCI coupling), `tests/test_detachment_control.py` (autodiff through
-  the stiff solve). Page: [Neutrals and Recycling](neutrals_recycling.md).
+  (3-D FCI coupling), `tests/test_detachment_control.py` (implicit
+  derivative of the steady state). Page: [Neutrals and Recycling](neutrals_recycling.md).
 
 The compact 3-D neutral reaction-diffusion component used by the combined FCI
 RHS lives in [`native/fci_neutral.py`](../src/drbx/native/fci_neutral.py)

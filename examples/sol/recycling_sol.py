@@ -72,7 +72,7 @@ OUTPUT_DIR = Path("output/recycling_sol")  # PNG + JSON summary land here
 # Simulation setup: prescribed temperature profile and the relaxation driver.
 # The temperature closure is *imposed* (quadratic hot upstream -> cold target),
 # which sidesteps the stiff conduction/radiation energy balance; the
-# self-consistent version is examples/benchmarks/b6_detachment_rollover.py.
+# self-consistent version is examples/benchmarks/b6_detachment_sd1d.py.
 # ----------------------------------------------------------------------------
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 temperature = linear_target_temperature_profile(

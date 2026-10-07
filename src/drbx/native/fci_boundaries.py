@@ -78,15 +78,6 @@ class LocalBoundaryData3D(_DataclassPyTreeMixin):
                 "LocalBoundaryData3D.cut_wall_bc must be an FciFieldBundle or None"
             )
 
-    def tree_flatten(self):
-        return ((self.face_bc, self.cut_wall_bc), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        face_bc, cut_wall_bc = children
-        return cls(face_bc=face_bc, cut_wall_bc=cut_wall_bc)
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
@@ -143,7 +134,7 @@ class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class CoordinateFaceValueReconstructor3D:
+class CoordinateFaceValueReconstructor3D(_DataclassPyTreeMixin):
     """Dense coordinate-face value reconstructor for cell-centered fields."""
 
     def extrapolate(
@@ -258,14 +249,6 @@ class CoordinateFaceValueReconstructor3D:
             z_faces = z_faces.at[:, :, -1].set(values[:, :, -1] + 0.5 * dz[:, :, -1] * gz[:, :, -1])
         return x_faces, y_faces, z_faces
 
-    def tree_flatten(self):
-        return (), None
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls()
-
-
 def _local_coordinate_face_values_from_halo(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
@@ -373,14 +356,6 @@ class LocalCoordinateSideValues1D(_DataclassPyTreeMixin):
             mask_upper=updates.get("mask_upper", self.mask_upper),
         )
 
-    def tree_flatten(self):
-        return ((self.lower, self.upper, self.mask_lower, self.mask_upper), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalCoordinateSideValues3D(_DataclassPyTreeMixin):
@@ -410,14 +385,6 @@ class LocalCoordinateSideValues3D(_DataclassPyTreeMixin):
             z=updates.get("z", self.z),
         )
 
-    def tree_flatten(self):
-        return ((self.x, self.y, self.z), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 def _local_side_samples(
     field_halo: jnp.ndarray,
     layout: HaloLayout3D,
@@ -443,42 +410,6 @@ def _local_side_samples(
     base = h if side == 0 else h + nz - 1
     step = 1 if side == 0 else -1
     return [values[h : h + nx, h : h + ny, base + step * i] for i in range(sample_count)]
-
-
-def _local_coordinate_side_values_from_array(
-    values: jnp.ndarray,
-    geometry: LocalFciGeometry3D,
-    layout: HaloLayout3D,
-    *,
-    name: str,
-) -> LocalCoordinateSideValues3D:
-    values = _as_float64_array(values, name)
-    if values.shape != layout.cell_halo_shape:
-        raise ValueError(f"{name} must have shape {layout.cell_halo_shape}, got {values.shape}")
-    if geometry.layout != layout:
-        raise ValueError("geometry and layout must share the same HaloLayout3D")
-    nx, ny, nz = layout.owned_shape
-    h = layout.halo_width
-    return LocalCoordinateSideValues3D(
-        x=LocalCoordinateSideValues1D(
-            lower=values[h - 1 : h, h : h + ny, h : h + nz][0],
-            upper=values[h + nx : h + nx + 1, h : h + ny, h : h + nz][0],
-            mask_lower=jnp.ones((ny, nz), dtype=bool),
-            mask_upper=jnp.ones((ny, nz), dtype=bool),
-        ),
-        y=LocalCoordinateSideValues1D(
-            lower=values[h : h + nx, h - 1 : h, h : h + nz][:, 0, :],
-            upper=values[h : h + nx, h + ny : h + ny + 1, h : h + nz][:, 0, :],
-            mask_lower=jnp.ones((nx, nz), dtype=bool),
-            mask_upper=jnp.ones((nx, nz), dtype=bool),
-        ),
-        z=LocalCoordinateSideValues1D(
-            lower=values[h : h + nx, h : h + ny, h - 1 : h][:, :, 0],
-            upper=values[h : h + nx, h : h + ny, h + nz : h + nz + 1][:, :, 0],
-            mask_lower=jnp.ones((nx, ny), dtype=bool),
-            mask_upper=jnp.ones((nx, ny), dtype=bool),
-        ),
-    )
 
 
 @_pytree_base
@@ -638,17 +569,9 @@ class LocalCoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
             ),
         )
 
-    def tree_flatten(self):
-        return ((self.dnormal_weights, self.d2normal_weights), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @_pytree_base
 @dataclass(frozen=True)
-class CoordinateNormalDerivativeConstructor3D:
+class CoordinateNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
     """Dense coordinate-boundary normal derivative constructor.
 
     The stored weights have shape ``(3, 2, 4)``:
@@ -849,14 +772,6 @@ class CoordinateNormalDerivativeConstructor3D:
 
         return (dfn_x, dfn_y, dfn_z), (d2fn_x, d2fn_y, d2fn_z)
 
-    def tree_flatten(self):
-        return ((self.dnormal_weights, self.d2normal_weights), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class CutWallValueReconstructor3D:
@@ -938,7 +853,7 @@ class CutWallValueReconstructor3D:
 
 @_pytree_base
 @dataclass(frozen=True)
-class CutWallNormalDerivativeConstructor3D:
+class CutWallNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
     """Batched cut-wall normal derivative constructor for cell-centered fields.
 
     Sign convention:
@@ -1048,29 +963,9 @@ class CutWallNormalDerivativeConstructor3D:
             self.d2normal_from_wall_value(field, wall_value),
         )
 
-    def tree_flatten(self):
-        return (
-            (
-                self.cut_wall_geometry,
-                self.neighbor_i,
-                self.neighbor_j,
-                self.neighbor_k,
-                self.weights_dnormal,
-                self.weights_d2normal,
-                self.wall_coeff_dnormal,
-                self.wall_coeff_d2normal,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @_pytree_base
 @dataclass(frozen=True)
-class LocalStencil1D:
+class LocalStencil1D(_DataclassPyTreeMixin):
     """Field-dependent 1D stencil values for one coordinate direction."""
 
     center: jnp.ndarray
@@ -1150,29 +1045,9 @@ class LocalStencil1D:
             raise ValueError(f"Unknown LocalStencil1D field(s): {names}")
         return dataclass_replace_1d(self, **updates)
 
-    def tree_flatten(self):
-        return (
-            (
-                self.center,
-                self.minus,
-                self.plus,
-                self.dx_min,
-                self.dx_plus,
-                self.derivative_minus_weight,
-                self.derivative_center_weight,
-                self.derivative_plus_weight,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @_pytree_base
 @dataclass(frozen=True)
-class LocalStencil3D:
+class LocalStencil3D(_DataclassPyTreeMixin):
     """Nested 3D stencil for local/pointwise operators.
 
     This stencil is the reconstruction object for local derivatives and
@@ -1211,17 +1086,9 @@ class LocalStencil3D:
             raise ValueError(f"Unknown LocalStencil3D field(s): {names}")
         return dataclass_replace_3d(self, **updates)
 
-    def tree_flatten(self):
-        return ((self.x, self.y, self.z), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @_pytree_base
 @dataclass(frozen=True)
-class FaceGradientStencil3D:
+class FaceGradientStencil3D(_DataclassPyTreeMixin):
     """Face-centered coordinate gradients for a scalar field."""
 
     x: jnp.ndarray
@@ -1247,17 +1114,9 @@ class FaceGradientStencil3D:
     def shape(self) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
         return tuple(int(v) for v in self.x.shape[:-1]), tuple(int(v) for v in self.y.shape[:-1]), tuple(int(v) for v in self.z.shape[:-1])
 
-    def tree_flatten(self):
-        return ((self.x, self.y, self.z), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @_pytree_base
 @dataclass(frozen=True)
-class ConservativeStencil3D:
+class ConservativeStencil3D(_DataclassPyTreeMixin):
     """Nested 3D stencil for conservative operators.
 
     This is intentionally separate from ``LocalStencil3D`` so conservative
@@ -1315,17 +1174,9 @@ class ConservativeStencil3D:
             raise ValueError(f"Unknown ConservativeStencil3D field(s): {names}")
         return dataclass_replace_conservative(self, **updates)
 
-    def tree_flatten(self):
-        return ((self.x, self.y, self.z, self.face_grad), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @_pytree_base
 @dataclass(frozen=True)
-class FaceFluxStencil3D:
+class FaceFluxStencil3D(_DataclassPyTreeMixin):
     """Face-centered flux arrays for the three coordinate directions.
 
     In the local domain-decomposed path, the inferred shape is the local
@@ -1361,17 +1212,9 @@ class FaceFluxStencil3D:
     def shape(self) -> tuple[int, int, int]:
         return (int(self.x.shape[0] - 1), int(self.y.shape[1] - 1), int(self.z.shape[2] - 1))
 
-    def tree_flatten(self):
-        return ((self.x, self.y, self.z), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @_pytree_base
 @dataclass(frozen=True)
-class BoundaryFaceBC3D:
+class BoundaryFaceBC3D(_DataclassPyTreeMixin):
     """Dense face-grid boundary-condition data for regular coordinate faces."""
 
     kind_x: jnp.ndarray  # (nx + 1, ny, nz)
@@ -1423,26 +1266,6 @@ class BoundaryFaceBC3D:
             mask_y=jnp.zeros_like(geometry.y_open_mask, dtype=bool),
             mask_z=jnp.zeros_like(geometry.z_open_mask, dtype=bool),
         )
-
-    def tree_flatten(self):
-        return (
-            (
-                self.kind_x,
-                self.kind_y,
-                self.kind_z,
-                self.value_x,
-                self.value_y,
-                self.value_z,
-                self.mask_x,
-                self.mask_y,
-                self.mask_z,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
 
     def replace(self, **updates: object) -> "BoundaryFaceBC3D":
         allowed = {
@@ -1653,7 +1476,7 @@ class BoundaryConditionBuilder(Generic[BoundaryPayloadT]):
 
 @_pytree_base
 @dataclass(frozen=True)
-class CutWallGeometry3D:
+class CutWallGeometry3D(_DataclassPyTreeMixin):
     """Geometry and metric data for true non-coordinate cut-wall faces."""
 
     owner_i: jnp.ndarray
@@ -1743,34 +1566,9 @@ class CutWallGeometry3D:
             sign=jnp.zeros((0,), dtype=jnp.float64),
         )
 
-    def tree_flatten(self):
-        return (
-            (
-                self.owner_i,
-                self.owner_j,
-                self.owner_k,
-                self.center,
-                self.normal_contra,
-                self.area_covector,
-                self.distance,
-                self.J,
-                self.g_contra,
-                self.g_cov,
-                self.B_contra,
-                self.Bmag,
-                self.sign,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
 @_pytree_base
 @dataclass(frozen=True)
-class CutWallBC3D:
+class CutWallBC3D(_DataclassPyTreeMixin):
     """Future embedded-wall boundary data."""
 
     kind: jnp.ndarray  # (n_cut_faces,)
@@ -1796,14 +1594,6 @@ class CutWallBC3D:
             kind=jnp.zeros((0,), dtype=jnp.int32),
             value=jnp.zeros((0,), dtype=jnp.float64),
         )
-
-    def tree_flatten(self):
-        return ((self.kind, self.value), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
 
 @dataclass(frozen=True)
 class FourFieldBoundaryConditions:
@@ -2312,7 +2102,7 @@ class LocalCutWallNormalDerivativeConstructor3D(_DataclassPyTreeMixin):
 
 @_pytree_base
 @dataclass(frozen=True)
-class LocalControlVolumeFluxStencil3D:
+class LocalControlVolumeFluxStencil3D(_DataclassPyTreeMixin):
     """Local control-volume flux payload consumed by conservative divergence."""
 
     regular_flux: FaceFluxStencil3D
@@ -2393,22 +2183,6 @@ class LocalControlVolumeFluxStencil3D:
     @property
     def shape(self) -> tuple[int, int, int]:
         return self.regular_flux.shape
-
-    def tree_flatten(self):
-        return (
-            (
-                self.regular_flux,
-                self.regular_face_geometry,
-                self.cell_volume,
-                self.cut_wall_geometry,
-                self.cut_wall_flux,
-            ),
-            None,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
 
 def dataclass_replace_1d(instance: LocalStencil1D, **updates: object) -> LocalStencil1D:
     """Small ``dataclasses.replace`` helper that keeps this module self-contained."""
