@@ -18,6 +18,7 @@ from drbx.fci_braginskii.geometry.fci_geometry import (
 
 
 DRIVER = Path(__file__).resolve().parents[2] / "simulate_hsx_blob.py"
+DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 
 def _driver_module():
@@ -73,7 +74,7 @@ def test_wall_law_metadata_is_the_fixed_physical_boundary_state_contract():
 
 
 def test_short_leg_split_is_native_to_compiled_imex_source():
-    source = DRIVER.read_text(encoding="utf-8")
+    source = DRIVER_SOURCE.read_text(encoding="utf-8")
     assert "short_leg_selection_dt=dt" in source
     assert "model.apply_short_leg_implicit_material_step(" in source
     assert "solve_dt=gamma_dt" in source
@@ -91,7 +92,7 @@ def test_time_advance_exposes_true_eager_mode_and_staged_compiled_default():
         action for action in parser._actions if action.dest == "advance_execution"
     )
     assert tuple(action.choices) == ("compiled", "staged-compiled", "eager")
-    source = DRIVER.read_text(encoding="utf-8")
+    source = DRIVER_SOURCE.read_text(encoding="utf-8")
     assert "with jax.disable_jit(advance_execution == \"eager\")" in source
     assert "compiled_advance = sharded_advance" in source
     assert "staged_implicit_sharded = jax.shard_map(" in source
@@ -111,14 +112,14 @@ def test_time_advance_exposes_true_eager_mode_and_staged_compiled_default():
 
 
 def test_eager_advance_keeps_cell_centered_setup_kernels_compiled():
-    source = DRIVER.read_text(encoding="utf-8")
+    source = DRIVER_SOURCE.read_text(encoding="utf-8")
     assert "curvature_face_setup = jax.jit(" in source
     assert "reconstruct_phi = jax.jit(" in source
     assert "jax.device_put(\n            np.asarray(value" in source
 
 
 def test_restart_phi_reuse_flag_is_not_shadowed_by_setup_kernel():
-    tree = ast.parse(DRIVER.read_text(encoding="utf-8"))
+    tree = ast.parse(DRIVER_SOURCE.read_text(encoding="utf-8"))
     run_full_eb = next(
         node
         for node in ast.walk(tree)
@@ -155,7 +156,7 @@ def test_invariant_curvature_faces_round_trip_through_cell_channels():
 
 
 def test_run_full_eb_reconstructs_phi_after_short_leg_implicit_step():
-    tree = ast.parse(DRIVER.read_text(encoding="utf-8"))
+    tree = ast.parse(DRIVER_SOURCE.read_text(encoding="utf-8"))
     run_full_eb = next(
         node for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef) and node.name == "run_full_eb"
@@ -177,7 +178,7 @@ def test_run_full_eb_reconstructs_phi_after_short_leg_implicit_step():
 
 
 def test_run_metadata_attributes_selectors_to_fixed_production_configuration():
-    source = DRIVER.read_text(encoding="utf-8")
+    source = DRIVER_SOURCE.read_text(encoding="utf-8")
     for key in (
         "parallel_flux_pairing",
         "parallel_characteristic_wall_law",
@@ -193,17 +194,17 @@ def test_run_metadata_attributes_selectors_to_fixed_production_configuration():
 
 
 def test_startup_announces_parallel_characteristic_wall_law():
-    source = DRIVER.read_text(encoding="utf-8")
+    source = DRIVER_SOURCE.read_text(encoding="utf-8")
     assert "[simulation] parallel characteristic wall law:" in source
     assert "physical-boundary-state (fixed production configuration)" in source
 
 
 def test_canonical_driver_uses_cell_centered_velocity_basis():
-    source = DRIVER.read_text(encoding="utf-8")
+    source = DRIVER_SOURCE.read_text(encoding="utf-8")
     assert '"field_locations": {"Vi": "cell-center", "Ve": "cell-center"}' in source
 
 
 def test_initial_owner_sparse_check_uses_current_two_argument_api():
-    source = DRIVER.read_text(encoding="utf-8")
+    source = DRIVER_SOURCE.read_text(encoding="utf-8")
     assert "_assert_owner_sparse(initial_state, owner_host_geometry)" in source
     assert "_assert_owner_sparse(initial_state, owner_host_geometry, None)" not in source

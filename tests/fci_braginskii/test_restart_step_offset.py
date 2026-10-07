@@ -18,6 +18,7 @@ import numpy as np
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
+DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 
 def _driver_module():
@@ -47,7 +48,7 @@ def test_restart_step_offset_reads_checkpoint_step_and_defaults_to_zero(tmp_path
 
 
 def test_saved_step_and_periodic_checkpoint_use_the_global_step():
-    source = DRIVER_PATH.read_text()
+    source = DRIVER_SOURCE.read_text()
     tree = ast.parse(source)
     run = _function(tree, "run_full_eb")
     assert "start_step" in [arg.arg for arg in run.args.kwonlyargs]
@@ -60,5 +61,5 @@ def test_saved_step_and_periodic_checkpoint_use_the_global_step():
     assert offset_at < body.index("checkpoint_step{int(step):06d}")
     run_source = ast.get_source_segment(source, run)
     assert "(step + int(start_step)) % int(checkpoint_every) == 0" in run_source
-    main = ast.get_source_segment(source, _function(tree, "main"))
+    main = ast.get_source_segment(source, _function(tree, "run"))
     assert "_restart_step_offset(args.restart_from) if restart_used else 0" in main

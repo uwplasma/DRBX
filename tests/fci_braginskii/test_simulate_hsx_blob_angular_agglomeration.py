@@ -35,7 +35,7 @@ def test_parser_removes_producer_geometry_controls():
 
 
 def test_driver_has_one_canonical_toroidal_lowering():
-    source = open(driver.__file__, encoding="utf-8").read()
+    source = open(driver._driver.__file__, encoding="utf-8").read()
     assert "build_sharded_polar_angular_agglomeration_payload" in source
     assert "assemble_local_polar_angular_agglomeration_geometry" in source
     main_source = source[source.index("def main("):]
