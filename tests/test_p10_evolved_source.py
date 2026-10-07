@@ -24,10 +24,11 @@ from p10_evolved_mms import source as S                           # noqa: E402
 from p10_evolved_mms import synthetic as syn                      # noqa: E402
 from tests import sbp_laplacian_testbed as tb                      # noqa: E402
 
-# the provisional configuration (rho* = 4.5e-4, time_scale = rho*) and a fast-time variant that exercises the advection strongly
+# the provisional configuration (rho* = 4.5e-4, time_scale = 1, T = 1/30) and a fast-time variant that exercises the advection strongly
 P_CONFIG = F.default_params()
-P_FAST = F.default_params(rho_star=0.05, time_scale=1.0, a_phi=0.5)
-CASES = {"config": (P_CONFIG, 10.0, 2.0), "fast": (P_FAST, 0.2, 0.02)}
+# a_omega * rho_star^2 = 1: the O(1) vorticity of the fast sets (the config set has the consistent rho_star^2 amplitude)
+P_FAST = F.default_params(rho_star=0.05, time_scale=1.0, a_phi=0.5, a_omega=1.0 / 0.05 ** 2)
+CASES = {"config": (P_CONFIG, 0.01, 0.01), "fast": (P_FAST, 0.2, 0.02)}      # config: stage times inside T = 1/30
 
 
 @pytest.fixture(scope="module")
@@ -171,7 +172,8 @@ def test_pairing_exact_state_with_discrete_source_reproduces_dt_q(bundle, patter
         scale = float(jnp.abs(d.dq).max())
         assert float(jnp.abs(out.total - d.dq).max()) <= 1e-13 * scale, (float(jnp.abs(out.total - d.dq).max()), scale)
         # nontrivial: the RHS and the source are both active and the truncation is visible (S_h != d_t q)
-        assert float(jnp.abs(d.R).max()) > 1e-3 * scale and float(jnp.abs(d.S).max()) > 1e-3 * scale
+        # (at physical rho_star the perpendicular terms are ~1e-4 of d_t q, so the RHS threshold is 1e-6 of it)
+        assert float(jnp.abs(d.R).max()) > 1e-6 * scale and float(jnp.abs(d.S).max()) > 1e-3 * scale
         # the wall data of the discrete source are those of wall_data (same arrays in, same arrays out)
         d2 = S.discrete_jit(bundle, None, opts, None, t, mp, wall=wall)
         np.testing.assert_array_equal(np.asarray(d2.S), np.asarray(d.S))
@@ -201,12 +203,11 @@ def test_discrete_source_prescribed_equals_solve_mode_total(bundle):
     assert float(jnp.abs(out.total - d.dq).max()) < 1e-8 * float(jnp.abs(d.dq).max())
 
 
-def test_discrete_requires_matching_rho_star_convention(bundle):
-    """``sigma_h`` follows the options' convention (legacy: no ``rho*^2``)."""
+def test_discrete_polarization_source_is_omega_minus_rho_star_squared_lap_psi(bundle):
+    """``sigma_h = Omega - rho*^2 L_h psi`` (single-length)."""
     mp, t, _ = CASES["fast"]
-    legacy = dataclasses.replace(S.nodal_options("DDDD"), rho_star_convention="legacy-bracket-only")
-    d = S.discrete(bundle, None, legacy, None, t, mp)
-    np.testing.assert_allclose(np.asarray(d.sigma), np.asarray(d.q[..., 3] - d.lap_psi), rtol=1e-14, atol=1e-14)
+    d = S.discrete(bundle, None, S.nodal_options("DDDD"), None, t, mp)
+    np.testing.assert_allclose(np.asarray(d.sigma), np.asarray(d.q[..., 3] - mp.rho_star ** 2 * d.lap_psi), rtol=1e-14, atol=1e-14)
 
 
 # ----------------------------------------------------------------------------------------------------- truncation

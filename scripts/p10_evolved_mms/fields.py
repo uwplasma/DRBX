@@ -1,6 +1,6 @@
 """Manufactured fields of the P10 evolved MMS: ``f(p, t)`` of ``(n, Te, Ti, Omega, phi)`` and their derivatives (chunk C2).
 
-The time-dependent step-6 transverse family of :mod:`p09_evolved_mms.fields` (``TimeState``, ``TIME_PARAMS``) with three
+The time-dependent step-6 transverse family of :mod:`p09_evolved_mms.fields` (``TimeState``, ``TIME_PARAMS``) with four
 harness parameters (:class:`MmsParams`):
 
 * ``a_phi``       scales the potential ``phi`` (the advective strength knob);
@@ -9,10 +9,16 @@ harness parameters (:class:`MmsParams`):
                   carries the factor. ``time_scale = 0`` freezes the fields at the static step-6 set (no time dependence at
                   any ``t``);
 * ``w1``          the W1 variant flag (reported-only case): ``w1 = 1`` adds the eta-harmonic-2 switch term :data:`W1_SPEC` to
-                  ``Omega``; ``w1 = 0`` is the base family.
+                  the vorticity shape; ``w1 = 0`` is the base family;
+* ``a_omega``     the polarization amplitude: the manufactured vorticity is ``Omega = a_omega * rho_star**2 * Omega_shape(x, t)``
+                  (``Omega_shape`` the P09 vorticity, plus the W1 term, unscaled), consistent with the single-length
+                  polarization ``Omega = rho_star**2 lap_perp(phi + tau p_i)``, whose size is ``rho_star**2`` times that of the
+                  Laplacian of the potential; an independent ``O(1)`` vorticity would make the linearization about it
+                  strongly unstable (rate ``~ 1 / rho_star``: the vorticity bracket ``-rho_star [delta phi, Omega]`` with
+                  ``delta phi = L^-1 delta Omega / rho_star**2``).
 
-Python-float ``a_phi == 1``, ``time_scale == 1`` and ``w1 == 0`` add no operation (so the defaults trace to the P09 fields
-exactly); traced values are fine inside ``jit``. Values, gradients, Hessians (``jax.jacfwd`` of ``jax.jacfwd``) and ``d/dt``
+Python-float ``a_phi == 1``, ``time_scale == 1``, ``w1 == 0`` and ``a_omega * rho_star**2 == 1`` add no operation (so these
+choices trace to the P09 fields exactly); traced values are fine inside ``jit``. Values, gradients, Hessians (``jax.jacfwd`` of ``jax.jacfwd``) and ``d/dt``
 are exact autodiff of the analytic definitions, evaluated on arrays of points ``(..., 3) = (u, theta, eta)`` with the field
 axis last: values ``(..., 5)``, gradients ``(..., 5, 3)``, Hessians ``(..., 5, 3, 3)``, ``d/dt`` ``(..., 5)``.
 """
@@ -62,6 +68,7 @@ class MmsParams(NamedTuple):
     a_phi: float | jax.Array = 1.0
     time_scale: float | jax.Array = 1.0
     w1: float | jax.Array = 0.0
+    a_omega: float | jax.Array = 1.0
 
     def nodal(self):
         """The :class:`~drbx.native.fci_nodal_perpendicular_rhs.NodalPerpendicularParams` of the RHS."""
@@ -74,13 +81,22 @@ def default_params(**override) -> MmsParams:
     """The provisional ``configuration.json`` parameters (overridable by keyword)."""
     c = CONFIG
     base = dict(rho_star=float(c["rho_star"]), tau=float(c["tau"]), D=np.asarray(c["D"], dtype=np.float64),
-                a_phi=float(c["a_phi"]), time_scale=float(c["time_scale"]), w1=float(c["w1"]))
+                a_phi=float(c["a_phi"]), time_scale=float(c["time_scale"]), w1=float(c["w1"]),
+                a_omega=float(c["a_omega"]))
     base.update(override)
     return MmsParams(**base)
 
 
 def _is_const(x, value) -> bool:
     return isinstance(x, (int, float)) and float(x) == value
+
+
+def _omega_scale(mp):
+    """``a_omega * rho_star**2`` of the vorticity, or ``None`` for a Python-float product equal to ``1`` (no operation)."""
+    if isinstance(mp.a_omega, (int, float)) and isinstance(mp.rho_star, (int, float)):
+        s = float(mp.a_omega) * float(mp.rho_star) ** 2
+        return None if s == 1.0 else s
+    return mp.a_omega * mp.rho_star ** 2
 
 
 class MmsFields:
@@ -102,6 +118,9 @@ class MmsFields:
                 ph = mp.a_phi * ph
             if not _is_const(mp.w1, 0.0):
                 om_ = om_ + mp.w1 * self._w1(p, tt)
+            scale = _omega_scale(mp)
+            if scale is not None:
+                om_ = scale * om_
             v = jnp.stack([n, te, ti, om_, ph])
             return v if post is None else post(p, t, v, mp)
 
@@ -118,18 +137,20 @@ class MmsFields:
                    "all": jax.vmap(self.point_all, in_axes=(0, None, None))}
 
     def _apply(self, kind, pts, t, mp):
-        """Evaluate a kernel on ``pts (..., 3)``. With Python-float field parameters (``a_phi``, ``time_scale``, ``w1``) the kernel is
-        jitted once per parameter triple (fused, like the step-6 kernels; the Python decisions of :func:`_is_const` are kept); with
-        traced parameters the unjitted kernel is traced into the caller's ``jit``."""
+        """Evaluate a kernel on ``pts (..., 3)``. With Python-float field parameters (``a_phi``, ``time_scale``, ``w1``, ``rho_star``,
+        ``a_omega``) the kernel is jitted once per parameter tuple (fused, like the step-6 kernels; the Python decisions of
+        :func:`_is_const` and :func:`_omega_scale` are kept); with traced parameters the unjitted kernel is traced into the
+        caller's ``jit``. (``tau`` and ``D`` do not enter the fields.)"""
         pts = jnp.asarray(pts)
         lead = pts.shape[:-1]
-        flags = (mp.a_phi, mp.time_scale, mp.w1)
+        flags = (mp.a_phi, mp.time_scale, mp.w1, mp.rho_star, mp.a_omega)
         if all(isinstance(x, (int, float)) for x in flags):
             key = (kind,) + tuple(float(x) for x in flags)
             fn = self._jit.get(key)
             if fn is None:
-                a, ts, w1 = flags
-                fn = self._jit[key] = jax.jit(lambda pts_, t_: self._k[kind](pts_, t_, MmsParams(None, None, None, a, ts, w1)))
+                a, ts, w1, rho, a_om = flags
+                fn = self._jit[key] = jax.jit(
+                    lambda pts_, t_: self._k[kind](pts_, t_, MmsParams(rho, None, None, a, ts, w1, a_om)))
             out = fn(pts.reshape(-1, 3), jnp.asarray(t))
         else:
             out = self._k[kind](pts.reshape(-1, 3), jnp.asarray(t), mp)
