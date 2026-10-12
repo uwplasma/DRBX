@@ -151,8 +151,10 @@ def test_arm_layout_and_node_mismatches_rejected():
         B.assemble_bundle(arm, layout, nodal, nodal_meta, lap, {**lap_meta, "eta_filter": other}, prov, build_preconditioner=False)
     with pytest.raises(ValueError, match="arm"):
         B.assemble_bundle("raw", layout, nodal, nodal_meta, lap, lap_meta, prov, build_preconditioner=False)
-    with pytest.raises(ValueError, match="layout"):
-        B.assemble_bundle(arm, layout, nodal, nodal_meta, lap, {**lap_meta, "layout_sha256": "0" * 64}, prov, build_preconditioner=False)
+    # a stored layout sha from another platform (float bytes differ by ulps) is recorded, not rejected; nodes decide
+    moved = B.assemble_bundle(arm, layout, nodal, nodal_meta, lap, {**lap_meta, "layout_sha256": "0" * 64}, prov,
+                              build_preconditioner=False)
+    assert "differs" in moved.identity["agreement"]["layout"]
     pts = np.array(lap["points"])
     pts[..., 1] += 1e-6
     with pytest.raises(ValueError, match="nodes"):
