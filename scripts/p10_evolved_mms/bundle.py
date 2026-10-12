@@ -214,7 +214,8 @@ def assemble_bundle(arm: str, layout, nodal, nodal_meta: dict, lap: dict, lap_me
 
     ``nodal`` is a :class:`~drbx.stencils.nodal_plan.NodalMetric`; ``lap`` holds ``points, A, divA, J, ginv_u, wall_points,
     wall_A, wall_ginv_u, wall_J`` (and ``sign``) as the Laplacian extraction; ``provenance`` entries (file shas, metric
-    identities, sidecar, ...) are copied into the identity. Raises ``ValueError`` on a layout / arm / node / Hp / |J| mismatch.
+    identities, sidecar, ...) are copied into the identity. Raises ``ValueError`` on an arm / P / n_eta / node / wall / Hp / |J|
+    mismatch; a differing stored ``layout_sha256`` is only recorded (``agreement["layout"]``), since float shas are not portable.
     """
     from drbx.geometry.sbp_laplacian import LaplacianMetric, build_laplacian_plan
     from drbx.native.fci_nodal_perpendicular_rhs import build_nodal_perpendicular_context
@@ -227,9 +228,10 @@ def assemble_bundle(arm: str, layout, nodal, nodal_meta: dict, lap: dict, lap_me
         raise ValueError(f"arm identity mismatch: nodal metric eta_filter {arm_nodal!r} != Laplacian metric {arm_lap!r}")
     if lap_meta.get("arm", arm) != arm:
         raise ValueError(f"the Laplacian metric is of arm {lap_meta.get('arm')!r}, not {arm!r}")
+    # the layout sha hashes float bytes (core Gauss weights come from LAPACK), so it is not portable across platforms: a
+    # stored sha that differs is provenance only; the layout match is checked below to tolerance (P, n_eta, nodes, wall, |J|)
     layout_sha = C.layout_identity(layout)
-    if "layout_sha256" in lap_meta and lap_meta["layout_sha256"] != layout_sha:
-        raise ValueError("the Laplacian metric was extracted for a different layout")
+    metric_layout_sha = lap_meta.get("layout_sha256")
     for key, want in (("P", layout.P), ("n_eta", layout.n_eta)):
         for who, meta in (("nodal", nodal_meta), ("Laplacian", lap_meta)):
             if key in meta and int(meta[key]) != int(want):
@@ -253,6 +255,9 @@ def assemble_bundle(arm: str, layout, nodal, nodal_meta: dict, lap: dict, lap_me
     if jac_rel > 1e-12:
         raise ValueError(f"|J| of the two extractions differs by {jac_rel:.3e} (> 1e-12)")
     agreement = {"jac": "bitwise" if jac_rel == 0.0 else f"max_rel {jac_rel:.3e}"}
+    if metric_layout_sha is not None:
+        agreement["layout"] = ("sha equal" if metric_layout_sha == layout_sha else
+                               f"metric layout sha {metric_layout_sha} differs; nodes and wall points agree to 1e-13")
     lmetric = LaplacianMetric(np.asarray(lap["A"]), jac_l, np.asarray(lap["ginv_u"]))
     nplan = build_nodal_plan(layout, nodal)
     lplan = build_laplacian_plan(layout, lmetric)
