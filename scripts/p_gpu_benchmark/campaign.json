@@ -1,0 +1,527 @@
+{
+ "schema": "drbx.p-gpu-benchmark-campaign-v1",
+ "name": "p_gpu_benchmark",
+ "description": "P (perpendicular) path of DRBX: plane preconditioners, full psi PCG solve, core_schur build / storage scaling, optional eta sharding; per backend gpu (JAX CUDA, one A100) and cpu (same node).",
+ "arm": "filtered",
+ "resolutions": [
+  32,
+  48,
+  64
+ ],
+ "backends": [
+  "gpu",
+  "cpu"
+ ],
+ "inputs": {
+  "manifest": "inputs_manifest.json",
+  "manifest_sha256": "15eda8c6857c3763032e26281052d1d1dc46720a23faefc3fe15c07d4c2cc11a",
+  "files": {
+   "32": {
+    "path": "laplacian/filtered/N32/laplacian_metric.npz",
+    "bytes": 4793452,
+    "sha256": "1a9f5692a9cef9647f7648b792d0893ebdd778b2fb0572850851122269830b42"
+   },
+   "48": {
+    "path": "laplacian/filtered/N48/laplacian_metric.npz",
+    "bytes": 15722864,
+    "sha256": "3b639770513e8250207794e0bfbb245084e81449919bfdd5ec807cd64dedca4c"
+   },
+   "64": {
+    "path": "laplacian/filtered/N64/laplacian_metric.npz",
+    "bytes": 36779120,
+    "sha256": "879571919ad49fea5a1e4a70e3b03d0ed31ed7b93a1ac53fb9dd857f089805a5"
+   }
+  }
+ },
+ "remote_environment": {
+  "python": "3.12",
+  "jax_local_cpu_version": "0.9.2",
+  "jaxlib_local_cpu_version": "0.9.2",
+  "gpu_install": "pip install -U \"jax[cuda12]==0.9.2\"  (same jax version as the drb env; installs the matching jaxlib and nvidia-* CUDA 12 wheels; needs a driver >= 525 on the node)",
+  "solvax": "0.8.7",
+  "drbx": "editable install of DRBX/ at the pinned commit (pip install -e DRBX/)",
+  "other": [
+   "numpy>=2",
+   "scipy",
+   "equinox (dependency of solvax)",
+   "pytest (only for tests/)"
+  ],
+  "env_vars_gpu": {
+   "JAX_PLATFORMS": "must NOT be set to cpu",
+   "XLA_PYTHON_CLIENT_PREALLOCATE": "false (set by the harness)",
+   "JAX_ENABLE_X64": "true (set by the harness)"
+  },
+  "env_vars_cpu": {
+   "P_GPU_BENCH_CPU_THREADS": "thread count chosen by the remote setup (or --cpu-threads); sets OMP/OPENBLAS/MKL/NPROC and the XLA intra-op threads"
+  },
+  "host_memory_gb": "N64: ~2 GB retained in-plane CSR + 1-4 GB build; plenty on a Perlmutter GPU node"
+ },
+ "solve": {
+  "rtol": 1e-11,
+  "maxit": 50,
+  "residual_norm": "h_inv",
+  "x0": "zero",
+  "rhs": "s = L_h f*, f* a smooth analytic field of the node coordinates, zero wall data (the solution is f*)",
+  "source": "DRBX/scripts/p10_evolved_mms/configuration.json['solve']"
+ },
+ "precond_rhs": {
+  "kind": "standard_normal",
+  "seed": 0
+ },
+ "dense_reference_max_n": 32,
+ "tolerances": {
+  "precond_rel_err": {
+   "core_schur": {
+    "f32": 1e-05,
+    "f64": 1e-10
+   },
+   "core_schur_zfree": {
+    "f32": 1e-05,
+    "f64": 1e-10
+   },
+   "block_jacobi": {
+    "f32": 0.0001,
+    "f64": 1e-10
+   },
+   "block_thomas": {
+    "f32": 0.0001,
+    "f64": 1e-10
+   }
+  },
+  "zfree_vs_stored": {
+   "f32": 1e-05,
+   "f64": 1e-10
+  },
+  "precond_rel_residual_f64": 1e-08,
+  "pcg_true_residual_hinv_max": 1e-10,
+  "sharded_vs_single_rel": {
+   "f32": 1e-05,
+   "f64": 1e-10
+  }
+ },
+ "scaling": {
+  "extrapolate_n": [
+   96,
+   128,
+   256
+  ],
+  "user_estimate_f32_total_gb": {
+   "64": 0.47,
+   "128": 8.4,
+   "256": 164.0
+  }
+ },
+ "cases": [
+  {
+   "case_id": "build__N32__core_schur__f32",
+   "kind": "build",
+   "n": 32,
+   "method": "core_schur",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "build__N32__core_schur__f64",
+   "kind": "build",
+   "n": 32,
+   "method": "core_schur",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N32__core_schur__f32",
+   "kind": "precond",
+   "n": 32,
+   "method": "core_schur",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N32__core_schur__f64",
+   "kind": "precond",
+   "n": 32,
+   "method": "core_schur",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N32__core_schur_zfree__f32",
+   "kind": "precond",
+   "n": 32,
+   "method": "core_schur_zfree",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N32__core_schur_zfree__f64",
+   "kind": "precond",
+   "n": 32,
+   "method": "core_schur_zfree",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N32__block_jacobi__f32",
+   "kind": "precond",
+   "n": 32,
+   "method": "block_jacobi",
+   "dtype": "f32",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "precond__N32__block_jacobi__f64",
+   "kind": "precond",
+   "n": 32,
+   "method": "block_jacobi",
+   "dtype": "f64",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "precond__N32__block_thomas__f32",
+   "kind": "precond",
+   "n": 32,
+   "method": "block_thomas",
+   "dtype": "f32",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "precond__N32__block_thomas__f64",
+   "kind": "precond",
+   "n": 32,
+   "method": "block_thomas",
+   "dtype": "f64",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "pcg__N32__core_schur__f32",
+   "kind": "pcg",
+   "n": 32,
+   "method": "core_schur",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "pcg__N32__core_schur__f64",
+   "kind": "pcg",
+   "n": 32,
+   "method": "core_schur",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "pcg__N32__solvax_best",
+   "kind": "pcg",
+   "n": 32,
+   "method": "solvax_best",
+   "dtype": null,
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory",
+    "skipped: no solvax variant"
+   ]
+  },
+  {
+   "case_id": "build__N48__core_schur__f32",
+   "kind": "build",
+   "n": 48,
+   "method": "core_schur",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "build__N48__core_schur__f64",
+   "kind": "build",
+   "n": 48,
+   "method": "core_schur",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N48__core_schur__f32",
+   "kind": "precond",
+   "n": 48,
+   "method": "core_schur",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N48__core_schur__f64",
+   "kind": "precond",
+   "n": 48,
+   "method": "core_schur",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N48__core_schur_zfree__f32",
+   "kind": "precond",
+   "n": 48,
+   "method": "core_schur_zfree",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N48__core_schur_zfree__f64",
+   "kind": "precond",
+   "n": 48,
+   "method": "core_schur_zfree",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N48__block_jacobi__f32",
+   "kind": "precond",
+   "n": 48,
+   "method": "block_jacobi",
+   "dtype": "f32",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "precond__N48__block_jacobi__f64",
+   "kind": "precond",
+   "n": 48,
+   "method": "block_jacobi",
+   "dtype": "f64",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "precond__N48__block_thomas__f32",
+   "kind": "precond",
+   "n": 48,
+   "method": "block_thomas",
+   "dtype": "f32",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "precond__N48__block_thomas__f64",
+   "kind": "precond",
+   "n": 48,
+   "method": "block_thomas",
+   "dtype": "f64",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "pcg__N48__core_schur__f32",
+   "kind": "pcg",
+   "n": 48,
+   "method": "core_schur",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "pcg__N48__core_schur__f64",
+   "kind": "pcg",
+   "n": 48,
+   "method": "core_schur",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "pcg__N48__solvax_best",
+   "kind": "pcg",
+   "n": 48,
+   "method": "solvax_best",
+   "dtype": null,
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory",
+    "skipped: no solvax variant"
+   ]
+  },
+  {
+   "case_id": "build__N64__core_schur__f32",
+   "kind": "build",
+   "n": 64,
+   "method": "core_schur",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "build__N64__core_schur__f64",
+   "kind": "build",
+   "n": 64,
+   "method": "core_schur",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N64__core_schur__f32",
+   "kind": "precond",
+   "n": 64,
+   "method": "core_schur",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N64__core_schur__f64",
+   "kind": "precond",
+   "n": 64,
+   "method": "core_schur",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N64__core_schur_zfree__f32",
+   "kind": "precond",
+   "n": 64,
+   "method": "core_schur_zfree",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N64__core_schur_zfree__f64",
+   "kind": "precond",
+   "n": 64,
+   "method": "core_schur_zfree",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "precond__N64__block_jacobi__f32",
+   "kind": "precond",
+   "n": 64,
+   "method": "block_jacobi",
+   "dtype": "f32",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "precond__N64__block_jacobi__f64",
+   "kind": "precond",
+   "n": 64,
+   "method": "block_jacobi",
+   "dtype": "f64",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "precond__N64__block_thomas__f32",
+   "kind": "precond",
+   "n": 64,
+   "method": "block_thomas",
+   "dtype": "f32",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "precond__N64__block_thomas__f64",
+   "kind": "precond",
+   "n": 64,
+   "method": "block_thomas",
+   "dtype": "f64",
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory"
+   ]
+  },
+  {
+   "case_id": "pcg__N64__core_schur__f32",
+   "kind": "pcg",
+   "n": 64,
+   "method": "core_schur",
+   "dtype": "f32",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "pcg__N64__core_schur__f64",
+   "kind": "pcg",
+   "n": 64,
+   "method": "core_schur",
+   "dtype": "f64",
+   "required": true,
+   "allowed_skip": []
+  },
+  {
+   "case_id": "pcg__N64__solvax_best",
+   "kind": "pcg",
+   "n": 64,
+   "method": "solvax_best",
+   "dtype": null,
+   "required": false,
+   "allowed_skip": [
+    "skipped: memory",
+    "skipped: no solvax variant"
+   ]
+  },
+  {
+   "case_id": "sharding__N64",
+   "kind": "sharding",
+   "n": 64,
+   "method": "core_schur",
+   "dtype": "f32",
+   "required": false,
+   "allowed_skip": [
+    "skipped: single device",
+    "skipped: backend cpu"
+   ]
+  },
+  {
+   "case_id": "scaling",
+   "kind": "scaling",
+   "n": null,
+   "method": null,
+   "dtype": null,
+   "required": true,
+   "allowed_skip": []
+  }
+ ],
+ "stages": [
+  "preflight",
+  "run",
+  "validate"
+ ],
+ "run": null
+}
