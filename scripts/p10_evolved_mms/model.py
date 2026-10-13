@@ -1,6 +1,10 @@
 """Stage RHS of the P10 evolved MMS (chunk C3): the nodal perpendicular RHS plus the manufactured source, as an
 :class:`~drbx.native.fci_time_integrator.Rk4Stepper`-compatible ``rhs_fn(state, t, carry) -> (rhs_state, carry, StageInfo)``.
 
+The generic part (``NodalState``, ``StageInfo``, ``make_stage_info``, the ``psi`` warm-start carry and the stage composition) is
+:mod:`drbx.native.fci_nodal_perpendicular_model`; this module supplies the MMS-specific ``wall_fn`` / ``source_fn`` / ``phi_fn`` /
+``sigma_fn`` (from :mod:`source`), :class:`StageConfig`, the modes and the snapshot diagnostics.
+
 Modes (contract ``p10_c3_c6_contract.md``), state order ``(n, Te, Ti, Omega)`` = :class:`NodalState`:
 
 ====================  ===================================  =========================================  =====================
@@ -38,7 +42,6 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache, partial
 from pathlib import Path
-from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -51,9 +54,9 @@ SCRIPTS = HERE.parent
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from drbx.native.fci_model import FciModelState                                                    # noqa: E402
-from drbx.native.fci_nodal_perpendicular_rhs import (NodalPerpendicularOptions, nodal_perpendicular_rhs,   # noqa: E402
-                                                     solve_potential)
+from drbx.native.fci_nodal_perpendicular_model import (NodalState, StageInfo, make_stage_info,        # noqa: E402,F401
+                                                       nodal_stage_rhs)
+from drbx.native.fci_nodal_perpendicular_rhs import NodalPerpendicularOptions, solve_potential         # noqa: E402
 from p10_evolved_mms import source as S                                                            # noqa: E402
 from p10_evolved_mms.fields import FIELDS, MmsParams                                               # noqa: E402
 
@@ -61,56 +64,6 @@ from p10_evolved_mms.fields import FIELDS, MmsParams                            
 MODES = {"diffusion": ("diffusion",), "hyperbolic": ("bracket", "curvature"),
          "coupled": ("bracket", "curvature", "diffusion")}
 SOURCES = ("continuum", "discrete")
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# state and stage information
-# ---------------------------------------------------------------------------------------------------------------------
-@jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
-class NodalState(FciModelState):
-    """``(n, Te, Ti, Omega)``, each ``(E, P)`` (pattern of ``scripts/q09_evolved_mms/evolution.py:SixState``)."""
-
-    n: object
-    Te: object
-    Ti: object
-    omega: object
-
-    @classmethod
-    def from_array(cls, array):
-        if jnp.ndim(array) != 3 or jnp.shape(array)[-1] != 4:
-            raise ValueError(f"expected an (E, P, 4) array, got shape {jnp.shape(array)}")
-        return cls(*(array[..., i] for i in range(4)))
-
-    def array(self):
-        """``(E, P, 4)``."""
-        return jnp.stack(self.field_values(), axis=-1)
-
-
-class StageInfo(NamedTuple):
-    """Traced scalars of one stage evaluation (``cg_*`` are ``0, 0.0, True`` when the stage has no potential solve)."""
-
-    t: jax.Array
-    cg_iterations: jax.Array
-    cg_relative_residual: jax.Array
-    cg_converged: jax.Array
-    min_n: jax.Array                  # minima of the stage *state*
-    min_Te: jax.Array
-    min_Ti: jax.Array
-    finite: jax.Array                 # the stage state and the stage RHS are all finite
-
-
-def make_stage_info(t, q, rhs, solve_info=None) -> StageInfo:
-    """:class:`StageInfo` of a stage with state ``q (E, P, 4)`` and RHS ``rhs (E, P, 4)`` (``solve_info``: dict of
-    ``iterations``, ``relative_residual``, ``converged``; ``None``: no solve). Also for toy RHS functions in tests."""
-    if solve_info is None:
-        solve_info = {"iterations": 0, "relative_residual": 0.0, "converged": True}
-    return StageInfo(t=jnp.asarray(t, dtype=jnp.float64),
-                     cg_iterations=jnp.asarray(solve_info["iterations"], dtype=jnp.int64),
-                     cg_relative_residual=jnp.asarray(solve_info["relative_residual"], dtype=jnp.float64),
-                     cg_converged=jnp.asarray(solve_info["converged"], dtype=bool),
-                     min_n=jnp.min(q[..., 0]), min_Te=jnp.min(q[..., 1]), min_Ti=jnp.min(q[..., 2]),
-                     finite=jnp.all(jnp.isfinite(q)) & jnp.all(jnp.isfinite(rhs)))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -188,21 +141,35 @@ def _source_terms(bundle, cfg: StageConfig, params, p, t, wall):
     return d.S, (d.sigma if cfg.coupled else None), d.phi, d
 
 
+def _once(fn):
+    """``fn`` evaluated at most once per stage evaluation (the callbacks of one stage share the manufactured fields)."""
+    box = []
+
+    def call(*args):
+        if not box:
+            box.append(fn(*args))
+        return box[0]
+
+    return call
+
+
 def stage_rhs(bundle, p: MmsParams, state: NodalState, t, carry, *, cfg: StageConfig):
     """``rhs = R_h(state; wall(t)) + S(t)`` for the mode of ``cfg`` and the new carry; pure and jittable with ``bundle``, ``p``,
-    ``state``, ``t``, ``carry`` traced. Returns ``(NodalState, carry, StageInfo)``."""
+    ``state``, ``t``, ``carry`` traced. Returns ``(NodalState, carry, StageInfo)``.
+
+    The stage is :func:`~drbx.native.fci_nodal_perpendicular_model.nodal_stage_rhs` with the MMS callbacks: wall data of
+    :func:`source.wall_data`, the source ``S`` of the mode's terms, the exact prescribed ``phi(t)`` (not coupled) and the
+    polarization source ``sigma`` (coupled). The wall data and the source terms are evaluated once per stage and shared."""
     opts = cfg.opts
-    q = state.array()
     params = p.nodal()
-    wall = S.wall_data(bundle, t, p, cfg.pattern, opts.psi, cfg.fields)
-    src, sigma, phi, _ = _source_terms(bundle, cfg, params, p, t, wall)
-    if cfg.coupled:
-        out = nodal_perpendicular_rhs(bundle.ctx, opts, params, q, wall, psi_x0=carry, sigma=sigma, source=src)
-        new_carry = out.psi
-    else:
-        out = nodal_perpendicular_rhs(bundle.ctx, opts, params, q, wall, phi=phi, source=src)
-        new_carry = carry
-    return NodalState.from_array(out.total), new_carry, make_stage_info(t, q, out.total, out.solve_info)
+    wall_of = _once(lambda tt: S.wall_data(bundle, tt, p, cfg.pattern, opts.psi, cfg.fields))
+    terms_of = _once(lambda tt: _source_terms(bundle, cfg, params, p, tt, wall_of(tt)))
+    return nodal_stage_rhs(
+        bundle.ctx, params, state, t, carry, options=opts,
+        wall_fn=lambda tt, q: wall_of(tt),
+        source_fn=lambda tt, q, wall: terms_of(tt)[0],
+        phi_fn=None if cfg.coupled else (lambda tt, q: terms_of(tt)[2]),
+        sigma_fn=(lambda tt, q: terms_of(tt)[1]) if cfg.coupled else None)
 
 
 @lru_cache(maxsize=64)

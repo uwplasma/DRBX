@@ -2868,6 +2868,14 @@ regional second-order gate is imposed. P10 independently checks solutions.
   - Energy identity ≤ 4e-18, W2 interchange ≤ 3e-17. Curvature RK4 dt at N32 is about 1e-4, so the bracket sets dt.
   - Analytic eigensolve: the closed-form |M| agrees with 60-digit arithmetic to 1.3e-15 even at near-repeated roots (where lapack4 fails), W|M| is symmetric PSD to rounding, and it is 120–190× faster than lapack4. It stays the default.
   - Open: the filtered flux |J|K/B has a larger discrete divergence than the raw one at N32 (wall ring 27×), though only the filtered one converges.
+  - **Note: why the filtered absolute error is about 3× the raw one** (8 October 2026; [analysis](../../../../work/p09_curv_filtered_error_20261008/summary_key_numbers.json)). Left as a note (user, 8 October 2026).
+    - **Size:** filtered/raw E is 2.5–6 on P06N and 1.07–2.2 on P06 (P06 fields are nearly flat in θ). It is not the reference size: RMS(R) differs by ≤ 17%.
+    - **Cause:** the filtered F = |J|K/B on the wall rings carries 3–8× more high-wavenumber content (k_θ ≥ 6, k_η > 12). The error decomposition (pieces sum to the saved N − R within 1e-12) puts the gap in the split form's discrete product-rule defect D(Fg) − gDF − FDg and the wall product-correction SAT. The field derivative, the wall inflow SAT, the interface SAT and the M_ψ assembly are equal across arms.
+      - θ defect: dominant at N32/48. With the Fourier D_θ it sees only F_θ modes k ≥ N/2 − k_field, and at N64 both arms reach their floor.
+      - η defect and wall term: carry the N64 gap.
+    - **Checks:** swapping F_θ alone between the arms moves the defect with it. Low-passing F (k_η ≤ 12, k_θ < 6, reference rebuilt) shrinks the ratio from 3.2/4.6/2.5 to 1.1/1.6/1.4 (n equation, N32/48/64).
+    - **Not the cause:** the size of c = −2T_F(1) (79 vs 3) does not scale with the error. The raw N48 point is not aliasing luck. The ripple instead inflates raw N64: without k_η > 12 the raw 48→64 order is 2.4, not 1.3.
+    - **Not tested:** why a field-only η filter adds high-θ content to K (filtered K_θ high-k power 126–1776× raw). It is consistent with the product/quotient mechanism above (h_η k_η > 12 power 2–8× raw), but was not resolved. It concerns the gate geometry only; production uses the raw field.
 - **Wall closure: option (a), as for the bracket** (user, 4 October 2026).
   - Inflow SAT on P06's incoming characteristics, with τ from the characteristic speed, replacing today's Neumann closure.
   - Reason: M4 found the curvature drift crossing the wall (k^u ≈ +21), with two of three characteristics entering the domain. Neumann closures there leave even the continuum problem without an energy bound.
@@ -3053,6 +3061,47 @@ regional second-order gate is imposed. P10 independently checks solutions.
   runtime path rather than implementing each operator's infrastructure again.
   Record final selector/default decisions explicitly. Blob-driver
   synchronization remains deferred.
+
+- **Evolved MMS accepted (user, 12 October 2026).** The campaign at commit 555c1b76 (Perlmutter job 59706508) completed
+  69 of 69 units. [Review](../../../../work/p10_campaign_return_20261012/report.md): the local recomputation from the
+  snapshots matches the campaign reduction to 2.6e-16.
+  - **Filtered arm (gated):** global N−R orders are ≥ 2.0 on both intervals for E1, E2 and E3 and both patterns (DDDD,
+    NNN-D), lowest 2.01.
+    - O−R ≤ 3.6% of N−R, the largest in E1 DDDD at N64, rising with N. Solver ≤ 2.6e-7 of N−R, and dt/2 agrees with O−R.
+    - A_N decreases with N, states stay positive and CG converges at every stage.
+    - ψ elliptic controls: 1.92 / 3.04. E3d and W1 match the main run.
+  - **Scope:** Neumann covers n, Te and Ti only; Ω and ψ are Dirichlet; E2 ran NNN-D only; one manufactured family;
+    T = 1/30, so stability is not tested here.
+  - **Raw arm (reported):** it stalls where its t = 0 truncation stalls: E1 through the raw Laplacian, and E3 through the
+    ψ solve (raw elliptic control −1.17 / 0.40). The E2 Ω stall (0.62 over 48→64) is in the curvature term, at the wall ring, in the mixed band k_η > 12 ×
+    k_θ ≥ 6; low-passing a coefficient in η alone does not remove it (orders 0.15–0.8), and the raw static div F is flat
+    (0.40 / 0.41 / 0.42). Attribution (user-agreed): the near-wall coil-ripple curvature geometry of the raw field is
+    under-resolved at N ≤ 64, radially as well as in θ and η
+    ([check](../../../../work/p10_e2_omega_check_20261012/final_summary.json)). This feeds the deferred production
+    decision on the raw field.
+  - **Open:** review and commit of the final integration (below).
+- **Final integration (12 October 2026).** The generic parts of the accepted stack moved from the harness into the package, with
+  the harness as a thin layer (its bundle identities and arrays are byte-identical; `stage_rhs` is bitwise unchanged).
+  - **New modules:** `native/fci_nodal_geometry_bundle.py` (`assemble_nodal_bundle`, `save_nodal_bundle`, `load_nodal_bundle`) and
+    `native/fci_nodal_perpendicular_model.py` (`NodalState`, `StageInfo`, `make_nodal_rhs`, `nodal_stage_rhs`,
+    `NODAL_PERPENDICULAR_DEFAULTS`). The harness keeps the arms, the metric paths, the P10 bundle schema and the manufactured
+    wall data, source and potential. A test pins the harness options to the defaults.
+  - **Portable identity (a fix found by the replay):** the saved Perlmutter bundle did not load on macOS, because the rebuilt plan shas
+    (LAPACK float bytes) differ. `load_nodal_bundle` now keeps the stored identity and records the local shas under
+    `identity["rebuilt"]`; `strict_plan_shas=True` restores the rejection. Stored data stay verified bit for bit.
+  - **Tests:** `test_fci_nodal_geometry_bundle.py`, `test_fci_nodal_perpendicular_model.py` (factory, compile strategy, JVP, exactness
+    of the discrete source) and `test_p10_mechanisms.py` (bracket, W2, W1 parity; the table in its docstring maps every mechanism to
+    its test); `test_p10_*`, `test_fci_nodal_perpendicular_rhs.py`, `test_fci_perpendicular_sbp_*` and `test_eta_filtered_field.py`
+    are unchanged and pass.
+  - **Replay against the returned evidence** (`work/p10_integration_20261012/`; filtered N32 bundle of the Linux campaign, macOS
+    replay): the bundle loads with its stored identity; the 10-step E3 NNN-D state agrees to 9e-16 and `psi` to 2e-13; the t = 0
+    `tau` agrees to 3e-13 (E2), 3e-12 (E3) and 7e-11 (E1 DDDD, the same size as the effect of a one-ulp change of the Laplacian
+    plan). Local N32 cost: 1.0 s compile, 0.25 s per E3 step.
+  - **JVP, sharding:** forward mode matches central differences for prescribed `phi` and the `psi` solve (cold start); reverse
+    mode through the bare CG fails and a warm start at the solution gives a zero `psi` tangent (not changed). The sharded RHS with the
+    `psi` solve agrees with the single device (existing subprocess test).
+  - **Deferred:** production-driver wiring (`simulate_hsx_mms.py`, `simulate_hsx_blob.py`, Stage-7 selectors) waits for the P+Q nodal
+    model, because those drivers use the owner-based state. Architecture: [Nodal SBP perpendicular stack](fci_simulation_architecture.md#nodal-sbp-perpendicular-stack).
 
 **Gate:** independent fixed-final-time MMS solutions meet the global
 volume-weighted L2 order criterion in Section 1 for the isolated controls and
@@ -3416,7 +3465,7 @@ revision, configuration, measured results, and unresolved failures.
 | P07N | Physical-normal Neumann diffusion/polarization | P05–P07 shared extraction/replay | passed — user-accepted closure qualification 27 September; midpoint accuracy geometry-limited | [Acceptance record](../../../../work/p07n_field_derived_274e93e9_20260927T054625Z_72cfa1/local_analysis/acceptance_decision.md) for campaign `274e93e9`: N−O `2.24–3.85/2.25–3.73` on every field including held-out; wall-normal residual about 4th order; returned `global_order_pass=false` preserved; N−R ≈ O−R `1.55–1.74/1.72–1.83` limited by unresolved near-wall toroidal geometry (most plausibly coil ripple). The `5930b72c` failure is preserved. Inversion/gauge, energy, evolution and production integration remain open. |
 | P08 | Combined frozen HSX perpendicular RHS | P05, P06, P07, shared extraction/replay, P05N/P06N/P07N | in progress — steps 1–2 (host consolidation, row artifact, JAX operators) accepted 29–30 September; step 3 next; see the P08 execution plan | Include separately qualified Dirichlet and Neumann variants. Use the deduplicated periodic face census. Decide or reconcile the Neumann closure (P-path point rows vs production physical halos). Watch the RLP transition region. Reconstructed φ: production FGMRES inverting the qualified P07 operator (new `operator_form`); new preconditioners likely. |
 | P09 | Energy-stable perpendicular operators (SBP) | P08 | in progress — SBP split form chosen for production (4 October 2026); Option B rounds 1–3 done | [Design](../../../../work/p09_optionB_20261003/design.md); [round 1](../../../../work/p09_optionB_20261003/report.md), [round 2](../../../../work/p09_optionB_core_20261004/report.md); motivation in the [instability](../../../../work/p09_instability_20261003/report.md) and [symmetric-rows](../../../../work/p09_symrows_20261003/report.md) reports. Gate before P10 (user decision, 4 October 2026); replaced operators re-pass their static gates. Added on 3 October as P11. |
-| P10 | Evolved MMS and promotion | P08, P09 | pending | Was P09 before 4 October 2026. |
+| P10 | Evolved MMS and promotion | P08, P09 | **evolved MMS accepted (user, 12 October 2026)**; final integration implemented (12 October 2026, pending review); production-driver wiring deferred to the P+Q nodal model | [Campaign review](../../../../work/p10_campaign_return_20261012/report.md) (commit 555c1b76, 69/69 units). Was P09 before 4 October 2026. |
 
 
 ### P07 portable global campaign preparation — 2026-09-23
