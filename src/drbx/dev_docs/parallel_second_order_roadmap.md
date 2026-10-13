@@ -1,5 +1,10 @@
 # Roadmap: second-order parallel operators on HSX angular RLP grids
 
+> **ARCHIVED, 12 October 2026.** This roadmap and its owner-based, short-span traced Q operators are superseded by the
+> [nodal FCI roadmap (QF00–QF07)](parallel_fci_roadmap.md) and the
+> [nodal FCI design contract](q_fci_nodal_design_contract.md). The text below is preserved unchanged for provenance.
+> Its gates and acceptances apply only to the archived method.
+
 Approved research roadmap, 18 September 2026. This document specifies planned
 work and acceptance gates, not implemented or verified capabilities. It is the
 authoritative Q00–Q09 progress ledger. Keep run logs and detailed numerical
