@@ -164,6 +164,13 @@ is one of:
 - **Trigger.** A row falls back when any of its **state** weights exceeds `C_w/l_nom`. `C_w` is set so that a pure
   Dirichlet one-sided leg trips at exactly `l_w = ε_l·l_nom` (D6, `ε_l = 0.01`). Neumann conditions never trip, because
   the row tends smoothly to `g∥` as `l_w → 0`. Robin conditions trip according to their actual weights.
+  - **Calibration.** For a one-sided pure-Dirichlet leg the largest state weight is `1/l_w − 1/l₋`, so
+    `C_w = 1/ε_l − l_nom/l₋`, with `l_nom` the hit leg's nominal length and the actual `l₋`. The trigger `>` then fires
+    exactly when `l_w < ε_l·l_nom`. This needs `l₋ > 2ε_l·l_nom`, which also keeps the fallback weight `1/(l₋ + l_w)`
+    within the bound. A row that breaks this is rejected, not recalibrated.
+  - **Both-hit rows** have no in-domain endpoint. They use `C_w = 1/ε_l − 1` with the larger of the two nominal lengths.
+  - **Sign convention.** `q′` is the derivative along `+l`, the field direction, not along the outward normal. A sheath
+    condition must convert its outward-normal coefficients. Singular Robin condition sets are rejected explicitly.
 - **What replaces a flagged row.** The flagged wall point is within `ε_l·l_nom` of the node, so its exact datum stands
   in for the node and `f_i` is dropped:
   - **one direction hits (B3):** the linear fit through the in-domain endpoint and the wall condition, for example

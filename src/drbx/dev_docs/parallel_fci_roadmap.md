@@ -186,12 +186,18 @@ and norms.
     - **comparison:** tensor cubic Lagrange (4 × 4), with the quintic escalation rule.
   - Core: P's Zernike evaluation through the projector Π.
   - Wall and core-interface stencil shifts as specified in the contract, §4.
-- **Gate:**
+- **Gate** (revised and accepted by the user, 13 October 2026):
   - exact reproduction: the primary arm on ring trigonometric polynomials (up to the ring band limit) × cubics in u;
     the comparison arm on tensor degree ≤ 3; both on `P_p` in the core;
-  - the interpolation error of the exact catalogue fields at the actual QF01 endpoints converges at order ≥ 3.8,
-    globally and per region, for each nonconstant field;
-  - the half-cell wall extrapolation class is reported separately.
+  - the interpolation error of the exact catalogue control fields at the actual QF01 endpoints converges at order
+    ≥ 3.8 on both intervals in the **ring interior and the core**, for each nonconstant field, both maps and both arms;
+  - the core-interface and half-cell wall bands are reported with their leg counts, not gated, because their
+    populations are small and change between grids. They are guarded downstream: in QF04, the interpolation share of
+    `L∥`'s error (N−O) must stay below 1% of O−R in the wall ring and at the core interface, on every grid. If it
+    does not, the near-wall or interface radial stencils are fixed before QF04 is accepted;
+  - stress fields are reported only.
+  - **Why 3.8:** endpoint errors are divided by `l` once in `G` and twice in `L∥`, so a second-order `L∥` needs a
+    fourth-order `I` (contract §9).
 
 ### QF03 — Collocated parallel gradient `G` with trace-hit LVF boundaries
 
@@ -212,6 +218,8 @@ and norms.
 - **Gate:**
   - the structural checks pass (H-symmetry, negative semidefiniteness, conservation, constants, data linearity);
   - the N−R order is ≥ 1.8 on both intervals for `D` and `L_∥`, under both D and N;
+  - the interpolation share of `L_∥`'s error (N−O) is below 1% of O−R in the wall ring and at the core interface, on
+    every grid (the QF02 downstream condition);
   - the minimum principle is reported (D4), not gated.
 - **Note:** this stage reopens the archived Q03/Q04 diffusion gates.
 
@@ -263,7 +271,11 @@ and norms.
 | Stage | Status | Date | Evidence |
 |---|---|---|---|
 | QF00 | in progress: roadmap and contract drafted; D1–D8 decided; old full-domain modes campaign dropped | 2026-10-12 | this document; [design contract](q_fci_nodal_design_contract.md) |
-| QF01–QF07 | not started | — | — |
+| QF01 | sampled planes complete (maps, census, references, Δη refinement); field-aligned family in progress; full grids pending one remote trip | 2026-10-13 | `work/qf01_maps_20261012/` |
+| QF02 | **gate accepted** (revised wording above): exact reproduction; ring interior ≥ 3.90 and core ≥ 18 (H-weighted, controls, Fourier arm); bands reported; the oversampled method is the default | 2026-10-13 | `work/qf02_interp_20261012/endpoint_accuracy.json` |
+| QF03 | three-point rows and the generic boundary rows (B1–B6) implemented and measured; gate deferred until D8 | 2026-10-13 | `work/qf03_gradient_20261012/` |
+| QF04 | in progress: boundary-closure design study | 2026-10-13 | `work/qf04_divergence_20261013/` |
+| QF05–QF07 | not started | — | — |
 
 ## 8. Archived Q records
 
