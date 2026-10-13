@@ -211,6 +211,119 @@ snapshot or a selected frame from a history file.
 RLP state is owner-sparse during evolution. Output materialization prolongs
 owner values to all fine cells so visualization receives a complete field.
 
+## Nodal SBP perpendicular stack
+
+The nodal SBP perpendicular stack is the perpendicular right-hand side of the P path: summation-by-parts operators on the family-A
+nodes of the shared nodal layout, with SAT wall rows. It is a **reusable library with a verified model adapter**. It is not
+selected by `simulate_hsx_blob.py`, `simulate_hsx_mms.py` or the Stage-7 selectors, which keep the owner-based state; wiring the
+drivers is deferred to the P+Q nodal model (see "Deferred" below). The evolved MMS of P10 certified it (harness
+`scripts/p10_evolved_mms/`, commit 555c1b76).
+
+### Module map
+
+| Layer | Modules (`src/drbx/`) |
+|---|---|
+| Layout | `geometry/nodal_layout.py`, `geometry/nodal_families.py` (`build_family_a_layout`: core, ring levels, one wall) |
+| SBP building blocks | `geometry/sbp_core.py`, `sbp_operators.py`, `sbp_laplacian.py`, `sbp_laplacian_assembly.py`; `stencils/nodal_plan.py` (`NodalMetric`, `NodalPlan`, `load_nodal_metric`) |
+| Operators | `native/fci_perpendicular_sbp_{ops,boundary,norms,bracket,curvature,dissipation,laplacian,laplacian_solve}.py`, `fci_perpendicular_plane_preconditioner.py` (core-Schur CG preconditioner) |
+| Runtime RHS | `native/fci_nodal_perpendicular_rhs.py`: `NodalPerpendicularContext`, `NodalPerpendicularOptions`, `nodal_perpendicular_rhs`, `solve_potential` (jitted twins `*_jit`), `NodalWallData`, `bracket_rule_inflow` |
+| Geometry bundle | `native/fci_nodal_geometry_bundle.py`: `assemble_nodal_bundle`, `save_nodal_bundle`, `load_nodal_bundle`, `NodalGeometryBundle` |
+| Model adapter | `native/fci_nodal_perpendicular_model.py`: `NodalState`, `StageInfo`, `NODAL_PERPENDICULAR_DEFAULTS`, `nodal_stage_rhs`, `make_nodal_rhs` |
+| Time stepping | `native/fci_time_integrator.py` (`Rk4Stepper`) |
+| Sharding | `native/fci_perpendicular_sbp_sharding.py` (eta-sharded RHS and CG; halo 4 planes) |
+
+### Data flow
+
+1. **Layout.** `build_family_a_layout(n)` fixes the nodes `(u, theta, eta)`, the ring levels, the core and the wall points.
+2. **Metric extraction** (host, once per geometry and arm; `scripts/p09_sbp_bracket/extract_metric.py`,
+   `scripts/p09_sbp_laplacian/extract_metric.py`). Two files on the same nodes: the bracket/curvature metric `(h, |J|, B, K)` and
+   the Laplacian metric `(A = |J| P_perp, d_i A^{ij}, |J|, g^{uj})` at the nodes and wall points.
+3. **Bundle.** `assemble_nodal_bundle` joins them: it checks the arm identity, `P`, `n_eta`, nodes, wall points, `|J|` and `Hp` to
+   tolerance, builds the `NodalPlan` and `LaplacianPlan`, the core-Schur preconditioner and the curvature flux `|J| K / B`, and
+   records an identity (`bundle_sha256` over the geometry identity, layout and plan shas, metric identities and the stored arrays'
+   sha). `save_nodal_bundle` / `load_nodal_bundle` round-trip it. A bundle is a pytree: pass it to `jit` as an argument.
+4. **Context.** `bundle.ctx` is the `NodalPerpendicularContext(plan, lplan, prec, curvature_flux)`.
+5. **Stage RHS.** `make_nodal_rhs(context, params, options, terms=..., phi_mode=..., wall_fn=..., source_fn=..., phi_fn=...,
+   sigma_fn=...)` returns an `Rk4Stepper` `rhs_fn(state, t, carry) -> (rhs_state, carry, StageInfo)`. Per stage it evaluates
+   `wall_fn`, the optional source, then either takes a prescribed `phi` or solves `L psi = (Omega - sigma) / rho*^2` by
+   preconditioned CG (`psi = phi + tau n Ti`, Dirichlet `psi` data, warm start = the carry, which is the `psi` of the last solve),
+   and sums the selected terms (`bracket`, `curvature`, `diffusion`). `nodal_stage_rhs` is the same stage as a pure function of
+   `(context, params, state, t, carry)`; `rhs_fn.unbound` exposes it. Compile strategy: the geometry and the parameters are jit
+   arguments (no geometry constants in the HLO) and `t` is traced, so one compilation serves every stage time.
+6. **Time stepping.** `Rk4Stepper(rhs_fn)` advances `NodalState(n, Te, Ti, omega)`; the four `StageInfo` report CG iterations,
+   residual, convergence, state minima and finiteness.
+
+Normalization: single-length (`rho_star = rho_s0 / L_ref`): the bracket and the curvature carry `rho*`, the polarization is
+`Omega = rho*^2 lap_perp(phi + tau p_i)`, diffusion is unchanged. The scaling acts on outputs and on the solve right-hand side,
+never on the operators.
+
+### Accepted defaults
+
+`NODAL_PERPENDICULAR_DEFAULTS` (frozen record in `fci_nodal_perpendicular_model.py`; `.options(diffusion_kinds=..., phi_mode=...)`
+builds the `NodalPerpendicularOptions`). A test pins it against the P10 harness configuration.
+
+| Selector | Value |
+|---|---|
+| Layout family | A (one wall) |
+| Fields | `density, Te, Ti, vorticity` |
+| Bracket | split form with inflow SAT, level-face upwind SAT and face-jump dissipation (always on); `bracket_c_kappa = 1` scales the core shell damping |
+| Curvature | centred split form, no jump dissipation (`curvature_c_kappa = 0`), `closed_form` absolute value |
+| Neumann rows | physical normal derivative (`neumann_mode = "physical"`); `laplacian_c_kappa = 1` |
+| Polarization variable | `psi = "phi_plus_tau_pi"` (`psi = phi + tau n Ti`), `tau = 1` |
+| ψ solve | CG, `rtol = 1e-11`, `maxit = 50`, `core_schur` preconditioner with float32 factors |
+
+Run-dependent entries are not defaults: the boundary kind per field (`diffusion_kinds`), `phi_mode`, `rho_star` and `D`.
+
+### Verified scope and limits (P10, filtered arm)
+
+- Global N-R orders are at least 2.0 on both resolution intervals (32-48, 48-64) for E1 (diffusion), E2 (bracket and curvature,
+  prescribed `phi`, NNN-D only) and E3 (coupled with the `psi` solve) with the patterns DDDD and NNN-D (lowest 2.01); O-R is at
+  most 3.6% of N-R.
+- Neumann rows cover `n`, `Te` and `Ti` only; `Omega` and `psi` are Dirichlet with manufactured, time-dependent trace data.
+- One manufactured family at physical `rho* = 4.5e-4`, `T = 1/30 t_ref`: this is a consistency test, **stability is not certified**.
+- The raw (unfiltered metric) arm is reported only: it stalls over 48-64 where its t = 0 truncation stalls (E1 through the raw
+  Laplacian, E3 through the `psi` solve).
+- Single wall (family A); the unsharded RHS wraps eta periodically on one device (the sharded twin splits eta, never x or theta).
+- Wall data are the caller's: the MMS supplies manufactured values; a production caller applies `bracket_rule_inflow` (Neumann-kind
+  fields take their own wall trace, Dirichlet-kind keep the datum). The curvature and bracket walls are inflow SATs on incoming
+  characteristics, never a Neumann closure.
+- Automatic differentiation: forward mode through the RHS is verified against finite differences for prescribed `phi` and for the
+  `psi` solve from a cold start. The CG is a bare `lax.while_loop`: reverse mode through the solve fails (the JAX `while_loop`
+  error), and a warm start that already solves the system has a zero `psi` tangent. Prescribed-`phi` RHS is reverse-differentiable.
+  `solve_dirichlet_implicit` is the differentiable solve; the RHS does not use it.
+- Identity: layout and plan shas hash LAPACK-derived float bytes and differ by ulps between platforms. `load_nodal_bundle` keeps
+  the stored identity and records this platform's shas under `identity["rebuilt"]`; a differing stored sha is never a rejection.
+  What is verified bit for bit is the stored data (`arrays_sha256`) and the stored identity's own `bundle_sha256`.
+- Replay across platforms (Linux campaign, macOS): the saved filtered N32 bundle loads and the t = 0 `tau` and a 10-step E3
+  evolution reproduce the campaign snapshots (state to 9e-16, `psi` to 2e-13, `tau` to 3e-13 to 7e-11 depending on the operator:
+  the diffusion `tau` is an ulp-sensitive `H^-1` second-derivative difference).
+
+### Cost (campaign receipts, filtered and raw arms, both sources)
+
+Perlmutter CPU node, 32 concurrent workers with 2 threads each. A unit is one run (50 / 62 / 71 RK4 steps at N32 / 48 / 64, six
+snapshots with diagnostics, the compile of the step programs).
+
+| N | mode | mean wall per unit (s) | peak RSS (GiB) |
+|---|---|---|---|
+| 32 | E1 diffusion | 69 | 0.78 |
+| 32 | E2 hyperbolic | 140 | 1.18 |
+| 32 | E3 coupled | 255 | 1.68 |
+| 48 | E1 diffusion | 205 | 1.20 |
+| 48 | E2 hyperbolic | 370 | 1.65 |
+| 48 | E3 coupled | 717 | 2.29 |
+| 64 | E1 diffusion | 288 | 2.03 |
+| 64 | E2 hyperbolic | 583 | 2.61 |
+| 64 | E3 coupled | 1525 | 3.79 |
+
+Local N32 E3 (macOS, 2 threads, one process): lowering 5.2 s plus compile 1.0 s for one RK4 step program, then 0.25 s per step;
+peak RSS 1.15 GiB for the whole replay.
+
+### Deferred
+
+Production-driver wiring (`simulate_hsx_mms.py`, `simulate_hsx_blob.py`, Stage-7 selectors) is not done: those drivers use the
+owner-based state. It is part of the P+Q nodal model, where the parallel operators share this stack's norm `H` and the exchange
+`E`, `R = H^-1 E^T m` described under "Extension rules". Until then the module map above is the supported entry surface.
+
 ## Extension rules
 
 - A new toroidal operator must be valid as a fine polar operator under

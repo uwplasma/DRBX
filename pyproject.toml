@@ -51,6 +51,7 @@ where = ["src"]
 testpaths = ["tests"]
 markers = [
     "slow: longer-running solver or history tests that are excluded from the default fast research gate",
+    "diagnostic: reported-only checks that record a measured behavior of a variant case (they still run in the default gate)",
 ]
 
 [tool.coverage.run]
