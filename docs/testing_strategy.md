@@ -259,3 +259,37 @@ During the first structural phase:
 
 That sequencing preserves scientific trust while the software architecture is
 improved.
+
+## FCI Unification Gate
+
+The FCI unification (issue #41) merges `drbx.geometry.fci_geometry` +
+`drbx.native.fci_*` and `drbx.fci_braginskii` into one stack.  Every PR in
+that series is gated by `scripts/fci_gate.py`, run once on the base commit and
+once on the PR head, each from its own clean worktree:
+
+```bash
+export DRBX_TEST_GEOMETRY_BUNDLE=/path/to/hsx_fci_32x32x32   # optional; HSX skipped if unset
+PYTHONPATH=$PWD/src python scripts/fci_gate.py record gate-base   # on the base worktree
+PYTHONPATH=$PWD/src python scripts/fci_gate.py record gate-pr     # on the PR worktree
+python scripts/fci_gate.py compare gate-base gate-pr
+```
+
+`record` writes `summary.json` plus one `.npz` per case:
+
+- `pytest -q -m "not slow" -n 2` pass/skip/fail counts (`--skip-pytest` to omit);
+- HSX through `drbx run`: a 5-step run (all saved state arrays, the per-step
+  `gmres-iters(avg4)` / `gmres-relres(max4)` log values and step/op/GMRES
+  seconds) and a restart round trip (2 steps with a checkpoint, then 3 steps
+  restarted from it; the summary reports the restarted-vs-straight difference);
+- reduced models touched by the unification, all small and deterministic:
+  rotating-ellipse FCI `grad_parallel` (direct and traced maps, MMS field),
+  shifted-torus 2-field MMS, shifted-torus EB MMS, 4-field blob on the shifted
+  torus and on the rotating ellipse, the island divertor turbulence run, and
+  the differentiable FCI gradient case (`--cases` selects a subset);
+- line counts of `src/drbx/{geometry,native,fci_braginskii}`.
+
+`compare` checks every array with `np.array_equal` and prints max abs/rel
+differences for any that differ, compares the GMRES log values and pytest
+counts, prints the line-count delta, and exits non-zero unless everything is
+bitwise identical.  Timing is reported but not gated by `compare`; per the
+plan, step time is checked separately with alternating A/B/A/B runs.
