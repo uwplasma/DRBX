@@ -66,6 +66,7 @@ class HsxSimulationGeometryConfig:
     trace_backend: str = "jax"
     trace_batch_size: int = 2048
     trace_device_count: int | None = None
+    coils_path: Path | None = None
 
     def __post_init__(self) -> None:
         resolution = tuple(int(value) for value in self.resolution)
@@ -153,10 +154,13 @@ def _checkpoint_identity(config: HsxSimulationGeometryConfig) -> str:
     """Return the exact explicit producer-input identity for stage checkpoints."""
 
     payload = asdict(config)
-    for name in ("makegrid_path", "vessel_path", "output", "metric_cache_dir", "map_cache_path"):
+    for name in ("makegrid_path", "vessel_path", "output", "metric_cache_dir", "map_cache_path", "coils_path"):
         value = payload.get(name)
         payload[name] = None if value is None else str(Path(value).expanduser().resolve())
-    for name in ("makegrid_path", "vessel_path"):
+    field_input = "makegrid_path" if config.coils_path is None else "coils_path"
+    if config.coils_path is not None:
+        payload["makegrid_path"] = None
+    for name in (field_input, "vessel_path"):
         path = Path(payload[name])
         stat = path.stat()
         payload[f"{name}_stat"] = {
@@ -225,7 +229,8 @@ def _call_builder(
             / "cell_center_maps.npz"
         )
     kwargs = dict(
-        makegrid_path=Path(config.makegrid_path),
+        makegrid_path=None if config.coils_path is not None else Path(config.makegrid_path),
+        bfield_provider=hsx_coil_field_provider(config),
         vessel_path=Path(config.vessel_path),
         resolution=config.resolution,
         fit_sample_shape=config.fit_sample_shape,
@@ -297,6 +302,24 @@ class _ContinuousFieldAdapter:
         )
 
 
+def hsx_coil_field_provider(config: HsxSimulationGeometryConfig):
+    """The coil-filament field provider for ``config.coils_path`` (or None).
+
+    ``makegrid_currents[i]`` is the current of coil group ``i + 1`` in the
+    MAKEGRID ``coils.*`` file, in the same units as for the mgrid file built
+    from it (amperes per unit file current).
+    """
+
+    if config.coils_path is None:
+        return None
+    from drbx.geometry.field_provider import FilamentCoilField
+
+    if config.makegrid_currents is None:
+        raise ValueError("coils_path needs makegrid_currents (one current per coil group)")
+    currents = {index + 1: float(value) for index, value in enumerate(config.makegrid_currents)}
+    return FilamentCoilField.from_makegrid(Path(config.coils_path), currents)
+
+
 def _continuous_field_callback(
     geometry: Any,
     metric_evaluator: Any,
@@ -314,6 +337,10 @@ def _continuous_field_callback(
             "the HSX metric evaluator must provide evaluate_magnetic_field"
         )
     bfield = bfield_evaluator
+    if bfield is None and config.coils_path is not None:
+        from .hsx_fci_builder import hsx_provider_bfield
+
+        bfield = hsx_provider_bfield(hsx_coil_field_provider(config), Path(config.vessel_path))
     if bfield is None:
         bfield = bfield_evaluator_from_makegrid(
             Path(config.makegrid_path),
@@ -895,7 +922,10 @@ def build_hsx_simulation_geometry(
             curvature_edge_one_form=curvature_edge_one_form,
             metadata={
                 **identity,
-                "makegrid_path": str(Path(config.makegrid_path).resolve()),
+                "makegrid_path": (
+                    None if config.coils_path is not None else str(Path(config.makegrid_path).resolve())
+                ),
+                "coils_path": None if config.coils_path is None else Path(config.coils_path).name,
                 "vessel_path": str(Path(config.vessel_path).resolve()),
                 "makegrid_currents": (
                     None
