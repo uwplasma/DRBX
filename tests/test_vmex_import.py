@@ -23,7 +23,7 @@ def _find_local_wout() -> Path | None:
     """A Landreman-Paul QA wout from the external checkouts, when present."""
 
     essos_root = Path(os.environ.get("DRBX_ESSOS_ROOT", Path.home() / "local" / "ESSOS_test")).expanduser()
-    vmex_root = Path(os.environ.get("DRBX_VMEX_ROOT", Path.home() / "local" / "vmec_jax")).expanduser()
+    vmex_root = Path(os.environ.get("DRBX_VMEX_ROOT", Path.home() / "local" / "vmex")).expanduser()
     candidates = (
         essos_root / "examples" / "input_files" / "wout_LandremanPaul2021_QA_reactorScale_lowres.nc",
         vmex_root / "examples" / "data" / "wout_LandremanPaul2021_QA_lowres.nc",
