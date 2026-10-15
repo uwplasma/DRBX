@@ -311,7 +311,8 @@ def compare(args: argparse.Namespace) -> int:
                 else:
                     print(f"DIFFERENT {name}:{key}  {_diff(da[key], db[key])}")
                     ok = False
-    for name in sorted(set(sa.get("hsx", {}) or {}) if isinstance(sa.get("hsx"), dict) else []):
+    runs = sa.get("hsx") if isinstance(sa.get("hsx"), dict) else {}
+    for name in sorted(k for k, v in runs.items() if "gmres-iters(avg4)" in v):
         for key in ("gmres-iters(avg4)", "gmres-relres(max4)"):
             a, b = sa["hsx"][name].get(key), (sb.get("hsx") or {}).get(name, {}).get(key)
             same = a == b
