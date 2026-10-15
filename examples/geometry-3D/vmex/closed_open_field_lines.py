@@ -32,7 +32,7 @@ from the wout.
 
 Requires ESSOS and VMEX checkouts:
 
-    DRBX_ESSOS_ROOT=~/local/ESSOS_test \
+    DRBX_ESSOS_ROOT=/path/to/ESSOS \
         PYTHONPATH=src python examples/geometry-3D/vmex/closed_open_field_lines.py
 
 writes ``output/vmex_closed_open/closed_open_field_lines.png``.
@@ -59,8 +59,7 @@ from drbx.geometry import (
 # PARAMETERS ---------------------------------------------------------------
 # Landreman-Paul 2021 precise QA (reactor scale) wout from the local
 # ESSOS_test checkout; wout files are external inputs, never committed here.
-# The ESSOS coil JSON used for tracing is resolved by the ESSOS adapter from
-# the same checkout (DRBX_ESSOS_ROOT).
+# The ESSOS coil JSON used for tracing is bundled with DRBX.
 WOUT_PATH = Path.home() / "local" / "ESSOS_test" / "examples" / "input_files" / "wout_LandremanPaul2021_QA_reactorScale_lowres.nc"
 AXIS_PROBE_R = 1.21        # midplane seed radius [m] used to locate the vacuum axis
 AXIS_PROBE_MAXTIME = 800.0  # integration time for the axis probe line
@@ -80,14 +79,12 @@ OUTPUT_DIR = Path("output/vmex_closed_open")
 if not vmex_runtime_available():
     raise SystemExit(
         "VMEX is not importable. Point DRBX_VMEX_ROOT at a checkout, e.g.\n"
-        "    DRBX_VMEX_ROOT=~/local/VMEX DRBX_ESSOS_ROOT=~/local/ESSOS_test "
+        "    DRBX_VMEX_ROOT=/path/to/VMEX "
         "PYTHONPATH=src python examples/geometry-3D/vmex/closed_open_field_lines.py"
     )
 if not essos_runtime_available():
     raise SystemExit(
-        "ESSOS is not importable. Point DRBX_ESSOS_ROOT at a checkout, e.g.\n"
-        "    DRBX_ESSOS_ROOT=~/local/ESSOS_test PYTHONPATH=src python "
-        "examples/geometry-3D/vmex/closed_open_field_lines.py"
+        "ESSOS is not importable. Install it: pip install 'drbx[essos]'"
     )
 if not WOUT_PATH.exists():
     raise SystemExit(
