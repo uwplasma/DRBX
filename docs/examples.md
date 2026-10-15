@@ -100,20 +100,12 @@ mode against release-backed arrays.
 | [`stellarator-fci/turbulent_profile_analysis.py`](../examples/geometry-3D/stellarator-fci/turbulent_profile_analysis.py) | Radial fluctuation, RMS, transport-proxy, and energy-trace analysis. |
 | [`stellarator-fci/validation_campaign.py`](../examples/geometry-3D/stellarator-fci/validation_campaign.py) | Full promoted synthetic stellarator FCI validation bundle. |
 | [`essos-field-lines/closed_open_vacuum_poincare.py`](../examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) | Closed vs open vacuum field lines from ESSOS coils: Poincare sections and connection lengths. |
-| [`essos-field-lines/landreman_paul_qa_import.py`](../examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | External QA field-line import into portable arrays ([page](essos_fieldline_import.md)). |
-| [`essos-field-lines/direct_coil_open_sol.py`](../examples/geometry-3D/essos-field-lines/direct_coil_open_sol.py) | Direct-coil open-SOL promotion workflow (dry-run contract by default). |
-| [`essos-field-lines/hybrid_open_sol.py`](../examples/geometry-3D/essos-field-lines/hybrid_open_sol.py) | Hybrid VMEC/coil open-SOL promotion workflow. |
-| [`essos-field-lines/vmec_closed_field.py`](../examples/geometry-3D/essos-field-lines/vmec_closed_field.py) | VMEC closed-field control with opt-in live periodic FCI gates. |
+| [`essos-field-lines/landreman_paul_qa_import.py`](../examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | Landreman-Paul QA coils through the installed ESSOS: field lines, Poincare section, FCI maps ([page](essos_fieldline_import.md)). |
 | [`vmex/closed_field_lines.py`](../examples/geometry-3D/vmex/closed_field_lines.py) | VMEX equilibrium import: surface fields, JAX field-line tracing, traced iota matching the wout `iotaf` profile to ~1e-6. |
 | [`vmex/closed_open_field_lines.py`](../examples/geometry-3D/vmex/closed_open_field_lines.py) | ESSOS coil field with the VMEX LCFS overlay: closed core vs open SOL in one picture. |
 | [`vmec-extender/imported_field.py`](../examples/geometry-3D/vmec-extender/imported_field.py) | VMEC-extender field-grid import and compact SOL verification gate ([page](vmec_extender_edge_fields.md)). |
 
 ![Closed vs open vacuum Poincare](media/closed_open_vacuum_poincare.png)
-
-The remaining `essos-field-lines/imported_*` campaign scripts regenerate the
-legacy imported-geometry validation artifacts documented in
-[ESSOS Imported FCI Validation](essos_imported_fci_validation.md); they are
-developer workflows that expect a local geometry checkout.
 
 ## Release-backed artifacts
 
