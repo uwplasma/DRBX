@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import os
 from typing import Literal
 
 import jax
@@ -56,19 +58,57 @@ def _local_side_mask(
     return jnp.broadcast_to(jnp.asarray(active, dtype=bool), shape)
 
 
+_HOST_EIG_CHUNK = 4096
+_HOST_EIG_POOL: ThreadPoolExecutor | None = None
+# jaxlib >= 0.11 runs the batched CPU ``geev`` custom call on one thread; up to
+# 0.10 it was spread over the intra-op pool.  At HSX 32^3 that made the
+# explicit operator phase about 5x slower.
+_CPU_EIG_ON_HOST = tuple(int(p) for p in jax.__version__.split(".")[:2]) >= (0, 11)
+
+
+def _host_eig_threads() -> int:
+    try:
+        threads = int(os.environ.get("OMP_NUM_THREADS", "0"))
+    except ValueError:
+        threads = 0
+    return max(1, threads or (os.cpu_count() or 1))
+
+
 def _host_eig(matrix):
-    values, vectors = np.linalg.eig(np.asarray(matrix))
-    return values.astype(np.complex128), vectors.astype(np.complex128)
+    """Batched LAPACK ``geev`` on the host, chunked over a thread pool.
+
+    NumPy releases the GIL in ``linalg.eig`` and calls the same ``geev`` as
+    jaxlib's CPU kernel, so each matrix's result is bitwise the one
+    ``jnp.linalg.eig`` returns; only the batch is split across threads.
+    """
+
+    global _HOST_EIG_POOL
+    matrix = np.asarray(matrix)
+    batch = matrix.reshape((-1,) + matrix.shape[-2:])
+    chunks = [batch[i : i + _HOST_EIG_CHUNK] for i in range(0, max(batch.shape[0], 1), _HOST_EIG_CHUNK)]
+    if len(chunks) > 1:
+        if _HOST_EIG_POOL is None:
+            _HOST_EIG_POOL = ThreadPoolExecutor(_host_eig_threads())
+        results = list(_HOST_EIG_POOL.map(np.linalg.eig, chunks))
+    else:
+        results = [np.linalg.eig(chunks[0])]
+    values = np.concatenate([r[0] for r in results])
+    vectors = np.concatenate([r[1] for r in results])
+    return (
+        values.astype(np.complex128).reshape(matrix.shape[:-1]),
+        vectors.astype(np.complex128).reshape(matrix.shape),
+    )
 
 
 def small_batched_eig(matrix: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     """``jnp.linalg.eig`` for batches of small real matrices on any backend.
 
-    CPU lowers to the LAPACK ``geev`` custom call exactly as before.  Other
-    backends call the same LAPACK routine on the host: XLA's GPU ``eig``
+    The input must already be stopped-gradient.  Results are bitwise those of
+    ``jnp.linalg.eig`` on CPU.  The host path (threaded LAPACK ``geev`` via
+    ``pure_callback``) is used on non-CPU backends, where XLA's GPU ``eig``
     solves one matrix at a time (about 20 ms per 4x4 matrix on an RTX A4000),
-    which made the explicit operator two orders of magnitude slower than on
-    CPU.  The input must already be stopped-gradient.
+    and on CPU with jaxlib >= 0.11, whose batched ``geev`` custom call is
+    single-threaded.  CPU with older jaxlib keeps the in-graph custom call.
     """
 
     matrix = jnp.asarray(matrix, dtype=jnp.float64)
@@ -81,6 +121,8 @@ def small_batched_eig(matrix: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     def host(m):
         return jax.pure_callback(_host_eig, shapes, m, vmap_method="broadcast_all")
 
+    if _CPU_EIG_ON_HOST:
+        return host(matrix)
     return jax.lax.platform_dependent(
         matrix, cpu=lambda m: tuple(jnp.linalg.eig(m)), default=host
     )
