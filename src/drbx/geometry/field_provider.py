@@ -57,6 +57,20 @@ def B_cylindrical(provider: MagneticFieldProvider, R, phi, Z):
     return b[..., 0] * c + b[..., 1] * s, -b[..., 0] * s + b[..., 1] * c, b[..., 2]
 
 
+def _hashable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return tuple(sorted((str(k), _hashable(v)) for k, v in value.items()))
+    if isinstance(value, (list, tuple)):
+        return tuple(_hashable(v) for v in value)
+    return value
+
+
+def _meta(**items: Any) -> tuple:
+    """Hashable provenance (static pytree metadata) from keyword items."""
+
+    return tuple(sorted((k, _hashable(v)) for k, v in items.items()))
+
+
 def _chunked_points(fn, xyz: jnp.ndarray, chunk: int) -> jnp.ndarray:
     flat = jnp.reshape(jnp.asarray(xyz, dtype=jnp.float64), (-1, 3))
     n = flat.shape[0]
@@ -75,7 +89,11 @@ class EssosCoilField:
     nfp: int = field(metadata=dict(static=True), default=1)
     stellsym: bool = field(metadata=dict(static=True), default=False)
     chunk: int = field(metadata=dict(static=True), default=4096)
-    provenance: dict = field(metadata=dict(static=True), default_factory=dict, compare=False, hash=False)
+    meta: tuple = field(metadata=dict(static=True), default=())
+
+    @property
+    def provenance(self) -> dict[str, Any]:
+        return dict(self.meta)
 
     @classmethod
     def from_json(cls, path: str | Path, **kwargs) -> "EssosCoilField":
@@ -87,7 +105,7 @@ class EssosCoilField:
             coils=coils,
             nfp=int(coils.nfp),
             stellsym=bool(coils.stellsym),
-            provenance={"kind": "essos_coils", "source": Path(path).name},
+            meta=_meta(kind="essos_coils", source=Path(path).name),
             **kwargs,
         )
 
