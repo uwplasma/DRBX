@@ -42,16 +42,15 @@ from ...native.fci_boundaries import (  # noqa: F401
     FaceFluxStencil3D,
     LocalBoundaryFaceBC3D,
 )
+from ...fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
+    BC_NONE,
+    BC_DIRICHLET,
+    BC_NEUMANN,
+    BC_NORMALFLUX,
+    BC_NOFLUX,
+    _pytree_base,
+)
 
-
-_pytree_base = jax.tree_util.register_pytree_node_class
-
-
-BC_NONE = 0
-BC_DIRICHLET = 1
-BC_NEUMANN = 2
-BC_NORMALFLUX = 3
-BC_NOFLUX = 4
 
 CV_FACE_NONE = 0
 CV_FACE_INTERIOR = 1
