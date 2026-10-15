@@ -95,7 +95,7 @@ def run_four_field(geometry, sheath, label):
         content.append(float(np.sum(np.asarray(state.density) * jacobian)))
         if index % REPORT_EVERY == 0 or index == 1:
             print(f"[06]   {label} step={index:3d} t={index * DT:.3f} max|Omega|={float(jnp.max(jnp.abs(state.omega))):.3e} "
-                  f"sheath loss={loss:.3e} ({time.perf_counter() - start:.1f}s, step 1 compiles)")
+                  f"sheath loss={loss:.3e} ({time.perf_counter() - start:.1f}s{', incl. compilation' if index == 1 else ''})")
     return np.array(times), np.array(content) / content[0]
 
 
