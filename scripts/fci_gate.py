@@ -108,6 +108,16 @@ def case_shifted_torus_4field() -> dict:
     return _four_field_blob(t.build_shifted_torus_4field_geometry((10, 10, 10)))
 
 
+def case_shifted_torus_4field_mms() -> dict:
+    """One RK4 step of the 4-field MMS driver (8^3), incl. its end-of-step phi solve."""
+    _tests_import()
+    import test_mms_shifted_torus_4_field as t
+
+    geometry = t.build_shifted_torus_4field_geometry((8, 8, 8))
+    state, *history = t.simulate_mms_shifted_torus_4field(geometry, timestep=1.0e-3, final_time=1.0e-3)
+    return {"state": state, "history": tuple(history)}
+
+
 def case_rotating_ellipse_4field() -> dict:
     _tests_import()
     import test_rotating_ellipse_filament as t
