@@ -64,6 +64,12 @@ def test_bundled_coils_and_installed_essos_are_used_by_default(monkeypatch) -> N
         resolve_essos_landreman_qa_wout()
 
 
+def test_provider_is_a_jittable_pytree(qa_field, sample_points) -> None:
+    jitted = jax.jit(lambda provider, x: provider.B(x))
+    np.testing.assert_allclose(jitted(qa_field, sample_points), qa_field.B(sample_points), rtol=1.0e-13)
+    assert qa_field.provenance["kind"] == "essos_coils"
+
+
 def test_qa_coil_field_is_divergence_and_curl_free(qa_field, sample_points) -> None:
     jac = np.asarray(grad_B(qa_field, sample_points))
     scale = np.max(np.abs(jac), axis=(-2, -1))
