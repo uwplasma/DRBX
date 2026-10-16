@@ -1492,24 +1492,21 @@ def shifted_torus_4field_rk4(
     step_result = rk4_step(state, time=time, timestep=timestep, rhs_fn=_rhs_fn, carry=initial_phi_guess)
     next_state = step_result.state
     phi4_start = time_module.perf_counter()
-    phi_4, _diagnostics_4 = _reconstruct_phi_from_state(
-        next_state,
-        geometry=geometry,
-        parameters=parameters,
-        boundary_condition_builder=boundary_builder,
-        stencil_builder=stencil_builder,
-        conservative_stencil_builder=conservative_stencil_builder,
-        phi_inverse_solver=phi_inverse_solver,
-        periodic_axes=(False, True, True),
-        cut_wall_geometry=empty_cut_wall_geometry,
-        cut_wall_bc=empty_cut_wall_bc,
+    # Same phi solve as ``compute_4field_rhs`` (-omega, exact Dirichlet x faces)
+    # at the end-of-step time.
+    final_phi_face_bc = _shifted_torus_exact_x_face_bcs(geometry, float(time + timestep))[0]
+    phi_4, _diagnostics_4 = phi_inverse_solver(
+        -jnp.asarray(next_state.omega, dtype=jnp.float64),
         phi_guess=step_result.carry,
+        face_bc=final_phi_face_bc,
+        cut_wall_bc=empty_cut_wall_bc,
         return_diagnostics=True,
     )
+    jax.block_until_ready(phi_4)
     final_phi_time = time_module.perf_counter() - phi4_start
     step_timings = sum_stage_outputs(step_result.stage_aux)
     step_timings = step_timings.at[0].add(final_phi_time)
-    step_timings = step_timings.at[3].add(_diagnostic_float(_diagnostics_4, "num_steps"))
+    step_timings = step_timings.at[3].add(float(_diagnostics_4["num_steps"]))
     jax.block_until_ready(next_state.density)
     return next_state, step_timings, phi_4
 
