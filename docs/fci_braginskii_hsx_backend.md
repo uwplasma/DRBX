@@ -127,13 +127,18 @@ with resolution: on Perlmutter it peaked at 29 GiB for 48-cubed and 65 GiB for
 bundle by 1.4 to 3.5 mm in cell positions and by up to 0.7% in |B|, most likely
 because of the vessel file; the backend runs on either.
 
-### Building from coils instead of the mgrid
+### Building from coils (default)
 
-`--coils PATH` builds the same geometry with B evaluated directly from the
-HSX MAKEGRID coil file (the filaments the mgrid was made from), using the
-exact straight-segment Biot--Savart law; `--makegrid` is then not read.
-`--makegrid-currents` gives one current per coil group, exactly as for the
-mgrid (QHS: `10722,10722,10722,10722,10722,10722,0,0,0,0,0,0`). In Python,
+The HSX coil file ships with DRBX at `examples/inputs/hsx/coils.hsx`
+(MAKEGRID format, 12 coil groups, 4 field periods; SHA-256
+`0bb6cf70cf1696489ec6b67bfadc0a60b128fec12f8cfdf95aa2982482eb13fe`), and
+`generate_hsx_fci_geometry.py` uses it by default: B is evaluated from these
+filaments (the ones the mgrid was made from) with the exact straight-segment
+Biot--Savart law, at the QHS currents
+(`10722,10722,10722,10722,10722,10722,0,0,0,0,0,0`) unless
+`--makegrid-currents` says otherwise. `--coils PATH` selects another coil
+file; `--makegrid PATH` switches back to an mgrid field. The vessel file is
+still distributed separately. In Python,
 `build_hsx_fci_geometry(bfield_provider=...)` accepts any
 `drbx.geometry.field_provider.MagneticFieldProvider` (ESSOS coils,
 `FilamentCoilField`), so the field is a differentiable function of the coil
