@@ -137,7 +137,20 @@ mgrid (QHS: `10722,10722,10722,10722,10722,10722,0,0,0,0,0,0`). In Python,
 `build_hsx_fci_geometry(bfield_provider=...)` accepts any
 `drbx.geometry.field_provider.MagneticFieldProvider` (ESSOS coils,
 `FilamentCoilField`), so the field is a differentiable function of the coil
-parameters rather than an interpolated table.
+parameters.
+
+By default `--coils` does not evaluate Biot--Savart at every trace step. It
+tabulates the coils once, in memory, on a uniform `(R, phi, Z)` grid over one
+field period (`--coil-table-shape NR NPHI NZ`, default `96 144 96`;
+stellarator symmetry halves the evaluations) and interpolates the table with
+the same cubic B-spline the mgrid path uses (`CoilFieldTable` in
+`provider_bfield.py`). The table and its spline coefficients are JAX arrays
+computed from the coil parameters, so derivatives still reach the coil
+currents and nodes. At the default shape the table differs from direct coil
+evaluation by a median 1e-7 (p99 5e-6) relative error at the bundle cell
+centres, below the coil-vs-mgrid difference, and costs about 2 minutes on a
+laptop. `--direct-coils` evaluates the coils at every step instead (about 25x
+slower tracing).
 
 ## Running
 
