@@ -25,8 +25,8 @@ Energy fluxes are in ``n0 Te0 c_s0``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 from typing import NamedTuple
 
 import jax.numpy as jnp
@@ -107,7 +107,7 @@ def bohm_wall_state(trace, center, direction, tau) -> jnp.ndarray:
     s = jnp.asarray(direction, dtype=jnp.float64)
     cs = sound_speed(trace[..., 1], trace[..., 2], tau)
     velocity = s * jnp.maximum(s * center[..., 3], cs)
-    n, Te, Ti, Vi, Ve = (center[..., i] for i in range(5))
+    n, Te, Ti, Vi = (center[..., i] for i in range(4))
     momentum = n * Vi * Vi + n * (Te + tau * Ti)
     density = momentum / (velocity * velocity + cs * cs)
     return trace.at[..., 0].set(density).at[..., 3].set(velocity).at[..., 4].set(velocity)

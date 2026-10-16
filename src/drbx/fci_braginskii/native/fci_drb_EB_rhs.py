@@ -2263,6 +2263,76 @@ class LocalFciDrbEBRhs:
             axis=0,
         )
 
+    def _sheath_wall_backward_euler(
+        self, center, minus, plus, dx_minus, dx_plus, backward_wall,
+        forward_wall, backward_wall_state, forward_wall_state,
+        coupled_residual, selection_dt, solve_dt,
+    ):
+        """Local backward Euler of the wall legs under the sheath closure.
+
+        The (n, Te, Ti, Vi) rows of each wall leg are the conservative sheath
+        flux difference (``sheath_wall_leg_residual``) with their own exact
+        local Jacobian (wall traces frozen); the Ve row keeps the frozen
+        characteristic residual and Jacobian.  ``coupled_residual`` (the
+        electron Ti force) is added on wall rows as in the zero-flow path.
+        """
+
+        tau = self.parameters.tau
+        gamma_e, gamma_i = self._sheath_gammas()
+        _, _, info = parallel_short_wall_material_data(
+            center, minus, plus, dx_minus, dx_plus, tau,
+            self.parameters.mi_over_me,
+            selection_dt=selection_dt,
+            backward_wall=backward_wall, forward_wall=forward_wall,
+            backward_wall_state=backward_wall_state,
+            forward_wall_state=forward_wall_state,
+        )
+        rows = jnp.asarray((1.0, 1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
+        residual = jnp.zeros_like(center)
+        jacobian = jnp.zeros(center.shape + (5,), dtype=jnp.float64)
+        for wall, trace, dx, direction, side in (
+            (backward_wall, minus, dx_minus, -1.0, "backward"),
+            (forward_wall, plus, dx_plus, 1.0, "forward"),
+        ):
+            def leg(owner, trace=trace, dx=dx, direction=direction):
+                state = bohm_wall_state(trace, owner, direction, tau)
+                return sheath_wall_leg_residual(
+                    state, owner, dx, direction, tau, gamma_e, gamma_i
+                )
+
+            conservative = leg(center)
+            columns = [
+                jax.jvp(leg, (center,), (jnp.zeros_like(center).at[..., k].set(1.0),))[1]
+                for k in range(5)
+            ]
+            conservative_jacobian = jnp.stack(columns, axis=-1)
+            residual = residual + jnp.where(
+                wall[..., None],
+                rows * conservative + (1.0 - rows) * info[f"{side}_residual"],
+                0.0,
+            )
+            jacobian = jacobian + jnp.where(
+                wall[..., None, None],
+                rows[:, None] * conservative_jacobian
+                + (1.0 - rows)[:, None] * info[f"{side}_jacobian"],
+                0.0,
+            )
+        selected_wall = backward_wall | forward_wall
+        residual = residual + jnp.where(selected_wall[..., None], coupled_residual, 0.0)
+        solve_dt = jnp.broadcast_to(
+            jnp.asarray(solve_dt, dtype=jnp.float64), residual.shape[:-1]
+        )
+        system = jnp.eye(5, dtype=jnp.float64) - solve_dt[..., None, None] * jacobian
+        increment = jnp.linalg.solve(system, (solve_dt[..., None] * residual)[..., None])[..., 0]
+        info = dict(info)
+        info.update({
+            "selected_wall": selected_wall,
+            "selected_complete_residual": residual,
+            "selected_complete_jacobian": jacobian,
+            "implicit_finite": jnp.all(jnp.isfinite(center + increment), axis=-1),
+        })
+        return increment, info
+
     def wall_flux_ledger(self, state_owned: FciDrbEBState) -> jnp.ndarray:
         """Local (unreduced) wall losses and inventories of one state.
 
@@ -2406,55 +2476,32 @@ class LocalFciDrbEBRhs:
         backward_wall_state, forward_wall_state = self._parallel_wall_states(
             center, minus, plus, backward_wall, forward_wall
         )
-        if self.sheath is not None:
-            # Replace the characteristic (n, Te, Ti, Vi) rows of every wall
-            # leg by the conservative sheath flux difference; Ve keeps the
-            # characteristic wall law.  The frozen characteristic Jacobian
-            # still linearizes the local backward-Euler solve.
-            gamma_e, gamma_i = self._sheath_gammas()
-            _, _, characteristic = parallel_short_wall_material_data(
+        if self.sheath is None:
+            (
+                updated,
+                increment,
+                info,
+            ) = parallel_short_wall_backward_euler(
                 center, minus, plus,
                 primitive_stencils[0].dx_min,
                 primitive_stencils[0].dx_plus,
                 self.parameters.tau,
                 self.parameters.mi_over_me,
                 selection_dt=selection_dt,
+                solve_dt=solve_dt,
                 backward_wall=backward_wall,
                 forward_wall=forward_wall,
                 backward_wall_state=backward_wall_state,
                 forward_wall_state=forward_wall_state,
+                coupled_residual=coupled_residual,
             )
-            material_rows = jnp.asarray((1.0, 1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
-            for wall, state, dx, direction, name in (
-                (backward_wall, backward_wall_state, primitive_stencils[0].dx_min, -1.0, "backward_residual"),
-                (forward_wall, forward_wall_state, primitive_stencils[0].dx_plus, 1.0, "forward_residual"),
-            ):
-                conservative = sheath_wall_leg_residual(
-                    state, center, dx, direction, self.parameters.tau, gamma_e, gamma_i
-                )
-                coupled_residual = coupled_residual + jnp.where(
-                    wall[..., None],
-                    material_rows * (conservative - characteristic[name]),
-                    0.0,
-                )
-        (
-            updated,
-            increment,
-            info,
-        ) = parallel_short_wall_backward_euler(
-            center, minus, plus,
-            primitive_stencils[0].dx_min,
-            primitive_stencils[0].dx_plus,
-            self.parameters.tau,
-            self.parameters.mi_over_me,
-            selection_dt=selection_dt,
-            solve_dt=solve_dt,
-            backward_wall=backward_wall,
-            forward_wall=forward_wall,
-            backward_wall_state=backward_wall_state,
-            forward_wall_state=forward_wall_state,
-            coupled_residual=coupled_residual,
-        )
+        else:
+            increment, info = self._sheath_wall_backward_euler(
+                center, minus, plus, primitive_stencils[0].dx_min,
+                primitive_stencils[0].dx_plus, backward_wall, forward_wall,
+                backward_wall_state, forward_wall_state, coupled_residual,
+                selection_dt, solve_dt,
+            )
 
         if self._uses_projected_fine_grid:
             increment_owner = jax.vmap(
