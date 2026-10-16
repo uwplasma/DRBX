@@ -301,3 +301,43 @@ def test_knudsen_map_scales_with_the_mean_free_path():
     # doubling the plasma density roughly halves the mean free path (rates depend weakly on n_e)
     ratio = np.asarray(mfp2 / mfp)
     assert 0.4 < ratio.min() and ratio.max() < 0.6
+
+
+@pytest.mark.slow
+def test_hsx_sheath_and_neutrals_ledgers_close(tmp_path):
+    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): sheath + neutrals, both ledgers close."""
+
+    import os
+
+    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
+    if bundle is None:
+        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX neutral ledger")
+    from drbx.cli import main
+
+    deck = tmp_path / "hsx.toml"
+    deck.write_text(
+        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
+        f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
+        "final_time = 0.0015\nnum_steps = 2\nsave_every = 2\nneutrals = true\n"
+    )
+    assert main(["run", str(deck)]) in (0, None)
+    data = np.load(tmp_path / "out" / "hsx.npz")
+    neutral = {name: data["neutral_ledger"][:, k] for k, name in enumerate(data["neutral_ledger_columns"])}
+    # the split conserves nuclei and closes energy with the reported sinks
+    np.testing.assert_allclose(neutral["nuclei_after"], neutral["nuclei_before"], rtol=1e-14)
+    sinks = neutral["electron_energy_loss"] + neutral["neutral_reservoir_energy"]
+    assert np.all(neutral["ionisation"] > 0.0) and np.all(sinks > 0.0)
+    energy = (neutral["plasma_energy_after"] + neutral["neutral_energy_after"] + sinks
+              - neutral["plasma_energy_before"] - neutral["neutral_energy_before"])
+    assert np.all(np.abs(energy) < 1e-9 * sinks)
+    assert np.all(neutral["out_of_range_Te"] == 0.0)
+    # wall ledger: inventory change = applied wall/other + the split's change
+    rows, columns = data["wall_ledger"], list(data["wall_ledger_columns"])
+    col = {name: rows[:, k] for k, name in enumerate(columns)}
+    wall, other = col["step_particle_wall"][1:], col["step_particle_other"][1:]
+    np.testing.assert_allclose(
+        np.diff(col["particle_inventory"]), other - wall + neutral["split_wall_particle_inventory"],
+        rtol=0, atol=1e-9 * wall.max(),
+    )
+    assert data["neutral_density"].shape[0] == 2
+    assert np.all(np.isfinite(data["neutral_knudsen_gradient"]))

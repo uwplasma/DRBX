@@ -42,8 +42,9 @@ backend.
   ghosts for density and temperatures, Dirichlet potential and vorticity.
 - Potential solve: SOLVAX FGMRES with the line-u preconditioner.
 
-The wall closure is a Bohm sheath entrance (see Wall closure below). No
-presheath model, recycling or neutral model is included.
+The wall closure is a Bohm sheath entrance (see Wall closure below). An
+optional diffusive neutral model (off by default) is described under Neutrals
+below. No presheath model or recycling is included.
 
 ## Normalization
 
@@ -397,13 +398,144 @@ M1 laptop including compilation), not the converged case; the figures in
 `docs/media/hsx_fci_blob.*` use FINAL_TIME = 0.15, NUM_STEPS = 200,
 SAVE_EVERY = 10. Set `RUN_SIMULATION = False` to re-render an existing history.
 
-## Neutral-model coupling
+## Neutrals
 
-The backend has no volumetric source or neutral-coupling hook yet. Wall
-particle and energy losses are available through the wall flux contract
-above; recycling will return a fraction of that ion flux through the same
-contract. The right-hand side is assembled in
-`LocalFciDrbEBRhs.evaluate_stage`.
+`neutrals = true` (deck key, `--neutrals`) adds one evolved field, the
+atomic neutral density `N`, on the plasma owner cells. Code:
+`native/fci_neutrals.py`; with `neutrals = false` (default) no neutral code
+runs and the advance is bitwise unchanged (`scripts/fci_gate.py`).
+
+Model choices:
+
+- **Diffusive, prescribed temperature.** At HSX parameters a fluid neutral
+  momentum equation adds stiff fields and a sound-speed limit without a
+  closure that the diffusive model lacks. The neutral temperature is fixed,
+  `T_n = neutral_temperature_ev` (default 3 eV, Franck-Condon atoms), and the
+  neutral flow is the diffusive drift. The energy and momentum that the
+  reactions hand to the neutrals beyond `3/2 T_n` per atom go to a neutral
+  reservoir that is reported (`neutral_reservoir_energy`,
+  `neutral_reservoir_momentum`), so the energy budget stays closed.
+- **Isotropic diffusion with the full metric.** Neutrals are not magnetized:
+  `dN/dt = (1/J) d_i (J D g^ij d_j N)`, a finite-volume flux on every fine
+  logical face (two-point normal term plus averaged cross derivatives,
+  face metric from the artifact), summed over the angular aggregates and
+  divided by the owner volume. No FCI map is used. Faces inside an aggregate
+  cancel, so `sum V dN/dt` is zero to round-off. The axis and the vessel
+  (`u = 1`) faces carry no flux (reflecting wall) until recycling supplies a
+  wall influx (PR 3; `wall_influx` argument).
+- **Diffusivity.** `D = v_th^2 / (nu_cx + nu_iz)`, `v_th^2 = T_n/m_i`,
+  `nu_cx = n <sigma v>_cx(T_i + T_n)`, `nu_iz = n <sigma v>_iz(T_e, n_e)`, with
+  the mean free path `lambda = v_th/nu` capped at `neutral_mfp_max` (default
+  5 cm): `D = v_th min(lambda, lambda_max)`. The cap is a flux limiter for
+  the low-density regions where `lambda` exceeds the device; where it is
+  active the diffusive closure is not valid (see the Knudsen map).
+- **Reactions.** `drbx.native.neutrals.compute_hydrogen_reaction_sources`
+  (AMJUEL H.4/H.10 2.1.5 and 2.1.8, H.2 3.1.8; January 2020 report, the
+  same code and data as the 1D model): ionisation, recombination and charge
+  exchange, receiver mixing heat, CX frictional heat, and the electron
+  energy loss `<sigma v E>` with the 13.6 eV recombination add-back
+  (`energy_loss_coefficient`). Rates use `n0 = neutral_reference_density_m3`
+  (default 5e18 m^-3; the plasma model itself is normalized) and
+  `Te0 = (rho* e B_ref L_ref)^2 / (m_i e)` (23.9 eV at rho* = 5e-4). The
+  physical ion temperature is `tau Ti`. Inputs outside the fit range
+  (`T` in [0.1, 1e4] eV, `n_e` in [1e14, 1e22] m^-3) are clamped by the
+  evaluator; the step counts the owner cells outside the range for `T_e`,
+  `n_e` and the CX temperature and prints them.
+- **Source hook.** `apply_volumetric_source(n, Vi, Te, Ti, source, dt)`
+  takes a `VolumetricSource` (particles, parallel momentum, ion and electron
+  thermal energy per volume) and updates the conserved variables `n`,
+  `n Vi`, `3/2 tau n Ti + n Vi^2/2` and `3/2 n Te` (the ion row also gets the
+  kinetic work `Vi S_M - Vi^2 S_n/2`), then recovers the primitives. Ve and
+  the vorticity are not changed (electron momentum transfer is O(m_e/m_i)).
+  Recycling and any external source can use the same hook.
+
+Time stepping: Lie operator split after each IMEX-SSP222 step: the reaction
+sources are advanced explicitly (`neutral_reaction_substeps`, default 1;
+the step prints `max dt nu`, which was 4.5e-3 on HSX), then the diffusion
+is backward Euler (preconditioned GMRES, Jacobi), followed by the
+conservative update `N_new = N + dt L N*`, so the neutral inventory is exact
+regardless of the GMRES residual. The split is first order in dt, like the
+wall ledger. It does not touch `evaluate_stage` or the implicit current/phi
+solve. The potential is not re-solved after the split: the next step's
+stage potentials are reconstructed from the updated state.
+
+Ledger: each step prints `[neutrals]` (event counts `sum V I dt`, `R`, `C`,
+the electron energy loss, the reservoir energy, the neutral inventory, the
+nuclei inventory `sum V (n + N)`, and the split identities: relative change
+of the nuclei and `(dE_plasma + dE_neutral + sinks)/sinks` over the split).
+With the sheath, the `[wall-step]` imbalance removes the split's inventory
+change. The history stores `neutral_density` (per saved frame),
+`neutral_ionisation_rate` (last step), `neutral_ledger` and its column
+names, and the Knudsen fields below.
+
+Knudsen map: `Kn_cell = lambda / h` (`h` the smallest physical cell size,
+`sqrt(g_ii) d xi_i`) and `Kn_grad = lambda / min(L_N, L_n)` with
+`L_X = X / |grad X|` (full metric), stored as `neutral_knudsen_cell`,
+`neutral_knudsen_gradient`, `neutral_mean_free_path`. The diffusive closure
+is valid where `Kn_grad << 1`. The run prints the fractions of cells below
+0.1, between 0.1 and 1, and above 1.
+
+Deck keys (and `--` options): `neutrals`, `neutral_reference_density_m3`,
+`neutral_temperature_ev`, `neutral_mfp_max`, `neutral_initial_density`
+(at the wall, units of n0), `neutral_initial_decay_length` (initial profile
+`N0 exp(-(1-u)/L)` in the radial label, 0 = uniform),
+`neutral_reaction_substeps`.
+
+Checks (`tests/fci_braginskii/test_fci_neutrals.py`, on a sheared slab with a
+constant non-orthogonal metric and an annulus with a varying metric and a
+cross term):
+
+- constant `N` with a strongly varying `D` is an exact null of the
+  diffusion, and stays uniform through the implicit step;
+- `sum V dN/dt = 0` (reflecting wall) and the implicit step changes the
+  inventory by exactly the supplied wall influx;
+- with a diagonal metric the operator is symmetric negative semi-definite;
+- the reaction hook: per-cell energy identity of the transfer model
+  (`Q_i + Vi S_M - Vi^2 S_n/2 + Q_n = 0` with stationary neutrals), exact
+  particle, momentum and energy updates;
+- closed box (five steps, three reaction substeps): nuclei to 1e-14 and
+  energy (plasma thermal + kinetic + neutral thermal + electron loss +
+  reservoir) to 1e-12 of the sinks;
+- pure ionisation at fixed `Te` follows the logistic solution (handoff 6.3)
+  within the spread of the density-dependent AMJUEL coefficient;
+- 1D neutral penetration `D N'' = nu N` with a wall influx on the sheared
+  slab against `N = Gamma cosh(k s) / (D k sinh(k L))`, `k^2 = nu/D`: error
+  below 2e-3 at 64 cells, second order (ratio > 3.5 from 32 to 64);
+- slow, HSX bundle: two steps with sheath and neutrals, split and wall
+  ledgers close.
+
+HSX (32-cubed bundle, sheath on, defaults plus `neutrals = true`: n0 =
+5e18 m^-3, T_n = 3 eV, initial `N = 0.01 exp(-(1-u)/0.1)`, 60 steps to t =
+0.045, 4.4 s per step, GMRES 76 iterations, the neutral step about 0.1 s):
+
+- Stable: n in [0.66, 1.08], `N > 0` everywhere (minimum 1.2e-4 at the
+  end), GMRES relres 1e-8 at every solve.
+- Split identities at every step: nuclei 3e-16, energy 9e-11 of the sinks.
+  The wall-step imbalance (split removed) stays below 1e-12 of the wall
+  loss. No rate input left the AMJUEL range.
+- The neutrals spread inward (`sqrt(D t)` about 3 cm): the radial mean of `N`
+  goes from 3.4e-3 (edge) / 0 (axis) to 2.4e-3 / 1.6e-4. The neutral
+  inventory falls 10% (ionisation 2.2e-6 to 2.5e-6 per step against CX
+  2.8e-6 and recombination 1.6e-9).
+- Ionisation is edge-localized: 28% of it in the outer 4 of 32 radial cells
+  and 54% in the outer 8.
+- Neutral energy sinks (electron loss 1.5e-4, reservoir 2.4e-4 over the
+  run) are below 1% of the sheath energy loss; the plasma evolution is still
+  sheath-dominated.
+- Knudsen map: the CX/ionisation mean free path is 5.5 to 14 cm, larger than
+  the 5 cm cap almost everywhere, so `D` is the flux-limited value. Against
+  the profile scale lengths, no cell is diffusive (`Kn_grad < 0.1`), 37% are
+  transitional and 63% kinetic (`Kn_grad >= 1`); `lambda/h` is 6 to 185. At
+  HSX edge densities the diffusive closure is therefore **not** valid: the
+  model is a mean-free-path-limited reduced closure, useful for the ledger,
+  the coupling and recycling, not a quantitative neutral prediction. Since
+  `lambda ~ 1/n`, `Kn_grad < 0.1` would need roughly ten times the density
+  at these profiles (an estimate, not run); a kinetic reference (EIRENE) is
+  the validation path (handoff 6.5).
+
+Not included: restart (the checkpoint has no neutral field; `restart_from`
+with neutrals is rejected), recycling (PR 3), molecules, neutral momentum,
+a neutral energy equation, and kinetic neutrals.
 
 ## Known limitations
 

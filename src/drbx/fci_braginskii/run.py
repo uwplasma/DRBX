@@ -2829,7 +2829,10 @@ def run_full_eb(
             energy_error = (
                 (plasma_a + neutral_a + neutral_ledger[3] + neutral_ledger[4]) - (plasma_b + neutral_b)
             ) / max(abs(neutral_ledger[3]) + abs(neutral_ledger[4]), 1.0e-300)
-            neutral_rows.append([current_time, *neutral_ledger, *neutral_inventory])
+            neutral_rows.append([
+                current_time, *neutral_ledger, *neutral_inventory,
+                *(split_change[8:11] if split_change is not None else (np.nan,) * 3),
+            ])
             print(
                 "[neutrals] t={:.6e} iz={:.4e} rec={:.4e} cx={:.4e} E_loss_e={:.4e} E_reservoir={:.4e} "
                 "N_n={:.6e} nuclei={:.9e} split: dN/N={:.2e} dE/sinks={:.2e} diff_relres={:.1e} "
@@ -3027,10 +3030,13 @@ def run_full_eb(
             "neutral_mean_free_path": np.asarray(mfp, dtype=np.float64),
             "neutral_knudsen_cell": np.asarray(kn_cell, dtype=np.float64),
             "neutral_knudsen_gradient": kn_grad,
-            "neutral_ledger": np.asarray(neutral_rows, dtype=np.float64).reshape(-1, 1 + len(fci_neutrals.NEUTRAL_LEDGER_COLUMNS) + 6),
+            "neutral_ledger": np.asarray(neutral_rows, dtype=np.float64).reshape(-1, 1 + len(fci_neutrals.NEUTRAL_LEDGER_COLUMNS) + 9),
             "neutral_ledger_columns": np.asarray(
                 ("time", *fci_neutrals.NEUTRAL_LEDGER_COLUMNS, "nuclei_before", "plasma_energy_before",
-                 "neutral_energy_before", "nuclei_after", "plasma_energy_after", "neutral_energy_after")
+                 "neutral_energy_before", "nuclei_after", "plasma_energy_after", "neutral_energy_after",
+                 # the split's change of the wall ledger's (N, W_e, W_i) inventories (nan without sheath)
+                 "split_wall_particle_inventory", "split_wall_electron_energy_inventory",
+                 "split_wall_ion_energy_inventory")
             ),
         }
 
