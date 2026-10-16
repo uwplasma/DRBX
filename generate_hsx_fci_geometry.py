@@ -27,6 +27,7 @@ if not DRBX_SRC.is_dir() or not (DRBX_SRC / "drbx").is_dir():
 if str(DRBX_SRC) not in sys.path:
     sys.path.insert(0, str(DRBX_SRC))
 
+from drbx.fci_braginskii.geometry_build.hsx_fci_builder import HSX_QHS_MAIN_CURRENT_AMPERES  # noqa: E402
 from drbx.fci_braginskii.geometry_build.hsx_simulation_geometry import (
     HsxSimulationGeometryConfig,
     build_hsx_simulation_geometry,
@@ -41,10 +42,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--makegrid",
         type=Path,
-        default=root / "artifacts" / "inputs" / "hsx" / "mgrid_res2p5cm_180pln.nc",
+        default=None,
         help=(
-            "Path to the HSX MAKEGRID vacuum-field file. Not distributed with "
-            "the repository; see docs/fci_braginskii_hsx_backend.md."
+            "Optional HSX MAKEGRID vacuum-field file. When given, B comes from "
+            "it instead of --coils. Not distributed with the repository; see "
+            "docs/fci_braginskii_hsx_backend.md."
         ),
     )
     parser.add_argument(
@@ -59,11 +61,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--coils",
         type=Path,
-        default=None,
+        default=root / "examples" / "inputs" / "hsx" / "coils.hsx",
         help=(
-            "MAKEGRID coils file. When given, B comes from the coil filaments "
-            "(exact segment Biot-Savart) instead of --makegrid; "
-            "--makegrid-currents then lists one current per coil group."
+            "MAKEGRID coils file (default: the HSX coils shipped with DRBX). "
+            "B comes from the coil filaments unless --makegrid is given; "
+            "--makegrid-currents lists one current per coil group (default QHS)."
         ),
     )
     parser.add_argument(
@@ -122,6 +124,9 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.makegrid is None and args.makegrid_currents is None:
+        # QHS: the six main coil groups at the nominal current, the six auxiliary groups off.
+        args.makegrid_currents = (HSX_QHS_MAIN_CURRENT_AMPERES,) * 6 + (0.0,) * 6
     config = HsxSimulationGeometryConfig(
         makegrid_path=args.makegrid,
         vessel_path=args.vessel,
@@ -148,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         trace_backend=args.trace_backend,
         trace_batch_size=args.trace_batch_size,
         trace_device_count=args.trace_device_count,
-        coils_path=args.coils,
+        coils_path=None if args.makegrid is not None else args.coils,
         coil_table_shape=None if args.direct_coils else tuple(args.coil_table_shape),
     )
     build_hsx_simulation_geometry(config, status_path=args.status, log_path=args.log)
