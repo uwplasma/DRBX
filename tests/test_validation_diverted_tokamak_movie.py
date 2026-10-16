@@ -4,6 +4,13 @@ from pathlib import Path
 
 import numpy as np
 from netCDF4 import Dataset
+import pytest
+
+# netCDF4 assigns ``ndarray.shape`` internally when writing multi-dimensional
+# variables, which NumPy >= 2.5 deprecates; the test data itself never does.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning"
+)
 
 from drbx.validation.diverted_tokamak_movie import (
     assemble_tokamak_rank_history,
