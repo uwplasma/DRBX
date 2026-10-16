@@ -13,6 +13,7 @@ import pytest
 jax.config.update("jax_enable_x64", True)
 
 from drbx.fci_braginskii.geometry_build.provider_bfield import (  # noqa: E402
+    CoilFieldTable,
     JaxProviderBFieldEvaluator,
     ProviderBFieldEvaluator,
 )
@@ -101,6 +102,75 @@ def test_provider_evaluator_matches_the_provider_in_both_frames() -> None:
     assert identity["scheme"] == "field-provider-v1" and len(identity["sha256"]) == 64
 
 
+def _stellsym_coils(nfp: int = 2) -> FilamentCoilField:
+    """A tilted, shifted loop with its stellarator image and nfp copies."""
+
+    t = 2.0 * np.pi * np.arange(64) / 64
+    base = np.stack([1.0 + 0.25 * np.cos(t), 0.1 + 0.25 * np.sin(t) * 0.3, 0.25 * np.sin(t)], axis=-1)
+    rot = lambda a: np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]])
+    base = base @ rot(0.3).T
+    nodes, currents = [], []
+    for k in range(nfp):
+        for pts, current in ((base, 1.0e5), (base * [1, -1, -1], -1.0e5)):
+            nodes.append(pts @ rot(2 * np.pi * k / nfp).T)
+            currents.append(current)
+    return FilamentCoilField(nodes=jnp.asarray(np.stack(nodes)), currents=jnp.asarray(currents), nfp=nfp, stellsym=True)
+
+
+def test_coil_table_prefilter_matches_the_scipy_mgrid_producer() -> None:
+    from drbx.fci_braginskii.geometry_build.Bfield_evaluator import (
+        ComponentSplineBFieldEvaluator,
+    )
+    from drbx.fci_braginskii.geometry_build.jax_bfield_evaluator import (
+        JaxComponentSplineBFieldEvaluator,
+    )
+
+    coils = _stellsym_coils()
+    table = CoilFieldTable.from_provider(coils, R_bounds=(0.6, 1.4), Z_bounds=(-0.2, 0.2), shape=(12, 16, 10))
+    sp = table.spline
+    P, Z, R = np.meshgrid(np.asarray(sp.phi), np.asarray(sp.Z), np.asarray(sp.R), indexing="ij")
+    xyz = np.stack([R * np.cos(P), R * np.sin(P), Z], -1)
+    b = np.asarray(coils.B(jnp.asarray(xyz)))
+    cyl = np.stack([b[..., 0] * np.cos(P) + b[..., 1] * np.sin(P), -b[..., 0] * np.sin(P) + b[..., 1] * np.cos(P), b[..., 2]], -1)
+    scipy_view = JaxComponentSplineBFieldEvaluator.from_evaluator(
+        ComponentSplineBFieldEvaluator(sp.R, sp.phi, sp.Z, cyl, nfp=2)
+    )
+    for ours, ref in zip(sp.coefficients, scipy_view.coefficients):
+        np.testing.assert_allclose(ours, ref, rtol=1e-10, atol=1e-12 * float(np.abs(ref).max()))
+    # The symmetric half-period evaluation equals a full-period table.
+    full = CoilFieldTable.from_provider(
+        FilamentCoilField(nodes=coils.nodes, currents=coils.currents, nfp=2),
+        R_bounds=(0.6, 1.4), Z_bounds=(-0.2, 0.2), shape=(12, 16, 10),
+    )
+    for ours, ref in zip(sp.coefficients, full.spline.coefficients):
+        np.testing.assert_allclose(ours, ref, atol=1e-12 * float(np.abs(ref).max()))
+
+
+def test_coil_table_converges_to_the_coils_and_is_differentiable_in_currents() -> None:
+    coils = _stellsym_coils()
+    points = jnp.asarray([[0.9, 0.2, 0.05], [-0.3, 1.1, -0.1], [0.75, -0.6, 0.12]])
+    exact = np.asarray(coils.B(points))
+    errors = []
+    for n in (16, 32):
+        table = CoilFieldTable.from_provider(coils, R_bounds=(0.5, 1.5), Z_bounds=(-0.3, 0.3), shape=(n, 2 * n, n))
+        errors.append(np.max(np.linalg.norm(np.asarray(table.B(points)) - exact, axis=-1)) / np.abs(exact).max())
+    assert errors[1] < 1.0e-3 and errors[0] / errors[1] > 8.0
+
+    def b_table(currents):
+        field = FilamentCoilField(nodes=coils.nodes, currents=currents, nfp=2, stellsym=True)
+        table = CoilFieldTable.from_provider(field, R_bounds=(0.5, 1.5), Z_bounds=(-0.3, 0.3), shape=(10, 12, 10))
+        return table.B(points)
+
+    jac = np.asarray(jax.jacfwd(b_table)(coils.currents))
+    step = 1.0
+    for k in (0, 1, 3):
+        e = jnp.zeros_like(coils.currents).at[k].set(step)
+        fd = (np.asarray(b_table(coils.currents + e)) - np.asarray(b_table(coils.currents - e))) / (2 * step)
+        np.testing.assert_allclose(jac[..., k], fd, rtol=1e-7, atol=1e-9 * np.abs(fd).max())
+    grad = jax.grad(lambda c: jnp.sum(b_table(c) ** 2))(coils.currents)
+    assert np.all(np.isfinite(np.asarray(grad))) and np.any(np.asarray(grad) != 0)
+
+
 HSX_INPUTS = Path(os.environ.get("DRBX_HSX_INPUTS", "artifacts")).expanduser()
 
 
@@ -111,7 +181,9 @@ HSX_INPUTS = Path(os.environ.get("DRBX_HSX_INPUTS", "artifacts")).expanduser()
     reason="HSX coils/mgrid inputs not present (set DRBX_HSX_INPUTS)",
 )
 def test_hsx_coil_field_matches_the_mgrid_at_bundle_cell_centres() -> None:
-    from drbx.fci_braginskii.geometry_build.Bfield_evaluator import bfield_evaluator_from_makegrid
+    from drbx.fci_braginskii.geometry_build.Bfield_evaluator import (
+        bfield_evaluator_from_makegrid,
+    )
 
     currents = [10722.0] * 6 + [0.0] * 6
     coils = FilamentCoilField.from_makegrid(
