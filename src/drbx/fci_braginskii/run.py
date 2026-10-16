@@ -3128,7 +3128,7 @@ class HsxBlobConfig:
     electron_heat_transmission: float = 0.0
     ion_heat_transmission: float = 2.5
     secondary_electron_emission: float = 0.0
-    sheath_potential: str = "current"
+    sheath_potential: str = "ambipolar"
     advance_execution: str = "staged-compiled"
     gmres_acceptance_tolerance: float = 5.0e-5
     gmres_target_tolerance: float = GMRES_TARGET_TOLERANCE
@@ -3420,10 +3420,10 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         "sheath_potential",
         choices=SHEATH_POTENTIALS,
         help=(
-            "Bohm wall electron closure: 'current' (default; sheath-limited "
+            "Bohm wall electron closure: 'ambipolar' (default; Ve_w = Vi_w, "
+            "zero current per leg) or 'current' (experimental; sheath-limited "
             "electron current j = n c_s [1 - exp(Lambda - phi/Te)] per wall "
-            "leg, linearized inside the implicit current/phi solve) or "
-            "'ambipolar' (Ve_w = Vi_w, zero current per leg; the PR 1b variant)."
+            "leg, linearized inside the implicit current/phi solve)."
         ),
     )
     option(

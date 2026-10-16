@@ -57,11 +57,13 @@ class SheathClosure:
     electron_heat_transmission: float | None = None
     ion_heat_transmission: float = 2.5
     secondary_electron_emission: float = 0.0
+    # "ambipolar" (default): Ve_w = Vi_w, zero current per leg, phi wall
+    # boundary Dirichlet 0 (the PR 1b form; stable on HSX to t = 0.075).
     # "current": sheath-limited electron current per wall leg, linearized in
     # phi inside the implicit current/phi solve (conducting wall at phi = 0).
-    # "ambipolar": the #53 regression variant, Ve_w = Vi_w (zero current per
-    # leg) and no sheath potential.
-    potential: str = "current"
+    # Experimental: on HSX it develops grid-scale phi and Ve at the wall
+    # cells and fails at step 49 (docs, Wall closure).
+    potential: str = "ambipolar"
 
     def __post_init__(self) -> None:
         if self.potential not in SHEATH_POTENTIALS:

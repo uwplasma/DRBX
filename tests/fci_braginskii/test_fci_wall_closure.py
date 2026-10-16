@@ -183,6 +183,11 @@ def test_hsx_sheath_step_ledger_closes(tmp_path):
         applied = (col[f"step_{kind}_energy_other"] - col[f"step_{kind}_energy_wall"]
                    + col[f"step_{kind}_energy_product"])[1:]
         np.testing.assert_allclose(inventory, applied, rtol=0, atol=1e-9 * abs(inventory).max())
+    # parallel momentum P = sum V n Vi: flux-form Vi row, same applied-step identity
+    momentum = np.diff(col["momentum_inventory"])
+    applied = (col["step_momentum_other"] - col["step_momentum_wall"] + col["step_momentum_product"])[1:]
+    scale = max(abs(momentum).max(), abs(col["step_momentum_other"][1:]).max())
+    np.testing.assert_allclose(momentum, applied, rtol=0, atol=1e-9 * scale)
     # the applied flux is the contract flux of the step states to first order in dt
     dt = np.diff(col["time"])
     contract = 0.5 * (col["particle"][1:] + col["particle"][:-1]) * dt
