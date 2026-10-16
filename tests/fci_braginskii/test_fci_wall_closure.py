@@ -106,7 +106,7 @@ def test_conservative_bulk_leg_is_the_wall_flux_alone():
         wall = bohm_wall_state(center, center, s, TAU)
         rate = np.asarray(sheath_wall_leg_residual(wall, center, dx, s, TAU, ge, gi, conservative_bulk=True))
         flux = wall_face_fluxes(wall, s, TAU, ge, gi, center[:, 3])
-        n, Te, Ti, Vi, Ve = center.T
+        n, Te, Ti, Vi, _ = center.T
         np.testing.assert_allclose(rate[:, 0], -np.asarray(flux.particle) / dx, rtol=1e-13)
         np.testing.assert_allclose(1.5 * (Te * rate[:, 0] + n * rate[:, 1]),
                                    -np.asarray(flux.electron_energy) / dx, rtol=1e-12)
