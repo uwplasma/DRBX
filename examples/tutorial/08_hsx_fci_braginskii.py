@@ -68,11 +68,11 @@ print(f"[08] potential: max |phi| {np.abs(phi[-1]).max():.3e} (from the vorticit
 FIGURE.parent.mkdir(parents=True, exist_ok=True)
 fig, axes = plt.subplots(1, 3, figsize=(11.0, 3.6), layout="constrained")
 panels = ((density[0, :, :, plane], "initial density", "viridis"),
-          (density[-1, :, :, plane] - density[0, :, :, plane], f"density change at t={history['times'][-1]:.2e}", "RdBu_r"),
+          (density[-1, :, :, plane] - density[0, :, :, plane], f"n change, t={history['times'][-1]:.2g}", "RdBu_r"),
           (phi[-1, :, :, plane], "potential phi", "RdBu_r"))
 for ax, (field, title, cmap) in zip(axes, panels):
     limit = np.abs(field).max() if cmap == "RdBu_r" else None
-    mesh = ax.pcolormesh(R, Z, field, cmap=cmap, shading="auto",
+    mesh = ax.pcolormesh(R, Z, field, cmap=cmap, shading="gouraud",
                          vmin=-limit if limit else None, vmax=limit)
     fig.colorbar(mesh, ax=ax, shrink=0.8)
     ax.set(title=title, xlabel="R (m)", ylabel="Z (m)", aspect="equal")
