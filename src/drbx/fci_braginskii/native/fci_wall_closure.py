@@ -32,7 +32,11 @@ from typing import NamedTuple
 import jax.numpy as jnp
 
 WALL_CLOSURES = ("bohm", "zero-flow")
+SHEATH_POTENTIALS = ("current", "ambipolar")
 _FLOOR = 1.0e-30
+# Cap on the sheath exponent Lambda - phi/Te: keeps the linearized electron
+# current finite for a strongly negative transient potential (exp(40) ~ 2e17).
+_SHEATH_EXPONENT_CAP = 40.0
 
 
 @dataclass(frozen=True)
@@ -53,8 +57,17 @@ class SheathClosure:
     electron_heat_transmission: float | None = None
     ion_heat_transmission: float = 2.5
     secondary_electron_emission: float = 0.0
+    # "ambipolar" (default): Ve_w = Vi_w, zero current per leg, phi wall
+    # boundary Dirichlet 0 (the PR 1b form; stable on HSX to t = 0.075).
+    # "current": sheath-limited electron current per wall leg, linearized in
+    # phi inside the implicit current/phi solve (conducting wall at phi = 0).
+    # Experimental: on HSX it develops grid-scale phi and Ve at the wall
+    # cells and fails at step 49 (docs, Wall closure).
+    potential: str = "ambipolar"
 
     def __post_init__(self) -> None:
+        if self.potential not in SHEATH_POTENTIALS:
+            raise ValueError(f"sheath potential must be one of {SHEATH_POTENTIALS}")
         if not 0.0 <= self.secondary_electron_emission < 1.0:
             raise ValueError("secondary_electron_emission must be in [0, 1)")
         if self.ion_heat_transmission < 2.5:
@@ -70,6 +83,49 @@ class SheathClosure:
         return 2.0 / (1.0 - d) - 0.5 * jnp.log(
             2.0 * math.pi * (1.0 + ti_over_te) / (mi_over_me * (1.0 - d) ** 2)
         )
+
+
+    def sheath_lambda(self, ti_over_te, mi_over_me):
+        """Floating sheath drop ``Lambda = e phi_float / Te`` (see :func:`sheath_lambda`)."""
+        return sheath_lambda(ti_over_te, mi_over_me, self.secondary_electron_emission)
+
+
+def sheath_lambda(ti_over_te, mi_over_me, secondary_electron_emission=0.0):
+    """Floating-wall potential drop in units of Te at the sheath entrance.
+
+    ``Lambda = ln[(1 - d) / sqrt(2 pi (me/mi) (1 + Ti/Te))]``
+    ``= 0.5 ln[mi / (2 pi me (1 + Ti/Te))] + ln(1 - d)``.
+
+    It equates the Bohm ion flux ``n c_s`` (``c_s^2 = Te (1 + Ti/Te)/mi``)
+    with the net electron flux ``(1 - d) n v_te/(2 sqrt(pi)) exp(-e
+    phi/Te)`` of a Maxwellian (``v_te = sqrt(2 Te/me)``) reflected by the
+    sheath, ``d`` the secondary electron emission yield.  Hydrogen with
+    ``Ti = Te`` and ``d = 0`` gives 2.49; ``Ti/Te = 0`` gives 2.84.
+    """
+
+    return 0.5 * jnp.log(
+        mi_over_me / (2.0 * math.pi * (1.0 + jnp.asarray(ti_over_te, dtype=jnp.float64)))
+    ) + math.log(1.0 - float(secondary_electron_emission))
+
+
+def sheath_current(density, sound, Te, phi, Lambda, direction):
+    """Sheath-limited parallel current along +b at one wall leg, and d/dphi.
+
+    ``j = s n c_s [1 - exp(Lambda - phi/Te)]`` (ions leave at the Bohm speed,
+    the electron flux is the Maxwellian flux reflected by the sheath of
+    height ``phi`` above the wall at ``phi = 0``), ``s = sign(b.n_w)``.
+    ``j = 0`` at the floating potential ``phi = Lambda Te``.  Returns ``(j,
+    dj/dphi)``; ``dj/dphi = s n c_s exp(Lambda - phi/Te)/Te`` has the sign
+    of ``s``, so the wall term ``W(dj/dphi phi)`` is a positive diagonal
+    contribution to the potential operator.
+    """
+
+    s = jnp.asarray(direction, dtype=jnp.float64)
+    te = jnp.maximum(jnp.asarray(Te, dtype=jnp.float64), _FLOOR)
+    flux = jnp.asarray(density, dtype=jnp.float64) * jnp.asarray(sound, dtype=jnp.float64)
+    reflected = jnp.exp(jnp.minimum(Lambda - jnp.asarray(phi, dtype=jnp.float64) / te,
+                                    _SHEATH_EXPONENT_CAP))
+    return s * flux * (1.0 - reflected), s * flux * reflected / te
 
 
 class WallFaceFluxes(NamedTuple):
@@ -185,9 +241,11 @@ def sheath_wall_leg_residual(
     (``LocalFciDrbEBRhs._sheath_conservative_parallel_rates``).  Those fluxes
     already end on the owner row, so the (n, Te, Ti) legs are the wall flux
     alone, ``-s F_w / dx``, and each quantity leaves through exactly one face
-    flux.  The Vi row keeps the centre flux: its bulk is the characteristic
-    material operator.  ``dx`` is then the flux-tube length of
-    :func:`sheath_tube_lengths`.
+    flux.  The Vi row is in flux form too (``d(n Vi) = -D(n Vi^2 + p) + p
+    div(b) + Vi D(j)``): its leg is ``-s (F_w - p_c) / dx``, the wall
+    momentum flux less the leg's part ``s p_c / dx`` of the well-balanced
+    mirror force (``div(b) = D(1) + sum_legs s/dx``).  ``dx`` is then the
+    flux-tube length of :func:`sheath_tube_lengths`.
     """
 
     w = jnp.asarray(wall_state, dtype=jnp.float64)
@@ -210,17 +268,27 @@ def sheath_wall_leg_residual(
     keep = 0.0 if conservative_bulk else 1.0
     d_particle = Fw[0] - keep * Fc[0]
     rate_n = factor * d_particle
-    rate_vi = factor * ((Fw[1] - Fc[1]) - c[..., 3] * d_particle) / n_c
+    if conservative_bulk:
+        # Flux-form momentum bulk: the centre pressure is the leg's share of
+        # the well-balanced mirror force p div(b) (a uniform static pressure
+        # is in equilibrium), not an advected flux.
+        centre_momentum = c[..., 0] * (c[..., 1] + tau * c[..., 2])
+    else:
+        centre_momentum = Fc[1]
+    rate_vi = factor * ((Fw[1] - centre_momentum) - c[..., 3] * d_particle) / n_c
     rate_te = factor * ((Fw[2] - keep * Fc[2]) - 1.5 * c[..., 1] * d_particle) / (1.5 * n_c)
     rate_ti = factor * ((Fw[3] - keep * Fc[3]) - 1.5 * c[..., 2] * d_particle) / (1.5 * n_c)
     return jnp.stack((rate_n, rate_te, rate_ti, rate_vi, jnp.zeros_like(rate_n)), axis=-1)
 
 
 __all__ = [
+    "SHEATH_POTENTIALS",
     "WALL_CLOSURES",
     "SheathClosure",
     "WallFaceFluxes",
     "bohm_wall_state",
+    "sheath_current",
+    "sheath_lambda",
     "sheath_tube_lengths",
     "sheath_wall_leg_residual",
     "sound_speed",
