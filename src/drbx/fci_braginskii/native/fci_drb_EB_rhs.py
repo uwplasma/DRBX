@@ -595,6 +595,47 @@ class LocalFciDrbEBRhs:
             out.append((jnp.where(wall, j, 0.0), jnp.where(wall, dj, 0.0)))
         return out[0][0], out[1][0], out[0][1], out[1][1]
 
+    def _sheath_insulating_pair(self, gradient, divergence, target):
+        """Wall-leg closure of the current/phi pair under the sheath current.
+
+        The homogeneous pair ``(G, D)`` closes the wall leg with zero endpoint
+        current, whose adjoint ``G = -M^-1 D^T M`` sees ``phi = 0`` at the
+        wall: a wall cell's electron force ``mu G(phi)`` pulls toward the
+        conducting wall while the sheath holds the cell near ``Lambda Te``,
+        and the central stencil decouples the two (grid-scale phi along b).
+        The bulk current also leaks through the wall face (``D`` of a
+        constant is not zero there) on top of the sheath current.
+
+        With the sheath, the potential at the sheath entrance is the owner
+        potential and the wall face carries only the sheath current.  The pair
+        becomes ``G' = G - w G(1)``, ``D' = D + w G(1)`` (``w`` the wall-leg
+        cells, a diagonal, so ``G' = -M^-1 D'^T M`` stays the weighted
+        negative adjoint): ``G'(1) = 0`` on wall cells (Neumann phi at the
+        entrance, the phi drop is in the sheath) and ``<1, D' q>_M`` loses
+        the wall-face part of the bulk current, so the only charge crossing
+        the wall is ``j_w`` of :meth:`_sheath_currents`.  Exact adjointness
+        keeps the discrete energy identity ``<phi, D' (n G' phi)> =
+        -<G' phi, n G' phi> <= 0``: the pair is dissipative and the wall power
+        is ``phi j_w`` alone.
+        """
+
+        maps = self.geometry.maps
+        wall = (
+            (maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+            | (maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+        ) & target & self.geometry.active_cell_mask_owned
+        diagonal = jnp.where(
+            wall, gradient(jnp.ones(self.geometry.owned_shape, dtype=jnp.float64)), 0.0
+        )
+
+        def insulating_gradient(values):
+            return gradient(values) - diagonal * values
+
+        def insulating_divergence(values):
+            return divergence(values) + diagonal * values
+
+        return insulating_gradient, insulating_divergence
+
     def _sheath_wall_primitives(self, state_owned: FciDrbEBState):
         """Owner and Bohm wall states of every wall leg (no parallel terms)."""
 
@@ -2879,6 +2920,11 @@ class LocalFciDrbEBRhs:
                 ),
             )
         )
+
+        if self._sheath_current_mode:
+            current_phi_gradient, current_phi_divergence = self._sheath_insulating_pair(
+                current_phi_gradient, current_phi_divergence, _current_phi_target
+            )
 
         omega_b = jnp.asarray(state_owned.vorticity, dtype=jnp.float64)
         Ve_b = jnp.asarray(state_owned.Ve, dtype=jnp.float64)
