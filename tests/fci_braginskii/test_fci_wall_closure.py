@@ -9,13 +9,16 @@ heat source, to steady state.
 from __future__ import annotations
 
 import math
+import os
 from functools import partial
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from drbx.fci_braginskii.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
 from drbx.fci_braginskii.native.fci_parallel_production_flux import (
     parallel_short_wall_material_data,
     parallel_target_row_material_residual,
@@ -23,6 +26,7 @@ from drbx.fci_braginskii.native.fci_parallel_production_flux import (
 from drbx.fci_braginskii.native.fci_wall_closure import (
     SheathClosure,
     bohm_wall_state,
+    sheath_tube_lengths,
     sheath_wall_leg_residual,
     sound_speed,
     wall_face_fluxes,
@@ -88,6 +92,94 @@ def test_wall_leg_removes_exactly_the_contract_fluxes():
         # momentum flux is continuous across the half leg (owner subsonic)
         np.testing.assert_allclose(Vi * rate[:, 0] + n * rate[:, 3], 0.0, atol=1e-10)
         np.testing.assert_array_equal(rate[:, 4], 0.0)
+
+
+def test_conservative_bulk_leg_is_the_wall_flux_alone():
+    """With the sum-free bulk, the (n, Te, Ti) legs carry only the contract flux."""
+
+    rng = np.random.default_rng(2)
+    center = np.stack(
+        [rng.uniform(0.5, 2.0, 32), rng.uniform(0.5, 2.0, 32), rng.uniform(0.5, 2.0, 32),
+         rng.uniform(-0.8, 0.8, 32), rng.uniform(-3.0, 3.0, 32)], axis=-1)
+    dx, ge, gi = rng.uniform(0.01, 0.1, 32), 4.49, 3.0
+    for s in (1.0, -1.0):
+        wall = bohm_wall_state(center, center, s, TAU)
+        rate = np.asarray(sheath_wall_leg_residual(wall, center, dx, s, TAU, ge, gi, conservative_bulk=True))
+        flux = wall_face_fluxes(wall, s, TAU, ge, gi, center[:, 3])
+        n, Te, Ti, Vi, Ve = center.T
+        np.testing.assert_allclose(rate[:, 0], -np.asarray(flux.particle) / dx, rtol=1e-13)
+        np.testing.assert_allclose(1.5 * (Te * rate[:, 0] + n * rate[:, 1]),
+                                   -np.asarray(flux.electron_energy) / dx, rtol=1e-12)
+        np.testing.assert_allclose(1.5 * TAU * (Ti * rate[:, 0] + n * rate[:, 2]),
+                                   -np.asarray(flux.ion_energy) / dx, rtol=1e-12)
+        np.testing.assert_allclose(Vi * rate[:, 0] + n * rate[:, 3], 0.0, atol=1e-10)
+
+
+def test_tube_lengths_use_the_interior_leg():
+    dxm, dxp = jnp.asarray([1.0, 0.2, 0.3, 0.5]), jnp.asarray([0.1, 2.0, 0.4, 0.5])
+    backward = jnp.asarray([False, True, True, False])
+    forward = jnp.asarray([True, False, True, False])
+    tube_minus, tube_plus = (np.asarray(t) for t in sheath_tube_lengths(dxm, dxp, backward, forward))
+    assert tube_plus[0] == 1.0 and tube_minus[1] == 2.0  # single wall leg: interior length
+    assert tube_minus[2] == tube_plus[2] == pytest.approx(0.7)  # both legs on walls
+
+
+def test_conservative_parallel_rates_are_sum_free_with_reported_sources():
+    """Any weighted pair D = -M^-1 G^T M with G(1) = 0: no parallel loss in the bulk."""
+
+    rng = np.random.default_rng(3)
+    cells = 40
+    mass = rng.uniform(0.5, 2.0, cells)
+    G = rng.normal(size=(cells, cells))
+    G -= G.sum(axis=1, keepdims=True) / cells  # constant-exact gradient
+    D = -(G.T * mass[None, :]) / mass[:, None]
+    gradient = lambda f: jnp.einsum("ij,...j->...i", G, f)
+    divergence = lambda f: jnp.einsum("ij,...j->...i", D, f)
+    primitive = {k: jnp.asarray(rng.uniform(lo, hi, cells)) for k, lo, hi in (
+        ("density", 0.5, 2.0), ("Te", 0.5, 2.0), ("Ti", 0.5, 2.0), ("Vi", -1.0, 1.0), ("Ve", -3.0, 3.0))}
+    host = SimpleNamespace(parameters=SimpleNamespace(tau=TAU))
+    rates, sources = LocalFciDrbEBRhs._sheath_conservative_parallel_rates(host, primitive, gradient, divergence)
+    n, te, ti = (np.asarray(primitive[k]) for k in ("density", "Te", "Ti"))
+    dn, dte, dti = np.asarray(rates).T
+    assert abs(np.sum(mass * dn)) < 1e-12
+    np.testing.assert_allclose(np.sum(mass * 1.5 * (te * dn + n * dte)), np.sum(mass * sources[:, 0]), atol=1e-11)
+    np.testing.assert_allclose(np.sum(mass * 1.5 * TAU * (ti * dn + n * dti)), np.sum(mass * sources[:, 1]),
+                               atol=1e-11)
+
+
+@pytest.mark.slow
+def test_hsx_sheath_step_ledger_closes(tmp_path):
+    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): applied wall flux is the only parallel loss."""
+
+    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
+    if bundle is None:
+        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX sheath ledger")
+    from drbx.cli import main
+
+    deck = tmp_path / "hsx.toml"
+    deck.write_text(
+        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
+        f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
+        "final_time = 0.0015\nnum_steps = 2\nsave_every = 2\n"
+    )
+    assert main(["run", str(deck)]) in (0, None)
+    data = np.load(tmp_path / "out" / "hsx.npz")
+    rows, columns = data["wall_ledger"], list(data["wall_ledger_columns"])
+    col = {name: rows[:, k] for k, name in enumerate(columns)}
+    wall, other = col["step_particle_wall"][1:], col["step_particle_other"][1:]
+    assert np.all(wall > 0.0)
+    np.testing.assert_allclose(np.diff(col["particle_inventory"]), other - wall, rtol=0, atol=1e-9 * wall.max())
+    # what is not the wall is perpendicular transport only (the parallel bulk is sum-free)
+    assert np.all(np.abs(other) < 1e-3 * wall)
+    for kind in ("electron", "ion"):
+        inventory = np.diff(col[f"{kind}_energy_inventory"])
+        applied = (col[f"step_{kind}_energy_other"] - col[f"step_{kind}_energy_wall"]
+                   + col[f"step_{kind}_energy_product"])[1:]
+        np.testing.assert_allclose(inventory, applied, rtol=0, atol=1e-9 * abs(inventory).max())
+    # the applied flux is the contract flux of the step states to first order in dt
+    dt = np.diff(col["time"])
+    contract = 0.5 * (col["particle"][1:] + col["particle"][:-1]) * dt
+    np.testing.assert_allclose(wall, contract, rtol=5e-3)
 
 
 def _flux_tube(cells: int, *, isothermal: bool, mu: float = 25.0, periods: int = 10):

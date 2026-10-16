@@ -170,6 +170,12 @@ WALL_LEDGER_COLUMNS = (
     "time", "particle", "parallel_momentum", "electron_energy", "ion_energy",
     "kinetic_energy", "current", "abs_current", "wall_legs", "particle_inventory",
     "electron_energy_inventory", "ion_energy_inventory", "ion_kinetic_inventory",
+    "electron_energy_source", "ion_energy_source",
+    # Applied over the step ending at this row (NaN on the first row); see
+    # ``LocalFciDrbEBRhs.wall_step_ledger``.
+    "step_particle_wall", "step_particle_other", "step_electron_energy_wall",
+    "step_electron_energy_other", "step_electron_energy_product", "step_ion_energy_wall",
+    "step_ion_energy_other", "step_ion_energy_product",
 )
 
 def topology_descriptor(topology: str) -> TopologyDescriptor:
@@ -1925,12 +1931,25 @@ def run_full_eb(
         diagnostics = jnp.stack(
             (state_mins[-1], state_maxs[-1], state_abs_maxs[-1]), axis=1
         )
+        if model.sheath is None:
+            step_ledger = jnp.zeros((8,), dtype=jnp.float64)
+        else:
+            implicit_1, explicit_1, implicit_2, explicit_2, _ = stage_rates
+            step_ledger = model.wall_step_ledger(
+                stage_states[0],
+                implicit_1.axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
+                explicit_1.axpy(explicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
+                dt,
+            )
+            for mesh_axis_name in ("x", "y", "z"):
+                step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
         return (
             stage_states[-1],
             diagnostics,
             gmres_iterations,
             gmres_stage_diagnostics,
             stage_diagnostics,
+            step_ledger,
         )
 
     def full_imex_advance(
@@ -1990,6 +2009,7 @@ def run_full_eb(
     compile_start = time.perf_counter()
     advance_out_specs = (
         state_spec,
+        replicated_spec,
         replicated_spec,
         replicated_spec,
         replicated_spec,
@@ -2643,19 +2663,36 @@ def run_full_eb(
             check_vma=False,
         ))
 
-    def record_wall_ledger(time_value: float) -> None:
+    def record_wall_ledger(time_value: float, step_ledger=None) -> None:
         if wall_ledger is None:
             return
         with jax.disable_jit(advance_execution == "eager"):
             totals = np.asarray(wall_ledger(state, cell_fields, map_fields, control_volume_fields))
-        wall_ledger_rows.append([float(time_value), *(float(v) for v in totals)])
+        applied = (
+            np.full(8, np.nan) if step_ledger is None else np.asarray(step_ledger, dtype=np.float64)
+        )
+        wall_ledger_rows.append([float(time_value), *(float(v) for v in totals), *(float(v) for v in applied)])
         print(
             "[wall] t={:.6e} particle={:.6e} momentum={:.6e} q_e={:.6e} q_i={:.6e} q_kin={:.6e} "
             "current={:.3e} |current|={:.3e} legs={:.0f} N={:.9e} W_e={:.9e} W_i={:.9e} K_i={:.9e}".format(
-                *wall_ledger_rows[-1]
+                *wall_ledger_rows[-1][:13]
             ),
             flush=True,
         )
+        if step_ledger is not None and len(wall_ledger_rows) > 1:
+            previous, row = wall_ledger_rows[-2], wall_ledger_rows[-1]
+            d_n, d_we, d_wi = (row[k] - previous[k] for k in (9, 10, 11))
+            p_wall, p_other, e_wall, e_other, e_prod, i_wall, i_other, i_prod = applied
+            print(
+                "[wall-step] applied: particle={:.6e} other={:.3e} imbalance={:.3e} | "
+                "W_e wall={:.6e} other={:.3e} imbalance={:.3e} | "
+                "W_i wall={:.6e} other={:.3e} imbalance={:.3e}".format(
+                    p_wall, p_other, (d_n - (p_other - p_wall)) / max(abs(p_wall), 1.0e-300),
+                    e_wall, e_other, (d_we - (e_other - e_wall + e_prod)) / max(abs(e_wall), 1.0e-300),
+                    i_wall, i_other, (d_wi - (i_other - i_wall + i_prod)) / max(abs(i_wall), 1.0e-300),
+                ),
+                flush=True,
+            )
 
     record_wall_ledger(float(start_time))
 
@@ -2670,6 +2707,7 @@ def run_full_eb(
             gmres_iterations,
             gmres_stage_diagnostics,
             rk_stage_diagnostics,
+            step_ledger,
         ) = execute_advance(
             state,
             cell_fields,
@@ -2701,7 +2739,7 @@ def run_full_eb(
             accumulated_gmres_seconds += gmres_seconds
         accumulated_step_seconds += step_seconds
         current_time = float(start_time) + step * float(timestep)
-        record_wall_ledger(current_time)
+        record_wall_ledger(current_time, step_ledger)
 
         if step % int(save_every) == 0 or step == int(num_steps):
             saved_times.append(current_time)
