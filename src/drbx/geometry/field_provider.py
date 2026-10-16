@@ -11,6 +11,10 @@ Implementations
 ``EssosCoilField``
     ESSOS ``Coils`` evaluated with ``essos.fields.BiotSavart`` (installed
     ``essos`` package). Coil-parameter derivatives flow through ESSOS.
+``FilamentCoilField``
+    Closed polyline filaments (MAKEGRID ``coils.*`` files) with the exact
+    straight-segment Biot--Savart law, the discretisation MAKEGRID uses to
+    build mgrid files. Derivatives flow to the filament nodes and currents.
 
 The MGRID compatibility path stays in
 :mod:`drbx.fci_braginskii.geometry_build.Bfield_evaluator`.
@@ -24,6 +28,10 @@ from typing import Any, Protocol, runtime_checkable
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+
+MU0_OVER_4PI = 1.0e-7
+
 
 @runtime_checkable
 class MagneticFieldProvider(Protocol):
@@ -117,3 +125,109 @@ class EssosCoilField:
 
     def inside(self, xyz: jnp.ndarray) -> jnp.ndarray:
         return jnp.ones(jnp.shape(xyz)[:-1], dtype=bool)
+
+
+def _segment_biot_savart(nodes: jnp.ndarray, currents: jnp.ndarray, points: jnp.ndarray) -> jnp.ndarray:
+    """Exact field of closed straight-segment filaments at ``points`` (P, 3).
+
+    ``nodes`` is (C, N, 3), each filament closed from node N-1 back to node 0.
+    Uses B = mu0 I / 4pi * (|a|+|b|) (a x b) / (|a||b| (|a||b| + a.b)).
+    """
+
+    a = points[:, None, None, :] - nodes[None]
+    b = points[:, None, None, :] - jnp.roll(nodes, -1, axis=1)[None]
+    na = jnp.linalg.norm(a, axis=-1)
+    nb = jnp.linalg.norm(b, axis=-1)
+    factor = (na + nb) / (na * nb * (na * nb + jnp.sum(a * b, axis=-1)))
+    dB = jnp.cross(a, b) * factor[..., None]
+    return MU0_OVER_4PI * jnp.einsum("c,pcnk->pk", currents, dB)
+
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class FilamentCoilField:
+    """Closed polyline coil filaments with exact segment Biot--Savart."""
+
+    nodes: jnp.ndarray
+    currents: jnp.ndarray
+    nfp: int = field(metadata=dict(static=True), default=1)
+    stellsym: bool = field(metadata=dict(static=True), default=False)
+    chunk: int = field(metadata=dict(static=True), default=256)
+    meta: tuple = field(metadata=dict(static=True), default=())
+
+    @property
+    def provenance(self) -> dict[str, Any]:
+        return dict(self.meta)
+
+    def B(self, xyz: jnp.ndarray) -> jnp.ndarray:
+        return _chunked_points(lambda p: _segment_biot_savart(self.nodes, self.currents, p), xyz, self.chunk)
+
+    def inside(self, xyz: jnp.ndarray) -> jnp.ndarray:
+        return jnp.ones(jnp.shape(xyz)[:-1], dtype=bool)
+
+    @classmethod
+    def from_makegrid(
+        cls,
+        path: str | Path,
+        group_currents: dict[int, float] | None = None,
+        *,
+        stellsym: bool = True,
+        **kwargs,
+    ) -> "FilamentCoilField":
+        """Load a MAKEGRID ``coils.*`` file.
+
+        Each filament ends at a line carrying its group number; its current is
+        ``group_currents[group]`` times the per-node current written in the
+        file (MAKEGRID convention). Filaments whose total current is zero are
+        dropped. MAKEGRID closes a filament by repeating its first node; the
+        repeat is removed here, and the closing segment is implicit.
+        """
+
+        jax.config.update("jax_enable_x64", True)
+        nfp = 1
+        filaments: list[np.ndarray] = []
+        currents: list[float] = []
+        groups: list[int] = []
+        names: list[str] = []
+        block: list[list[float]] = []
+        with open(path, encoding="utf-8") as handle:
+            for raw in handle:
+                parts = raw.split()
+                if not parts:
+                    continue
+                head = parts[0].lower()
+                if head == "periods":
+                    nfp = int(parts[1])
+                    continue
+                if head in {"begin", "mirror", "end"}:
+                    continue
+                block.append([float(v) for v in parts[:4]])
+                if len(parts) >= 5:
+                    group = int(parts[4])
+                    xyz = np.asarray(block, dtype=np.float64)
+                    scale = 1.0 if group_currents is None else float(group_currents.get(group, 0.0))
+                    current = scale * xyz[0, 3]
+                    pts = xyz[:-1, :3] if np.allclose(xyz[0, :3], xyz[-1, :3]) else xyz[:, :3]
+                    if current != 0.0:
+                        filaments.append(pts)
+                        currents.append(current)
+                        groups.append(group)
+                        names.append(parts[5] if len(parts) > 5 else str(group))
+                    block = []
+        lengths = {f.shape[0] for f in filaments}
+        if len(lengths) != 1:
+            raise ValueError(f"filaments must share one node count, got {sorted(lengths)}")
+        return cls(
+            nodes=jnp.asarray(np.stack(filaments)),
+            currents=jnp.asarray(currents),
+            nfp=nfp,
+            stellsym=stellsym,
+            meta=_meta(
+                kind="makegrid_filaments",
+                source=Path(path).name,
+                groups=groups,
+                names=names,
+                group_currents=dict(group_currents or {}),
+            ),
+            **kwargs,
+        )
