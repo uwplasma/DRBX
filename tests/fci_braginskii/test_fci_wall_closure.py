@@ -8,8 +8,8 @@ heat source, to steady state.
 
 from __future__ import annotations
 
-from functools import partial
 import math
+from functools import partial
 
 import jax
 import jax.numpy as jnp
