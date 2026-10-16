@@ -37,11 +37,13 @@ backend.
   boundaries, physical-boundary-state characteristic wall law.
 - E x B advection: material-scalar third-order upwind bracket (compatible
   centred bracket for vorticity).
-- Boundaries: no-flow walls (Vi = Ve = 0 face traces), physical-normal Neumann
+- Boundaries: Bohm sheath on parallel legs that end on the vessel (default;
+  `wall_closure = "zero-flow"` restores Vi = Ve = 0 face traces), physical-normal Neumann
   ghosts for density and temperatures, Dirichlet potential and vorticity.
 - Potential solve: SOLVAX FGMRES with the line-u preconditioner.
 
-No sheath, presheath, recycling or neutral model is included.
+The wall closure is a Bohm sheath entrance (see Wall closure below). No
+presheath model, recycling or neutral model is included.
 
 ## Normalization
 
@@ -55,6 +57,97 @@ at 20 eV). With these values c_s ~ 4.8e4 m/s, so one time unit is about 21
 microseconds and t = 0.15 is about 3 microseconds. The base commit used
 rho* only as a divisor of the E x B terms; this is the same operator at
 rho* = 1.
+
+## Wall closure
+
+Every parallel leg whose FCI endpoint is a physical wall (forward legs with
+`b.n_w > 0`, backward legs with `b.n_w < 0`, `n_w` the outward wall normal)
+gets a complete wall state `(n, Te, Ti, Vi, Ve)` that the existing wall path
+consumes: the per-stage local backward Euler of the wall legs, the explicit
+residual and the wall current exported to the vorticity equation. Code:
+`native/fci_wall_closure.py`, `LocalFciDrbEBRhs.sheath`.
+
+`wall_closure = "bohm"` (default), with `s = sign(b.n_w)` (+1 forward, -1
+backward) and velocities in `c_s0 = sqrt(Te0/m_i)`:
+
+- Te, Ti: the physical-normal Neumann wall traces (unchanged).
+- Bohm entrance: `Vi_w = s max(s Vi, c_s)`, `c_s = sqrt(Te_w + tau Ti_w)`
+  (isothermal electrons and ions).
+- Floating wall, local ambipolar form: `Ve_w = Vi_w`, so the current through
+  every wall leg is zero. Zero net current per connected wall region (which
+  allows local currents through the wall) is not implemented yet.
+- Entrance density from the ion momentum flux over the half leg,
+  `n_w (Vi_w^2 + c_s^2) = n (Vi^2 + Te + tau Ti)`; for a stagnant owner this
+  is the isothermal two-point result `n_t = n_u/2`. The Neumann density trace
+  is not used: with it the conservative momentum row below is unstable.
+- Wall legs are conservative. The (n, Te, Ti, Vi) rows of a wall leg are the
+  flux difference `-s (F_w - F_c)/dx_leg` between the wall face and the owner
+  centre (`F` along +b), all with the ion velocity: particles `n Vi`, ion
+  momentum `n Vi^2 + n (Te + tau Ti)`, electron energy `gamma_e n Te Vi` at
+  the wall and `(5/2) n Te Vi` at the centre, and the same for the ions.
+  They replace the characteristic rows in the local backward-Euler block,
+  with their own exact local Jacobian (traces frozen); the Ve row keeps the
+  characteristic law and its frozen Jacobian. The ion flux is used at the
+  centre because the leg is the ambipolar presheath flow; with the electron
+  flux `n Ve` (what the bulk continuity equation advects) the HSX wall cells,
+  where |Ve| reaches several c_s, pile up density within a few steps.
+- Heat transmission convention: `gamma_e` and `gamma_i` are total Stangeby
+  coefficients at M = 1, `q_e = gamma_e n Te c_s`, `q_i = gamma_i n Ti c_s`
+  (energy in `n0 Te0 c_s0`, the ion one multiplied by tau). The owner centre
+  carries the advected enthalpy `(5/2) n T V`, which the wall-face flux
+  replaces, so the wall removes exactly `gamma n T c_s` from the thermal
+  energy and nothing is counted twice. The momentum flux is continuous over
+  the half leg, so the flow is not re-accelerated from the temperatures: lost
+  ions take the owner's kinetic energy `Vi^2/2` with them through the Vi row.
+  Defaults: `gamma_e = 2/(1-d) - 0.5 ln[2 pi (m_e/m_i)(1 + tau)/(1-d)^2]`
+  (4.49 for hydrogen with `d = secondary_electron_emission = 0`) and
+  `gamma_i = 2.5`.
+- Incidence angle: with `sin(alpha) = |b.n_w|`, the wall surface area of a
+  leg is `A_perp / sin(alpha)`, so integrated losses do not depend on alpha;
+  only surface flux densities (`q sin(alpha)` on the vessel) do. The artifact
+  has no vessel normals at the FCI endpoints, so surface densities are not
+  reported yet.
+
+Flux contract: `wall_face_fluxes(wall_state, s, tau, gamma_e, gamma_i,
+owner_velocity)` returns, per unit cross-section normal to b and for the wall
+state actually applied, the outward particle flux `n V s`, the momentum flux
+`n V^2 + n (Te + tau Ti)`, `q_e`, `q_i`, the flow kinetic energy
+`(Vi_owner^2/2) n V s` and the current `n (Vi - Ve) s`. The wall-leg rows
+remove exactly these. `LocalFciDrbEBRhs.wall_flux_ledger` integrates them
+over all wall legs with `A_perp = V_cell / dx_leg` (the measure the wall-leg
+update divides by) and returns the particle, thermal and ion kinetic
+inventories on the same cell measure. With the sheath on, `drbx run` prints
+one `[wall]` line per step and stores the table as `wall_ledger`
+(`wall_ledger_columns`) in the history file.
+
+`wall_closure = "zero-flow"` keeps the historical Vi = Ve = 0 wall traces;
+the advance is then bitwise the code without the closure
+(`scripts/fci_gate.py record OUT --hsx-set wall_closure='"zero-flow"'`).
+
+Deck keys (and `--` options): `wall_closure`, `electron_heat_transmission`
+(0 selects the floating-wall value), `ion_heat_transmission` (>= 2.5),
+`secondary_electron_emission`.
+
+Checks (`tests/fci_braginskii/test_fci_wall_closure.py`): the wall-leg rows
+remove exactly the contract fluxes (algebraic identity); on a 1D flux tube
+driven by the production material operator with a uniform source, the steady
+state has a sonic target, `n_t = n_u/2` within 3%, the particle ledger closed
+to 2e-3 and heating = thermal sheath losses + flow kinetic energy + source
+dissipation to 1%. The isothermal profile converges to the exact solution at
+an observed order of about 0.55 (10, 20, 40 cells), limited by the
+square-root singularity at the sonic target. No manufactured-solution test
+with sheath boundaries exists yet.
+
+HSX (32-cubed bundle, defaults, 20 steps to t = 0.015): 1848 wall legs; the
+contract losses go from 0.554 to 0.439 particles, 2.49 to 1.41 (electron) and
+1.38 to 1.00 (ion) energy per unit time, the wall current is zero and the
+particle inventory falls by 1.4%. The ledger does not close: the inventory
+falls about 1.38 times faster than the contract loss (energy 1.36 times),
+independent of dt (the same at dt/4), while the zero-flow wall closes the
+particle inventory to 5e-5 per step. The likely cause is the mismatch between
+the bulk electron continuity (`n Ve`) and the ion-flux wall legs at wall cells
+with large |Ve|; it needs a current-consistent sheath (a sheath potential
+boundary for phi) and is open.
 
 ## Geometry artifact
 
@@ -258,10 +351,11 @@ SAVE_EVERY = 10. Set `RUN_SIMULATION = False` to re-render an existing history.
 
 ## Neutral-model coupling
 
-The backend has no source-term or neutral-coupling hook. Coupling a
-neutral model, including reaction sources that depend on the plasma
-density and temperatures, is left to the neutral-model implementation;
-the right-hand side is assembled in `LocalFciDrbEBRhs.evaluate_stage`.
+The backend has no volumetric source or neutral-coupling hook yet. Wall
+particle and energy losses are available through the wall flux contract
+above; recycling will return a fraction of that ion flux through the same
+contract. The right-hand side is assembled in
+`LocalFciDrbEBRhs.evaluate_stage`.
 
 ## Known limitations
 
@@ -273,6 +367,9 @@ the right-hand side is assembled in `LocalFciDrbEBRhs.evaluate_stage`.
   residual is not sign-restoring on its own.
 - A short successful evolution does not qualify wall budgets, MMS accuracy or
   long-time stability.
+- With the Bohm sheath the HSX particle and energy ledgers are open by about
+  38% of the wall loss (see Wall closure); the phi wall boundary is still
+  Dirichlet zero, not the sheath potential.
 
 ## Tests
 
