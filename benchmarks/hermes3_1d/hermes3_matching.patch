@@ -1,0 +1,122 @@
+diff --git a/include/neutral_parallel_diffusion.hxx b/include/neutral_parallel_diffusion.hxx
+index 75f1c56d..30dad10a 100644
+--- a/include/neutral_parallel_diffusion.hxx
++++ b/include/neutral_parallel_diffusion.hxx
+@@ -42,6 +42,25 @@ struct NeutralParallelDiffusion : public NamedComponent<NeutralParallelDiffusion
+                 .doc("cross-field diffusion projection (B  / Bpol)^2")
+                 .as<BoutReal>();
+ 
++    {
++      const auto& units = alloptions["units"];
++      const BoutReal rho_s0 = units["meters"];
++      max_mean_free_path = options["max_mean_free_path"]
++                               .doc("SD1D-style cap on the neutral mean free path [m]; "
++                                    "< 0 disables")
++                               .withDefault(-1.0)
++                           / rho_s0;
++      neutral_temperature_floor = options["neutral_temperature_floor"]
++                                      .doc("Floor on T_n in the diffusion coefficient [eV]")
++                                      .withDefault(0.0)
++                                  / units["eV"].as<BoutReal>();
++      nn_cross_section = options["neutral_neutral_cross_section"]
++                             .doc("SD1D-style neutral-neutral cross-section [m^2]; "
++                                  "0 disables")
++                             .withDefault(0.0)
++                         * units["inv_meters_cubed"].as<BoutReal>() * rho_s0;
++    }
++
+     diagnose = options["diagnose"]
+                    .doc("Output additional diagnostics?")
+                    .withDefault<bool>(false);
+@@ -83,6 +102,9 @@ private:
+   BoutReal dneut; ///< cross-field diffusion projection (B  / Bpol)^2
+ 
+   bool diagnose; ///< Output diagnostics?
++  BoutReal max_mean_free_path;        ///< Normalised mfp cap (< 0 off)
++  BoutReal neutral_temperature_floor; ///< Normalised T_n floor in D
++  BoutReal nn_cross_section;          ///< Normalised nn cross-section (0 off)
+   std::map<std::string, std::vector<std::string>>
+       collision_names; ///< Collisions used for collisionality
+   std::string
+diff --git a/include/simple_conduction.hxx b/include/simple_conduction.hxx
+index 5911785c..64d0e8f6 100644
+--- a/include/simple_conduction.hxx
++++ b/include/simple_conduction.hxx
+@@ -54,6 +54,10 @@ struct SimpleConduction : public NamedComponent<SimpleConduction> {
+                   .withDefault<BoutReal>(-1.0)
+               / Nnorm;
+ 
++    fixed_coulomb_log = options["coulomb_log"]
++                            .doc("Fixed Coulomb logarithm (SD1D freezes it); < 0 local")
++                            .withDefault<BoutReal>(-1.0);
++
+     boundary_flux = options["conduction_boundary_flux"]
+                         .doc("Allow heat conduction through sheath boundaries?")
+                         .withDefault<bool>(false);
+@@ -74,6 +78,7 @@ private:
+   BoutReal density;     ///< Fix density if > 0
+ 
+   bool boundary_flux; ///< Allow flux through sheath boundaries?
++  BoutReal fixed_coulomb_log; ///< Fixed Coulomb log if > 0
+ 
+   void transform_impl(GuardedOptions& state) override {
+     const std::string& name = objectName();
+@@ -96,6 +101,9 @@ private:
+     auto AA = get<BoutReal>(species["AA"]);
+ 
+     Field3D coulomb_log = 6.6 - 0.5 * log(N * Nnorm / 1e20) + 1.5 * log(Tcoef * Tnorm);
++    if (fixed_coulomb_log > 0) {
++      coulomb_log = fixed_coulomb_log;
++    }
+ 
+     // Parallel heat conduction coefficient
+     Field3D kappa_par = kappa0 * pow(Tcoef, 2.5) / (coulomb_log * sqrt(AA));
+diff --git a/src/ionisation.cxx b/src/ionisation.cxx
+index 5e910900..21ef0d2c 100644
+--- a/src/ionisation.cxx
++++ b/src/ionisation.cxx
+@@ -30,7 +30,8 @@ Ionisation::Ionisation(std::string name, Options& alloptions, Solver*)
+            readOnly("species:h+:AA"), readWrite("species:h:density_source"),
+            readWrite("species:h+:density_source"), readWrite("species:h:momentum_source"),
+            readWrite("species:h+:momentum_source"), readWrite("species:h:energy_source"),
+-           readWrite("species:h+:energy_source"), readWrite("species:e:energy_source")}) {
++           readWrite("species:h+:energy_source"), readWrite("species:e:energy_source"),
++           readWrite("species:h:collision_frequencies:h_h+_iz")}) {
+ 
+   // Get options for this component
+   auto& options = alloptions[name];
+@@ -84,6 +85,9 @@ void Ionisation::transform_impl(GuardedOptions& state) {
+   subtract(hydrogen["energy_source"], energy_exchange);
+   add(ion["energy_source"], energy_exchange);
+ 
++  // Ionisation collision frequency of the neutrals (used by neutral_parallel_diffusion)
++  set(hydrogen["collision_frequencies"]["h_h+_iz"], reaction_rate / floor(Nn, 1e-5));
++
+   // Radiate energy from electrons
+   subtract(electron["energy_source"], Eionize * reaction_rate);
+ }
+diff --git a/src/neutral_parallel_diffusion.cxx b/src/neutral_parallel_diffusion.cxx
+index 0eee96d9..4b83b2e6 100644
+--- a/src/neutral_parallel_diffusion.cxx
++++ b/src/neutral_parallel_diffusion.cxx
+@@ -118,7 +118,19 @@ void NeutralParallelDiffusion::transform_impl(GuardedOptions& state) {
+     }
+ 
+     // Pressure-diffusion coefficient
+-    Field3D Dn = dneut * Tn / (AA * nu);
++    Field3D vth2 = floor(Tn, neutral_temperature_floor) / AA;
++    if ((max_mean_free_path > 0) or (nn_cross_section > 0)) {
++      // SD1D closure: nu += vth / min(1/(Nn sigma_nn), max_mean_free_path)
++      Field3D inv_lambda = 0.0;
++      if (nn_cross_section > 0) {
++        inv_lambda = floor(Nn, 1e-5) * nn_cross_section;
++      }
++      if (max_mean_free_path > 0) {
++        inv_lambda = floor(inv_lambda, 1. / max_mean_free_path);
++      }
++      nu += sqrt(vth2) * inv_lambda;
++    }
++    Field3D Dn = dneut * vth2 / nu;
+     Dn.applyBoundary("dirichlet_o2");
+     mesh->communicate(Dn);
+ 
