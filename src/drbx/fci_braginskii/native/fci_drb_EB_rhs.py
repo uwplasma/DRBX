@@ -64,9 +64,16 @@ from .fci_gmres import (
     _spmd_remove_weighted_mean,
 )
 from .fci_support_pair import build_weighted_negative_adjoint
+from .fci_wall_closure import (
+    SheathClosure,
+    bohm_wall_state,
+    sheath_wall_leg_residual,
+    wall_face_fluxes,
+)
 from .fci_parallel_production_flux import (
     parallel_characteristic_wall_data,
     parallel_short_wall_backward_euler,
+    parallel_short_wall_material_data,
     parallel_target_row_material_residual,
 )
 
@@ -529,6 +536,29 @@ class LocalFciDrbEBRhs:
     # stage (see ``solve_implicit_current_phi_pair``).  Default False here
     # must match the integrator, which the driver controls.
     implicit_current_phi_pair: bool = False
+    # Physical-wall closure for parallel legs ending on a wall.  ``None`` is
+    # the zero-flow wall (Vi = Ve = 0 traces, the historical configuration);
+    # a ``SheathClosure`` uses the Bohm wall state and the conservative
+    # sheath wall-leg fluxes in the selected-wall block.
+    sheath: SheathClosure | None = None
+
+    def _parallel_wall_states(self, center, minus, plus, backward_wall, forward_wall):
+        """Wall states consumed by the characteristic wall legs."""
+
+        if self.sheath is None:
+            return minus, plus
+        tau = self.parameters.tau
+        return (
+            jnp.where(backward_wall[..., None], bohm_wall_state(minus, center, -1.0, tau), minus),
+            jnp.where(forward_wall[..., None], bohm_wall_state(plus, center, 1.0, tau), plus),
+        )
+
+    def _sheath_gammas(self):
+        tau = self.parameters.tau
+        return (
+            self.sheath.gamma_e(tau, self.parameters.mi_over_me),
+            self.sheath.ion_heat_transmission,
+        )
 
     @property
     def neumann_normal_scheme(self) -> str:
@@ -1793,6 +1823,9 @@ class LocalFciDrbEBRhs:
         # current exported to the vorticity/phi pair is the corresponding
         # first-order characteristic current, not a nonlinear product of
         # projected primitive components.
+        backward_wall_state, forward_wall_state = self._parallel_wall_states(
+            center, minus, plus, backward_wall, forward_wall
+        )
         wall_data = parallel_characteristic_wall_data(
             center,
             minus,
@@ -1804,8 +1837,8 @@ class LocalFciDrbEBRhs:
             selection_dt=short_leg_selection_dt,
             backward_wall=backward_wall,
             forward_wall=forward_wall,
-            backward_wall_state=minus,
-            forward_wall_state=plus,
+            backward_wall_state=backward_wall_state,
+            forward_wall_state=forward_wall_state,
         )
         # The homogeneous pair is the weighted-adjoint operator used
         # for grad(phi).  The characteristic wall trace is evaluated
@@ -1850,8 +1883,8 @@ class LocalFciDrbEBRhs:
                 self.parameters.mi_over_me,
                 backward_wall=backward_wall,
                 forward_wall=forward_wall,
-                backward_wall_state=minus,
-                forward_wall_state=plus,
+                backward_wall_state=backward_wall_state,
+                forward_wall_state=forward_wall_state,
                 div_b=div_b,
                 selection_dt=short_leg_selection_dt,
             )
@@ -2230,6 +2263,34 @@ class LocalFciDrbEBRhs:
             axis=0,
         )
 
+    def wall_flux_ledger(self, state_owned: FciDrbEBState) -> jnp.ndarray:
+        """Local (unreduced) wall losses and inventories of one state.
+
+        Returns ``[particle, parallel_momentum, electron_energy, ion_energy,
+        kinetic_energy, current, |current|, wall_legs, N, W_e, W_i, K_i]``:
+        the first six are volume integrals of the wall-face flux contract
+        (outward, in ``n0 c_s0 L_ref^2`` and ``n0 Te0 c_s0 L_ref^2``), the last
+        four the inventories ``sum m n``, ``sum m 3/2 n Te``,
+        ``sum m 3/2 tau n Ti`` and ``sum m n Vi^2/2`` on the same fine-cell
+        measure.  Callers psum over shards.
+        """
+
+        _, _, info = self.apply_short_leg_implicit_material_step(
+            state_owned, 0.0, phi_owned=state_owned.phi, return_increment=True
+        )
+        mass = self._fci_pair_cell_mass() * self.geometry.active_cell_mask_owned
+        rates = info["wall_flux_rates"]
+        center = info["wall_center_state"]
+        n, te, ti, vi = center[..., 0], center[..., 1], center[..., 2], center[..., 3]
+        totals = [jnp.sum(mass * rates[..., i]) for i in range(6)]
+        totals.append(jnp.sum(mass * jnp.abs(rates[..., 5])))
+        totals.append(jnp.sum(info["wall_leg_count"] * self.geometry.active_cell_mask_owned))
+        totals.append(jnp.sum(mass * n))
+        totals.append(jnp.sum(mass * 1.5 * n * te))
+        totals.append(jnp.sum(mass * 1.5 * self.parameters.tau * n * ti))
+        totals.append(jnp.sum(mass * 0.5 * n * vi * vi))
+        return jnp.stack(totals)
+
     def apply_short_leg_implicit_material_step(
         self,
         state_owned: FciDrbEBState,
@@ -2342,6 +2403,40 @@ class LocalFciDrbEBRhs:
         plus = jnp.stack(tuple(s.plus for s in primitive_stencils), axis=-1)
         backward_wall = self.geometry.maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
         forward_wall = self.geometry.maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
+        backward_wall_state, forward_wall_state = self._parallel_wall_states(
+            center, minus, plus, backward_wall, forward_wall
+        )
+        if self.sheath is not None:
+            # Replace the characteristic (n, Te, Ti, Vi) rows of every wall
+            # leg by the conservative sheath flux difference; Ve keeps the
+            # characteristic wall law.  The frozen characteristic Jacobian
+            # still linearizes the local backward-Euler solve.
+            gamma_e, gamma_i = self._sheath_gammas()
+            _, _, characteristic = parallel_short_wall_material_data(
+                center, minus, plus,
+                primitive_stencils[0].dx_min,
+                primitive_stencils[0].dx_plus,
+                self.parameters.tau,
+                self.parameters.mi_over_me,
+                selection_dt=selection_dt,
+                backward_wall=backward_wall,
+                forward_wall=forward_wall,
+                backward_wall_state=backward_wall_state,
+                forward_wall_state=forward_wall_state,
+            )
+            material_rows = jnp.asarray((1.0, 1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
+            for wall, state, dx, direction, name in (
+                (backward_wall, backward_wall_state, primitive_stencils[0].dx_min, -1.0, "backward_residual"),
+                (forward_wall, forward_wall_state, primitive_stencils[0].dx_plus, 1.0, "forward_residual"),
+            ):
+                conservative = sheath_wall_leg_residual(
+                    state, center, dx, direction, self.parameters.tau, gamma_e, gamma_i
+                )
+                coupled_residual = coupled_residual + jnp.where(
+                    wall[..., None],
+                    material_rows * (conservative - characteristic[name]),
+                    0.0,
+                )
         (
             updated,
             increment,
@@ -2356,8 +2451,8 @@ class LocalFciDrbEBRhs:
             solve_dt=solve_dt,
             backward_wall=backward_wall,
             forward_wall=forward_wall,
-            backward_wall_state=minus,
-            forward_wall_state=plus,
+            backward_wall_state=backward_wall_state,
+            forward_wall_state=forward_wall_state,
             coupled_residual=coupled_residual,
         )
 
@@ -2394,6 +2489,25 @@ class LocalFciDrbEBRhs:
             vorticity=zero,
         ))
         info = dict(info)
+        # Wall-face flux contract: outward fluxes carried by the wall states
+        # actually consumed above, as per-volume rates F/dx on each wall
+        # leg's owner (fine) cell.  ``wall_flux_ledger`` integrates them.
+        gamma_e, gamma_i = (
+            self._sheath_gammas() if self.sheath is not None else (0.0, 0.0)
+        )
+        wall_rates = []
+        for state, direction, wall, dx in (
+            (backward_wall_state, -1.0, backward_wall, primitive_stencils[0].dx_min),
+            (forward_wall_state, 1.0, forward_wall, primitive_stencils[0].dx_plus),
+        ):
+            fluxes = wall_face_fluxes(
+                state, direction, self.parameters.tau, gamma_e, gamma_i, center[..., 3]
+            )
+            inverse_dx = jnp.where(wall, 1.0 / jnp.maximum(jnp.abs(dx), 1.0e-30), 0.0)
+            wall_rates.append(jnp.stack(fluxes, axis=-1) * inverse_dx[..., None])
+        info["wall_flux_rates"] = wall_rates[0] + wall_rates[1]
+        info["wall_center_state"] = center
+        info["wall_leg_count"] = backward_wall.astype(jnp.float64) + forward_wall.astype(jnp.float64)
         info["selected_coupled_force"] = jnp.where(
             info["selected_wall"], coupled_force, 0.0
         )
