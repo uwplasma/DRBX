@@ -67,7 +67,7 @@ Or start with the narrative walkthroughs in the **Tutorials** section:
 | The solvers and design decisions behind the code | [Solvers And Design](solvers_and_design.md), [Physics Models](physics_models.md), [Equation To Code Map](equation_to_code_map.md) |
 | Browse the example scripts | [Examples And Artifacts](examples.md) |
 | Understand validation status and figures | [Validation Gallery](validation_gallery.md), [Fluid 1D MMS Convergence](fluid_1d_mms_convergence.md) |
-| Work with stellarator, VMEC, imported field-line, and FCI geometry | [Stellarator Examples](stellarator_examples.md), [Connection Length](connection_length.md), [VMEC Extender Edge Fields](vmec_extender_edge_fields.md), [ESSOS Field-Line Import](essos_fieldline_import.md) |
+| Work with stellarator, VMEC, imported field-line, and FCI geometry | [Stellarator Examples](stellarator_examples.md), [Connection Length](connection_length.md), [VMEC Extender Edge Fields](vmec_extender_edge_fields.md), [ESSOS Coil Fields](essos_fieldline_import.md) |
 | Understand differentiability, JAX transforms, performance, and profiling | [Performance And Differentiability](performance_and_differentiability.md), [Autodiff And Scaling Examples](autodiff_and_scaling_examples.md), [Profiling Runtime](profiling_runtime.md) |
 | Understand repository size, releases, PyPI, and artifact storage | [Release Packaging](release_packaging.md) |
 

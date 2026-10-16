@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 import sys
 from dataclasses import dataclass
@@ -28,7 +29,16 @@ from .fci_geometry import (
 
 ESSOS_LANDREMAN_QA_RELATIVE_JSON = Path("examples/input_files/ESSOS_biot_savart_LandremanPaulQA.json")
 ESSOS_LANDREMAN_QA_RELATIVE_WOUT = Path("examples/input_files/wout_LandremanPaul2021_QA_reactorScale_lowres.nc")
-_PRIVATE_DEFAULT_ESSOS_ROOT = Path.home() / "local" / "ESSOS"
+_BUNDLED_LANDREMAN_QA_JSON = Path(__file__).resolve().parents[1] / "data" / "essos" / ESSOS_LANDREMAN_QA_RELATIVE_JSON.name
+
+
+def _explicit_essos_root(essos_root: str | Path | None) -> Path | None:
+    """The ESSOS checkout named by the caller or by ``DRBX_ESSOS_ROOT``; never implicit."""
+
+    if essos_root is not None:
+        return Path(essos_root).expanduser()
+    env = os.environ.get("DRBX_ESSOS_ROOT")
+    return Path(env).expanduser() if env else None
 
 
 @dataclass(frozen=True)
@@ -92,38 +102,43 @@ class EssosImportedFciGeometry:
 
 
 def resolve_essos_landreman_qa_json(path: str | Path | None = None, *, essos_root: str | Path | None = None) -> Path:
-    """Resolve the Landreman-Paul QA coil JSON from an ESSOS checkout."""
+    """Resolve the Landreman-Paul QA coil JSON.
 
+    Order: ``path``; the ESSOS checkout given by ``essos_root`` or
+    ``DRBX_ESSOS_ROOT``; the copy bundled with DRBX.
+    """
+
+    root = _explicit_essos_root(essos_root)
     if path is not None:
         resolved = Path(path)
-    else:
-        root = Path(essos_root) if essos_root is not None else Path(os.environ.get("DRBX_ESSOS_ROOT", _PRIVATE_DEFAULT_ESSOS_ROOT))
+    elif root is not None:
         resolved = root / ESSOS_LANDREMAN_QA_RELATIVE_JSON
+    else:
+        resolved = _BUNDLED_LANDREMAN_QA_JSON
     if not resolved.exists():
-        raise FileNotFoundError(
-            "ESSOS Landreman-Paul QA coil JSON was not found. Pass coil_json_path "
-            "or set DRBX_ESSOS_ROOT to an ESSOS checkout containing "
-            f"{ESSOS_LANDREMAN_QA_RELATIVE_JSON}."
-        )
+        raise FileNotFoundError(f"ESSOS Landreman-Paul QA coil JSON not found: {resolved.name}")
     return resolved
-
 
 def resolve_essos_landreman_qa_wout(path: str | Path | None = None, *, essos_root: str | Path | None = None) -> Path:
-    """Resolve the matching Landreman-Paul QA VMEC wout file."""
+    """Resolve the matching Landreman-Paul QA VMEC wout file.
 
+    The wout is not bundled (3 MB): pass ``path`` or name an ESSOS checkout
+    with ``essos_root`` / ``DRBX_ESSOS_ROOT``.
+    """
+
+    root = _explicit_essos_root(essos_root)
     if path is not None:
         resolved = Path(path)
-    else:
-        root = Path(essos_root) if essos_root is not None else Path(os.environ.get("DRBX_ESSOS_ROOT", _PRIVATE_DEFAULT_ESSOS_ROOT))
+    elif root is not None:
         resolved = root / ESSOS_LANDREMAN_QA_RELATIVE_WOUT
-    if not resolved.exists():
+    else:
         raise FileNotFoundError(
-            "ESSOS Landreman-Paul QA VMEC wout file was not found. Pass vmec_wout_path "
-            "or set DRBX_ESSOS_ROOT to an ESSOS checkout containing "
-            f"{ESSOS_LANDREMAN_QA_RELATIVE_WOUT}."
+            "The Landreman-Paul QA VMEC wout is not bundled. Pass vmec_wout_path "
+            f"or set DRBX_ESSOS_ROOT to an ESSOS checkout containing {ESSOS_LANDREMAN_QA_RELATIVE_WOUT}."
         )
+    if not resolved.exists():
+        raise FileNotFoundError(f"Landreman-Paul QA VMEC wout not found: {resolved.name}")
     return resolved
-
 
 def essos_runtime_available(*, essos_root: str | Path | None = None) -> bool:
     """Return whether ESSOS can be imported by the optional adapter."""
@@ -156,7 +171,7 @@ def trace_essos_coil_field_lines(
     """
 
     resolved_coil_json = resolve_essos_landreman_qa_json(coil_json_path, essos_root=essos_root)
-    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_coil_json.parents[2])
+    modules = _import_essos_modules(essos_root=essos_root)
 
     import jax
     import jax.numpy as jnp
@@ -244,7 +259,7 @@ def load_essos_coil_field_axis(
     """Return the magnetic-axis location reported by the imported ESSOS coil field."""
 
     resolved_coil_json = resolve_essos_landreman_qa_json(coil_json_path, essos_root=essos_root)
-    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_coil_json.parents[2])
+    modules = _import_essos_modules(essos_root=essos_root)
     coils = modules["Coils_from_json"](str(resolved_coil_json))
     field = modules["BiotSavart"](coils)
     return float(field.r_axis), float(field.z_axis)
@@ -258,7 +273,7 @@ def load_essos_vmec_field_axis(
     """Return the magnetic-axis location in an ESSOS VMEC field object."""
 
     resolved_wout = resolve_essos_landreman_qa_wout(vmec_wout_path, essos_root=essos_root)
-    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_wout.parents[2])
+    modules = _import_essos_modules(essos_root=essos_root)
     vmec = modules["Vmec"](str(resolved_wout))
     return float(vmec.r_axis), float(vmec.z_axis)
 
@@ -276,7 +291,7 @@ def trace_essos_coil_initial_conditions(
     """Trace arbitrary Cartesian seed points through the optional ESSOS coil field."""
 
     resolved_coil_json = resolve_essos_landreman_qa_json(coil_json_path, essos_root=essos_root)
-    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_coil_json.parents[2])
+    modules = _import_essos_modules(essos_root=essos_root)
     return _trace_essos_initial_conditions(
         modules=modules,
         resolved_coil_json=resolved_coil_json,
@@ -300,7 +315,7 @@ def trace_essos_vmec_initial_conditions(
     """Trace VMEC-coordinate seed points through the optional ESSOS VMEC field."""
 
     resolved_wout = resolve_essos_landreman_qa_wout(vmec_wout_path, essos_root=essos_root)
-    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_wout.parents[2])
+    modules = _import_essos_modules(essos_root=essos_root)
     return _trace_essos_vmec_initial_conditions(
         modules=modules,
         resolved_wout=resolved_wout,
@@ -345,7 +360,7 @@ def build_essos_imported_fci_geometry(
         raise ValueError("ESSOS imported FCI geometry requires nx >= 2, ny >= 2, and nz >= 4")
     map_source = _normalize_essos_map_source(map_source)
     resolved_coil_json = resolve_essos_landreman_qa_json(coil_json_path, essos_root=essos_root)
-    modules = _import_essos_modules(essos_root=essos_root if essos_root is not None else resolved_coil_json.parents[2])
+    modules = _import_essos_modules(essos_root=essos_root)
 
     coils = modules["Coils_from_json"](str(resolved_coil_json))
     field = modules["BiotSavart"](coils)
@@ -1058,77 +1073,36 @@ def _sample_structured_coordinates(
     return np.stack(result, axis=-1)
 
 
-def save_essos_field_line_bundle_npz(bundle: EssosFieldLineBundle, path: str | Path) -> Path:
-    """Write a portable ESSOS field-line import bundle."""
-
-    resolved = Path(path)
-    resolved.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        resolved,
-        trajectories_xyz=bundle.trajectories_xyz.astype(np.float32),
-        times=bundle.times.astype(np.float64),
-        initial_xyz=bundle.initial_xyz.astype(np.float32),
-        poincare_r=bundle.poincare_r.astype(np.float32),
-        poincare_z=bundle.poincare_z.astype(np.float32),
-        poincare_time=bundle.poincare_time.astype(np.float32),
-        poincare_section=bundle.poincare_section.astype(np.float32),
-        poincare_line_index=bundle.poincare_line_index.astype(np.int32),
-        field_sample_xyz=bundle.field_sample_xyz.astype(np.float32),
-        field_sample_b_xyz=bundle.field_sample_b_xyz.astype(np.float32),
-        coil_gamma_xyz=bundle.coil_gamma_xyz.astype(np.float32),
-        coil_currents=bundle.coil_currents.astype(np.float64),
-    )
-    return resolved
-
-
-def load_essos_field_line_bundle_npz(path: str | Path, *, metadata: dict[str, Any] | None = None) -> EssosFieldLineBundle:
-    """Load an ESSOS field-line import bundle produced by `drbx`."""
-
-    with np.load(Path(path)) as data:
-        return EssosFieldLineBundle(
-            trajectories_xyz=np.asarray(data["trajectories_xyz"], dtype=np.float64),
-            times=np.asarray(data["times"], dtype=np.float64),
-            initial_xyz=np.asarray(data["initial_xyz"], dtype=np.float64),
-            poincare_r=np.asarray(data["poincare_r"], dtype=np.float64),
-            poincare_z=np.asarray(data["poincare_z"], dtype=np.float64),
-            poincare_time=np.asarray(data["poincare_time"], dtype=np.float64),
-            poincare_section=np.asarray(data["poincare_section"], dtype=np.float64),
-            poincare_line_index=np.asarray(data["poincare_line_index"], dtype=np.int32),
-            field_sample_xyz=np.asarray(data["field_sample_xyz"], dtype=np.float64),
-            field_sample_b_xyz=np.asarray(data["field_sample_b_xyz"], dtype=np.float64),
-            coil_gamma_xyz=np.asarray(data["coil_gamma_xyz"], dtype=np.float64),
-            coil_currents=np.asarray(data["coil_currents"], dtype=np.float64),
-            metadata={} if metadata is None else dict(metadata),
-        )
-
-
 def _import_essos_modules(*, essos_root: str | Path | None = None) -> dict[str, Any]:
+    """Import ESSOS.
+
+    The installed ``essos`` package is always preferred. Only when it is not
+    installed and a checkout is named explicitly (``essos_root`` or
+    ``DRBX_ESSOS_ROOT``) is that checkout appended to ``sys.path``. The
+    checkout is otherwise only a source of input files (the QA wout).
+    """
+
+    import functools
+    import inspect
+
     import jax
 
     jax.config.update("jax_enable_x64", True)
-    if essos_root is not None:
-        root = Path(essos_root)
-    else:
-        root = Path(os.environ.get("DRBX_ESSOS_ROOT", _PRIVATE_DEFAULT_ESSOS_ROOT))
-    if root.exists():
-        root_text = str(root)
-        if root_text not in sys.path:
-            sys.path.insert(0, root_text)
+    root = _explicit_essos_root(essos_root)
+    if importlib.util.find_spec("essos") is None and root is not None and root.exists():
+        sys.path.append(str(root))
     coils_module = importlib.import_module("essos.coils")
     fields_module = importlib.import_module("essos.fields")
     dynamics_module = importlib.import_module("essos.dynamics")
-    if os.environ.get("DRBX_ESSOS_PROGRESS") != "1" and hasattr(dynamics_module, "NoProgressMeter"):
-        dynamics_module.TqdmProgressMeter = dynamics_module.NoProgressMeter
+    tracing = dynamics_module.Tracing
+    if "progress" in inspect.signature(tracing.__init__).parameters and os.environ.get("DRBX_ESSOS_PROGRESS") != "1":
+        tracing = functools.partial(tracing, progress=False)
     return {
-        # Newer ESSOS branches replace the module-level loader with a
-        # classmethod; accept either.
-        "Coils_from_json": getattr(coils_module, "Coils_from_json", None)
-        or coils_module.Coils.from_json,
+        "Coils_from_json": getattr(coils_module, "Coils_from_json", None) or coils_module.Coils.from_json,
         "BiotSavart": fields_module.BiotSavart,
         "Vmec": fields_module.Vmec,
-        "Tracing": dynamics_module.Tracing,
+        "Tracing": tracing,
     }
-
 
 def _trace_essos_initial_conditions(
     *,
