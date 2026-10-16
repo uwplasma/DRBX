@@ -78,13 +78,13 @@ def test_wall_leg_removes_exactly_the_contract_fluxes():
         flux = wall_face_fluxes(wall, s, TAU, ge, gi, center[:, 3])
         n, Te, Ti, Vi, Ve = center.T
         out = -1.0 / dx  # outward flux through the leg, minus the owner-centre flux along b
-        np.testing.assert_allclose(rate[:, 0], out * (flux.particle - s * n * Ve), rtol=1e-12)
+        np.testing.assert_allclose(rate[:, 0], out * (flux.particle - s * n * Vi), rtol=1e-12)
         np.testing.assert_allclose(
             1.5 * (Te * rate[:, 0] + n * rate[:, 1]),
-            out * (flux.electron_energy - s * 2.5 * n * Te * Ve), rtol=1e-12, atol=1e-12)
+            out * (flux.electron_energy - s * 2.5 * n * Te * Vi), rtol=1e-12, atol=1e-12)
         np.testing.assert_allclose(
             1.5 * TAU * (Ti * rate[:, 0] + n * rate[:, 2]),
-            out * (flux.ion_energy - s * 2.5 * TAU * n * Ti * Ve), rtol=1e-12, atol=1e-12)
+            out * (flux.ion_energy - s * 2.5 * TAU * n * Ti * Vi), rtol=1e-12, atol=1e-12)
         # momentum flux is continuous across the half leg (owner subsonic)
         np.testing.assert_allclose(Vi * rate[:, 0] + n * rate[:, 3], 0.0, atol=1e-10)
         np.testing.assert_array_equal(rate[:, 4], 0.0)

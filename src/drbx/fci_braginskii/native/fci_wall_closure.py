@@ -144,13 +144,19 @@ def sheath_wall_leg_residual(wall_state, center, dx, direction, tau, gamma_e, ga
 
     The wall leg of the owner cell is the flux difference between the wall
     face and the owner centre, ``-s (F_w - F_c) / dx`` with ``F`` along +b and
-    ``s = sign(b.n_w)``, for particles ``n Ve``, parallel momentum
+    ``s = sign(b.n_w)``, for particles ``n V``, parallel momentum
     ``n Vi^2 + n (Te + tau Ti)`` and thermal energies.  The wall energy flux
     is the total sheath transmission ``gamma n T V``; the centre flux is the
     advected enthalpy ``(5/2) n T V``.  The outward losses are therefore
     exactly :func:`wall_face_fluxes` of the same wall state, with no part of
     the enthalpy counted twice.  Rates are written for the primitive
     variables (the Ve row is zero: it keeps the characteristic wall law).
+
+    ``V`` is the ion velocity at both ends: the leg is the ambipolar
+    presheath flow into a floating wall.  The bulk continuity equation
+    advects n with Ve, so the owner's parallel current ``n (Vi - Ve)`` is
+    not carried through this leg (with ``n Ve`` at the centre the HSX wall
+    cells, where |Ve| reaches several c_s, are unstable).
     """
 
     w = jnp.asarray(wall_state, dtype=jnp.float64)
@@ -160,12 +166,12 @@ def sheath_wall_leg_residual(wall_state, center, dx, direction, tau, gamma_e, ga
     n_c = jnp.maximum(c[..., 0], _FLOOR)
 
     def fluxes(u, ge, gi):
-        n, Te, Ti, Vi, Ve = (u[..., i] for i in range(5))
+        n, Te, Ti, Vi = (u[..., i] for i in range(4))
         return (
-            n * Ve,
+            n * Vi,
             n * Vi * Vi + n * (Te + tau * Ti),
-            ge * n * Te * Ve,
-            gi * n * Ti * Ve,
+            ge * n * Te * Vi,
+            gi * n * Ti * Vi,
         )
 
     Fw = fluxes(w, gamma_e, gamma_i)
