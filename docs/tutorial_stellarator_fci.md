@@ -192,7 +192,7 @@ PYTHONPATH=src python examples/stellarator/stellarator_turbulence.py
 - **Imported equilibria**: swap the analytic ellipse for ESSOS coil fields or
   VMEX equilibria (`examples/geometry-3D/essos-field-lines/`,
   `examples/geometry-3D/vmex/`); see
-  [ESSOS Field-Line Import](essos_fieldline_import.md).
+  [ESSOS Coil Fields](essos_fieldline_import.md).
 
 Gates for this tutorial: `tests/test_rotating_ellipse_fci.py`,
 `tests/test_stellarator_turbulence.py`, `tests/test_island_divertor.py`,
