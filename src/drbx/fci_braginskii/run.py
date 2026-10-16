@@ -1467,6 +1467,7 @@ def run_full_eb(
     neutrals: fci_neutrals.NeutralParameters | None = None,
     neutral_initial_density: float = 0.0,
     neutral_initial_decay_length: float = 0.0,
+    recycling: fci_neutrals.RecyclingParameters | None = None,
 ) -> FciDrbEBState:
     """Advance the global EB state.
 
@@ -1497,6 +1498,8 @@ def run_full_eb(
         raise ValueError(
             "advance_execution must be 'compiled', 'staged-compiled', or 'eager'"
         )
+    if recycling is not None and (sheath is None or neutrals is None):
+        raise ValueError("recycling requires the sheath wall closure and neutrals")
     if history_dtype not in ("float32", "float64"):
         raise ValueError("history_dtype must be 'float32' or 'float64'")
     history_numpy_dtype = (
@@ -1959,7 +1962,7 @@ def run_full_eb(
             )
             for mesh_axis_name in ("x", "y", "z"):
                 step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
-        return (
+        outputs = (
             stage_states[-1],
             diagnostics,
             gmres_iterations,
@@ -1967,6 +1970,12 @@ def run_full_eb(
             stage_diagnostics,
             step_ledger,
         )
+        if recycling is not None:
+            # Owner-space applied wall loss rate of this step: the implicit
+            # density row is the wall flux alone (``wall_step_ledger``).
+            implicit_1, _, implicit_2, _, _ = stage_rates
+            outputs = outputs + (-0.5 * (implicit_1.density + implicit_2.density),)
+        return outputs
 
     def full_imex_advance(
         current: FciDrbEBState,
@@ -2030,7 +2039,7 @@ def run_full_eb(
         replicated_spec,
         replicated_spec,
         replicated_spec,
-    )
+    ) + ((spatial_spec,) if recycling is not None else ())
     sharded_advance = jax.shard_map(
         full_imex_advance,
         mesh=mesh,
@@ -2737,12 +2746,20 @@ def run_full_eb(
             state_sharding,
         )
 
-        def neutral_split_kernel(current, neutral):
+        def neutral_split_kernel(current, neutral, wall_loss_rate=None):
             before = fci_neutrals.inventories(
                 current.density, current.Vi, current.Te, current.Ti, neutral, neutral_grid, neutrals
             )
+            source = (
+                None
+                if wall_loss_rate is None
+                else fci_neutrals.recycled_neutral_source(
+                    wall_loss_rate, recycling.coefficient, neutral_grid.owner
+                )
+            )
             n, vi, te, ti, neutral_new, ledger, ionisation = fci_neutrals.neutral_step(
-                current.density, current.Vi, current.Te, current.Ti, neutral, dt, neutral_grid, neutrals
+                current.density, current.Vi, current.Te, current.Ti, neutral, dt, neutral_grid, neutrals,
+                volume_source=source,
             )
             after = fci_neutrals.inventories(n, vi, te, ti, neutral_new, neutral_grid, neutrals)
             return (
@@ -2758,8 +2775,22 @@ def run_full_eb(
         ionisation_field = jnp.zeros_like(neutral_density)
         cumulative_sinks = np.zeros(2)  # electron energy loss, neutral reservoir energy
         inventory0 = None
+        recycling_rows: list[list[float]] = []
+        recycled_energy_per_atom = (
+            0.0 if recycling is None else recycling.energy_per_atom(neutrals.reference_temperature_ev)
+        )
+        nuclei_previous = float(np.asarray(jax.jit(
+            lambda c, nn: fci_neutrals.inventories(c.density, c.Vi, c.Te, c.Ti, nn, neutral_grid, neutrals)[0]
+        )(state, neutral_density)))
         print(
-            "[neutrals] diffusive neutral density on (reflecting wall, no recycling); "
+            "[neutrals] diffusive neutral density on ("
+            + (
+                "reflecting wall, no recycling); "
+                if recycling is None
+                else f"recycling R={recycling.coefficient:.4g} of the applied ion wall flux into the wall cells, "
+                f"energy {recycling.energy} = {recycled_energy_per_atom * neutrals.reference_temperature_ev:.4g} eV/atom); "
+            )
+            + 
             f"Te0={neutrals.reference_temperature_ev:.3f} eV, n0={neutrals.reference_density_m3:.3e} m^-3, "
             f"T_n={neutrals.neutral_temperature_ev:.3f} eV, mfp_max={neutrals.mfp_max:.3e} m, "
             f"time unit={fci_neutrals.time_unit_s(neutrals.reference_temperature_ev):.3e} s",
@@ -2778,6 +2809,7 @@ def run_full_eb(
             gmres_stage_diagnostics,
             rk_stage_diagnostics,
             step_ledger,
+            *wall_loss_output,
         ) = execute_advance(
             state,
             cell_fields,
@@ -2813,7 +2845,7 @@ def run_full_eb(
         if neutrals is not None:
             totals_before_split = wall_totals(state) if wall_ledger is not None else None
             state, neutral_density, neutral_ledger, neutral_inventory, ionisation_field = neutral_split(
-                state, neutral_density
+                state, neutral_density, *wall_loss_output
             )
             state = state.map_fields(lambda value: jax.device_put(value, state_sharding))
             neutral_density = jax.device_put(neutral_density, state_sharding)
@@ -2825,10 +2857,31 @@ def run_full_eb(
             if inventory0 is None:
                 inventory0 = neutral_inventory[:3]
             nuclei_b, plasma_b, neutral_b, nuclei_a, plasma_a, neutral_a = neutral_inventory
-            particle_error = (nuclei_a - nuclei_b) / max(abs(nuclei_b), 1.0e-300)
+            recycled = float(neutral_ledger[7]) if recycling is not None else 0.0
+            recycled_thermal = 1.5 * neutrals.neutral_temperature * recycled
+            particle_error = (nuclei_a - nuclei_b - recycled) / max(abs(nuclei_b), 1.0e-300)
             energy_error = (
                 (plasma_a + neutral_a + neutral_ledger[3] + neutral_ledger[4]) - (plasma_b + neutral_b)
+                - recycled_thermal
             ) / max(abs(neutral_ledger[3]) + abs(neutral_ledger[4]), 1.0e-300)
+            if recycling is not None:
+                wall_loss = float(np.asarray(step_ledger)[0])
+                recycled_energy = recycled_energy_per_atom * recycled
+                change = nuclei_a - nuclei_previous
+                expected = float(np.asarray(step_ledger)[1]) - (1.0 - recycling.coefficient) * wall_loss
+                recycling_rows.append([
+                    current_time, wall_loss, recycled, recycled_energy, recycled_thermal,
+                    recycled_energy - recycled_thermal, nuclei_a, change, expected,
+                ])
+                print(
+                    "[recycling] t={:.6e} wall_ion_loss={:.6e} recycled={:.6e} E_rec={:.4e} "
+                    "d(nuclei)={:.6e} expected={:.6e} rel={:.2e}".format(
+                        current_time, wall_loss, recycled, recycled_energy, change, expected,
+                        (change - expected) / max(abs(wall_loss), 1.0e-300),
+                    ),
+                    flush=True,
+                )
+                nuclei_previous = nuclei_a
             neutral_rows.append([
                 current_time, *neutral_ledger, *neutral_inventory,
                 *(split_change[8:11] if split_change is not None else (np.nan,) * 3),
@@ -3038,6 +3091,16 @@ def run_full_eb(
                  "split_wall_particle_inventory", "split_wall_electron_energy_inventory",
                  "split_wall_ion_energy_inventory")
             ),
+            **(
+                {
+                    "recycling_ledger": np.asarray(recycling_rows, dtype=np.float64).reshape(
+                        -1, len(fci_neutrals.RECYCLING_LEDGER_COLUMNS)
+                    ),
+                    "recycling_ledger_columns": np.asarray(fci_neutrals.RECYCLING_LEDGER_COLUMNS),
+                }
+                if recycling is not None
+                else {}
+            ),
         }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3240,6 +3303,30 @@ def neutral_parameters(config) -> fci_neutrals.NeutralParameters | None:
     )
 
 
+def recycling_parameters(config) -> fci_neutrals.RecyclingParameters | None:
+    """The wall recycling selected by a config (None = off)."""
+
+    if not getattr(config, "recycling", False):
+        return None
+    checks = (
+        (bool(config.neutrals), "recycling requires neutrals = true"),
+        (str(config.wall_closure) == "bohm", "recycling requires the Bohm wall closure"),
+        (0.0 <= config.recycling_coefficient <= 1.0, "recycling_coefficient must lie in [0, 1]"),
+        (config.recycling_energy in ("franck-condon", "wall"), "recycling_energy must be 'franck-condon' or 'wall'"),
+        (config.recycling_franck_condon_energy_ev >= 0.0, "recycling_franck_condon_energy_ev must be nonnegative"),
+        (config.recycling_wall_temperature_ev >= 0.0, "recycling_wall_temperature_ev must be nonnegative"),
+    )
+    for ok, message in checks:
+        if not ok:
+            raise ValueError(message)
+    return fci_neutrals.RecyclingParameters(
+        coefficient=float(config.recycling_coefficient),
+        energy=str(config.recycling_energy),
+        franck_condon_energy_ev=float(config.recycling_franck_condon_energy_ev),
+        wall_temperature_ev=float(config.recycling_wall_temperature_ev),
+    )
+
+
 @dataclass(frozen=True)
 class HsxBlobConfig:
     """One HSX FCI blob run.
@@ -3293,6 +3380,11 @@ class HsxBlobConfig:
     neutral_initial_density: float = 0.01
     neutral_initial_decay_length: float = 0.1
     neutral_reaction_substeps: int = 1
+    recycling: bool = False
+    recycling_coefficient: float = 0.99
+    recycling_energy: str = "franck-condon"
+    recycling_franck_condon_energy_ev: float = 3.0
+    recycling_wall_temperature_ev: float = 0.025
     advance_execution: str = "staged-compiled"
     gmres_acceptance_tolerance: float = 5.0e-5
     gmres_target_tolerance: float = GMRES_TARGET_TOLERANCE
@@ -3598,6 +3690,18 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
     )
     option("neutral_reaction_substeps", help="Explicit reaction substeps per time step.")
     option(
+        "recycling",
+        help="Return R of the applied ion wall flux as neutrals in the wall cells (needs sheath + neutrals).",
+    )
+    option("recycling_coefficient", help="Recycling coefficient R in [0, 1].")
+    option(
+        "recycling_energy",
+        choices=("franck-condon", "wall"),
+        help="Energy of a recycled atom: Franck-Condon (fixed eV) or 3/2 T_wall.",
+    )
+    option("recycling_franck_condon_energy_ev", help="Franck-Condon energy per recycled atom [eV].")
+    option("recycling_wall_temperature_ev", help="Wall temperature for recycling_energy = wall [eV].")
+    option(
         "advance_execution",
         choices=("compiled", "staged-compiled", "eager"),
         help=(
@@ -3751,6 +3855,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         fail("--diagnostic-every must be nonnegative")
     try:
         neutral_params = neutral_parameters(args)
+        recycling_params = recycling_parameters(args)
     except ValueError as error:
         fail(str(error))
     if not 0.0 <= args.toroidal_perturbation_amplitude < 1.0:
@@ -4064,6 +4169,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         neutrals=neutral_params,
         neutral_initial_density=float(args.neutral_initial_density),
         neutral_initial_decay_length=float(args.neutral_initial_decay_length),
+        recycling=recycling_params,
         run_metadata={
             "command": " ".join(sys.argv),
             "drbx_source_root": str(DRBX_SRC),
@@ -4136,6 +4242,17 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
                     "neutral_initial_decay_length": float(args.neutral_initial_decay_length),
                     "neutral_reaction_substeps": int(args.neutral_reaction_substeps),
                     "neutral_wall": "reflecting (zero flux)",
+                    **(
+                        {
+                            "recycling": True,
+                            "recycling_coefficient": recycling_params.coefficient,
+                            "recycling_energy": recycling_params.energy,
+                            "recycling_energy_per_atom_ev": recycling_params.energy_per_atom(1.0),
+                            "recycling_deposit": "applied ion wall loss of the IMEX step, wall owner cells",
+                        }
+                        if recycling_params is not None
+                        else {}
+                    ),
                 }
                 if neutral_params is not None
                 else {}
