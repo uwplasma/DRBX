@@ -1,0 +1,12 @@
+--- a/src/drbx/native/neutrals/detachment_sol_model.py
++++ b/src/drbx/native/neutrals/detachment_sol_model.py
+@@ -457,6 +457,9 @@
+     # Plasma
+     div_n, flux_n = _div_fs(Ne_x, Vi_x, a_x, grid)
+     div_nv, flux_nv = _div_fs(NVi_x, Vi_x, a_x, grid)
++    _ft = 0.5 * (grid.area[-3] + grid.area[-2])
++    div_nv = div_nv.at[-1].add((Nout * Vout * Vout * _ft - flux_nv[-1]) / (grid.dl[-3] * grid.area[-3]))
++    flux_nv = flux_nv.at[-1].set(Nout * Vout * Vout * _ft)
+     div_p, flux_p = _div_fs(P_x, Vi_x, a_x, grid)
+     ddt_n = -div_n - S + s * ne_src
+     ddt_nv = -div_nv - _grad_c(P_x, grid) - F
