@@ -2,6 +2,7 @@
 # Usage: [DT=timestep] [FROM=coarser_run_dir] run_hermes.sh HERMES_SRC OUTROOT SRC NY [EIMULT] [NOUT]
 # Runs one Hermes-3 case (1 rank, nice 10) from deck.BOUT.inp into OUTROOT/h_<SRC>_<NY>_ei<EIMULT>/.
 # FROM: start from the steady state of a coarser run, interpolated in y (restart_from.py).
+# HERMES_OPTS: extra Hermes-3 option overrides, e.g. the aligned variant in README (attribution).
 set -euo pipefail
 H=$1; OUT=$2; SRC=$3; NY=$4; EI=${5:-100000}; NOUT=${6:-300}; DT=${DT:-1000000}
 here=$(cd "$(dirname "$0")" && pwd)
@@ -20,5 +21,5 @@ if [ -n "${FROM:-}" ]; then
   extra="restart=true append=false"
 fi
 echo "start $(date -Is) load $(cut -d' ' -f1-3 /proc/loadavg)" > "$d/load.txt"
-cd "$d" && nice -n 10 mpirun -np 1 "$H/build/hermes-3" -d . $extra > run.log 2>&1
+cd "$d" && nice -n 10 mpirun -np 1 "$H/build/hermes-3" -d . $extra ${HERMES_OPTS:-} > run.log 2>&1
 echo "end $(date -Is) load $(cut -d' ' -f1-3 /proc/loadavg)" >> "$d/load.txt"
