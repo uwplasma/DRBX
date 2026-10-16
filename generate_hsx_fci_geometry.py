@@ -56,6 +56,16 @@ def _parser() -> argparse.ArgumentParser:
             "the repository; see docs/fci_braginskii_hsx_backend.md."
         ),
     )
+    parser.add_argument(
+        "--coils",
+        type=Path,
+        default=None,
+        help=(
+            "MAKEGRID coils file. When given, B comes from the coil filaments "
+            "(exact segment Biot-Savart) instead of --makegrid; "
+            "--makegrid-currents then lists one current per coil group."
+        ),
+    )
     parser.add_argument("--makegrid-currents", type=lambda value: tuple(float(part) for part in value.split(",")), default=None)
     parser.add_argument("--fit-sample-shape", nargs=3, type=int, default=(8, 9, 8), metavar=("NR", "NPHI", "NZ"))
     parser.add_argument("--radial-degree", type=int, default=3)
@@ -125,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         trace_backend=args.trace_backend,
         trace_batch_size=args.trace_batch_size,
         trace_device_count=args.trace_device_count,
+        coils_path=args.coils,
     )
     build_hsx_simulation_geometry(config, status_path=args.status, log_path=args.log)
     return 0

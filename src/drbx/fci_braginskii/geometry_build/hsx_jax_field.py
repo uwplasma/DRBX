@@ -27,11 +27,13 @@ class JaxHsxMagneticField:
 
     @classmethod
     def from_evaluators(cls, metric_evaluator: Any, bfield_evaluator: Any):
+        if hasattr(bfield_evaluator, "jax_evaluator"):
+            jax_bfield = bfield_evaluator.jax_evaluator()
+        else:
+            jax_bfield = JaxComponentSplineBFieldEvaluator.from_evaluator(bfield_evaluator)
         return cls(
             metric=JaxMetricEvaluator.from_metric_evaluator(metric_evaluator),
-            bfield=JaxComponentSplineBFieldEvaluator.from_evaluator(
-                bfield_evaluator
-            ),
+            bfield=jax_bfield,
         )
 
     def tree_flatten(self):
