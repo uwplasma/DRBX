@@ -66,6 +66,19 @@ def _parser() -> argparse.ArgumentParser:
             "--makegrid-currents then lists one current per coil group."
         ),
     )
+    parser.add_argument(
+        "--coil-table-shape",
+        nargs=3,
+        type=int,
+        default=(96, 144, 96),
+        metavar=("NR", "NPHI", "NZ"),
+        help="In-memory coil field table points per field period (with --coils).",
+    )
+    parser.add_argument(
+        "--direct-coils",
+        action="store_true",
+        help="With --coils, evaluate Biot-Savart at every trace step instead of a table (slow).",
+    )
     parser.add_argument("--makegrid-currents", type=lambda value: tuple(float(part) for part in value.split(",")), default=None)
     parser.add_argument("--fit-sample-shape", nargs=3, type=int, default=(8, 9, 8), metavar=("NR", "NPHI", "NZ"))
     parser.add_argument("--radial-degree", type=int, default=3)
@@ -136,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         trace_batch_size=args.trace_batch_size,
         trace_device_count=args.trace_device_count,
         coils_path=args.coils,
+        coil_table_shape=None if args.direct_coils else tuple(args.coil_table_shape),
     )
     build_hsx_simulation_geometry(config, status_path=args.status, log_path=args.log)
     return 0

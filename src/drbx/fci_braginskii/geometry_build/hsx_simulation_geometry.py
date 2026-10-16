@@ -13,11 +13,13 @@ lightweight command-line/help tooling while that module is being installed.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+import functools
 import json
 from pathlib import Path
 import time
 from typing import Any, Callable, Mapping, Sequence
 
+import jax
 import numpy as np
 
 from .fci_geometry import (
@@ -67,6 +69,7 @@ class HsxSimulationGeometryConfig:
     trace_batch_size: int = 2048
     trace_device_count: int | None = None
     coils_path: Path | None = None
+    coil_table_shape: tuple[int, int, int] | None = (96, 144, 96)
 
     def __post_init__(self) -> None:
         resolution = tuple(int(value) for value in self.resolution)
@@ -303,7 +306,11 @@ class _ContinuousFieldAdapter:
 
 
 def hsx_coil_field_provider(config: HsxSimulationGeometryConfig):
-    """The coil-filament field provider for ``config.coils_path`` (or None).
+    """The coil field provider for ``config.coils_path`` (or None).
+
+    With ``coil_table_shape`` (the default) the coils are tabulated once on
+    an in-memory ``(R, phi, Z)`` grid (:class:`CoilFieldTable`) and the build
+    interpolates that table; ``None`` evaluates the coils directly.
 
     ``makegrid_currents[i]`` is the current of coil group ``i + 1`` in the
     MAKEGRID ``coils.*`` file, in the same units as for the mgrid file built
@@ -312,12 +319,40 @@ def hsx_coil_field_provider(config: HsxSimulationGeometryConfig):
 
     if config.coils_path is None:
         return None
-    from drbx.geometry.field_provider import FilamentCoilField
-
     if config.makegrid_currents is None:
         raise ValueError("coils_path needs makegrid_currents (one current per coil group)")
-    currents = {index + 1: float(value) for index, value in enumerate(config.makegrid_currents)}
-    return FilamentCoilField.from_makegrid(Path(config.coils_path), currents)
+    shape = None if config.coil_table_shape is None else tuple(int(v) for v in config.coil_table_shape)
+    return _coil_field_provider(
+        str(Path(config.coils_path).resolve()),
+        tuple(float(v) for v in config.makegrid_currents),
+        shape,
+        str(Path(config.vessel_path).resolve()),
+    )
+
+
+@functools.lru_cache(maxsize=2)
+def _coil_field_provider(coils_path, currents, table_shape, vessel_path):
+    from drbx.geometry.field_provider import FilamentCoilField
+
+    from .hsx_fci_builder import hsx_provider_bfield
+    from .provider_bfield import CoilFieldTable
+
+    coils = FilamentCoilField.from_makegrid(
+        Path(coils_path), {index + 1: value for index, value in enumerate(currents)}
+    )
+    if table_shape is None:
+        return coils
+    box = hsx_provider_bfield(coils, Path(vessel_path))
+    start = time.perf_counter()
+    table = CoilFieldTable.from_provider(
+        coils, R_bounds=tuple(box.R), Z_bounds=tuple(box.Z), shape=table_shape
+    )
+    jax.block_until_ready(table)
+    print(
+        f"[geometry] coil field table {table_shape} built in {time.perf_counter() - start:.1f} s",
+        flush=True,
+    )
+    return table
 
 
 def _continuous_field_callback(
