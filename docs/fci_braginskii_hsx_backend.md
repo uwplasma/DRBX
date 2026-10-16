@@ -82,11 +82,15 @@ backward) and velocities in `c_s0 = sqrt(Te0/m_i)`:
   is not used: with it the conservative momentum row below is unstable.
 - Wall legs are conservative. The (n, Te, Ti, Vi) rows of a wall leg are the
   flux difference `-s (F_w - F_c)/dx_leg` between the wall face and the owner
-  centre (`F` along +b): particles `n Ve`, ion momentum `n Vi^2 + n (Te +
-  tau Ti)`, electron energy `gamma_e n Te Ve` at the wall and `(5/2) n Te Ve`
-  at the centre, and the same for the ions. They replace the characteristic
-  rows in the local backward-Euler block (the frozen characteristic Jacobian
-  still linearizes that solve); the Ve row keeps the characteristic law.
+  centre (`F` along +b), all with the ion velocity: particles `n Vi`, ion
+  momentum `n Vi^2 + n (Te + tau Ti)`, electron energy `gamma_e n Te Vi` at
+  the wall and `(5/2) n Te Vi` at the centre, and the same for the ions.
+  They replace the characteristic rows in the local backward-Euler block,
+  with their own exact local Jacobian (traces frozen); the Ve row keeps the
+  characteristic law and its frozen Jacobian. The ion flux is used at the
+  centre because the leg is the ambipolar presheath flow; with the electron
+  flux `n Ve` (what the bulk continuity equation advects) the HSX wall cells,
+  where |Ve| reaches several c_s, pile up density within a few steps.
 - Heat transmission convention: `gamma_e` and `gamma_i` are total Stangeby
   coefficients at M = 1, `q_e = gamma_e n Te c_s`, `q_i = gamma_i n Ti c_s`
   (energy in `n0 Te0 c_s0`, the ion one multiplied by tau). The owner centre
@@ -133,6 +137,17 @@ dissipation to 1%. The isothermal profile converges to the exact solution at
 an observed order of about 0.55 (10, 20, 40 cells), limited by the
 square-root singularity at the sonic target. No manufactured-solution test
 with sheath boundaries exists yet.
+
+HSX (32-cubed bundle, defaults, 20 steps to t = 0.015): 1848 wall legs; the
+contract losses go from 0.554 to 0.439 particles, 2.49 to 1.41 (electron) and
+1.38 to 1.00 (ion) energy per unit time, the wall current is zero and the
+particle inventory falls by 1.4%. The ledger does not close: the inventory
+falls about 1.38 times faster than the contract loss (energy 1.36 times),
+independent of dt (the same at dt/4), while the zero-flow wall closes the
+particle inventory to 5e-5 per step. The likely cause is the mismatch between
+the bulk electron continuity (`n Ve`) and the ion-flux wall legs at wall cells
+with large |Ve|; it needs a current-consistent sheath (a sheath potential
+boundary for phi) and is open.
 
 ## Geometry artifact
 
@@ -352,6 +367,9 @@ contract. The right-hand side is assembled in
   residual is not sign-restoring on its own.
 - A short successful evolution does not qualify wall budgets, MMS accuracy or
   long-time stability.
+- With the Bohm sheath the HSX particle and energy ledgers are open by about
+  38% of the wall loss (see Wall closure); the phi wall boundary is still
+  Dirichlet zero, not the sheath potential.
 
 ## Tests
 

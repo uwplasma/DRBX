@@ -2340,25 +2340,34 @@ class LocalFciDrbEBRhs:
         kinetic_energy, current, |current|, wall_legs, N, W_e, W_i, K_i]``:
         the first six are volume integrals of the wall-face flux contract
         (outward, in ``n0 c_s0 L_ref^2`` and ``n0 Te0 c_s0 L_ref^2``), the last
-        four the inventories ``sum m n``, ``sum m 3/2 n Te``,
-        ``sum m 3/2 tau n Ti`` and ``sum m n Vi^2/2`` on the same fine-cell
-        measure.  Callers psum over shards.
+        four the owner inventories ``sum V n``, ``sum V 3/2 n Te``,
+        ``sum V 3/2 tau n Ti`` and ``sum V n Vi^2/2``.  Losses use the
+        raw-cell volumes of the restriction that carries the fine wall-leg
+        rates to the owners.  Callers psum over shards.
         """
 
         _, _, info = self.apply_short_leg_implicit_material_step(
             state_owned, 0.0, phi_owned=state_owned.phi, return_increment=True
         )
-        mass = self._fci_pair_cell_mass() * self.geometry.active_cell_mask_owned
+        state_owned = self._owner_state(state_owned)
+        if self.control_volume_geometry is not None:
+            # Fine wall-leg rates reach the owners through the raw-volume
+            # restriction, which sums every raw cell with positive volume.
+            cells = self.control_volume_geometry.cells
+            loss_mass = jnp.where(cells.raw_volume > 0.0, cells.raw_volume, 0.0)
+            owner_mass = jnp.where(cells.is_active_owner, cells.aggregate_volume, 0.0)
+        else:
+            loss_mass = self._fci_pair_cell_mass() * self.geometry.active_cell_mask_owned
+            owner_mass = loss_mass
         rates = info["wall_flux_rates"]
-        center = info["wall_center_state"]
-        n, te, ti, vi = center[..., 0], center[..., 1], center[..., 2], center[..., 3]
-        totals = [jnp.sum(mass * rates[..., i]) for i in range(6)]
-        totals.append(jnp.sum(mass * jnp.abs(rates[..., 5])))
-        totals.append(jnp.sum(info["wall_leg_count"] * self.geometry.active_cell_mask_owned))
-        totals.append(jnp.sum(mass * n))
-        totals.append(jnp.sum(mass * 1.5 * n * te))
-        totals.append(jnp.sum(mass * 1.5 * self.parameters.tau * n * ti))
-        totals.append(jnp.sum(mass * 0.5 * n * vi * vi))
+        n, te, ti, vi = state_owned.density, state_owned.Te, state_owned.Ti, state_owned.Vi
+        totals = [jnp.sum(loss_mass * rates[..., i]) for i in range(6)]
+        totals.append(jnp.sum(loss_mass * jnp.abs(rates[..., 5])))
+        totals.append(jnp.sum(info["wall_leg_count"] * (loss_mass > 0.0)))
+        totals.append(jnp.sum(owner_mass * n))
+        totals.append(jnp.sum(owner_mass * 1.5 * n * te))
+        totals.append(jnp.sum(owner_mass * 1.5 * self.parameters.tau * n * ti))
+        totals.append(jnp.sum(owner_mass * 0.5 * n * vi * vi))
         return jnp.stack(totals)
 
     def apply_short_leg_implicit_material_step(
@@ -2553,7 +2562,6 @@ class LocalFciDrbEBRhs:
             inverse_dx = jnp.where(wall, 1.0 / jnp.maximum(jnp.abs(dx), 1.0e-30), 0.0)
             wall_rates.append(jnp.stack(fluxes, axis=-1) * inverse_dx[..., None])
         info["wall_flux_rates"] = wall_rates[0] + wall_rates[1]
-        info["wall_center_state"] = center
         info["wall_leg_count"] = backward_wall.astype(jnp.float64) + forward_wall.astype(jnp.float64)
         info["selected_coupled_force"] = jnp.where(
             info["selected_wall"], coupled_force, 0.0
