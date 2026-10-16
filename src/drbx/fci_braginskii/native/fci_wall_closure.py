@@ -139,7 +139,32 @@ def wall_face_fluxes(wall_state, direction, tau, gamma_e, gamma_i, owner_velocit
     )
 
 
-def sheath_wall_leg_residual(wall_state, center, dx, direction, tau, gamma_e, gamma_i) -> jnp.ndarray:
+def sheath_tube_lengths(dx_minus, dx_plus, backward_wall, forward_wall):
+    """Flux-tube lengths that convert wall-leg fluxes to owner rates.
+
+    The bulk parallel operator gives a row the derivative ``Delta F / dx``
+    over each of its legs, so the flux it telescopes onto the owner centre
+    of a wall cell enters with the cross-section ``A = V / dx_interior`` of
+    the interior leg.  The wall leg must remove and add back the centre flux
+    over the same cross-section, so its rate is ``-s (F_w - F_c) /
+    dx_interior``, not ``/ dx_wall``: with the (often short) wall-leg length
+    the centre flux it adds back is not the one the bulk removed, and the
+    difference leaves the inventory unreported.  A cell whose two legs both
+    end on walls has no interior leg; there both legs use ``dx_minus +
+    dx_plus``, so the centre fluxes cancel and the row is the finite-volume
+    difference of the two wall fluxes.
+    """
+
+    dxm = jnp.abs(jnp.asarray(dx_minus, dtype=jnp.float64))
+    dxp = jnp.abs(jnp.asarray(dx_plus, dtype=jnp.float64))
+    both = jnp.asarray(backward_wall, dtype=bool) & jnp.asarray(forward_wall, dtype=bool)
+    total = dxm + dxp
+    return jnp.where(both, total, dxp), jnp.where(both, total, dxm)
+
+
+def sheath_wall_leg_residual(
+    wall_state, center, dx, direction, tau, gamma_e, gamma_i, conservative_bulk=False
+) -> jnp.ndarray:
     """Conservative wall-leg rates for the (n, Te, Ti, Vi) rows.
 
     The wall leg of the owner cell is the flux difference between the wall
@@ -153,10 +178,16 @@ def sheath_wall_leg_residual(wall_state, center, dx, direction, tau, gamma_e, ga
     variables (the Ve row is zero: it keeps the characteristic wall law).
 
     ``V`` is the ion velocity at both ends: the leg is the ambipolar
-    presheath flow into a floating wall.  The bulk continuity equation
-    advects n with Ve, so the owner's parallel current ``n (Vi - Ve)`` is
-    not carried through this leg (with ``n Ve`` at the centre the HSX wall
-    cells, where |Ve| reaches several c_s, are unstable).
+    presheath flow into a floating wall.
+
+    ``conservative_bulk=True`` is the production HSX form, where the bulk
+    density and thermal energy rows are the sum-free support-pair fluxes
+    (``LocalFciDrbEBRhs._sheath_conservative_parallel_rates``).  Those fluxes
+    already end on the owner row, so the (n, Te, Ti) legs are the wall flux
+    alone, ``-s F_w / dx``, and each quantity leaves through exactly one face
+    flux.  The Vi row keeps the centre flux: its bulk is the characteristic
+    material operator.  ``dx`` is then the flux-tube length of
+    :func:`sheath_tube_lengths`.
     """
 
     w = jnp.asarray(wall_state, dtype=jnp.float64)
@@ -176,11 +207,12 @@ def sheath_wall_leg_residual(wall_state, center, dx, direction, tau, gamma_e, ga
 
     Fw = fluxes(w, gamma_e, gamma_i)
     Fc = fluxes(c, 2.5, 2.5)
-    d_particle = Fw[0] - Fc[0]
+    keep = 0.0 if conservative_bulk else 1.0
+    d_particle = Fw[0] - keep * Fc[0]
     rate_n = factor * d_particle
     rate_vi = factor * ((Fw[1] - Fc[1]) - c[..., 3] * d_particle) / n_c
-    rate_te = factor * ((Fw[2] - Fc[2]) - 1.5 * c[..., 1] * d_particle) / (1.5 * n_c)
-    rate_ti = factor * ((Fw[3] - Fc[3]) - 1.5 * c[..., 2] * d_particle) / (1.5 * n_c)
+    rate_te = factor * ((Fw[2] - keep * Fc[2]) - 1.5 * c[..., 1] * d_particle) / (1.5 * n_c)
+    rate_ti = factor * ((Fw[3] - keep * Fc[3]) - 1.5 * c[..., 2] * d_particle) / (1.5 * n_c)
     return jnp.stack((rate_n, rate_te, rate_ti, rate_vi, jnp.zeros_like(rate_n)), axis=-1)
 
 
@@ -189,6 +221,7 @@ __all__ = [
     "SheathClosure",
     "WallFaceFluxes",
     "bohm_wall_state",
+    "sheath_tube_lengths",
     "sheath_wall_leg_residual",
     "sound_speed",
     "wall_face_fluxes",
