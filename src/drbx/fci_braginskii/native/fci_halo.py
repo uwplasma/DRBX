@@ -58,27 +58,10 @@ from ...native.fci_halo import (  # noqa: F401
     _validate_axis_weights,
     PreparedLocalState3D,
 )
-
-
-_pytree_base = jax.tree_util.register_pytree_node_class
-
-
-def _validate_halo_spatial_prefix(
-    field_halo: jnp.ndarray,
-    domain: LocalDomain3D,
-    *,
-    name: str = "field_halo",
-) -> jnp.ndarray:
-    """Validate the spatial part of a scalar or trailing-axis halo field."""
-
-    field_halo = jnp.asarray(field_halo)
-    expected_shape = tuple(int(value) for value in domain.layout.cell_halo_shape)
-    if field_halo.ndim < 3 or tuple(field_halo.shape[:3]) != expected_shape:
-        raise ValueError(
-            f"{name} leading shape must match domain.layout.cell_halo_shape; "
-            f"got {field_halo.shape}, expected prefix {expected_shape}"
-        )
-    return field_halo
+from ...fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
+    _validate_halo_spatial_prefix,
+    _pytree_base,
+)
 
 
 def _distributed_half_turn(

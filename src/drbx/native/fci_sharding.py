@@ -61,32 +61,10 @@ from .fci_2_field_rhs import Fci2FieldRhsParameters, Fci2FieldState, compute_2fi
 from .fci_halo import HaloExchange3D, LocalPeriodicTopologyRule3D, TopologyHaloFiller3D
 from .fci_model import inject_owned_field_to_halo, inject_owned_vector_field_to_halo
 from .fci_time_integrator import rk4_step
-
-
-_MESH_AXIS_NAMES = ("x", "y", "z")
-_METRIC_NAMES = (
-    "J",
-    "g11",
-    "g22",
-    "g33",
-    "g12",
-    "g13",
-    "g23",
-    "g_11",
-    "g_22",
-    "g_33",
-    "g_12",
-    "g_13",
-    "g_23",
-)
-_CELL_FIELD_NAMES = _METRIC_NAMES + (
-    "Bmag",
-    "B_contra_x",
-    "B_contra_y",
-    "B_contra_z",
-    "dx",
-    "dy",
-    "dz",
+from ..fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
+    _MESH_AXIS_NAMES,
+    _METRIC_NAMES,
+    _CELL_FIELD_NAMES,
 )
 
 
