@@ -1,7 +1,6 @@
 """Optional ``vmex`` (VMEX) adapter: wout equilibria, surface fields, field lines.
 
-`VMEX <https://github.com/uwplasma/VMEX>`_ (the JAX VMEC solver formerly named
-``vmec_jax``) owns the VMEC wout schema (:func:`vmex.core.wout.read_wout`) and
+`VMEX <https://github.com/uwplasma/VMEX>`_ (the JAX VMEC solver) owns the VMEC wout schema (:func:`vmex.core.wout.read_wout`) and
 the Fourier-synthesis conventions of VMEC2000. This adapter imports it from an
 external checkout (``DRBX_VMEX_ROOT``; if unset, a few common checkout
 locations are tried) the same way :mod:`drbx.geometry.essos_import` imports
@@ -34,12 +33,10 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-# Common local checkout locations for VMEX (the package is ``vmex``; the
-# checkout directory is sometimes still the legacy ``vmec_jax``).
+# Common local checkout locations for VMEX.
 _DEFAULT_VMEX_ROOTS = (
     Path.home() / "local" / "VMEX",
     Path.home() / "local" / "vmex",
-    Path.home() / "local" / "vmec_jax",
 )
 
 
