@@ -75,6 +75,7 @@ from drbx.fci_braginskii.native.fci_sharding import (  # noqa: E402
     make_shard_mesh,
 )
 from drbx.fci_braginskii.native.fci_gmres import SolvaxGmresConfig  # noqa: E402
+from drbx.fci_braginskii.native.fci_wall_closure import WALL_CLOSURES, SheathClosure  # noqa: E402
 from drbx.fci_braginskii.native.fci_angular_agglomeration import (  # noqa: E402
     RLP_PACKED_FIELD_COUNT,
     assemble_local_polar_angular_agglomeration_geometry,
@@ -164,6 +165,12 @@ class TopologyDescriptor:
     axis_regular_axes: tuple[bool, bool, bool]
     logical_extents: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
 
+
+WALL_LEDGER_COLUMNS = (
+    "time", "particle", "parallel_momentum", "electron_energy", "ion_energy",
+    "kinetic_energy", "current", "abs_current", "wall_legs", "particle_inventory",
+    "electron_energy_inventory", "ion_energy_inventory", "ion_kinetic_inventory",
+)
 
 def topology_descriptor(topology: str) -> TopologyDescriptor:
     selected = str(topology).lower()
@@ -897,6 +904,7 @@ def build_local_eb_model(
     control_volume_boundary_bc=None,
     curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
     implicit_current_phi_pair: bool = False,
+    sheath: SheathClosure | None = None,
 ) -> LocalFciDrbEBRhs:
     if gmres_restart < 1:
         raise ValueError("gmres_restart must be positive")
@@ -1006,6 +1014,7 @@ def build_local_eb_model(
         control_volume_geometry=control_volume_geometry,
         control_volume_boundary_bc=control_volume_boundary_bc,
         implicit_current_phi_pair=bool(implicit_current_phi_pair),
+        sheath=sheath,
     )
     model = LocalFciDrbEBRhs(
         **rhs_kwargs,
@@ -1447,6 +1456,7 @@ def run_full_eb(
     owner_host_geometry=None,
     history_dtype: str = "float32",
     implicit_current_phi_pair: bool = False,
+    sheath: SheathClosure | None = None,
 ) -> FciDrbEBState:
     """Advance the global EB state."""
 
@@ -1674,6 +1684,7 @@ def run_full_eb(
                 local_curvature_face_coefficients
             ),
             implicit_current_phi_pair=implicit_current_phi_pair,
+            sheath=sheath,
         )
 
     phi_start = time.perf_counter()
@@ -2614,6 +2625,40 @@ def run_full_eb(
         with jax.disable_jit(advance_execution == "eager"):
             return compiled_advance(*advance_args)
 
+    wall_ledger_rows: list[list[float]] = []
+    wall_ledger = None
+    if sheath is not None:
+        def wall_ledger_kernel(local_state, cell_fields_owned, map_fields_owned, control_volume_fields_owned):
+            model = build_local_model(cell_fields_owned, map_fields_owned, control_volume_fields_owned)
+            totals = model.wall_flux_ledger(local_state)
+            for axis_name in ("x", "y", "z"):
+                totals = jax.lax.psum(totals, axis_name)
+            return totals
+
+        wall_ledger = jax.jit(jax.shard_map(
+            wall_ledger_kernel,
+            mesh=mesh,
+            in_specs=(state_spec, geometry_spec, geometry_spec, geometry_spec),
+            out_specs=replicated_spec,
+            check_vma=False,
+        ))
+
+    def record_wall_ledger(time_value: float) -> None:
+        if wall_ledger is None:
+            return
+        with jax.disable_jit(advance_execution == "eager"):
+            totals = np.asarray(wall_ledger(state, cell_fields, map_fields, control_volume_fields))
+        wall_ledger_rows.append([float(time_value), *(float(v) for v in totals)])
+        print(
+            "[wall] t={:.6e} particle={:.6e} momentum={:.6e} q_e={:.6e} q_i={:.6e} q_kin={:.6e} "
+            "current={:.3e} |current|={:.3e} legs={:.0f} N={:.9e} W_e={:.9e} W_i={:.9e} K_i={:.9e}".format(
+                *wall_ledger_rows[-1]
+            ),
+            flush=True,
+        )
+
+    record_wall_ledger(float(start_time))
+
     for step in range(1, int(num_steps) + 1):
         step_start = time.perf_counter()
         step_time = float(start_time) + (step - 1) * float(timestep)
@@ -2656,6 +2701,7 @@ def run_full_eb(
             accumulated_gmres_seconds += gmres_seconds
         accumulated_step_seconds += step_seconds
         current_time = float(start_time) + step * float(timestep)
+        record_wall_ledger(current_time)
 
         if step % int(save_every) == 0 or step == int(num_steps):
             saved_times.append(current_time)
@@ -2910,6 +2956,14 @@ def run_full_eb(
             dtype=np.int64,
         ),
         history_dtype=np.asarray(history_dtype),
+        **(
+            {
+                "wall_ledger": np.asarray(wall_ledger_rows, dtype=np.float64),
+                "wall_ledger_columns": np.asarray(WALL_LEDGER_COLUMNS),
+            }
+            if wall_ledger_rows
+            else {}
+        ),
         **{
             name: np.stack(values, axis=0)
             for name, values in history.items()
@@ -2968,6 +3022,19 @@ def _parallel_characteristic_wall_metadata() -> dict[str, object]:
     }
 
 
+def sheath_closure(config) -> SheathClosure | None:
+    """The wall closure selected by a config (None = zero-flow wall)."""
+
+    if config.wall_closure == "zero-flow":
+        return None
+    gamma_e = float(config.electron_heat_transmission)
+    return SheathClosure(
+        electron_heat_transmission=gamma_e if gamma_e > 0.0 else None,
+        ion_heat_transmission=float(config.ion_heat_transmission),
+        secondary_electron_emission=float(config.secondary_electron_emission),
+    )
+
+
 @dataclass(frozen=True)
 class HsxBlobConfig:
     """One HSX FCI blob run.
@@ -3010,6 +3077,10 @@ class HsxBlobConfig:
     parallel_diffusion: float = 0.0
     electron_collision_frequency: float = 0.0
     implicit_current_phi_pair: bool = True
+    wall_closure: str = "bohm"
+    electron_heat_transmission: float = 0.0
+    ion_heat_transmission: float = 2.5
+    secondary_electron_emission: float = 0.0
     advance_execution: str = "staged-compiled"
     gmres_acceptance_tolerance: float = 5.0e-5
     gmres_target_tolerance: float = GMRES_TARGET_TOLERANCE
@@ -3081,6 +3152,9 @@ def load_hsx_blob_deck(path: str | Path) -> HsxBlobConfig:
         raise ValueError("[fci_braginskii] geometry is required")
     if config.blob_initialization not in ("field-aligned", "logical"):
         raise ValueError("[fci_braginskii] blob_initialization must be 'field-aligned' or 'logical'")
+    if config.wall_closure not in WALL_CLOSURES:
+        raise ValueError(f"[fci_braginskii] wall_closure must be one of {WALL_CLOSURES}")
+    sheath_closure(config)
     if config.advance_execution not in ("compiled", "staged-compiled", "eager"):
         raise ValueError(
             "[fci_braginskii] advance_execution must be 'compiled', 'staged-compiled' or 'eager'"
@@ -3278,6 +3352,22 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
             "treatment, which at rho* = 5e-4 limits dt to about 1e-4."
         ),
     )
+    option(
+        "wall_closure",
+        choices=WALL_CLOSURES,
+        help=(
+            "Wall closure of parallel legs ending on the vessel: 'bohm' "
+            "(default; Bohm sheath entrance, local ambipolar floating wall, "
+            "sheath heat transmission) or 'zero-flow' (Vi = Ve = 0 wall "
+            "traces, the historical configuration)."
+        ),
+    )
+    option(
+        "electron_heat_transmission",
+        help="Total electron sheath heat transmission gamma_e; 0 selects the floating-wall value.",
+    )
+    option("ion_heat_transmission", help="Total ion sheath heat transmission gamma_i (>= 2.5).")
+    option("secondary_electron_emission", help="Secondary electron emission coefficient in [0, 1).")
     option(
         "advance_execution",
         choices=("compiled", "staged-compiled", "eager"),
@@ -3737,6 +3827,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         snapshot_times=tuple(float(value) for value in args.snapshot_times),
         snapshot_dir=args.snapshot_dir,
         implicit_current_phi_pair=bool(args.implicit_current_phi_pair),
+        sheath=sheath_closure(args),
         run_metadata={
             "command": " ".join(sys.argv),
             "drbx_source_root": str(DRBX_SRC),
@@ -3790,6 +3881,13 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
                 args.electron_collision_frequency
             ),
             "implicit_current_phi_pair": bool(args.implicit_current_phi_pair),
+            "wall_closure": str(args.wall_closure),
+            "sheath_heat_transmission_convention": (
+                "total gamma at M=1; gamma - 5/2 applied as sink, advected enthalpy carried by the wall leg"
+            ),
+            "electron_heat_transmission": float(args.electron_heat_transmission),
+            "ion_heat_transmission": float(args.ion_heat_transmission),
+            "secondary_electron_emission": float(args.secondary_electron_emission),
             "time_integrator": "imex-ssp222",
             "advance_execution": str(args.advance_execution),
             "advance_execution_kernel_layout": (
