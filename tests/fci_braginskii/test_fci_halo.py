@@ -6,7 +6,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from jax.experimental.shard_map import shard_map
 from jax.sharding import Mesh, PartitionSpec as P
 
 from drbx.fci_braginskii.geometry.fci_geometry import (
@@ -231,12 +230,12 @@ def test_two_by_two_exchange_propagates_internal_edge_corner_with_halo_width_two
             ].set(make_field(shard_x, shard_y))
 
     mesh = Mesh(np.asarray(jax.local_devices()[:4]).reshape((2, 2)), ("x", "y"))
-    exchanged = shard_map(
+    exchanged = jax.shard_map(
         lambda field: exchange(field, domain),
         mesh=mesh,
         in_specs=P("x", "y", None),
         out_specs=P("x", "y", None),
-        check_rep=False,
+        check_vma=False,
     )(fields)
 
     def local(array: jax.Array, shard_x: int, shard_y: int) -> jax.Array:
