@@ -14,26 +14,22 @@ traces both, directly through the ESSOS coil field:
 5. draw the Poincare section at phi = 0: nested closed surfaces in blue, the
    escaping open lines in red.
 
-Requires an ESSOS checkout (`pip` deps only; no compiled code):
+Requires the installed ``essos`` package (``pip install 'drbx[essos]'``):
 
-    DRBX_ESSOS_ROOT=~/local/ESSOS_test \
-        PYTHONPATH=src python examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py
+    PYTHONPATH=src python examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py
 
 prints per-line classifications and writes
-``output/essos_closed_open/closed_open_vacuum_poincare.png`` (relative to the
-current working directory). If ESSOS is not importable the script explains how
-to point ``DRBX_ESSOS_ROOT`` at a checkout and exits.
+``output/closed_open_vacuum_poincare/closed_open_vacuum_poincare.png`` (relative to the
+current working directory). If ESSOS is not importable the script says how to
+install it and exits.
 """
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
 import numpy as np
 
 from drbx.geometry import (
@@ -48,7 +44,7 @@ N_OPEN = 6              # seeds outside it
 MAXTIME = 1500.0        # integration time per line (ESSOS units)
 TIMES_TO_TRACE = 6000   # trajectory samples per line
 RHO_WALL = 0.45         # escape radius around the axis [m]: beyond this = open
-OUTPUT_DIR = Path("output/essos_closed_open")   # artifact directory (cwd-relative)
+OUTPUT_DIR = Path("output/closed_open_vacuum_poincare")   # artifact directory (cwd-relative)
 
 
 def seed_points(axis_r: float, axis_z: float) -> tuple[np.ndarray, np.ndarray]:
@@ -95,8 +91,7 @@ def poincare_points(trajectory_xyz: np.ndarray) -> np.ndarray:
 # --- trace, classify, and plot ----------------------------------------------------
 if not essos_runtime_available():
     raise SystemExit(
-        "ESSOS is not importable. Point DRBX_ESSOS_ROOT at a checkout, e.g.\n"
-        "    DRBX_ESSOS_ROOT=~/local/ESSOS_test python ..."
+        "ESSOS is not importable. Install it: pip install 'drbx[essos]'"
     )
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -111,10 +106,11 @@ print(f"seeding {N_CLOSED} lines inside the core (R - R_axis = "
 
 print(f"tracing {N_CLOSED + N_OPEN} field lines (maxtime={MAXTIME:g}, "
       f"{TIMES_TO_TRACE} samples each) through the Biot-Savart coil field...")
+start = time.perf_counter()
 trajectories = trace_essos_coil_initial_conditions(
     np.vstack([closed_seeds, open_seeds]), maxtime=MAXTIME, times_to_trace=TIMES_TO_TRACE
 )
-print(f"  traced array: {trajectories.shape}")
+print(f"  traced array: {trajectories.shape} in {time.perf_counter() - start:.1f} s")
 
 print(f"classifying each line (open = escapes rho > {RHO_WALL} m from the axis):")
 sections, labels = [], []
