@@ -60,6 +60,7 @@ density, phi = history["density"].astype(float), history["phi"].astype(float)
 plane = int(np.argmax(np.abs(density[0] - 1.0).max(axis=(0, 1))))   # toroidal plane of the blob peak
 xyz = history["cartesian"][:, :, plane]
 R, Z = np.hypot(xyz[..., 0], xyz[..., 1]), xyz[..., 2]
+wrap = lambda f: np.concatenate([f, f[:, :1]], axis=1)   # close the periodic angle
 print(f"[08] times saved: {history['times'].tolist()}")
 print(f"[08] density: initial peak {density[0].max():.5f}, final peak {density[-1].max():.5f} "
       "(the filament starts to move and relax along the field)")
@@ -72,7 +73,7 @@ panels = ((density[0, :, :, plane], "initial density", "viridis"),
           (phi[-1, :, :, plane], "potential phi", "RdBu_r"))
 for ax, (field, title, cmap) in zip(axes, panels):
     limit = np.abs(field).max() if cmap == "RdBu_r" else None
-    mesh = ax.pcolormesh(R, Z, field, cmap=cmap, shading="gouraud",
+    mesh = ax.pcolormesh(wrap(R), wrap(Z), wrap(field), cmap=cmap, shading="gouraud",
                          vmin=-limit if limit else None, vmax=limit)
     fig.colorbar(mesh, ax=ax, shrink=0.8)
     ax.set(title=title, xlabel="R (m)", ylabel="Z (m)", aspect="equal")

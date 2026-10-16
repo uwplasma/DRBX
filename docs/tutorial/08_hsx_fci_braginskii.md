@@ -84,9 +84,10 @@ threads): roughly 75 s of one-time compilation, then about 13 s per step.
 
 The toroidal plane through the filament peak, in \((R, Z)\): the initial
 density (left), its change after five steps (centre) and the potential
-(right). The curvature drive polarizes the filament: \(\phi\) forms a dipole
-across it, and the resulting \(E\times B\) flow starts to move the density
-(the red/blue pair in the centre panel) while parallel losses lower the peak.
+(right). The potential peaks on the filament, with weaker opposite-sign
+lobes around it; its \(E\times B\) flow and the curvature drift start to
+move and reshape the density (the red/blue pair in the centre panel), and
+the peak drops from 1.0468 to 1.0448.
 Each step does four GMRES solves of about 90 iterations each; they take about
 half the step.
 
