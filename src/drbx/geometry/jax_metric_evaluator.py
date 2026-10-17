@@ -207,7 +207,12 @@ class JaxMetricEvaluator:
 
     @classmethod
     def from_metric_evaluator(cls, evaluator: Any) -> "JaxMetricEvaluator":
-        """Create runtime state from an existing toroidal ``MetricEvaluator``."""
+        """Create runtime state from an existing toroidal ``MetricEvaluator``.
+
+        An :class:`~drbx.geometry.exact_plane_metric.ExactPlaneMetricEvaluator`
+        returns its :class:`~drbx.geometry.exact_plane_metric.JaxExactPlaneMetricEvaluator`
+        (same evaluation methods).
+        """
         if getattr(evaluator, "topology", None) != "toroidal":
             raise ValueError("JaxMetricEvaluator requires a toroidal MetricEvaluator")
         return cls.from_cache_payload(evaluator.to_cache_payload())
@@ -216,7 +221,25 @@ class JaxMetricEvaluator:
     def from_cache_payload(
         cls, payload: Mapping[str, Any], *, prefix: str = ""
     ) -> "JaxMetricEvaluator":
-        """Create runtime state from ``MetricEvaluator.to_cache_payload``."""
+        """Create runtime state from ``MetricEvaluator.to_cache_payload``.
+
+        An exact level-set plane payload returns a
+        :class:`~drbx.geometry.exact_plane_metric.JaxExactPlaneMetricEvaluator`.
+        """
+
+        from .MetricEvaluator import payload_plane_construction
+
+        if payload_plane_construction(payload, prefix) is not None:
+            from .exact_plane_metric import JaxExactPlaneMetricEvaluator
+
+            return JaxExactPlaneMetricEvaluator.from_cache_payload(payload, prefix=prefix)
+        return cls._from_plain_cache_payload(payload, prefix=prefix)
+
+    @classmethod
+    def _from_plain_cache_payload(
+        cls, payload: Mapping[str, Any], *, prefix: str = ""
+    ) -> "JaxMetricEvaluator":
+        """Runtime state of the fitted Fourier--Zernike channels of a payload."""
 
         def get(name: str):
             key = f"{prefix}{name}"

@@ -16,6 +16,16 @@ conda run -n drb python generate_hsx_fci_geometry.py \
   --output /path/to/hsx-fci-32
 ```
 
+`--eta-representation spline` selects the local B-spline eta fit
+(`--spline-eta-options` takes a JSON object of its options) and
+`--plane-construction exact` makes the constant-eta planes exact level sets
+of that eta (see [the geometry pipeline](geometry_metric_evaluator_call_chain.md));
+the defaults are the Chebyshev-Fourier eta with fitted planes. The selection
+enters the metric-cache spec and the producer checkpoint identity only when
+it differs from the defaults, and the artifact metadata records
+`eta_representation`, `spline_eta_options` and `plane_construction`. With
+exact planes the JAX tracer uses the exact-plane runtime of the same map.
+
 The producer traces cell centers and raw transverse vertices with 64 RK4
 substeps everywhere, builds the current direct
 owner-boundary/straight-edge/centroid graph, and validates the completed

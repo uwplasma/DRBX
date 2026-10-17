@@ -24,6 +24,8 @@ from .Bfield_evaluator import bfield_evaluator_from_makegrid
 from .MetricEvaluator import MetricEvaluator, build_metric_evaluator
 from .ScalarPotential_evaluator import scalar_potential_evaluator_from_bfield
 from .WallEvaluator import WallEvaluator
+from .exact_plane_metric import ExactPlaneMetricEvaluator
+from .spline_scalar_potential import spline_scalar_potential_evaluator_from_bfield
 from .fci_geometry import (
     BFieldGeometry, CellCenteredGrid3D, CurvatureEdgeOneForm3D,
     FaceBFieldGeometry, FaceMetricGeometry, FciGeometry3D, FciMaps3D,
@@ -69,6 +71,132 @@ METRIC_FIELDS = (
     "g_13",
     "g_23",
 )
+
+
+# Metric representation selection.  The defaults reproduce the historical
+# Chebyshev-Fourier eta and fitted Fourier--Zernike planes; their cache specs
+# omit the selection keys, so existing caches keep their exact keys.
+ETA_REPRESENTATIONS = ("chebyshev_fourier", "spline")
+PLANE_CONSTRUCTIONS = ("fitted", "exact")
+DEFAULT_ETA_REPRESENTATION = "chebyshev_fourier"
+DEFAULT_PLANE_CONSTRUCTION = "fitted"
+#: options of spline_scalar_potential_evaluator_from_bfield accepted in spline_eta_options
+SPLINE_ETA_OPTION_DEFAULTS: Mapping[str, object] = {
+    "p": 5,
+    "h": 0.01,
+    "nphi": 90,
+    "coarse": None,  # None -> {"h": 2 h, "nphi": nphi // 2, "maxiter": 600}; False -> no warm start
+    "gauss": 3,
+    "rho_data": 1.02,
+    "lam": 1.0e-2,
+    "pad": 0.02,
+    "atol": 1.0e-10,
+    "btol": 1.0e-10,
+    "conlim": 1.0e12,
+    "maxiter": 5000,
+    "monitor_every": 100,
+    "monitor_rtol": 2.0e-3,
+    "monitor_min_iterations": 200,
+    "monitor_sample": 65536,
+}
+
+
+def validate_metric_representation(
+    eta_representation: str,
+    plane_construction: str,
+    topology: str = "toroidal",
+) -> tuple[str, str]:
+    """Normalize and check the eta/plane selection (``exact`` needs the spline eta)."""
+
+    eta = str(eta_representation).lower()
+    plane = str(plane_construction).lower()
+    if eta not in ETA_REPRESENTATIONS:
+        raise ValueError(
+            f"eta_representation must be one of {ETA_REPRESENTATIONS}, got {eta_representation!r}"
+        )
+    if plane not in PLANE_CONSTRUCTIONS:
+        raise ValueError(
+            f"plane_construction must be one of {PLANE_CONSTRUCTIONS}, got {plane_construction!r}"
+        )
+    if plane == "exact" and eta != "spline":
+        raise ValueError(
+            "plane_construction='exact' requires eta_representation='spline'"
+        )
+    if eta == "spline" and str(topology).lower() != "toroidal":
+        raise ValueError("eta_representation='spline' is supported only for topology='toroidal'")
+    return eta, plane
+
+
+def resolve_spline_eta_options(options: Mapping[str, object] | None) -> dict[str, object]:
+    """Complete ``spline_eta_options`` with the defaults (JSON-ready).
+
+    ``coarse`` becomes the explicit warm-start options ``{"h", "nphi",
+    "maxiter"}`` (default ``2 h``, ``nphi // 2``, 600) or ``False`` (cold
+    start).  Resolving a resolved mapping returns it unchanged.
+    """
+
+    supplied = dict(options or {})
+    unknown = set(supplied) - set(SPLINE_ETA_OPTION_DEFAULTS)
+    if unknown:
+        raise ValueError(f"unknown spline_eta_options {sorted(unknown)}")
+    resolved: dict[str, object] = {}
+    for name, default in SPLINE_ETA_OPTION_DEFAULTS.items():
+        value = supplied.get(name, default)
+        if name == "coarse":
+            continue
+        if isinstance(value, (bool, np.bool_)) or value is None:
+            raise ValueError(f"spline_eta_options[{name!r}] must be a number")
+        resolved[name] = int(value) if isinstance(default, int) else float(value)
+        if isinstance(default, int) and resolved[name] != value:
+            raise ValueError(f"spline_eta_options[{name!r}] must be an integer")
+    coarse = supplied.get("coarse", None)
+    if coarse is False:
+        resolved["coarse"] = False
+    else:
+        coarse_options = {
+            "h": 2.0 * float(resolved["h"]),
+            "nphi": int(resolved["nphi"]) // 2,
+            "maxiter": 600,
+        }
+        if coarse not in (None, True):
+            if not isinstance(coarse, Mapping):
+                raise ValueError("spline_eta_options['coarse'] must be a mapping, None or False")
+            unknown_coarse = set(coarse) - set(coarse_options)
+            if unknown_coarse:
+                raise ValueError(f"unknown coarse spline options {sorted(unknown_coarse)}")
+            coarse_options.update({k: v for k, v in coarse.items() if v is not None})
+        resolved["coarse"] = {
+            "h": float(coarse_options["h"]),
+            "nphi": int(coarse_options["nphi"]),
+            "maxiter": int(coarse_options["maxiter"]),
+        }
+    return resolved
+
+
+def _metric_representation_spec(
+    eta_representation: str,
+    plane_construction: str,
+    spline_options: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Cache-spec keys of a non-default representation (empty for the defaults)."""
+
+    spec: dict[str, object] = {}
+    if eta_representation != DEFAULT_ETA_REPRESENTATION:
+        spec["eta_representation"] = eta_representation
+        spec["spline_eta"] = dict(spline_options or {})
+    if plane_construction != DEFAULT_PLANE_CONSTRUCTION:
+        spec["plane_construction"] = plane_construction
+    return spec
+
+
+def _with_representation_defaults(spec: Mapping[str, object]) -> dict[str, object]:
+    """A cache spec with absent (legacy or default) representation keys made explicit."""
+
+    result = dict(spec)
+    result.setdefault("eta_representation", DEFAULT_ETA_REPRESENTATION)
+    result.setdefault("plane_construction", DEFAULT_PLANE_CONSTRUCTION)
+    result.setdefault("spline_eta", None)
+    return result
 
 
 def _vi_near_band_report(
@@ -303,8 +431,10 @@ def _metric_cache_specs_compatible(
     deliberately ignored. Payload shape/topology validation still follows.
     """
 
-    cached = dict(cached_spec)
-    expected = dict(expected_spec)
+    # Specs written before the eta/plane selection existed (and default specs,
+    # which omit those keys) mean the Chebyshev-Fourier eta with fitted planes.
+    cached = _with_representation_defaults(cached_spec)
+    expected = _with_representation_defaults(expected_spec)
     cached_makegrid = cached.pop("makegrid", None)
     expected_makegrid = expected.pop("makegrid", None)
     cached_vessel = cached.pop("vessel", None)
@@ -1345,6 +1475,9 @@ def build_hsx_metric_evaluator(
     metric_poloidal_modes: int = 15,
     metric_toroidal_modes: int = 16,
     eta_projection_iterations: int = 0,
+    eta_representation: str = DEFAULT_ETA_REPRESENTATION,
+    spline_eta_options: Mapping[str, object] | None = None,
+    plane_construction: str = DEFAULT_PLANE_CONSTRUCTION,
 ) -> tuple[MetricEvaluator, object, object, int]:
     """Build the exact one-period metric representation used by the solver.
 
@@ -1356,8 +1489,33 @@ def build_hsx_metric_evaluator(
     ``(NU, NTHETA, NETA_PER_PERIOD)`` for the axis-regular Fourier--Zernike
     representation. ``resolution`` remains reserved for the final full-torus
     PDE cell grid.
+
+    ``eta_representation="spline"`` (toroidal only) replaces the
+    Chebyshev-Fourier eta fit (``fit_sample_shape``, ``radial_degree``,
+    ``vertical_degree``, ``toroidal_modes``, ``axis_core_radius``) by the
+    local B-spline potential of
+    :func:`~drbx.geometry.spline_scalar_potential.spline_scalar_potential_evaluator_from_bfield`
+    with ``spline_eta_options`` (see :data:`SPLINE_ETA_OPTION_DEFAULTS`); the
+    MAKEGRID field is loaded for the fit's right-hand side, released during
+    the solve and reloaded afterwards.  The Fourier--Zernike map is then built
+    on that eta's own constant-eta wall curves.  ``plane_construction="exact"``
+    (requires the spline eta) wraps it in an
+    :class:`~drbx.geometry.exact_plane_metric.ExactPlaneMetricEvaluator`: the
+    map keeps its ``R, Z`` channels and solves ``phi`` from
+    ``eta_hat(R, phi, Z) = eta`` at every point, so the constant-eta planes
+    are exact level sets of eta.
     """
 
+    eta_representation, plane_construction = validate_metric_representation(
+        eta_representation, plane_construction, topology
+    )
+    spline_options = (
+        resolve_spline_eta_options(spline_eta_options)
+        if eta_representation == "spline"
+        else None
+    )
+    if spline_eta_options is not None and eta_representation != "spline":
+        raise ValueError("spline_eta_options require eta_representation='spline'")
     nu, nv, neta = (int(value) for value in resolution)
     if nu < 3 or nv < 3 or neta < 4:
         raise ValueError("resolution must satisfy NU >= 3, NV >= 3, NETA >= 4")
@@ -1444,21 +1602,26 @@ def build_hsx_metric_evaluator(
         # path so existing callers retain exactly the same construction.
         metric_mesh_shape = None
 
-    stage_start = time.perf_counter()
-    print(
-        f"[geometry] loading MAKEGRID magnetic field ({makegrid_path})",
-        flush=True,
-    )
-    bfield = bfield_evaluator_from_makegrid(
-        makegrid_path,
-        currents=makegrid_currents,
-        method="cubic",
-    )
-    print(
-        f"[geometry] MAKEGRID loaded in "
-        f"{time.perf_counter() - stage_start:.3f} s",
-        flush=True,
-    )
+    def load_bfield():
+        stage_start = time.perf_counter()
+        print(
+            f"[geometry] loading MAKEGRID magnetic field ({makegrid_path})",
+            flush=True,
+        )
+        loaded = bfield_evaluator_from_makegrid(
+            makegrid_path,
+            currents=makegrid_currents,
+            method="cubic",
+        )
+        print(
+            f"[geometry] MAKEGRID loaded in "
+            f"{time.perf_counter() - stage_start:.3f} s",
+            flush=True,
+        )
+        return loaded
+
+    # The spline fit loads the field itself (and releases it during its solve).
+    bfield = None if eta_representation == "spline" else load_bfield()
     stage_start = time.perf_counter()
     print(f"[geometry] loading vessel ({vessel_path})", flush=True)
     wall = WallEvaluator.from_file(vessel_path)
@@ -1467,7 +1630,7 @@ def build_hsx_metric_evaluator(
         f"{time.perf_counter() - stage_start:.3f} s",
         flush=True,
     )
-    if wall.nfp != bfield.nfp:
+    if bfield is not None and wall.nfp != bfield.nfp:
         raise ValueError(
             "MAKEGRID and vessel field-period counts disagree: "
             f"{bfield.nfp} != {wall.nfp}"
@@ -1483,6 +1646,103 @@ def build_hsx_metric_evaluator(
             "full-torus resolution must provide at least two eta cells "
             f"per field period; got NETA={neta}, nfp={nfp}"
         )
+
+    if eta_representation == "spline":
+        stage_start = time.perf_counter()
+        print(
+            "[geometry] fitting spline scalar-potential coordinate "
+            f"(degree={spline_options['p']}, h={spline_options['h']}, "
+            f"nphi={spline_options['nphi']}, coarse={spline_options['coarse']})",
+            flush=True,
+        )
+        eta_evaluator = spline_scalar_potential_evaluator_from_bfield(
+            load_bfield,
+            wall,
+            p=int(spline_options["p"]),
+            h=float(spline_options["h"]),
+            nphi=int(spline_options["nphi"]),
+            coarse=(
+                False
+                if spline_options["coarse"] is False
+                else dict(spline_options["coarse"])
+            ),
+            gauss=int(spline_options["gauss"]),
+            rho_data=float(spline_options["rho_data"]),
+            lam=float(spline_options["lam"]),
+            pad=float(spline_options["pad"]),
+            atol=float(spline_options["atol"]),
+            btol=float(spline_options["btol"]),
+            conlim=float(spline_options["conlim"]),
+            maxiter=int(spline_options["maxiter"]),
+            monitor_every=int(spline_options["monitor_every"]),
+            monitor_rtol=float(spline_options["monitor_rtol"]),
+            monitor_min_iterations=int(spline_options["monitor_min_iterations"]),
+            monitor_sample=int(spline_options["monitor_sample"]),
+            log=lambda message: print(message, flush=True),
+        )
+        print(
+            f"[geometry] spline scalar-potential fit completed in "
+            f"{time.perf_counter() - stage_start:.3f} s",
+            flush=True,
+        )
+        bfield = load_bfield()
+        if wall.nfp != bfield.nfp:
+            raise ValueError(
+                "MAKEGRID and vessel field-period counts disagree: "
+                f"{bfield.nfp} != {wall.nfp}"
+            )
+    else:
+        eta_evaluator = _fit_chebyshev_fourier_eta(
+            bfield,
+            wall,
+            fit_sample_shape=fit_sample_shape,
+            radial_degree=radial_degree,
+            vertical_degree=vertical_degree,
+            toroidal_modes=toroidal_modes,
+            axis_core_radius=axis_core_radius,
+        )
+    metric_evaluator = _build_fitted_metric_evaluator(
+        eta_evaluator,
+        wall,
+        selected_topology=selected_topology,
+        fit_sample_shape=fit_sample_shape,
+        neta=neta,
+        metric_spline_degree=metric_spline_degree,
+        mmpde_iterations=mmpde_iterations,
+        metric_mesh_shape=metric_mesh_shape,
+        metric_radial_degree=metric_radial_degree,
+        metric_poloidal_modes=metric_poloidal_modes,
+        metric_toroidal_modes=metric_toroidal_modes,
+        eta_projection_iterations=eta_projection_iterations,
+        nfp=nfp,
+    )
+    if plane_construction == "exact":
+        stage_start = time.perf_counter()
+        print(
+            "[geometry] constructing exact level-set planes of the spline eta",
+            flush=True,
+        )
+        metric_evaluator = ExactPlaneMetricEvaluator(metric_evaluator, eta_evaluator)
+        metric_evaluator.validate()
+        print(
+            f"[geometry] exact level-set planes constructed in "
+            f"{time.perf_counter() - stage_start:.3f} s",
+            flush=True,
+        )
+    return metric_evaluator, eta_evaluator, bfield, nfp
+
+
+def _fit_chebyshev_fourier_eta(
+    bfield: object,
+    wall: WallEvaluator,
+    *,
+    fit_sample_shape: tuple[int, int, int],
+    radial_degree: int,
+    vertical_degree: int,
+    toroidal_modes: int,
+    axis_core_radius: float,
+) -> object:
+    """The historical Chebyshev-Fourier scalar-potential fit inside the vessel."""
 
     raw_rz = np.asarray(wall.raw["RZ"], dtype=float)
     fit_R_bounds = _padded_clipped_bounds(
@@ -1527,6 +1787,28 @@ def build_hsx_metric_evaluator(
         f"{time.perf_counter() - stage_start:.3f} s",
         flush=True,
     )
+    return eta_evaluator
+
+
+def _build_fitted_metric_evaluator(
+    eta_evaluator: object,
+    wall: WallEvaluator,
+    *,
+    selected_topology: str,
+    fit_sample_shape: tuple[int, int, int],
+    neta: int,
+    metric_spline_degree: int,
+    mmpde_iterations: int,
+    metric_mesh_shape: tuple[int, int, int] | None,
+    metric_radial_degree: int,
+    metric_poloidal_modes: int,
+    metric_toroidal_modes: int,
+    eta_projection_iterations: int,
+    nfp: int,
+) -> MetricEvaluator:
+    """The square (MMPDE) or toroidal (Fourier--Zernike) map on eta's wall curves."""
+
+    nR_fit, nphi_fit, nZ_fit = fit_sample_shape
     stage_start = time.perf_counter()
     if selected_topology == "square":
         print(
@@ -1577,7 +1859,7 @@ def build_hsx_metric_evaluator(
         f"{time.perf_counter() - stage_start:.3f} s",
         flush=True,
     )
-    return metric_evaluator, eta_evaluator, bfield, nfp
+    return metric_evaluator
 
 
 def build_hsx_fci_geometry(
@@ -1612,6 +1894,9 @@ def build_hsx_fci_geometry(
     return_metric_evaluator: bool = False,
     return_metric_context: bool = False,
     return_curvature_edge_one_form: bool = False,
+    eta_representation: str = DEFAULT_ETA_REPRESENTATION,
+    spline_eta_options: Mapping[str, object] | None = None,
+    plane_construction: str = DEFAULT_PLANE_CONSTRUCTION,
 ) -> tuple[FciGeometry3D, np.ndarray, int, Path | None] | tuple[
     FciGeometry3D, np.ndarray, int, Path | None, MetricEvaluator
 ] | tuple[
@@ -1624,8 +1909,24 @@ def build_hsx_fci_geometry(
     MetricEvaluator,
     CurvatureEdgeOneForm3D,
 ]:
-    """Build the global HSX geometry and its Cartesian cell embedding."""
+    """Build the global HSX geometry and its Cartesian cell embedding.
 
+    ``eta_representation``, ``spline_eta_options`` and ``plane_construction``
+    select the eta fit and the plane construction as in
+    :func:`build_hsx_metric_evaluator`; non-default selections enter the
+    metric-cache spec, and cache specs without them mean the defaults.
+    """
+
+    eta_representation, plane_construction = validate_metric_representation(
+        eta_representation, plane_construction, topology
+    )
+    if spline_eta_options is not None and eta_representation != "spline":
+        raise ValueError("spline_eta_options require eta_representation='spline'")
+    spline_options = (
+        resolve_spline_eta_options(spline_eta_options)
+        if eta_representation == "spline"
+        else None
+    )
     if return_metric_evaluator and return_metric_context:
         raise ValueError(
             "request either return_metric_evaluator or return_metric_context, not both"
@@ -1660,6 +1961,14 @@ def build_hsx_fci_geometry(
         raise ValueError("toroidal global NTHETA must be even for axis half-turn parity")
     if metric_context is not None:
         _validate_hsx_metric_context(metric_context, topology=topology)
+        context_exact = isinstance(
+            metric_context.metric_evaluator, ExactPlaneMetricEvaluator
+        )
+        if context_exact != (plane_construction == "exact"):
+            raise ValueError(
+                "metric_context plane construction does not match "
+                f"plane_construction={plane_construction!r}"
+            )
 
     makegrid_path = makegrid_path.resolve()
     vessel_path = vessel_path.resolve()
@@ -1729,6 +2038,13 @@ def build_hsx_fci_geometry(
                 else float(reference_magnetic_field)
             ),
         }
+        # Non-default eta/plane selections only; the defaults keep the
+        # historical spec (and therefore the historical cache key).
+        cache_spec.update(
+            _metric_representation_spec(
+                eta_representation, plane_construction, spline_options
+            )
+        )
         cache_spec_json = json.dumps(
             cache_spec,
             sort_keys=True,
@@ -1830,6 +2146,10 @@ def build_hsx_fci_geometry(
             )
             if cached_metric_evaluator.nfp != cached_nfp:
                 raise ValueError("cached evaluator nfp is inconsistent")
+            if isinstance(cached_metric_evaluator, ExactPlaneMetricEvaluator) != (
+                plane_construction == "exact"
+            ):
+                raise ValueError("cached evaluator plane construction is inconsistent")
             if cached_metric_evaluator.topology != topology:
                 raise ValueError("cached evaluator topology is inconsistent")
             if not np.isclose(cached_metric_evaluator.u[0], 0.0) or not np.isclose(
@@ -1964,6 +2284,9 @@ def build_hsx_fci_geometry(
                     metric_poloidal_modes=metric_poloidal_modes,
                     metric_toroidal_modes=metric_toroidal_modes,
                     eta_projection_iterations=eta_projection_iterations,
+                    eta_representation=eta_representation,
+                    spline_eta_options=spline_options,
+                    plane_construction=plane_construction,
                 )
             )
         nfp = int(nfp)

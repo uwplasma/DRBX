@@ -8,7 +8,7 @@ pieces fit together and which combinations are supported.
 
 | Document | Scope |
 |---|---|
-| [Geometry and metric pipeline](geometry_metric_evaluator_call_chain.md) | Magnetic inputs, wall geometry, square and toroidal metric construction, sampling, and caches |
+| [Geometry and metric pipeline](geometry_metric_evaluator_call_chain.md) | Magnetic inputs, Chebyshev-Fourier and B-spline eta, wall geometry, square and toroidal metric construction, exact level-set planes, sampling, and caches |
 | [Axis-regular angular RLP](axis_regular_angular_rlp.md) | Production toroidal owner topology, prolongation/restriction, fine-grid operator contract, and phi solve |
 | [Embedded control volumes](embedded_control_volume_architecture.md) | Generic cut-wall agglomeration, reconstruction, face ownership, and sharding contracts |
 | [FCI simulation architecture](fci_simulation_architecture.md) | HSX driver, operators, boundary closures, phi inversion, time integration, supported configurations, and the nodal SBP perpendicular stack (module map, defaults, verified scope, cost) |

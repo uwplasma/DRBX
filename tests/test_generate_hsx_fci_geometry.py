@@ -189,3 +189,60 @@ def test_trace_qualification_includes_paths_entering_physical_core(monkeypatch) 
     assert report["passed"] is True
     assert report["core_entry_paths"]["forward"] >= 1
     assert report["core_entry_paths"]["backward"] >= 1
+
+
+def test_eta_and_plane_selection_reaches_builder_identity_and_cli(monkeypatch, tmp_path: Path) -> None:
+    import importlib.util
+    from dataclasses import replace
+
+    import pytest
+
+    makegrid = tmp_path / "mgrid.nc"
+    vessel = tmp_path / "vessel.txt"
+    makegrid.write_bytes(b"mgrid")
+    vessel.write_text("vessel")
+    default = producer.HsxSimulationGeometryConfig(makegrid_path=makegrid, vessel_path=vessel, resolution=(4, 6, 8))
+    assert (default.eta_representation, default.spline_eta_options, default.plane_construction) == (
+        "chebyshev_fourier", None, "fitted")
+    # default selections stay out of the checkpoint identity (existing checkpoints remain valid)
+    identity = json.loads(producer._checkpoint_identity(default))
+    assert not {"eta_representation", "spline_eta_options", "plane_construction"} & set(identity)
+    exact = replace(default, eta_representation="SPLINE", plane_construction="exact", spline_eta_options={"h": 0.02})
+    assert (exact.eta_representation, exact.plane_construction) == ("spline", "exact")
+    exact_identity = json.loads(producer._checkpoint_identity(exact))
+    assert exact_identity["eta_representation"] == "spline" and exact_identity["spline_eta_options"] == {"h": 0.02}
+    with pytest.raises(ValueError, match="requires eta_representation='spline'"):
+        replace(default, plane_construction="exact")
+    with pytest.raises(ValueError, match="spline_eta_options"):
+        replace(default, spline_eta_options={"h": 0.02})
+    resolved = producer._resolved_spline_eta_options({"h": 0.02})
+    assert resolved["h"] == 0.02 and resolved["coarse"] == {"h": 0.04, "nphi": 45, "maxiter": 600}
+
+    from drbx.geometry import hsx_fci_builder
+
+    captured = {}
+
+    def fake_builder(**kwargs):
+        captured.update(kwargs)
+        return (SimpleNamespace(shape=(4, 6, 8)), np.zeros((4, 6, 8, 3)), 4, None,
+                SimpleNamespace(metric_evaluator=None, bfield=None))
+
+    monkeypatch.setattr(hsx_fci_builder, "build_hsx_fci_geometry", fake_builder)
+    producer._call_builder(exact)
+    assert captured["eta_representation"] == "spline" and captured["plane_construction"] == "exact"
+    assert captured["spline_eta_options"] == {"h": 0.02}
+
+    spec = importlib.util.spec_from_file_location(
+        "generate_hsx_fci_geometry_cli", Path(__file__).resolve().parents[1] / "generate_hsx_fci_geometry.py")
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    configs = []
+    monkeypatch.setattr(cli, "build_hsx_simulation_geometry", lambda config, **_kwargs: configs.append(config))
+    common = ["--resolution", "4", "6", "8", "--output", str(tmp_path / "out"), "--makegrid", str(makegrid),
+              "--vessel", str(vessel), "--metric-mesh-shape", "8", "8", "8"]
+    assert cli.main(common) == 0
+    assert configs[-1].eta_representation == "chebyshev_fourier" and configs[-1].plane_construction == "fitted"
+    assert cli.main(common + ["--eta-representation", "spline", "--plane-construction", "exact",
+                              "--spline-eta-options", '{"h": 0.01, "nphi": 90}']) == 0
+    assert configs[-1].eta_representation == "spline" and configs[-1].plane_construction == "exact"
+    assert configs[-1].spline_eta_options == {"h": 0.01, "nphi": 90}

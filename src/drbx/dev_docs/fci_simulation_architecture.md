@@ -10,7 +10,8 @@ stack. This document records the currently selectable runtime architecture.
 
 ```text
 producer: MAKEGRID + vessel + requested resolution
-  -> magnetic, eta, wall, and metric evaluators
+  -> magnetic, eta (Chebyshev-Fourier or B-spline), wall, and metric
+     evaluators (fitted or exact level-set planes)
   -> global FciGeometry3D sampled on the PDE grid
   -> compiled, trajectory-batch-sharded 64-substep cell-center maps
      and complete raw transverse-vertex atlas
@@ -341,6 +342,15 @@ owner-based state. It is part of the P+Q nodal model, where the parallel operato
 - New production sharding paths must preserve the eta-only contract. Any
   communication required by a new operator must be explicit; P/R cannot be
   made nonlocal by splitting x or theta.
+- A new continuous map representation must subclass `MetricEvaluator`
+  (the producer's context check is an `isinstance` test), keep its public
+  evaluation semantics, carry everything needed to rebuild it in
+  `to_cache_payload` behind a payload flag that `from_cache_payload`
+  dispatches on, and provide a JAX runtime that
+  `JaxMetricEvaluator.from_metric_evaluator` returns, with pointwise,
+  fixed-shape, nested-`jacfwd`-safe `position_and_jacobian`/`evaluate`.
+  It must not expose another representation's channels as its own
+  (`ExactPlaneMetricEvaluator` is the pattern).
 
 ## Validation
 
