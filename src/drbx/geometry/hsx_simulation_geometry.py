@@ -66,6 +66,12 @@ class HsxSimulationGeometryConfig:
     trace_backend: str = "jax"
     trace_batch_size: int = 2048
     trace_device_count: int | None = None
+    # Eta fit and plane construction (hsx_fci_builder.build_hsx_metric_evaluator):
+    # "chebyshev_fourier" | "spline" and "fitted" | "exact" ("exact" requires
+    # the spline eta).  spline_eta_options are the spline fit options.
+    eta_representation: str = "chebyshev_fourier"
+    spline_eta_options: Mapping[str, Any] | None = None
+    plane_construction: str = "fitted"
 
     def __post_init__(self) -> None:
         resolution = tuple(int(value) for value in self.resolution)
@@ -89,6 +95,20 @@ class HsxSimulationGeometryConfig:
             if int(self.trace_device_count) < 1:
                 raise ValueError("trace_device_count must be positive when provided")
             object.__setattr__(self, "trace_device_count", int(self.trace_device_count))
+        eta = str(self.eta_representation).lower()
+        plane = str(self.plane_construction).lower()
+        if eta not in {"chebyshev_fourier", "spline"}:
+            raise ValueError("eta_representation must be 'chebyshev_fourier' or 'spline'")
+        if plane not in {"fitted", "exact"}:
+            raise ValueError("plane_construction must be 'fitted' or 'exact'")
+        if plane == "exact" and eta != "spline":
+            raise ValueError("plane_construction='exact' requires eta_representation='spline'")
+        if self.spline_eta_options is not None and eta != "spline":
+            raise ValueError("spline_eta_options require eta_representation='spline'")
+        object.__setattr__(self, "eta_representation", eta)
+        object.__setattr__(self, "plane_construction", plane)
+        if self.spline_eta_options is not None:
+            object.__setattr__(self, "spline_eta_options", dict(self.spline_eta_options))
 
 
 def _artifact_api() -> tuple[Any, Any, Callable[..., Any], Callable[..., Any]]:
@@ -149,10 +169,27 @@ def _log(path: Path, message: str) -> None:
         stream.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {message}\n")
 
 
+def _resolved_spline_eta_options(options: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The spline fit options with the builder defaults filled in (artifact metadata)."""
+
+    from .hsx_fci_builder import resolve_spline_eta_options
+
+    return resolve_spline_eta_options(options)
+
+
 def _checkpoint_identity(config: HsxSimulationGeometryConfig) -> str:
     """Return the exact explicit producer-input identity for stage checkpoints."""
 
     payload = asdict(config)
+    # The eta/plane selection enters the identity only when it differs from
+    # the defaults, so checkpoints written before the option existed remain valid.
+    for name, default in (
+        ("eta_representation", "chebyshev_fourier"),
+        ("spline_eta_options", None),
+        ("plane_construction", "fitted"),
+    ):
+        if payload.get(name) == default:
+            payload.pop(name, None)
     for name in ("makegrid_path", "vessel_path", "output", "metric_cache_dir", "map_cache_path"):
         value = payload.get(name)
         payload[name] = None if value is None else str(Path(value).expanduser().resolve())
@@ -272,6 +309,9 @@ def _call_builder(
         return_curvature_edge_one_form=bool(
             config.include_curvature_edge_one_form
         ),
+        eta_representation=config.eta_representation,
+        spline_eta_options=config.spline_eta_options,
+        plane_construction=config.plane_construction,
     )
     result = hsx.build_hsx_fci_geometry(**kwargs)
     expected_length = 6 if config.include_curvature_edge_one_form else 5
@@ -944,6 +984,13 @@ def build_hsx_simulation_geometry(
                     config.eta_projection_iterations
                 ),
                 "axis_core_radius": float(config.axis_core_radius),
+                "eta_representation": config.eta_representation,
+                "spline_eta_options": (
+                    None
+                    if config.eta_representation != "spline"
+                    else _resolved_spline_eta_options(config.spline_eta_options)
+                ),
+                "plane_construction": config.plane_construction,
                 "reference_magnetic_field": config.reference_magnetic_field,
                 # Physical scales of the normalized geometry: lengths are in
                 # metres (L_ref = 1 m) and B is normalized by this B0 [T]

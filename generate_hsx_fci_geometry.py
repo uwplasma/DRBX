@@ -7,6 +7,7 @@ This command only constructs geometry.  It never launches a simulation run.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from drbx.geometry.hsx_simulation_geometry import (
@@ -42,6 +43,24 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--status", type=Path, default=None, help="Resumable status JSON path.")
     parser.add_argument("--log", type=Path, default=None, help="Append-only producer log path.")
     parser.add_argument("--rebuild-metric-cache", action="store_true")
+    parser.add_argument(
+        "--eta-representation",
+        choices=("chebyshev_fourier", "spline"),
+        default="chebyshev_fourier",
+        help="Scalar-potential eta fit: global Chebyshev-Fourier (default) or local quintic B-spline.",
+    )
+    parser.add_argument(
+        "--spline-eta-options",
+        type=json.loads,
+        default=None,
+        help="JSON object of spline eta fit options (e.g. '{\"h\": 0.01, \"nphi\": 90}'); requires --eta-representation spline.",
+    )
+    parser.add_argument(
+        "--plane-construction",
+        choices=("fitted", "exact"),
+        default="fitted",
+        help="Constant-eta planes of the fitted map (default) or exact level sets of the spline eta (requires --eta-representation spline).",
+    )
     parser.add_argument(
         "--trace-backend",
         choices=("jax", "numpy"),
@@ -91,6 +110,9 @@ def main(argv: list[str] | None = None) -> int:
         trace_backend=args.trace_backend,
         trace_batch_size=args.trace_batch_size,
         trace_device_count=args.trace_device_count,
+        eta_representation=args.eta_representation,
+        spline_eta_options=args.spline_eta_options,
+        plane_construction=args.plane_construction,
     )
     build_hsx_simulation_geometry(config, status_path=args.status, log_path=args.log)
     return 0

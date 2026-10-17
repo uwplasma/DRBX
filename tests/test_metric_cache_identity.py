@@ -171,3 +171,74 @@ def test_angular_host_key_uses_metric_contract_not_cache_path_or_mtime(tmp_path)
     )
     assert first_key is not None and second_key is not None
     assert first_key.name == second_key.name
+
+
+def test_default_metric_representation_keeps_the_historical_spec(tmp_path):
+    """Default eta/plane selections add no cache-spec keys, so existing cache keys are unchanged."""
+
+    assert hsx._metric_representation_spec("chebyshev_fourier", "fitted", None) == {}
+    options = hsx.resolve_spline_eta_options(None)
+    assert hsx.resolve_spline_eta_options(options) == options
+    assert options["coarse"] == {"h": 0.02, "nphi": 45, "maxiter": 600}
+    assert hsx.resolve_spline_eta_options({"coarse": False})["coarse"] is False
+    spec = hsx._metric_representation_spec("spline", "exact", options)
+    assert spec == {"eta_representation": "spline", "spline_eta": options, "plane_construction": "exact"}
+    json.dumps(spec)
+
+
+def test_legacy_specs_without_representation_keys_mean_the_defaults(tmp_path):
+    makegrid = tmp_path / "mgrid.nc"
+    vessel = tmp_path / "wall.txt"
+    makegrid.write_bytes(b"equilibrium")
+    vessel.write_bytes(b"vessel")
+    legacy = _new_spec(makegrid, vessel)
+    explicit_default = {
+        **legacy,
+        "eta_representation": "chebyshev_fourier",
+        "plane_construction": "fitted",
+        "spline_eta": None,
+    }
+    options = hsx.resolve_spline_eta_options(None)
+    spline_exact = {**legacy, **hsx._metric_representation_spec("spline", "exact", options)}
+    spline_fitted = {**legacy, **hsx._metric_representation_spec("spline", "fitted", options)}
+    other_options = {**legacy, **hsx._metric_representation_spec(
+        "spline", "exact", hsx.resolve_spline_eta_options({"h": 0.02}))}
+
+    assert hsx._metric_cache_specs_compatible(legacy, explicit_default)
+    assert hsx._metric_cache_specs_compatible(explicit_default, legacy)
+    assert hsx._metric_cache_specs_compatible(spline_exact, json.loads(json.dumps(spline_exact)))
+    for first, second in ((legacy, spline_exact), (spline_exact, legacy), (spline_fitted, spline_exact),
+                          (spline_exact, other_options), (legacy, spline_fitted)):
+        assert not hsx._metric_cache_specs_compatible(first, second)
+
+    candidate = tmp_path / "hsx_metric_legacy.npz"
+    np.savez(candidate, cache_spec=np.asarray(json.dumps(legacy)), huge=np.ones(4))
+    new_path = tmp_path / "hsx_metric_new.npz"
+    assert hsx._find_compatible_metric_cache(tmp_path, new_path, explicit_default) == candidate
+    assert hsx._find_compatible_metric_cache(tmp_path, new_path, legacy) == candidate
+    assert hsx._find_compatible_metric_cache(tmp_path, new_path, spline_exact) is None
+
+
+def test_metric_representation_validation():
+    assert hsx.validate_metric_representation("Spline", "EXACT") == ("spline", "exact")
+    assert hsx.validate_metric_representation("chebyshev_fourier", "fitted", "square") == (
+        "chebyshev_fourier", "fitted")
+    for args, message in (
+        (("chebyshev_fourier", "exact"), "requires eta_representation='spline'"),
+        (("legendre", "fitted"), "eta_representation"),
+        (("spline", "warped"), "plane_construction"),
+        (("spline", "fitted", "square"), "toroidal"),
+    ):
+        try:
+            hsx.validate_metric_representation(*args)
+        except ValueError as error:
+            assert message in str(error)
+        else:  # pragma: no cover - the assertion documents the expected refusal
+            raise AssertionError(f"{args} was accepted")
+    for bad in ({"bogus": 1}, {"nphi": 90.5}, {"coarse": {"cells": 3}}, {"h": None}):
+        try:
+            hsx.resolve_spline_eta_options(bad)
+        except ValueError:
+            pass
+        else:  # pragma: no cover
+            raise AssertionError(f"{bad} was accepted")

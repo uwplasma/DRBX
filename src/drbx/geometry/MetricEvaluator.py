@@ -23,6 +23,22 @@ from .solve_MMPDE import MMPDEOptions, MMPDEResult, solve_mmpde
 
 
 _METRIC_EVALUATOR_CACHE_FORMAT_VERSION = 1
+#: payload key marking how the constant-eta planes are constructed; absent means the fitted channels themselves
+PLANE_CONSTRUCTION_KEY = "plane_construction"
+#: value of :data:`PLANE_CONSTRUCTION_KEY` for :class:`drbx.geometry.exact_plane_metric.ExactPlaneMetricEvaluator`
+EXACT_PLANE_CONSTRUCTION = "exact_level_set"
+
+
+def payload_plane_construction(payload: Any, prefix: str = "") -> str | None:
+    """Return the plane-construction flag of a metric payload (``None`` for a fitted Fourier map)."""
+
+    key = f"{prefix}{PLANE_CONSTRUCTION_KEY}"
+    if key not in payload:
+        return None
+    value = str(np.asarray(payload[key]).item())
+    if value != EXACT_PLANE_CONSTRUCTION:
+        raise ValueError(f"unsupported metric plane construction {value!r}")
+    return value
 
 
 @dataclass(frozen=True)
@@ -1131,7 +1147,26 @@ class MetricEvaluator:
         *,
         prefix: str = "",
     ) -> "MetricEvaluator":
-        """Restore an evaluator from :meth:`to_cache_payload` arrays."""
+        """Restore an evaluator from :meth:`to_cache_payload` arrays.
+
+        A payload written by an exact level-set plane metric restores an
+        :class:`~drbx.geometry.exact_plane_metric.ExactPlaneMetricEvaluator`.
+        """
+
+        if payload_plane_construction(payload, prefix) is not None:
+            from .exact_plane_metric import ExactPlaneMetricEvaluator
+
+            return ExactPlaneMetricEvaluator.from_cache_payload(payload, prefix=prefix)
+        return cls._from_plain_cache_payload(payload, prefix=prefix)
+
+    @classmethod
+    def _from_plain_cache_payload(
+        cls,
+        payload: Any,
+        *,
+        prefix: str = "",
+    ) -> "MetricEvaluator":
+        """Restore the fitted Fourier representation (ignoring any plane-construction flag)."""
 
         key = lambda name: f"{prefix}{name}"
 
