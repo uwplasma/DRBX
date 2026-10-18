@@ -44,7 +44,7 @@ backend.
 
 The wall closure is a Bohm sheath entrance (see Wall closure below). An
 optional diffusive neutral model (off by default) is described under Neutrals
-below. No presheath model or recycling is included.
+below. No presheath model is included; recycling is optional (see Recycling below).
 
 ## Normalization
 
@@ -534,8 +534,53 @@ HSX (32-cubed bundle, sheath on, defaults plus `neutrals = true`: n0 =
   the validation path (handoff 6.5).
 
 Not included: restart (the checkpoint has no neutral field; `restart_from`
-with neutrals is rejected), recycling (PR 3), molecules, neutral momentum,
+with neutrals is rejected), recycling (see Recycling below), molecules, neutral momentum,
 a neutral energy equation, and kinetic neutrals.
+
+## Recycling
+
+`recycling = true` (deck key, `--recycling`) returns a fraction `R` of the ion
+particles lost at the sheath as neutral atoms. It needs `neutrals = true` and
+the Bohm wall closure (anything else is rejected at validation). Code:
+`native/fci_neutrals.py` (`RecyclingParameters`, `recycled_neutral_source`,
+`RECYCLING_LEDGER_COLUMNS`); with `recycling = false` (default) the run
+traces the same code as without it.
+
+- **Source.** `S = R x (-implicit.n)` of the IMEX step: the wall ion loss
+  actually applied to each wall owner cell. Under the sheath the implicit
+  density row is the area-weighted wall-leg flux alone, the increment
+  `wall_step_ledger` reports. The atoms are deposited in the same owner
+  cells (not as a radial boundary influx of the diffusion), and enter the
+  conservative backward-Euler update as `volume_source`, so
+  `sum V dN = dt sum V S` exactly. The same amount is added to the
+  `wall_influx` column of the neutral ledger.
+- **Energy.** `recycling_energy = "franck-condon"` (default, 3 eV per atom,
+  `recycling_franck_condon_energy_ev`) or `"wall"` (`3/2 T_wall`,
+  `recycling_wall_temperature_ev`). The `3/2 T_n` part of the recycled
+  energy is accounted in the split's energy check; the remainder goes to
+  the reservoir.
+- **Ledger.** Each step prints a `[recycling]` line and stores
+  `recycling_ledger`: wall ion loss, recycled particles, recycled energy,
+  the `3/2 T_n` part, reservoir remainder, nuclei, d(nuclei) and the expected
+  `step_particle_other - (1-R) wall`. The particle and energy checks of the
+  split subtract the recycled particles and their `3/2 T_n`.
+- Deck keys: `recycling`, `recycling_coefficient` (default 0.99),
+  `recycling_energy`, `recycling_franck_condon_energy_ev`,
+  `recycling_wall_temperature_ev`.
+
+Checks (`tests/fci_braginskii/test_fci_recycling.py`): closed box at R = 1
+and 0.9 on the slab and the annulus (`d(n+N) = -(1-R) wall` to 1e-13, energy
+identity with the recycled `3/2 T_n`, off equals the unchanged split); the
+1D flux-tube high-recycling trend (target density rises and target
+temperature falls for R = 0, 0.5, 0.8, with `(1-R) wall` equal to the core
+source within 1%; the flux-tube relaxation time grows like `1/(1-R)`, so the
+test integrates `30/(1-R)` periods); and, with the HSX bundle, a 3-step
+ledger at R = 1 and 0.9 that also confirms that the owner cell volumes of
+`wall_step_ledger` equal the neutral grid volumes.
+
+Recycling in a neutrals-only model is a closure for the particle and energy
+ledger and the coupling; the neutral model keeps the validity limits stated
+under Neutrals (diffusive closure outside its Knudsen range).
 
 ## Known limitations
 
