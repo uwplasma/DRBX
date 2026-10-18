@@ -18,7 +18,7 @@ def _batch(n: int, size: int) -> np.ndarray:
 
 
 def test_host_eig_chunked_matches_single_call_bitwise(monkeypatch):
-    monkeypatch.setattr(fci_helpers.os, "cpu_count", lambda: 4)
+    monkeypatch.setattr(fci_helpers, "_host_eig_threads", lambda: 4)
     for size in (4, 5):
         matrix = _batch(3 * 4096 + 17, size)
         values, vectors = fci_helpers._host_eig(matrix)
