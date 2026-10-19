@@ -20,7 +20,8 @@ import zipfile
 import jax.numpy as jnp
 import numpy as np
 
-from .Bfield_evaluator import bfield_evaluator_from_makegrid
+from .Bfield_evaluator import BFieldEvaluator, bfield_evaluator_from_makegrid
+from .provider_bfield import ProviderBFieldEvaluator
 from .MetricEvaluator import MetricEvaluator, build_metric_evaluator
 from .ScalarPotential_evaluator import scalar_potential_evaluator_from_bfield
 from .WallEvaluator import WallEvaluator
@@ -382,6 +383,23 @@ def _find_compatible_metric_cache(
     return None
 
 
+def _field_identity_json(identity: object) -> str:
+    return json.dumps(identity, sort_keys=True, default=str)
+
+
+def _hsx_field_identity(makegrid_path, provider_bfield, currents) -> dict:
+    """Identity of the magnetic field the FCI maps are traced in."""
+
+    return {
+        "makegrid": (
+            _metric_input_content_identity(makegrid_path)
+            if provider_bfield is None
+            else provider_bfield.content_identity()
+        ),
+        "makegrid_currents": None if currents is None else currents.tolist(),
+    }
+
+
 def _build_or_load_hsx_fci_maps(
     *,
     grid: CellCenteredGrid3D,
@@ -397,6 +415,7 @@ def _build_or_load_hsx_fci_maps(
     fci_trace_backend: str = "numpy",
     fci_trace_batch_size: int = 2048,
     fci_trace_device_count: int | None = None,
+    field_identity: object | None = None,
 ) -> tuple[
     FciMaps3D | None,
     dict[str, np.ndarray] | None,
@@ -461,6 +480,17 @@ def _build_or_load_hsx_fci_maps(
                     payload.get("fci_maps_trace_backend", np.asarray("numpy"))
                 ).item()
             )
+            if field_identity is not None:
+                cached_field = (
+                    str(np.asarray(payload["fci_maps_field_identity"]).item())
+                    if "fci_maps_field_identity" in payload
+                    else None
+                )
+                if cached_field != _field_identity_json(field_identity):
+                    raise ValueError(
+                        "cached FCI maps were traced in a different magnetic "
+                        "field (field source or currents changed)"
+                    )
             if (
                 cached_substeps != int(fci_trace_substeps)
                 or cached_source != source_fingerprint
@@ -498,11 +528,7 @@ def _build_or_load_hsx_fci_maps(
             "[fci-map-cache] loading MAKEGRID magnetic field for map tracing",
             flush=True,
         )
-        bfield = bfield_evaluator_from_makegrid(
-            makegrid_path,
-            currents=makegrid_currents,
-            method="cubic",
-        )
+        bfield = _load_hsx_bfield(makegrid_path, makegrid_currents, None, Path("."))
 
     trace_start = time.perf_counter()
 
@@ -623,6 +649,10 @@ def _build_or_load_hsx_fci_maps(
             int(fci_trace_substeps), dtype=np.int64
         )
         payload["fci_maps_trace_backend"] = np.asarray(trace_backend)
+        if field_identity is not None:
+            payload["fci_maps_field_identity"] = np.asarray(
+                _field_identity_json(field_identity)
+            )
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             _write_npz_atomic(cache_path, payload)
@@ -1322,9 +1352,39 @@ def _build_hsx_curvature_edge_one_form(
     return result
 
 
+PROVIDER_FIT_BOX_PADDING = 0.05  # m beyond the vessel for the coordinate-fit box
+
+
+def hsx_provider_bfield(provider: object, vessel_path: Path) -> ProviderBFieldEvaluator:
+    """Wrap a field provider for the builder, with the fit box from the vessel."""
+
+    if isinstance(provider, ProviderBFieldEvaluator):
+        return provider
+    raw_rz = np.asarray(WallEvaluator.from_file(Path(vessel_path)).raw["RZ"], dtype=float)
+    pad = PROVIDER_FIT_BOX_PADDING
+    return ProviderBFieldEvaluator(
+        provider,
+        R_bounds=(float(raw_rz[..., 0].min()) - pad, float(raw_rz[..., 0].max()) + pad),
+        Z_bounds=(float(raw_rz[..., 1].min()) - pad, float(raw_rz[..., 1].max()) + pad),
+    )
+
+
+def _load_hsx_bfield(
+    makegrid_path: Path | None,
+    makegrid_currents: object | None,
+    bfield_provider: object | None,
+    vessel_path: Path,
+) -> BFieldEvaluator:
+    if bfield_provider is not None:
+        return hsx_provider_bfield(bfield_provider, vessel_path)
+    if makegrid_path is None:
+        raise ValueError("either makegrid_path or bfield_provider is required")
+    return bfield_evaluator_from_makegrid(makegrid_path, currents=makegrid_currents, method="cubic")
+
+
 def build_hsx_metric_evaluator(
     *,
-    makegrid_path: Path,
+    makegrid_path: Path | None = None,
     vessel_path: Path,
     resolution: tuple[int, int, int],
     fit_sample_shape: tuple[int, int, int],
@@ -1341,6 +1401,7 @@ def build_hsx_metric_evaluator(
     metric_poloidal_modes: int = 15,
     metric_toroidal_modes: int = 16,
     eta_projection_iterations: int = 0,
+    bfield_provider: object | None = None,
 ) -> tuple[MetricEvaluator, object, object, int]:
     """Build the exact one-period metric representation used by the solver.
 
@@ -1352,12 +1413,16 @@ def build_hsx_metric_evaluator(
     ``(NU, NTHETA, NETA_PER_PERIOD)`` for the axis-regular Fourier--Zernike
     representation. ``resolution`` remains reserved for the final full-torus
     PDE cell grid.
+
+    ``bfield_provider`` (a :class:`drbx.geometry.field_provider.MagneticFieldProvider`)
+    replaces the MAKEGRID file as the source of B; ``makegrid_path`` is then
+    ignored.
     """
 
     nu, nv, neta = (int(value) for value in resolution)
     if nu < 3 or nv < 3 or neta < 4:
         raise ValueError("resolution must satisfy NU >= 3, NV >= 3, NETA >= 4")
-    makegrid_path = Path(makegrid_path).resolve()
+    makegrid_path = None if makegrid_path is None else Path(makegrid_path).resolve()
     vessel_path = Path(vessel_path).resolve()
     fit_sample_shape = tuple(int(value) for value in fit_sample_shape)
     if len(fit_sample_shape) != 3 or any(value < 2 for value in fit_sample_shape):
@@ -1441,17 +1506,11 @@ def build_hsx_metric_evaluator(
         metric_mesh_shape = None
 
     stage_start = time.perf_counter()
+    source = "field provider" if bfield_provider is not None else f"MAKEGRID ({makegrid_path})"
+    print(f"[geometry] loading magnetic field: {source}", flush=True)
+    bfield = _load_hsx_bfield(makegrid_path, makegrid_currents, bfield_provider, vessel_path)
     print(
-        f"[geometry] loading MAKEGRID magnetic field ({makegrid_path})",
-        flush=True,
-    )
-    bfield = bfield_evaluator_from_makegrid(
-        makegrid_path,
-        currents=makegrid_currents,
-        method="cubic",
-    )
-    print(
-        f"[geometry] MAKEGRID loaded in "
+        f"[geometry] magnetic field loaded in "
         f"{time.perf_counter() - stage_start:.3f} s",
         flush=True,
     )
@@ -1578,7 +1637,7 @@ def build_hsx_metric_evaluator(
 
 def build_hsx_fci_geometry(
     *,
-    makegrid_path: Path,
+    makegrid_path: Path | None = None,
     vessel_path: Path,
     resolution: tuple[int, int, int],
     fit_sample_shape: tuple[int, int, int],
@@ -1608,6 +1667,7 @@ def build_hsx_fci_geometry(
     return_metric_evaluator: bool = False,
     return_metric_context: bool = False,
     return_curvature_edge_one_form: bool = False,
+    bfield_provider: object | None = None,
 ) -> tuple[FciGeometry3D, np.ndarray, int, Path | None] | tuple[
     FciGeometry3D, np.ndarray, int, Path | None, MetricEvaluator
 ] | tuple[
@@ -1657,8 +1717,11 @@ def build_hsx_fci_geometry(
     if metric_context is not None:
         _validate_hsx_metric_context(metric_context, topology=topology)
 
-    makegrid_path = makegrid_path.resolve()
-    vessel_path = vessel_path.resolve()
+    makegrid_path = None if makegrid_path is None else Path(makegrid_path).resolve()
+    vessel_path = Path(vessel_path).resolve()
+    provider_bfield = (
+        None if bfield_provider is None else hsx_provider_bfield(bfield_provider, vessel_path)
+    )
     if makegrid_currents is None:
         makegrid_current_array = None
     else:
@@ -1675,7 +1738,7 @@ def build_hsx_fci_geometry(
     cache_spec_json = ""
     cache_payload = None
     metric_evaluator = None
-    bfield = None
+    bfield = provider_bfield
     reuse_metric_context = metric_context is not None
     if reuse_metric_context:
         # A context carries the fitted representation itself.  Do not read or
@@ -1691,7 +1754,11 @@ def build_hsx_fci_geometry(
             "format_version": METRIC_CACHE_FORMAT_VERSION,
             "identity_version": METRIC_CACHE_IDENTITY_VERSION,
             "metric_builder_revision": METRIC_BUILDER_REVISION,
-            "makegrid": _metric_input_content_identity(makegrid_path),
+            "makegrid": (
+                _metric_input_content_identity(makegrid_path)
+                if provider_bfield is None
+                else provider_bfield.content_identity()
+            ),
             "makegrid_currents": (
                 None
                 if makegrid_current_array is None
@@ -1960,6 +2027,7 @@ def build_hsx_fci_geometry(
                     metric_poloidal_modes=metric_poloidal_modes,
                     metric_toroidal_modes=metric_toroidal_modes,
                     eta_projection_iterations=eta_projection_iterations,
+                    bfield_provider=provider_bfield,
                 )
             )
         nfp = int(nfp)
@@ -2340,10 +2408,8 @@ def build_hsx_fci_geometry(
                 "[geometry] loading MAKEGRID magnetic field for curvature edges",
                 flush=True,
             )
-            bfield = bfield_evaluator_from_makegrid(
-                makegrid_path,
-                currents=makegrid_current_array,
-                method="cubic",
+            bfield = _load_hsx_bfield(
+                makegrid_path, makegrid_current_array, None, vessel_path
             )
         curvature_edge_one_form = _build_hsx_curvature_edge_one_form(
             metric_evaluator=metric_evaluator,
@@ -2440,6 +2506,9 @@ def build_hsx_fci_geometry(
         bfield=bfield,
         makegrid_path=makegrid_path,
         makegrid_currents=makegrid_current_array,
+        field_identity=_hsx_field_identity(
+            makegrid_path, provider_bfield, makegrid_current_array
+        ),
     )
     if maps is None:  # pragma: no cover - guarded by construct_fci_maps above
         raise RuntimeError("mapped HSX geometry construction returned no FCI maps")

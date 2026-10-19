@@ -53,9 +53,10 @@ Build the lightweight docs locally:
 python -m mkdocs build --clean --site-dir /tmp/drbx_docs
 ```
 
-## Optional External Geometry Campaigns
+## Optional Coil Fields
 
-Some validation campaigns import externally traced field-line data. Those
-workflows use environment variables such as `DRBX_ESSOS_ROOT` and are
-documented on their campaign pages. They are not required for installation or
-for the basic native examples.
+Coil fields and field-line tracing use the installed ESSOS package:
+`pip install 'drbx[essos]'`. The Landreman--Paul QA coil set is bundled.
+Examples that need the matching VMEC `wout` read it from an ESSOS checkout
+named by `DRBX_ESSOS_ROOT`; they are not required for the basic native
+examples.

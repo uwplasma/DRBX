@@ -127,6 +127,36 @@ with resolution: on Perlmutter it peaked at 29 GiB for 48-cubed and 65 GiB for
 bundle by 1.4 to 3.5 mm in cell positions and by up to 0.7% in |B|, most likely
 because of the vessel file; the backend runs on either.
 
+### Building from coils (default)
+
+The HSX coil file ships with DRBX at `examples/inputs/hsx/coils.hsx`
+(MAKEGRID format, 12 coil groups, 4 field periods; SHA-256
+`0bb6cf70cf1696489ec6b67bfadc0a60b128fec12f8cfdf95aa2982482eb13fe`), and
+`generate_hsx_fci_geometry.py` uses it by default: B is evaluated from these
+filaments (the ones the mgrid was made from) with the exact straight-segment
+Biot--Savart law, at the QHS currents
+(`10722,10722,10722,10722,10722,10722,0,0,0,0,0,0`) unless
+`--makegrid-currents` says otherwise. `--coils PATH` selects another coil
+file; `--makegrid PATH` switches back to an mgrid field. The vessel file is
+still distributed separately. In Python,
+`build_hsx_fci_geometry(bfield_provider=...)` accepts any
+`drbx.geometry.field_provider.MagneticFieldProvider` (ESSOS coils,
+`FilamentCoilField`), so the field is a differentiable function of the coil
+parameters.
+
+By default `--coils` does not evaluate Biot--Savart at every trace step. It
+tabulates the coils once, in memory, on a uniform `(R, phi, Z)` grid over one
+field period (`--coil-table-shape NR NPHI NZ`, default `96 144 96`;
+stellarator symmetry halves the evaluations) and interpolates the table with
+the same cubic B-spline the mgrid path uses (`CoilFieldTable` in
+`provider_bfield.py`). The table and its spline coefficients are JAX arrays
+computed from the coil parameters, so derivatives still reach the coil
+currents and nodes. At the default shape the table differs from direct coil
+evaluation by a median 1e-7 (p99 5e-6) relative error at the bundle cell
+centres, below the coil-vs-mgrid difference, and costs about 2 minutes on a
+laptop. `--direct-coils` evaluates the coils at every step instead (about 25x
+slower tracing).
+
 ## Running
 
 From the repository root:

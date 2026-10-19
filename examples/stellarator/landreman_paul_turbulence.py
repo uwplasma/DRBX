@@ -26,10 +26,10 @@ boundary conditions, phi solver, seed, and the stepping loop -- so it can be
 retargeted to a different equilibrium, grid, or limiter position by editing the
 PARAMETERS block.
 
-Requires an ESSOS checkout (coil set + matching VMEC wout for the
-Landreman-Paul QA configuration resolve from it):
+Requires the installed ``essos`` package and an ESSOS checkout for the
+Landreman-Paul QA VMEC wout (the coil set is bundled with DRBX):
 
-    DRBX_ESSOS_ROOT=~/local/ESSOS_test \
+    DRBX_ESSOS_ROOT=/path/to/ESSOS \
         PYTHONPATH=src python examples/stellarator/landreman_paul_turbulence.py
 
 writes ``output/landreman_paul_turbulence/landreman_paul_turbulence.png``.
@@ -72,7 +72,7 @@ from drbx.native.stellarator_turbulence import (  # noqa: E402
 
 # PARAMETERS ---------------------------------------------------------------
 # Geometry: an FCI grid traced on the Landreman-Paul QA VMEC equilibrium. The
-# coil JSON and VMEC wout resolve from the ESSOS checkout (DRBX_ESSOS_ROOT).
+# VMEC wout resolves from the ESSOS checkout (DRBX_ESSOS_ROOT).
 # map_source="vmec" gives clean surface-preserving parallel maps (closed
 # everywhere); the open scrape-off layer is added by the limiter cut below.
 NX = 12                 # radial (rho) cells
@@ -107,9 +107,7 @@ OUTPUT_DIR = Path("output/landreman_paul_turbulence")
 # setup --------------------------------------------------------------------
 if not essos_runtime_available():
     raise SystemExit(
-        "ESSOS is not importable. Point DRBX_ESSOS_ROOT at a checkout, e.g.\n"
-        "    DRBX_ESSOS_ROOT=~/local/ESSOS_test PYTHONPATH=src python "
-        "examples/stellarator/landreman_paul_turbulence.py"
+        "ESSOS is not importable. Install it: pip install 'drbx[essos]'"
     )
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

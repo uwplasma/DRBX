@@ -1,3 +1,9 @@
+from .field_provider import (
+    EssosCoilField,
+    MagneticFieldProvider,
+    B_cylindrical,
+    grad_B,
+)
 from .essos_import import (
     EssosFieldLineBundle,
     EssosImportedFciGeometry,
@@ -5,12 +11,10 @@ from .essos_import import (
     build_essos_imported_fci_geometry,
     essos_imported_geometry_to_fci,
     essos_runtime_available,
-    load_essos_field_line_bundle_npz,
     load_essos_coil_field_axis,
     load_essos_vmec_field_axis,
     resolve_essos_landreman_qa_json,
     resolve_essos_landreman_qa_wout,
-    save_essos_field_line_bundle_npz,
     trace_essos_coil_field_lines,
     trace_essos_coil_initial_conditions,
     trace_essos_vmec_initial_conditions,
@@ -50,6 +54,10 @@ from .vmec_extender_import import (
 )
 
 __all__ = [
+    "EssosCoilField",
+    "MagneticFieldProvider",
+    "B_cylindrical",
+    "grad_B",
     "EssosFieldLineBundle",
     "EssosImportedFciGeometry",
     "build_essos_vmec_scaled_qa_coordinates",
@@ -73,7 +81,6 @@ __all__ = [
     "build_vmec_extender_fci_maps",
     "identity_fci_maps",
     "interpolate_vmec_extender_B_cyl",
-    "load_essos_field_line_bundle_npz",
     "load_essos_coil_field_axis",
     "load_essos_vmec_field_axis",
     "load_fci_maps_netcdf",
@@ -81,7 +88,6 @@ __all__ = [
     "metric_inverse_residual",
     "resolve_essos_landreman_qa_json",
     "resolve_essos_landreman_qa_wout",
-    "save_essos_field_line_bundle_npz",
     "trace_essos_coil_field_lines",
     "trace_essos_coil_initial_conditions",
     "trace_essos_vmec_initial_conditions",
