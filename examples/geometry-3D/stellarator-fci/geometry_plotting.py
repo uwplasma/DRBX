@@ -19,6 +19,7 @@ iota profile) and run from the repository root:
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import numpy as np
@@ -44,7 +45,10 @@ IOTA_AXIS = 0.38
 IOTA_EDGE = 0.58
 
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-
+print(f"building synthetic stellarator geometry: grid=({NX}, {NY}, {NZ}), R0={MAJOR_RADIUS}, a={MINOR_RADIUS}, "
+      f"nfp={FIELD_PERIODS}, island m={ISLAND_MODE} amp={ISLAND_AMPLITUDE}, mirror={MIRROR_AMPLITUDE}, "
+      f"iota {IOTA_AXIS}->{IOTA_EDGE}")
+start = time.perf_counter()
 geometry = build_synthetic_stellarator_geometry(
     nx=NX,
     ny=NY,
@@ -61,6 +65,7 @@ geometry = build_synthetic_stellarator_geometry(
 )
 
 report = build_stellarator_fci_geometry_report(geometry)
+print(f"geometry + QA report built in {time.perf_counter() - start:.1f} s")
 plot_path = save_stellarator_fci_geometry_plot(geometry, report, OUTPUT_ROOT / f"{CASE_LABEL}.png")
 arrays_path = OUTPUT_ROOT / f"{CASE_LABEL}.npz"
 np.savez_compressed(

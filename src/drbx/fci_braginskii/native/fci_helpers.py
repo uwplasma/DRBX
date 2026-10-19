@@ -66,19 +66,39 @@ _HOST_EIG_POOL: ThreadPoolExecutor | None = None
 _CPU_EIG_ON_HOST = tuple(int(p) for p in jax.__version__.split(".")[:2]) >= (0, 11)
 
 
+# pip NumPy's OpenBLAS is built for at most 64 threads; more Python threads
+# calling into it overflow its per-thread buffers ("precompiled NUM_THREADS
+# exceeded", then heap corruption), as seen on 128/256-core nodes.
+_HOST_EIG_MAX_THREADS = 64
+
+
+def _host_eig_threads() -> int:
+    """CPUs available to this process (affinity-aware), capped at 64."""
+
+    try:
+        available = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        available = os.cpu_count() or 1
+    return max(1, min(available, _HOST_EIG_MAX_THREADS))
+
+
 def _host_eig(matrix):
     """Batched LAPACK ``geev`` on the host, split over one thread per core.
 
-    NumPy releases the GIL in ``linalg.eig`` and calls the same ``geev`` as
-    jaxlib's CPU kernel, so each matrix's result is bitwise the one
-    ``jnp.linalg.eig`` returns; only the batch is split across threads, as
-    XLA's intra-op pool did before jaxlib 0.11.
+    NumPy releases the GIL in ``linalg.eig`` and calls LAPACK ``geev`` like
+    jaxlib's CPU kernel, so each matrix's result agrees with
+    ``jnp.linalg.eig`` to round-off (bitwise when NumPy and jaxlib use the
+    same LAPACK build; pip wheels ship different ones and can differ in the
+    last bits).  Only the batch is split across threads, as XLA's intra-op
+    pool did before jaxlib 0.11; the result does not depend on the split.
+    The matrices are at most 5x5, where ``geev`` does not use BLAS threading,
+    so the worker threads do not oversubscribe cores.
     """
 
     global _HOST_EIG_POOL
     matrix = np.asarray(matrix)
     batch = matrix.reshape((-1,) + matrix.shape[-2:])
-    threads = os.cpu_count() or 1
+    threads = _host_eig_threads()
     pieces = min(threads, batch.shape[0] // _HOST_EIG_MIN_CHUNK)
     if pieces > 1:
         if _HOST_EIG_POOL is None:
@@ -97,8 +117,8 @@ def _host_eig(matrix):
 def small_batched_eig(matrix: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     """``jnp.linalg.eig`` for batches of small real matrices on any backend.
 
-    The input must already be stopped-gradient.  Results are bitwise those of
-    ``jnp.linalg.eig`` on CPU.  The host path (threaded LAPACK ``geev`` via
+    The input must already be stopped-gradient.  Results agree with
+    ``jnp.linalg.eig`` on CPU to round-off.  The host path (threaded LAPACK ``geev`` via
     ``pure_callback``) is used on non-CPU backends, where XLA's GPU ``eig``
     solves one matrix at a time (about 20 ms per 4x4 matrix on an RTX A4000),
     and on CPU with jaxlib >= 0.11, whose batched ``geev`` custom call is
