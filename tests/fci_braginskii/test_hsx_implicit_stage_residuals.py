@@ -15,9 +15,6 @@ def test_hsx_stage_residuals_from_returned_state(tmp_path, monkeypatch, precondi
     bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
     if bundle is None:
         pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to replay a real HSX artifact")
-    import drbx.fci_braginskii.run as run_module
-
-    monkeypatch.setattr(run_module, "GMRES_PRECONDITIONER", preconditioner)
     records = []
     solve = LocalFciDrbEBRhs.solve_implicit_current_phi_pair
 
@@ -32,6 +29,7 @@ def test_hsx_stage_residuals_from_returned_state(tmp_path, monkeypatch, precondi
     driver.main([
         "--geometry", bundle, "--final-time", "0.0015", "--num-steps", "2",
         "--output", str(tmp_path / "history.npz"),
+        "--gmres-preconditioner", preconditioner,
     ])
     assert len(records) >= 4
     for r in records:

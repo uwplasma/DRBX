@@ -27,7 +27,6 @@ def test_parser_defaults_use_production_operator_pair():
     assert not hasattr(args, "resolution")
     assert not hasattr(args, "curvature_scheme")
     assert not hasattr(args, "poisson_bracket_scheme")
-    assert not hasattr(args, "gmres_preconditioner")
 
 
 def test_removed_axis_experiment_options_are_rejected():

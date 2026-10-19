@@ -46,3 +46,23 @@ def test_drbx_inspect_prints_resolved_config(capsys):
     out = capsys.readouterr().out
     assert "backend: fci_braginskii" in out
     assert "num_steps = 5" in out and "rho_star = 0.0005" in out
+
+
+def test_gmres_preconditioner_is_a_deck_key(tmp_path, capsys):
+    # Performance-only selector (same solution to the GMRES tolerance), so it
+    # is user-settable; physics-affecting production knobs stay forbidden.
+    assert HsxBlobConfig().gmres_preconditioner == "line-u"
+    assert _build_parser().parse_args(()).gmres_preconditioner == "line-u"
+    args = _build_parser().parse_args(("--gmres-preconditioner", "line-uy-pardiag"))
+    assert args.gmres_preconditioner == "line-uy-pardiag"
+    head = '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\ngeometry = "g"\n'
+    deck = tmp_path / "deck.toml"
+    deck.write_text(head + 'gmres_preconditioner = "line-uy-pardiag"\n')
+    assert load_hsx_blob_deck(deck).gmres_preconditioner == "line-uy-pardiag"
+    assert drbx_main(["inspect", str(deck)]) == 0
+    assert "gmres_preconditioner = 'line-uy-pardiag'" in capsys.readouterr().out
+    deck.write_text(head + 'gmres_preconditioner = "jacobi"\n')
+    with pytest.raises(ValueError, match="gmres_preconditioner must be one of"):
+        load_hsx_blob_deck(deck)
+    with pytest.raises(SystemExit):
+        _build_parser().parse_args(("--gmres-preconditioner", "jacobi"))

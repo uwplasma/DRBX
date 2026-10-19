@@ -118,8 +118,12 @@ GEOMETRY_PRODUCER_METADATA_KEYS = (
 )
 FILAMENT_CACHE_FORMAT_VERSION = 2
 GMRES_TARGET_TOLERANCE = 1.0e-8
-# Right preconditioner of the FGMRES phi solves (see SolvaxGmresConfig).
-GMRES_PRECONDITIONER = "line-u"
+# Right preconditioner of the FGMRES phi solves (see SolvaxGmresConfig).  A
+# performance-only selector: every kind solves the same system to the same
+# GMRES tolerance, so it is a deck key (``gmres_preconditioner``) even though
+# the physics-affecting numerics stay fixed production configuration.
+GMRES_PRECONDITIONERS = ("line-u", "line-u-pardiag", "line-uy-pardiag")
+DEFAULT_GMRES_PRECONDITIONER = "line-u"
 FCI_BRAGINSKII_BACKEND = "fci_braginskii"
 METRIC_FIELDS = (
     "J",
@@ -1001,7 +1005,7 @@ def build_local_eb_model(
                 parameters.phi_inversion_regularization
             ),
             preconditioner=str(
-                GMRES_PRECONDITIONER
+                DEFAULT_GMRES_PRECONDITIONER
                 if gmres_preconditioner is None
                 else gmres_preconditioner
             ),
@@ -3025,6 +3029,7 @@ class HsxBlobConfig:
     gmres_max_iterations: int = 500
     gmres_restart: int = 100
     gmres_residual_correction_steps: int = 1
+    gmres_preconditioner: str = DEFAULT_GMRES_PRECONDITIONER
     no_phase_timing: bool = False
     geometry_only: bool = False
     output: Path = SCRIPT_DIR / "hsx_blob_history.npz"
@@ -3093,6 +3098,11 @@ def load_hsx_blob_deck(path: str | Path) -> HsxBlobConfig:
     if config.advance_execution not in ("compiled", "staged-compiled", "eager"):
         raise ValueError(
             "[fci_braginskii] advance_execution must be 'compiled', 'staged-compiled' or 'eager'"
+        )
+    if config.gmres_preconditioner not in GMRES_PRECONDITIONERS:
+        raise ValueError(
+            "[fci_braginskii] gmres_preconditioner must be one of "
+            + ", ".join(repr(k) for k in GMRES_PRECONDITIONERS)
         )
     return config
 
@@ -3320,6 +3330,15 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         help=(
             "Number of reliable true-residual correction solves attempted "
             "only when the primary GMRES result would otherwise be rejected."
+        ),
+    )
+    option(
+        "gmres_preconditioner",
+        choices=GMRES_PRECONDITIONERS,
+        help=(
+            "Right preconditioner of the FGMRES potential solves. A "
+            "performance-only selector: the converged solution is the same "
+            "to the GMRES tolerance; only the iteration count changes."
         ),
     )
     option(
@@ -3705,7 +3724,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         f"max_iterations={int(args.gmres_max_iterations)}, "
         f"restart={min(int(args.gmres_restart), int(args.gmres_max_iterations))}, "
         f"residual_corrections={int(args.gmres_residual_correction_steps)}, "
-        f"preconditioner={GMRES_PRECONDITIONER}, "
+        f"preconditioner={args.gmres_preconditioner}, "
         + (
             "solver_space=owner-grid-RLP"
             if control_volume_descriptor is not None
@@ -3732,6 +3751,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         gmres_residual_correction_steps=int(
             args.gmres_residual_correction_steps
         ),
+        gmres_preconditioner=str(args.gmres_preconditioner),
         parallel_operator_scheme="fci",
         time_integrator="imex-ssp222",
         advance_execution=str(args.advance_execution),
@@ -3830,7 +3850,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             "gmres_residual_correction_steps": int(
                 args.gmres_residual_correction_steps
             ),
-            "gmres_preconditioner": str(GMRES_PRECONDITIONER),
+            "gmres_preconditioner": str(args.gmres_preconditioner),
             "phi_solver_space": (
                 "owner-grid-RLP"
                 if control_volume_descriptor is not None

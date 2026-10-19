@@ -227,6 +227,11 @@ tolerances; see `python simulate_hsx_blob.py --help`.
 - `eager`: no outer `jax.jit`; slow, but Python-level debugging and printing
   work inside the right-hand side.
 
+`--gmres-preconditioner` (deck key `gmres_preconditioner`) selects the right
+preconditioner of the potential solves: `line-u`, `line-u-pardiag` or
+`line-uy-pardiag`. It is performance-only (same solution to the GMRES
+tolerance, different iteration count), unlike the fixed production numerics.
+
 Phase timing, which reports the operator and GMRES shares of each step, is on
 by default; `--no-phase-timing` disables it. At N32 with the defaults the
 potential solves take a little over half of each step (about 90 GMRES
