@@ -26,6 +26,7 @@ release-hosted, not committed.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import jax
@@ -59,6 +60,8 @@ from drbx.native.stellarator_turbulence import (  # noqa: E402
     build_free_decay_boundary_conditions,
     four_field_rk4_step,
 )
+
+_T0 = time.perf_counter()
 
 # ----------------------------- PARAMETERS -----------------------------------
 # Rotating-ellipse geometry (arguments of build_rotating_ellipse_geometry):
@@ -303,3 +306,4 @@ plt.close(fig)
     "closed_omega_max": float(np.abs(closed.omega_frames[-1]).max()),
 }, indent=2))
 print(f"[done] wrote {OUTPUT_DIR / 'stellarator_turbulence_summary.png'} and summary.json")
+print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")

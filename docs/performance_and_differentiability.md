@@ -67,8 +67,8 @@ step to ~1e-16 — so sharding changes only *where* the work runs, not the resul
 
 The strong-scaling driver is
 [`examples/benchmarks/fci_sharded_strong_scaling.py`](../examples/benchmarks/fci_sharded_strong_scaling.py).
-It sweeps device counts by re-invoking itself once per count (the XLA host device
-count must be set before JAX imports) and, on Linux, binds one physical core per
+It sweeps device counts by launching one short worker subprocess per count (the
+XLA host device count must be set before JAX imports) and, on Linux, binds one physical core per
 shard with `taskset` — the crucial detail: without core-binding a single-device
 CPU program already spreads across all cores via XLA intra-op threading, so the
 domain decomposition looks like it does nothing. On a 36-core Linux host with

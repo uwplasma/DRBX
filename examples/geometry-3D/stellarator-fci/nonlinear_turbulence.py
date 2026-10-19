@@ -21,6 +21,7 @@ and run from the repository root:
 
 from __future__ import annotations
 
+import time as clock
 from pathlib import Path
 
 import numpy as np
@@ -61,12 +62,16 @@ geometry = build_synthetic_stellarator_geometry(
     island_amplitude=ISLAND_AMPLITUDE,
     mirror_amplitude=MIRROR_AMPLITUDE,
 )
+print(f"reduced nonlinear SOL run: grid=({NX}, {NY}, {NZ}), {FRAMES} frames x {SUBSTEPS_PER_FRAME} substeps, "
+      f"dt={DT}, nfp={FIELD_PERIODS}, island amp={ISLAND_AMPLITUDE}, mirror={MIRROR_AMPLITUDE}")
+start = clock.perf_counter()
 history, time = simulate_reduced_stellarator_sol_dynamics(
     geometry,
     frames=FRAMES,
     substeps_per_frame=SUBSTEPS_PER_FRAME,
     dt=DT,
 )
+print(f"simulation done in {clock.perf_counter() - start:.1f} s")
 report = build_stellarator_sol_showcase_report(geometry, history, time)
 
 arrays_path = OUTPUT_ROOT / f"{CASE_LABEL}.npz"
@@ -85,6 +90,7 @@ save_stellarator_sol_snapshot_panel(geometry, history, time, snapshot_path)
 save_stellarator_sol_diagnostics_panel(geometry, history, time, diagnostics_path)
 save_stellarator_sol_3d_frame(geometry, history[-1], float(time[-1]), poster_path)
 save_stellarator_sol_3d_movie(geometry, history, time, movie_path)
+print(f"plots and movie written; total {clock.perf_counter() - start:.1f} s")
 
 print(f"passed: {report['passed']}")
 print(f"final RMS fluctuation: {report['final_rms_fluctuation']:.4e}")

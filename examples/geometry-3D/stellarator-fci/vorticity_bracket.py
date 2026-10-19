@@ -23,6 +23,7 @@ coefficients) and run from the repository root:
 from __future__ import annotations
 
 import json
+import time as clock
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -198,16 +199,18 @@ geometry = build_synthetic_stellarator_geometry(
 parameters = FciDrbRhsParameters(potential_iterations=POTENTIAL_ITERATIONS)
 state = build_initial_state(geometry)
 
-history = []
-potential_history = []
-potential_residual_history = []
-time = []
+print(f"vorticity/E x B bracket run: grid=({NX}, {NY}, {NZ}), {FRAMES} frames x {SUBSTEPS_PER_FRAME} substeps, "
+      f"dt={DT}, potential iterations={POTENTIAL_ITERATIONS}")
+history, potential_history, potential_residual_history, time = [], [], [], []
+start = clock.perf_counter()
 for frame in range(FRAMES):
     history.append(np.asarray(state.ion_density - jnp.mean(state.ion_density), dtype=np.float64))
     rhs, potential, residual = bracket_rhs(state, geometry, parameters, frame * SUBSTEPS_PER_FRAME * DT)
     potential_history.append(np.asarray(potential, dtype=np.float64))
     potential_residual_history.append(float(residual))
     time.append(frame * SUBSTEPS_PER_FRAME * DT)
+    print(f"  frame {frame + 1:2d}/{FRAMES}: t={time[-1]:.3f}, rms dn={np.sqrt(np.mean(history[-1] ** 2)):.4e}, "
+          f"potential residual={float(residual):.3e} ({clock.perf_counter() - start:.1f} s)")
     state = clip_state(add_state(state, rhs, DT))
     for substep in range(1, SUBSTEPS_PER_FRAME):
         scalar_time = (frame * SUBSTEPS_PER_FRAME + substep) * DT

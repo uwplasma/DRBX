@@ -29,6 +29,7 @@ surfaces + parallel-operator convergence) and a JSON summary.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import jax
@@ -50,6 +51,8 @@ from drbx.geometry import (  # noqa: E402
 )
 from drbx.native import LocalStencil1D, LocalStencil3D  # noqa: E402
 from drbx.native.fci_operators import grad_parallel_op_direct, grad_parallel_op_fci  # noqa: E402
+
+_T0 = time.perf_counter()
 
 # ----------------------------- PARAMETERS -----------------------------------
 # Rotating-ellipse geometry (arguments of build_rotating_ellipse_geometry):
@@ -250,3 +253,4 @@ fig.tight_layout()
 fig.savefig(OUTPUT_DIR / "rotating_ellipse_fci.png", dpi=200)
 plt.close(fig)
 print(f"[done] wrote {OUTPUT_DIR / 'rotating_ellipse_fci.png'} and summary.json")
+print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")

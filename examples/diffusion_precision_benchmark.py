@@ -38,13 +38,14 @@ import matplotlib.pyplot as plt
 
 from drbx.config import rewrite_input_precision
 
-# --- PARAMETERS ------------------------------------------------------------------
-REPO_ROOT = Path(__file__).resolve().parents[1]
-INPUT_TEMPLATE = REPO_ROOT / "examples" / "inputs" / "restartable_diffusion.toml"  # deck to benchmark
+# ---- PARAMETERS ----
+INPUT_TEMPLATE = Path(__file__).resolve().parent / "inputs" / "restartable_diffusion.toml"  # deck to benchmark
 OUTPUT_ROOT = Path("docs/data/runtime_precision_benchmark_artifacts")  # artifact root (cwd-relative)
 CASE_NAME = "diffusion_precision"  # artifact/case prefix
 PRECISIONS = ("float64", "float32")  # runtime precisions to compare
 REPEATS = 2                          # runs per precision; repeat 1 includes compile time
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_precision_case(precision: str, repeat_index: int, input_path: Path, cache_dir: Path) -> dict[str, Any]:
@@ -63,9 +64,8 @@ def run_precision_case(precision: str, repeat_index: int, input_path: Path, cach
         str(run_dir),
         "--quiet",
     ]
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(REPO_ROOT / "src")
-    env["DRBX_CACHE_DIR"] = str(cache_dir)
+    # child-process env: the source tree plus a per-precision JAX compile cache
+    env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src"), "DRBX_CACHE_DIR": str(cache_dir)}
 
     started = time.perf_counter()
     completed = subprocess.run(command, env=env, text=True, capture_output=True, check=False)
@@ -92,6 +92,7 @@ def run_precision_case(precision: str, repeat_index: int, input_path: Path, cach
 
 
 # --- run every precision in its own subprocess ------------------------------------
+wall_start = time.perf_counter()
 print("Requested precision benchmark")
 print(f"  input_template: {INPUT_TEMPLATE}")
 print(f"  output_root:    {OUTPUT_ROOT}")
@@ -169,3 +170,5 @@ plt.close(figure)
 print("\nGenerated artifacts")
 print(f"  analysis_json: {analysis_path}")
 print(f"  elapsed_plot:  {plot_path}")
+print(f"  speedup float32 vs float64 (last repeat): {analysis_payload['speedup_last_float32_vs_float64']}")
+print(f"  total wall time: {time.perf_counter() - wall_start:.1f} s")

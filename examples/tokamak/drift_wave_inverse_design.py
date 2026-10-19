@@ -24,6 +24,7 @@ optimizer settings.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import jax
@@ -43,6 +44,8 @@ from drbx.native.hasegawa_wakatani import (  # noqa: E402
     hw_run,
     potential_from_vorticity,
 )
+
+_T0 = time.perf_counter()
 
 # ----------------------------- PARAMETERS ----------------------------------
 N = 32                       # grid points per side (small: many optimizer iterations)
@@ -153,3 +156,4 @@ fig.tight_layout()
 fig.savefig(OUTPUT_DIR / "drift_wave_inverse_design.png", dpi=180)
 plt.close(fig)
 print(f"wrote {OUTPUT_DIR / 'drift_wave_inverse_design.png'}")
+print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")
