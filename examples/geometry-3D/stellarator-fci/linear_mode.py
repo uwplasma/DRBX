@@ -20,6 +20,7 @@ coefficients, mode numbers) and run from the repository root:
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -70,16 +71,20 @@ state = jnp.asarray(initial_state, dtype=jnp.float64)
 dx = float(1.0 / (geometry.shape[0] - 1))
 dz = float(2.0 * np.pi / geometry.shape[2])
 
-history = []
-time = []
+print(f"linear mode (m={POLOIDAL_MODE}, n={TOROIDAL_MODE}) on grid ({NX}, {NY}, {NZ}): {FRAMES} frames x "
+      f"{SUBSTEPS_PER_FRAME} steps, dt={DT}, chi_par={CHI_PARALLEL}, drive={LINEAR_DRIVE}, damping={LINEAR_DAMPING}")
+history, times = [], []
+start = time.perf_counter()
 for frame in range(FRAMES):
     history.append(np.asarray(state, dtype=np.float64))
-    time.append(frame * SUBSTEPS_PER_FRAME * DT)
+    times.append(frame * SUBSTEPS_PER_FRAME * DT)
+    print(f"  frame {frame + 1:2d}/{FRAMES}: t={times[-1]:.3f}, energy={np.mean(history[-1] ** 2):.4e} "
+          f"({time.perf_counter() - start:.1f} s)")
     for _ in range(SUBSTEPS_PER_FRAME):
         state = state + DT * linear_rhs(state)
 
 history_array = np.asarray(history, dtype=np.float64)
-time_array = np.asarray(time, dtype=np.float64)
+time_array = np.asarray(times, dtype=np.float64)
 energy = np.mean(history_array * history_array, axis=(1, 2, 3))
 growth_rate = 0.5 * np.polyfit(time_array, np.log(np.maximum(energy, 1.0e-30)), deg=1)[0]
 
