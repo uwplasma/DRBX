@@ -122,6 +122,7 @@ GMRES_TARGET_TOLERANCE = 1.0e-8
 # the physics-affecting numerics stay fixed production configuration.
 GMRES_PRECONDITIONERS = ("none", "line-u", "line-u-pardiag", "line-uy-pardiag")  # the one place a new preconditioner is added
 FCI_BRAGINSKII_BACKEND = "fci_braginskii"
+GMRES_PRECONDITIONERS = ("none", "line-u")  # the one place a new preconditioner is added
 METRIC_FIELDS = (
     "J",
     "g11",

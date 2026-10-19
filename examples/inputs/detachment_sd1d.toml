@@ -1,13 +1,17 @@
-# SD1D 1-D detachment (Dudson 2019 13.6eV scan), steady state by Newton continuation.
+# SD1D 1-D detachment: steady-state scan in upstream density (about 30 s).
+#   drbx run examples/inputs/detachment_sd1d.toml
+# Matches the SD1D "13.6eV" scan of Dudson et al. 2019 (hydrogen only).  SI units.
+
 [model]
 backend = "detachment_sd1d"
 
 [detachment_sd1d]
-ny = 100
-upstream_density = 3.0e19
+ny = 100                # cells along the leg (800 reproduces SD1D)
+upstream_density = 3.0e19 # m^-3 (used when [scan] is empty)
 
 [scan]
-upstream_density = [2.0e19, 3.0e19]
+upstream_density = [2.0e19, 3.0e19] # one steady state each, warm-started from the previous one;
+                                    # the target temperature falls from ~15 eV towards ~3 eV as it rises
 
 [output]
 directory = "../../output/detachment_sd1d"

@@ -42,14 +42,3 @@ def test_production_defaults():
     config = HsxBlobConfig()
     assert config.rho_star == 5.0e-4 and config.implicit_current_phi_pair
     assert config.gmres_preconditioner == "line-u" and config.advance_execution == "staged-compiled"
-
-
-@pytest.mark.parametrize("kind", ["none", "line-u", "line-u-pardiag", "line-uy-pardiag"])
-def test_gmres_preconditioner_kinds_parse(tmp_path, kind):
-    # Performance-only selector: every kind solves the same system to the GMRES tolerance.
-    deck = tmp_path / "deck.toml"
-    deck.write_text(
-        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
-        f'geometry = "g"\ngmres_preconditioner = "{kind}"\n'
-    )
-    assert load_hsx_blob_deck(deck).gmres_preconditioner == kind

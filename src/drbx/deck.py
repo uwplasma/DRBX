@@ -10,7 +10,6 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import json
-import re
 import types
 import typing
 from collections.abc import Callable, Mapping, Sequence
@@ -83,6 +82,18 @@ def _required(cls: type) -> list[str]:
     return [f.name for f in dataclasses.fields(cls) if f.default is dataclasses.MISSING]
 
 
+def _type_text(hint: Any) -> str:
+    """Python-version-independent spelling of a type hint (``tuple[int, ...]``, ``Path | None``)."""
+
+    origin, args = typing.get_origin(hint), typing.get_args(hint)
+    if origin in (typing.Union, types.UnionType):
+        names = [_type_text(a) for a in args if a is not type(None)]
+        return " | ".join(names + ["None"] * (type(None) in args))
+    if origin:
+        return f"{origin.__name__}[{', '.join('...' if a is Ellipsis else _type_text(a) for a in args)}]"
+    return hint.__name__
+
+
 def default_text(value: object) -> str:
     """Documentation form of a default (paths inside the checkout hide its location)."""
 
@@ -100,8 +111,7 @@ def schema_rows(cls: type) -> list[tuple[str, str, str]]:
     for f in dataclasses.fields(cls):
         hint = typing.get_type_hints(cls)[f.name]
         if not dataclasses.is_dataclass(hint):
-            kind = hint.__name__ if isinstance(hint, type) else re.sub(r"\b(typing|pathlib)\.", "", str(hint))
-            rows.append((f.name, kind, "required" if f.default is dataclasses.MISSING else default_text(f.default)))
+            rows.append((f.name, _type_text(hint), "required" if f.default is dataclasses.MISSING else default_text(f.default)))
     return rows
 
 

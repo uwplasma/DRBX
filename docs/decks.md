@@ -12,6 +12,76 @@ drbx run deck.toml       # run; --output-dir / --case-name override [output]
 - Example decks: `examples/inputs/<backend>.toml` (`hsx_fci_blob.toml` for `fci_braginskii`).
 - Not available from a deck: optimization and inverse-design scripts (`hasegawa_wakatani_optimization.py`, `autodiff_diffusion_*.py`, `detachment_control.py`; the Hasegawa-Wakatani gradient is `[autodiff]`), VMEC/VMEX/VMEC-extender imports, and figure/movie scripts.
 
+## Example decks
+
+Every deck in `examples/inputs/` is commented key by key (what to change, units, typical ranges) and runs in under a minute except the HSX one (about 4 min, mostly the one-time geometry build). Run one with `drbx run examples/inputs/<deck>.toml`; the results go to the deck's `[output] directory`. The decks are run by the test suite.
+
+| Deck | Case | Time | What you get |
+| --- | --- | --- | --- |
+| [`hasegawa_wakatani.toml`](../examples/inputs/hasegawa_wakatani.toml) | Drift-wave turbulence, autodiff gradient | 4 s | energy and flux histories, final fields; `d<flux>/d(gradient)` agrees with finite differences to 1e-6 |
+| [`four_field_tokamak.toml`](../examples/inputs/four_field_tokamak.toml) | Four-field FCI, tokamak-like torus | 5 s | 5 density/vorticity frames, particle content |
+| [`stellarator_turbulence.toml`](../examples/inputs/stellarator_turbulence.toml) | Four-field FCI, rotating-ellipse stellarator with limiter SOL | 20 s | frames, particle content, sheath ion loss |
+| [`island_divertor.toml`](../examples/inputs/island_divertor.toml) | Four-field FCI, island divertor edge | 12 s | frames, particle content; open lines drain through the sheath |
+| [`hsx_fci_blob.toml`](../examples/inputs/hsx_fci_blob.toml) | HSX from the shipped coils, density filament | 4 min | geometry built and cached, then a seven-field history `.npz` |
+| [`sol_flux_tube.toml`](../examples/inputs/sol_flux_tube.toml) | Open SOL flux tube with Bohm sheath | 2 s | Mach profile (about 0.9 at the targets after 6000 steps), n_target/n_up about 0.49, sheath and recycling totals |
+| [`sol_recycling.toml`](../examples/inputs/sol_recycling.toml) | Recycling SOL with neutrals, detachment-onset scan | 2 s | target Mach 1.45 at n_up = 4, falling to 0.61 at n_up = 8 |
+| [`detachment_sd1d.toml`](../examples/inputs/detachment_sd1d.toml) | SD1D detachment, density scan | 30 s | target temperature 15.5 eV at 2e19 m^-3, 7.2 eV at 3e19 m^-3 |
+| [`fci_differentiable.toml`](../examples/inputs/fci_differentiable.toml) | Autodiff versus finite difference through an FCI rollout | 12 s | gradient and finite difference agree to about 1e-10 |
+| [`restartable_diffusion.toml`](../examples/inputs/restartable_diffusion.toml) | Restart (BOUT-style deck) | 5 s | summary, arrays and a restart file; `--restart-in` continues it |
+
+The Hasegawa-Wakatani deck in full:
+
+```toml
+# Hasegawa-Wakatani drift-wave turbulence on a periodic 2-D box (about 10 s).
+#   drbx run examples/inputs/hasegawa_wakatani.toml
+# Writes <output>/hasegawa_wakatani_{summary.json,arrays.npz}.  Every key is
+# optional; the values here are the small, fast ones.  Lengths are in rho_s.
+# All keys: docs/decks.md.
+
+[model]
+backend = "hasegawa_wakatani"
+
+[hasegawa_wakatani]
+adiabaticity = 1.0      # alpha, parallel coupling.  0.1 gives streamers; 2+ weak transport.
+gradient = 1.0          # kappa, density-gradient drive of the instability (0.3 - 3).
+hyperviscosity = 1.0e-2 # nu, damps the grid scale; raise it if the run blows up.
+friction = 3.0e-2       # mu, large-scale drag; 0 lets the inverse cascade pile up.
+
+[grid]
+n = 32                  # points per side (32 here; 96-256 for real turbulence)
+length = 25.1327        # box side, 8 * 2*pi rho_s; sets the smallest wavenumber 2*pi/length
+
+[run]
+dt = 5.0e-3             # RK4 step; stiff in alpha / k_min^2, halve it if unstable
+steps_per_block = 200   # steps between diagnostics (one time/energy/flux sample each)
+blocks = 4              # total time = blocks * steps_per_block * dt
+seed = 0                # RNG seed of the initial noise
+seed_amplitude = 5.0e-2 # rms of the initial noise
+save_frames = true      # also store the vorticity after every block (for movies)
+
+# Optional.  d<flux>/d(parameter) by autodiff, checked against finite differences.
+[autodiff]
+parameter = "gradient"  # any [hasegawa_wakatani] key
+fd_step = 1.0e-3        # relative step of the finite-difference check
+
+[output]
+directory = "../../output/hasegawa_wakatani"   # relative to this file
+```
+
+```text
+$ drbx run examples/inputs/hasegawa_wakatani.toml
+[hasegawa_wakatani] block 1/4 t=1 energy=1.7477e-04 flux=+2.9898e-05
+[hasegawa_wakatani] block 4/4 t=4 energy=1.5738e-04 flux=+1.1052e-05
+[hasegawa_wakatani] d<flux>/dgradient = +3.4848e-05 (finite difference +3.4848e-05)
+[hasegawa_wakatani] wrote output/hasegawa_wakatani/hasegawa_wakatani_summary.json and ..._arrays.npz
+```
+
+```python
+import json, numpy as np
+results = json.load(open("output/hasegawa_wakatani/hasegawa_wakatani_summary.json"))["results"]
+energy = np.load("output/hasegawa_wakatani/hasegawa_wakatani_arrays.npz")["energy"]   # (blocks,)
+```
+
 ## Hasegawa-Wakatani drift-wave turbulence
 
 `[model] backend = "hasegawa_wakatani"`
