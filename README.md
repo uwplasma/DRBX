@@ -305,7 +305,9 @@ default, with optional neutrals and recycling (deck keys `wall_closure`,
 `drbx run examples/inputs/hsx_fci_blob.toml`, which builds a 16^3 geometry from
 the shipped coils and vessel (about 4 min on a laptop). The movie is a 32^3 run
 (600 steps, t = 0.45 in L_ref/c_s, peak n - 1 = 0.8, rho* = 5e-3, zero-flow walls;
-about 35 min on one A4000): isosurfaces of the density perturbation along the
+about 35 min on one A4000). With the Bohm default, 32^3 runs of this kind stopped
+with an invalid IMEX stage after t = 0.10 to 0.14 (several amplitudes, rho* values
+and time steps; under investigation), so the movie uses the zero-flow closure. It shows isosurfaces of the density perturbation along the
 field over the boundary surface, with R-Z sections of density and potential
 through the filament. The potential builds up as a dipole around the filament
 within the first t = 0.05. The filament itself stays close to its flux surface
