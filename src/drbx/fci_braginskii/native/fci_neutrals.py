@@ -59,6 +59,9 @@ __all__ = [
     "neutral_diffusion_rate",
     "neutral_diffusivity",
     "neutral_step",
+    "RECYCLING_LEDGER_COLUMNS",
+    "RecyclingParameters",
+    "recycled_neutral_source",
     "rate_validity_counts",
     "reaction_source",
     "reference_temperature_ev",
@@ -333,12 +336,17 @@ def _diffusion_diagonal(diffusivity, grid: NeutralGrid):
     return jnp.where(grid.owner, total / jnp.where(grid.owner, grid.volume, 1.0), 0.0)
 
 
-def implicit_diffusion(neutral_density, diffusivity, dt, grid: NeutralGrid, params: NeutralParameters, wall_influx=None):
+def implicit_diffusion(
+    neutral_density, diffusivity, dt, grid: NeutralGrid, params: NeutralParameters, wall_influx=None,
+    volume_source=None,
+):
     """Backward Euler for the diffusion, then the conservative update.
 
-    ``N* = (I - dt L)^-1 (N + dt S_wall)`` by preconditioned GMRES, then
-    ``N_new = N + dt (L N* + S_wall)`` so the owner sum changes by exactly
-    the wall influx regardless of the GMRES residual.
+    ``N* = (I - dt L)^-1 (N + dt S)`` by preconditioned GMRES, then
+    ``N_new = N + dt (L N* + S)`` so the owner sum changes by exactly
+    ``dt sum V S`` regardless of the GMRES residual.  ``S`` is the radial
+    wall influx (per fine wall face) plus ``volume_source`` (owner density
+    per unit time, e.g. the recycled flux deposited in the wall cells).
     """
 
     source = (
@@ -346,6 +354,8 @@ def implicit_diffusion(neutral_density, diffusivity, dt, grid: NeutralGrid, para
         if wall_influx is None
         else neutral_diffusion_rate(jnp.zeros_like(neutral_density), diffusivity, grid, wall_influx)
     )
+    if volume_source is not None:
+        source = source + jnp.where(grid.owner, volume_source, 0.0)
     rhs = neutral_density + dt * source
     diag = 1.0 + dt * _diffusion_diagonal(diffusivity, grid)
 
@@ -480,8 +490,15 @@ def inventories(density, Vi, Te, Ti, neutral_density, grid: NeutralGrid, params:
     return nuclei, plasma, neutral
 
 
-def neutral_step(density, Vi, Te, Ti, neutral_density, dt, grid: NeutralGrid, params: NeutralParameters, wall_influx=None):
+def neutral_step(
+    density, Vi, Te, Ti, neutral_density, dt, grid: NeutralGrid, params: NeutralParameters, wall_influx=None,
+    volume_source=None,
+):
     """One split neutral step: reactions (explicit, conserved form), then implicit diffusion.
+
+    ``volume_source`` (owner neutral density per unit time) enters the
+    implicit diffusion as a source; its integral ``dt sum V S`` is added to
+    the ``wall_influx`` ledger column (recycling, ``recycled_neutral_source``).
 
     Returns ``(density, Vi, Te, Ti, neutral_density, ledger, ionisation_rate)``
     with ``ledger`` ordered as ``NEUTRAL_LEDGER_COLUMNS``.
@@ -523,8 +540,10 @@ def neutral_step(density, Vi, Te, Ti, neutral_density, dt, grid: NeutralGrid, pa
     D, _ = neutral_diffusivity(n, te, ti, params)
     D = jnp.where(owner, D, 0.0)
     before = jnp.sum(v * nn)
-    nn_new, relres = implicit_diffusion(nn, D, dt, grid, params, wall_influx)
+    nn_new, relres = implicit_diffusion(nn, D, dt, grid, params, wall_influx, volume_source)
     influx = zero if wall_influx is None else jnp.sum(wall_influx) * dt
+    if volume_source is not None:
+        influx = influx + dt * jnp.sum(v * jnp.where(owner, volume_source, 0.0))
     counts = rate_validity_counts(n, te, ti, params, owner)
     ledger = jnp.concatenate((
         acc,
@@ -532,6 +551,58 @@ def neutral_step(density, Vi, Te, Ti, neutral_density, dt, grid: NeutralGrid, pa
         jnp.stack(counts),
     ))
     return n, vi, te, ti, nn_new, ledger, out.ionization_rate
+
+
+# ------------------------------------------------------------------ recycling
+RECYCLING_LEDGER_COLUMNS = (
+    "time",
+    "wall_ion_loss",  # applied ion wall particle loss of the IMEX step (= step_particle_wall)
+    "recycled_particles",  # R * wall_ion_loss, deposited as neutrals in the wall cells
+    "recycled_energy",  # recycled_particles * E_rec (energy the wall returns with the atoms)
+    "recycled_neutral_thermal",  # recycled_particles * 3/2 T_n (what the fixed-T_n inventory gains)
+    "recycled_energy_reservoir",  # recycled_energy - recycled_neutral_thermal
+    "nuclei",  # sum V (n + N) after the split
+    "nuclei_change",  # over the whole step (IMEX + split)
+    "nuclei_change_expected",  # step_particle_other - (1 - R) wall_ion_loss
+)
+
+
+@dataclass(frozen=True)
+class RecyclingParameters:
+    """Wall recycling: ``R`` of the applied ion wall flux returns as atoms.
+
+    ``energy`` is ``"franck-condon"`` (each atom carries
+    ``franck_condon_energy_ev``, 3 eV) or ``"wall"`` (thermal accommodation,
+    ``3/2 wall_temperature_ev``).
+    """
+
+    coefficient: float = 0.99
+    energy: str = "franck-condon"
+    franck_condon_energy_ev: float = 3.0
+    wall_temperature_ev: float = 0.025
+
+    def energy_per_atom(self, reference_temperature_ev: float) -> float:
+        """Recycled energy per atom in backend units (``Te0``)."""
+
+        if self.energy == "franck-condon":
+            ev = self.franck_condon_energy_ev
+        elif self.energy == "wall":
+            ev = 1.5 * self.wall_temperature_ev
+        else:
+            raise ValueError(f"recycling energy must be 'franck-condon' or 'wall', got {self.energy!r}")
+        return float(ev / reference_temperature_ev)
+
+
+def recycled_neutral_source(wall_loss_rate, coefficient, owner):
+    """Neutral source ``R * (applied ion wall loss rate)`` in each wall owner cell.
+
+    ``wall_loss_rate`` is ``-implicit.n`` of the IMEX step: under the sheath
+    the implicit density row is the area-weighted sum of the wall-leg ion
+    fluxes of that owner (``wall_step_ledger``), so the deposit is exactly
+    the flux the ledger reports, per leg and per owner.
+    """
+
+    return jnp.where(owner, coefficient * wall_loss_rate, 0.0)
 
 
 def knudsen_map(density, Te, Ti, neutral_density, grid: NeutralGrid, params: NeutralParameters):
