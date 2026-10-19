@@ -184,14 +184,27 @@ def test_flux_tube_high_recycling_trend():
     runs = {R: _recycling_flux_tube(R) for R in (0.0, 0.5, 0.8)}
     for R, run in runs.items():
         assert run["residual"] < 1e-5, (R, run["residual"])
-        # particle balance at steady state: (1 - R) wall flux = core source
-        # (the face-state flux used for the source differs from the cell residual's
-        # wall leg by 0.2% at R=0 and 0.8% at R=0.8; documented in the PR, open item)
-        assert (1.0 - R) * run["wall"] == pytest.approx(run["core"], rel=1e-2)
     n_t = [runs[R]["target"][0] for R in (0.0, 0.5, 0.8)]
     te_t = [runs[R]["target"][1] for R in (0.0, 0.5, 0.8)]
     assert n_t[0] < n_t[1] < n_t[2]
     assert te_t[0] > te_t[1] > te_t[2]
+
+
+@pytest.mark.slow
+def test_flux_tube_particle_balance_converges():
+    """(1 - R) wall flux = core source at steady state, to 0.5% at R = 0.8 (the worst case).
+
+    The bulk rows are the characteristic primitive-variable operator, which
+    telescopes to the wall-face flux only up to truncation error, and
+    1 / (1 - R) amplifies it.  The gap at R = 0.8 is 0.8% with 20 cells and
+    0.31% with 40 (order ~1.6); at R = 0 it is 0.16% and 0.05%.  The wall
+    closure's face flux is exact, so this is resolution, not a closure defect.
+    """
+
+    R = 0.8
+    run = _recycling_flux_tube(R, cells=40)
+    assert run["residual"] < 1e-5, run["residual"]
+    assert (1.0 - R) * run["wall"] == pytest.approx(run["core"], rel=5e-3)
 
 
 @pytest.mark.slow
