@@ -1,0 +1,28 @@
+# Hasegawa-Wakatani drift-wave turbulence (2-D, pseudo-spectral).
+#   drbx run examples/inputs/hasegawa_wakatani.toml
+# Every key is documented in docs/decks.md; omitted keys take the Python defaults.
+[model]
+backend = "hasegawa_wakatani"
+
+[hasegawa_wakatani]
+adiabaticity = 1.0
+gradient = 1.0
+hyperviscosity = 1.0e-2
+friction = 3.0e-2
+
+[grid]
+n = 32
+length = 25.1327
+
+[run]
+dt = 5.0e-3
+steps_per_block = 200
+blocks = 4
+save_frames = true
+
+# Optional: d<flux>/d(parameter) by autodiff, checked against finite differences.
+[autodiff]
+parameter = "gradient"
+
+[output]
+directory = "../../output/hasegawa_wakatani"

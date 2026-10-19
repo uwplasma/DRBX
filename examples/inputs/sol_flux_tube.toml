@@ -1,0 +1,21 @@
+# Open-field-line SOL flux tube: Bohm sheath, two-point steady state.
+[model]
+backend = "sol_flux_tube"
+
+[open_slab]
+shape = [1, 1, 100]
+parallel_length = 40.0
+
+[sol_flux_tube]
+source_amplitude = 0.02
+source_width = 4.0
+
+[sheath]
+recycling_fraction = 0.95
+
+[run]
+steps = 6000
+report_every = 2000
+
+[output]
+directory = "../../output/sol_flux_tube"

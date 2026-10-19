@@ -893,6 +893,7 @@ def build_local_eb_model(
     gmres_max_iterations: int,
     gmres_restart: int = 100,
     gmres_residual_correction_steps: int = 0,
+    gmres_preconditioner: str = "line-u",
     control_volume_geometry=None,
     control_volume_boundary_bc=None,
     curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
@@ -997,7 +998,7 @@ def build_local_eb_model(
             regularization_epsilon=float(
                 parameters.phi_inversion_regularization
             ),
-            preconditioner="line-u",
+            preconditioner=gmres_preconditioner,
             residual_correction_steps=int(gmres_residual_correction_steps),
         ),
         face_bc_builder=build_face_bc_bundle,
@@ -1423,6 +1424,7 @@ def run_full_eb(
     gmres_max_iterations: int,
     gmres_restart: int = 100,
     gmres_residual_correction_steps: int = 0,
+    gmres_preconditioner: str = "line-u",
     time_integrator: str = "imex-ssp222",
     advance_execution: str = "compiled",
     num_steps: int,
@@ -1668,6 +1670,7 @@ def run_full_eb(
             gmres_residual_correction_steps=int(
                 gmres_residual_correction_steps
             ),
+            gmres_preconditioner=gmres_preconditioner,
             control_volume_geometry=local_control_volume_geometry,
             control_volume_boundary_bc=control_volume_boundary_bc,
             curvature_face_coefficients_override=(
@@ -3016,6 +3019,7 @@ class HsxBlobConfig:
     gmres_max_iterations: int = 500
     gmres_restart: int = 100
     gmres_residual_correction_steps: int = 1
+    gmres_preconditioner: str = "line-u"
     no_phase_timing: bool = False
     geometry_only: bool = False
     output: Path = SCRIPT_DIR / "hsx_blob_history.npz"
@@ -3032,60 +3036,19 @@ _SEQUENCE_ITEM_TYPES = {
 }
 
 
-def _coerce_deck_value(name: str, value: object, base_dir: Path) -> object:
-    def scalar(kind: type, item: object) -> object:
-        if kind is float and isinstance(item, (int, float)) and not isinstance(item, bool):
-            return float(item)
-        if isinstance(item, kind) and (kind is bool or not isinstance(item, bool)):
-            return item
-        raise ValueError(f"[fci_braginskii] {name} must be {kind.__name__}, got {item!r}")
-
-    if name in _PATH_FIELDS:
-        path = Path(str(scalar(str, value))).expanduser()
-        return path if path.is_absolute() else base_dir / path
-    if name in _SEQUENCE_ITEM_TYPES:
-        kind, length = _SEQUENCE_ITEM_TYPES[name]
-        if not isinstance(value, list) or (length is not None and len(value) != length):
-            raise ValueError(f"[fci_braginskii] {name} must be a list of {length or 'any number of'} values")
-        return tuple(scalar(kind, item) for item in value)
-    return scalar(type(getattr(_DEFAULTS, name)), value)
-
-
 def load_hsx_blob_deck(path: str | Path) -> HsxBlobConfig:
     """Read an ``[model] backend = "fci_braginskii"`` TOML deck.
 
     Relative paths resolve against the deck directory; unknown tables or keys
-    are errors.
+    are errors.  The generic schema loader lives in :mod:`drbx.deck`.
     """
 
-    from ..config.boutinp import tomllib
+    from ..deck import load_deck
 
-    source = Path(path)
-    data = tomllib.loads(source.read_text(encoding="utf-8"))
-    unknown_tables = sorted(set(data) - {"model", "fci_braginskii"})
-    if unknown_tables:
-        raise ValueError(f"unknown table(s) in fci_braginskii deck: {unknown_tables}")
-    model = data.get("model", {})
-    if set(model) != {"backend"} or model["backend"] != FCI_BRAGINSKII_BACKEND:
-        raise ValueError(f'[model] must contain only backend = "{FCI_BRAGINSKII_BACKEND}"')
-    table = data.get("fci_braginskii", {})
-    known = {field.name for field in fields(HsxBlobConfig)}
-    unknown = sorted(set(table) - known)
-    if unknown:
-        raise ValueError(f"unknown [fci_braginskii] key(s): {unknown}")
-    base_dir = source.resolve().parent
-    config = HsxBlobConfig(
-        **{name: _coerce_deck_value(name, value, base_dir) for name, value in table.items()}
-    )
-    if config.geometry is None:
-        raise ValueError("[fci_braginskii] geometry is required")
-    if config.blob_initialization not in ("field-aligned", "logical"):
-        raise ValueError("[fci_braginskii] blob_initialization must be 'field-aligned' or 'logical'")
-    if config.advance_execution not in ("compiled", "staged-compiled", "eager"):
-        raise ValueError(
-            "[fci_braginskii] advance_execution must be 'compiled', 'staged-compiled' or 'eager'"
-        )
-    return config
+    backend, config = load_deck(path)
+    if backend != FCI_BRAGINSKII_BACKEND:
+        raise ValueError(f'[model] backend must be "{FCI_BRAGINSKII_BACKEND}"')
+    return config["fci_braginskii"]
 
 
 def _deck_error(message: str) -> None:
@@ -3311,6 +3274,14 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         help=(
             "Number of reliable true-residual correction solves attempted "
             "only when the primary GMRES result would otherwise be rejected."
+        ),
+    )
+    option(
+        "gmres_preconditioner",
+        choices=("none", "line-u"),
+        help=(
+            "Right preconditioner of the potential GMRES solves: the "
+            "production per-eta radial-tree line-u solve, or none."
         ),
     )
     option(
@@ -3696,7 +3667,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         f"max_iterations={int(args.gmres_max_iterations)}, "
         f"restart={min(int(args.gmres_restart), int(args.gmres_max_iterations))}, "
         f"residual_corrections={int(args.gmres_residual_correction_steps)}, "
-        "preconditioner=line-u, "
+        f"preconditioner={args.gmres_preconditioner}, "
         + (
             "solver_space=owner-grid-RLP"
             if control_volume_descriptor is not None
@@ -3723,6 +3694,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         gmres_residual_correction_steps=int(
             args.gmres_residual_correction_steps
         ),
+        gmres_preconditioner=str(args.gmres_preconditioner),
         parallel_operator_scheme="fci",
         time_integrator="imex-ssp222",
         advance_execution=str(args.advance_execution),
@@ -3821,7 +3793,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             "gmres_residual_correction_steps": int(
                 args.gmres_residual_correction_steps
             ),
-            "gmres_preconditioner": "line-u",
+            "gmres_preconditioner": str(args.gmres_preconditioner),
             "phi_solver_space": (
                 "owner-grid-RLP"
                 if control_volume_descriptor is not None

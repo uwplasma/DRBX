@@ -1,0 +1,27 @@
+# Recycling SOL with neutrals (AMJUEL rates), plus a detachment-onset scan.
+[model]
+backend = "sol_recycling"
+
+[sol_recycling]
+parallel_length = 30.0
+upstream_density = 4.0
+recycling_fraction = 0.95
+
+[sol_recycling.normalization]
+Nnorm = 1.0e19
+Tnorm = 100.0
+
+[profile]
+nz = 100
+upstream_ev = 30.0
+target_ev = 1.5
+
+[run]
+steps = 6000
+report_every = 3000
+
+[scan]
+upstream_density = [1.0, 8.0]
+
+[output]
+directory = "../../output/sol_recycling"

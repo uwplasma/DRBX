@@ -16,7 +16,8 @@ def test_removed_axis_experiment_cli_options_are_absent():
     assert "pole_collapsed_radial_rings" not in destinations
     assert "phi_solver_space" not in destinations
     assert "axis_core_state_space" not in destinations
-    assert "gmres_preconditioner" not in destinations
+    # gmres_preconditioner is explicit config (none | line-u), not an experiment selector.
+    assert "gmres_preconditioner" in destinations
 
 
 def test_parser_removes_producer_geometry_controls():
