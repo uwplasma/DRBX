@@ -3610,6 +3610,7 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         help="Initial neutral profile N0 exp(-(1-u)/L) in the radial label u; 0 = uniform.",
     )
     option("neutral_reaction_substeps", help="Explicit reaction substeps per time step.")
+    option(
         "sheath_potential",
         choices=SHEATH_POTENTIALS,
         help=(
