@@ -21,6 +21,8 @@ commands are documented separately and require explicit local inputs.
 
 ## TOML Decks
 
+Every model reachable from Python also runs from a TOML deck with `[model] backend = "<name>"`; every table, key and output of those decks is in the [Deck Reference](decks.md). The rest of this section describes the BOUT-style native decks.
+
 The native runtime reads TOML decks. A minimal promoted deck is committed at
 [`examples/inputs/restartable_diffusion.toml`](https://github.com/uwplasma/drbx/blob/main/examples/inputs/restartable_diffusion.toml).
 

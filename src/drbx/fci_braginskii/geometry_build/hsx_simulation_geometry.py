@@ -76,6 +76,10 @@ class HsxSimulationGeometryConfig:
         if len(resolution) != 3 or any(value < 1 for value in resolution):
             raise ValueError("resolution must contain three positive integers")
         object.__setattr__(self, "resolution", resolution)
+        if self.makegrid_path is None and self.makegrid_currents is None:
+            from .hsx_fci_builder import DEFAULT_HSX_QHS_MAKEGRID_CURRENTS
+
+            object.__setattr__(self, "makegrid_currents", DEFAULT_HSX_QHS_MAKEGRID_CURRENTS)  # QHS
         if len(tuple(self.fit_sample_shape)) != 3:
             raise ValueError("fit_sample_shape must contain three integers")
         object.__setattr__(self, "fit_sample_shape", tuple(int(v) for v in self.fit_sample_shape))

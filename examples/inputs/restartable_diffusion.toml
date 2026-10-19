@@ -1,48 +1,54 @@
+# Anomalous diffusion of a density/pressure blob, with restart (BOUT-style deck, about 5 s).
+#   drbx run examples/inputs/restartable_diffusion.toml
+# Continue it for 2 more output intervals from the restart file it wrote:
+#   drbx run examples/inputs/restartable_diffusion.toml --output-dir output/resumed \
+#       --restart-in output/restartable_diffusion/restartable_diffusion_restart.npz --resume-steps 2
+# (or set input / resume_steps in a [restart] table).  Keys: docs/input_output_reference.md.
 [time]
-nout = 3
-timestep = 5.0
+nout = 3                # output intervals
+timestep = 5.0          # length of one interval (normalized time)
 
 [runtime]
-precision = "float64"
+precision = "float64"   # "float32" is faster and less accurate
 
 [runtime.logging]
-verbosity = "detailed"
+verbosity = "detailed"  # "summary" prints less
 verbose = true
 quiet = false
 
 [mesh]
-nx = 16
+nx = 16                 # cells in x, y, z
 ny = 24
 nz = 1
-dx = { expr = "0.0075 + 0.005*x" }
+dx = { expr = "0.0075 + 0.005*x" }  # expressions of x, y, z are allowed
 dy = 0.01
 dz = 0.01
-J = 1
+J = 1                   # Jacobian
 
 [solver]
-mxstep = 1000
+mxstep = 1000           # maximum internal steps per interval
 
 [output]
-directory = "output/restartable_diffusion"
-write_summary = true
-write_arrays = true
-write_restart = true
-write_log = true
+directory = "output/restartable_diffusion"  # relative to the working directory
+write_summary = true    # <case>_summary.json
+write_arrays = true     # <case>_arrays.npz: fields and times
+write_restart = true    # <case>_restart.npz: what --restart-in reads
+write_log = true        # <case>_run_log.json: events and timings
 
 [model]
-components = ["h"]
+components = ["h"]      # species to evolve
 
 [species.h]
 type = ["evolve_density", "evolve_pressure", "anomalous_diffusion"]
-AA = 1
+AA = 1                  # mass number
 charge = 1
-anomalous_D = 2.0
+anomalous_D = 2.0       # diffusion coefficient
 thermal_conduction = false
 
 [fields.Nh]
-function = { expr = "1 + H(x - 0.25) * H(0.75-x) * exp(-(y-pi)^2)" }
-bndry_all = "neumann"
+function = { expr = "1 + H(x - 0.25) * H(0.75-x) * exp(-(y-pi)^2)" }  # initial blob
+bndry_all = "neumann"   # zero-gradient boundaries
 
 [fields.Ph]
-function = { ref = "Nh:function" }
+function = { ref = "Nh:function" }  # same initial profile as the density
 bndry_all = "neumann"

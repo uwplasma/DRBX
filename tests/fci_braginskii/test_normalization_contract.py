@@ -47,7 +47,7 @@ from drbx.fci_braginskii.native.fci_drb_EB_rhs import (
 jax.config.update("jax_enable_x64", True)
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
+DRIVER_PATH = REPOSITORY / "src" / "drbx" / "fci_braginskii" / "run.py"
 DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 DOCS_PATH = REPOSITORY / "docs" / "fci_braginskii_hsx_backend.md"
 
@@ -91,29 +91,8 @@ def _normalization_section() -> str:
 # --------------------------------------------------------------------------
 
 
-def test_driver_default_rho_star_matches_documented_value():
-    args = _driver_module()._build_parser().parse_args(())
-    section = _normalization_section()
-    documented = re.search(r"default rho\* is (\S+) \(", section)
-    assert documented is not None
-    assert args.rho_star == float(documented.group(1)) == 5.0e-4
-    # The documented time base is t = 0.15 in 200 steps.
-    assert args.final_time == 0.15
-    assert args.num_steps == 200
-    assert math.isclose(args.final_time / args.num_steps, 7.5e-4)
-    # tau = Ti/Te and the hydrogen mass ratio are the other dimensionless inputs.
-    assert args.tau == 1.0
-    assert args.mi_over_me == 1836.0
-    assert math.isclose(args.mi_over_me, PROTON_MASS / ELECTRON_MASS, rel_tol=1.0e-3)
 
 
-def test_rho_star_help_states_the_metre_reference_and_scalings():
-    parser = _driver_module()._build_parser()
-    action = next(a for a in parser._actions if a.dest == "rho_star")
-    help_text = " ".join(action.help.split())
-    assert "L_ref = 1 m" in help_text
-    assert "by rho*, polarization by rho*^2" in help_text
-    assert "Te ~ 24 eV and B = 1 T" in help_text
 
 
 # --------------------------------------------------------------------------

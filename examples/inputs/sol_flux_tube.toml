@@ -1,0 +1,27 @@
+# Open-field-line SOL flux tube: Bohm sheaths at both targets (about 5 s).
+#   drbx run examples/inputs/sol_flux_tube.toml
+# Relaxes to the two-point state (Mach -> -1/+1 at the targets, n_target/n_up -> 0.5)
+# and reports the sheath/recycling accounting.  Normalized: lengths L, speeds c_s.
+
+[model]
+backend = "sol_flux_tube"
+
+[open_slab]
+shape = [1, 1, 100]     # [nx, ny, nz]; one flux tube, nz cells along the field (100 - 400)
+parallel_length = 40.0  # connection length between the targets
+
+[sol_flux_tube]
+source_amplitude = 0.02 # peak upstream particle source; raises the density level
+source_width = 4.0      # parallel 1/e width of the source
+
+[sheath]
+recycling_fraction = 0.95 # share of the target ion flux returned as neutrals (0 - 1)
+
+[run]
+steps = 6000            # RK4 steps; 6000 gives Mach ~0.9, use 60000 for the converged state
+report_every = 2000     # steps per progress line / residual sample
+electron_temperature = 0.5 # target T_e for the sheath diagnostic (Te + Ti = c_s^2 = 1)
+ion_temperature = 0.5
+
+[output]
+directory = "../../output/sol_flux_tube"

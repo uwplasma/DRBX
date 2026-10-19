@@ -1,0 +1,34 @@
+# Hasegawa-Wakatani drift-wave turbulence on a periodic 2-D box (about 10 s).
+#   drbx run examples/inputs/hasegawa_wakatani.toml
+# Writes <output>/hasegawa_wakatani_{summary.json,arrays.npz}.  Every key is
+# optional; the values here are the small, fast ones.  Lengths are in rho_s.
+# All keys: docs/decks.md.
+
+[model]
+backend = "hasegawa_wakatani"
+
+[hasegawa_wakatani]
+adiabaticity = 1.0      # alpha, parallel coupling.  0.1 gives streamers; 2+ weak transport.
+gradient = 1.0          # kappa, density-gradient drive of the instability (0.3 - 3).
+hyperviscosity = 1.0e-2 # nu, damps the grid scale; raise it if the run blows up.
+friction = 3.0e-2       # mu, large-scale drag; 0 lets the inverse cascade pile up.
+
+[grid]
+n = 32                  # points per side (32 here; 96-256 for real turbulence)
+length = 25.1327        # box side, 8 * 2*pi rho_s; sets the smallest wavenumber 2*pi/length
+
+[run]
+dt = 5.0e-3             # RK4 step; stiff in alpha / k_min^2, halve it if unstable
+steps_per_block = 200   # steps between diagnostics (one time/energy/flux sample each)
+blocks = 4              # total time = blocks * steps_per_block * dt
+seed = 0                # RNG seed of the initial noise
+seed_amplitude = 5.0e-2 # rms of the initial noise
+save_frames = true      # also store the vorticity after every block (for movies)
+
+# Optional.  d<flux>/d(parameter) by autodiff, checked against finite differences.
+[autodiff]
+parameter = "gradient"  # any [hasegawa_wakatani] key
+fd_step = 1.0e-3        # relative step of the finite-difference check
+
+[output]
+directory = "../../output/hasegawa_wakatani"   # relative to this file

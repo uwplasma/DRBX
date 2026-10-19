@@ -17,7 +17,7 @@ import numpy as np
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
+DRIVER_PATH = REPOSITORY / "src" / "drbx" / "fci_braginskii" / "run.py"
 DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 

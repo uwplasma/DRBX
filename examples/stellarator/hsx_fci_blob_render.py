@@ -1,7 +1,7 @@
 """HSX FCI Braginskii filament: run the backend, then render 3-D context, R-Z sections and a movie.
 
-Runs ``drbx.fci_braginskii.run.run`` (the same driver as ``simulate_hsx_blob.py``
-and ``drbx run examples/inputs/hsx_fci_blob.toml``) on the canonical 32^3 HSX
+Runs ``drbx.fci_braginskii.run.run`` (the driver behind
+``drbx run examples/inputs/hsx_fci_blob.toml``) on the canonical 32^3 HSX
 geometry bundle, then renders the saved history.
 
 Run from the repository root:

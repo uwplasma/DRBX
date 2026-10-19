@@ -5,7 +5,7 @@ for HSX. It is the plasma model of the 2D_fci line at
 `d340f4d638e0d9495546d1fd2e2c66c1c206704a`, vendored into its own namespace
 (`drbx.fci_braginskii.native`, `drbx.fci_braginskii.geometry`) and independent
 of the `drbx.native` FCI modules. The code was reduced to the one production
-configuration below; with `--rho-star 1 --no-implicit-current-phi-pair` the
+configuration below; with `rho_star = 1` and `implicit_current_phi_pair = false` the
 compiled advance and its fields are identical to the base commit. The
 defaults add two changes on top of that: a consistent rho* normalization and
 an implicit current/potential pair (see Normalization below). Tracing is
@@ -15,7 +15,7 @@ jaxpr-walking error messages (`drbx.fci_braginskii._host_guards`).
 The backend consumes a precomputed geometry artifact. The geometry builder
 that produces it (field-line tracing, metric fitting, RLP construction) is a
 separate subpackage, `drbx.fci_braginskii.geometry_build`, run through
-`generate_hsx_fci_geometry.py`. It is the 2D_fci producer at
+the `[geometry]` deck table. It is the 2D_fci producer at
 `6c2b005d81d3`, the commit that built the canonical 32-cubed bundle, with only
 its imports changed. It keeps its own copies of the geometry and boundary
 modules it shares with the backend, so building geometry cannot change the
@@ -31,7 +31,7 @@ backend.
   solve treating mu*grad_par(phi) and the homogeneous parallel current
   divergence implicitly, with every other coefficient frozen at the stage
   state; the wall current lift stays explicit.
-  `--no-implicit-current-phi-pair` restores the explicit pair.
+  `implicit_current_phi_pair = false` restores the explicit pair.
 - Parallel transport: FCI parallel operator, production-path characteristic
   material fluxes with support-core pairing and characteristic-SAT
   boundaries, physical-boundary-state characteristic wall law.
@@ -58,7 +58,7 @@ rho* = 1.
 
 ## Geometry artifact
 
-`--geometry` names a directory with `manifest.json` (schema
+`geometry` names a directory with `manifest.json` (schema
 `drbx.fci_simulation_geometry`, version 1). The reader
 (`drbx.fci_braginskii.geometry.fci_simulation_geometry`) loads the base
 geometry, centre maps, RLP topology and cell positions, and ignores the
@@ -81,11 +81,11 @@ python -c "from drbx.fci_braginskii.geometry_build.fci_simulation_geometry impor
 
 ## Building geometry
 
-`generate_hsx_fci_geometry.py` builds a bundle from the HSX vacuum field and
+The `[geometry]` deck table (`build_hsx_simulation_geometry`) builds a bundle from the HSX vacuum field and
 vessel. The default build needs only files shipped with DRBX (see "Building
 from coils" below). The mgrid route needs the MAKEGRID file, which is not in
-the repository and is obtained from the maintainers; `--makegrid` and
-`--vessel` override the paths.
+the repository and is obtained from the maintainers; `makegrid_path` and
+`vessel_path` override the paths.
 
 | File | Size | SHA-256 |
 |---|---|---|
@@ -97,18 +97,21 @@ length but a different SHA-256 (`b5ad2a36...`), so a rebuild from these inputs
 is close to the canonical bundle but not identical to it (see below). The
 default coil
 currents are the QHS configuration (10722 A in the first six MAKEGRID coil
-groups, the main coils, and 0 A in the other six); `--makegrid-currents`
+groups, the main coils, and 0 A in the other six); `makegrid_currents`
 changes them.
 
 The canonical 32-cubed settings:
 
-```bash
-python generate_hsx_fci_geometry.py \
-  --resolution 32 32 32 --metric-mesh-shape 32 32 32 \
-  --fit-sample-shape 64 64 64 --toroidal-modes 10 --metric-toroidal-modes 3 \
-  --include-curvature-edge-one-form \
-  --metric-cache-dir /path/to/build/metric_cache \
-  --output /path/to/build/hsx_fci_32x32x32
+```toml
+[geometry]
+resolution = [32, 32, 32]
+metric_mesh_shape = [32, 32, 32]
+fit_sample_shape = [64, 64, 64]
+toroidal_modes = 10
+metric_toroidal_modes = 3
+include_curvature_edge_one_form = true
+metric_cache_dir = "/path/to/build/metric_cache"
+cache_dir = "/path/to/build"
 ```
 
 The builder runs in stages (metric fit and cell maps, vertex-trace atlas,
@@ -117,7 +120,7 @@ stages are checkpointed in the output's sibling
 `.NAME.producer-checkpoints/` directory, so an interrupted build resumes.
 The bundle is written atomically after its structural checks pass. Field-line
 tracing uses JAX by default and shards the trajectory batch across all local
-devices (`--trace-device-count`, `--trace-batch-size`); `--trace-backend numpy`
+devices (`trace_device_count`, `trace_batch_size`); `--trace-backend numpy`
 is the reference implementation.
 
 On an 8-core M1 the canonical 32-cubed build takes about 17 minutes with a
@@ -135,20 +138,20 @@ The HSX coil file ships with DRBX at `examples/inputs/hsx/coils.hsx`
 `0bb6cf70cf1696489ec6b67bfadc0a60b128fec12f8cfdf95aa2982482eb13fe`), the
 vessel outline at `examples/inputs/hsx/vessel_hsx_flare.txt` (SHA-256 above),
 and
-`generate_hsx_fci_geometry.py` uses it by default: B is evaluated from these
+`[geometry]` uses it by default: B is evaluated from these
 filaments (the ones the mgrid was made from) with the exact straight-segment
 Biot--Savart law, at the QHS currents
 (`10722,10722,10722,10722,10722,10722,0,0,0,0,0,0`) unless
-`--makegrid-currents` says otherwise. `--coils PATH` selects another coil
-file; `--makegrid PATH` switches back to an mgrid field. In Python,
+`makegrid_currents` says otherwise. `coils_path` selects another coil
+file; `makegrid_path` switches back to an mgrid field. In Python,
 `build_hsx_fci_geometry(bfield_provider=...)` accepts any
 `drbx.geometry.field_provider.MagneticFieldProvider` (ESSOS coils,
 `FilamentCoilField`), so the field is a differentiable function of the coil
 parameters.
 
-By default `--coils` does not evaluate Biot--Savart at every trace step. It
+By default `coils` does not evaluate Biot--Savart at every trace step. It
 tabulates the coils once, in memory, on a uniform `(R, phi, Z)` grid over one
-field period (`--coil-table-shape NR NPHI NZ`, default `96 144 96`;
+field period (`coil_table_shape`, default `[96, 144, 96]`;
 stellarator symmetry halves the evaluations) and interpolates the table with
 the same cubic B-spline the mgrid path uses (`CoilFieldTable` in
 `provider_bfield.py`). The table and its spline coefficients are JAX arrays
@@ -156,27 +159,32 @@ computed from the coil parameters, so derivatives still reach the coil
 currents and nodes. At the default shape the table differs from direct coil
 evaluation by a median 1e-7 (p99 5e-6) relative error at the bundle cell
 centres, below the coil-vs-mgrid difference, and costs about 2 minutes on a
-laptop. `--direct-coils` evaluates the coils at every step instead (about 25x
+laptop. `coil_table_shape = None` (Python) evaluates the coils at every step instead (about 25x
 slower tracing).
 
 ## Running
 
 From the repository root:
 
-```bash
-python simulate_hsx_blob.py --geometry artifacts/geometry/hsx_fci_32x32x32 \
-  --save-every 10 --checkpoint-every 50 --diagnostic-every 10 \
-  --filament-cache-dir /path/to/run/initialization_cache \
-  --output /path/to/run/history.npz
+```toml
+[fci_braginskii]
+geometry = "artifacts/geometry/hsx_fci_32x32x32"
+save_every = 10
+checkpoint_every = 50
+diagnostic_every = 10
+filament_cache_dir = "/path/to/run/initialization_cache"
+output = "/path/to/run/history.npz"
 ```
 
-The same run can be described as a TOML deck and launched with
-`drbx run examples/inputs/hsx_fci_blob.toml` (`drbx inspect` prints the
-resolved configuration). The deck's `[fci_braginskii]` keys are the option
-names above with underscores; omitted keys take the same defaults and unknown
-keys are errors. Both routes call `drbx.fci_braginskii.run.run`, print one
+```bash
+drbx run deck.toml
+```
+
+`drbx run examples/inputs/hsx_fci_blob.toml` runs a deck (`drbx inspect` prints
+the resolved configuration); omitted keys take the defaults and unknown keys
+are errors. It calls `drbx.fci_braginskii.run.run`, print one
 progress line per step (step, time, timings, ETA) and write the history to
-`--output` (the deck's `output` key).
+`output`.
 
 The defaults run to t = 0.15 in 200 steps (dt = 7.5e-4) at rho* = 5e-4 with
 the implicit current/potential pair. With the explicit pair this rho* limits
@@ -213,12 +221,12 @@ overrides that. Set `DRBX_CACHE_DIR` to a writable, run-local JAX compilation
 cache so repeated runs skip compilation.
 
 Remaining options cover time and output cadence, snapshots and restarts, the
-initial filament (`--blob-*`, `--density-amplitude`), physical parameters
-(`--tau`, `--rho-star`, `--mi-over-me`, `--perp-diffusion`,
-`--parallel-diffusion` (default 0), `--electron-collision-frequency`) and GMRES
-tolerances; see `python simulate_hsx_blob.py --help`.
+initial filament (`--blob-*`, `density_amplitude`), physical parameters
+(`tau`, `rho_star`, `mi_over_me`, `perp_diffusion`,
+`parallel_diffusion` (default 0), `electron_collision_frequency`) and GMRES
+tolerances; see [Deck Reference](decks.md).
 
-`--advance-execution` selects how each step runs:
+`advance_execution` selects how each step runs:
 
 - `staged-compiled` (default): four reusable kernels (implicit stage with
   potential solve, explicit right-hand side, standalone potential, stage
@@ -228,14 +236,14 @@ tolerances; see `python simulate_hsx_blob.py --help`.
   work inside the right-hand side.
 
 Phase timing, which reports the operator and GMRES shares of each step, is on
-by default; `--no-phase-timing` disables it. At N32 with the defaults the
+by default; `no_phase_timing` disables it. At N32 with the defaults the
 potential solves take a little over half of each step (about 90 GMRES
 iterations per solve on average, four solves per step: two coupled
 current/potential solves and two standalone potential solves), and a step
 takes about 16 s on an 8-core M1.
 
 Multi-device runs decompose only the toroidal (eta) direction:
-`--shard-counts 1 1 N`, with N dividing the eta resolution; other splits are
+`shard_counts = [1, 1, N]`, with N dividing the eta resolution; other splits are
 rejected. On CPU, emulate N devices with
 `XLA_FLAGS=--xla_force_host_platform_device_count=N` (the driver does not read
 `DRBX_HOST_DEVICE_COUNT`). Every flag in `XLA_FLAGS` needs its `--` prefix: a

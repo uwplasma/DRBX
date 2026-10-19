@@ -18,7 +18,7 @@ import pytest
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
+DRIVER_PATH = REPOSITORY / "src" / "drbx" / "fci_braginskii" / "run.py"
 DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 
@@ -70,47 +70,19 @@ def _sharded_geometry():
     )
 
 
-def _main_error(hsx, capsys, *argv: str) -> str:
+def _main_error(hsx, **config) -> str:
+    def fail(message):
+        raise SystemExit(message)
+
     with pytest.raises(SystemExit) as error:
-        hsx.main(list(argv))
-    assert error.value.code == 2
-    return capsys.readouterr().err
+        hsx.run(hsx.HsxBlobConfig(**config), fail=fail)
+    return str(error.value)
 
 
-def test_parser_exposes_production_controls_without_removed_selectors():
-    hsx = _driver_module()
-    parser = hsx._build_parser()
-    args = parser.parse_args([])
-    assert args.gmres_residual_correction_steps == 1
-    assert args.checkpoint_every == 0
-    assert not any(
-        "--production-characteristic-solver" in action.option_strings
-        for action in parser._actions
-    )
-    assert not any(
-        "--flux-framework" in action.option_strings for action in parser._actions
-    )
-    assert not any(
-        "--parallel-operator-scheme" in action.option_strings
-        for action in parser._actions
-    )
-    assert not any(
-        "--time-integrator" in action.option_strings for action in parser._actions
-    )
-    assert not any("--fci-trace-substeps" in action.option_strings for action in parser._actions)
-    assert not any(
-        "--curvature-rlp-face-scheme" in action.option_strings
-        for action in parser._actions
-    )
-
-
-def test_periodic_checkpoint_interval_is_validated_before_lowering(
-    fake_geometry_artifact, capsys
-):
+def test_periodic_checkpoint_interval_is_validated_before_lowering(fake_geometry_artifact):
     hsx = _driver_module()
     path, _ = fake_geometry_artifact(hsx)
-    message = _main_error(hsx, capsys, "--geometry", str(path), "--checkpoint-every", "-1")
-    assert "--checkpoint-every must be nonnegative" in message
+    assert "must be nonnegative" in _main_error(hsx, geometry=path, checkpoint_every=-1)
 
 
 def test_periodic_checkpoint_is_step_indexed_and_plumbed_to_full_run():
@@ -206,20 +178,20 @@ def test_noncanonical_cell_checkpoint_uses_aggregation_fallback():
     assert candidate is state
 
 
-def test_non_toroidal_geometry_artifact_is_rejected(fake_geometry_artifact, capsys):
+def test_non_toroidal_geometry_artifact_is_rejected(fake_geometry_artifact):
     hsx = _driver_module()
     path, _ = fake_geometry_artifact(hsx, topology="square")
-    message = _main_error(hsx, capsys, "--geometry", str(path))
-    assert "could not load --geometry artifact" in message
+    message = _main_error(hsx, geometry=path)
+    assert "could not load geometry artifact" in message
     assert "the HSX backend requires a toroidal geometry artifact" in message
     assert "got topology 'square'" in message
 
 
-def test_toroidal_artifact_without_rlp_topology_is_rejected(fake_geometry_artifact, capsys):
+def test_toroidal_artifact_without_rlp_topology_is_rejected(fake_geometry_artifact):
     hsx = _driver_module()
     path, artifact = fake_geometry_artifact(hsx)
     artifact.polar_angular_geometry = None
-    assert "RLP topology" in _main_error(hsx, capsys, "--geometry", str(path))
+    assert "RLP topology" in _main_error(hsx, geometry=path)
 
 
 def test_every_geometry_assembling_kernel_has_a_map_operand_and_spec():
@@ -304,7 +276,7 @@ def test_geometry_only_lowers_the_artifact_and_stops(monkeypatch, fake_geometry_
         hsx, "run_full_eb", lambda *_a, **_k: pytest.fail("--geometry-only must not run")
     )
 
-    hsx.main(["--geometry", str(path), "--geometry-only"])
+    hsx.run(hsx.HsxBlobConfig(geometry=path, geometry_only=True))
 
     assert [call[0] for call in lowering_calls] == [artifact.geometry]
 
@@ -323,18 +295,7 @@ def test_fci_main_passes_production_scheme_and_metadata_to_run(
     calls = []
     monkeypatch.setattr(hsx, "run_full_eb", lambda *args, **kwargs: calls.append(kwargs))
 
-    hsx.main(
-        [
-            "--geometry",
-            str(path),
-            "--num-steps",
-            "1",
-            "--final-time",
-            "1e-6",
-            "--checkpoint-every",
-            "17",
-        ]
-    )
+    hsx.run(hsx.HsxBlobConfig(geometry=path, num_steps=1, final_time=1e-6, checkpoint_every=17))
     assert calls
     metadata = calls[0]["run_metadata"]
     assert calls[0]["parallel_operator_scheme"] == "fci"

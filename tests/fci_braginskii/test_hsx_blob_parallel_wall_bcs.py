@@ -16,7 +16,7 @@ from drbx.fci_braginskii.native.fci_drb_EB_rhs import (
 from drbx.fci_braginskii.native.fci_boundaries import BC_DIRICHLET, BC_NEUMANN
 
 
-DRIVER = Path(__file__).parents[2] / "simulate_hsx_blob.py"
+DRIVER = Path(__file__).parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 
 def _load_driver():

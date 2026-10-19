@@ -5,7 +5,7 @@ import os
 import jax
 import pytest
 
-import simulate_hsx_blob as driver
+from drbx.fci_braginskii import run as driver
 from drbx.fci_braginskii.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
 
 
