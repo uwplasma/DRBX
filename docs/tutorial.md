@@ -90,18 +90,10 @@ builds from a fresh clone.
 A small bundle (16 cells per direction, about 3 min):
 
 ```bash
-python generate_hsx_fci_geometry.py --resolution 16 16 16 --metric-mesh-shape 16 16 16 \
-  --metric-poloidal-modes 6 --metric-toroidal-modes 3 --toroidal-modes 3 \
-  --output output/hsx_16
+drbx run examples/inputs/hsx_fci_blob.toml
 ```
 
-Seed a density filament and advance four IMEX steps (about 90 s, mostly
-one-time compilation):
-
-```bash
-python simulate_hsx_blob.py --geometry output/hsx_16 --num-steps 4 --final-time 3e-3 \
-  --save-every 4 --output output/hsx/history.npz
-```
+The deck's `[geometry]` table builds (and caches under `output/hsx_geometry`) the 16-cell geometry from the shipped coils and vessel, then `[fci_braginskii]` seeds a density filament and advances four IMEX steps; edit `resolution`, `num_steps` or `final_time` there. The history is written to `output/hsx_fci_blob/hsx.npz`.
 
 Each progress line gives the step time, the GMRES iterations of the implicit
 potential solve and the density range. `history.npz` holds `density`, `phi`,
@@ -112,7 +104,7 @@ potential solve and the density range. `history.npz` holds `density`, `phi`,
 import matplotlib.pyplot as plt
 import numpy as np
 
-h = np.load("output/hsx/history.npz")
+h = np.load("output/hsx_fci_blob/hsx.npz")
 n, phi, xyz = h["density"], h["phi"], h["cartesian"]   # n[time, u, v, eta]; xyz[u, v, eta, 3]
 k = int(np.argmax((n[0] - 1).max(axis=(0, 1))))        # toroidal plane through the filament
 R, Z = np.hypot(xyz[:, :, k, 0], xyz[:, :, k, 1]), xyz[:, :, k, 2]

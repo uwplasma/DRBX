@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Run a full seven-field EB blob on a precomputed HSX FCI geometry artifact.
 
-Entry points: ``drbx run <deck.toml>`` (deck with ``[model] backend =
-"fci_braginskii"``) and the compatibility script ``simulate_hsx_blob.py``.
-Both build one :class:`HsxBlobConfig` and call :func:`run`.
+Entry point: ``drbx run <deck.toml>`` (deck with ``[model] backend =
+"fci_braginskii"``), which builds one :class:`HsxBlobConfig` and calls :func:`run`.
 
 The construction path is:
 
@@ -22,7 +21,6 @@ sample operator-specific ghost/leg fills.
 
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass, fields, replace
 import hashlib
 import json
@@ -36,7 +34,7 @@ from typing import Callable, Sequence
 import zipfile
 
 # Defaults resolve against the repository checkout, as they did when this
-# module was the root ``simulate_hsx_blob.py`` script.
+# module was a root script.
 SCRIPT_DIR = Path(__file__).resolve().parents[3]
 DRBX_SRC = Path(__file__).resolve().parents[2]
 
@@ -2976,8 +2974,7 @@ def _parallel_characteristic_wall_metadata() -> dict[str, object]:
 class HsxBlobConfig:
     """One HSX FCI blob run.
 
-    Field names are the ``simulate_hsx_blob.py`` option destinations and the
-    keys of a deck's ``[fci_braginskii]`` table.  These defaults are the only
+    Field names are the keys of a deck's ``[fci_braginskii]`` table.  These defaults are the only
     default table: the argument parser and the TOML loader both read them.
     """
 
@@ -3035,17 +3032,6 @@ class HsxBlobConfig:
                 raise ValueError(f"[fci_braginskii] {name} must be one of {allowed}")
 
 
-_DEFAULTS = HsxBlobConfig()
-_PATH_FIELDS = frozenset(
-    ("geometry", "filament_cache_dir", "snapshot_dir", "restart_from", "output")
-)
-_SEQUENCE_ITEM_TYPES = {
-    "shard_counts": (int, 3),
-    "snapshot_times": (float, None),
-    "blob_center": (float, 2),
-}
-
-
 def load_hsx_blob_deck(path: str | Path) -> HsxBlobConfig:
     """Read an ``[model] backend = "fci_braginskii"`` TOML deck.
 
@@ -3065,259 +3051,6 @@ def _deck_error(message: str) -> None:
     raise SystemExit(f"error: {message}")
 
 
-def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Run the full local/sharding-compatible seven-field electrostatic "
-            "Boussinesq model on a precomputed FCI simulation geometry artifact."
-        )
-    )
-
-    def option(name: str, *aliases: str, **kwargs: object) -> None:
-        """Add ``--name`` with its default (and type/nargs) from HsxBlobConfig."""
-
-        default = getattr(_DEFAULTS, name)
-        if isinstance(default, bool) and "action" not in kwargs:
-            kwargs["action"] = "store_true"
-        else:
-            kwargs.setdefault("default", default)
-        if "action" not in kwargs and "choices" not in kwargs:
-            if name in _SEQUENCE_ITEM_TYPES:
-                kind, length = _SEQUENCE_ITEM_TYPES[name]
-                kwargs.update(nargs=length or "+", type=kind)
-            else:
-                kwargs["type"] = Path if name in _PATH_FIELDS else type(default)
-        parser.add_argument("--" + name.replace("_", "-"), *aliases, **kwargs)
-
-    option(
-        "geometry",
-        required=require_geometry,
-        help=(
-            "Directory containing the precomputed FCI simulation geometry "
-            "artifact. It sets the topology, resolution and RLP owner profile."
-        ),
-    )
-    option(
-        "shard_counts",
-        "--shards",
-        metavar=("SU", "SV", "SETA"),
-        help=(
-            "Production JAX decomposition in u, the second logical "
-            "coordinate, and eta. Only eta decomposition is supported, so "
-            "the first two entries must be one. Neta must be divisible by "
-            "SETA, whose value must not exceed the available JAX device count."
-        ),
-    )
-    option("halo_width")
-    option(
-        "filament_cache_dir",
-        help="Directory for reusable initial-filament field-line label caches.",
-    )
-    option(
-        "no_filament_cache",
-        help="Disable loading and writing initial-filament label caches.",
-    )
-    option(
-        "rebuild_filament_cache",
-        help="Ignore a matching filament cache and replace it after tracing.",
-    )
-    option("final_time", help="Final normalized simulation time.")
-    option(
-        "num_steps",
-        help=(
-            "Number of equal IMEX-SSP222 steps used to reach --final-time. "
-            "The default gives dt = 7.5e-4 (0.15/200), validated with the "
-            "implicit current/phi pair at the default rho*."
-        ),
-    )
-    option("save_every")
-    option(
-        "checkpoint_every",
-        metavar="N",
-        help=(
-            "Write an atomic restartable checkpoint after every N completed "
-            "steps; 0 disables periodic checkpoints. Checkpoints are separate "
-            "step-indexed NPZ files and survive a later run failure."
-        ),
-    )
-    option(
-        "snapshot_times",
-        metavar="T",
-        help=(
-            "Absolute physical times at which durable atomic checkpoint NPZ "
-            "files are written during the run. A checkpoint is written at "
-            "the first completed step at or after each requested time."
-        ),
-    )
-    option(
-        "snapshot_dir",
-        help="Directory for scheduled snapshot NPZ files; defaults to the output directory.",
-    )
-    option(
-        "restart_from",
-        help="Restart from a snapshot NPZ or a saved history NPZ.",
-    )
-    option(
-        "restart_frame",
-        help="Frame to load from a history NPZ; ignored for a single snapshot.",
-    )
-    option(
-        "diagnostic_every",
-        metavar="N",
-        help=(
-            "Print compiled min/max/max-absolute diagnostics for every state "
-            "field every N steps; 0 disables periodic detailed output."
-        ),
-    )
-    option(
-        "blob_initialization",
-        choices=("field-aligned", "logical"),
-        help=(
-            "Use a backtraced, finite field-aligned density filament by "
-            "default. 'logical' restores the eta-copied Gaussian."
-        ),
-    )
-    option("density_amplitude")
-    option(
-        "temperature_amplitude",
-        help=(
-            "Electron-temperature perturbation used only by the legacy "
-            "logical initialization. The field-aligned filament is "
-            "density-only."
-        ),
-    )
-    option("blob_center", metavar=("U0", "V0"))
-    option("blob_width")
-    option(
-        "blob_reference_eta",
-        help="Toroidal reference plane of the field-aligned filament.",
-    )
-    option(
-        "blob_parallel_half_length",
-        help=(
-            "Half-length in eta radians of the compact cos^2 filament "
-            "envelope. It must be no larger than pi so the perturbation "
-            "vanishes at or before the full-torus periodic seam."
-        ),
-    )
-    option(
-        "fieldline_substeps_per_plane",
-        help=(
-            "RK4 tracing substeps per toroidal plane spacing, used only to "
-            "construct the initial field-line labels."
-        ),
-    )
-    option(
-        "toroidal_perturbation_amplitude",
-        help=(
-            "Relative cosine modulation used only by the legacy logical "
-            "blob. The finite field-aligned filament already breaks "
-            "field-period symmetry."
-        ),
-    )
-    option(
-        "toroidal_perturbation_mode",
-        help="Full-torus integer mode number used by the initial perturbation.",
-    )
-    option(
-        "toroidal_perturbation_phase",
-        help="Initial toroidal perturbation phase in radians.",
-    )
-    option("tau")
-    option(
-        "rho_star",
-        help=(
-            "rho_s / L_ref with L_ref = 1 m (lengths in the geometry are in "
-            "metres). Scales E x B and curvature drifts by rho*, "
-            "polarization by rho*^2. The default is hydrogen at Te ~ 24 eV "
-            "and B = 1 T; rho* scales as sqrt(Te)/B. --rho-star 1 "
-            "--no-implicit-current-phi-pair reproduces the base-commit "
-            "operators."
-        ),
-    )
-    option("mi_over_me")
-    option("perp_diffusion")
-    option("parallel_diffusion")
-    option("electron_collision_frequency")
-    option(
-        "implicit_current_phi_pair",
-        action=argparse.BooleanOptionalAction,
-        default=_DEFAULTS.implicit_current_phi_pair,
-        help=(
-            "Treat mu*grad_par(phi) and the homogeneous parallel current "
-            "divergence implicitly through a coupled potential solve in "
-            "each implicit IMEX stage (default). "
-            "--no-implicit-current-phi-pair restores the explicit "
-            "treatment, which at rho* = 5e-4 limits dt to about 1e-4."
-        ),
-    )
-    option(
-        "advance_execution",
-        choices=("compiled", "staged-compiled", "eager"),
-        help=(
-            "Execution mode for time advancement. 'compiled' builds one "
-            "fused advance executable. 'staged-compiled' compiles reusable "
-            "implicit, explicit, phi, and diagnostic shard-map kernels "
-            "separately. 'eager' disables the outer jax.jit, although the "
-            "JAX backend may still compile kernels."
-        ),
-    )
-    option(
-        "gmres_acceptance_tolerance",
-        "--gmres-tolerance",
-        help=(
-            "Relative and absolute residual accepted after GMRES stops. "
-            "--gmres-tolerance is a backward-compatible alias."
-        ),
-    )
-    option(
-        "gmres_target_tolerance",
-        help="Relative and absolute residual target used to stop GMRES.",
-    )
-    option("gmres_max_iterations")
-    option(
-        "gmres_restart",
-        help="GMRES restart length; capped at --gmres-max-iterations.",
-    )
-    option(
-        "gmres_residual_correction_steps",
-        help=(
-            "Number of reliable true-residual correction solves attempted "
-            "only when the primary GMRES result would otherwise be rejected."
-        ),
-    )
-    option(
-        "gmres_preconditioner",
-        choices=GMRES_PRECONDITIONERS,
-        help=(
-            "Right preconditioner of the potential GMRES solves: the "
-            "production per-eta radial-tree line-u solve, or none."
-        ),
-    )
-    option(
-        "no_phase_timing",
-        help=(
-            "Disable ordered in-executable timing markers for the operator "
-            "and GMRES portions of an advance. Phase timing is disabled "
-            "automatically for eager execution and multi-device shard_map."
-        ),
-    )
-    option(
-        "geometry_only",
-        help=(
-            "Stop after loading the geometry artifact and shard-local "
-            "geometry lowering."
-        ),
-    )
-    option("output")
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> None:
-    parser = _build_parser(require_geometry=True)
-    run(HsxBlobConfig(**vars(parser.parse_args(argv))), fail=parser.error)
-
-
 def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> None:
     """Load geometry, build the initial state and advance one configured run."""
 
@@ -3329,7 +3062,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             (args.geometry / "manifest.json").read_bytes()
         ).hexdigest()
     except (OSError, KeyError, TypeError, ValueError) as error:
-        fail(f"could not load --geometry artifact: {error}")
+        fail(f"could not load geometry artifact: {error}")
     if simulation_geometry.polar_angular_geometry is None:
         fail("toroidal geometry artifacts must include the RLP topology")
     geometry_metadata = simulation_geometry.metadata
@@ -3354,10 +3087,10 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         fail("toroidal global NTHETA must be even")
     shard_counts = tuple(int(value) for value in args.shard_counts)
     if any(value < 1 for value in shard_counts):
-        fail("--shard-counts entries must be positive")
+        fail("shard_counts entries must be positive")
     if shard_counts[0] != 1 or shard_counts[1] != 1:
         fail(
-            "production sharding is eta-only; use --shard-counts 1 1 NETA_SHARDS"
+            "production sharding is eta-only; use shard_counts = [1, 1, NETA_SHARDS]"
         )
     for axis, (cell_count, shard_count) in enumerate(
         zip(resolution, shard_counts)
@@ -3372,60 +3105,60 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
     except (RuntimeError, ValueError) as error:
         fail(str(error))
     if args.num_steps < 1:
-        fail("--num-steps must be positive")
+        fail("num_steps must be positive")
     if args.final_time <= 0.0:
-        fail("--final-time must be positive")
+        fail("final_time must be positive")
     if args.save_every < 1:
-        fail("--save-every must be positive")
+        fail("save_every must be positive")
     if args.checkpoint_every < 0:
-        fail("--checkpoint-every must be nonnegative")
+        fail("checkpoint_every must be nonnegative")
     if any(float(value) < 0.0 for value in args.snapshot_times):
-        fail("--snapshot-times must be nonnegative")
+        fail("snapshot_times must be nonnegative")
     if any(float(value) > float(args.final_time) for value in args.snapshot_times):
-        fail("--snapshot-times must not exceed --final-time")
+        fail("snapshot_times must not exceed final_time")
     if len(set(float(value) for value in args.snapshot_times)) != len(args.snapshot_times):
-        fail("--snapshot-times must not contain duplicates")
+        fail("snapshot_times must not contain duplicates")
     if args.gmres_target_tolerance < 0.0:
-        fail("--gmres-target-tolerance must be nonnegative")
+        fail("gmres_target_tolerance must be nonnegative")
     if args.gmres_acceptance_tolerance < 0.0:
-        fail("--gmres-acceptance-tolerance must be nonnegative")
+        fail("gmres_acceptance_tolerance must be nonnegative")
     if args.gmres_max_iterations < 1:
-        fail("--gmres-max-iterations must be positive")
+        fail("gmres_max_iterations must be positive")
     if args.gmres_restart < 1:
-        fail("--gmres-restart must be positive")
+        fail("gmres_restart must be positive")
     if args.gmres_residual_correction_steps < 0:
-        fail("--gmres-residual-correction-steps must be nonnegative")
+        fail("gmres_residual_correction_steps must be nonnegative")
     if args.halo_width < 1:
-        fail("--halo-width must be positive")
+        fail("halo_width must be positive")
     if args.density_amplitude < 0.0:
-        fail("--density-amplitude must be nonnegative")
+        fail("density_amplitude must be nonnegative")
     if args.temperature_amplitude < 0.0:
-        fail("--temperature-amplitude must be nonnegative")
+        fail("temperature_amplitude must be nonnegative")
     if args.blob_width <= 0.0:
-        fail("--blob-width must be positive")
+        fail("blob_width must be positive")
     if not 0.0 < args.blob_parallel_half_length <= np.pi:
         fail(
-            "--blob-parallel-half-length must lie in (0, pi]"
+            "blob_parallel_half_length must lie in (0, pi]"
         )
     if args.fieldline_substeps_per_plane < 1:
-        fail("--fieldline-substeps-per-plane must be positive")
+        fail("fieldline_substeps_per_plane must be positive")
     if args.diagnostic_every < 0:
-        fail("--diagnostic-every must be nonnegative")
+        fail("diagnostic_every must be nonnegative")
     if not 0.0 <= args.toroidal_perturbation_amplitude < 1.0:
         fail(
-            "--toroidal-perturbation-amplitude must lie in [0, 1)"
+            "toroidal_perturbation_amplitude must lie in [0, 1)"
         )
     if args.toroidal_perturbation_mode < 1:
-        fail("--toroidal-perturbation-mode must be positive")
+        fail("toroidal_perturbation_mode must be positive")
     if args.blob_initialization == "field-aligned":
         if args.temperature_amplitude != 0.0:
             fail(
-                "--temperature-amplitude must be zero for the density-only "
+                "temperature_amplitude must be zero for the density-only "
                 "field-aligned filament"
             )
         if args.toroidal_perturbation_amplitude != 0.0:
             fail(
-                "--toroidal-perturbation-amplitude must be zero for the "
+                "toroidal_perturbation_amplitude must be zero for the "
                 "field-aligned filament; its finite parallel envelope "
                 "already breaks field-period symmetry"
             )
@@ -3512,7 +3245,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         if restart_time < 0.0 or restart_time >= float(args.final_time):
             fail(
                 "restart time must be nonnegative and strictly earlier than "
-                "--final-time"
+                "final_time"
             )
         if any(float(value) < restart_time - 1.0e-14 for value in args.snapshot_times):
             fail(
@@ -3841,6 +3574,3 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         owner_host_geometry=owner_host_geometry,
     )
 
-
-if __name__ == "__main__":
-    main()

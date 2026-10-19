@@ -17,7 +17,7 @@ from drbx.fci_braginskii.geometry.fci_geometry import (
 )
 
 
-DRIVER = Path(__file__).resolve().parents[2] / "simulate_hsx_blob.py"
+DRIVER = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 
@@ -32,29 +32,8 @@ def _driver_module():
     return module
 
 
-def test_canonical_driver_is_tracked_at_repository_root():
-    assert DRIVER.is_file()
-    assert (DRIVER.parent / "pyproject.toml").is_file()
-    assert (DRIVER.parent / "src" / "drbx").is_dir()
 
 
-def test_parser_exposes_no_removed_production_selector_flags():
-    driver = _driver_module()
-    parser = driver._build_parser()
-    args = parser.parse_args(())
-    for removed in (
-        "parallel_flux_pairing",
-        "parallel_boundary_pairing",
-        "parallel_characteristic_wall_law",
-        "parallel_short_leg_treatment",
-        "parallel_short_leg_selection",
-        "parallel_short_leg_cfl_limit",
-        "poisson_bracket_scheme",
-    ):
-        assert not hasattr(args, removed)
-        assert all(
-            action.dest != removed for action in parser._actions
-        )
 
 
 def test_wall_law_metadata_is_the_fixed_physical_boundary_state_contract():
@@ -83,31 +62,6 @@ def test_short_leg_split_is_native_to_compiled_imex_source():
     assert "IMEX_SSP222_GAMMA" in source
 
 
-def test_time_advance_exposes_true_eager_mode_and_staged_compiled_default():
-    driver = _driver_module()
-    parser = driver._build_parser()
-    args = parser.parse_args(())
-    assert args.advance_execution == "staged-compiled"
-    action = next(
-        action for action in parser._actions if action.dest == "advance_execution"
-    )
-    assert tuple(action.choices) == ("compiled", "staged-compiled", "eager")
-    source = DRIVER_SOURCE.read_text(encoding="utf-8")
-    assert "with jax.disable_jit(advance_execution == \"eager\")" in source
-    assert "compiled_advance = sharded_advance" in source
-    assert "staged_implicit_sharded = staged_kernel(" in source
-    assert "staged_explicit_sharded = staged_kernel(" in source
-    assert "staged_phi_sharded = staged_kernel(" in source
-    assert "staged_finalize_sharded = jax.shard_map(" in source
-    assert "def compile_staged_kernel(label: str, sharded_kernel" in source
-    assert '"implicit+phi"' in source
-    assert '"explicit-rhs"' in source
-    assert '"standalone-phi"' in source
-    assert '"stage-diagnostics"' in source
-    # The staged and monolithic advances share one SSP222 stage algebra.
-    assert source.count("ssp222_stages(") == 3
-    assert "weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(" in source
-    assert "next_state = current.axpy(weighted_rate, scale=step_dt)" in source
 
 
 def test_eager_advance_keeps_cell_centered_setup_kernels_compiled():

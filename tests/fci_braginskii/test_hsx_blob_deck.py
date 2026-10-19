@@ -1,31 +1,17 @@
 """The TOML deck and the script options resolve to one HsxBlobConfig."""
 
-from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 
 from drbx.cli import main as drbx_main
-from drbx.fci_braginskii.run import HsxBlobConfig, _build_parser, load_hsx_blob_deck
+from drbx.fci_braginskii.run import HsxBlobConfig, load_hsx_blob_deck
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "inputs" / "hsx_fci_blob.toml"
 
 
-def test_parser_defaults_are_the_config_defaults():
-    parsed = vars(_build_parser().parse_args(()))
-    assert parsed == asdict(HsxBlobConfig())
 
 
-def test_deck_matches_equivalent_command_line(tmp_path):
-    deck_path = tmp_path / "deck.toml"
-    deck_path.write_text(
-        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\ngeometry = "g"\n'
-        'final_time = 0.00375\nnum_steps = 5\nsave_every = 5\noutput = "o"\n'
-    )
-    deck = load_hsx_blob_deck(deck_path)
-    argv = ("--geometry", str(tmp_path / "g"), "--final-time", "0.00375", "--num-steps", "5",
-            "--save-every", "5", "--output", str(tmp_path / "o"))
-    assert deck == HsxBlobConfig(**vars(_build_parser().parse_args(argv)))
 
 
 @pytest.mark.parametrize(
@@ -50,3 +36,9 @@ def test_drbx_inspect_prints_resolved_config(capsys):
     out = capsys.readouterr().out
     assert "backend: fci_braginskii" in out
     assert "num_steps = 4" in out and "rho_star = 0.0005" in out
+
+
+def test_production_defaults():
+    config = HsxBlobConfig()
+    assert config.rho_star == 5.0e-4 and config.implicit_current_phi_pair
+    assert config.gmres_preconditioner == "line-u" and config.advance_execution == "staged-compiled"

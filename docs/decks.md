@@ -289,7 +289,7 @@ Two-field shifted-torus rollout: reverse-mode gradient in the initial amplitude 
 
 `[model] backend = "fci_braginskii"`
 
-Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IMEX-SSP222 with an FGMRES potential solve (`HsxBlobConfig`, `simulate_hsx_blob.py`; [HSX backend](fci_braginskii_hsx_backend.md)). `[fci_braginskii]` keys are the script options with underscores. With a `[geometry]` table the geometry is built from the shipped HSX coils and vessel (`generate_hsx_fci_geometry.py`'s builder) and cached.
+Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IMEX-SSP222 with an FGMRES potential solve (`HsxBlobConfig`; [HSX backend](fci_braginskii_hsx_backend.md)). With a `[geometry]` table the geometry is built from the shipped HSX coils and vessel (`build_hsx_simulation_geometry`) and cached.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
