@@ -247,7 +247,10 @@ open_times, open_content, open_flux = runs["open"]
 
 # ------------------------------- Figure -------------------------------------
 print("[figure] rendering the three-panel island-divertor figure...")
-fig, axes = plt.subplots(1, 3, figsize=(16.2, 4.9))
+plt.rcParams.update({"font.size": 10})
+fig = plt.figure(figsize=(9.0, 6.6))
+gs = fig.add_gridspec(2, 2, height_ratios=[1.0, 0.85])
+axes = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, :])]
 
 ax = axes[0]
 for points, escaped in sections:
@@ -255,7 +258,7 @@ for points, escaped in sections:
     size = 1.2 if escaped else 0.6
     ax.scatter(points[:, 1], points[:, 0], s=size, color=color, linewidths=0)
 ax.set_xlabel("poloidal angle theta"), ax.set_ylabel("radius x")
-ax.set_title("Poincare section: closed core (blue), open lines (red)")
+ax.set_title("Poincare: closed (blue), open (red)")
 ax.set_xlim(0, 2 * np.pi), ax.set_ylim(FIELD.x_min, FIELD.x_max)
 
 ax = axes[1]
@@ -263,9 +266,9 @@ shown = np.where(is_open, transits, np.nan)  # closed cells blank
 mesh = ax.pcolormesh(theta_map, x_map, shown, cmap="magma_r",
                      norm=colors.LogNorm(vmin=1.0, vmax=40.0), shading="auto")
 ax.set_facecolor("#dce6f2")
-fig.colorbar(mesh, ax=ax, label="connection length (transits)")
+fig.colorbar(mesh, ax=ax, label="transits")
 ax.set_xlabel("poloidal angle theta"), ax.set_ylabel("radius x")
-ax.set_title("Connection length (closed region shaded blue)")
+ax.set_title("Connection length (closed: blue)")
 
 ax = axes[2]
 ax.plot(closed_times, closed_content / closed_content[0],
@@ -274,14 +277,14 @@ ax.plot(open_times, open_content / open_content[0],
         color="#d62728", label="island divertor")
 ax.set_xlabel("time"), ax.set_ylabel("particle content (norm.)")
 ax.set_title("Turbulence drains through the emergent divertor")
-ax.legend(fontsize=8), ax.grid(True, ls=":", alpha=0.4)
+ax.legend(fontsize=10), ax.grid(True, ls=":", alpha=0.4)
 twin = ax.twinx()
 twin.plot(open_times, open_flux, color="#d62728", ls=":", alpha=0.7)
 twin.set_ylabel("divertor sheath flux", color="#d62728")
 
-fig.suptitle("B8 island divertor: island chains, stochastic edge, and turbulence draining to the wall")
+fig.suptitle("Island divertor: island chains, stochastic edge, drain to the wall")
 fig.tight_layout()
-fig.savefig(OUTPUT_DIR / "island_divertor.png", dpi=165)
+fig.savefig(OUTPUT_DIR / "island_divertor.png", dpi=100)
 plt.close(fig)
 
 (OUTPUT_DIR / "summary.json").write_text(json.dumps({

@@ -302,8 +302,9 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 )
 print(f"wrote {OUTPUT_DIR / 'hasegawa_wakatani_optimization.json'}")
 
+plt.rcParams.update({"font.size": 10})
 fig, axes = plt.subplots(
-    2, 2, figsize=(10.5, 8.6), gridspec_kw={"height_ratios": [1.35, 1.0]}
+    2, 2, figsize=(9.0, 7.4), gridspec_kw={"height_ratios": [1.35, 1.0]}
 )
 extent = [0.0, LENGTH, 0.0, LENGTH]
 dens_scale = max(
@@ -354,7 +355,7 @@ fig.suptitle(
     f"{FLUX_REDUCTION:.0f}x turbulent-transport reduction",
     y=0.98,
 )
-fig.savefig(OUTPUT_DIR / "hasegawa_wakatani_optimization.png", dpi=180,
+fig.savefig(OUTPUT_DIR / "hasegawa_wakatani_optimization.png", dpi=100,
             bbox_inches="tight")
 plt.close(fig)
 print(f"wrote {OUTPUT_DIR / 'hasegawa_wakatani_optimization.png'}")

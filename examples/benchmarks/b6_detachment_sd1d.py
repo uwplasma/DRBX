@@ -105,41 +105,45 @@ Y2 = Y2 * radius[None, :]
 FIELDS = (("te", r"$T_e$ (eV)", "inferno", colors.LogNorm(3.0, 60.0)),
           ("ni", r"$n_i$ (m$^{-3}$)", "viridis", colors.LogNorm(1e19, 1e21)),
           ("nn", r"$n_n$ (m$^{-3}$)", "magma", colors.LogNorm(1e17, 2e21)))
+TICKS = {"te": [3, 10, 60], "ni": [1e19, 1e20, 1e21], "nn": [1e17, 1e19, 2e21]}
+TICKLABELS = {"te": ["3", "10", "60"], "ni": [r"$10^{19}$", r"$10^{20}$", r"$10^{21}$"], "nn": [r"$10^{17}$", r"$10^{19}$", r"$2\!\times\!10^{21}$"]}
 n_all = np.array([r["n_up"] for r in rows]) / 1e19
 ref_n = np.array([r["n_up"] for r in rows if r["T_t_sd1d"] is not None]) / 1e19
 
 
 def draw_frame(k):
-    fig = plt.figure(figsize=(10.0, 5.6))
+    plt.rcParams.update({"font.size": 10})
+    fig = plt.figure(figsize=(9.0, 5.6))
     for i, (key, label, cmap, norm) in enumerate(FIELDS):
-        ax = fig.add_axes([0.07, 0.69 - 0.27 * i, 0.40, 0.2])
+        ax = fig.add_axes([0.09, 0.69 - 0.27 * i, 0.38, 0.2])
         vals = np.tile(rows[k]["profile"][key], (len(frac), 1))
         mesh = ax.pcolormesh(X2, Y2, vals, cmap=cmap, norm=norm, shading="gouraud", rasterized=True)
         ax.plot(xlog, radius, "k", lw=1.0); ax.plot(xlog, -radius, "k", lw=1.0)
         ax.set_xlim(0, xlog[-1]); ax.set_ylim(-1.15 * radius.max(), 1.15 * radius.max()); ax.set_yticks([])
         ax.set_xticks(np.log10(30.0 / (np.array([10.0, 1.0, 0.1, 0.01]) + 0.004)), ["10", "1", "0.1", "0.01"])
-        ax.set_ylabel("leg\ncross-section", fontsize=8)
+        ax.set_ylabel("leg", fontsize=10)
         for side in ("top", "right", "left"):
             ax.spines[side].set_visible(False)
         if i < 2:
             ax.tick_params(labelbottom=False)
         else:
-            ax.set_xlabel("distance to the target (m, log scale)   [upstream <--  --> target]")
-        fig.colorbar(mesh, cax=fig.add_axes([0.49, 0.71 - 0.27 * i, 0.011, 0.16]), label=label)
+            ax.set_xlabel("distance to the target [m] (log scale)")
+        cb = fig.colorbar(mesh, cax=fig.add_axes([0.50, 0.71 - 0.27 * i, 0.013, 0.16]))
+        cb.set_ticks(TICKS[key]); cb.set_ticklabels(TICKLABELS[key]); cb.ax.minorticks_off()
         ax.set_title(label, fontsize=10, loc="left")
     for j, (kk, lab, col) in enumerate((("T_t", "target temperature (eV)", "#1f77b4"), ("flux_area", r"target ion flux $\Gamma_t A_t$ (m$^{-2}$ s$^{-1}$)", "#d62728"))):
-        ax = fig.add_axes([0.68, 0.56 - 0.45 * j, 0.29, 0.33])
+        ax = fig.add_axes([0.70, 0.58 - 0.43 * j, 0.28, 0.31])
         ax.plot(n_all, [r[kk] for r in rows], "-", color=col, lw=1.6, label="DRBX")
         ax.plot(ref_n, [r[kk + "_sd1d" if kk == "T_t" else "flux_area_sd1d"] for r in rows if r["T_t_sd1d"] is not None],
                 "o", mfc="none", color="k", ms=6, label="SD1D (Dudson 2019)")
         ax.plot(n_all[k], rows[k][kk], "o", color=col, ms=9, zorder=5)
         ax.set_ylabel(lab, fontsize=9); ax.grid(True, ls=":", alpha=0.4)
         if j == 0:
-            ax.legend(fontsize=8)
+            ax.legend(fontsize=9)
         else:
             ax.set_xlabel(r"upstream density ($10^{19}$ m$^{-3}$)")
-    fig.suptitle(rf"Detachment of a divertor leg: $n_{{up}}$ = {n_all[k]:.2f}$\times10^{{19}}$ m$^{{-3}}$, target $T_t$ = {rows[k]['T_t']:.1f} eV "
-                 "(1D SD1D model, hydrogen only)", fontsize=11)
+    fig.suptitle(rf"Divertor leg: $n_{{up}}$ = {n_all[k]:.2f}$\times10^{{19}}$ m$^{{-3}}$, target $T_t$ = {rows[k]['T_t']:.1f} eV "
+                 "(1D, hydrogen only)", fontsize=11)
     buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=100); plt.close(fig)
     return Image.open(buf).convert("RGB")
 

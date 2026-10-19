@@ -128,9 +128,10 @@ print(f"result: {len(labels) - n_open} closed lines, {n_open} open lines")
 assert not any(labels[:N_CLOSED]), "a core-seeded line escaped: move RHO_WALL or seeds"
 assert any(labels[N_CLOSED:]), "no edge-seeded line escaped: extend MAXTIME"
 
-fig = plt.figure(figsize=(10.0, 4.8))
-ax3 = fig.add_axes([0.0, 0.02, 0.52, 0.88], projection="3d")
-ax = fig.add_axes([0.58, 0.12, 0.40, 0.76])
+plt.rcParams.update({"font.size": 10})
+fig = plt.figure(figsize=(9.0, 4.2))
+ax3 = fig.add_axes([0.0, 0.02, 0.55, 0.86], projection="3d")
+ax = fig.add_axes([0.64, 0.13, 0.34, 0.72])
 for index, (trajectory, crossings, is_open) in sorted(enumerate(zip(trajectories, sections, labels)), key=lambda t: t[1][2], reverse=True):
     color = "#d62728" if is_open else "#1f77b4"
     finite = np.all(np.isfinite(trajectory), axis=1)
@@ -144,15 +145,15 @@ for index, (trajectory, crossings, is_open) in sorted(enumerate(zip(trajectories
 ax3.set_box_aspect((1, 1, 0.45)); ax3.view_init(elev=28, azim=-60)
 ax3.xaxis.pane.set_visible(False), ax3.yaxis.pane.set_visible(False), ax3.zaxis.pane.set_visible(False)
 ax3.set_xlabel("x [m]"), ax3.set_ylabel("y [m]"), ax3.set_zlabel("z [m]")
-ax3.set_title("field lines traced through the coil field", fontsize=10)
+ax3.set_title("field lines traced through the coils", fontsize=10)
 ax.scatter([axis_r], [axis_z], marker="+", s=80, color="k", label="magnetic axis")
 ax.scatter([], [], s=8, color="#1f77b4", label="closed field lines")
 ax.scatter([], [], s=8, color="#d62728", label="open field lines")
 ax.set_xlabel("R [m]"), ax.set_ylabel("Z [m]")
 ax.set_aspect("equal")
-ax.legend(loc="upper right", fontsize=8)
+ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
 ax.set_title("Poincare section at phi = 0", fontsize=10)
-fig.suptitle("Landreman-Paul coils in vacuum: nested closed surfaces and open edge lines", fontsize=11)
-fig.savefig(OUTPUT_DIR / "closed_open_vacuum_poincare.png", dpi=92)
+fig.suptitle("Landreman-Paul coils in vacuum: closed surfaces and open edge lines", fontsize=11)
+fig.savefig(OUTPUT_DIR / "closed_open_vacuum_poincare.png", dpi=100)
 plt.close(fig)
 print(f"wrote {OUTPUT_DIR / 'closed_open_vacuum_poincare.png'}")

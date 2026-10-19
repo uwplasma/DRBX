@@ -53,7 +53,7 @@ import json, sys, time
 import jax, numpy as np
 from drbx.native import Fci2FieldRhsParameters, make_sharded_2field_step
 from tests.fci_sharded_2field_case import build_case_geometry, build_initial_state
-r = json.loads(sys.argv[1]); n = r["device_count"]
+r = json.loads(REQUEST); n = r["device_count"]
 assert len(jax.devices()) >= n, f"requested {n} devices, JAX sees {len(jax.devices())}"
 geometry = build_case_geometry(tuple(r["grid"]))
 state = build_initial_state(geometry)
@@ -76,7 +76,7 @@ def launch_worker(n):
     env = {**os.environ, "PYTHONPATH": f"{REPO_ROOT / 'src'}{os.pathsep}{REPO_ROOT}"}
     env.pop("DRBX_HOST_DEVICE_COUNT", None)
     request = json.dumps({"device_count": n, "shards": SHARD_LAYOUTS[n], "grid": GRID, "steps": STEPS, "dt": DT})
-    command = [sys.executable, "-c", WORKER_CODE, request]
+    command = [sys.executable, "-c", f"REQUEST = {request!r}\n" + WORKER_CODE]
     if PLATFORM == "cpu":
         # A single-device CPU program already threads across all cores, so bind
         # one core per device where taskset exists (Linux); on macOS the curve

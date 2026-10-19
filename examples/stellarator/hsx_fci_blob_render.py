@@ -16,8 +16,8 @@ Poincare section and connection-length map, traced through the coil field) and
 needs the vessel file (``VESSEL``), the coils (``COILS``) and a few minutes of CPU.
 
 The default is a quick 5-step preset (t = 0.00375), not the converged case. The
-figure in ``docs/media`` uses the documented default run: FINAL_TIME = 0.15,
-NUM_STEPS = 200, SAVE_EVERY = 10 (see docs/fci_braginskii_hsx_backend.md).
+figure in ``docs/media`` uses the documented default run: FINAL_TIME = 0.6,
+NUM_STEPS = 800, SAVE_EVERY = 40 (see docs/fci_braginskii_hsx_backend.md).
 Set RUN_SIMULATION = False to only re-render an existing HISTORY_PATH.
 """
 
@@ -42,9 +42,9 @@ from drbx.geometry.field_provider import FilamentCoilField  # noqa: E402
 
 # ---- PARAMETERS ----------------------------------------------------------
 GEOMETRY = Path("artifacts/geometry/hsx_fci_32x32x32")  # canonical geometry bundle
-FINAL_TIME = 0.00375        # quick preset; documented run uses 0.15
-NUM_STEPS = 5               # quick preset; documented run uses 200 (dt = 7.5e-4)
-SAVE_EVERY = 1              # history frames (movie frames); documented run uses 10
+FINAL_TIME = 0.00375        # quick preset; documented run uses 0.6
+NUM_STEPS = 5               # quick preset; documented run uses 800 (dt = 7.5e-4)
+SAVE_EVERY = 1              # history frames (movie frames); documented run uses 40
 COILS = Path("examples/inputs/hsx/coils.hsx")            # MAKEGRID filaments (QHS: six main groups, 10722 A)
 VESSEL = Path("examples/inputs/hsx/vessel_hsx_flare.txt")  # vessel outline: 161 planes over one period
 TRACE_STEP = 0.02           # field-line step [m]
@@ -149,74 +149,84 @@ conn = np.where(inside0, np.maximum(conn, TRACE_STEP), np.nan)
 print(f"geometry traced in {time.perf_counter() - start:.1f} s", flush=True)
 
 # ---- figure 1: coils + vessel + boundary in 3D, Poincare section, connection length ------------
+plt.rcParams.update({"font.size": 10})
 edge, bmag = xyz[-1], data["Bmag"][-1]
-fig = plt.figure(figsize=(11.0, 4.4))
-ax3 = fig.add_axes([0.0, 0.0, 0.46, 0.95], projection="3d")
-# vessel: three of the four periods (cutaway)
-vp = np.concatenate([vphi + k * period for k in range(3)])
+fig = plt.figure(figsize=(9.0, 3.5))
+ax3 = fig.add_axes([-0.04, 0.08, 0.5, 0.85], projection="3d")
+vp = np.concatenate([vphi + k * period for k in range(3)])     # vessel: three of the four periods (cutaway)
 vR, vZ = np.concatenate([vrz[..., 0]] * 3), np.concatenate([vrz[..., 1]] * 3)
 ax3.plot_surface(vR * np.cos(vp)[:, None], vR * np.sin(vp)[:, None], vZ, color="0.5", alpha=0.18, shade=False,
                  rstride=4, cstride=4, linewidth=0, antialiased=False)
-bn = (bmag - bmag.min()) / np.ptp(bmag)
-ax3.plot_surface(edge[..., 0], edge[..., 1], edge[..., 2], facecolors=cm.viridis(bn), shade=False,
-                 rstride=1, cstride=1, linewidth=0, antialiased=False, alpha=0.9)
-nodes = np.asarray(coils.nodes)
-for c in nodes:
+ax3.plot_surface(edge[..., 0], edge[..., 1], edge[..., 2], facecolors=cm.viridis((bmag - bmag.min()) / np.ptp(bmag)),
+                 shade=False, rstride=1, cstride=1, linewidth=0, antialiased=False, alpha=0.9)
+for c in np.asarray(coils.nodes):
     ax3.plot(*np.vstack([c, c[:1]]).T, color="#8c564b", lw=0.5, alpha=0.8)
-ax3.set_box_aspect((1, 1, 0.3), zoom=1.45); ax3.view_init(elev=38, azim=-50); ax3.set_axis_off()
-ax3.text2D(0.1, 0.93, "HSX: coils (brown), boundary coloured by |B|, vessel (grey)", transform=ax3.transAxes, fontsize=9)
+ax3.set_box_aspect((1, 1, 0.42), zoom=1.55); ax3.view_init(elev=48, azim=-50); ax3.set_axis_off()
+ax3.set_title("coils, boundary, vessel", fontsize=10, y=0.97)
 fig.colorbar(cm.ScalarMappable(colors.Normalize(bmag.min() / bmag.max(), 1.0), "viridis"),
-             cax=fig.add_axes([0.05, 0.12, 0.2, 0.02]), orientation="horizontal", label=r"$|B| / |B|_{max}$ on the boundary")
-ax = fig.add_axes([0.50, 0.14, 0.19, 0.7])
+             cax=fig.add_axes([0.08, 0.13, 0.26, 0.03]), orientation="horizontal", label=r"boundary $|B| / |B|_{max}$")
+ax = fig.add_axes([0.52, 0.18, 0.19, 0.68])
 ax.plot(vrz[0, :, 0], vrz[0, :, 1], "k", lw=1.0)
-ax.scatter(pr, pz, s=1.2, c=np.where(confined[pseed], "#1f77b4", "#d62728"), linewidths=0)
+hit = ~confined[pseed]
+ax.scatter(pr[~hit], pz[~hit], s=1.5, c="#1f77b4", linewidths=0, label="stay in the vessel")
+ax.scatter(pr[hit], pz[hit], s=9, c="#d62728", marker="D", linewidths=0, label="reach the wall")
 ax.set_aspect("equal"); ax.set_xlabel("R [m]"); ax.set_ylabel("Z [m]")
-ax.set_title("Poincare section, phi = 0\n(blue: confined, red: reaches wall)", fontsize=9)
-ax = fig.add_axes([0.74, 0.14, 0.16, 0.7])
-mesh = ax.pcolormesh(RR, ZZ, conn, cmap="magma_r", norm=colors.LogNorm(0.1, 300.0), shading="nearest", rasterized=True)
+ax.set_title(r"Poincare, $\phi$ = 0", fontsize=10)
+ax = fig.add_axes([0.75, 0.18, 0.15, 0.68])
+mesh = ax.pcolormesh(RR, ZZ, conn, cmap="magma_r", norm=colors.LogNorm(1.0, 300.0), shading="nearest", rasterized=True)
 ax.plot(vrz[0, :, 0], vrz[0, :, 1], "k", lw=1.0)
 ax.set_aspect("equal"); ax.set_xlabel("R [m]"); ax.set_yticklabels([])
-ax.set_title("connection length to the wall", fontsize=9)
-fig.colorbar(mesh, cax=fig.add_axes([0.915, 0.14, 0.01, 0.7]), label="[m] (capped at 300)")
-buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=100); plt.close(fig)
+ax.set_title("connection length", fontsize=10)
+fig.colorbar(mesh, cax=fig.add_axes([0.915, 0.18, 0.012, 0.68])).set_label("[m]")
+buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=110); plt.close(fig)
 Image.open(buf).convert("RGB").quantize(160).save(out / "hsx_geometry.png", optimize=True)
 print(f"saved {out / 'hsx_geometry.png'}", flush=True)
 
-# ---- figure 2: the filament in 3D (cells with large |n - 1|) and an R-Z section ------------------
-k0 = int(np.argmax(np.abs(dn[0]).max(axis=(0, 1))))                # toroidal plane of the seeded filament
-vmax = float(np.abs(dn).max())
-norm = colors.Normalize(-vmax, vmax)
+# ---- figure 2: the filament along the field (3D) and R-Z sections of n - 1 and phi ------------------
+# Frames with a blank potential (t = 0) are skipped. Colour limits are symmetric, set per field from the run.
 phi = data["phi"].astype(np.float64)
-pnorm = colors.Normalize(-np.abs(phi).max(), np.abs(phi).max())
+first = int(np.argmax(np.abs(phi).reshape(len(times), -1).max(axis=1) > 0))
+k0 = int(np.argmax(np.abs(dn[first]).max(axis=(0, 1))))            # toroidal plane through the seeded filament
+SCALE = 100.0                                                      # colour values in units of 1e-2
+nlim = SCALE * float(np.percentile(np.abs(dn[first:]), 99.9))
+plim = SCALE * float(np.percentile(np.abs(phi[first:]), 99.9))
+norm, pnorm = colors.Normalize(-nlim, nlim), colors.Normalize(-plim, plim)
+from mpl_toolkits.mplot3d.art3d import Line3DCollection  # noqa: E402
 
 
-def section_frame(it):
-    fig = plt.figure(figsize=(8.0, 4.4))
-    ax = fig.add_axes([-0.06, -0.05, 0.62, 1.05], projection="3d")
-    ax.plot_surface(edge[..., 0], edge[..., 1], edge[..., 2], color="0.8", alpha=0.10, shade=False, rstride=2, cstride=2, linewidth=0)
-    sel = (np.abs(dn[it]) > 0.06 * vmax) & active
-    ax.scatter(xyz[..., 0][sel], xyz[..., 1][sel], xyz[..., 2][sel], c=dn[it][sel], cmap="RdBu_r", norm=norm,
-               s=10 + 90 * np.abs(dn[it][sel]) / vmax, depthshade=False, linewidths=0)
-    ax.set_box_aspect((1, 1, 0.3), zoom=1.35); ax.view_init(elev=40, azim=-50); ax.set_axis_off()
+def filament_frame(it):
+    fig = plt.figure(figsize=(9.0, 4.2))
+    ax = fig.add_axes([-0.02, 0.0, 0.52, 0.95], projection="3d")
+    ax.plot_surface(edge[..., 0], edge[..., 1], edge[..., 2], color="0.75", alpha=0.12, shade=False, rstride=2, cstride=2, linewidth=0)
+    f3 = SCALE * dn[it]
+    # field-aligned columns (fixed radial and poloidal index, all toroidal planes): draw the segments where |n - 1| is large
+    p = np.concatenate([xyz, xyz[:, :, :1]], axis=2)                 # close the toroidal circuit
+    f = np.concatenate([f3, f3[:, :, :1]], axis=2)
+    seg = np.stack([p[:, :, :-1], p[:, :, 1:]], axis=-2).reshape(-1, 2, 3)
+    val = (0.5 * (f[:, :, :-1] + f[:, :, 1:])).ravel()
+    keep = np.abs(val) > 0.12 * nlim
+    lc = Line3DCollection(seg[keep], cmap="RdBu_r", norm=norm, linewidths=1.0 + 3.0 * np.minimum(np.abs(val[keep]) / nlim, 1.0))
+    lc.set_array(val[keep]); ax.add_collection3d(lc)
+    ax.set_box_aspect((1, 1, 0.42), zoom=1.5); ax.view_init(elev=48, azim=-50); ax.set_axis_off()
+    ax.set_axis_off()
     wrap = lambda a: np.concatenate([a, a[:, :1]], axis=1)
-    for row, (name, fld, cmap, nrm, label) in enumerate((("density perturbation", dn[it], "RdBu_r", norm, r"$n - 1$"),
-                                                         ("electrostatic potential", phi[it], "PuOr_r", pnorm, r"$\phi$"))):
-        ax2 = fig.add_axes([0.60, 0.12 + 0.43 * (1 - row), 0.22, 0.31])
-        mesh = ax2.pcolormesh(wrap(R[:, :, k0]), wrap(Z[:, :, k0]), wrap(np.where(active[:, :, k0], fld[:, :, k0], np.nan)),
+    for row, (name, fld, cmap, nrm) in enumerate(((r"$n - 1$", dn[it], "RdBu_r", norm), (r"$\phi$", phi[it], "PuOr_r", pnorm))):
+        ax2 = fig.add_axes([0.58, 0.12 + 0.43 * (1 - row), 0.26, 0.33])
+        mesh = ax2.pcolormesh(wrap(R[:, :, k0]), wrap(Z[:, :, k0]), wrap(SCALE * np.where(active[:, :, k0], fld[:, :, k0], np.nan)),
                               cmap=cmap, norm=nrm, shading="gouraud", rasterized=True)
         ax2.plot(np.append(R[-1, :, k0], R[-1, 0, k0]), np.append(Z[-1, :, k0], Z[-1, 0, k0]), "k", lw=0.8)
-        ax2.set_aspect("equal"); ax2.set_title(name + " (R-Z section)", fontsize=8); ax2.tick_params(labelsize=7)
-        ax2.set_ylabel("Z [m]", fontsize=8)
+        ax2.set_aspect("equal"); ax2.set_ylabel("Z [m]")
+        ax2.set_title(name + r" at toroidal plane %d ($\times 10^{-2}$)" % k0, fontsize=9)
         if row:
-            ax2.set_xlabel("R [m]", fontsize=8)
+            ax2.set_xlabel("R [m]")
         else:
             ax2.tick_params(labelbottom=False)
-        fig.colorbar(mesh, cax=fig.add_axes([0.84, 0.12 + 0.43 * (1 - row) + 0.03, 0.012, 0.25]), label=label)
-    fig.suptitle(f"HSX scrape-off-layer filament: t = {times[it]:.3f} (L_ref / c_s)", fontsize=10)
-    buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=72); plt.close(fig)
+        fig.colorbar(mesh, ax=ax2, fraction=0.05, pad=0.03)
+    fig.suptitle(f"HSX scrape-off-layer filament, t = {times[it]:.3f} $L_{{ref}}/c_s$", fontsize=11)
+    buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=80); plt.close(fig)
     return Image.open(buf).convert("RGB").quantize(96, dither=Image.Dither.NONE)
 
 
-frames = [section_frame(it) for it in range(len(times))]
-frames[0].save(out / "hsx_fci_blob.gif", save_all=True, append_images=frames[1:], duration=200, loop=0, optimize=True)
+frames = [filament_frame(it) for it in range(first, len(times))]
+frames[0].save(out / "hsx_fci_blob.gif", save_all=True, append_images=frames[1:], duration=250, loop=0, optimize=True)
 print(f"saved {out / 'hsx_fci_blob.gif'}; max |n-1| = {np.abs(dn[-1]).max():.3e} at t = {times[-1]:.4g}; render {time.perf_counter() - start:.1f} s")

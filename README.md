@@ -203,16 +203,14 @@ the drift-wave operator is scanned in adiabaticity against the analytic
 frequency and growth rate. Method-of-manufactured-solutions tests check
 second-order convergence of the 1D fluid model and the FCI operators.
 
+<img src="docs/media/linear_dispersion.png" width="700" alt="Linear dispersion">
 
 ```bash
 python examples/benchmarks/linear_dispersion.py
 pytest -n 2 -q tests/test_validation_fluid_1d_mms_convergence.py tests/test_mms_convergence.py
 ```
 
-<table><tr>
-<td><img src="docs/media/linear_dispersion.png" width="420" alt="Linear dispersion"></td>
-<td><img src="docs/media/fluid_1d_mms_convergence.png" width="420" alt="Fluid 1D MMS convergence"></td>
-</tr></table>
+
 
 ## Parallel performance
 
@@ -233,24 +231,28 @@ python examples/benchmarks/fci_sharded_strong_scaling.py
 
 ## HSX geometry and scrape-off-layer filament (experimental)
 
-The HSX geometry is built from the coils shipped in
+The HSX geometry is built from the coils in
 [`examples/inputs/hsx/coils.hsx`](examples/inputs/hsx/coils.hsx) (QHS currents)
-and the vessel outline. The first figure shows the coils, the boundary of the
-simulated domain colored by |B| and the vessel; a Poincare section at phi = 0
-(field lines traced through the coil field; blue lines stay inside the vessel
-for the whole trace, red reach the wall); and the connection length to the wall
-on the same plane.
+and the vessel outline [`vessel_hsx_flare.txt`](examples/inputs/hsx/vessel_hsx_flare.txt).
+The figure shows the coils, the boundary of the simulated domain colored by |B|
+and the vessel; a Poincare section at phi = 0 traced through the coil field
+(blue points stay inside the vessel for the whole trace, red diamonds mark lines
+that reach the wall); and the connection length to the wall on the same plane.
 
 <img src="docs/media/hsx_geometry.png" width="800" alt="HSX coils, Poincare section and connection length">
 
 An experimental electrostatic Braginskii backend (`drbx run
-examples/inputs/hsx_fci_blob.toml`) then evolves a seeded filament in the
-scrape-off layer up to the vessel wall on a 32^3 field-aligned grid (200 steps,
-t = 0.15 in L_ref/c_s, about 20-30 min on a laptop CPU). Left: cells with large
-density perturbation in 3D; right: R-Z sections of density and potential
-through the filament. The model has no sheath, neutral or recycling coupling
+examples/inputs/hsx_fci_blob.toml`) evolves a seeded filament in the
+scrape-off layer up to the vessel wall on a 32^3 field-aligned grid (800 steps,
+t = 0.6 in L_ref/c_s, about 70 min on a laptop CPU). The movie shows the
+filament as field-aligned segments colored by density perturbation, over the
+boundary surface, with R-Z sections of density and potential through it; the
+t = 0 frame (zero potential) is skipped and the color limits come from the run.
+At this t (about 12 microseconds) the filament moves little: it decays from
+n - 1 = 4.7e-2 to 2.8e-2, drifts by one toroidal cell, and the potential
+builds up and relaxes. The model has no sheath, neutral or recycling coupling
 yet and needs a geometry bundle built with
-[`generate_hsx_fci_geometry.py`](generate_hsx_fci_geometry.py); see
+[`generate_hsx_fci_geometry.py`](generate_hsx_fci_geometry.py) (a CLI tool); see
 [docs/fci_braginskii_hsx_backend.md](docs/fci_braginskii_hsx_backend.md).
 
 <img src="docs/media/hsx_fci_blob.gif" width="700" alt="HSX filament in 3D">
