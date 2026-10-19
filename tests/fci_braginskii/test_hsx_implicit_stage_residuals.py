@@ -10,10 +10,14 @@ from drbx.fci_braginskii.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
 
 
 @pytest.mark.slow
-def test_hsx_stage_residuals_from_returned_state(tmp_path, monkeypatch):
+@pytest.mark.parametrize("preconditioner", ["line-u", "line-u-pardiag", "line-uy-pardiag"])
+def test_hsx_stage_residuals_from_returned_state(tmp_path, monkeypatch, preconditioner):
     bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
     if bundle is None:
         pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to replay a real HSX artifact")
+    import drbx.fci_braginskii.run as run_module
+
+    monkeypatch.setattr(run_module, "GMRES_PRECONDITIONER", preconditioner)
     records = []
     solve = LocalFciDrbEBRhs.solve_implicit_current_phi_pair
 

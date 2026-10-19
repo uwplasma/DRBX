@@ -118,6 +118,8 @@ GEOMETRY_PRODUCER_METADATA_KEYS = (
 )
 FILAMENT_CACHE_FORMAT_VERSION = 2
 GMRES_TARGET_TOLERANCE = 1.0e-8
+# Right preconditioner of the FGMRES phi solves (see SolvaxGmresConfig).
+GMRES_PRECONDITIONER = "line-u"
 FCI_BRAGINSKII_BACKEND = "fci_braginskii"
 METRIC_FIELDS = (
     "J",
@@ -893,6 +895,7 @@ def build_local_eb_model(
     gmres_max_iterations: int,
     gmres_restart: int = 100,
     gmres_residual_correction_steps: int = 0,
+    gmres_preconditioner: str | None = None,
     control_volume_geometry=None,
     control_volume_boundary_bc=None,
     curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
@@ -997,7 +1000,11 @@ def build_local_eb_model(
             regularization_epsilon=float(
                 parameters.phi_inversion_regularization
             ),
-            preconditioner="line-u",
+            preconditioner=str(
+                GMRES_PRECONDITIONER
+                if gmres_preconditioner is None
+                else gmres_preconditioner
+            ),
             residual_correction_steps=int(gmres_residual_correction_steps),
         ),
         face_bc_builder=build_face_bc_bundle,
@@ -1423,6 +1430,7 @@ def run_full_eb(
     gmres_max_iterations: int,
     gmres_restart: int = 100,
     gmres_residual_correction_steps: int = 0,
+    gmres_preconditioner: str | None = None,
     time_integrator: str = "imex-ssp222",
     advance_execution: str = "compiled",
     num_steps: int,
@@ -1668,6 +1676,7 @@ def run_full_eb(
             gmres_residual_correction_steps=int(
                 gmres_residual_correction_steps
             ),
+            gmres_preconditioner=gmres_preconditioner,
             control_volume_geometry=local_control_volume_geometry,
             control_volume_boundary_bc=control_volume_boundary_bc,
             curvature_face_coefficients_override=(
@@ -3696,7 +3705,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         f"max_iterations={int(args.gmres_max_iterations)}, "
         f"restart={min(int(args.gmres_restart), int(args.gmres_max_iterations))}, "
         f"residual_corrections={int(args.gmres_residual_correction_steps)}, "
-        "preconditioner=line-u, "
+        f"preconditioner={GMRES_PRECONDITIONER}, "
         + (
             "solver_space=owner-grid-RLP"
             if control_volume_descriptor is not None
@@ -3821,7 +3830,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             "gmres_residual_correction_steps": int(
                 args.gmres_residual_correction_steps
             ),
-            "gmres_preconditioner": "line-u",
+            "gmres_preconditioner": str(GMRES_PRECONDITIONER),
             "phi_solver_space": (
                 "owner-grid-RLP"
                 if control_volume_descriptor is not None

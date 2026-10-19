@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from solvax.precond import (
     additive_tridiagonal_line_preconditioner as solvax_line_preconditioner,
+    cyclic_tridiagonal_solve as solvax_cyclic_tridiagonal_solve,
     jacobi as solvax_jacobi,
 )
 from ...fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
@@ -4725,16 +4726,14 @@ def _assemble_angular_agglomeration_tree_principal_coefficients(
     face_bc: LocalBoundaryFaceBC3D,
     config: SolvaxGmresConfig,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
-) -> tuple[
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-    jnp.ndarray,
-]:
+    *,
+    return_z_edge: bool = False,
+) -> tuple[jnp.ndarray, ...]:
     """Assemble the nested radial owner graph for angular agglomeration.
+
+    With ``return_z_edge`` an eighth array is appended: ``z_edge[i,j,k]`` is
+    the summed perpendicular conductance between owner ``(i,j,k)`` and
+    ``(i,j,k-1)`` (periodic, single eta shard only).
 
     ``child_edge[i,j,k]`` is the summed physical conductance between active
     owner ``(i,j,k)`` and its unique parent.  The coefficients are assembled
@@ -4895,6 +4894,7 @@ def _assemble_angular_agglomeration_tree_principal_coefficients(
     # final fine cell to cell zero; face j=ny duplicates it and is omitted.
     fine_i_y = jnp.broadcast_to(jnp.arange(nx)[:, None], (nx, nz))
     fine_k_y = jnp.broadcast_to(jnp.arange(nz)[None, :], (nx, nz))
+    y_edge = jnp.zeros((nx, ny, nz), dtype=jnp.float64)
     for j in range(ny):
         left_j = (j - 1) % ny
         left = (
@@ -4907,9 +4907,10 @@ def _assemble_angular_agglomeration_tree_principal_coefficients(
             owner_j[fine_i_y, j, fine_k_y],
             owner_k[fine_i_y, j, fine_k_y],
         )
-        diagonal, _ = add_owner_edge(
+        diagonal, y_edge_T = add_owner_edge(
             diagonal, jnp.asarray(Ty[:, j, :], dtype=jnp.float64), left, right
         )
+        y_edge = y_edge.at[right].add(y_edge_T)
 
     # Eta is the only decomposed direction supported by this path.  A local
     # eta slab is not periodic: when it has a neighboring slab, both of its
@@ -4919,6 +4920,7 @@ def _assemble_angular_agglomeration_tree_principal_coefficients(
     # representative of face zero, so retain the old one-face-per-edge loop.
     fine_i_z = jnp.broadcast_to(jnp.arange(nx)[:, None], (nx, ny))
     fine_j_z = jnp.broadcast_to(jnp.arange(ny)[None, :], (nx, ny))
+    z_edge = jnp.zeros((nx, ny, nz), dtype=jnp.float64)
     if shard_counts[2] == 1:
         for k in range(nz):
             left_k = (k - 1) % nz
@@ -4932,9 +4934,10 @@ def _assemble_angular_agglomeration_tree_principal_coefficients(
                 owner_j[fine_i_z, fine_j_z, k],
                 owner_k[fine_i_z, fine_j_z, k],
             )
-            diagonal, _ = add_owner_edge(
+            diagonal, z_edge_T = add_owner_edge(
                 diagonal, jnp.asarray(Tz[:, :, k], dtype=jnp.float64), left, right
             )
+            z_edge = z_edge.at[right].add(z_edge_T)
     else:
         # Every owned eta face is included.  At k=0 only the right local
         # cell exists; at k=nz only the left local cell exists.  Thus a
@@ -4977,6 +4980,10 @@ def _assemble_angular_agglomeration_tree_principal_coefficients(
         parent_k,
         active,
     )
+    if return_z_edge:
+        if shard_counts[2] != 1:
+            raise ValueError("eta-line z edges require a single eta shard")
+        return result + (jnp.where(active, z_edge, 0.0), jnp.where(active, y_edge, 0.0))
     return result
 
 
@@ -5004,14 +5011,34 @@ def _build_angular_agglomeration_line_u_preconditioner(
         control_volume_geometry, diagonal, child_edge,
         parent_i, parent_j, parent_k, active,
     )
-    nx, ny, nz = geometry.owned_shape
-    eta_index = jnp.broadcast_to(jnp.arange(nz, dtype=jnp.int32)[None, :], (ny, nz))
+    tree_solve = _angular_tree_solver(
+        diagonal, child_edge, parent_j, active, geometry.owned_shape
+    )
 
     def solve(residual: jnp.ndarray) -> jnp.ndarray:
         residual = jnp.asarray(residual, dtype=jnp.float64)
         if residual.shape != geometry.owned_shape:
             raise ValueError("angular tree residual must match geometry.owned_shape")
-        rhs = jnp.where(active, aggregate_volume * residual, 0.0)
+        return tree_solve(jnp.where(active, aggregate_volume * residual, 0.0))
+
+    return solve
+
+
+def _angular_tree_solver(
+    diagonal: jnp.ndarray,
+    child_edge: jnp.ndarray,
+    parent_j: jnp.ndarray,
+    active: jnp.ndarray,
+    owned_shape: tuple[int, int, int],
+) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    """Exact nested radial-tree solve of ``(diagonal - child_edge graph) x = rhs``.
+
+    ``rhs`` is already in the conductance (volume-weighted) scale.
+    """
+    nx, ny, nz = owned_shape
+    eta_index = jnp.broadcast_to(jnp.arange(nz, dtype=jnp.int32)[None, :], (ny, nz))
+
+    def solve(rhs: jnp.ndarray) -> jnp.ndarray:
         pivots = jnp.asarray(diagonal, dtype=jnp.float64)
 
         def eliminate(level, state):
@@ -5028,7 +5055,7 @@ def _build_angular_agglomeration_line_u_preconditioner(
             return current_pivots, current_rhs
 
         pivots, rhs = jax.lax.fori_loop(0, nx - 1, eliminate, (pivots, rhs))
-        solution = jnp.zeros_like(residual).at[0, 0, :].set(rhs[0, 0, :] / pivots[0, 0, :])
+        solution = jnp.zeros_like(rhs).at[0, 0, :].set(rhs[0, 0, :] / pivots[0, 0, :])
 
         def substitute(level, current_solution):
             i = level + 1
@@ -5040,6 +5067,100 @@ def _build_angular_agglomeration_line_u_preconditioner(
 
         solution = jax.lax.fori_loop(0, nx - 1, substitute, solution)
         return jnp.where(active, solution, 0.0)
+
+    return solve
+
+
+def _build_angular_agglomeration_line_pardiag_preconditioner(
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    face_bc: LocalBoundaryFaceBC3D,
+    config: SolvaxGmresConfig,
+    control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D,
+    *,
+    extra_operator: Callable[[jnp.ndarray], jnp.ndarray] | None,
+    include_theta_lines: bool,
+) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    """Radial-tree line-u preconditioner aware of the parallel-current term.
+
+    The coupled current/phi stage operator is ``-L_perp + E`` with
+    ``E = -c P kappa D n G`` a symmetric positive parallel diffusion that, with
+    centred FCI differences, has a wide eta stencil (planes ``k, k+-1, k+-2``)
+    whose diagonal is a large fraction of the radial-tree pivot.  The
+    existing line-u tree ignores it.  Here the lumped diagonal of ``E`` is
+    measured once per build with four colored probes (``k mod 4``; the
+    response at plane ``k`` of probe class ``k mod 4`` is the plane-summed
+    self coupling because the eta support is below four planes) and added to
+    the tree pivots.  Eta-line (tri- and stride-2 pentadiagonal) corrections
+    were measured to add nothing beyond the diagonal.
+
+    With ``include_theta_lines`` the product (ADI-type) form
+    ``(D + X) D^{-1} (D + Y)`` is applied, ``Y`` being the cyclic theta-ring
+    couplings between angular owners of each radial ring (rings with fewer
+    than three owners keep the diagonal only).  No operator application is
+    needed per call.
+    """
+    shard_counts = tuple(int(v) for v in domain.shard_spec.shard_counts)
+    if shard_counts != (1, 1, 1):
+        raise ValueError("line-u-pardiag preconditioning supports a single shard")
+    (
+        aggregate_volume, diagonal, child_edge, parent_i, parent_j, parent_k,
+        active, _z_edge, y_edge,
+    ) = _assemble_angular_agglomeration_tree_principal_coefficients(
+        geometry, domain, face_projectors, face_bc, config,
+        control_volume_geometry, return_z_edge=True,
+    )
+    nx, ny, nz = geometry.owned_shape
+    if extra_operator is not None:
+        if nz % 4 != 0:
+            raise ValueError("parallel-diagonal probing needs nz divisible by 4")
+        k_index = jnp.arange(nz)[None, None, :]
+        activef = active.astype(jnp.float64)
+        extra_diag = jnp.zeros_like(diagonal)
+        for c in range(4):
+            probe = activef * (k_index % 4 == c)
+            response = aggregate_volume * extra_operator(probe) * activef
+            extra_diag = jnp.where(k_index % 4 == c, response, extra_diag)
+        diagonal = diagonal + jnp.maximum(extra_diag, 0.0)
+    tree_solve = _angular_tree_solver(
+        diagonal, child_edge, parent_j, active, geometry.owned_shape
+    )
+    safe_diag = jnp.where(active, diagonal, 1.0)
+
+    theta_groups = []
+    if include_theta_lines:
+        profile = tuple(int(v) for v in control_volume_geometry.angular_group_sizes)
+        for size in sorted(set(profile)):
+            n_owners = ny // size
+            rings = np.array([i for i in range(nx) if profile[i] == size])
+            if n_owners < 3 or rings.size == 0:
+                continue
+            sel = (rings[:, None], np.arange(0, ny, size)[None, :])
+            # owner j couples to owner j-1 (cyclic) through y_edge[j]
+            lower = -y_edge[sel]
+            upper = -jnp.roll(y_edge[sel], -1, axis=1)
+            move = lambda a: jnp.transpose(a, (1, 0, 2))
+            theta_groups.append(
+                (sel, move(lower), move(safe_diag[sel]), move(upper))
+            )
+
+    def solve_theta(rhs: jnp.ndarray) -> jnp.ndarray:
+        out = rhs
+        for sel, lower, diag, upper in theta_groups:
+            sub = jnp.transpose(rhs[sel], (1, 0, 2))
+            sol = solvax_cyclic_tridiagonal_solve(lower, diag, upper, sub)
+            out = out.at[sel].set(jnp.transpose(sol, (1, 0, 2)))
+        return out
+
+    def solve(residual: jnp.ndarray) -> jnp.ndarray:
+        residual = jnp.asarray(residual, dtype=jnp.float64)
+        if residual.shape != geometry.owned_shape:
+            raise ValueError("angular tree residual must match geometry.owned_shape")
+        rhs = jnp.where(active, aggregate_volume * residual, 0.0)
+        if include_theta_lines:
+            rhs = jnp.where(active, safe_diag * solve_theta(rhs), 0.0)
+        return tree_solve(rhs)
 
     return solve
 
@@ -5102,6 +5223,9 @@ def _build_projected_owner_line_u_preconditioner(
     return solve
 
 
+_PARDIAG_KINDS = ("line-u-pardiag", "line-uy-pardiag")
+
+
 def build_solvax_perp_laplacian_preconditioner(
     geometry: LocalFciGeometry3D,
     domain: LocalDomain3D,
@@ -5109,6 +5233,7 @@ def build_solvax_perp_laplacian_preconditioner(
     face_bc: LocalBoundaryFaceBC3D,
     config: SolvaxGmresConfig,
     control_volume_geometry: LocalEmbeddedControlVolumeGeometry3D | None = None,
+    extra_operator: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
 ) -> Callable[[jnp.ndarray], jnp.ndarray] | None:
     """Build the configured local right preconditioner for SOLVAX FGMRES.
 
@@ -5122,9 +5247,23 @@ def build_solvax_perp_laplacian_preconditioner(
     if kind == "none":
         return None
     if control_volume_geometry is not None:
+        if kind in _PARDIAG_KINDS:
+            if not bool(getattr(control_volume_geometry, "has_angular_agglomeration", False)):
+                raise ValueError(f"{kind!r} requires angular agglomeration")
+            return _build_angular_agglomeration_line_pardiag_preconditioner(
+                geometry,
+                domain,
+                face_projectors,
+                face_bc,
+                config,
+                control_volume_geometry,
+                extra_operator=extra_operator,
+                include_theta_lines=kind == "line-uy-pardiag",
+            )
         if kind != "line-u":
             raise ValueError(
-                "RLP control-volume preconditioning supports only 'none' or 'line-u'"
+                "RLP control-volume preconditioning supports only 'none', "
+                "'line-u', 'line-u-pardiag', or 'line-uy-pardiag'"
             )
         if bool(getattr(control_volume_geometry, "has_angular_agglomeration", False)):
             return _build_angular_agglomeration_line_u_preconditioner(
@@ -5714,6 +5853,7 @@ class LocalPerpLaplacianInverseSolver:
             homogeneous_face_bc,
             self.config,
             control_volume_geometry=self.control_volume_geometry,
+            extra_operator=self.extra_operator,
         )
         preconditioner = None
         if raw_preconditioner is not None:
