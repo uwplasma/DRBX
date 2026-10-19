@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.util
 import ast
+import importlib.util
 from pathlib import Path
 import sys
+
+import pytest
 
 import jax
 import jax.numpy as jnp
@@ -62,6 +64,31 @@ def test_short_leg_split_is_native_to_compiled_imex_source():
     assert "IMEX_SSP222_GAMMA" in source
 
 
+
+
+def test_time_advance_exposes_true_eager_mode_and_staged_compiled_default():
+    driver = _driver_module()
+    assert driver.HsxBlobConfig().advance_execution == "staged-compiled"
+    for mode in ("compiled", "staged-compiled", "eager"):
+        driver.HsxBlobConfig(advance_execution=mode)
+    with pytest.raises(ValueError, match="advance_execution must be one of"):
+        driver.HsxBlobConfig(advance_execution="jit")
+    source = DRIVER_SOURCE.read_text(encoding="utf-8")
+    assert "with jax.disable_jit(advance_execution == \"eager\")" in source
+    assert "compiled_advance = sharded_advance" in source
+    assert "staged_implicit_sharded = staged_kernel(" in source
+    assert "staged_explicit_sharded = staged_kernel(" in source
+    assert "staged_phi_sharded = staged_kernel(" in source
+    assert "staged_finalize_sharded = jax.shard_map(" in source
+    assert "def compile_staged_kernel(label: str, sharded_kernel" in source
+    assert '"implicit+phi"' in source
+    assert '"explicit-rhs"' in source
+    assert '"standalone-phi"' in source
+    assert '"stage-diagnostics"' in source
+    # The staged and monolithic advances share one SSP222 stage algebra.
+    assert source.count("ssp222_stages(") == 3
+    assert "weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(" in source
+    assert "next_state = current.axpy(weighted_rate, scale=step_dt)" in source
 
 
 def test_eager_advance_keeps_cell_centered_setup_kernels_compiled():

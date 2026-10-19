@@ -1,7 +1,6 @@
 """Every model runs from a TOML deck: example decks, outputs, schema errors, restart."""
 
 import json
-import os
 from pathlib import Path
 
 import numpy as np
@@ -83,6 +82,6 @@ def test_essos_geometry_is_a_turbulence_geometry_table(tmp_path):
     assert load_deck(deck(tmp_path, body))[1]["essos"].limiter_rho == 0.4
 
 
-@pytest.mark.skipif(not os.environ.get("DRBX_TEST_HSX_DECK"), reason="builds the 16^3 HSX geometry (minutes)")
+@pytest.mark.slow
 def test_hsx_example_deck_builds_geometry_and_runs(tmp_path):
     assert drbx_main(["run", str(INPUTS / "hsx_fci_blob.toml")]) == 0
