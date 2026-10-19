@@ -592,8 +592,11 @@ HSX (32-cubed bundle, sheath on, defaults plus `neutrals = true`: n0 =
 - Stable: n in [0.66, 1.08], `N > 0` everywhere (minimum 1.2e-4 at the
   end), GMRES relres 1e-8 at every solve.
 - Split identities at every step: nuclei 3e-16, energy 9e-11 of the sinks.
-  The wall-step imbalance (split removed) stays below 1e-12 of the wall
-  loss. No rate input left the AMJUEL range.
+  The wall-step imbalance (split removed) stays below 1e-11 of the wall
+  loss (measured: particles 2.0e-12, W_i 1.2e-12, W_e 9e-13, P 2.7e-13 over
+  100 steps with neutrals and recycling). The bar is 1e-11 rather than
+  1e-12 because the imbalance is a difference of O(1) inventories, so it
+  sits at round-off of the inventory, not of the wall term. No rate input left the AMJUEL range.
 - The neutrals spread inward (`sqrt(D t)` about 3 cm): the radial mean of `N`
   goes from 3.4e-3 (edge) / 0 (axis) to 2.4e-3 / 1.6e-4. The neutral
   inventory falls 10% (ionisation 2.2e-6 to 2.5e-6 per step against CX
