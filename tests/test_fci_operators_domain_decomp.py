@@ -17,7 +17,6 @@ if str(_SRC_PATH) not in sys.path:
 import jax
 import jax.numpy as jnp
 from jax import lax
-from jax.experimental.shard_map import shard_map
 from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
 
 from drbx.geometry import (
@@ -73,6 +72,12 @@ ALPHA = 0.25
 C_PHI = 3.0
 RHO_MIN = 0.2
 
+
+
+shard_map = jax.shard_map
+# ``jax.set_mesh`` is JAX >= 0.7; Python 3.10 resolves JAX 0.6.x, which has
+# ``jax.sharding.use_mesh`` with the same context-manager role.
+_set_mesh = getattr(jax, "set_mesh", None) or jax.sharding.use_mesh
 
 def make_mesh_for_shard_counts(
     shard_counts: tuple[int, int, int],
@@ -795,7 +800,8 @@ def run_shard_map_grad_parallel_direct_case(
     Bmag = C_PHI / J * jnp.sqrt(IOTA**2 * rho**2 + R**2)
     expected = ((IOTA * C_PHI / J) * dfd_theta + (C_PHI / J) * dfd_phi) / Bmag
 
-    with make_mesh_for_shard_counts(shard_counts) as mesh:
+    mesh = make_mesh_for_shard_counts(shard_counts)
+    with _set_mesh(mesh):
         field_sharded = put_scalar_field_on_mesh(field, mesh)
 
         def kernel(field_owned):
@@ -832,7 +838,7 @@ def run_shard_map_grad_parallel_direct_case(
             mesh=mesh,
             in_specs=(P("x", "y", "z"),),
             out_specs=P("x", "y", "z"),
-            check_rep=False,
+            check_vma=False,
         )
         actual = kernel(field_sharded)
 
@@ -927,7 +933,8 @@ def run_shard_map_grad_parallel_fci_case(
         "backward_boundary",
     )
 
-    with make_mesh_for_shard_counts(shard_counts) as mesh:
+    mesh = make_mesh_for_shard_counts(shard_counts)
+    with _set_mesh(mesh):
         field_sharded = put_scalar_field_on_mesh(field, mesh)
         map_sharding = NamedSharding(mesh, P("x", "y", "z"))
         maps_sharded = tuple(
@@ -968,7 +975,7 @@ def run_shard_map_grad_parallel_fci_case(
             mesh=mesh,
             in_specs=(P("x", "y", "z"),) * (1 + len(map_names)),
             out_specs=P("x", "y", "z"),
-            check_rep=False,
+            check_vma=False,
         )
         actual = kernel(field_sharded, *maps_sharded)
 

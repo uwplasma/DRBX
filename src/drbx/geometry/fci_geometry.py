@@ -6,9 +6,27 @@ from typing import Callable
 import jax
 import jax.numpy as jnp
 from jax import lax
+from ..fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
+    FCI_DEP_INVALID,
+    FCI_DEP_FIELD_INTERIOR,
+    FCI_DEP_PHYSICAL_BOUNDARY,
+    FCI_DEP_CUT_WALL,
+    NeighborIndex3D,
+    OptionalNeighborIndex3D,
+    SIDE_PHYSICAL,
+    SIDE_SIMPLE_PERIODIC,
+    SIDE_AXIS_REGULAR,
+    SIDE_TOPOLOGY_MAPPED,
+    SIDE_UNUSED,
+    _VALID_SIDE_KINDS,
+    _physical_domain_valid_mask,
+    _extend_axis_with_ghost_cells,
+    _extend_values_x,
+    _extend_values_y,
+    _extend_values_z,
+    _pytree_base,
+)
 
-
-_pytree_base = jax.tree_util.register_pytree_node_class
 
 class _DataclassPyTreeMixin:
     """Generic PyTree support for frozen dataclasses.
@@ -606,13 +624,6 @@ class FciMaps3D(_DataclassPyTreeMixin):
         return tuple(int(v) for v in self.forward_x.shape)
 
 
-# Dependency kinds are shared by local and remote FCI dependency metadata.
-FCI_DEP_INVALID = 0
-FCI_DEP_FIELD_INTERIOR = 1
-FCI_DEP_PHYSICAL_BOUNDARY = 2
-FCI_DEP_CUT_WALL = 3
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalFciLocalDependencyTable(_DataclassPyTreeMixin):
@@ -1152,27 +1163,6 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
     def regular_face(self) -> LocalRegularFaceGeometry3D:
         return self.regular_face_geometry
 
-NeighborIndex3D = tuple[int, int, int]
-OptionalNeighborIndex3D = NeighborIndex3D | None
-
-
-# Meaning of a global lower/upper side in a ShardSpec3D. These values are
-# metadata for later halo stages; HaloExchange3D only owns regular-neighbor
-# and SIDE_SIMPLE_PERIODIC data.
-SIDE_PHYSICAL = 1
-SIDE_SIMPLE_PERIODIC = 2
-SIDE_AXIS_REGULAR = 3
-SIDE_TOPOLOGY_MAPPED = 4
-SIDE_UNUSED = 5
-_VALID_SIDE_KINDS = frozenset(
-    {
-        SIDE_PHYSICAL,
-        SIDE_SIMPLE_PERIODIC,
-        SIDE_AXIS_REGULAR,
-        SIDE_TOPOLOGY_MAPPED,
-        SIDE_UNUSED,
-    }
-)
 
 
 @_pytree_base
@@ -3792,87 +3782,6 @@ def build_curvature_coefficients(
     return curvature_coefficients
 
    
-def _physical_domain_valid_mask(
-    grid: CellCenteredGrid3D,
-    x: jnp.ndarray,
-    y: jnp.ndarray,
-    z: jnp.ndarray,
-    *,
-    periodic_axes: tuple[bool, bool, bool],
-) -> jnp.ndarray:
-    valid_x = jnp.isfinite(x) if periodic_axes[0] else (jnp.isfinite(x) & (x >= grid.x.faces[0]) & (x <= grid.x.faces[-1]))
-    valid_y = jnp.isfinite(y) if periodic_axes[1] else (jnp.isfinite(y) & (y >= grid.y.faces[0]) & (y <= grid.y.faces[-1]))
-    valid_z = jnp.isfinite(z) if periodic_axes[2] else (jnp.isfinite(z) & (z >= grid.z.faces[0]) & (z <= grid.z.faces[-1]))
-    return valid_x & valid_y & valid_z
-
-
-def _extend_axis_with_ghost_cells(grid_axis: Grid1D) -> jnp.ndarray:
-    centers = grid_axis.centers
-    faces = grid_axis.faces
-    lower = 2.0 * faces[0] - centers[0]
-    upper = 2.0 * faces[-1] - centers[-1]
-    return jnp.concatenate([
-        jnp.asarray([lower], dtype=jnp.float64),
-        centers,
-        jnp.asarray([upper], dtype=jnp.float64),
-    ])
-
-def _extend_values_x(values: jnp.ndarray, grid_axis: Grid1D) -> jnp.ndarray:
-    centers = grid_axis.centers
-    faces = grid_axis.faces
-    xg_lower = 2.0 * faces[0] - centers[0]
-    xg_upper = 2.0 * faces[-1] - centers[-1]
-
-    if values.shape[0] == 1:
-        lower = values[0:1, :, :]
-        upper = values[-1:, :, :]
-    else:
-        lower_slope = (values[1, :, :] - values[0, :, :]) / (centers[1] - centers[0])
-        upper_slope = (values[-1, :, :] - values[-2, :, :]) / (centers[-1] - centers[-2])
-
-        lower = (values[0, :, :] + (xg_lower - centers[0]) * lower_slope)[None, :, :]
-        upper = (values[-1, :, :] + (xg_upper - centers[-1]) * upper_slope)[None, :, :]
-
-    return jnp.concatenate([lower, values, upper], axis=0)
-
-
-def _extend_values_y(values: jnp.ndarray, grid_axis: Grid1D) -> jnp.ndarray:
-    centers = grid_axis.centers
-    faces = grid_axis.faces
-    yg_lower = 2.0 * faces[0] - centers[0]
-    yg_upper = 2.0 * faces[-1] - centers[-1]
-
-    if values.shape[1] == 1:
-        lower = values[:, 0:1, :]
-        upper = values[:, -1:, :]
-    else:
-        lower_slope = (values[:, 1, :] - values[:, 0, :]) / (centers[1] - centers[0])
-        upper_slope = (values[:, -1, :] - values[:, -2, :]) / (centers[-1] - centers[-2])
-
-        lower = (values[:, 0, :] + (yg_lower - centers[0]) * lower_slope)[:, None, :]
-        upper = (values[:, -1, :] + (yg_upper - centers[-1]) * upper_slope)[:, None, :]
-
-    return jnp.concatenate([lower, values, upper], axis=1)
-
-
-def _extend_values_z(values: jnp.ndarray, grid_axis: Grid1D) -> jnp.ndarray:
-    centers = grid_axis.centers
-    faces = grid_axis.faces
-    zg_lower = 2.0 * faces[0] - centers[0]
-    zg_upper = 2.0 * faces[-1] - centers[-1]
-
-    if values.shape[2] == 1:
-        lower = values[:, :, 0:1]
-        upper = values[:, :, -1:]
-    else:
-        lower_slope = (values[:, :, 1] - values[:, :, 0]) / (centers[1] - centers[0])
-        upper_slope = (values[:, :, -1] - values[:, :, -2]) / (centers[-1] - centers[-2])
-
-        lower = (values[:, :, 0] + (zg_lower - centers[0]) * lower_slope)[:, :, None]
-        upper = (values[:, :, -1] + (zg_upper - centers[-1]) * upper_slope)[:, :, None]
-
-    return jnp.concatenate([lower, values, upper], axis=2)
-
 def _interpolate_scalar_cell_centered(
     values: jnp.ndarray,
     x: jnp.ndarray,
