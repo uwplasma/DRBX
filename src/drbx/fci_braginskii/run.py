@@ -75,7 +75,7 @@ from drbx.fci_braginskii.native.fci_sharding import (  # noqa: E402
     make_shard_mesh,
 )
 from drbx.fci_braginskii.native.fci_gmres import SolvaxGmresConfig  # noqa: E402
-from drbx.fci_braginskii.native.fci_wall_closure import WALL_CLOSURES, SheathClosure  # noqa: E402
+from drbx.fci_braginskii.native.fci_wall_closure import SHEATH_POTENTIALS, WALL_CLOSURES, SheathClosure  # noqa: E402
 from drbx.fci_braginskii.native import fci_neutrals  # noqa: E402
 from drbx.fci_braginskii.native.fci_angular_agglomeration import (  # noqa: E402
     RLP_PACKED_FIELD_COUNT,
@@ -172,11 +172,13 @@ WALL_LEDGER_COLUMNS = (
     "kinetic_energy", "current", "abs_current", "wall_legs", "particle_inventory",
     "electron_energy_inventory", "ion_energy_inventory", "ion_kinetic_inventory",
     "electron_energy_source", "ion_energy_source",
+    "momentum_wall", "momentum_leg_pressure", "momentum_source", "momentum_inventory",
     # Applied over the step ending at this row (NaN on the first row); see
     # ``LocalFciDrbEBRhs.wall_step_ledger``.
     "step_particle_wall", "step_particle_other", "step_electron_energy_wall",
     "step_electron_energy_other", "step_electron_energy_product", "step_ion_energy_wall",
     "step_ion_energy_other", "step_ion_energy_product",
+    "step_momentum_wall", "step_momentum_other", "step_momentum_product",
 )
 
 def topology_descriptor(topology: str) -> TopologyDescriptor:
@@ -1948,7 +1950,7 @@ def run_full_eb(
             (state_mins[-1], state_maxs[-1], state_abs_maxs[-1]), axis=1
         )
         if model.sheath is None:
-            step_ledger = jnp.zeros((8,), dtype=jnp.float64)
+            step_ledger = jnp.zeros((11,), dtype=jnp.float64)
         else:
             implicit_1, explicit_1, implicit_2, explicit_2, _ = stage_rates
             step_ledger = model.wall_step_ledger(
@@ -2684,13 +2686,13 @@ def run_full_eb(
             return np.asarray(wall_ledger(current_state, cell_fields, map_fields, control_volume_fields))
 
     def record_wall_ledger(time_value: float, step_ledger=None, split_change=None) -> None:
-        """``split_change``: inventory change of the neutral split substep (removed from dN, dW)."""
+        """``split_change``: inventory change of the neutral split substep (removed from dN, dW, dP)."""
 
         if wall_ledger is None:
             return
         totals = wall_totals(state)
         applied = (
-            np.full(8, np.nan) if step_ledger is None else np.asarray(step_ledger, dtype=np.float64)
+            np.full(11, np.nan) if step_ledger is None else np.asarray(step_ledger, dtype=np.float64)
         )
         wall_ledger_rows.append([float(time_value), *(float(v) for v in totals), *(float(v) for v in applied)])
         print(
@@ -2702,17 +2704,26 @@ def run_full_eb(
         )
         if step_ledger is not None and len(wall_ledger_rows) > 1:
             previous, row = wall_ledger_rows[-2], wall_ledger_rows[-1]
-            d_n, d_we, d_wi = (row[k] - previous[k] for k in (9, 10, 11))
+            d_n, d_we, d_wi, d_p = (row[k] - previous[k] for k in (9, 10, 11, 18))
             if split_change is not None:
-                d_n, d_we, d_wi = d_n - split_change[8], d_we - split_change[9], d_wi - split_change[10]
-            p_wall, p_other, e_wall, e_other, e_prod, i_wall, i_other, i_prod = applied
+                d_n, d_we, d_wi, d_p = (
+                    d_n - split_change[8], d_we - split_change[9], d_wi - split_change[10],
+                    d_p - split_change[17],
+                )
+            p_wall, p_other, e_wall, e_other, e_prod, i_wall, i_other, i_prod, m_wall, m_other, m_prod = applied
             print(
                 "[wall-step] applied: particle={:.6e} other={:.3e} imbalance={:.3e} | "
                 "W_e wall={:.6e} other={:.3e} imbalance={:.3e} | "
-                "W_i wall={:.6e} other={:.3e} imbalance={:.3e}".format(
+                "W_i wall={:.6e} other={:.3e} imbalance={:.3e} | "
+                "P wall={:.6e} other={:.3e} imbalance={:.3e}".format(
                     p_wall, p_other, (d_n - (p_other - p_wall)) / max(abs(p_wall), 1.0e-300),
                     e_wall, e_other, (d_we - (e_other - e_wall + e_prod)) / max(abs(e_wall), 1.0e-300),
                     i_wall, i_other, (d_wi - (i_other - i_wall + i_prod)) / max(abs(i_wall), 1.0e-300),
+                    # the signed wall momentum nearly cancels between the two
+                    # ends, so the momentum imbalance is relative to the
+                    # largest term
+                    m_wall, m_other, (d_p - (m_other - m_wall + m_prod))
+                    / max(abs(m_wall), abs(m_other), abs(d_p), 1.0e-300),
                 ),
                 flush=True,
             )
@@ -3209,6 +3220,7 @@ def sheath_closure(config) -> SheathClosure | None:
         electron_heat_transmission=gamma_e if gamma_e > 0.0 else None,
         ion_heat_transmission=float(config.ion_heat_transmission),
         secondary_electron_emission=float(config.secondary_electron_emission),
+        potential=str(config.sheath_potential),
     )
 
 
@@ -3293,6 +3305,7 @@ class HsxBlobConfig:
     neutral_initial_density: float = 0.01
     neutral_initial_decay_length: float = 0.1
     neutral_reaction_substeps: int = 1
+    sheath_potential: str = "ambipolar"
     advance_execution: str = "staged-compiled"
     gmres_acceptance_tolerance: float = 5.0e-5
     gmres_target_tolerance: float = GMRES_TARGET_TOLERANCE
@@ -3597,6 +3610,15 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
         help="Initial neutral profile N0 exp(-(1-u)/L) in the radial label u; 0 = uniform.",
     )
     option("neutral_reaction_substeps", help="Explicit reaction substeps per time step.")
+        "sheath_potential",
+        choices=SHEATH_POTENTIALS,
+        help=(
+            "Bohm wall electron closure: 'ambipolar' (default; Ve_w = Vi_w, "
+            "zero current per leg) or 'current' (experimental; sheath-limited "
+            "electron current j = n c_s [1 - exp(Lambda - phi/Te)] per wall "
+            "leg, linearized inside the implicit current/phi solve)."
+        ),
+    )
     option(
         "advance_execution",
         choices=("compiled", "staged-compiled", "eager"),
@@ -4140,6 +4162,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
                 if neutral_params is not None
                 else {}
             ),
+            "sheath_potential": str(args.sheath_potential),
             "time_integrator": "imex-ssp222",
             "advance_execution": str(args.advance_execution),
             "advance_execution_kernel_layout": (
