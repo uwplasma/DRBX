@@ -46,7 +46,7 @@ FINAL_TIME = 0.00375        # quick preset; documented run uses 0.15
 NUM_STEPS = 5               # quick preset; documented run uses 200 (dt = 7.5e-4)
 SAVE_EVERY = 1              # history frames (movie frames); documented run uses 10
 COILS = Path("examples/inputs/hsx/coils.hsx")            # MAKEGRID filaments (QHS: six main groups, 10722 A)
-VESSEL = Path("artifacts/inputs/hsx/vessel_hsx_flare.txt")  # vessel outline: 161 planes over one period
+VESSEL = Path("examples/inputs/hsx/vessel_hsx_flare.txt")  # vessel outline: 161 planes over one period
 TRACE_STEP = 0.02           # field-line step [m]
 N_POINCARE, POINCARE_STEPS = 40, 50000   # seeds on the midplane (R = 1.38..1.54 m), steps per seed (~130 toroidal turns)
 CL_SHAPE, CL_MAX_STEPS = (44, 64), 15000  # connection-length grid (R, Z) at phi = 0 and step cap (300 m)
