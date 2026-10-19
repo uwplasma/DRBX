@@ -29,17 +29,19 @@ a local checkout) and a wout file (not committed to this repo):
 
     PYTHONPATH=src python examples/geometry-3D/vmex/closed_field_lines.py
 
-writes ``output/vmex_closed/closed_field_lines.png``.
+writes ``output/closed_field_lines/closed_field_lines.png``.
 """
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from drbx.geometry import (
+    resolve_essos_landreman_qa_wout,
     load_vmex_wout,
     trace_vmex_field_lines,
     traced_rotational_transform,
@@ -51,29 +53,24 @@ from drbx.geometry import (
 )
 
 # PARAMETERS ---------------------------------------------------------------
-# Landreman-Paul 2021 precise QA (reactor scale) wout from the local
-# ESSOS_test checkout; wout files are external inputs, never committed here.
-WOUT_PATH = Path.home() / "local" / "ESSOS_test" / "examples" / "input_files" / "wout_LandremanPaul2021_QA_reactorScale_lowres.nc"
+# Landreman-Paul 2021 precise QA (reactor scale) wout; None -> the copy in the
+# ESSOS checkout (DRBX_ESSOS_ROOT). wout files are external inputs, never committed.
+WOUT_PATH: Path | None = None
 SURFACE_INDICES = (4, 10, 18, 27, 36, 45)  # half-mesh rows to trace (1..ns-1)
 THETA_START = 0.0            # poloidal seed angle of every line [rad]
 N_TRANSITS = 300             # toroidal transits per line (= Poincare points)
 STEPS_PER_TRANSIT = 96       # fixed RK4 steps per toroidal transit
 IOTA_RTOL = 1.0e-2           # required traced-vs-wout iota relative agreement
-OUTPUT_DIR = Path("output/vmex_closed")
+OUTPUT_DIR = Path("output/closed_field_lines")
 
 # setup --------------------------------------------------------------------
 if not vmex_runtime_available():
     raise SystemExit(
         "VMEX is not importable. Point DRBX_VMEX_ROOT at a checkout, e.g.\n"
-        "    DRBX_VMEX_ROOT=~/local/VMEX PYTHONPATH=src python "
+        "    DRBX_VMEX_ROOT=/path/to/VMEX PYTHONPATH=src python "
         "examples/geometry-3D/vmex/closed_field_lines.py"
     )
-if not WOUT_PATH.exists():
-    raise SystemExit(
-        f"VMEC wout file not found: {WOUT_PATH}\n"
-        "Edit the WOUT_PATH parameter to point at a local stellarator wout NetCDF "
-        "(e.g. from an ESSOS or VMEX checkout); wout files are not committed here."
-    )
+WOUT_PATH = resolve_essos_landreman_qa_wout(WOUT_PATH)  # raises with a hint if missing
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # stage 1: load the equilibrium --------------------------------------------
@@ -95,6 +92,7 @@ iotaf = np.asarray(wout.iotaf, dtype=np.float64)
 print(f"tracing 1 field line on each of {len(SURFACE_INDICES)} flux surfaces "
       f"({N_TRANSITS} transits, {STEPS_PER_TRANSIT} RK4 steps/transit)...")
 poincare_r, poincare_z, traced_iotas, wout_iotas, surface_s = [], [], [], [], []
+start = time.perf_counter()
 for surface_index in SURFACE_INDICES:
     s_value = float(s_half[surface_index - 1])
     phi_nodes, theta_lines = trace_vmex_field_lines(
@@ -108,7 +106,8 @@ for surface_index in SURFACE_INDICES:
     iota_wout = float(np.interp(s_value, s_full, iotaf))
     relative_error = abs(iota_traced - iota_wout) / abs(iota_wout)
     print(f"  s = {s_value:.3f}: traced iota = {iota_traced:.5f}, "
-          f"wout iotaf = {iota_wout:.5f}, rel. diff = {relative_error:.1e}")
+          f"wout iotaf = {iota_wout:.5f}, rel. diff = {relative_error:.1e} "
+          f"({time.perf_counter() - start:.1f} s elapsed)")
     assert relative_error < IOTA_RTOL, (
         f"traced iota disagrees with the wout profile on s={s_value:.3f}: "
         f"{iota_traced} vs {iota_wout}"

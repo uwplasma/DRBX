@@ -26,6 +26,7 @@ writes ``output/island_divertor/island_divertor.png`` (release-hosted).
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import jax
@@ -60,6 +61,8 @@ from drbx.native.stellarator_turbulence import (  # noqa: E402
     build_free_decay_boundary_conditions,
     four_field_rk4_step,
 )
+
+_T0 = time.perf_counter()
 
 # ----------------------------- PARAMETERS -----------------------------------
 # The analytic island-divertor field (sheared iota + resonant perturbations);
@@ -290,3 +293,4 @@ plt.close(fig)
     "final_divertor_flux": float(open_flux[-1]),
 }, indent=2))
 print(f"[done] wrote {OUTPUT_DIR / 'island_divertor.png'} and summary.json")
+print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")

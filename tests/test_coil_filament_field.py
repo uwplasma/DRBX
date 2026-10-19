@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -172,13 +173,48 @@ def test_coil_table_converges_to_the_coils_and_is_differentiable_in_currents() -
 
 
 HSX_INPUTS = Path(os.environ.get("DRBX_HSX_INPUTS", "artifacts")).expanduser()
+HSX_COILS = Path(__file__).resolve().parents[1] / "examples" / "inputs" / "hsx" / "coils.hsx"
+QHS_CURRENTS = {g + 1: (10722.0 if g < 6 else 0.0) for g in range(12)}
+
+
+def test_shipped_hsx_vessel_file_is_pinned() -> None:
+    vessel = HSX_COILS.with_name("vessel_hsx_flare.txt")
+    digest = "65d794b7131e35dc72b554e5b6ae3c97974a5e11a7d936ebedc66451749d1ff3"
+    assert hashlib.sha256(vessel.read_bytes()).hexdigest() == digest
+    assert vessel.read_text().splitlines()[1].split() == ["161", "201", "4"]
+
+
+def test_shipped_hsx_coils_give_the_qhs_field_symmetries() -> None:
+    coils = FilamentCoilField.from_makegrid(HSX_COILS, QHS_CURRENTS)
+    assert coils.nfp == 4
+    rng = np.random.default_rng(0)
+    r = rng.uniform(1.3, 1.6, 8)
+    phi = rng.uniform(0.0, np.pi / 2, 8)
+    z = rng.uniform(-0.1, 0.1, 8)
+    xyz = np.stack([r * np.cos(phi), r * np.sin(phi), z], axis=-1)
+    b = np.asarray(coils.B(jnp.asarray(xyz)))
+    # Field-period symmetry: B(R_nfp x) = R_nfp B(x).
+    c, s = np.cos(np.pi / 2), np.sin(np.pi / 2)
+    rot = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+    b_rot = np.asarray(coils.B(jnp.asarray(xyz @ rot.T)))
+    np.testing.assert_allclose(b_rot, b @ rot.T, rtol=1e-9, atol=1e-12)
+    # Stellarator symmetry: (x, y, z) -> (x, -y, -z) maps (Bx, By, Bz) -> (-Bx, By, Bz).
+    mirror = xyz * np.array([1.0, -1.0, -1.0])
+    b_mirror = np.asarray(coils.B(jnp.asarray(mirror)))
+    np.testing.assert_allclose(b_mirror, b * np.array([-1.0, 1.0, 1.0]), rtol=1e-9, atol=1e-12)
+    # |B| on the phi = 0 midplane, pinned to the shipped coil file and QHS currents.
+    line = jnp.asarray([[r, 0.0, 0.0] for r in (1.35, 1.45, 1.55)])
+    np.testing.assert_allclose(
+        np.linalg.norm(np.asarray(coils.B(line)), axis=-1),
+        [1.2528742413783616, 0.9898603780309296, 0.7926143435593433],
+        rtol=1e-10,
+    )
 
 
 @pytest.mark.slow
 @pytest.mark.skipif(
-    not (HSX_INPUTS / "inputs/hsx/coils.hsx").exists()
-    or not (HSX_INPUTS / "inputs/hsx/mgrid_res2p5cm_180pln.nc").exists(),
-    reason="HSX coils/mgrid inputs not present (set DRBX_HSX_INPUTS)",
+    not (HSX_INPUTS / "inputs/hsx/mgrid_res2p5cm_180pln.nc").exists(),
+    reason="HSX mgrid input not present (set DRBX_HSX_INPUTS)",
 )
 def test_hsx_coil_field_matches_the_mgrid_at_bundle_cell_centres() -> None:
     from drbx.fci_braginskii.geometry_build.Bfield_evaluator import (
@@ -186,9 +222,7 @@ def test_hsx_coil_field_matches_the_mgrid_at_bundle_cell_centres() -> None:
     )
 
     currents = [10722.0] * 6 + [0.0] * 6
-    coils = FilamentCoilField.from_makegrid(
-        HSX_INPUTS / "inputs/hsx/coils.hsx", {g + 1: c for g, c in enumerate(currents)}
-    )
+    coils = FilamentCoilField.from_makegrid(HSX_COILS, {g + 1: c for g, c in enumerate(currents)})
     mgrid = bfield_evaluator_from_makegrid(
         HSX_INPUTS / "inputs/hsx/mgrid_res2p5cm_180pln.nc", currents=currents, method="cubic"
     )

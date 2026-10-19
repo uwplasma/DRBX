@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import json
 from functools import partial
+import time
 from pathlib import Path
 
 import jax
@@ -72,6 +73,8 @@ from drbx.native.fci_differentiable_case import (  # noqa: E402
     single_rhs,
     single_rhs_grad_and_fd,
 )
+
+_T0 = time.perf_counter()
 
 # ----------------------------- PARAMETERS -----------------------------------
 # Geometry (shifted-torus, non-axisymmetric flux tube):
@@ -227,3 +230,4 @@ figure_path = OUTPUT_DIR / "fci_differentiable.png"
 fig.savefig(figure_path, dpi=200)
 plt.close(fig)
 print(f"[done] wrote {figure_path}")
+print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")

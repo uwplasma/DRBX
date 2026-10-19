@@ -31,6 +31,7 @@ target sheath diagnostics) and a JSON summary.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import jax
@@ -48,6 +49,8 @@ from drbx.native.sol_flux_tube import (  # noqa: E402
     sol_flux_tube_run,
     sol_flux_tube_source,
 )
+
+_T0 = time.perf_counter()
 
 # ----------------------------------------------------------------------------
 # PARAMETERS -- everything you might want to change, in one place.
@@ -197,3 +200,4 @@ fig.tight_layout()
 fig.savefig(OUTPUT_DIR / "open_sol_flux_tube.png", dpi=180)
 plt.close(fig)
 print(f"wrote {OUTPUT_DIR / 'open_sol_flux_tube.png'}")
+print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")

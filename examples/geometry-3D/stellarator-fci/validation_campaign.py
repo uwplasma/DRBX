@@ -17,6 +17,7 @@ Run from the repository root:
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from drbx.validation import (
@@ -35,23 +36,20 @@ from drbx.validation import (
 OUTPUT_ROOT = Path("docs/data/stellarator_fci_validation_artifacts")  # artifact root (cwd-relative)
 
 
-print("running geometry campaign package...")
-geometry_artifacts = create_stellarator_fci_geometry_campaign_package(output_root=OUTPUT_ROOT / "geometry")
-print("running suite campaign package...")
-suite_artifacts = create_stellarator_fci_suite_campaign_package(output_root=OUTPUT_ROOT / "suite")
-print("running operators campaign package...")
-operator_artifacts = create_stellarator_fci_operator_campaign_package(output_root=OUTPUT_ROOT / "operators")
-print("running metric_mms campaign package...")
-metric_artifacts = create_stellarator_metric_mms_campaign_package(output_root=OUTPUT_ROOT / "metric_mms")
-print("running sheath_recycling campaign package...")
-sheath_artifacts = create_stellarator_sheath_recycling_campaign_package(output_root=OUTPUT_ROOT / "sheath_recycling")
-print("running neutral_physics campaign package...")
-neutral_artifacts = create_stellarator_neutral_physics_campaign_package(output_root=OUTPUT_ROOT / "neutral_physics")
-print("running vorticity campaign package...")
-vorticity_artifacts = create_stellarator_vorticity_campaign_package(output_root=OUTPUT_ROOT / "vorticity")
-print("running pytree_drb campaign package...")
-pytree_artifacts = create_stellarator_drb_pytree_campaign_package(output_root=OUTPUT_ROOT / "pytree_drb")
-print("running showcase campaign package...")
-showcase_artifacts = create_stellarator_sol_showcase_package(output_root=OUTPUT_ROOT / "showcase")
-
-print(f"wrote stellarator FCI validation artifacts under {OUTPUT_ROOT}")
+total = time.perf_counter()
+for name, create in (
+    ("geometry", create_stellarator_fci_geometry_campaign_package),
+    ("suite", create_stellarator_fci_suite_campaign_package),
+    ("operators", create_stellarator_fci_operator_campaign_package),
+    ("metric_mms", create_stellarator_metric_mms_campaign_package),
+    ("sheath_recycling", create_stellarator_sheath_recycling_campaign_package),
+    ("neutral_physics", create_stellarator_neutral_physics_campaign_package),
+    ("vorticity", create_stellarator_vorticity_campaign_package),
+    ("pytree_drb", create_stellarator_drb_pytree_campaign_package),
+    ("showcase", create_stellarator_sol_showcase_package),
+):
+    print(f"running {name} campaign package...")
+    start = time.perf_counter()
+    create(output_root=OUTPUT_ROOT / name)
+    print(f"  {name} done in {time.perf_counter() - start:.1f} s -> {OUTPUT_ROOT / name}")
+print(f"wrote stellarator FCI validation artifacts under {OUTPUT_ROOT} in {time.perf_counter() - total:.1f} s")

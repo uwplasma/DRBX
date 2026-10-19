@@ -104,11 +104,78 @@ attached to high recycling.
 
 What differs: Hermes-3 needs 6 % (attached) to about 23 % (high recycling) more upstream density
 for the same target flow. Both codes give the same T_t and the same Gamma_t, so the target
-pressure is the same. The difference is therefore in the upstream-to-target total pressure loss
-(momentum removed by CX, ionisation and recombination friction, and neutral momentum transport).
+pressure is the same. The difference is therefore in the upstream-to-target total pressure loss.
 Neither the recombination rate nor T_e != T_i can account for it, since together they bound less
-than 0.5 %. It is not attributed to a named model difference here. The remaining candidates are
-SD1D choices that this deck does not reproduce: SD1D's neutral-pressure relaxation where
-Nn < 1e-5, the neutral momentum diffusion, and Hermes-3's split ion/electron momentum with
-`electron_force_balance`. The next step is a DRBX toggle that removes the SD1D neutral momentum
-diffusion. The 0.1 % T_up difference at the highest flow is small but resolved, and is also not attributed.
+than 0.5 %. The attribution below assigns most of it to two named model differences.
+
+## Attribution of the n_up difference
+
+Method. `momentum_budget.py` sums each code's discrete steady ion momentum equation over the leg,
+`P_up + sum P dA - F_fric = A_t P_f + A_t (m n v^2)_f`, at matched Gamma_t A_t on the same grid.
+Each candidate was then switched off or aligned in one code, and the n_up gap at equal flow was
+re-measured per grid (DRBX n_up interpolated in log Gamma_t A_t on the same grid).
+
+Budget, attached flow (2.231e24), 800 cells, as published (Pa per upstream m^2):
+
+| Term | Hermes-3 | DRBX | H − D |
+|---|---|---|---|
+| P_up | 408.8 | 377.2 | +31.6 |
+| expansion force sum P dA | 406.3 | 374.9 | +31.4 |
+| friction to neutrals | 165.4 | 121.7 | **+43.7** |
+| face pressure A_t P_f | 341.6 | 337.6 | +4.0 |
+| face momentum flux A_t (m n v^2)_f | 308.0 | 292.8 | **+15.3** |
+| CX reactions [s^-1 m^-2] | 4.37e24 | 4.43e24 | −1 % |
+| CX-weighted slip <v_i − v_n> [m/s] | 11 922 | 9 858 | +21 % |
+
+The extra upstream pressure is 70 % extra friction and 30 % a larger sheath momentum flux. The CX
+reaction count is the same, so the extra friction comes from slower neutrals. The CX slip is 21 %
+larger, and the ionisation momentum gain is smaller.
+
+| Candidate | Test | n_up gap, attached (400 / 800 / 1600 cells) | n_up gap, 6.885e24 (400 / 800 / 1600) |
+|---|---|---|---|
+| As published | Hermes base vs DRBX base | +9.5 / +8.3 / +7.3 % (extrapolated +6.0 %) | +5.6 / +14.9 / +18.9 % |
+| CX rate form and temperature | Hermes `Fhh+_cx` against n n_n <sigma v>(T_e) m (v_i − v_n) | identical (ratio 1.0000); no effect | — |
+| Recombination rate; T_e != T_i | earlier bounds | < 0.5 % | < 0.5 % |
+| Sheath density and pressure extrapolation (exponential vs linear) | Hermes `density_boundary_mode = pressure_boundary_mode = 2` | +10.0 / +8.5 % | +7.5 / +16.4 % |
+| **Hermes-3 neutral viscosity** (`neutral_parallel_diffusion:perpendicular_viscosity`, default on; SD1D has none) | off | +8.6 / +7.0 % | +15.9 % (400) |
+| **Hermes-3 neutral momentum flux through the no-flow wall** (Lax term of `Div_par_fvv` at the boundary) | plus `h:fix_momentum_boundary_flux = true` | +7.5 / +6.7 % | — |
+| **SD1D/DRBX sheath momentum flux**: MinMod face value of NV_i times V_out (SD1D default `bndry_flux_fix = false`, NV_i guard = N_out V_out), 14 % below Gamma_t c_s at 800 cells | `drbx_sheath_momentum.patch` sets it to N_out V_out^2 (vs Hermes base) | +0.9 / +3.2 % | — |
+| Hermes-3 ion sheath momentum flux set to n_mid v_mid^2 | `h+:fix_momentum_boundary_flux = true` (vs DRBX base) | +5.5 / +11.4 / +6.3 % | +5.5 / +10.7 / +14.4 % |
+| **All aligned** | Hermes: viscosity off, ion and neutral `fix_momentum_boundary_flux = true`; DRBX: patch | +1.8 / +2.0 / +2.5 % (100, 200 cells: +2.2, +1.9 %) | +3.2 / +0.9 / +5.1 % |
+
+Aligned budget (800 cells): friction now agrees (117.9 vs 119.6 Pa, CX slip within 8 %). What
+remains (+2 %) sits entirely in the face terms. Hermes-3's T_t is 5 % higher at the same flow, and
+the face momentum scales as Gamma_t sqrt(T_t).
+
+Aligned, extrapolated (`compare.py aligned drbx_mom`):
+- **Attached.** n_up 2.149e19 ± 0.025 vs 2.094e19 ± 0.003, a +2.6 % difference. T_t 21.93 vs 21.06 eV, +4.1 %. Both are formally outside the (now small) GCIs.
+- **6.885e24.** n_up +4.4 % (agree within 7e18). The aligned Hermes-3 sequence is not asymptotic: 4.53, 4.49, 4.71e19. The 1600-cell state was reached from both the 800-cell and the base 1600-cell states.
+- **1.04e25.** Inconclusive. The aligned and ion-fixed Hermes-3 runs on 400 and 800 cells do not reach steady state (drift 1e-4 and 1.5e-5).
+
+Conclusions:
+1. **Neutral momentum: a Hermes-3 vs SD1D model difference.** By default Hermes-3 adds a parallel
+   neutral viscosity, and it loses neutral momentum through the no-flow wall via the Lax flux.
+   SD1D/DRBX have neither. Both slow the neutrals near the target and raise the CX friction.
+   Hermes-3 can be configured to remove both (above), which brings the friction into agreement.
+2. **Sheath momentum flux: discretisation, not physics.** SD1D's (and DRBX's) boundary momentum
+   flux is the MinMod-reconstructed NV_i times V_out. Across the last half cell the flow jumps from
+   Mach about 0.77 to 1, so this flux is about 14 % below Gamma_t c_s at 800 cells. The error
+   vanishes only slowly with the grid:
+   - base DRBX n_up at the attached flow is 1.71, 1.84, 1.94, 2.00 and 2.04e19 on 100 to 1600 cells;
+   - with the patch it is 2.101, 2.109, 2.104, 2.099 and 2.096e19.
+   The Richardson value of the base runs (2.081e19) is close to the patched limit, so this term
+   mostly inflates the per-grid gap and the GCIs. It is not a DRBX bug: DRBX reproduces SD1D's
+   default. The patch is kept as an opt-in benchmark variant, not a model change.
+3. **Not attributed (+2.6 % on n_up, attached).** It goes together with a 4 % higher Hermes-3 T_t
+   at the same flow, so it lies in the target energy closure. One candidate is the kinetic-energy
+   correction that Hermes-3 applies in the pressure equation when `fix_momentum_boundary_flux` is
+   on; SD1D has no kinetic energy term. The 0.1 % T_up difference at the highest flow is also not
+   attributed.
+
+Reproduce:
+- Hermes-3 aligned runs: run `run_hermes.sh` with
+  `HERMES_OPTS="h+:fix_momentum_boundary_flux=true h:fix_momentum_boundary_flux=true neutral_parallel_diffusion:perpendicular_viscosity=false"`.
+  Start each run from the base steady state on the same grid, via `FROM=<base run dir>`.
+- DRBX patched runs: copy `src/`, apply `drbx_sheath_momentum.patch` to the copy, put the copy
+  first on `PYTHONPATH`, and run `run_drbx.py <out> base 1.8e19 2.0e19 2.2e19 2.4e19 4.0e19 4.5e19 5.0e19 5.5e19 6.0e19 7.0e19 8.0e19 9.0e19 1.0e20`.
+- Budget: `python momentum_budget.py <hermes run dir> <drbx json>`.

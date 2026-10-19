@@ -1,17 +1,18 @@
 """Strong-scaling demo for the sharded FCI two-field RK4 step.
 
-The script re-invokes itself once per device count because the XLA host device
-count must be fixed with ``--xla_force_host_platform_device_count=<n>`` before
-JAX is imported; the single internal handshake environment variable
-``DRBX_SHARDING_DEMO_WORKER`` carries the requested device count, and the
-worker branch is the small guarded block right below the constants. Each worker
+For each device count the script launches the short ``WORKER_CODE`` below in a
+fresh ``python -c`` subprocess (the XLA host device count must be fixed with
+``--xla_force_host_platform_device_count=<n>`` before JAX starts). Each worker
 advances the same shifted-torus two-field state and prints one JSON line; the
-parent verifies that all final-state checksums agree, then writes
+parent checks that all final-state checksums agree, then writes
 ``output/fci_sharded_strong_scaling/scaling_<platform>.json`` and
 ``scaling_<platform>.png`` (relative to the current working directory).
 
-Edit the PARAMETERS constants below (grid, steps, platform, device counts) and
-run from the repository root:
+The default grid and sweep are a quick laptop preset, not the 36-core
+measurement quoted in the docs (that used ``GRID = (256, 128, 32)`` and device
+counts up to 16 with ``taskset`` core binding on Linux).
+
+Run from the repository root:
 
     PYTHONPATH=src python examples/benchmarks/fci_sharded_strong_scaling.py
 
@@ -25,239 +26,120 @@ import json
 import os
 import shutil
 import subprocess
-
-import numpy
 import sys
 import time
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-for _path in (str(REPO_ROOT / "src"), str(REPO_ROOT)):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
+import matplotlib
 
-# --- PARAMETERS -----------------------------------------------------------------
-GRID = (256, 128, 16)      # (nx, ny, nz) of the shifted-torus two-field state
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+# ---- PARAMETERS ----
+GRID = (128, 64, 16)       # (nx, ny, nz) of the shifted-torus two-field state
 STEPS = 10                 # timed RK4 steps per worker (one extra warmup step compiles)
 DT = 1.0e-3                # RK4 time step
 PLATFORM = "cpu"           # "cpu" (forced host devices + core binding), "auto"
-                           # (let JAX pick, accelerators win), or an explicit
-                           # accelerator platform such as "gpu"/"tpu"
-DEVICE_COUNTS = (1, 2, 4, 8)  # device counts to sweep; each needs a SHARD_LAYOUTS entry
-SHARD_LAYOUTS = {
-    1: (1, 1, 1),
-    2: (2, 1, 1),
-    4: (2, 2, 1),
-    8: (4, 2, 1),
-    16: (4, 4, 1),
-    32: (4, 4, 2),
-}
+                           # (let JAX pick, accelerators win), or "gpu"/"tpu"
+DEVICE_COUNTS = (1, 2, 4)  # device counts to sweep; each needs a SHARD_LAYOUTS entry
+SHARD_LAYOUTS = {1: (1, 1, 1), 2: (2, 1, 1), 4: (2, 2, 1), 8: (4, 2, 1), 16: (4, 4, 1), 32: (4, 4, 2)}
 OUTPUT_DIR = Path("output/fci_sharded_strong_scaling")  # artifact directory (cwd-relative)
 CHECKSUM_RTOL = 1.0e-10    # relative tolerance for the cross-device checksum gate
 
-# Internal worker handshake (do not set by hand): the parent re-invokes this
-# script with this env var holding the device count after preparing XLA_FLAGS.
-WORKER_ENV_VAR = "DRBX_SHARDING_DEMO_WORKER"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# The worker reuses the test-suite case builder (tests/fci_sharded_2field_case.py).
+WORKER_CODE = """
+import json, sys, time
+import jax, numpy as np
+from drbx.native import Fci2FieldRhsParameters, make_sharded_2field_step
+from tests.fci_sharded_2field_case import build_case_geometry, build_initial_state
+r = json.loads(sys.argv[1]); n = r["device_count"]
+assert len(jax.devices()) >= n, f"requested {n} devices, JAX sees {len(jax.devices())}"
+geometry = build_case_geometry(tuple(r["grid"]))
+state = build_initial_state(geometry)
+step, _ = make_sharded_2field_step(geometry, tuple(r["shards"]), Fci2FieldRhsParameters(rho_star=1.0), None, dt=r["dt"])
+state = step(state); jax.block_until_ready(state.density)   # warmup / compile
+start = time.perf_counter()
+for _ in range(r["steps"]):
+    state = step(state)
+jax.block_until_ready(state.density)
+elapsed = time.perf_counter() - start
+# gather to host before summing so every shard is included
+checksum = float(np.abs(np.asarray(jax.device_get(state.density))).sum()
+                 + np.abs(np.asarray(jax.device_get(state.v_parallel))).sum())
+print(json.dumps({"device_count": n, "shard_counts": r["shards"], "steps": r["steps"],
+                  "seconds_per_step": elapsed / r["steps"], "checksum": checksum}))
+"""
 
 
-def run_worker(device_count: int) -> None:
-    """Advance the sharded two-field state and print one JSON result line."""
-
-    import jax
-    import jax.numpy as jnp  # noqa: F401  (kept for parity with the sharded API imports)
-
-    from drbx.native import Fci2FieldRhsParameters, make_sharded_2field_step
-    from tests.fci_sharded_2field_case import build_case_geometry, build_initial_state
-
-    shard_counts = SHARD_LAYOUTS[device_count]
-    if len(jax.devices()) < device_count:
-        raise RuntimeError(
-            f"worker requested {device_count} devices but JAX sees {len(jax.devices())}"
-        )
-
-    geometry = build_case_geometry(GRID)
-    state = build_initial_state(geometry)
-    step_fn, _info = make_sharded_2field_step(
-        geometry,
-        shard_counts,
-        Fci2FieldRhsParameters(rho_star=1.0),
-        None,
-        dt=DT,
-    )
-
-    # One warmup step triggers compilation and is excluded from the timing.
-    state = step_fn(state)
-    jax.block_until_ready(state.density)
-
-    start = time.perf_counter()
-    for _ in range(STEPS):
-        state = step_fn(state)
-    jax.block_until_ready(state.density)
-    elapsed = time.perf_counter() - start
-
-    # Gather to host before summing: on real multi-device runs a jnp.sum over
-    # the sharded output can reduce a single shard, so assemble the global
-    # arrays first.
-    density = numpy.asarray(jax.device_get(state.density))
-    v_parallel = numpy.asarray(jax.device_get(state.v_parallel))
-    checksum = float(numpy.abs(density).sum() + numpy.abs(v_parallel).sum())
-    print(
-        json.dumps(
-            {
-                "device_count": device_count,
-                "shard_counts": list(shard_counts),
-                "steps": STEPS,
-                "seconds_per_step": elapsed / STEPS,
-                "checksum": checksum,
-            }
-        )
-    )
-
-
-# --- worker branch: re-invoked subprocesses do one measurement and exit -----------
-if os.environ.get(WORKER_ENV_VAR):
-    run_worker(int(os.environ[WORKER_ENV_VAR]))
-    sys.exit(0)
-
-
-# --- parent-side helpers ----------------------------------------------------------
-def _layout_skip_reason(device_count: int) -> str | None:
-    layout = SHARD_LAYOUTS.get(device_count)
-    if layout is None:
-        return f"no shard layout configured for {device_count} devices"
-    for axis, (size, count) in enumerate(zip(GRID, layout)):
-        if size % count:
-            return (
-                f"grid axis {axis} with size {size} is not divisible by "
-                f"shard count {count} in layout {layout}"
-            )
-    return None
-
-
-def _launch_worker(device_count: int) -> dict[str, object]:
-    env = dict(os.environ)
-    command = [sys.executable, str(Path(__file__).resolve())]
+def launch_worker(n):
+    env = {**os.environ, "PYTHONPATH": f"{REPO_ROOT / 'src'}{os.pathsep}{REPO_ROOT}"}
+    env.pop("DRBX_HOST_DEVICE_COUNT", None)
+    request = json.dumps({"device_count": n, "shards": SHARD_LAYOUTS[n], "grid": GRID, "steps": STEPS, "dt": DT})
+    command = [sys.executable, "-c", WORKER_CODE, request]
     if PLATFORM == "cpu":
-        # On CPU, XLA intra-op threading already parallelises a single-device
-        # program across every core, so forced host devices alone measure
-        # nothing (the modern thunk runtime ignores the legacy Eigen thread
-        # flags). Where the OS supports it, bind the worker to one core per
-        # device so the sweep isolates the domain-decomposition machinery at
-        # one core per shard; without taskset (e.g. macOS) the curve mostly
-        # reflects intra-op threading and is labelled accordingly.
-        existing_flags = env.get("XLA_FLAGS", "")
-        env["XLA_FLAGS"] = (
-            f"{existing_flags} --xla_force_host_platform_device_count={device_count}"
-        ).strip()
-        # Pin the platform explicitly: on a host with accelerators the worker
-        # would otherwise silently run on them.
+        # A single-device CPU program already threads across all cores, so bind
+        # one core per device where taskset exists (Linux); on macOS the curve
+        # mostly reflects intra-op threading.
+        env["XLA_FLAGS"] = f"{env.get('XLA_FLAGS', '')} --xla_force_host_platform_device_count={n}".strip()
         env["JAX_PLATFORMS"] = "cpu"
         if shutil.which("taskset"):
-            command = ["taskset", "-c", f"0-{device_count - 1}", *command]
+            command = ["taskset", "-c", f"0-{n - 1}", *command]
     elif PLATFORM == "auto":
-        # Let JAX choose (accelerators win when present); pinning the platform
-        # explicitly can change how XLA stages jit constants on some builds.
         env.pop("JAX_PLATFORMS", None)
     else:
-        # Real accelerator devices: no forced host platform, no affinity.
         env["JAX_PLATFORMS"] = PLATFORM
-    env[WORKER_ENV_VAR] = str(device_count)
-    env.pop("DRBX_HOST_DEVICE_COUNT", None)
-
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            f"worker for {device_count} devices failed:\n{completed.stderr[-4000:]}"
-        )
-    json_lines = [line for line in completed.stdout.splitlines() if line.startswith("{")]
-    if not json_lines:
-        raise RuntimeError(
-            f"worker for {device_count} devices produced no JSON line:\n{completed.stdout[-2000:]}"
-        )
-    return json.loads(json_lines[-1])
+    done = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True, env=env)
+    lines = [line for line in done.stdout.splitlines() if line.startswith("{")]
+    if done.returncode != 0 or not lines:
+        raise RuntimeError(f"worker for {n} devices failed:\n{done.stdout[-2000:]}\n{done.stderr[-4000:]}")
+    return json.loads(lines[-1])
 
 
-def _write_scaling_plot(results: list[dict[str, object]], plot_path: Path) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    devices = [int(entry["device_count"]) for entry in results]
-    seconds = [float(entry["seconds_per_step"]) for entry in results]
-    ideal = [seconds[0] * devices[0] / count for count in devices]
-    efficiency = seconds[0] * devices[0] / (devices[-1] * seconds[-1])
-
-    plt.figure(figsize=(6.0, 4.5))
-    plt.loglog(devices, seconds, "o-", label="measured")
-    plt.loglog(devices, ideal, "k--", label="ideal scaling")
-    plt.xlabel(f"{PLATFORM.upper()} devices")
-    plt.ylabel("Wall time per RK4 step [s]")
-    plt.title(f"FCI two-field sharded step, grid {GRID[0]}x{GRID[1]}x{GRID[2]}")
-    plt.grid(True, which="both", alpha=0.4)
-    plt.legend()
-    plt.annotate(
-        f"parallel efficiency at {devices[-1]} devices: {efficiency:.1%}",
-        xy=(devices[-1], seconds[-1]),
-        xytext=(0.03, 0.06),
-        textcoords="axes fraction",
-    )
-    plt.tight_layout()
-    plt.savefig(plot_path, dpi=200)
-    plt.close()
-
-
-# --- parent flow: sweep device counts, verify checksums, save artifacts -----------
-results: list[dict[str, object]] = []
-for device_count in DEVICE_COUNTS:
-    reason = _layout_skip_reason(device_count)
-    if reason is not None:
-        print(f"skipping {device_count} devices: {reason}")
+# --- sweep device counts --------------------------------------------------------------
+wall_start = time.perf_counter()
+print(f"FCI two-field sharded RK4 strong scaling: grid {GRID}, {STEPS} steps, dt {DT}, platform {PLATFORM}")
+results = []
+for n in DEVICE_COUNTS:
+    layout = SHARD_LAYOUTS.get(n)
+    if layout is None or any(size % count for size, count in zip(GRID, layout)):
+        print(f"skipping {n} devices: no layout, or grid {GRID} not divisible by layout {layout}")
         continue
-    print(f"running worker with {device_count} host device(s)...")
-    result = _launch_worker(device_count)
-    print(
-        f"  devices={result['device_count']} "
-        f"layout={tuple(result['shard_counts'])} "
-        f"seconds_per_step={result['seconds_per_step']:.4f} "
-        f"checksum={result['checksum']:.12e}"
-    )
-    results.append(result)
-
+    print(f"running worker with {n} device(s), layout {layout}...", flush=True)
+    t0 = time.perf_counter()
+    results.append(launch_worker(n))
+    print(f"  seconds_per_step={results[-1]['seconds_per_step']:.4f} checksum={results[-1]['checksum']:.12e} "
+          f"(worker wall {time.perf_counter() - t0:.1f} s)", flush=True)
 if not results:
     raise RuntimeError("no worker produced a result")
 
-reference_checksum = float(results[0]["checksum"])
+reference = float(results[0]["checksum"])
 for entry in results:
-    deviation = abs(float(entry["checksum"]) - reference_checksum)
-    if deviation > CHECKSUM_RTOL * max(1.0, abs(reference_checksum)):
-        raise RuntimeError(
-            f"checksum mismatch for {entry['device_count']} devices: "
-            f"{entry['checksum']!r} vs {reference_checksum!r}"
-        )
-print(f"all checksums agree to {CHECKSUM_RTOL:.1e} (reference {reference_checksum:.12e})")
+    if abs(float(entry["checksum"]) - reference) > CHECKSUM_RTOL * max(1.0, abs(reference)):
+        raise RuntimeError(f"checksum mismatch for {entry['device_count']} devices: {entry['checksum']!r} vs {reference!r}")
+print(f"all checksums agree to {CHECKSUM_RTOL:.1e} (reference {reference:.12e})")
 
+# --- save JSON and plot ---------------------------------------------------------------
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 scaling_path = OUTPUT_DIR / f"scaling_{PLATFORM}.json"
-scaling_path.write_text(
-    json.dumps(
-        {
-            "grid": list(GRID),
-            "steps": STEPS,
-            "dt": DT,
-            "results": results,
-        },
-        indent=2,
-    )
-    + "\n"
-)
+scaling_path.write_text(json.dumps({"grid": list(GRID), "steps": STEPS, "dt": DT, "results": results}, indent=2) + "\n")
+devices = [int(e["device_count"]) for e in results]
+seconds = [float(e["seconds_per_step"]) for e in results]
+efficiency = seconds[0] * devices[0] / (devices[-1] * seconds[-1])
+plt.figure(figsize=(6.0, 4.5))
+plt.loglog(devices, seconds, "o-", label="measured")
+plt.loglog(devices, [seconds[0] * devices[0] / d for d in devices], "k--", label="ideal scaling")
+plt.xlabel(f"{PLATFORM.upper()} devices")
+plt.ylabel("Wall time per RK4 step [s]")
+plt.title(f"FCI two-field sharded step, grid {GRID[0]}x{GRID[1]}x{GRID[2]}")
+plt.grid(True, which="both", alpha=0.4)
+plt.legend()
+plt.annotate(f"parallel efficiency at {devices[-1]} devices: {efficiency:.1%}", xy=(devices[-1], seconds[-1]),
+             xytext=(0.03, 0.06), textcoords="axes fraction")
+plt.tight_layout()
 plot_path = OUTPUT_DIR / f"scaling_{PLATFORM}.png"
-_write_scaling_plot(results, plot_path)
+plt.savefig(plot_path, dpi=200)
+plt.close()
 print(f"wrote {scaling_path}")
 print(f"wrote {plot_path}")
+print(f"parallel efficiency at {devices[-1]} devices: {efficiency:.1%}; total wall {time.perf_counter() - wall_start:.1f} s")
