@@ -58,6 +58,7 @@ def _run_example(
         "autodiff_diffusion_uncertainty.py",
         "strong_scaling_diffusion.py",
         "model_selection_guide.py",
+        "tutorial_four_field.py",
     ],
 )
 def test_docs_examples_are_flat_parameter_scripts(relative_script: str) -> None:

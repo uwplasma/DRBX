@@ -38,16 +38,7 @@ nav:
       - Native Runtime CLI: native_runtime_cli.md
       - Restartable Diffusion Tutorial: restartable_diffusion_tutorial.md
       - Examples And Artifacts: examples.md
-  - Tutorial (start here):
-      - Overview: tutorial/index.md
-      - 01 First Run: tutorial/01_first_run.md
-      - 02 Drift-Wave Turbulence: tutorial/02_drift_wave_turbulence.md
-      - 03 Linear Vs Nonlinear: tutorial/03_linear_vs_nonlinear.md
-      - 04 Open SOL And Sheaths: tutorial/04_open_sol_sheath.md
-      - 05 Neutrals And Detachment: tutorial/05_neutrals_and_detachment.md
-      - 06 Geometries: tutorial/06_geometries.md
-      - 07 Differentiable Workflows: tutorial/07_differentiable.md
-      - 08 HSX Stellarator: tutorial/08_hsx_fci_braginskii.md
+  - Tutorial (start here): tutorial.md
   - Tutorials:
       - Turbulence From Zero: tutorial_hasegawa_wakatani.md
       - Open SOL, Neutrals, Detachment: tutorial_open_sol.md

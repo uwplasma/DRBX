@@ -42,8 +42,8 @@ For ESSOS field imports, install `drbx[essos]` (Python 3.10+).
 
 ## Quick start
 
-New to DRBX? **Tutorial: start here** -- [eight short steps](docs/tutorial/index.md)
-from a first run to a stellarator simulation, one script and one page each.
+New to DRBX? **Tutorial: start here** -- [one page](docs/tutorial.md)
+from a first run to a stellarator simulation and a gradient.
 
 ```bash
 drbx inspect examples/inputs/restartable_diffusion.toml   # resolve and print the plan
