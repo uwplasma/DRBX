@@ -42,6 +42,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "drbx.data.atomic_rates" = ["*.json"]
+"drbx.data.essos" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

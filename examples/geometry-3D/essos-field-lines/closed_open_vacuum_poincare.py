@@ -14,15 +14,14 @@ traces both, directly through the ESSOS coil field:
 5. draw the Poincare section at phi = 0: nested closed surfaces in blue, the
    escaping open lines in red.
 
-Requires an ESSOS checkout (`pip` deps only; no compiled code):
+Requires the installed ``essos`` package (``pip install 'drbx[essos]'``):
 
-    DRBX_ESSOS_ROOT=~/local/ESSOS_test \
-        PYTHONPATH=src python examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py
+    PYTHONPATH=src python examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py
 
 prints per-line classifications and writes
 ``output/essos_closed_open/closed_open_vacuum_poincare.png`` (relative to the
-current working directory). If ESSOS is not importable the script explains how
-to point ``DRBX_ESSOS_ROOT`` at a checkout and exits.
+current working directory). If ESSOS is not importable the script says how to
+install it and exits.
 """
 
 from __future__ import annotations
@@ -95,8 +94,7 @@ def poincare_points(trajectory_xyz: np.ndarray) -> np.ndarray:
 # --- trace, classify, and plot ----------------------------------------------------
 if not essos_runtime_available():
     raise SystemExit(
-        "ESSOS is not importable. Point DRBX_ESSOS_ROOT at a checkout, e.g.\n"
-        "    DRBX_ESSOS_ROOT=~/local/ESSOS_test python ..."
+        "ESSOS is not importable. Install it: pip install 'drbx[essos]'"
     )
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
