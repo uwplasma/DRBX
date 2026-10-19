@@ -284,36 +284,38 @@ was contributed by Aiken Xie in [PR #3](https://github.com/uwplasma/drbx/pull/3)
 python examples/benchmarks/fci_sharded_strong_scaling.py
 ```
 
-## HSX geometry and scrape-off-layer filament (experimental)
+## HSX geometry and scrape-off-layer filament
 
 The HSX geometry is built from the coils in
 [`examples/inputs/hsx/coils.hsx`](examples/inputs/hsx/coils.hsx) (QHS currents)
 and the vessel outline [`vessel_hsx_flare.txt`](examples/inputs/hsx/vessel_hsx_flare.txt).
-The figure shows the coils, the boundary of the simulated domain colored by |B|
-and the vessel; a Poincare section at phi = 0 traced through the coil field
-(blue points stay inside the vessel for the whole trace, red diamonds mark lines
-that reach the wall); and the connection length to the wall on the same plane.
+The figure shows the coils (PyVista render), the boundary of the simulated
+domain colored by |B| and the vessel; a Poincare section at phi = 0 traced
+through the coil field (90 lines, about 320 toroidal turns each; blue points
+stay inside the vessel, red diamonds mark lines that reach the wall); and the
+connection length to the wall on the same plane.
 
 <img src="docs/media/hsx_geometry.png" width="800" alt="HSX coils, Poincare section and connection length">
 
-An experimental electrostatic Braginskii backend (`drbx run
-examples/inputs/hsx_fci_blob.toml`) evolves a seeded filament in the
-scrape-off layer up to the vessel wall on a 32^3 field-aligned grid (800 steps,
-t = 0.6 in L_ref/c_s, about 70 min on a laptop CPU). The movie shows the
-filament as field-aligned segments colored by density perturbation, over the
-boundary surface, with R-Z sections of density and potential through it; the
-t = 0 frame (zero potential) is skipped and the color limits come from the run.
-At this t (about 12 microseconds) the filament moves little: it decays from
-n - 1 = 4.7e-2 to 2.8e-2, drifts by one toroidal cell, and the potential
-builds up and relaxes. The model has no sheath, neutral or recycling coupling
-yet and needs a geometry bundle built with
-[`generate_hsx_fci_geometry.py`](generate_hsx_fci_geometry.py) (a CLI tool); see
-[docs/fci_braginskii_hsx_backend.md](docs/fci_braginskii_hsx_backend.md).
+The `drbx.fci_braginskii` backend evolves a density filament in the
+scrape-off layer up to the vessel wall. It has a Bohm sheath wall closure by
+default, with optional neutrals and recycling (deck keys `wall_closure`,
+`neutrals`, `recycling`; see [docs/decks.md](docs/decks.md)). The first run is
+`drbx run examples/inputs/hsx_fci_blob.toml`, which builds a 16^3 geometry from
+the shipped coils and vessel (about 4 min on a laptop). The movie is a 32^3 run
+(600 steps, t = 0.45 in L_ref/c_s, peak n - 1 = 0.8, rho* = 5e-3, zero-flow walls;
+about 35 min on one A4000): isosurfaces of the density perturbation along the
+field over the boundary surface, with R-Z sections of density and potential
+through the filament. The potential builds up as a dipole around the filament
+within the first t = 0.05. The filament itself stays close to its flux surface
+in this time: its density-weighted radial index moves from 16.9 to 16.5 of 32
+cells while the peak decays from 0.75 to 0.48. The geometry bundle is described
+in [docs/fci_braginskii_hsx_backend.md](docs/fci_braginskii_hsx_backend.md).
 
 <img src="docs/media/hsx_fci_blob.gif" width="700" alt="HSX filament in 3D">
 
 ```bash
-python examples/stellarator/hsx_fci_blob_render.py   # runs the backend, then renders both figures
+python examples/stellarator/hsx_fci_blob_render.py   # runs the backend, then renders both figures (drbx[viz])
 ```
 
 ## Tests

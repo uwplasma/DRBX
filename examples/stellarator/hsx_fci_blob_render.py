@@ -3,7 +3,7 @@
 README figures: N_POINCARE = 90 seeds x POINCARE_STEPS = 120000 (about 320 toroidal turns), CL_SHAPE = (72, 108);
 filament run: FINAL_TIME = 0.45, NUM_STEPS = 600, SAVE_EVERY = 20 with DENSITY_AMPLITUDE = 0.8,
 BLOB_CENTER = (0.8, 0.5), BLOB_WIDTH = 0.12 and RHO_STAR = 5e-3 (ten times the default rho*, a smaller or
-lower-field device) so the potential dipole develops clearly. The 600 steps took about 35 min on one A4000.
+lower-field device) so the potential dipole develops clearly, with the zero-flow wall closure. The 600 steps took about 35 min on one A4000.
 
 Runs ``drbx.fci_braginskii.run.run`` (the driver behind
 ``drbx run examples/inputs/hsx_fci_blob.toml``) on the canonical 32^3 HSX
@@ -54,6 +54,7 @@ DENSITY_AMPLITUDE = 0.8     # peak n - 1 of the seeded filament (backend default
 BLOB_CENTER = (0.8, 0.5)    # filament centre in the logical (radial, poloidal) square (default (0.65, 0.5))
 BLOB_WIDTH = 0.12           # filament width (default 0.10)
 RHO_STAR = 5.0e-3           # rho* = rho_s / L_ref; ExB and curvature drifts scale with it (default 5e-4)
+WALL_CLOSURE = "zero-flow"  # README movie: no-flow walls ("bohm" sheath outflow is the backend default)
 COILS = Path("examples/inputs/hsx/coils.hsx")            # MAKEGRID filaments (QHS: six main groups, 10722 A)
 VESSEL = Path("examples/inputs/hsx/vessel_hsx_flare.txt")  # vessel outline: 161 planes over one period
 TRACE_STEP = 0.02           # field-line step [m]
@@ -71,7 +72,7 @@ if RUN_SIMULATION:
     start = time.perf_counter()
     run(HsxBlobConfig(geometry=GEOMETRY, final_time=FINAL_TIME, num_steps=NUM_STEPS,
                       save_every=SAVE_EVERY, diagnostic_every=10, output=HISTORY_PATH,
-                      density_amplitude=DENSITY_AMPLITUDE, blob_center=BLOB_CENTER, blob_width=BLOB_WIDTH, rho_star=RHO_STAR))
+                      density_amplitude=DENSITY_AMPLITUDE, blob_center=BLOB_CENTER, blob_width=BLOB_WIDTH, rho_star=RHO_STAR, wall_closure=WALL_CLOSURE))
     print(f"simulation finished in {time.perf_counter() - start:.1f} s", flush=True)
 
 
