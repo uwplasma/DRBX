@@ -59,6 +59,7 @@ class SolvaxGmresConfig:
             )
         if self.preconditioner not in (
             "none",
+            "auto",
             "jacobi",
             "line-u",
             "line-v",
@@ -68,7 +69,7 @@ class SolvaxGmresConfig:
         ):
             raise ValueError(
                 "SolvaxGmresConfig.preconditioner must be one of "
-                "'none', 'jacobi', 'line-u', 'line-v', 'line-uv', "
+                "'none', 'auto', 'jacobi', 'line-u', 'line-v', 'line-uv', "
                 "'line-u-pardiag', or 'line-uy-pardiag'"
             )
         object.__setattr__(self, "tol", float(self.tol))

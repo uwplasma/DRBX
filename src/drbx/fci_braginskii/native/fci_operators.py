@@ -5260,6 +5260,18 @@ def build_solvax_perp_laplacian_preconditioner(
     """
 
     kind = config.preconditioner
+    if kind == "auto":
+        # The parallel-current-aware product preconditioner needs the angular
+        # RLP topology on a single shard (and nz divisible by 4 when the
+        # parallel operator is probed); everything else keeps line-u.
+        kind = "line-u"
+        if (
+            control_volume_geometry is not None
+            and bool(getattr(control_volume_geometry, "has_angular_agglomeration", False))
+            and tuple(int(v) for v in domain.shard_spec.shard_counts) == (1, 1, 1)
+            and (extra_operator is None or geometry.owned_shape[2] % 4 == 0)
+        ):
+            kind = "line-uy-pardiag"
     if kind == "none":
         return None
     if control_volume_geometry is not None:

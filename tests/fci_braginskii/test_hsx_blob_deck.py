@@ -43,7 +43,7 @@ def test_drbx_inspect_prints_resolved_config(capsys):
 def test_production_defaults():
     config = HsxBlobConfig()
     assert config.rho_star == 5.0e-4 and config.implicit_current_phi_pair
-    assert config.gmres_preconditioner == "line-u" and config.advance_execution == "staged-compiled"
+    assert config.gmres_preconditioner == "auto" and config.advance_execution == "staged-compiled"
 
 
 def test_wall_closure_deck_keys(tmp_path):
