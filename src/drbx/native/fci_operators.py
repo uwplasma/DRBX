@@ -8,8 +8,12 @@ import jax
 import jax.numpy as jnp
 
 from solvax import gmres as solvax_gmres
+from ..fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
+    _take_stencil_finite_difference,
+    _axis_slice_nd,
+    _pytree_base,
+)
 
-_pytree_base = jax.tree_util.register_pytree_node_class
 
 from ..geometry import (
     CellVolumeGeometry3D,
@@ -88,27 +92,6 @@ from .fci_boundaries import (
 # Parallel-gradient operators
 # =============================================================================
 
-def _take_stencil_finite_difference(stencil: LocalStencil1D) -> jnp.ndarray:
-    """Apply a reconstructed 1D derivative stencil.
-
-    The stencil arrays may represent either global/reference cells or local
-    owned cells. The output has the same shape as the stencil.
-    """
-
-    if stencil.center.ndim != 3:
-        raise ValueError(
-            f"stencil center must be 3D, got shape {stencil.center.shape}"
-        )
-
-    minus = jnp.asarray(stencil.minus, dtype=jnp.float64)
-    center = jnp.asarray(stencil.center, dtype=jnp.float64)
-    plus = jnp.asarray(stencil.plus, dtype=jnp.float64)
-
-    c_minus = jnp.asarray(stencil.derivative_minus_weight, dtype=jnp.float64)
-    c_center = jnp.asarray(stencil.derivative_center_weight, dtype=jnp.float64)
-    c_plus = jnp.asarray(stencil.derivative_plus_weight, dtype=jnp.float64)
-
-    return c_minus * minus + c_center * center + c_plus * plus
 
 
 def grad_parallel_op_fci(
@@ -2197,12 +2180,6 @@ def _dirichlet_lift_correction_cut_wall_bc(cut_wall_bc: CutWallBC3D | None) -> C
 def _axis_index_nd(axis: int, index: int, ndim: int) -> tuple[object, ...]:
     slices: list[object] = [slice(None)] * ndim
     slices[axis] = index
-    return tuple(slices)
-
-
-def _axis_slice_nd(axis: int, start: int | None, stop: int | None, ndim: int) -> tuple[object, ...]:
-    slices: list[object] = [slice(None)] * ndim
-    slices[axis] = slice(start, stop)
     return tuple(slices)
 
 

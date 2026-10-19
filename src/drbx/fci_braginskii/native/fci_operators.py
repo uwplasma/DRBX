@@ -10,8 +10,12 @@ from solvax.precond import (
     additive_tridiagonal_line_preconditioner as solvax_line_preconditioner,
     jacobi as solvax_jacobi,
 )
+from ...fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
+    _take_stencil_finite_difference,
+    _axis_slice_nd,
+    _pytree_base,
+)
 
-_pytree_base = jax.tree_util.register_pytree_node_class
 
 from .._host_guards import host_bool, host_asarray
 from ..geometry.fci_geometry import (
@@ -98,27 +102,6 @@ from .fci_curvature_production_flux import (
 # Parallel-gradient operators
 # =============================================================================
 
-def _take_stencil_finite_difference(stencil: LocalStencil1D) -> jnp.ndarray:
-    """Apply a reconstructed 1D derivative stencil.
-
-    The stencil arrays may represent either global/reference cells or local
-    owned cells. The output has the same shape as the stencil.
-    """
-
-    if stencil.center.ndim != 3:
-        raise ValueError(
-            f"stencil center must be 3D, got shape {stencil.center.shape}"
-        )
-
-    minus = jnp.asarray(stencil.minus, dtype=jnp.float64)
-    center = jnp.asarray(stencil.center, dtype=jnp.float64)
-    plus = jnp.asarray(stencil.plus, dtype=jnp.float64)
-
-    c_minus = jnp.asarray(stencil.derivative_minus_weight, dtype=jnp.float64)
-    c_center = jnp.asarray(stencil.derivative_center_weight, dtype=jnp.float64)
-    c_plus = jnp.asarray(stencil.derivative_plus_weight, dtype=jnp.float64)
-
-    return c_minus * minus + c_center * center + c_plus * plus
 
 
 def _active_cell_mask_owned(geometry: LocalFciGeometry3D) -> jnp.ndarray:
@@ -4402,12 +4385,6 @@ def local_perp_laplacian_conservative_op(
             volume_floor=jacobian_floor,
         )
     return local_divergence_conservative_op(cv_flux, geometry, jacobian_floor=jacobian_floor)
-
-
-def _axis_slice_nd(axis: int, start: int | None, stop: int | None, ndim: int) -> tuple[object, ...]:
-    slices: list[object] = [slice(None)] * ndim
-    slices[axis] = slice(start, stop)
-    return tuple(slices)
 
 
 def _homogeneous_local_face_bc(
