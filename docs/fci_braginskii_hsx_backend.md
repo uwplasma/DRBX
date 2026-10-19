@@ -127,6 +127,36 @@ with resolution: on Perlmutter it peaked at 29 GiB for 48-cubed and 65 GiB for
 bundle by 1.4 to 3.5 mm in cell positions and by up to 0.7% in |B|, most likely
 because of the vessel file; the backend runs on either.
 
+### Building from coils (default)
+
+The HSX coil file ships with DRBX at `examples/inputs/hsx/coils.hsx`
+(MAKEGRID format, 12 coil groups, 4 field periods; SHA-256
+`0bb6cf70cf1696489ec6b67bfadc0a60b128fec12f8cfdf95aa2982482eb13fe`), and
+`generate_hsx_fci_geometry.py` uses it by default: B is evaluated from these
+filaments (the ones the mgrid was made from) with the exact straight-segment
+Biot--Savart law, at the QHS currents
+(`10722,10722,10722,10722,10722,10722,0,0,0,0,0,0`) unless
+`--makegrid-currents` says otherwise. `--coils PATH` selects another coil
+file; `--makegrid PATH` switches back to an mgrid field. The vessel file is
+still distributed separately. In Python,
+`build_hsx_fci_geometry(bfield_provider=...)` accepts any
+`drbx.geometry.field_provider.MagneticFieldProvider` (ESSOS coils,
+`FilamentCoilField`), so the field is a differentiable function of the coil
+parameters.
+
+By default `--coils` does not evaluate Biot--Savart at every trace step. It
+tabulates the coils once, in memory, on a uniform `(R, phi, Z)` grid over one
+field period (`--coil-table-shape NR NPHI NZ`, default `96 144 96`;
+stellarator symmetry halves the evaluations) and interpolates the table with
+the same cubic B-spline the mgrid path uses (`CoilFieldTable` in
+`provider_bfield.py`). The table and its spline coefficients are JAX arrays
+computed from the coil parameters, so derivatives still reach the coil
+currents and nodes. At the default shape the table differs from direct coil
+evaluation by a median 1e-7 (p99 5e-6) relative error at the bundle cell
+centres, below the coil-vs-mgrid difference, and costs about 2 minutes on a
+laptop. `--direct-coils` evaluates the coils at every step instead (about 25x
+slower tracing).
+
 ## Running
 
 From the repository root:
@@ -142,7 +172,9 @@ The same run can be described as a TOML deck and launched with
 `drbx run examples/inputs/hsx_fci_blob.toml` (`drbx inspect` prints the
 resolved configuration). The deck's `[fci_braginskii]` keys are the option
 names above with underscores; omitted keys take the same defaults and unknown
-keys are errors. Both routes call `drbx.fci_braginskii.run.run`.
+keys are errors. Both routes call `drbx.fci_braginskii.run.run`, print one
+progress line per step (step, time, timings, ETA) and write the history to
+`--output` (the deck's `output` key).
 
 The defaults run to t = 0.15 in 200 steps (dt = 7.5e-4) at rho* = 5e-4 with
 the implicit current/potential pair. With the explicit pair this rho* limits
@@ -207,6 +239,27 @@ rejected. On CPU, emulate N devices with
 `DRBX_HOST_DEVICE_COUNT`). Every flag in `XLA_FLAGS` needs its `--` prefix: a
 bare token such as `intra_op_parallelism_threads=4` stops XLA from parsing the
 flags after it, and the run falls back to one device.
+
+## Example script
+
+`examples/stellarator/hsx_fci_blob_render.py` runs the same driver and renders
+the result. Its parameters are module-level constants at the top of the file
+(geometry bundle, final time, steps, save cadence, output directory). From the
+repository root, with the bundle at `artifacts/geometry/hsx_fci_32x32x32`:
+
+```bash
+PYTHONPATH=src python examples/stellarator/hsx_fci_blob_render.py
+```
+
+The driver prints the geometry and model setup, then one progress line per
+step (progress bar, step, time, step/operator/GMRES timings, ETA, density
+range) plus per-step field diagnostics, and finally where the history was
+written. Everything goes to `output/hsx_fci_blob/`: `history.npz`,
+`hsx_fci_blob.png` (3-D context and R-Z sections) and `hsx_fci_blob.gif`.
+The default is a quick 5-step preset to t = 0.00375 (about two minutes on an
+M1 laptop including compilation), not the converged case; the figures in
+`docs/media/hsx_fci_blob.*` use FINAL_TIME = 0.15, NUM_STEPS = 200,
+SAVE_EVERY = 10. Set `RUN_SIMULATION = False` to re-render an existing history.
 
 ## Neutral-model coupling
 

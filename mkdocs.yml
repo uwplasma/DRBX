@@ -73,8 +73,7 @@ nav:
       - Stellarator Turbulence: stellarator_turbulence.md
       - HSX FCI Braginskii Backend: fci_braginskii_hsx_backend.md
       - VMEC Extender Edge Fields: vmec_extender_edge_fields.md
-      - ESSOS Field-Line Import: essos_fieldline_import.md
-      - ESSOS Imported FCI Validation: essos_imported_fci_validation.md
+      - ESSOS Coil Fields: essos_fieldline_import.md
   - Validation:
       - Validation Gallery: validation_gallery.md
       - Fluid 1D MMS Convergence: fluid_1d_mms_convergence.md
