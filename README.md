@@ -64,6 +64,20 @@ def density_energy(alpha):
 print(jax.grad(density_energy)(1.0))   # d(energy)/d(adiabaticity) through 200 steps
 ```
 
+## Running from a TOML deck
+
+Every model also runs from a TOML deck, with no Python needed:
+
+```bash
+drbx inspect examples/inputs/hasegawa_wakatani.toml   # resolved plan, nothing runs
+drbx run     examples/inputs/hasegawa_wakatani.toml   # run and write artifacts
+```
+
+The decks in [`examples/inputs/`](examples/inputs) cover Hasegawa-Wakatani, the
+sheath SOL with recycling, the SD1D detachment leg, stellarator turbulence,
+the differentiable FCI operators, restartable diffusion and the HSX filament.
+Keys, defaults and outputs are listed in [docs/decks.md](docs/decks.md).
+
 Examples are flat scripts: parameters at the top, then run and plot, writing
 to `output/`. [`examples/model_selection_guide.py`](examples/model_selection_guide.py)
 helps choose a model family, dimension and boundary conditions.

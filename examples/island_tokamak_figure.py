@@ -1,42 +1,14 @@
 """Figures for the tokamak island-chain example.
 
-Four modes:
-
-* ``poincare`` (default, no data needed): Poincare sections of the reduced
-  island field at three perturbation amplitudes, with the measured island
-  width tested against the pendulum-model prediction
-
-      W = 4 sqrt(eps / (m |iota'|))
-
-  (the standard magnetic-island width, e.g. J. Wesson, *Tokamaks*, ch. 7;
-  R. B. White, *The Theory of Toroidally Confined Plasmas*). This is the
-  geometry-verification anchor: the traced chains must reproduce both the
-  resonance location iota = n/m and the sqrt(eps) width scaling.
-
-* ``evolution`` (needs the production npz from
-  ``island_tokamak_profiles.py``): the profile-evolution summary -- density
-  cross-section with the analytic separatrix overlaid, the space-time map
-  of the mean profile, the particle-balance trace -- plus an animated GIF
-  of the zeta = 0 density cross-section.
-
-* ``3d``: static 3-D snapshot -- island field lines, density rings, and the
-  q = 1/iota profile.
-
-* ``dashboard``: the README movie. Top row: the animated 3-D state inside a
-  low-opacity plasma-boundary surface, the safety-factor profile, and the
-  (R, Z) Poincare section at a single toroidal angle. Bottom row: the
-  evolving mean profile, the evolving turbulent radial particle flux, and
-  the fluctuation-energy / sinks-over-source time traces with a cursor.
-
-Run (pick figures and the input npz in the PARAMETERS block):
+``FIGURES`` selects: ``poincare`` (no data needed: Poincare sections at three perturbation
+amplitudes, island width checked against W = 4 sqrt(eps / (m |iota'|))), ``evolution``
+(profile-evolution summary and GIF from the npz of ``island_tokamak_profiles.py``), ``3d``
+(field lines, density rings, q profile) and ``dashboard`` (the README movie).
 
     PYTHONPATH=src python examples/island_tokamak_figure.py
 
-Figures go to ``output/island_tokamak/``; set ``OUT_DIR = Path("docs/media")``
-to regenerate the documentation media (only from a production npz). The
-default renders ``poincare`` (no data needed) plus ``evolution`` and ``3d``
-when ``NPZ_PATH`` exists (e.g. after ``island_tokamak_profiles.py``, whose
-default is a quick, non-converged preset).
+Writes ``output/island_tokamak/``; set ``OUT_DIR = Path("docs/media")`` to regenerate the
+documentation media (only from a production npz).
 """
 
 from __future__ import annotations

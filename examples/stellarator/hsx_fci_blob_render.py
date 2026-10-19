@@ -34,6 +34,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib import cm, colors  # noqa: E402
+from mpl_toolkits.mplot3d.art3d import Line3DCollection  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from drbx.fci_braginskii.geometry_build.provider_bfield import CoilFieldTable  # noqa: E402
@@ -191,7 +192,6 @@ SCALE = 100.0                                                      # colour valu
 nlim = SCALE * float(np.percentile(np.abs(dn[first:]), 99.9))
 plim = SCALE * float(np.percentile(np.abs(phi[first:]), 99.9))
 norm, pnorm = colors.Normalize(-nlim, nlim), colors.Normalize(-plim, plim)
-from mpl_toolkits.mplot3d.art3d import Line3DCollection  # noqa: E402
 
 
 def filament_frame(it):

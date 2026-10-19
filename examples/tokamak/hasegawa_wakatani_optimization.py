@@ -1,49 +1,17 @@
-"""Optimizing parallel electron conductivity for a target turbulent transport level.
+"""Tune the adiabaticity of Hasegawa-Wakatani turbulence to hit a target particle flux.
 
-Physics. In the Hasegawa-Wakatani model the adiabaticity parameter ``alpha``
-(the normalized parallel electron response, proportional to the parallel
-electron conductivity) controls the character of drift-wave turbulence and the
-turbulent particle transport it drives. Small ``alpha`` gives the hydrodynamic
-regime -- weak parallel coupling, streamer-like convection, high radial
-particle flux; large ``alpha`` gives the adiabatic regime -- Boltzmann-like
-electrons, wave-like drift turbulence, low flux. This
-hydrodynamic-to-adiabatic transition is the classic result of Camargo, Biskamp
-& Scott, Phys. Plasmas 2, 48 (1995), for the model of Hasegawa & Wakatani,
-Phys. Rev. Lett. 50, 682 (1983).
-
-This example asks the inverse-engineering question: how much parallel electron
-conductivity does the plasma need to reach a specified confinement level?
-Concretely, starting from saturated turbulence in the hydrodynamic regime at
-``ALPHA_START``, find the adiabaticity whose saturated particle flux is
-``FLUX_REDUCTION`` times lower. Because the whole pseudo-spectral rollout is
-JAX, the objective gradient d ln(flux) / d ln(alpha) flows THROUGH the
-turbulence: a safeguarded damped-Newton iteration on ln(alpha) converges in a
-handful of steps.
-
-Method notes (each choice is commented in place below):
-- the flux is time-averaged over a saturated window, and every evaluation
-  restarts from the same "anchor" turbulent state so the objective is a
-  deterministic, smooth function of alpha (identical seed = fair comparison);
-- the differentiated horizon is kept short (a few eddy turnovers); gradients
-  of longer chaotic rollouts blow up exponentially (Lyapunov growth) and stop
-  matching the macroscopic flux response;
-- the anchor state is refreshed whenever Newton converges on the current
-  anchor, so at the final fixed point the window average equals the true
-  saturated flux at the optimized alpha (no relaxation bias);
-- with a single scalar parameter, forward-mode AD (jax.jacfwd / jax.jvp) is
-  the efficient choice: one tangent pass, no storage of the whole rollout as
-  reverse mode would need.
-
-It prints every Newton iteration (alpha, windowed flux, target, residual,
-gradient) and a long independent verification at the initial and optimized
-alpha, and writes ``output/hasegawa_wakatani_optimization/`` with a
-two-column PNG (left: initial alpha, right: optimized alpha; top: saturated
-density snapshot, bottom: flux time trace) plus a JSON summary. Run it with:
+Starting from saturated turbulence at ``ALPHA_START``, a safeguarded damped-Newton
+iteration on ln(alpha) finds the adiabaticity whose saturated flux is ``FLUX_REDUCTION``
+times lower. The gradient d ln(flux) / d ln(alpha) flows through the pseudo-spectral
+rollout (forward mode: one tangent pass, one parameter). The flux is averaged over a saturated
+window from a fixed anchor state, the differentiated horizon is a few eddy turnovers
+(longer chaotic rollouts have exponentially growing gradients), and the anchor is refreshed
+when Newton converges so the final window equals the true saturated flux.
 
     PYTHONPATH=src python examples/tokamak/hasegawa_wakatani_optimization.py
 
-Total runtime is a few minutes on a laptop CPU. Edit the PARAMETERS block to
-change the regime, the target, or the optimizer safeguards.
+Prints every Newton iteration and a long independent check; writes
+``output/hasegawa_wakatani_optimization/`` (PNG and JSON). A few minutes on a laptop CPU.
 """
 
 from __future__ import annotations
