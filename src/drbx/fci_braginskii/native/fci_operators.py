@@ -5128,44 +5128,46 @@ def _build_angular_agglomeration_line_pardiag_preconditioner(
     )
     safe_diag = jnp.where(active, diagonal, 1.0)
 
-    theta_groups = []
+    theta_operator = None
     if include_theta_lines:
         profile = tuple(int(v) for v in control_volume_geometry.angular_group_sizes)
+        # The ring matrices are fixed for the whole solve, so their inverses
+        # (n_owners <= ny, tiny dense matrices) are formed once here by a
+        # batched inverse and stored in one (nx, nz, ny, ny) operator that is
+        # the identity off the rings (and on rings with fewer than three
+        # owners).  The per-call theta solve is then a single batched matvec.
+        # A per-call SOLVAX cyclic tridiagonal solve costs ~120 ms per
+        # application on a GPU, the matvec well under 1 ms; results agree to
+        # round-off.
+        theta_operator = jnp.broadcast_to(
+            jnp.eye(ny, dtype=jnp.float64), (nx, nz, ny, ny)
+        )
         for size in sorted(set(profile)):
             n_owners = ny // size
             rings = np.array([i for i in range(nx) if profile[i] == size])
             if n_owners < 3 or rings.size == 0:
                 continue
-            sel = (rings[:, None], np.arange(0, ny, size)[None, :])
+            owners = np.arange(0, ny, size)
+            sel = (rings[:, None], owners[None, :])
             # owner j couples to owner j-1 (cyclic) through y_edge[j]
-            lower = -y_edge[sel]
-            upper = -jnp.roll(y_edge[sel], -1, axis=1)
-            move = lambda a: jnp.transpose(a, (1, 0, 2))
-            # The ring matrices are fixed for the whole solve, so their
-            # inverses (n_owners <= ny, tiny dense matrices) are formed once
-            # here by a batched inverse.  The per-call line solve is then one
-            # batched matvec.  A per-call SOLVAX cyclic tridiagonal solve costs
-            # ~120 ms per application on a GPU, the matvec ~0.06 ms; results
-            # agree to round-off.
-            lower_m, diag_m, upper_m = move(lower), move(safe_diag[sel]), move(upper)
-            n_ring = lower_m.shape[0]
-            ring = jnp.arange(n_ring)
-            matrix = jnp.zeros(
-                tuple(diag_m.shape[1:]) + (n_ring, n_ring), dtype=jnp.float64
-            )
-            matrix = matrix.at[..., ring, ring].set(jnp.moveaxis(diag_m, 0, -1))
-            matrix = matrix.at[..., ring, (ring - 1) % n_ring].add(jnp.moveaxis(lower_m, 0, -1))
-            matrix = matrix.at[..., ring, (ring + 1) % n_ring].add(jnp.moveaxis(upper_m, 0, -1))
+            lower = jnp.moveaxis(-y_edge[sel], 1, -1)  # (rings, nz, owners)
+            upper = jnp.moveaxis(-jnp.roll(y_edge[sel], -1, axis=1), 1, -1)
+            diag = jnp.moveaxis(safe_diag[sel], 1, -1)
+            ring = np.arange(n_owners)
+            matrix = jnp.zeros(diag.shape + (n_owners,), dtype=jnp.float64)
+            matrix = matrix.at[..., ring, ring].set(diag)
+            matrix = matrix.at[..., ring, (ring - 1) % n_owners].add(lower)
+            matrix = matrix.at[..., ring, (ring + 1) % n_owners].add(upper)
             inverse = jnp.linalg.inv(matrix)  # (rings, nz, i, j)
-            theta_groups.append((sel, inverse))
+            theta_operator = theta_operator.at[
+                rings[:, None, None, None],
+                np.arange(nz)[None, :, None, None],
+                owners[None, None, :, None],
+                owners[None, None, None, :],
+            ].set(inverse)
 
     def solve_theta(rhs: jnp.ndarray) -> jnp.ndarray:
-        out = rhs
-        for sel, inverse in theta_groups:
-            sub = jnp.transpose(rhs[sel], (0, 2, 1))  # (rings, nz, owners)
-            sol = jnp.einsum("rzij,rzj->rzi", inverse, sub)
-            out = out.at[sel].set(jnp.transpose(sol, (0, 2, 1)))
-        return out
+        return jnp.einsum("ikjc,ick->ijk", theta_operator, rhs)
 
     def solve(residual: jnp.ndarray) -> jnp.ndarray:
         residual = jnp.asarray(residual, dtype=jnp.float64)
