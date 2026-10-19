@@ -128,21 +128,31 @@ print(f"result: {len(labels) - n_open} closed lines, {n_open} open lines")
 assert not any(labels[:N_CLOSED]), "a core-seeded line escaped: move RHO_WALL or seeds"
 assert any(labels[N_CLOSED:]), "no edge-seeded line escaped: extend MAXTIME"
 
-fig, ax = plt.subplots(figsize=(7.0, 6.0))
-for crossings, is_open in zip(sections, labels):
-    if len(crossings) == 0:
-        continue
-    color, size = ("#d62728", 3.0) if is_open else ("#1f77b4", 1.2)
-    ax.scatter(crossings[:, 0], crossings[:, 1], s=size, color=color, linewidths=0)
+fig = plt.figure(figsize=(10.0, 4.8))
+ax3 = fig.add_axes([0.0, 0.02, 0.52, 0.88], projection="3d")
+ax = fig.add_axes([0.58, 0.12, 0.40, 0.76])
+for index, (trajectory, crossings, is_open) in sorted(enumerate(zip(trajectories, sections, labels)), key=lambda t: t[1][2], reverse=True):
+    color = "#d62728" if is_open else "#1f77b4"
+    finite = np.all(np.isfinite(trajectory), axis=1)
+    line = trajectory[finite][:: 12 if is_open else 2][: 200 if is_open else 220]
+    if is_open:
+        line = line[np.hypot(np.hypot(line[:, 0], line[:, 1]) - axis_r, line[:, 2] - axis_z) < 0.9][:200]
+    if not is_open or index % 3 == 0:   # draw every third open line so the core stays visible
+        ax3.plot(line[:, 0], line[:, 1], line[:, 2], color=color, lw=1.0 if not is_open else 0.6, alpha=1.0 if not is_open else 0.45)
+    if len(crossings):
+        ax.scatter(crossings[:, 0], crossings[:, 1], s=3.0 if is_open else 1.2, color=color, linewidths=0)
+ax3.set_box_aspect((1, 1, 0.45)); ax3.view_init(elev=28, azim=-60)
+ax3.xaxis.pane.set_visible(False), ax3.yaxis.pane.set_visible(False), ax3.zaxis.pane.set_visible(False)
+ax3.set_xlabel("x [m]"), ax3.set_ylabel("y [m]"), ax3.set_zlabel("z [m]")
+ax3.set_title("field lines traced through the coil field", fontsize=10)
 ax.scatter([axis_r], [axis_z], marker="+", s=80, color="k", label="magnetic axis")
 ax.scatter([], [], s=8, color="#1f77b4", label="closed field lines")
 ax.scatter([], [], s=8, color="#d62728", label="open field lines")
 ax.set_xlabel("R [m]"), ax.set_ylabel("Z [m]")
 ax.set_aspect("equal")
-ax.legend(loc="upper right", fontsize=9)
-ax.set_title("Landreman-Paul coils in vacuum: Poincare section at phi = 0\n"
-             "nested closed surfaces (blue), open edge field lines (red)")
-fig.tight_layout()
-fig.savefig(OUTPUT_DIR / "closed_open_vacuum_poincare.png", dpi=170)
+ax.legend(loc="upper right", fontsize=8)
+ax.set_title("Poincare section at phi = 0", fontsize=10)
+fig.suptitle("Landreman-Paul coils in vacuum: nested closed surfaces and open edge lines", fontsize=11)
+fig.savefig(OUTPUT_DIR / "closed_open_vacuum_poincare.png", dpi=92)
 plt.close(fig)
 print(f"wrote {OUTPUT_DIR / 'closed_open_vacuum_poincare.png'}")

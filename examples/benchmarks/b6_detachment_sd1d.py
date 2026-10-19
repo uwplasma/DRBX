@@ -20,8 +20,8 @@ Run:
 
     PYTHONPATH=src python examples/benchmarks/b6_detachment_sd1d.py
 
-writes ``output/b6_detachment/`` with a two-panel PNG and a JSON summary
-(about two minutes on a laptop CPU).
+writes ``output/b6_detachment/`` with a composite PNG, a GIF of the leg as the
+upstream density rises, and a JSON summary (about two minutes on a laptop CPU).
 """
 
 from __future__ import annotations
@@ -34,8 +34,12 @@ import jax
 
 jax.config.update("jax_enable_x64", True)
 
+import io  # noqa: E402
+
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from matplotlib import cm, colors  # noqa: E402
+from PIL import Image  # noqa: E402
 
 from drbx.native.neutrals import (  # noqa: E402
     DetachmentSolParameters,
@@ -43,6 +47,7 @@ from drbx.native.neutrals import (  # noqa: E402
     detachment_ledger,
     detachment_sol_run,
 )
+from drbx.native.neutrals.detachment_sol_model import sd1d_grid  # noqa: E402
 
 # ----------------------------------------------------------------------------
 # PARAMETERS
@@ -58,12 +63,14 @@ SD1D = [
 # The last SD1D point is not a steady state (no PI integral in its restart file,
 # earlier simulation time than the 7e19 run it continues from, residual 100x the
 # other cases), so its ~10% T_t difference is not a model difference.
+EXTRA_N_UP = (2.25e19, 2.75e19, 3.5e19, 4.5e19, 5.5e19, 6.75e19)  # movie frames without an SD1D reference
 OUTPUT_DIR = Path("output/b6_detachment")
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 print("== B6 SD1D 13.6eV scan ==")
+scan = sorted([(n, t, f) for n, t, f in SD1D] + [(n, None, None) for n in EXTRA_N_UP])
 rows, previous = [], None
-for n_up, t_ref, flux_ref in SD1D:
+for n_up, t_ref, flux_ref in scan:
     params = DetachmentSolParameters(ny=NY, upstream_density=n_up, ionisation_energy=IONISATION_ENERGY)
     start = time.perf_counter()
     result = detachment_sol_run(params, previous.state if previous else None,
@@ -72,31 +79,73 @@ for n_up, t_ref, flux_ref in SD1D:
     diag = detachment_diagnostics(result.state, params, result.source_scale)
     ledger = detachment_ledger(result, params)
     t_t, flux = float(diag.target_temperature_ev), float(diag.target_ion_flux_area)
+    st = result.state
+    profile = dict(te=np.asarray(0.5 * st.plasma_pressure / st.ion_density) * params.Tnorm,
+                   ni=np.asarray(st.ion_density) * params.Nnorm, nn=np.asarray(st.neutral_density) * params.Nnorm)
     rows.append(dict(n_up=n_up, T_t=t_t, T_t_sd1d=t_ref, flux_area=flux, flux_area_sd1d=flux_ref,
                      mach=float(diag.target_mach), residual=result.residual, iterations=result.iterations,
-                     particle_imbalance=ledger["particle_imbalance"], power_imbalance=ledger["power_imbalance"]))
-    print(f"   n_up={n_up:.3e}: {result.iterations:3d} its, residual {result.residual:.1e}, "
-          f"{time.perf_counter() - start:5.1f}s | T_t {t_t:6.2f} eV (SD1D {t_ref:6.2f}, {100 * (t_t / t_ref - 1):+5.2f}%)"
-          f" | Gamma_t A {flux:.3e} (SD1D {flux_ref:.3e}, {100 * (flux / flux_ref - 1):+5.2f}%)"
-          f" | ledgers {ledger['particle_imbalance']:.0e}/{ledger['power_imbalance']:.0e}")
+                     particle_imbalance=ledger["particle_imbalance"], power_imbalance=ledger["power_imbalance"],
+                     profile=profile))
+    msg = f"   n_up={n_up:.3e}: {result.iterations:3d} its, residual {result.residual:.1e}, {time.perf_counter() - start:5.1f}s | T_t {t_t:6.2f} eV"
+    if t_ref is not None:
+        msg += (f" (SD1D {t_ref:6.2f}, {100 * (t_t / t_ref - 1):+5.2f}%) | Gamma_t A {flux:.3e} (SD1D {flux_ref:.3e}, "
+                f"{100 * (flux / flux_ref - 1):+5.2f}%)")
+    print(msg + f" | ledgers {ledger['particle_imbalance']:.0e}/{ledger['power_imbalance']:.0e}")
 
-(OUTPUT_DIR / "summary.json").write_text(json.dumps(rows, indent=2))
+(OUTPUT_DIR / "summary.json").write_text(json.dumps([{k: v for k, v in r.items() if k != "profile"} for r in rows], indent=2))
 print(f"wrote {OUTPUT_DIR / 'summary.json'}")
 
-n = np.array([r["n_up"] for r in rows]) / 1e19
-fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.4))
-axes[0].plot(n, [r["T_t"] for r in rows], "-", color="#1f77b4", label="DRBX (SD1D-matched, 800 cells)")
-axes[0].plot(n, [r["T_t_sd1d"] for r in rows], "o", mfc="none", color="k", label="SD1D (Dudson 2019)")
-axes[0].set_ylabel("target temperature (eV)")
-axes[1].plot(n, [r["flux_area"] for r in rows], "-", color="#d62728", label="DRBX")
-axes[1].plot(n, [r["flux_area_sd1d"] for r in rows], "o", mfc="none", color="k", label="SD1D")
-axes[1].set_ylabel(r"target ion flux $\Gamma_t A_t$ (m$^{-2}$ s$^{-1}$)")
-for ax in axes:
-    ax.set_xlabel(r"upstream density ($10^{19}$ m$^{-3}$)")
-    ax.grid(True, ls=":", alpha=0.4)
-    ax.legend(fontsize=8)
-fig.suptitle("B6: SD1D 13.6 eV scan (hydrogen only) -- steady target conditions")
-fig.tight_layout()
-fig.savefig(OUTPUT_DIR / "b6_detachment.png", dpi=160)
-plt.close(fig)
-print(f"wrote {OUTPUT_DIR / 'b6_detachment.png'}")
+# ---- composite figure: the flared leg (half-width ~ sqrt(flux-tube area)) coloured by the steady profiles ----
+_, area, length = sd1d_grid(DetachmentSolParameters(ny=NY, ionisation_energy=IONISATION_ENERGY))
+xlog = np.log10(length[-1] / (length[-1] - length + 0.004))   # log-stretched axis: 0 = upstream, 3.9 = target
+radius = np.sqrt(area / area[0])
+frac = np.linspace(-1.0, 1.0, 9)
+X2, Y2 = np.meshgrid(xlog, frac)
+Y2 = Y2 * radius[None, :]
+FIELDS = (("te", r"$T_e$ (eV)", "inferno", colors.LogNorm(3.0, 60.0)),
+          ("ni", r"$n_i$ (m$^{-3}$)", "viridis", colors.LogNorm(1e19, 1e21)),
+          ("nn", r"$n_n$ (m$^{-3}$)", "magma", colors.LogNorm(1e17, 2e21)))
+n_all = np.array([r["n_up"] for r in rows]) / 1e19
+ref_n = np.array([r["n_up"] for r in rows if r["T_t_sd1d"] is not None]) / 1e19
+
+
+def draw_frame(k):
+    fig = plt.figure(figsize=(10.0, 5.6))
+    for i, (key, label, cmap, norm) in enumerate(FIELDS):
+        ax = fig.add_axes([0.07, 0.69 - 0.27 * i, 0.40, 0.2])
+        vals = np.tile(rows[k]["profile"][key], (len(frac), 1))
+        mesh = ax.pcolormesh(X2, Y2, vals, cmap=cmap, norm=norm, shading="gouraud", rasterized=True)
+        ax.plot(xlog, radius, "k", lw=1.0); ax.plot(xlog, -radius, "k", lw=1.0)
+        ax.set_xlim(0, xlog[-1]); ax.set_ylim(-1.15 * radius.max(), 1.15 * radius.max()); ax.set_yticks([])
+        ax.set_xticks(np.log10(30.0 / (np.array([10.0, 1.0, 0.1, 0.01]) + 0.004)), ["10", "1", "0.1", "0.01"])
+        ax.set_ylabel("leg\ncross-section", fontsize=8)
+        for side in ("top", "right", "left"):
+            ax.spines[side].set_visible(False)
+        if i < 2:
+            ax.tick_params(labelbottom=False)
+        else:
+            ax.set_xlabel("distance to the target (m, log scale)   [upstream <--  --> target]")
+        fig.colorbar(mesh, cax=fig.add_axes([0.49, 0.71 - 0.27 * i, 0.011, 0.16]), label=label)
+        ax.set_title(label, fontsize=10, loc="left")
+    for j, (kk, lab, col) in enumerate((("T_t", "target temperature (eV)", "#1f77b4"), ("flux_area", r"target ion flux $\Gamma_t A_t$ (m$^{-2}$ s$^{-1}$)", "#d62728"))):
+        ax = fig.add_axes([0.68, 0.56 - 0.45 * j, 0.29, 0.33])
+        ax.plot(n_all, [r[kk] for r in rows], "-", color=col, lw=1.6, label="DRBX")
+        ax.plot(ref_n, [r[kk + "_sd1d" if kk == "T_t" else "flux_area_sd1d"] for r in rows if r["T_t_sd1d"] is not None],
+                "o", mfc="none", color="k", ms=6, label="SD1D (Dudson 2019)")
+        ax.plot(n_all[k], rows[k][kk], "o", color=col, ms=9, zorder=5)
+        ax.set_ylabel(lab, fontsize=9); ax.grid(True, ls=":", alpha=0.4)
+        if j == 0:
+            ax.legend(fontsize=8)
+        else:
+            ax.set_xlabel(r"upstream density ($10^{19}$ m$^{-3}$)")
+    fig.suptitle(rf"Detachment of a divertor leg: $n_{{up}}$ = {n_all[k]:.2f}$\times10^{{19}}$ m$^{{-3}}$, target $T_t$ = {rows[k]['T_t']:.1f} eV "
+                 "(1D SD1D model, hydrogen only)", fontsize=11)
+    buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=100); plt.close(fig)
+    return Image.open(buf).convert("RGB")
+
+
+frames = [draw_frame(k) for k in range(len(rows))]
+frames[-1].quantize(128).save(OUTPUT_DIR / "b6_detachment.png", optimize=True)
+quant = [f.quantize(64, dither=Image.Dither.NONE) for f in frames]
+quant[0].save(OUTPUT_DIR / "b6_detachment.gif", save_all=True, append_images=quant[1:], duration=450, loop=0, optimize=True)
+print(f"wrote {OUTPUT_DIR / 'b6_detachment.png'} and b6_detachment.gif")
