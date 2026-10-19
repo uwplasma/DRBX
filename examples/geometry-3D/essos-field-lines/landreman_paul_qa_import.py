@@ -9,6 +9,8 @@ Set ``DRBX_ESSOS_ROOT`` to an ESSOS checkout to also build the FCI maps
 
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -27,6 +29,7 @@ from drbx.geometry import (
 )
 from drbx.runtime import configure_jax_runtime
 
+# --- PARAMETERS ------------------------------------------------------------------
 OUTPUT = Path("essos_landreman_paul_qa_import.png")
 N_FIELD_LINES = 6
 TIMES_TO_TRACE = 1500
@@ -34,6 +37,7 @@ MAXTIME = 300.0
 R_MIN, R_MAX = 1.21, 1.32
 GRID = (4, 6, 8)
 
+# --- run --------------------------------------------------------------------------
 configure_jax_runtime(precision="float64")
 
 coil_json = resolve_essos_landreman_qa_json()
