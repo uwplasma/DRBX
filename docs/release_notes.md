@@ -54,8 +54,9 @@ Headline capabilities in 2.0.0:
 - rotating-ellipse and island-divertor stellarators, plus imported ESSOS coil
   and VMEC (VMEX) equilibria, including four-field turbulence on the
   Landreman-Paul configuration with a sheath-drained scrape-off layer;
-- hermes-3 neutral model (packaged AMJUEL rates) with a self-consistent
-  detaching SOL (SD1D rollover);
+- hermes-3 neutral model (packaged AMJUEL rates) and an SD1D-matched 1D
+  plasma-neutral SOL (matches SD1D's 13.6 eV case; no flux rollover without
+  impurity radiation);
 - structured solves via `solvax` (the perpendicular-Laplacian GMRES potential
   inversion, tridiagonal, Fourier-Helmholtz); the sync-free RHS and solvax
   GMRES roughly halved the single-CPU four-field step;

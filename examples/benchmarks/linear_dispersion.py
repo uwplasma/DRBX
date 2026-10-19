@@ -19,6 +19,7 @@ Dudson et al., Comput. Phys. Commun. 180, 1467 (2009).
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import jax
@@ -39,7 +40,7 @@ from drbx.linear import (  # noqa: E402
     shear_alfven_operator,
 )
 
-# --- PARAMETERS -----------------------------------------------------------------
+# ---- PARAMETERS ----
 ALFVEN_SPEED = 3.2e6       # m/s
 ELECTRON_SKIN_DEPTH = 1.1e-3   # m
 K_PAR = 50.0               # 1/m, fixed parallel wavenumber for the Alfven scan
@@ -60,6 +61,7 @@ def _mode(operator):
 
 
 # --- B3: shear-Alfven frequency vs k_perp -----------------------------------------
+wall_start = time.perf_counter()
 print(f"B3: scanning {len(K_PERP_SCAN)} k_perp points of the shear-Alfven operator...")
 alfven_numeric, alfven_analytic = [], []
 for k_perp in K_PERP_SCAN:
@@ -115,3 +117,4 @@ fig.tight_layout()
 fig.savefig(OUTPUT_DIR / "linear_dispersion.png", dpi=200)
 plt.close(fig)
 print(f"wrote {OUTPUT_DIR / 'linear_dispersion.png'}")
+print(f"total wall time: {time.perf_counter() - wall_start:.1f} s")

@@ -82,9 +82,10 @@ python -c "from drbx.fci_braginskii.geometry_build.fci_simulation_geometry impor
 ## Building geometry
 
 `generate_hsx_fci_geometry.py` builds a bundle from the HSX vacuum field and
-vessel. It needs two input files, also not in the repository and obtained from
-the maintainers. The builder looks for them under `artifacts/inputs/hsx/` by
-default; `--makegrid` and `--vessel` override the paths.
+vessel. The default build needs only files shipped with DRBX (see "Building
+from coils" below). The mgrid route needs the MAKEGRID file, which is not in
+the repository and is obtained from the maintainers; `--makegrid` and
+`--vessel` override the paths.
 
 | File | Size | SHA-256 |
 |---|---|---|
@@ -131,14 +132,15 @@ because of the vessel file; the backend runs on either.
 
 The HSX coil file ships with DRBX at `examples/inputs/hsx/coils.hsx`
 (MAKEGRID format, 12 coil groups, 4 field periods; SHA-256
-`0bb6cf70cf1696489ec6b67bfadc0a60b128fec12f8cfdf95aa2982482eb13fe`), and
+`0bb6cf70cf1696489ec6b67bfadc0a60b128fec12f8cfdf95aa2982482eb13fe`), the
+vessel outline at `examples/inputs/hsx/vessel_hsx_flare.txt` (SHA-256 above),
+and
 `generate_hsx_fci_geometry.py` uses it by default: B is evaluated from these
 filaments (the ones the mgrid was made from) with the exact straight-segment
 Biot--Savart law, at the QHS currents
 (`10722,10722,10722,10722,10722,10722,0,0,0,0,0,0`) unless
 `--makegrid-currents` says otherwise. `--coils PATH` selects another coil
-file; `--makegrid PATH` switches back to an mgrid field. The vessel file is
-still distributed separately. In Python,
+file; `--makegrid PATH` switches back to an mgrid field. In Python,
 `build_hsx_fci_geometry(bfield_provider=...)` accepts any
 `drbx.geometry.field_provider.MagneticFieldProvider` (ESSOS coils,
 `FilamentCoilField`), so the field is a differentiable function of the coil
