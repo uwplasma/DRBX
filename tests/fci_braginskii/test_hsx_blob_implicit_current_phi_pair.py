@@ -16,7 +16,7 @@ import sys
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
+DRIVER_PATH = REPOSITORY / "src" / "drbx" / "fci_braginskii" / "run.py"
 DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 RHS_PATH = REPOSITORY / "src" / "drbx" / "fci_braginskii" / "native" / "fci_drb_EB_rhs.py"
 OPERATORS_PATH = (
@@ -47,18 +47,6 @@ def _function(tree: ast.Module, name: str) -> ast.FunctionDef:
     )
 
 
-def test_parser_defaults_enable_implicit_pair_at_the_validated_rho_star():
-    driver = _driver_module()
-    parser = driver._build_parser()
-    args = parser.parse_args(())
-    assert args.rho_star == 5.0e-4
-    assert args.implicit_current_phi_pair is True
-
-    disabled = parser.parse_args(("--no-implicit-current-phi-pair",))
-    assert disabled.implicit_current_phi_pair is False
-
-    enabled_explicit = parser.parse_args(("--implicit-current-phi-pair",))
-    assert enabled_explicit.implicit_current_phi_pair is True
 
 
 def test_library_entry_points_default_the_flag_off():

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import platform
 import sys
 import time
-from typing import Any, Mapping
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
 
 from .config.boutinp import load_bout_input
 from .runtime import configure_jax_runtime, resolve_runtime_precision
@@ -120,52 +121,50 @@ def _normalize_cli_argv(argv: list[str]) -> list[str]:
     return ["run", *argv]
 
 
-_FCI_BRAGINSKII_BACKEND = "fci_braginskii"
-_NATIVE_RUN_OPTIONS = (
-    "precision", "case_name", "output_dir", "json_out", "arrays_out",
-    "restart_out", "log_out", "restart_in", "resume_steps",
+_DECK_ONLY_OPTIONS = (
+    "precision", "json_out", "arrays_out", "restart_out", "log_out", "restart_in", "resume_steps",
 )
 
 
-def _is_fci_braginskii_deck(path: Path) -> bool:
+def _is_backend_deck(path: Path) -> bool:
+    """True for a ``[model] backend = "<name>"`` deck (see :mod:`drbx.deck`)."""
+
     if path.suffix.lower() != ".toml":
         return False
     from .config.boutinp import tomllib
 
     model = tomllib.loads(path.read_text(encoding="utf-8")).get("model", {})
-    return isinstance(model, dict) and model.get("backend") == _FCI_BRAGINSKII_BACKEND
+    return isinstance(model, dict) and "backend" in model
 
 
-def _fci_braginskii_command(args: argparse.Namespace, *, inspect_only: bool) -> int:
-    """Inspect or run an HSX FCI Braginskii deck (``[fci_braginskii]`` table)."""
+def _backend_deck_command(args: argparse.Namespace, *, inspect_only: bool) -> int:
+    """Inspect or run a ``[model] backend`` deck: the same models as the Python API."""
 
-    from dataclasses import fields
-
-    from .fci_braginskii.run import load_hsx_blob_deck, run
+    from .deck import describe, load_deck, run_deck
 
     try:
-        config = load_hsx_blob_deck(args.input_file)
+        name, config = load_deck(args.input_file)
     except ValueError as error:
         raise SystemExit(f"{args.input_file}: {error}") from None
     if inspect_only:
         print(f"input: {args.input_file}")
-        print(f"backend: {_FCI_BRAGINSKII_BACKEND}")
-        for field in fields(config):
-            print(f"{field.name} = {getattr(config, field.name)!r}")
+        print(describe(name, config))
         return 0
-    given = [name for name in _NATIVE_RUN_OPTIONS if getattr(args, name, None) is not None]
+    given = [n for n in _DECK_ONLY_OPTIONS if getattr(args, n, None) is not None]
+    if name == "fci_braginskii":
+        given += [n for n in ("output_dir", "case_name") if getattr(args, n, None) is not None]
     if given:
         raise SystemExit(
-            f"{', '.join('--' + name.replace('_', '-') for name in given)} not supported "
-            f"for {_FCI_BRAGINSKII_BACKEND} decks; set the [fci_braginskii] keys instead"
+            f"{', '.join('--' + n.replace('_', '-') for n in given)} not supported for {name} decks; "
+            "set the deck keys instead"
         )
-    run(config)
+    run_deck(args.input_file, output_dir=args.output_dir, case_name=args.case_name, quiet=args.quiet)
     return 0
 
 
 def _inspect_command(args: argparse.Namespace) -> int:
-    if _is_fci_braginskii_deck(args.input_file):
-        return _fci_braginskii_command(args, inspect_only=True)
+    if _is_backend_deck(args.input_file):
+        return _backend_deck_command(args, inspect_only=True)
     config = load_bout_input(args.input_file)
     configure_jax_runtime(precision=resolve_runtime_precision(config=config))
     run_config = RunConfiguration.from_config(config)
@@ -203,8 +202,8 @@ def _inspect_command(args: argparse.Namespace) -> int:
 def _run_command(args: argparse.Namespace) -> int:
     if args.dry_run:
         return _inspect_command(args)
-    if _is_fci_braginskii_deck(args.input_file):
-        return _fci_braginskii_command(args, inspect_only=False)
+    if _is_backend_deck(args.input_file):
+        return _backend_deck_command(args, inspect_only=False)
     config = load_bout_input(args.input_file)
     run_config = RunConfiguration.from_config(config)
     resolved_precision = resolve_runtime_precision(
@@ -212,6 +211,7 @@ def _run_command(args: argparse.Namespace) -> int:
     )
     cache_dir = configure_jax_runtime(precision=resolved_precision)
     import jax
+
     from .native import run_input_case
     from .native.deck_runner import (
         NativeRestartState,

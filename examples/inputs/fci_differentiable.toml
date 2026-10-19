@@ -1,0 +1,20 @@
+# Differentiable FCI flux tube: autodiff gradient versus finite difference (about 15 s).
+#   drbx run examples/inputs/fci_differentiable.toml
+# results.rel_error should be ~1e-8 or smaller: the whole rollout is differentiable.
+
+[model]
+backend = "fci_differentiable"
+
+[fci_differentiable]
+shape = [8, 8, 4]       # [radial, poloidal, toroidal] cells (16x16x8 by default)
+sigma = 0.6             # poloidal shear of the shifted torus
+rho_star = 1.0          # drift scale
+
+[run]
+amp0 = 0.1              # initial perturbation amplitude at which d(objective)/d(amp0) is taken
+n_steps = 6             # rollout steps (24 by default)
+dt = 1.0e-3             # rollout step
+fd_step = 1.0e-5        # central finite-difference step in amp0
+
+[output]
+directory = "../../output/fci_differentiable"
