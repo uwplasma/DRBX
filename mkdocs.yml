@@ -38,6 +38,7 @@ nav:
       - Native Runtime CLI: native_runtime_cli.md
       - Restartable Diffusion Tutorial: restartable_diffusion_tutorial.md
       - Examples And Artifacts: examples.md
+  - Tutorial (start here): tutorial.md
   - Tutorials:
       - Turbulence From Zero: tutorial_hasegawa_wakatani.md
       - Open SOL, Neutrals, Detachment: tutorial_open_sol.md

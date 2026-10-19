@@ -52,10 +52,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vessel",
         type=Path,
-        default=root / "artifacts" / "inputs" / "hsx" / "vessel_hsx_flare.txt",
+        default=root / "examples" / "inputs" / "hsx" / "vessel_hsx_flare.txt",
         help=(
-            "Path to the HSX vessel/wall boundary file. Not distributed with "
-            "the repository; see docs/fci_braginskii_hsx_backend.md."
+            "Path to the HSX vessel/wall boundary file (default: the vessel "
+            "shipped with DRBX)."
         ),
     )
     parser.add_argument(

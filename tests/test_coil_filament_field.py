@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -174,6 +175,13 @@ def test_coil_table_converges_to_the_coils_and_is_differentiable_in_currents() -
 HSX_INPUTS = Path(os.environ.get("DRBX_HSX_INPUTS", "artifacts")).expanduser()
 HSX_COILS = Path(__file__).resolve().parents[1] / "examples" / "inputs" / "hsx" / "coils.hsx"
 QHS_CURRENTS = {g + 1: (10722.0 if g < 6 else 0.0) for g in range(12)}
+
+
+def test_shipped_hsx_vessel_file_is_pinned() -> None:
+    vessel = HSX_COILS.with_name("vessel_hsx_flare.txt")
+    digest = "65d794b7131e35dc72b554e5b6ae3c97974a5e11a7d936ebedc66451749d1ff3"
+    assert hashlib.sha256(vessel.read_bytes()).hexdigest() == digest
+    assert vessel.read_text().splitlines()[1].split() == ["161", "201", "4"]
 
 
 def test_shipped_hsx_coils_give_the_qhs_field_symmetries() -> None:
