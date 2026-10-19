@@ -70,6 +70,7 @@ from .fci_wall_closure import (
     sheath_current,
     sheath_tube_lengths,
     sheath_wall_leg_residual,
+    current_gamma_e,
     sound_speed,
     wall_face_fluxes,
 )
@@ -581,19 +582,32 @@ class LocalFciDrbEBRhs:
         """
 
         del center
-        tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
         out = []
         for state, wall, direction in (
             (backward_wall_state, backward_wall, -1.0),
             (forward_wall_state, forward_wall, 1.0),
         ):
-            te = jnp.maximum(state[..., 1], 1.0e-30)
-            lam = self.sheath.sheath_lambda(tau * state[..., 2] / te, self.parameters.mi_over_me)
-            j, dj = sheath_current(
-                state[..., 0], sound_speed(state[..., 1], state[..., 2], tau), te, phi_dense, lam, direction
-            )
+            j, dj = self._sheath_leg_current(state, phi_dense, direction)
             out.append((jnp.where(wall, j, 0.0), jnp.where(wall, dj, 0.0)))
         return out[0][0], out[1][0], out[0][1], out[1][1]
+
+    def _sheath_leg_current(self, state, phi, direction):
+        """``(j, dj/dphi)`` of one wall leg from its Bohm entrance state."""
+
+        tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+        te = jnp.maximum(state[..., 1], 1.0e-30)
+        lam = self.sheath.sheath_lambda(tau * state[..., 2] / te, self.parameters.mi_over_me)
+        return sheath_current(
+            state[..., 0], sound_speed(state[..., 1], state[..., 2], tau), te, phi, lam, direction
+        )
+
+    def _sheath_current_gamma_e(self, state, phi, floating_gamma_e):
+        """Electron transmission at the sheath drop ``phi`` (explicit value wins)."""
+
+        if self.sheath.electron_heat_transmission is not None:
+            return floating_gamma_e
+        te = jnp.maximum(state[..., 1], 1.0e-30)
+        return current_gamma_e(phi / te, self.sheath.secondary_electron_emission)
 
     def _sheath_insulating_pair(self, gradient, divergence, target):
         """Wall-leg closure of the current/phi pair under the sheath current.
@@ -2448,7 +2462,7 @@ class LocalFciDrbEBRhs:
     def _sheath_wall_backward_euler(
         self, center, minus, plus, dx_minus, dx_plus, backward_wall,
         forward_wall, backward_wall_state, forward_wall_state,
-        coupled_residual, selection_dt, solve_dt,
+        coupled_residual, selection_dt, solve_dt, phi_dense=None,
     ):
         """Local backward Euler of the wall legs under the sheath closure.
 
@@ -2457,6 +2471,10 @@ class LocalFciDrbEBRhs:
         local Jacobian (wall traces frozen); the Ve row keeps the frozen
         characteristic residual and Jacobian.  ``coupled_residual`` (the
         electron Ti force) is added on wall rows as in the zero-flow path.
+        With ``phi_dense`` (the ``"current"`` potential mode) the density leg
+        removes the electron flux ``n_w Vi_w - j_w`` and the electron energy
+        leg ``gamma_e(phi) Te_w`` times it, with the sheath current ``j_w``
+        and the transmission ``2/(1-d) + phi/Te_w`` of the same potential.
         """
 
         tau = self.parameters.tau
@@ -2479,9 +2497,13 @@ class LocalFciDrbEBRhs:
         ):
             def leg(owner, trace=trace, dx=dx, direction=direction):
                 state = bohm_wall_state(trace, owner, direction, tau)
+                ge, wall_current = gamma_e, None
+                if phi_dense is not None:
+                    wall_current, _ = self._sheath_leg_current(state, phi_dense, direction)
+                    ge = self._sheath_current_gamma_e(state, phi_dense, gamma_e)
                 return sheath_wall_leg_residual(
-                    state, owner, dx, direction, tau, gamma_e, gamma_i,
-                    conservative_bulk=True,
+                    state, owner, dx, direction, tau, ge, gamma_i,
+                    conservative_bulk=True, wall_current=wall_current,
                 )
 
             conservative = leg(center)
@@ -2760,6 +2782,10 @@ class LocalFciDrbEBRhs:
                 primitive_stencils[0].dx_plus, backward_wall, forward_wall,
                 backward_wall_state, forward_wall_state, coupled_residual,
                 selection_dt, solve_dt,
+                phi_dense=(
+                    self._expand_owner_field_for_stencil(phi_owned)
+                    if self._sheath_current_mode else None
+                ),
             )
 
         if self._uses_projected_fine_grid:
@@ -2817,8 +2843,14 @@ class LocalFciDrbEBRhs:
             (backward_wall_state, -1.0, backward_wall, tube_minus, sheath_j[0]),
             (forward_wall_state, 1.0, forward_wall, tube_plus, sheath_j[1]),
         ):
+            ge = gamma_e
+            if j_sheath is not None:
+                ge = self._sheath_current_gamma_e(
+                    state, self._expand_owner_field_for_stencil(phi_owned), gamma_e
+                )
             fluxes = wall_face_fluxes(
-                state, direction, self.parameters.tau, gamma_e, gamma_i, center[..., 3]
+                state, direction, self.parameters.tau, ge, gamma_i, center[..., 3],
+                wall_current=j_sheath,
             )
             if j_sheath is not None:
                 # outward sheath current (s j_par) at the state potential

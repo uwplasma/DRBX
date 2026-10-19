@@ -62,7 +62,7 @@ class SheathClosure:
     # "current": sheath-limited electron current per wall leg, linearized in
     # phi inside the implicit current/phi solve (conducting wall at phi = 0).
     # Experimental: on HSX it develops grid-scale phi and Ve at the wall
-    # cells and fails at step 49 (docs, Wall closure).
+    # cells and fails at step 47 (docs, Wall closure).
     potential: str = "ambipolar"
 
     def __post_init__(self) -> None:
@@ -169,7 +169,26 @@ def bohm_wall_state(trace, center, direction, tau) -> jnp.ndarray:
     return trace.at[..., 0].set(density).at[..., 3].set(velocity).at[..., 4].set(velocity)
 
 
-def wall_face_fluxes(wall_state, direction, tau, gamma_e, gamma_i, owner_velocity=0.0) -> WallFaceFluxes:
+def current_gamma_e(phi_over_te, secondary_electron_emission=0.0):
+    """Electron transmission ``2/(1-d) + e phi/Te`` for a sheath drop ``phi``.
+
+    The electrons reaching a wall at ``phi_w = 0`` carry ``2 Te/(1-d)`` of
+    kinetic energy and have lost ``e phi`` climbing the sheath, so the
+    entrance energy flux per electron is ``2 Te/(1-d) + e phi``.  At the
+    floating drop ``phi = Lambda Te`` this is the Stangeby value of
+    :meth:`SheathClosure.gamma_e`.  An electron-attracting wall
+    (``phi < 0``) has no retarding drop: the floor is the unretarded
+    ``2 Te/(1-d)``.
+    """
+
+    return 2.0 / (1.0 - float(secondary_electron_emission)) + jnp.maximum(
+        jnp.asarray(phi_over_te, dtype=jnp.float64), 0.0
+    )
+
+
+def wall_face_fluxes(
+    wall_state, direction, tau, gamma_e, gamma_i, owner_velocity=0.0, wall_current=None
+) -> WallFaceFluxes:
     """Flux contract: outward fluxes carried by a complete wall state.
 
     ``particle = n V s``, ``parallel_momentum = n V^2 + n (Te + tau Ti)``
@@ -185,10 +204,13 @@ def wall_face_fluxes(wall_state, direction, tau, gamma_e, gamma_i, owner_velocit
     s = jnp.asarray(direction, dtype=jnp.float64)
     n, Te, Ti, Vi, Ve = (w[..., i] for i in range(5))
     outflow = n * Vi * s
+    # Electron outflow ``n Ve s = outflow - s j`` when the sheath current
+    # ``j`` (along +b) is given; otherwise the ambipolar ``n Vi s``.
+    electron_outflow = outflow if wall_current is None else outflow - s * wall_current
     return WallFaceFluxes(
-        particle=outflow,
+        particle=electron_outflow,
         parallel_momentum=n * Vi * Vi + n * (Te + tau * Ti),
-        electron_energy=gamma_e * Te * outflow,
+        electron_energy=gamma_e * Te * electron_outflow,
         ion_energy=tau * gamma_i * Ti * outflow,
         kinetic_energy=0.5 * jnp.square(jnp.asarray(owner_velocity, dtype=jnp.float64)) * outflow,
         current=n * (Vi - Ve) * s,
@@ -219,7 +241,8 @@ def sheath_tube_lengths(dx_minus, dx_plus, backward_wall, forward_wall):
 
 
 def sheath_wall_leg_residual(
-    wall_state, center, dx, direction, tau, gamma_e, gamma_i, conservative_bulk=False
+    wall_state, center, dx, direction, tau, gamma_e, gamma_i, conservative_bulk=False,
+    wall_current=None,
 ) -> jnp.ndarray:
     """Conservative wall-leg rates for the (n, Te, Ti, Vi) rows.
 
@@ -234,7 +257,13 @@ def sheath_wall_leg_residual(
     variables (the Ve row is zero: it keeps the characteristic wall law).
 
     ``V`` is the ion velocity at both ends: the leg is the ambipolar
-    presheath flow into a floating wall.
+    presheath flow into a floating wall.  With ``wall_current`` (the sheath
+    current ``j_w`` along +b of the ``"current"`` potential mode) the density
+    row loses the *electron* flux ``n_w Vi_w - j_w`` (``dn = -D(n Ve)`` with
+    ``n Ve = n Vi - j``), and so do the electron energy flux
+    ``gamma_e Te (n_w Vi_w - j_w)`` and the density-change terms of the
+    other rows; the ion fluxes (momentum, ``gamma_i n Ti Vi``) keep the ion
+    flow.  ``gamma_e`` may then be an array (see :func:`current_gamma_e`).
 
     ``conservative_bulk=True`` is the production HSX form, where the bulk
     density and thermal energy rows are the sum-free support-pair fluxes
@@ -254,8 +283,15 @@ def sheath_wall_leg_residual(
     factor = -s / jnp.maximum(jnp.abs(dx), _FLOOR)
     n_c = jnp.maximum(c[..., 0], _FLOOR)
 
-    def fluxes(u, ge, gi):
+    def fluxes(u, ge, gi, j=None):
         n, Te, Ti, Vi = (u[..., i] for i in range(4))
+        if j is not None:
+            return (
+                n * Vi - j,
+                n * Vi * Vi + n * (Te + tau * Ti),
+                ge * Te * (n * Vi - j),
+                gi * n * Ti * Vi,
+            )
         return (
             n * Vi,
             n * Vi * Vi + n * (Te + tau * Ti),
@@ -263,7 +299,7 @@ def sheath_wall_leg_residual(
             gi * n * Ti * Vi,
         )
 
-    Fw = fluxes(w, gamma_e, gamma_i)
+    Fw = fluxes(w, gamma_e, gamma_i, wall_current)
     Fc = fluxes(c, 2.5, 2.5)
     keep = 0.0 if conservative_bulk else 1.0
     d_particle = Fw[0] - keep * Fc[0]
@@ -287,6 +323,7 @@ __all__ = [
     "SheathClosure",
     "WallFaceFluxes",
     "bohm_wall_state",
+    "current_gamma_e",
     "sheath_current",
     "sheath_lambda",
     "sheath_tube_lengths",

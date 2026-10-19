@@ -26,6 +26,7 @@ from drbx.fci_braginskii.native.fci_parallel_production_flux import (
 from drbx.fci_braginskii.native.fci_wall_closure import (
     SheathClosure,
     bohm_wall_state,
+    current_gamma_e,
     sheath_current,
     sheath_lambda,
     sheath_tube_lengths,
@@ -94,6 +95,37 @@ def test_wall_leg_removes_exactly_the_contract_fluxes():
         # momentum flux is continuous across the half leg (owner subsonic)
         np.testing.assert_allclose(Vi * rate[:, 0] + n * rate[:, 3], 0.0, atol=1e-10)
         np.testing.assert_array_equal(rate[:, 4], 0.0)
+
+
+def test_sheath_current_leg_removes_the_electron_flux():
+    """With a wall current the density and electron energy legs carry n Ve = n Vi - j."""
+
+    rng = np.random.default_rng(2)
+    center = np.stack(
+        [rng.uniform(0.5, 2.0, 16), rng.uniform(0.5, 2.0, 16), rng.uniform(0.5, 2.0, 16),
+         rng.uniform(-0.8, 0.8, 16), rng.uniform(-0.8, 0.8, 16)], axis=-1)
+    dx, gi = 0.03, 2.5
+    ge = np.asarray(current_gamma_e(rng.uniform(-1.0, 4.0, 16)))
+    for s in (1.0, -1.0):
+        wall = bohm_wall_state(center, center, s, TAU)
+        j = rng.uniform(-2.0, 2.0, 16)
+        rate = np.asarray(sheath_wall_leg_residual(
+            wall, center, dx, s, TAU, ge, gi, conservative_bulk=True, wall_current=j))
+        flux = wall_face_fluxes(wall, s, TAU, ge, gi, center[:, 3], wall_current=j)
+        n, Te, Ti, Vi, _ = center.T
+        out = -1.0 / dx
+        # conservative bulk: the leg is the wall flux alone, here the electron flux
+        np.testing.assert_allclose(rate[:, 0], out * flux.particle, rtol=1e-12)
+        np.testing.assert_allclose(
+            1.5 * (Te * rate[:, 0] + n * rate[:, 1]), out * flux.electron_energy,
+            rtol=1e-12, atol=1e-12)
+        # ions keep the ion flow: gamma_i n_w Ti_w Vi_w leaves the ion energy
+        np.testing.assert_allclose(
+            1.5 * TAU * (Ti * rate[:, 0] + n * rate[:, 2]),
+            out * TAU * gi * wall[:, 2] * wall[:, 0] * wall[:, 3] * s,
+            rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(flux.particle, s * (wall[:, 0] * wall[:, 3] - j))
+    assert float(current_gamma_e(-2.0)) == 2.0 and float(current_gamma_e(2.84)) == pytest.approx(4.84)
 
 
 def test_conservative_bulk_leg_is_the_wall_flux_alone():

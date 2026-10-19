@@ -238,7 +238,7 @@ HSX, 32-cubed, dt = 7.5e-4, 100 steps (t = 0.075):
 
 | | ambipolar (default) | current |
 |---|---|---|
-| Steps | 100, finite | fails at step 49 (t = 0.0368) |
+| Steps | 100, finite | fails at step 47 (t = 0.0345); step 49 before the electron-flux fix |
 | GMRES iterations/solve | 76 | 85-89 |
 | Wall current (contract) | 0 | -2.27 at t = 0, -0.80 at t = 0.030 (electron-dominated, decaying) |
 | n range at end | [0.530, 1.162] | [0.157, 1.611] at step 46 |
@@ -255,9 +255,21 @@ capacitance, linearized sheath walls, the production affine/homogeneous
 split) reaches `phi_w - phi_entrance = -Lambda Te` and zero current to 1e-10
 at dt = 10, where the explicit wall current diverges. That model has
 Boltzmann electrons (resistive Ohm's law), not the inertial `Ve` of the
-backend. Likely next steps: the electron particle flux `n_w Vi_w - s j_w` in
-the density leg, and the wall-leg electron force consistent with the
-sheath endpoint (so `G(phi)` at a wall cell does not see `phi_w = 0`).
+backend.
+
+In `"current"` mode the wall leg now carries the electron flux: the density
+row, the electron energy flux `gamma_e Te (n_w Vi_w - j_w)` and the
+density-change terms of the Te, Ti and Vi rows use `n Ve = n Vi - j`, the ion
+rows keep `n_w Vi_w`, and the transmission follows the sheath drop,
+`gamma_e = 2/(1-d) + max(phi/Te, 0)` (the Stangeby value at `phi = Lambda
+Te`). The 0.71 Te j thermoelectric term belongs to the bulk heat flux and is
+not part of the wall leg, which uses the sheath transmission for the total
+electron energy flux. With a fixed floating `gamma_e` the run failed at step
+36, with `gamma_e(phi)` at step 47, so the energy leg matters but is not the
+root cause: Te still collapses (to about 0) in wall-adjacent cells, where
+`phi` alternates in sign at grid scale on the radial edge and `Ve` reaches
++-40. The cure for that is the wall-cell electron force (`G(phi)` against the
+sheath endpoint), not another flux term, so the default stays `"ambipolar"`.
 
 ## Geometry artifact
 
@@ -486,7 +498,7 @@ contract. The right-hand side is assembled in
   long-time stability.
 - With the default Bohm sheath the floating wall is local (zero current per
   leg) and the phi wall boundary is Dirichlet zero. The sheath-current wall
-  (`sheath_potential = "current"`) is experimental and fails on HSX at step 49
+  (`sheath_potential = "current"`) is experimental and fails on HSX at step 47
   (see Wall closure).
 
 ## Tests
