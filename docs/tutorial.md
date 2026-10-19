@@ -83,17 +83,16 @@ The potential is obtained from the vorticity by the polarization solve. Closed v
 
 `drbx.fci_braginskii` is the production seven-field backend. It runs on a
 precomputed HSX geometry bundle built from the coil file shipped in the
-repository, `examples/inputs/hsx/coils.hsx`. The builder also needs the HSX
-vessel outline `vessel_hsx_flare.txt`, which is not in the repository (obtain
-it from the maintainers; see
-[HSX FCI Braginskii backend](fci_braginskii_hsx_backend.md#building-geometry)).
+repository, `examples/inputs/hsx/coils.hsx`, and the HSX vessel outline
+`examples/inputs/hsx/vessel_hsx_flare.txt`; both are used by default, so it
+builds from a fresh clone.
 
 A small bundle (16 cells per direction, about 3 min):
 
 ```bash
 python generate_hsx_fci_geometry.py --resolution 16 16 16 --metric-mesh-shape 16 16 16 \
   --metric-poloidal-modes 6 --metric-toroidal-modes 3 --toroidal-modes 3 \
-  --vessel path/to/vessel_hsx_flare.txt --output output/hsx_16
+  --output output/hsx_16
 ```
 
 Seed a density filament and advance four IMEX steps (about 90 s, mostly
