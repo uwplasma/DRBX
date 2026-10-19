@@ -396,6 +396,23 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.parallel_diffusion` | `float` | `0.0` | Parallel diffusion coefficient. (normalized) |
 | `fci_braginskii.electron_collision_frequency` | `float` | `0.0` | Electron collision frequency. (normalized) |
 | `fci_braginskii.implicit_current_phi_pair` | `bool` | `True` | Treat `mu grad_par(phi)` and the parallel current divergence implicitly through a coupled potential solve (default). |
+| `fci_braginskii.wall_closure` | `str` | `'bohm'` | Parallel wall closure: `bohm` (sheath outflow at the Bohm speed, default) or `zero-flow` (no particle or heat outflow). |
+| `fci_braginskii.electron_heat_transmission` | `float` | `0.0` | Electron sheath heat transmission coefficient; 0 derives it from the sheath potential and `secondary_electron_emission`. |
+| `fci_braginskii.ion_heat_transmission` | `float` | `2.5` | Ion sheath heat transmission coefficient. |
+| `fci_braginskii.secondary_electron_emission` | `float` | `0.0` | Secondary electron emission coefficient of the wall. |
+| `fci_braginskii.neutrals` | `bool` | `False` | Evolve a diffusive neutral density with ionization, charge exchange and recombination sources. |
+| `fci_braginskii.neutral_reference_density_m3` | `float` | `5e+18` | Reference plasma density used to dimensionalize the neutral reaction rates. (m^-3) |
+| `fci_braginskii.neutral_temperature_ev` | `float` | `3.0` | Neutral temperature. (eV) |
+| `fci_braginskii.neutral_mfp_max` | `float` | `0.05` | Upper cap of the neutral mean free path. (normalized length) |
+| `fci_braginskii.neutral_initial_density` | `float` | `0.01` | Neutral density at the wall at t = 0. (normalized) |
+| `fci_braginskii.neutral_initial_decay_length` | `float` | `0.1` | Decay length of the initial neutral profile from the wall; 0 gives a uniform profile. (normalized length) |
+| `fci_braginskii.neutral_reaction_substeps` | `int` | `1` | Substeps of the stiff neutral reaction update per time step. (substeps) |
+| `fci_braginskii.sheath_potential` | `str` | `'ambipolar'` | Sheath potential model used by the Bohm closure (`ambipolar` by default). |
+| `fci_braginskii.recycling` | `bool` | `False` | Return ion wall flux as neutrals; requires `neutrals = true` and `wall_closure = "bohm"`. |
+| `fci_braginskii.recycling_coefficient` | `float` | `0.99` | Fraction of the ion wall flux recycled as neutrals, in [0, 1]. |
+| `fci_braginskii.recycling_energy` | `str` | `'franck-condon'` | Energy of recycled neutrals: `franck-condon` or `wall`. |
+| `fci_braginskii.recycling_franck_condon_energy_ev` | `float` | `3.0` | Franck-Condon neutral energy. (eV) |
+| `fci_braginskii.recycling_wall_temperature_ev` | `float` | `0.025` | Wall temperature for `recycling_energy = "wall"`. (eV) |
 | `fci_braginskii.advance_execution` | `str` | `'staged-compiled'` | `compiled` (one fused executable), `staged-compiled` (reusable kernels) or `eager`. |
 | `fci_braginskii.gmres_acceptance_tolerance` | `float` | `5e-05` | Residual accepted after GMRES stops. |
 | `fci_braginskii.gmres_target_tolerance` | `float` | `1e-08` | Residual target that stops GMRES. |
