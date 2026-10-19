@@ -3,7 +3,9 @@
 Usage: python run_drbx.py OUTDIR VARIANT N_UP [N_UP ...]
 VARIANT: base | amjuel_rec (recombination rate replaced by the AMJUEL H.4 2.1.8 fit that
 Hermes-3 uses; needs HERMES_JSON=<hermes-3>/json_database) | no_rec (recombination off).
-Writes one JSON per (n_up, ny) with the profiles and ledger the compare script reads.
+Writes one JSON per (n_up, ny) with the profiles, ledger and normalised state that compare.py and
+momentum_budget.py read. To run with the consistent sheath momentum flux, apply
+drbx_sheath_momentum.patch to a copy of src/ and put that copy first on PYTHONPATH.
 """
 
 import json
@@ -78,6 +80,9 @@ for n_up in map(float, sys.argv[3:]):
             nn=(np.asarray(r.state.neutral_density) * p.Nnorm).tolist(),
             flux_area=float(t.target_flux * t.target_area) * p.Nnorm * p.cs0,
             ledger={k: float(v) for k, v in m.detachment_ledger(r, p).items()},
+            state={
+                k: np.asarray(v).tolist() for k, v in r.state._asdict().items()
+            },  # normalised (momentum_budget.py)
         )
         f = out / f"drbx_{variant}_{n_up:.5e}_{ny}.json"
         f.write_text(json.dumps(rec))
