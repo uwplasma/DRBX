@@ -5142,22 +5142,21 @@ def _build_angular_agglomeration_line_pardiag_preconditioner(
             upper = -jnp.roll(y_edge[sel], -1, axis=1)
             move = lambda a: jnp.transpose(a, (1, 0, 2))
             # The ring matrices are fixed for the whole solve, so their
-            # inverses (n_owners <= ny, tiny) are formed once here, with
-            # SOLVAX's cyclic solver applied to the identity columns.  The
-            # per-call line solve is then one batched matvec.  A per-call
-            # tridiagonal solve costs ~120 ms per application on a GPU
-            # (sequential kernel chain), the matvec ~0.06 ms; results agree to
-            # round-off.
+            # inverses (n_owners <= ny, tiny dense matrices) are formed once
+            # here by a batched inverse.  The per-call line solve is then one
+            # batched matvec.  A per-call SOLVAX cyclic tridiagonal solve costs
+            # ~120 ms per application on a GPU, the matvec ~0.06 ms; results
+            # agree to round-off.
             lower_m, diag_m, upper_m = move(lower), move(safe_diag[sel]), move(upper)
             n_ring = lower_m.shape[0]
-            identity = jnp.broadcast_to(
-                jnp.eye(n_ring, dtype=jnp.float64)[:, None, None, :],
-                lower_m.shape + (n_ring,),
+            ring = jnp.arange(n_ring)
+            matrix = jnp.zeros(
+                tuple(diag_m.shape[1:]) + (n_ring, n_ring), dtype=jnp.float64
             )
-            inverse = jnp.transpose(
-                solvax_cyclic_tridiagonal_solve(lower_m, diag_m, upper_m, identity),
-                (1, 2, 0, 3),
-            )  # (rings, nz, i, j)
+            matrix = matrix.at[..., ring, ring].set(jnp.moveaxis(diag_m, 0, -1))
+            matrix = matrix.at[..., ring, (ring - 1) % n_ring].add(jnp.moveaxis(lower_m, 0, -1))
+            matrix = matrix.at[..., ring, (ring + 1) % n_ring].add(jnp.moveaxis(upper_m, 0, -1))
+            inverse = jnp.linalg.inv(matrix)  # (rings, nz, i, j)
             theta_groups.append((sel, inverse))
 
     def solve_theta(rhs: jnp.ndarray) -> jnp.ndarray:
