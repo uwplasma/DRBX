@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.util
 import ast
+import importlib.util
 from pathlib import Path
 import sys
+
+import pytest
 
 import jax
 import jax.numpy as jnp
@@ -17,7 +19,7 @@ from drbx.fci_braginskii.geometry.fci_geometry import (
 )
 
 
-DRIVER = Path(__file__).resolve().parents[2] / "simulate_hsx_blob.py"
+DRIVER = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 
@@ -32,29 +34,8 @@ def _driver_module():
     return module
 
 
-def test_canonical_driver_is_tracked_at_repository_root():
-    assert DRIVER.is_file()
-    assert (DRIVER.parent / "pyproject.toml").is_file()
-    assert (DRIVER.parent / "src" / "drbx").is_dir()
 
 
-def test_parser_exposes_no_removed_production_selector_flags():
-    driver = _driver_module()
-    parser = driver._build_parser()
-    args = parser.parse_args(())
-    for removed in (
-        "parallel_flux_pairing",
-        "parallel_boundary_pairing",
-        "parallel_characteristic_wall_law",
-        "parallel_short_leg_treatment",
-        "parallel_short_leg_selection",
-        "parallel_short_leg_cfl_limit",
-        "poisson_bracket_scheme",
-    ):
-        assert not hasattr(args, removed)
-        assert all(
-            action.dest != removed for action in parser._actions
-        )
 
 
 def test_wall_law_metadata_is_the_fixed_physical_boundary_state_contract():
@@ -83,15 +64,15 @@ def test_short_leg_split_is_native_to_compiled_imex_source():
     assert "IMEX_SSP222_GAMMA" in source
 
 
+
+
 def test_time_advance_exposes_true_eager_mode_and_staged_compiled_default():
     driver = _driver_module()
-    parser = driver._build_parser()
-    args = parser.parse_args(())
-    assert args.advance_execution == "staged-compiled"
-    action = next(
-        action for action in parser._actions if action.dest == "advance_execution"
-    )
-    assert tuple(action.choices) == ("compiled", "staged-compiled", "eager")
+    assert driver.HsxBlobConfig().advance_execution == "staged-compiled"
+    for mode in ("compiled", "staged-compiled", "eager"):
+        driver.HsxBlobConfig(advance_execution=mode)
+    with pytest.raises(ValueError, match="advance_execution must be one of"):
+        driver.HsxBlobConfig(advance_execution="jit")
     source = DRIVER_SOURCE.read_text(encoding="utf-8")
     assert "with jax.disable_jit(advance_execution == \"eager\")" in source
     assert "compiled_advance = sharded_advance" in source

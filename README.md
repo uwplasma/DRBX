@@ -32,7 +32,8 @@ git clone https://github.com/uwplasma/drbx && cd drbx && pip install -e .
 Python 3.10 or newer. CPU JAX is installed by default; for a GPU, install the
 matching JAX wheel following the
 [JAX guide](https://docs.jax.dev/en/latest/installation.html). ESSOS coil
-imports need `pip install "drbx[essos]"`.
+imports need `pip install "drbx[essos]"`; the 3D (PyVista, offscreen) renders in
+the field-line and HSX examples need `pip install "drbx[viz]"`.
 
 ## Quick start
 
@@ -87,7 +88,7 @@ helps choose a model family, dimension and boundary conditions.
 The Hasegawa-Wakatani model on a doubly periodic plane: density-gradient-driven
 drift waves saturate into turbulence with zonal flows. The adiabaticity
 `alpha` sets the regime, from streamer-like transport at small `alpha` to
-wave-like transport at large `alpha`. The default run (96x96 modes, t = 160) takes about 80 s on a laptop CPU.
+wave-like transport at large `alpha`. The movie is the default run (96x96 modes, t = 400, about 2 min on a laptop CPU), shown from t = 124, after the energy (right) saturates.
 
 <img src="docs/media/drift_wave_turbulence.gif" width="700" alt="Drift-wave turbulence">
 
@@ -100,9 +101,12 @@ python examples/tokamak/drift_wave_turbulence.py
 Four-field interchange turbulence (density, vorticity, and ion and electron
 parallel velocity) on a rotating-ellipse stellarator, a torus whose
 elliptical cross-section rotates with the toroidal angle. The movie is a
-cutaway of density fluctuations on a flux surface and through the interior.
-The script also writes the closed (blue) and limiter-terminated open (red)
-field lines of the same geometry. About 3 min on a laptop CPU.
+cutaway of density fluctuations on a flux surface and through the interior,
+from a 500-step run (t = 1.0, 16x32x16 cells). The fluctuation (about 3% rms)
+settles within t = 0.1 and the state stays quasi-steady; at this resolution it
+shows low-order band structures rather than fine-scale turbulence. The script
+also writes the closed and limiter-terminated open field lines of the same
+geometry. About 7 min on a laptop CPU.
 
 <img src="docs/media/stellarator_3d_turbulence.gif" width="700" alt="Stellarator turbulence in 3D">
 
@@ -125,12 +129,32 @@ python examples/stellarator/rotating_ellipse_fci.py
 python examples/stellarator/fci_differentiable.py     # shape derivative of the operator
 ```
 
+## Tilted planes: the FCI approach of the HSX backend
+
+Classic FCI codes put the poloidal planes at fixed toroidal angles and trace
+field lines from plane to plane. The HSX backend (`drbx.fci_braginskii`) keeps
+the plane-to-plane field-line maps, but its logical planes (the `eta` index of
+the geometry bundle) are wall-fitted surfaces: the boundary of every plane is
+a vessel contour, and the planes are tilted and curved to follow the twisting
+HSX cross-section. In the 32^3 bundle the toroidal angle of the cell centres
+varies by about 9 degrees across one plane, almost the 11.25 degrees between
+planes (left: three consecutive planes; right: their toroidal angle against
+height, with the fixed-angle plane of a classic grid dashed). Parallel
+operators use field lines traced from each cell to the neighbouring plane
+(mean traced length 0.27 m; about 3% of the forward maps end on the wall).
+
+<img src="docs/media/hsx_fci_planes.png" width="800" alt="Tilted FCI planes of the HSX geometry">
+
+```bash
+PYTHONPATH=src python examples/stellarator/hsx_fci_planes.py   # needs the 32^3 bundle and drbx[viz]
+```
+
 ## Island divertor
 
 A sheared rotational transform with resonant perturbations forms island chains
 and a stochastic edge. The open SOL is not imposed: multi-transit field-line
 tracing marks the region of finite connection length, and the turbulence drains
-through it. About 4 min.
+through it. The Poincare section uses 120 field lines and 600 transits each.
 
 <img src="docs/media/island_divertor.png" width="800" alt="Island divertor">
 
@@ -144,7 +168,7 @@ Field lines run on imported geometry. ESSOS coils give a Biot-Savart field;
 traced lines are classified by Poincare crossings as closed (stay on a flux
 surface) or open (leave the confined region). The same tracing is available for
 VMEC `wout` files through VMEX. The figure shows the traced lines in 3D
-and the Poincare section at phi = 0. Needs `drbx[essos]`; runs in about 10 s.
+and the Poincare section at phi = 0 (30 closed and 30 open lines, 16000 samples each). The 3D view is a PyVista render. Needs `drbx[essos,viz]`; about 3 min.
 
 <img src="docs/media/closed_open_vacuum_poincare.png" width="700" alt="Closed and open field lines from ESSOS coils">
 
@@ -161,29 +185,39 @@ additionally needs the QA `wout` from an ESSOS checkout:
 
 On open field lines, parallel transport to Bohm-sheath targets relaxes to the
 two-point steady state (`examples/sol/open_sol_flux_tube.py`: Mach 0.94 at the
-targets, target-to-upstream density ratio 0.49; two-point theory: 1 and 0.5).
-With fluid neutrals (AMJUEL ionization, recombination and charge exchange) and
-recycling, raising the upstream density cools the target and chokes its flow
-through charge-exchange friction, the onset of detachment
-(`examples/sol/recycling_sol.py`, under 10 s each).
+targets, target-to-upstream density ratio 0.49; two-point theory gives 1 and
+0.5). With fluid neutrals (AMJUEL ionization, recombination and charge
+exchange) and recycling, raising the upstream density chokes the target flow:
+the Mach number at the target falls through 1 between upstream densities of 4
+and 8 in normalized units.
 
-The 1D divertor-leg model implements the SD1D equations (Dudson et al., *Plasma
-Phys. Control. Fusion* 61, 065008, 2019) and finds the steady state with a
-Newton method. The movie steps through the upstream-density scan: the leg
-(drawn with half-width proportional to the square root of the flux-tube area,
-on a logarithmic distance-to-target axis) colored by electron temperature, ion
-density and neutral density, next to the target temperature and particle flux
-against the published SD1D hydrogen-only 13.6 eV scan (800 cells). Seven of the
-eight SD1D densities agree to within 0.35% in target temperature and 0.15% in
-target particle flux, with particle and power ledgers closed to 1e-9 or
-better. The eighth reference point is not a steady state in the SD1D restart
-data and differs by about 10%. Carbon radiation is not modelled. About 1 min.
+<img src="docs/media/recycling_sol.png" width="700" alt="Recycling SOL profiles and target Mach number">
+
+```bash
+python examples/sol/recycling_sol.py      # under 10 s
+```
+
+The 1D divertor-leg model implements the SD1D equations (Dudson et al.,
+*Plasma Phys. Control. Fusion* 61, 065008, 2019) and finds the steady state
+with a Newton method. The movie steps through an upstream-density scan; the leg
+is drawn with half-width proportional to the square root of the flux-tube area,
+on a logarithmic distance-to-target axis, next to the target temperature and
+flux against the published SD1D hydrogen-only 13.6 eV scan (800 cells).
 
 <img src="docs/media/b6_detachment.gif" width="800" alt="Detachment scan against SD1D">
 
 ```bash
-python examples/benchmarks/b6_detachment_sd1d.py
+python examples/benchmarks/b6_detachment_sd1d.py      # about 1 min
 ```
+
+Analysis: as the upstream density rises from 1.7 to 7.5e19 m^-3 the target
+cools from 29 to 3 eV and the neutral density builds up in the last 0.1 m of
+the leg, while the target particle flux keeps rising (hydrogen only: no flux
+rollover without impurity radiation and excitation, which this model does not
+include). Seven of the eight SD1D densities agree to within 0.35% in target
+temperature and 0.15% in flux, with particle and power ledgers closed to 1e-9
+or better. The eighth SD1D point is not a steady state in its restart data and
+differs by about 10%.
 
 ## Differentiable design and control
 
@@ -198,9 +232,13 @@ python examples/autodiff/detachment_control.py
 
 Gradients also pass through nonlinear turbulence. Starting from saturated
 Hasegawa-Wakatani turbulence at `alpha = 0.3`, a damped Newton iteration on
-`ln(alpha)` finds the adiabaticity that cuts the saturated particle flux by 4x
-(achieved 3.96x at `alpha = 0.73`, checked by independent long runs). About
-2.5 min.
+`ln(alpha)` (bottom right: the windowed flux objective and `alpha` over the
+iterations) finds `alpha = 0.73`, which cuts the windowed flux by 4x. The
+figure compares the two long independent runs to t = 250 (top: density at the
+end; bottom left: flux traces and their means over the grey window). The
+saturated fluxes are 1.00 and 0.31, a 3.2x reduction: the flux fluctuates by
+about 25%, so the 4x target is met within the scatter of the short-window
+objective. About 3 min.
 
 <img src="docs/media/hasegawa_wakatani_optimization.png" width="650" alt="Hasegawa-Wakatani inverse design">
 
@@ -223,7 +261,6 @@ second-order convergence of the 1D fluid model and the FCI operators.
 python examples/benchmarks/linear_dispersion.py
 pytest -n 2 -q tests/test_validation_fluid_1d_mms_convergence.py tests/test_mms_convergence.py
 ```
-
 
 
 ## Parallel performance
