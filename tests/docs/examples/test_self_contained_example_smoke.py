@@ -48,18 +48,12 @@ def _run_example(
     return completed
 
 
-@pytest.mark.parametrize(
-    "relative_script",
-    [
-        "restartable_diffusion_tutorial.py",
-        "diffusion_precision_benchmark.py",
-        "autodiff_diffusion_sensitivity.py",
-        "autodiff_diffusion_inverse_design.py",
-        "autodiff_diffusion_uncertainty.py",
-        "strong_scaling_diffusion.py",
-        "model_selection_guide.py",
-    ],
+ALL_EXAMPLE_SCRIPTS = sorted(
+    path.relative_to(EXAMPLES_ROOT).as_posix() for path in EXAMPLES_ROOT.rglob("*.py")
 )
+
+
+@pytest.mark.parametrize("relative_script", ALL_EXAMPLE_SCRIPTS)
 def test_docs_examples_are_flat_parameter_scripts(relative_script: str) -> None:
     # The documented examples are flat pedagogical scripts: a module docstring
     # with the run command, module-level PARAMETERS constants, and no CLI or
@@ -72,6 +66,7 @@ def test_docs_examples_are_flat_parameter_scripts(relative_script: str) -> None:
     assert "import argparse" not in source
     assert "__main__" not in source
     assert "def main(" not in source
+    assert "os.environ.get(" not in source and "os.getenv(" not in source, "no environment-variable knobs"
 
 
 def test_restartable_diffusion_tutorial_default_subprocess_smoke(tmp_path: Path) -> None:
