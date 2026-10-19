@@ -1,19 +1,24 @@
-# Four-field (n, vorticity, v_i, v_e) FCI interchange turbulence on a rotating-ellipse
-# stellarator.  Swap [rotating_ellipse] for [shifted_torus] (tokamak-like) or
-# [island_divertor]; limiter_radius opens the edge into a sheath-drained SOL.
+# Four-field FCI turbulence on a rotating-ellipse stellarator with a limiter SOL (about 20 s).
+#   drbx run examples/inputs/stellarator_turbulence.toml
+# State: density, vorticity, ion and electron parallel velocity.  Exactly one
+# geometry table is allowed; see four_field_tokamak.toml and island_divertor.toml.
+
 [model]
 backend = "stellarator_turbulence"
 
 [rotating_ellipse]
-shape = [8, 12, 6]
-limiter_radius = 0.6
+shape = [8, 12, 6]      # [radial, poloidal, toroidal] cells (20x32x12 for movies)
+limiter_radius = 0.6    # lines with x > this hit a toroidal limiter (SOL); delete for all-closed
+elongation = 0.35       # ellipse deformation, aspect ratio (1+d)/(1-d)
+iota = 0.9              # rotational transform
 
 [run]
-steps = 4
-dt = 2.0e-3
-sheath_sink = true
-frame_stride = 2
-seed = 1
+steps = 4               # RK4 steps (144 for a movie)
+dt = 2.0e-3             # normalized time step
+sheath_sink = true      # drain the open (SOL) endpoints with a Bohm sheath
+frame_stride = 2        # store a frame every 2 steps
+amplitude = 0.08        # peak relative density seed
+seed = 1                # seed of the random mode phases
 
 [output]
 directory = "../../output/stellarator_turbulence"

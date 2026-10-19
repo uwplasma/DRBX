@@ -11,7 +11,17 @@ from drbx.deck import BACKENDS, load_deck
 from tests.docs.test_deck_reference import documented_outputs
 
 INPUTS = Path(__file__).resolve().parents[1] / "examples" / "inputs"
-REDUCED = sorted(set(BACKENDS) - {"fci_braginskii"})
+REDUCED = set(BACKENDS) - {"fci_braginskii"}
+
+
+def _backend(path):
+    try:
+        return load_deck(path)[0]
+    except ValueError:  # BOUT-style deck without [model] backend
+        return None
+
+
+REDUCED_DECKS = [p for p in sorted(INPUTS.glob("*.toml")) if _backend(p) in REDUCED]
 
 
 def deck(tmp_path, body, name="deck.toml"):
@@ -20,17 +30,24 @@ def deck(tmp_path, body, name="deck.toml"):
     return path
 
 
-@pytest.mark.parametrize("backend", REDUCED)
-def test_example_deck_runs_and_writes_the_documented_outputs(backend, tmp_path):
-    example = INPUTS / f"{backend}.toml"
+@pytest.mark.parametrize("example", REDUCED_DECKS, ids=lambda p: p.stem)
+def test_example_deck_runs_and_writes_the_documented_outputs(example, tmp_path):
+    backend, case = _backend(example), example.stem
     assert drbx_main(["run", str(example), "--output-dir", str(tmp_path), "--quiet"]) == 0
-    summary = json.loads((tmp_path / f"{backend}_summary.json").read_text())
-    assert summary["backend"] == backend and summary["case_name"] == backend
+    summary = json.loads((tmp_path / f"{case}_summary.json").read_text())
+    assert summary["backend"] == backend and summary["case_name"] == case
     arrays_documented, results_documented = documented_outputs(backend)
-    with np.load(tmp_path / f"{backend}_arrays.npz") as data:
+    with np.load(tmp_path / f"{case}_arrays.npz") as data:
         assert set(data.files) == arrays_documented
         assert all(np.all(np.isfinite(data[name])) for name in data.files if data[name].dtype.kind == "f")
     assert set(summary["results"]) == results_documented
+
+
+def test_gallery_lists_every_example_deck_and_shows_one_in_full():
+    page = (INPUTS.parents[1] / "docs" / "decks.md").read_text()
+    for deck in INPUTS.glob("*.toml"):
+        assert f"examples/inputs/{deck.name}" in page, deck.name
+    assert (INPUTS / "hasegawa_wakatani.toml").read_text().strip() in page
 
 
 def test_hsx_example_deck_resolves_and_inspect_prints_it(capsys):
