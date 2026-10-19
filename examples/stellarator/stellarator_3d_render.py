@@ -1,5 +1,8 @@
 """3D stellarator renders: cutaway turbulence movie + closed/open field lines.
 
+README movie: the defaults below (STEPS = 500, DT = 2e-3, so t = 1.0; FRAME_STRIDE = 10; frames
+from t = 0.04 on, colour scale from the developed state). STEPS = 120 is a 1-2 minute preset.
+
 Two engaging three-dimensional views of the rotating-ellipse stellarator:
 
 1. ``stellarator_3d_turbulence.gif`` -- a cutaway torus whose surface is colored
@@ -79,8 +82,8 @@ PHI_RESTART = 200        # GMRES restart length
 
 # Time stepping:
 DT = 2.0e-3              # RK4 timestep (normalized time units)
-STEPS = 120              # number of RK4 steps
-FRAME_STRIDE = 4         # record a movie frame every this many steps
+STEPS = 500              # number of RK4 steps
+FRAME_STRIDE = 10        # record a movie frame every this many steps
 
 # Seeded multi-mode density perturbation:
 SEED = 1                 # RNG seed for the random mode phases/amplitudes
@@ -133,7 +136,7 @@ def render_turbulence_movie(run, geometry, path):
     cap_x, cap_theta = np.meshgrid(x_cap, theta_f, indexing="ij")
     caps = [_positions(cap_x, cap_theta, np.full_like(cap_x, z)) for z in (WEDGE, 2.0 * np.pi)]
 
-    vmax = float(np.abs(fluctuation).max()) or 1.0
+    vmax = float(np.percentile(np.abs(fluctuation[2:]), 99.5)) or 1.0   # colour scale from the developed state
     norm = colors.Normalize(-vmax, vmax)
     cmap = cm.RdBu_r
 
@@ -172,7 +175,7 @@ def render_turbulence_movie(run, geometry, path):
         ax.text2D(0.04, 0.05, "flux surface at 80% radius with poloidal cross-sections of the interior",
                   transform=fig.transFigure, fontsize=8, color="0.3")
 
-    movie = animation.FuncAnimation(fig, draw, frames=len(run.times), interval=110, blit=False)
+    movie = animation.FuncAnimation(fig, draw, frames=range(2, len(run.times), 2), interval=110, blit=False)
     movie.save(path, writer=animation.PillowWriter(fps=MOVIE_FPS), dpi=MOVIE_DPI)
     plt.close(fig)
     print(f"[movie] wrote {path} ({Path(path).stat().st_size / 1e6:.1f} MB)")

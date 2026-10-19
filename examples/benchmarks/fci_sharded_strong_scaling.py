@@ -8,9 +8,9 @@ parent checks that all final-state checksums agree, then writes
 ``output/fci_sharded_strong_scaling/scaling_<platform>.json`` and
 ``scaling_<platform>.png`` (relative to the current working directory).
 
-The default grid and sweep are a quick laptop preset, not the 36-core
-measurement quoted in the docs (that used ``GRID = (256, 128, 32)`` and device
-counts up to 16 with ``taskset`` core binding on Linux).
+The defaults (``GRID = (512, 256, 32)``, 4.2 M cells, device counts up to 16 with ``taskset``
+core binding) are the values used for the README figure, run on a shared 36-core Linux host.
+On a laptop one XLA device already threads across all cores, so sharding gains little there.
 
 Run from the repository root:
 
@@ -36,12 +36,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # ---- PARAMETERS ----
-GRID = (128, 64, 16)       # (nx, ny, nz) of the shifted-torus two-field state
+GRID = (512, 256, 32)      # (nx, ny, nz) of the shifted-torus two-field state
 STEPS = 10                 # timed RK4 steps per worker (one extra warmup step compiles)
 DT = 1.0e-3                # RK4 time step
 PLATFORM = "cpu"           # "cpu" (forced host devices + core binding), "auto"
                            # (let JAX pick, accelerators win), or "gpu"/"tpu"
-DEVICE_COUNTS = (1, 2, 4)  # device counts to sweep; each needs a SHARD_LAYOUTS entry
+DEVICE_COUNTS = (1, 2, 4, 8, 16) # device counts to sweep; each needs a SHARD_LAYOUTS entry
 SHARD_LAYOUTS = {1: (1, 1, 1), 2: (2, 1, 1), 4: (2, 2, 1), 8: (4, 2, 1), 16: (4, 4, 1), 32: (4, 4, 2)}
 OUTPUT_DIR = Path("output/fci_sharded_strong_scaling")  # artifact directory (cwd-relative)
 CHECKSUM_RTOL = 1.0e-10    # relative tolerance for the cross-device checksum gate
@@ -126,20 +126,21 @@ scaling_path.write_text(json.dumps({"grid": list(GRID), "steps": STEPS, "dt": DT
 devices = [int(e["device_count"]) for e in results]
 seconds = [float(e["seconds_per_step"]) for e in results]
 efficiency = seconds[0] * devices[0] / (devices[-1] * seconds[-1])
-plt.figure(figsize=(6.0, 4.5))
-plt.loglog(devices, seconds, "o-", label="measured")
-plt.loglog(devices, [seconds[0] * devices[0] / d for d in devices], "k--", label="ideal scaling")
-plt.xlabel(f"{PLATFORM.upper()} devices")
-plt.ylabel("Wall time per RK4 step [s]")
-plt.title(f"FCI two-field sharded step, grid {GRID[0]}x{GRID[1]}x{GRID[2]}")
-plt.grid(True, which="both", alpha=0.4)
-plt.legend()
-plt.annotate(f"parallel efficiency at {devices[-1]} devices: {efficiency:.1%}", xy=(devices[-1], seconds[-1]),
-             xytext=(0.03, 0.06), textcoords="axes fraction")
-plt.tight_layout()
+cells = GRID[0] * GRID[1] * GRID[2]
+plt.rcParams.update({"font.size": 10})
+fig, (ax_t, ax_s) = plt.subplots(1, 2, figsize=(9.0, 3.8))
+ax_t.loglog(devices, seconds, "o-", label="measured")
+ax_t.loglog(devices, [seconds[0] * devices[0] / d for d in devices], "k--", label="ideal")
+ax_t.set_xlabel(f"{PLATFORM.upper()} devices (shards)"); ax_t.set_ylabel("wall time per RK4 step [s]")
+ax_t.set_xticks(devices, [str(d) for d in devices]); ax_t.grid(True, which="both", alpha=0.4); ax_t.legend()
+ax_s.plot(devices, [cells / t / 1e6 for t in seconds], "o-", color="C2")
+ax_s.set_xlabel(f"{PLATFORM.upper()} devices (shards)"); ax_s.set_ylabel("throughput [Mcell updates / s]")
+ax_s.set_xticks(devices); ax_s.grid(alpha=0.4); ax_s.set_ylim(bottom=0)
+fig.suptitle(f"Sharded two-field FCI step, {GRID[0]}x{GRID[1]}x{GRID[2]} cells ({cells / 1e6:.1f} M); identical results on all device counts", fontsize=10)
+fig.tight_layout()
 plot_path = OUTPUT_DIR / f"scaling_{PLATFORM}.png"
-plt.savefig(plot_path, dpi=200)
-plt.close()
+fig.savefig(plot_path, dpi=100)
+plt.close(fig)
 print(f"wrote {scaling_path}")
 print(f"wrote {plot_path}")
 print(f"parallel efficiency at {devices[-1]} devices: {efficiency:.1%}; total wall {time.perf_counter() - wall_start:.1f} s")

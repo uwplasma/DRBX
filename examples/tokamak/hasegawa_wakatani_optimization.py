@@ -59,7 +59,7 @@ NEWTON_TOL = 0.05            # convergence: | ln(flux) - ln(target) | < 5 %
 NEWTON_MAX_ITER = 15         # iteration cap (typically converges in ~6)
 NEWTON_MAX_STEP = 0.5        # clip on the ln(alpha) update (trust region)
 SLOPE_CEILING = -0.3         # slope safeguard: flux must decrease with alpha
-T_VERIFY = 150.0             # length of the final independent verification runs
+T_VERIFY = 250.0             # final verification runs (README figure: 250, developed turbulence; alpha = 0.3 blows up near t = 260 at this DT)
 OUTPUT_DIR = (
     Path(__file__).resolve().parents[2] / "output" / "hasegawa_wakatani_optimization"
 )
@@ -279,42 +279,36 @@ dens_scale = max(
     np.max(np.abs(verify["initial"]["density"])),
     np.max(np.abs(verify["optimized"]["density"])),
 )
-flux_max = 1.1 * max(
-    verify["initial"]["flux_trace"].max(), verify["optimized"]["flux_trace"].max()
-)
 for column, label in enumerate(["initial", "optimized"]):
     run = verify[label]
-    ax_dens, ax_flux = axes[0, column], axes[1, column]
-    im = ax_dens.imshow(
-        run["density"].T,
-        origin="lower",
-        cmap="RdBu_r",
-        vmin=-dens_scale,
-        vmax=dens_scale,
-        extent=extent,
+    im = axes[0, column].imshow(
+        run["density"].T, origin="lower", cmap="RdBu_r", vmin=-dens_scale, vmax=dens_scale, extent=extent
     )
-    ax_dens.set_title(
-        rf"{label}: $\alpha={run['alpha']:.2f}$"
-        + "\n"
-        + rf"$\langle\Gamma\rangle = {run['flux_mean']:.3f}$"
+    axes[0, column].set_title(
+        rf"{label}: $\alpha={run['alpha']:.2f}$, $\langle\Gamma\rangle = {run['flux_mean']:.3f}$"
+        + f"\n(density at t = {T_VERIFY:.0f})", fontsize=10,
     )
-    ax_dens.set_xlabel(r"$x/\rho_s$")
-    ax_dens.set_ylabel(r"$y/\rho_s$" if column == 0 else "")
-    ax_flux.plot(run["flux_time"], run["flux_trace"], lw=1.0, color="C0")
-    ax_flux.axhline(
-        run["flux_mean"], color="C1", lw=1.2, ls="-",
-        label=rf"saturated mean {run['flux_mean']:.3f}",
-    )
-    if label == "optimized":
-        ax_flux.axhline(
-            flux_target, color="k", lw=1.0, ls="--",
-            label=f"target {flux_target:.3f}",
-        )
-    ax_flux.set_ylim(0.0, flux_max)
-    ax_flux.set_xlabel("time")
-    ax_flux.set_ylabel(r"particle flux $\langle n\, v_x\rangle$" if column == 0 else "")
-    ax_flux.legend(loc="upper left", fontsize=9)
-    ax_flux.grid(alpha=0.3)
+    axes[0, column].set_xlabel(r"$x/\rho_s$")
+    axes[0, column].set_ylabel(r"$y/\rho_s$" if column == 0 else "")
+ax = axes[1, 0]
+for label, color in (("initial", "C3"), ("optimized", "C0")):
+    run = verify[label]
+    ax.plot(run["flux_time"], run["flux_trace"], lw=0.9, color=color, alpha=0.8)
+    ax.axhline(run["flux_mean"], color=color, lw=1.6, label=rf"{label} $\alpha={run['alpha']:.2f}$: {run['flux_mean']:.3f}")
+ax.axvspan(T_VERIFY / 2, T_VERIFY, color="0.9", zorder=0)
+ax.axhline(flux_target, color="k", lw=1.0, ls="--", label=f"target {flux_target:.3f}")
+ax.set_xlabel("time"); ax.set_ylabel(r"particle flux $\langle n\, v_x\rangle$")
+ax.legend(loc="upper left", fontsize=8, ncol=1); ax.grid(alpha=0.3)
+ax = axes[1, 1]
+its = [h["iteration"] for h in history]
+ax.semilogy(its, [h["flux"] for h in history], "o-", color="C1", label="windowed flux")
+ax.axhline(flux_target, color="k", ls="--", lw=1.0, label="target")
+ax.set_xlabel("Newton iteration"); ax.set_ylabel("objective: windowed flux"); ax.grid(alpha=0.3, which="both")
+ax.tick_params(which="minor", labelleft=False)
+twin = ax.twinx()
+twin.plot(its, [h["alpha"] for h in history], "s:", color="C2", label=r"$\alpha$")
+twin.set_ylabel(r"adiabaticity $\alpha$", color="C2")
+ax.legend(loc="upper right", fontsize=8)
 fig.colorbar(
     im, ax=axes[0, :].tolist(), fraction=0.03, pad=0.02, label=r"density fluctuation $n$"
 )

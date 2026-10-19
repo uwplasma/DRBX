@@ -1,7 +1,12 @@
 """HSX FCI Braginskii filament: run the backend, then render the geometry (coils, vessel, Poincare, connection length) and a 3-D movie.
 
-Runs ``drbx.fci_braginskii.run.run`` (the same driver as ``simulate_hsx_blob.py``
-and ``drbx run examples/inputs/hsx_fci_blob.toml``) on the canonical 32^3 HSX
+README figures: N_POINCARE = 90 seeds x POINCARE_STEPS = 120000 (about 320 toroidal turns), CL_SHAPE = (72, 108);
+filament run: FINAL_TIME = 0.45, NUM_STEPS = 600, SAVE_EVERY = 20 with DENSITY_AMPLITUDE = 0.8,
+BLOB_CENTER = (0.8, 0.5), BLOB_WIDTH = 0.12 and RHO_STAR = 5e-3 (ten times the default rho*, a smaller or
+lower-field device) so the potential dipole develops clearly. The 600 steps took about 35 min on one A4000.
+
+Runs ``drbx.fci_braginskii.run.run`` (the driver behind
+``drbx run examples/inputs/hsx_fci_blob.toml``) on the canonical 32^3 HSX
 geometry bundle, then renders the saved history.
 
 Run from the repository root:
@@ -15,9 +20,8 @@ Poincare section and connection-length map, traced through the coil field) and
 ``hsx_fci_blob.gif`` (the filament in 3D plus an R-Z section). The geometry figure
 needs the vessel file (``VESSEL``), the coils (``COILS``) and a few minutes of CPU.
 
-The default is a quick 5-step preset (t = 0.00375), not the converged case. The
-figure in ``docs/media`` uses the documented default run: FINAL_TIME = 0.6,
-NUM_STEPS = 800, SAVE_EVERY = 40 (see docs/fci_braginskii_hsx_backend.md).
+The defaults are the README run (about 35 min on a GPU, hours on a laptop CPU); a quick preset is
+FINAL_TIME = 0.00375, NUM_STEPS = 5, SAVE_EVERY = 1.
 Set RUN_SIMULATION = False to only re-render an existing HISTORY_PATH.
 """
 
@@ -34,23 +38,27 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib import cm, colors  # noqa: E402
-from mpl_toolkits.mplot3d.art3d import Line3DCollection  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from drbx.fci_braginskii.geometry_build.provider_bfield import CoilFieldTable  # noqa: E402
 from drbx.fci_braginskii.run import HsxBlobConfig, run  # noqa: E402
 from drbx.geometry.field_provider import FilamentCoilField  # noqa: E402
+from drbx.viz import add_surface, add_tubes, image, scene  # noqa: E402
 
 # ---- PARAMETERS ----------------------------------------------------------
 GEOMETRY = Path("artifacts/geometry/hsx_fci_32x32x32")  # canonical geometry bundle
-FINAL_TIME = 0.00375        # quick preset; documented run uses 0.6
-NUM_STEPS = 5               # quick preset; documented run uses 800 (dt = 7.5e-4)
-SAVE_EVERY = 1              # history frames (movie frames); documented run uses 40
+FINAL_TIME = 0.45           # simulated time [L_ref / c_s]
+NUM_STEPS = 600             # time steps (dt = 7.5e-4)
+SAVE_EVERY = 20             # steps between history frames (movie frames)
+DENSITY_AMPLITUDE = 0.8     # peak n - 1 of the seeded filament (backend default 0.05)
+BLOB_CENTER = (0.8, 0.5)    # filament centre in the logical (radial, poloidal) square (default (0.65, 0.5))
+BLOB_WIDTH = 0.12           # filament width (default 0.10)
+RHO_STAR = 5.0e-3           # rho* = rho_s / L_ref; ExB and curvature drifts scale with it (default 5e-4)
 COILS = Path("examples/inputs/hsx/coils.hsx")            # MAKEGRID filaments (QHS: six main groups, 10722 A)
 VESSEL = Path("examples/inputs/hsx/vessel_hsx_flare.txt")  # vessel outline: 161 planes over one period
 TRACE_STEP = 0.02           # field-line step [m]
-N_POINCARE, POINCARE_STEPS = 40, 50000   # seeds on the midplane (R = 1.38..1.54 m), steps per seed (~130 toroidal turns)
-CL_SHAPE, CL_MAX_STEPS = (44, 64), 15000  # connection-length grid (R, Z) at phi = 0 and step cap (300 m)
+N_POINCARE, POINCARE_STEPS = 90, 120000  # seeds on the midplane (R = 1.38..1.54 m), steps per seed (~320 toroidal turns)
+CL_SHAPE, CL_MAX_STEPS = (72, 108), 15000  # connection-length grid (R, Z) at phi = 0 and step cap (300 m)
 OUTPUT_DIR = Path("output/hsx_fci_blob")
 HISTORY_PATH = OUTPUT_DIR / "history.npz"
 RUN_SIMULATION = True       # False: re-render an existing HISTORY_PATH only
@@ -62,7 +70,8 @@ if RUN_SIMULATION:
           f"num_steps={NUM_STEPS} save_every={SAVE_EVERY} -> {HISTORY_PATH}", flush=True)
     start = time.perf_counter()
     run(HsxBlobConfig(geometry=GEOMETRY, final_time=FINAL_TIME, num_steps=NUM_STEPS,
-                      save_every=SAVE_EVERY, diagnostic_every=1, output=HISTORY_PATH))
+                      save_every=SAVE_EVERY, diagnostic_every=10, output=HISTORY_PATH,
+                      density_amplitude=DENSITY_AMPLITUDE, blob_center=BLOB_CENTER, blob_width=BLOB_WIDTH, rho_star=RHO_STAR))
     print(f"simulation finished in {time.perf_counter() - start:.1f} s", flush=True)
 
 
@@ -153,24 +162,34 @@ print(f"geometry traced in {time.perf_counter() - start:.1f} s", flush=True)
 plt.rcParams.update({"font.size": 10})
 edge, bmag = xyz[-1], data["Bmag"][-1]
 fig = plt.figure(figsize=(9.0, 3.5))
-ax3 = fig.add_axes([-0.04, 0.08, 0.5, 0.85], projection="3d")
-vp = np.concatenate([vphi + k * period for k in range(3)])     # vessel: three of the four periods (cutaway)
-vR, vZ = np.concatenate([vrz[..., 0]] * 3), np.concatenate([vrz[..., 1]] * 3)
-ax3.plot_surface(vR * np.cos(vp)[:, None], vR * np.sin(vp)[:, None], vZ, color="0.5", alpha=0.18, shade=False,
-                 rstride=4, cstride=4, linewidth=0, antialiased=False)
-ax3.plot_surface(edge[..., 0], edge[..., 1], edge[..., 2], facecolors=cm.viridis((bmag - bmag.min()) / np.ptp(bmag)),
-                 shade=False, rstride=1, cstride=1, linewidth=0, antialiased=False, alpha=0.9)
-for c in np.asarray(coils.nodes):
-    ax3.plot(*np.vstack([c, c[:1]]).T, color="#8c564b", lw=0.5, alpha=0.8)
-ax3.set_box_aspect((1, 1, 0.42), zoom=1.55); ax3.view_init(elev=48, azim=-50); ax3.set_axis_off()
-ax3.set_title("coils, boundary, vessel", fontsize=10, y=0.97)
+
+def closed_surface(a):
+    """Close an ``(theta, eta, ...)`` surface in both periodic directions."""
+
+    a = np.concatenate([a, a[:1]], axis=0)
+    return np.concatenate([a, a[:, :1]], axis=1)
+
+
+plotter = scene((1100, 900))
+vp = np.concatenate([vphi + k * period for k in range(4)])      # the vessel over the full torus (4 periods)
+vR, vZ = np.concatenate([vrz[..., 0]] * 4), np.concatenate([vrz[..., 1]] * 4)
+vessel = np.stack([vR * np.cos(vp)[:, None], vR * np.sin(vp)[:, None], vZ], axis=-1)
+vessel = vessel[np.mod(np.degrees(vp), 360.0) <= 270.0]          # cutaway: drop the last quarter turn
+add_surface(plotter, vessel, color="#bfbfbf", opacity=0.18, close_second_axis=True)
+add_surface(plotter, closed_surface(edge)[:, :, :], scalars=closed_surface(bmag / bmag.max()), cmap="viridis",
+            clim=(0.64, 1.0), show_scalar_bar=False, close_second_axis=False)
+add_tubes(plotter, np.asarray(coils.nodes)[::2], radius=0.004, color="#8c564b")
+plotter.camera_position = [(0.0, -2.6, 6.6), (0.0, 0.0, 0.0), (0, 0, 1)]
+ax3 = fig.add_axes([-0.02, 0.14, 0.5, 0.8])
+ax3.imshow(image(plotter)); ax3.set_axis_off()
+ax3.set_title("coils, boundary (|B|), vessel cutaway", fontsize=10)
 fig.colorbar(cm.ScalarMappable(colors.Normalize(bmag.min() / bmag.max(), 1.0), "viridis"),
-             cax=fig.add_axes([0.08, 0.13, 0.26, 0.03]), orientation="horizontal", label=r"boundary $|B| / |B|_{max}$")
+             cax=fig.add_axes([0.08, 0.12, 0.26, 0.03]), orientation="horizontal", label=r"boundary $|B| / |B|_{max}$")
 ax = fig.add_axes([0.52, 0.18, 0.19, 0.68])
 ax.plot(vrz[0, :, 0], vrz[0, :, 1], "k", lw=1.0)
 hit = ~confined[pseed]
-ax.scatter(pr[~hit], pz[~hit], s=1.5, c="#1f77b4", linewidths=0, label="stay in the vessel")
-ax.scatter(pr[hit], pz[hit], s=9, c="#d62728", marker="D", linewidths=0, label="reach the wall")
+ax.scatter(pr[~hit], pz[~hit], s=0.35, c="#1f4e9c", linewidths=0, label="stay in the vessel")
+ax.scatter(pr[hit], pz[hit], s=5, c="#d62728", marker="D", linewidths=0, label="reach the wall")
 ax.set_aspect("equal"); ax.set_xlabel("R [m]"); ax.set_ylabel("Z [m]")
 ax.set_title(r"Poincare, $\phi$ = 0", fontsize=10)
 ax = fig.add_axes([0.75, 0.18, 0.15, 0.68])
@@ -180,7 +199,7 @@ ax.set_aspect("equal"); ax.set_xlabel("R [m]"); ax.set_yticklabels([])
 ax.set_title("connection length", fontsize=10)
 fig.colorbar(mesh, cax=fig.add_axes([0.915, 0.18, 0.012, 0.68])).set_label("[m]")
 buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=110); plt.close(fig)
-Image.open(buf).convert("RGB").quantize(160).save(out / "hsx_geometry.png", optimize=True)
+Image.open(buf).convert("RGB").quantize(256, dither=Image.Dither.NONE).save(out / "hsx_geometry.png", optimize=True)
 print(f"saved {out / 'hsx_geometry.png'}", flush=True)
 
 # ---- figure 2: the filament along the field (3D) and R-Z sections of n - 1 and phi ------------------
@@ -194,24 +213,37 @@ plim = SCALE * float(np.percentile(np.abs(phi[first:]), 99.9))
 norm, pnorm = colors.Normalize(-nlim, nlim), colors.Normalize(-plim, plim)
 
 
+import pyvista as pv  # noqa: E402
+
+
+
+def close_volume(a):
+    """Close an ``(u, theta, eta, ...)`` array periodically in theta and eta."""
+
+    a = np.concatenate([a, a[:, :1]], axis=1)
+    return np.concatenate([a, a[:, :, :1]], axis=2)
+
+
+cells = close_volume(xyz)
+cell_grid = pv.StructuredGrid(cells[..., 0], cells[..., 1], cells[..., 2])
+LEVELS = (0.2, 0.45, 0.7)                                          # isosurface levels, fractions of the colour limit
+
+
 def filament_frame(it):
+    cell_grid["dn"] = close_volume(SCALE * dn[it]).ravel(order="F")
+    plotter = scene((900, 760))
+    add_surface(plotter, closed_surface(edge), color="#cccccc", opacity=0.10, close_second_axis=False)
+    iso = cell_grid.contour([lv * nlim for lv in LEVELS], scalars="dn")
+    if iso.n_points:
+        plotter.add_mesh(iso, scalars="dn", cmap="RdBu_r", clim=(-nlim, nlim), smooth_shading=True, show_scalar_bar=False, opacity=0.85)
+    plotter.camera_position = [(0.0, -2.6, 6.6), (0.0, 0.0, 0.0), (0, 0, 1)]
     fig = plt.figure(figsize=(9.0, 4.2))
-    ax = fig.add_axes([-0.02, 0.0, 0.52, 0.95], projection="3d")
-    ax.plot_surface(edge[..., 0], edge[..., 1], edge[..., 2], color="0.75", alpha=0.12, shade=False, rstride=2, cstride=2, linewidth=0)
-    f3 = SCALE * dn[it]
-    # field-aligned columns (fixed radial and poloidal index, all toroidal planes): draw the segments where |n - 1| is large
-    p = np.concatenate([xyz, xyz[:, :, :1]], axis=2)                 # close the toroidal circuit
-    f = np.concatenate([f3, f3[:, :, :1]], axis=2)
-    seg = np.stack([p[:, :, :-1], p[:, :, 1:]], axis=-2).reshape(-1, 2, 3)
-    val = (0.5 * (f[:, :, :-1] + f[:, :, 1:])).ravel()
-    keep = np.abs(val) > 0.12 * nlim
-    lc = Line3DCollection(seg[keep], cmap="RdBu_r", norm=norm, linewidths=1.0 + 3.0 * np.minimum(np.abs(val[keep]) / nlim, 1.0))
-    lc.set_array(val[keep]); ax.add_collection3d(lc)
-    ax.set_box_aspect((1, 1, 0.42), zoom=1.5); ax.view_init(elev=48, azim=-50); ax.set_axis_off()
-    ax.set_axis_off()
+    ax = fig.add_axes([0.0, 0.0, 0.54, 0.92])
+    ax.imshow(image(plotter)); ax.set_axis_off()
+    ax.text(0.02, 0.04, r"isosurfaces of $n - 1$ over the boundary", transform=ax.transAxes, fontsize=9, color="0.3")
     wrap = lambda a: np.concatenate([a, a[:, :1]], axis=1)
     for row, (name, fld, cmap, nrm) in enumerate(((r"$n - 1$", dn[it], "RdBu_r", norm), (r"$\phi$", phi[it], "PuOr_r", pnorm))):
-        ax2 = fig.add_axes([0.58, 0.12 + 0.43 * (1 - row), 0.26, 0.33])
+        ax2 = fig.add_axes([0.60, 0.11 + 0.43 * (1 - row), 0.28, 0.34])
         mesh = ax2.pcolormesh(wrap(R[:, :, k0]), wrap(Z[:, :, k0]), wrap(SCALE * np.where(active[:, :, k0], fld[:, :, k0], np.nan)),
                               cmap=cmap, norm=nrm, shading="gouraud", rasterized=True)
         ax2.plot(np.append(R[-1, :, k0], R[-1, 0, k0]), np.append(Z[-1, :, k0], Z[-1, 0, k0]), "k", lw=0.8)

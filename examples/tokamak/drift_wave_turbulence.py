@@ -1,5 +1,8 @@
 """Tokamak closed-field-line flagship: Hasegawa-Wakatani drift-wave turbulence.
 
+README movie: the defaults below (96x96 modes, BLOCKS = 100 so t = 400, movie from block 30 in
+steps of 3, i.e. the saturated state only). BLOCKS = 40 is a 1 minute preset.
+
 Physics. The two-field Hasegawa-Wakatani model (Hasegawa & Wakatani, Phys. Rev.
 Lett. 50, 682 (1983)) evolves vorticity ``zeta = lap phi`` and density ``n`` in
 the plane perpendicular to the magnetic field:
@@ -63,9 +66,10 @@ HYPERVISCOSITY = 1.0e-2      # nu: grid-scale lap^2 damping (keeps the cascade r
 FRICTION = 3.0e-2            # mu: large-scale drag absorbing the inverse cascade
 DT = 5.0e-3                  # time step (limited by the stiff alpha/k_min^2 response)
 STEPS_PER_BLOCK = 800        # steps between diagnostics/movie frames (4 time units)
-BLOCKS = 40                  # number of blocks: total time = BLOCKS * STEPS_PER_BLOCK * DT
+BLOCKS = 100                 # number of blocks: total time = BLOCKS * STEPS_PER_BLOCK * DT (README movie: 100, t = 400)
 SEED = 0                     # RNG seed of the initial noise (reproducibility)
 SEED_AMPLITUDE = 5.0e-2      # rms of the initial real-space noise field
+MOVIE_START, MOVIE_STRIDE = 30, 3  # movie shows blocks MOVIE_START, MOVIE_START + 3, ... (developed turbulence)
 SAVE_MOVIE = True            # write the animated vorticity GIF
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "output" / "drift_wave_turbulence"
 
@@ -142,7 +146,7 @@ def _write_vorticity_gif(frame_list, path, *, fps=8):
     ax_e.grid(alpha=0.3)
     title = fig.suptitle("")
     images = []
-    for k in range(1, len(frame_list), 2):   # every other block keeps the GIF under 1 MB
+    for k in range(MOVIE_START, len(frame_list), MOVIE_STRIDE):   # developed turbulence, GIF under 1 MB
         frame = frame_list[k]
         im.set_data(frame)
         dot.set_data([times[k]], [energies[k]])

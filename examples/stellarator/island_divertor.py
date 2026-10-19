@@ -25,6 +25,7 @@ writes ``output/island_divertor/island_divertor.png`` (release-hosted).
 
 from __future__ import annotations
 
+import io
 import json
 import time
 from pathlib import Path
@@ -39,6 +40,7 @@ import matplotlib  # noqa: E402
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from PIL import Image  # noqa: E402
 from matplotlib import colors  # noqa: E402
 
 from drbx.geometry import (  # noqa: E402
@@ -90,11 +92,11 @@ AMPLITUDE = 0.08         # peak relative density perturbation
 MODES = ((2, 1), (3, 2), (4, 1), (5, 3))  # (poloidal m, toroidal n) seed modes
 
 # Poincare / connection-length diagnostics:
-POINCARE_LINES = 36      # traced field lines in the Poincare section
-POINCARE_TRANSITS = 200  # toroidal transits per traced line
+POINCARE_LINES = 120     # traced field lines in the Poincare section (README figure)
+POINCARE_TRANSITS = 600  # toroidal transits per traced line (README figure)
 POINCARE_STEPS = 64      # RK4 substeps per transit
-CONNECTION_NX, CONNECTION_NTHETA = 90, 96  # connection-length map resolution
-CONNECTION_MAX_TRANSITS = 40               # tracing cutoff for the map
+CONNECTION_NX, CONNECTION_NTHETA = 150, 160  # connection-length map resolution (README figure)
+CONNECTION_MAX_TRANSITS = 60               # tracing cutoff for the map
 
 OUTPUT_DIR = Path("output/island_divertor")
 # ----------------------------------------------------------------------------
@@ -284,8 +286,10 @@ twin.set_ylabel("divertor sheath flux", color="#d62728")
 
 fig.suptitle("Island divertor: island chains, stochastic edge, drain to the wall")
 fig.tight_layout()
-fig.savefig(OUTPUT_DIR / "island_divertor.png", dpi=100)
+buffer = io.BytesIO()
+fig.savefig(buffer, format="png", dpi=100)
 plt.close(fig)
+Image.open(buffer).convert("RGB").quantize(128, dither=Image.Dither.NONE).save(OUTPUT_DIR / "island_divertor.png", optimize=True)
 
 (OUTPUT_DIR / "summary.json").write_text(json.dumps({
     "open_fraction_edge": float(is_open[x_map > 0.9].mean()),
