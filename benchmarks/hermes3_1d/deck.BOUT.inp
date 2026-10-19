@@ -1,0 +1,128 @@
+# Hermes-3 deck matched to SD1D / DRBX detachment_sol_model (benchmark ladder L3/L4).
+# run_hermes.sh substitutes @NY@, @SRC@, @FAC@, @EIMULT@, @NOUT@, @DT@, @JSONDIR@.
+# @FAC@ = length_xpt / (summed length of the cells with y < y_xpt): makes the integrated particle
+# and power sources grid independent (the discrete H() mask covers 9.86-10.09 m for ny = 100-1600). Requires the Hermes-3 patch hermes3_matching.patch.
+nout = @NOUT@
+timestep = @DT@
+MXG = 0
+json_database_dir = @JSONDIR@   # SD1D CX fit + Hermes AMJUEL recombination files
+
+[mesh]
+nx = 1
+ny = @NY@
+nz = 1
+length = 30
+length_xpt = 10
+area_expansion = 2.0
+dymin = 0.1
+dy = (length / ny) * (1 + (1-dymin)*(1-y/pi))
+source = length_xpt / length
+y_xpt = pi * ( 2 - dymin - sqrt( (2-dymin)^2 - 4*(1-dymin)*source ) ) / (1 - dymin)
+J = 1 + (area_expansion - 1) * H(y - y_xpt)*(y - y_xpt)/(2*pi - y_xpt)   # SD1D area
+ixseps1 = -1
+ixseps2 = -1
+
+[hermes]
+components = (h+, h, e,
+              sheath_boundary_simple, braginskii_collisions, braginskii_heat_exchange,
+              recycling, ionisation, reactions, electron_force_balance,
+              neutral_parallel_diffusion)
+Nnorm = 1e20
+Bnorm = 1
+Tnorm = 100
+
+[solver]
+type = beuler
+snes_type = newtonls
+ksp_type = gmres
+pc_type = lu    # direct factorisation of the 1D coloured Jacobian (hypre/euclid stalls SNES at ny >= 400)
+max_nonlinear_iterations = 10
+lag_jacobian = 500
+matrix_free_operator = true
+atol = 1e-9
+rtol = 1e-7
+
+[sheath_boundary_simple]
+lower_y = false
+upper_y = true
+gamma_e = 3.0   # gamma_e + gamma_i = 6 (incl. kinetic) = SD1D at Te = Ti
+gamma_i = 3.0
+
+[braginskii_collisions]
+ei_multiplier = @EIMULT@   # forces Te = Ti (SD1D single temperature)
+electron_neutral = false
+ion_neutral = false
+
+# Electron conduction only (SD1D): kappa = 3.2 n T tau_e(NRL)/m_e with SD1D's frozen Coulomb log
+[e]
+type = quasineutral, evolve_pressure, zero_current, noflow_boundary, simple_conduction
+noflow_upper_y = false
+charge = -1
+AA = 1/1836
+kappa_coefficient = 3.19595   # 3.2 x (NRL / Fitzpatrick tau_e)
+coulomb_log = 13.5077558      # 6.6 + 1.5 ln(Tnorm) at Nnorm = 1e20
+diagnose = true
+
+[neutral_parallel_diffusion]
+dneut = 10
+equation_fix = false                    # SD1D: 3/2 advection, kappa_n = dneut Nn vth^2/nu
+max_mean_free_path = 0.1                # m
+neutral_temperature_floor = 0.5         # eV
+neutral_neutral_cross_section = 8.79e-21  # pi a0^2 [m^2]
+diagnose = true
+
+[ionisation]
+Eionize = 13.6   # SD1D Willett fit and fixed cost
+
+[h+]
+type = (evolve_density, evolve_pressure, evolve_momentum,
+        noflow_boundary)
+noflow_lower_y = true
+noflow_upper_y = false
+charge = 1
+AA = 2
+diagnose = true
+recycle_as = h
+target_recycle = true
+target_recycle_multiplier = 0.99
+target_recycle_energy = 3.5
+
+[Nh+]
+function = 0.2
+# Fixed particle source [m^-3 s^-1] = DRBX steady source at the nominal n_up (run.sh @SRC@);
+# Hermes then returns n_up, and DRBX is re-run at that n_up (paired, no feedback controller).
+source = H(mesh:y_xpt - y) * @SRC@ * @FAC@
+
+[Ph+]
+function = 0.02
+powerflux = 2.5e7   # half of SD1D 5e7 W/m^2 (other half in Pe)
+source = (powerflux*2/3 / (mesh:length_xpt))*H(mesh:y_xpt - y) * @FAC@
+
+[NVh+]
+function = 0
+
+[h]
+type = (evolve_density, evolve_pressure, evolve_momentum, noflow_boundary)
+charge = 0
+AA = 2
+diagnose = true
+
+[Nh]
+function = 0.001
+[Ph]
+function = 0.0001
+
+[Pe]
+function = `Ph+:function`
+source = `Ph+:source`
+
+[recycling]
+species = h+
+
+[reactions]
+diagnose = true
+type = (
+        h+ + e -> h,          # recombination (AMJUEL H.4 2.1.8 + H.10 2.1.8)
+        h + h+ -> h+ + h,     # charge exchange: SD1D fit at E = 10 eV
+       )
+data_ids = H.4_2.1.8, SD1D_CX10

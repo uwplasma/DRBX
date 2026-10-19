@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """FCI unification gate (issue #41): record one checkout, compare two records.
 
-    python scripts/fci_gate.py record OUT [--skip-pytest] [--skip-hsx] [--cases a,b]
+    python scripts/fci_gate.py record OUT [--skip-pytest] [--skip-hsx] [--cases a,b] [--hsx-set KEY=JSON]
     python scripts/fci_gate.py compare BASE NEW
 
 ``record`` runs from the checkout that is on ``PYTHONPATH`` (or installed) and
@@ -36,6 +36,7 @@ REPO = Path(__file__).resolve().parents[1]
 LINE_COUNT_PACKAGES = ("geometry", "native", "fci_braginskii")
 HSX_FINAL_TIME = 0.00375
 HSX_STEPS = 5
+HSX_EXTRA: dict = {}  # extra deck keys from ``record --hsx-set KEY=JSON``
 
 
 # ---------------------------------------------------------------- reduced cases
@@ -213,14 +214,14 @@ def _record_hsx(out: Path, summary: dict) -> None:
         summary["hsx"] = "skipped (DRBX_TEST_GEOMETRY_BUNDLE unset)"
         return
     work = Path(tempfile.mkdtemp(prefix="fci_gate_hsx_"))
-    common = dict(final_time=HSX_FINAL_TIME, num_steps=HSX_STEPS, save_every=HSX_STEPS)
+    common = dict(final_time=HSX_FINAL_TIME, num_steps=HSX_STEPS, save_every=HSX_STEPS, **HSX_EXTRA)
     runs = {
         # five steps in one go
         "hsx": _deck(work / "hsx.toml", bundle, work / "hsx" / "hsx", **common),
         # restart round trip: 2 steps, then restart from that history for 3 more
         "hsx_restart_a": _deck(
             work / "ra.toml", bundle, work / "ra" / "hsx",
-            final_time=HSX_FINAL_TIME * 2 / 5, num_steps=2, save_every=2, checkpoint_every=2,
+            final_time=HSX_FINAL_TIME * 2 / 5, num_steps=2, save_every=2, checkpoint_every=2, **HSX_EXTRA,
         ),
     }
     hsx = {}
@@ -230,7 +231,8 @@ def _record_hsx(out: Path, summary: dict) -> None:
     # restart from the full-precision checkpoint (the history file is float32)
     first = sorted((work / "ra").rglob("*checkpoint_step*.npz")) or sorted((work / "ra").glob("*.npz"))
     restart = _deck(
-        work / "rb.toml", bundle, work / "rb" / "hsx", restart_from=first[0], final_time=HSX_FINAL_TIME, num_steps=3, save_every=3
+        work / "rb.toml", bundle, work / "rb" / "hsx", restart_from=first[0], final_time=HSX_FINAL_TIME, num_steps=3, save_every=3,
+        **HSX_EXTRA,
     )
     hsx["hsx_restart_b"] = {"wall_s": _drbx(restart, out / "hsx_restart_b.log"), **_gmres_values(out / "hsx_restart_b.log")}
     for name in ("hsx", "ra", "rb"):
@@ -349,10 +351,17 @@ def main() -> int:
     rec.add_argument("--skip-pytest", action="store_true")
     rec.add_argument("--skip-hsx", action="store_true")
     rec.add_argument("--cases", help=f"comma-separated subset of {','.join(CASES)}")
+    rec.add_argument(
+        "--hsx-set", action="append", default=[], metavar="KEY=JSON",
+        help='extra [fci_braginskii] deck key for every HSX run, e.g. wall_closure=\'"zero-flow"\'',
+    )
     cmp_ = sub.add_parser("compare")
     cmp_.add_argument("base")
     cmp_.add_argument("new")
     args = parser.parse_args()
+    for item in getattr(args, "hsx_set", []):
+        key, _, value = item.partition("=")
+        HSX_EXTRA[key] = json.loads(value)
     return record(args) if args.command == "record" else compare(args)
 
 
