@@ -304,7 +304,7 @@ its = [h["iteration"] for h in history]
 ax.semilogy(its, [h["flux"] for h in history], "o-", color="C1", label="windowed flux")
 ax.axhline(flux_target, color="k", ls="--", lw=1.0, label="target")
 ax.set_xlabel("Newton iteration"); ax.set_ylabel("objective: windowed flux"); ax.grid(alpha=0.3, which="both")
-ax.tick_params(which="minor", labelleft=False)
+ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
 twin = ax.twinx()
 twin.plot(its, [h["alpha"] for h in history], "s:", color="C2", label=r"$\alpha$")
 twin.set_ylabel(r"adiabaticity $\alpha$", color="C2")

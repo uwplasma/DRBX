@@ -150,7 +150,7 @@ for index in range(N_CLOSED, N_CLOSED + N_OPEN, 4):
     line = line[np.hypot(np.hypot(line[:, 0], line[:, 1]) - axis_r, line[:, 2] - axis_z) < 0.9][:SHOW_POINTS // 2]
     if labels[index] and len(line) > 10:
         add_tubes(plotter, [line], radius=0.004, color="#d62728", closed=False)
-plotter.camera_position = [(3.4, -3.4, 2.6), (0.0, 0.0, 0.0), (0, 0, 1)]
+plotter.camera_position = [(4.1, -4.1, 3.1), (0.0, 0.0, 0.0), (0, 0, 1)]
 picture = image(plotter)
 
 plt.rcParams.update({"font.size": 10})

@@ -265,16 +265,20 @@ pytest -n 2 -q tests/test_validation_fluid_1d_mms_convergence.py tests/test_mms_
 
 ## Parallel performance
 
-The two-field drift-reduced step runs across devices with `shard_map` and is
-bit-exact against the single-device step
-([`tests/test_fci_sharded_2field.py`](tests/test_fci_sharded_2field.py)). On a
-36-core Linux host, a 1.05M-cell step speeds up 4.5x at 16 shards (1.18 s to
-0.27 s); one NVIDIA A4000 runs the same step about 21x faster than a single CPU
-shard with identical checksums. GPU numbers were measured by hand; CI is CPU
-only. The FCI operator and domain-decomposition stack was contributed by Aiken
-Xie in [PR #3](https://github.com/uwplasma/drbx/pull/3).
+The two-field drift-reduced step runs across devices with `shard_map`, and every
+device count gives the same result (checksums agree to 1e-10;
+[`tests/test_fci_sharded_2field.py`](tests/test_fci_sharded_2field.py)). The
+figure uses 512x256x32 cells (4.2 M) and 10 timed RK4 steps per device count,
+with CPU devices pinned one core each on a 36-core Linux host that was shared
+and heavily loaded (load average about 25): 8.0 s per step on one device and
+2.0 s on 16 (4.0x, throughput 0.5 to 2.1 Mcell/s). An earlier run of the same script on a
+256x128x32 grid (1.05 M cells) gave 6.2x at 16 shards. On a laptop one XLA device already
+threads across all cores, so sharding gains little there. One NVIDIA A4000 ran
+a 1.05M-cell step about 21x faster than a single CPU shard (measured by hand,
+not reproduced by the script). The FCI operator and domain-decomposition stack
+was contributed by Aiken Xie in [PR #3](https://github.com/uwplasma/drbx/pull/3).
 
-<img src="docs/media/strong_scaling.png" width="600" alt="Strong scaling">
+<img src="docs/media/strong_scaling.png" width="800" alt="Sharded FCI step: time per step and throughput">
 
 ```bash
 python examples/benchmarks/fci_sharded_strong_scaling.py
