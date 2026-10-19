@@ -9,13 +9,16 @@ heat source, to steady state.
 from __future__ import annotations
 
 import math
+import os
 from functools import partial
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from drbx.fci_braginskii.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
 from drbx.fci_braginskii.native.fci_parallel_production_flux import (
     parallel_short_wall_material_data,
     parallel_target_row_material_residual,
@@ -23,6 +26,10 @@ from drbx.fci_braginskii.native.fci_parallel_production_flux import (
 from drbx.fci_braginskii.native.fci_wall_closure import (
     SheathClosure,
     bohm_wall_state,
+    current_gamma_e,
+    sheath_current,
+    sheath_lambda,
+    sheath_tube_lengths,
     sheath_wall_leg_residual,
     sound_speed,
     wall_face_fluxes,
@@ -88,6 +95,135 @@ def test_wall_leg_removes_exactly_the_contract_fluxes():
         # momentum flux is continuous across the half leg (owner subsonic)
         np.testing.assert_allclose(Vi * rate[:, 0] + n * rate[:, 3], 0.0, atol=1e-10)
         np.testing.assert_array_equal(rate[:, 4], 0.0)
+
+
+def test_sheath_current_leg_removes_the_electron_flux():
+    """With a wall current the density and electron energy legs carry n Ve = n Vi - j."""
+
+    rng = np.random.default_rng(2)
+    center = np.stack(
+        [rng.uniform(0.5, 2.0, 16), rng.uniform(0.5, 2.0, 16), rng.uniform(0.5, 2.0, 16),
+         rng.uniform(-0.8, 0.8, 16), rng.uniform(-0.8, 0.8, 16)], axis=-1)
+    dx, gi = 0.03, 2.5
+    ge = np.asarray(current_gamma_e(rng.uniform(-1.0, 4.0, 16)))
+    for s in (1.0, -1.0):
+        wall = bohm_wall_state(center, center, s, TAU)
+        j = rng.uniform(-2.0, 2.0, 16)
+        rate = np.asarray(sheath_wall_leg_residual(
+            wall, center, dx, s, TAU, ge, gi, conservative_bulk=True, wall_current=j))
+        flux = wall_face_fluxes(wall, s, TAU, ge, gi, center[:, 3], wall_current=j)
+        n, Te, Ti, Vi, _ = center.T
+        out = -1.0 / dx
+        # conservative bulk: the leg is the wall flux alone, here the electron flux
+        np.testing.assert_allclose(rate[:, 0], out * flux.particle, rtol=1e-12)
+        np.testing.assert_allclose(
+            1.5 * (Te * rate[:, 0] + n * rate[:, 1]), out * flux.electron_energy,
+            rtol=1e-12, atol=1e-12)
+        # ions keep the ion flow: gamma_i n_w Ti_w Vi_w leaves the ion energy
+        np.testing.assert_allclose(
+            1.5 * TAU * (Ti * rate[:, 0] + n * rate[:, 2]),
+            out * TAU * gi * wall[:, 2] * wall[:, 0] * wall[:, 3] * s,
+            rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(flux.particle, s * (wall[:, 0] * wall[:, 3] - j))
+    assert float(current_gamma_e(-2.0)) == 2.0 and float(current_gamma_e(2.84)) == pytest.approx(4.84)
+
+
+def test_conservative_bulk_leg_is_the_wall_flux_alone():
+    """With the flux-form bulk, each leg carries only the contract flux (plus the mirror share for Vi)."""
+
+    rng = np.random.default_rng(2)
+    center = np.stack(
+        [rng.uniform(0.5, 2.0, 32), rng.uniform(0.5, 2.0, 32), rng.uniform(0.5, 2.0, 32),
+         rng.uniform(-0.8, 0.8, 32), rng.uniform(-3.0, 3.0, 32)], axis=-1)
+    dx, ge, gi = rng.uniform(0.01, 0.1, 32), 4.49, 3.0
+    for s in (1.0, -1.0):
+        wall = bohm_wall_state(center, center, s, TAU)
+        rate = np.asarray(sheath_wall_leg_residual(wall, center, dx, s, TAU, ge, gi, conservative_bulk=True))
+        flux = wall_face_fluxes(wall, s, TAU, ge, gi, center[:, 3])
+        n, Te, Ti, Vi, _ = center.T
+        np.testing.assert_allclose(rate[:, 0], -np.asarray(flux.particle) / dx, rtol=1e-13)
+        np.testing.assert_allclose(1.5 * (Te * rate[:, 0] + n * rate[:, 1]),
+                                   -np.asarray(flux.electron_energy) / dx, rtol=1e-12)
+        np.testing.assert_allclose(1.5 * TAU * (Ti * rate[:, 0] + n * rate[:, 2]),
+                                   -np.asarray(flux.ion_energy) / dx, rtol=1e-12)
+        # momentum leg: signed wall momentum flux less the leg's mirror force s p_c/dx
+        mirror = s * n * (Te + TAU * Ti) / dx
+        np.testing.assert_allclose(Vi * rate[:, 0] + n * rate[:, 3],
+                                   -s * np.asarray(flux.parallel_momentum) / dx + mirror, rtol=1e-11, atol=1e-11)
+
+
+def test_tube_lengths_use_the_interior_leg():
+    dxm, dxp = jnp.asarray([1.0, 0.2, 0.3, 0.5]), jnp.asarray([0.1, 2.0, 0.4, 0.5])
+    backward = jnp.asarray([False, True, True, False])
+    forward = jnp.asarray([True, False, True, False])
+    tube_minus, tube_plus = (np.asarray(t) for t in sheath_tube_lengths(dxm, dxp, backward, forward))
+    assert tube_plus[0] == 1.0 and tube_minus[1] == 2.0  # single wall leg: interior length
+    assert tube_minus[2] == tube_plus[2] == pytest.approx(0.7)  # both legs on walls
+
+
+def test_conservative_parallel_rates_are_sum_free_with_reported_sources():
+    """Any weighted pair D = -M^-1 G^T M with G(1) = 0: no parallel loss in the bulk."""
+
+    rng = np.random.default_rng(3)
+    cells = 40
+    mass = rng.uniform(0.5, 2.0, cells)
+    G = rng.normal(size=(cells, cells))
+    G -= G.sum(axis=1, keepdims=True) / cells  # constant-exact gradient
+    D = -(G.T * mass[None, :]) / mass[:, None]
+    gradient = lambda f: jnp.einsum("ij,...j->...i", G, f)
+    divergence = lambda f: jnp.einsum("ij,...j->...i", D, f)
+    primitive = {k: jnp.asarray(rng.uniform(lo, hi, cells)) for k, lo, hi in (
+        ("density", 0.5, 2.0), ("Te", 0.5, 2.0), ("Ti", 0.5, 2.0), ("Vi", -1.0, 1.0), ("Ve", -3.0, 3.0))}
+    host = SimpleNamespace(parameters=SimpleNamespace(tau=TAU))
+    rates, sources = LocalFciDrbEBRhs._sheath_conservative_parallel_rates(host, primitive, gradient, divergence)
+    n, te, ti, vi = (np.asarray(primitive[k]) for k in ("density", "Te", "Ti", "Vi"))
+    dn, dte, dti, dvi = np.asarray(rates).T
+    assert abs(np.sum(mass * dn)) < 1e-12
+    np.testing.assert_allclose(np.sum(mass * 1.5 * (te * dn + n * dte)), np.sum(mass * sources[:, 0]), atol=1e-11)
+    np.testing.assert_allclose(np.sum(mass * 1.5 * TAU * (ti * dn + n * dti)), np.sum(mass * sources[:, 1]),
+                               atol=1e-11)
+    # momentum: d(n Vi) is sum-free up to the reported mirror/current force
+    np.testing.assert_allclose(np.sum(mass * (vi * dn + n * dvi)), np.sum(mass * sources[:, 2]), atol=1e-11)
+
+
+@pytest.mark.slow
+def test_hsx_sheath_step_ledger_closes(tmp_path):
+    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): applied wall flux is the only parallel loss."""
+
+    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
+    if bundle is None:
+        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX sheath ledger")
+    from drbx.cli import main
+
+    deck = tmp_path / "hsx.toml"
+    deck.write_text(
+        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
+        f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
+        "final_time = 0.0015\nnum_steps = 2\nsave_every = 2\n"
+    )
+    assert main(["run", str(deck)]) in (0, None)
+    data = np.load(tmp_path / "out" / "hsx.npz")
+    rows, columns = data["wall_ledger"], list(data["wall_ledger_columns"])
+    col = {name: rows[:, k] for k, name in enumerate(columns)}
+    wall, other = col["step_particle_wall"][1:], col["step_particle_other"][1:]
+    assert np.all(wall > 0.0)
+    np.testing.assert_allclose(np.diff(col["particle_inventory"]), other - wall, rtol=0, atol=1e-9 * wall.max())
+    # what is not the wall is perpendicular transport only (the parallel bulk is sum-free)
+    assert np.all(np.abs(other) < 1e-3 * wall)
+    for kind in ("electron", "ion"):
+        inventory = np.diff(col[f"{kind}_energy_inventory"])
+        applied = (col[f"step_{kind}_energy_other"] - col[f"step_{kind}_energy_wall"]
+                   + col[f"step_{kind}_energy_product"])[1:]
+        np.testing.assert_allclose(inventory, applied, rtol=0, atol=1e-9 * abs(inventory).max())
+    # parallel momentum P = sum V n Vi: flux-form Vi row, same applied-step identity
+    momentum = np.diff(col["momentum_inventory"])
+    applied = (col["step_momentum_other"] - col["step_momentum_wall"] + col["step_momentum_product"])[1:]
+    scale = max(abs(momentum).max(), abs(col["step_momentum_other"][1:]).max())
+    np.testing.assert_allclose(momentum, applied, rtol=0, atol=1e-9 * scale)
+    # the applied flux is the contract flux of the step states to first order in dt
+    dt = np.diff(col["time"])
+    contract = 0.5 * (col["particle"][1:] + col["particle"][:-1]) * dt
+    np.testing.assert_allclose(wall, contract, rtol=5e-3)
 
 
 def _flux_tube(cells: int, *, isothermal: bool, mu: float = 25.0, periods: int = 10):
@@ -196,3 +332,87 @@ def test_flux_tube_particle_and_energy_ledger_with_sheath_heat_flux():
     # total energy: heating = thermal sheath losses + flow kinetic energy + source dissipation
     lost = total["electron_energy"] + total["ion_energy"] + total["kinetic_energy"] + run["dissipation"]
     assert lost == pytest.approx(run["heating"], rel=1e-2)
+
+
+def test_sheath_lambda_and_current_linearization():
+    """Lambda = ln[(1-d)/sqrt(2 pi (me/mi)(1+Ti/Te))]; j vanishes at phi = Lambda Te."""
+
+    assert float(sheath_lambda(0.0, 1836.0)) == pytest.approx(2.8387, abs=1e-4)
+    assert float(sheath_lambda(1.0, 1836.0)) == pytest.approx(2.4922, abs=1e-4)
+    assert float(sheath_lambda(1.0, 1836.0, 0.5)) == pytest.approx(2.4922 + math.log(0.5), abs=1e-4)
+    lam, te = 2.5, 1.3
+    for s in (1.0, -1.0):
+        j, dj = sheath_current(0.7, 1.1, te, lam * te, lam, s)
+        assert abs(float(j)) < 1e-15 and float(s * dj) > 0.0
+        phi = jnp.linspace(-1.0, 6.0, 9)
+        fd = jax.vmap(jax.grad(lambda p, s=s: sheath_current(0.7, 1.1, te, p, lam, s)[0]))(phi)
+        np.testing.assert_allclose(fd, sheath_current(0.7, 1.1, te, phi, lam, s)[1], rtol=1e-12)
+    with pytest.raises(ValueError):
+        SheathClosure(potential="floating")
+
+
+def _sheath_flux_tube(dt, steps, *, implicit, cells=16):
+    """1D flux tube: Ohm's law current, cell capacitance and sheath walls.
+
+    ``omega = -C phi`` per cell, ``d omega/dt + D(j) = 0`` with the interior
+    current ``j = sigma (G(phi) - G(pe)/n)`` (electron parallel force
+    balance) and the sheath-limited endpoint current at both walls.  The
+    implicit step is the production structure: the sheath current is
+    linearized about the stage potential, the affine part goes to the right
+    side and ``J phi`` to the operator.
+    """
+
+    length, sigma, cap, lam = 2.0, 5.0, 0.2, 2.5
+    dx = length / cells
+    x = (np.arange(cells) + 0.5) * dx
+    n = 1.0 - 0.4 * ((x - 1.0) / 1.0) ** 2  # two-point-like density
+    te = 1.0 + 0.0 * x
+    cs = np.sqrt(2.0 * te)
+    # face current from cell potentials: j_{i+1/2} = sigma [(phi_{i+1}-phi_i) - Te ln(n_{i+1}/n_i)] / dx
+    lnn = np.log(n)
+    grad = np.zeros((cells - 1, cells))
+    grad[np.arange(cells - 1), np.arange(cells - 1)] = -1.0 / dx
+    grad[np.arange(cells - 1), np.arange(1, cells)] = 1.0 / dx
+    interior = sigma * grad
+    pressure = -sigma * te[0] * (grad @ lnn)
+
+    def divergence(j_faces, j_backward, j_forward):
+        faces = np.concatenate([[j_backward], j_faces, [j_forward]])
+        return (faces[1:] - faces[:-1]) / dx
+
+    phi = np.zeros(cells)
+    for _ in range(steps):
+        jb, djb = (float(v) for v in sheath_current(n[0], cs[0], te[0], phi[0], lam, -1.0))
+        jf, djf = (float(v) for v in sheath_current(n[-1], cs[-1], te[-1], phi[-1], lam, 1.0))
+        if implicit:
+            # -C (phi' - phi)/dt + D(j(phi')) = 0, j linear in phi' (interior exact, walls linearized)
+            A = np.zeros((cells, cells))
+            for k in range(cells):
+                e = np.zeros(cells); e[k] = 1.0
+                A[:, k] = divergence(interior @ e, djb * e[0], djf * e[-1])
+            rhs = -divergence(pressure, jb - djb * phi[0], jf - djf * phi[-1])
+            phi = np.linalg.solve(cap / dt * np.eye(cells) - A, cap / dt * phi - rhs)
+        else:
+            phi = phi + dt / cap * divergence(interior @ phi + pressure, jb, jf)
+        if not np.all(np.isfinite(phi)) or np.max(np.abs(phi)) > 1e6:
+            return None
+    jb = float(sheath_current(n[0], cs[0], te[0], phi[0], lam, -1.0)[0])
+    jf = float(sheath_current(n[-1], cs[-1], te[-1], phi[-1], lam, 1.0)[0])
+    return {"phi": phi, "lam": lam, "te": te, "n": n, "wall_current": (jb, jf),
+            "interior_current": interior @ phi + pressure}
+
+
+def test_flux_tube_floating_sheath_potential_drop():
+    """phi_wall - phi_entrance = -Lambda Te and zero current at steady state."""
+
+    run = _sheath_flux_tube(dt=10.0, steps=200, implicit=True)
+    phi, lam, te, n = run["phi"], run["lam"], run["te"], run["n"]
+    # wall at phi = 0: the entrance (owner) potential is Lambda Te
+    assert 0.0 - phi[0] == pytest.approx(-lam * te[0], rel=1e-10)
+    assert 0.0 - phi[-1] == pytest.approx(-lam * te[-1], rel=1e-10)
+    assert max(abs(v) for v in run["wall_current"]) < 1e-10
+    assert np.max(np.abs(run["interior_current"])) < 1e-10
+    # Boltzmann electrons along the tube: phi - Te ln n is constant
+    np.testing.assert_allclose(phi - te * np.log(n), lam * te[0] - te[0] * np.log(n[0]), atol=1e-10)
+    # the explicit wall current (the PR 1b attempt) diverges at the same step
+    assert _sheath_flux_tube(dt=10.0, steps=200, implicit=False) is None

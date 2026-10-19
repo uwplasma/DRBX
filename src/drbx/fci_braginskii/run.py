@@ -75,7 +75,7 @@ from drbx.fci_braginskii.native.fci_sharding import (  # noqa: E402
     make_shard_mesh,
 )
 from drbx.fci_braginskii.native.fci_gmres import SolvaxGmresConfig  # noqa: E402
-from drbx.fci_braginskii.native.fci_wall_closure import WALL_CLOSURES, SheathClosure  # noqa: E402
+from drbx.fci_braginskii.native.fci_wall_closure import SHEATH_POTENTIALS, WALL_CLOSURES, SheathClosure  # noqa: E402
 from drbx.fci_braginskii.native.fci_angular_agglomeration import (  # noqa: E402
     RLP_PACKED_FIELD_COUNT,
     assemble_local_polar_angular_agglomeration_geometry,
@@ -170,6 +170,14 @@ WALL_LEDGER_COLUMNS = (
     "time", "particle", "parallel_momentum", "electron_energy", "ion_energy",
     "kinetic_energy", "current", "abs_current", "wall_legs", "particle_inventory",
     "electron_energy_inventory", "ion_energy_inventory", "ion_kinetic_inventory",
+    "electron_energy_source", "ion_energy_source",
+    "momentum_wall", "momentum_leg_pressure", "momentum_source", "momentum_inventory",
+    # Applied over the step ending at this row (NaN on the first row); see
+    # ``LocalFciDrbEBRhs.wall_step_ledger``.
+    "step_particle_wall", "step_particle_other", "step_electron_energy_wall",
+    "step_electron_energy_other", "step_electron_energy_product", "step_ion_energy_wall",
+    "step_ion_energy_other", "step_ion_energy_product",
+    "step_momentum_wall", "step_momentum_other", "step_momentum_product",
 )
 
 def topology_descriptor(topology: str) -> TopologyDescriptor:
@@ -1925,12 +1933,25 @@ def run_full_eb(
         diagnostics = jnp.stack(
             (state_mins[-1], state_maxs[-1], state_abs_maxs[-1]), axis=1
         )
+        if model.sheath is None:
+            step_ledger = jnp.zeros((11,), dtype=jnp.float64)
+        else:
+            implicit_1, explicit_1, implicit_2, explicit_2, _ = stage_rates
+            step_ledger = model.wall_step_ledger(
+                stage_states[0],
+                implicit_1.axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
+                explicit_1.axpy(explicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
+                dt,
+            )
+            for mesh_axis_name in ("x", "y", "z"):
+                step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
         return (
             stage_states[-1],
             diagnostics,
             gmres_iterations,
             gmres_stage_diagnostics,
             stage_diagnostics,
+            step_ledger,
         )
 
     def full_imex_advance(
@@ -1990,6 +2011,7 @@ def run_full_eb(
     compile_start = time.perf_counter()
     advance_out_specs = (
         state_spec,
+        replicated_spec,
         replicated_spec,
         replicated_spec,
         replicated_spec,
@@ -2643,19 +2665,42 @@ def run_full_eb(
             check_vma=False,
         ))
 
-    def record_wall_ledger(time_value: float) -> None:
+    def record_wall_ledger(time_value: float, step_ledger=None) -> None:
         if wall_ledger is None:
             return
         with jax.disable_jit(advance_execution == "eager"):
             totals = np.asarray(wall_ledger(state, cell_fields, map_fields, control_volume_fields))
-        wall_ledger_rows.append([float(time_value), *(float(v) for v in totals)])
+        applied = (
+            np.full(11, np.nan) if step_ledger is None else np.asarray(step_ledger, dtype=np.float64)
+        )
+        wall_ledger_rows.append([float(time_value), *(float(v) for v in totals), *(float(v) for v in applied)])
         print(
             "[wall] t={:.6e} particle={:.6e} momentum={:.6e} q_e={:.6e} q_i={:.6e} q_kin={:.6e} "
             "current={:.3e} |current|={:.3e} legs={:.0f} N={:.9e} W_e={:.9e} W_i={:.9e} K_i={:.9e}".format(
-                *wall_ledger_rows[-1]
+                *wall_ledger_rows[-1][:13]
             ),
             flush=True,
         )
+        if step_ledger is not None and len(wall_ledger_rows) > 1:
+            previous, row = wall_ledger_rows[-2], wall_ledger_rows[-1]
+            d_n, d_we, d_wi, d_p = (row[k] - previous[k] for k in (9, 10, 11, 18))
+            p_wall, p_other, e_wall, e_other, e_prod, i_wall, i_other, i_prod, m_wall, m_other, m_prod = applied
+            print(
+                "[wall-step] applied: particle={:.6e} other={:.3e} imbalance={:.3e} | "
+                "W_e wall={:.6e} other={:.3e} imbalance={:.3e} | "
+                "W_i wall={:.6e} other={:.3e} imbalance={:.3e} | "
+                "P wall={:.6e} other={:.3e} imbalance={:.3e}".format(
+                    p_wall, p_other, (d_n - (p_other - p_wall)) / max(abs(p_wall), 1.0e-300),
+                    e_wall, e_other, (d_we - (e_other - e_wall + e_prod)) / max(abs(e_wall), 1.0e-300),
+                    i_wall, i_other, (d_wi - (i_other - i_wall + i_prod)) / max(abs(i_wall), 1.0e-300),
+                    # the signed wall momentum nearly cancels between the two
+                    # ends, so the momentum imbalance is relative to the
+                    # largest term
+                    m_wall, m_other, (d_p - (m_other - m_wall + m_prod))
+                    / max(abs(m_wall), abs(m_other), abs(d_p), 1.0e-300),
+                ),
+                flush=True,
+            )
 
     record_wall_ledger(float(start_time))
 
@@ -2670,6 +2715,7 @@ def run_full_eb(
             gmres_iterations,
             gmres_stage_diagnostics,
             rk_stage_diagnostics,
+            step_ledger,
         ) = execute_advance(
             state,
             cell_fields,
@@ -2701,7 +2747,7 @@ def run_full_eb(
             accumulated_gmres_seconds += gmres_seconds
         accumulated_step_seconds += step_seconds
         current_time = float(start_time) + step * float(timestep)
-        record_wall_ledger(current_time)
+        record_wall_ledger(current_time, step_ledger)
 
         if step % int(save_every) == 0 or step == int(num_steps):
             saved_times.append(current_time)
@@ -3032,6 +3078,7 @@ def sheath_closure(config) -> SheathClosure | None:
         electron_heat_transmission=gamma_e if gamma_e > 0.0 else None,
         ion_heat_transmission=float(config.ion_heat_transmission),
         secondary_electron_emission=float(config.secondary_electron_emission),
+        potential=str(config.sheath_potential),
     )
 
 
@@ -3081,6 +3128,7 @@ class HsxBlobConfig:
     electron_heat_transmission: float = 0.0
     ion_heat_transmission: float = 2.5
     secondary_electron_emission: float = 0.0
+    sheath_potential: str = "ambipolar"
     advance_execution: str = "staged-compiled"
     gmres_acceptance_tolerance: float = 5.0e-5
     gmres_target_tolerance: float = GMRES_TARGET_TOLERANCE
@@ -3368,6 +3416,16 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
     )
     option("ion_heat_transmission", help="Total ion sheath heat transmission gamma_i (>= 2.5).")
     option("secondary_electron_emission", help="Secondary electron emission coefficient in [0, 1).")
+    option(
+        "sheath_potential",
+        choices=SHEATH_POTENTIALS,
+        help=(
+            "Bohm wall electron closure: 'ambipolar' (default; Ve_w = Vi_w, "
+            "zero current per leg) or 'current' (experimental; sheath-limited "
+            "electron current j = n c_s [1 - exp(Lambda - phi/Te)] per wall "
+            "leg, linearized inside the implicit current/phi solve)."
+        ),
+    )
     option(
         "advance_execution",
         choices=("compiled", "staged-compiled", "eager"),
@@ -3888,6 +3946,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             "electron_heat_transmission": float(args.electron_heat_transmission),
             "ion_heat_transmission": float(args.ion_heat_transmission),
             "secondary_electron_emission": float(args.secondary_electron_emission),
+            "sheath_potential": str(args.sheath_potential),
             "time_integrator": "imex-ssp222",
             "advance_execution": str(args.advance_execution),
             "advance_execution_kernel_layout": (
