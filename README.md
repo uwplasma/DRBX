@@ -138,8 +138,9 @@ the geometry bundle) are wall-fitted surfaces: the boundary of every plane is
 a vessel contour, and the planes are tilted and curved to follow the twisting
 HSX cross-section. In the 32^3 bundle the toroidal angle of the cell centres
 varies by about 9 degrees across one plane, almost the 11.25 degrees between
-planes (left: three consecutive planes; right: their toroidal angle against
-height, with the fixed-angle plane of a classic grid dashed). Parallel
+planes. The figure shows three consecutive planes (coloured), the
+constant-angle planes of a classic grid at the same positions (black outlines)
+and field lines traced through the coil field. Parallel
 operators use field lines traced from each cell to the neighbouring plane
 (mean traced length 0.27 m; about 3% of the forward maps end on the wall).
 
@@ -278,7 +279,7 @@ a 1.05M-cell step about 21x faster than a single CPU shard (measured by hand,
 not reproduced by the script). The FCI operator and domain-decomposition stack
 was contributed by Aiken Xie in [PR #3](https://github.com/uwplasma/drbx/pull/3).
 
-<img src="docs/media/strong_scaling.png" width="800" alt="Sharded FCI step: time per step and throughput">
+<img src="docs/media/sharded_fci_step.png" width="800" alt="Sharded FCI step: time per step and throughput">
 
 ```bash
 python examples/benchmarks/fci_sharded_strong_scaling.py
