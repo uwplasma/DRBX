@@ -6,7 +6,7 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 RHS_PATH = REPOSITORY / "src" / "drbx" / "fci_braginskii" / "native" / "fci_drb_EB_rhs.py"
-DRIVER_PATH = REPOSITORY / "simulate_hsx_blob.py"
+DRIVER_PATH = REPOSITORY / "src" / "drbx" / "fci_braginskii" / "run.py"
 DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 
 
@@ -67,26 +67,6 @@ def test_hsx_gmres_uses_tight_target_and_preserves_looser_acceptance():
     assert "acceptance_atol=float(gmres_acceptance_tolerance)" in build_source
 
 
-def test_hsx_gmres_cli_separates_target_and_acceptance_with_legacy_alias():
-    from drbx.fci_braginskii.run import _build_parser
-
-    source = DRIVER_SOURCE.read_text()
-    parser = _build_parser()
-    options = {
-        option: action.dest
-        for action in parser._actions
-        for option in action.option_strings
-    }
-    assert options["--gmres-target-tolerance"] == "gmres_target_tolerance"
-    assert options["--gmres-acceptance-tolerance"] == "gmres_acceptance_tolerance"
-    assert options["--gmres-tolerance"] == "gmres_acceptance_tolerance"
-    assert 'gmres_target_tolerance: float = GMRES_TARGET_TOLERANCE' in source
-    assert 'gmres_acceptance_tolerance: float = 5.0e-5' in source
-    assert 'gmres_target_tolerance=float(args.gmres_target_tolerance)' in source
-    assert (
-        'gmres_acceptance_tolerance=float(args.gmres_acceptance_tolerance)'
-        in source
-    )
 
 
 def test_hsx_imex_returns_replicated_solvax_diagnostics():

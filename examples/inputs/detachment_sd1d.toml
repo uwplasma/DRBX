@@ -1,0 +1,13 @@
+# SD1D 1-D detachment (Dudson 2019 13.6eV scan), steady state by Newton continuation.
+[model]
+backend = "detachment_sd1d"
+
+[detachment_sd1d]
+ny = 100
+upstream_density = 3.0e19
+
+[scan]
+upstream_density = [2.0e19, 3.0e19]
+
+[output]
+directory = "../../output/detachment_sd1d"

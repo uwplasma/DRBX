@@ -1,5 +1,17 @@
 # Release Notes
 
+## Unreleased
+
+**New: every model runs from a TOML deck** (`[model] backend = "<name>"`).
+Hasegawa-Wakatani (with an autodiff gradient), the open-field-line SOL flux tube
+with sheath/recycling accounting, the recycling SOL, SD1D detachment, four-field
+FCI turbulence on rotating-ellipse, shifted-torus and island-divertor geometry,
+and the differentiable FCI case join the HSX Braginskii deck. Tables are the
+Python configuration objects (one set of defaults), unknown keys are errors, and
+`docs/decks.md` documents every key and output, checked against the code by a
+test. `gmres_preconditioner` (`line-u` or `none`) is now an explicit HSX config
+field, deck key and script option.
+
 ## 2.1.0
 
 **New: experimental HSX FCI Braginskii backend** (`drbx.fci_braginskii`, #6).

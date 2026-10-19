@@ -1,0 +1,13 @@
+# Differentiable two-field FCI flux tube: autodiff gradient vs central finite difference.
+[model]
+backend = "fci_differentiable"
+
+[fci_differentiable]
+shape = [8, 8, 4]
+
+[run]
+amp0 = 0.1
+n_steps = 6
+
+[output]
+directory = "../../output/fci_differentiable"

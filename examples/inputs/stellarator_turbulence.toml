@@ -1,0 +1,19 @@
+# Four-field (n, vorticity, v_i, v_e) FCI interchange turbulence on a rotating-ellipse
+# stellarator.  Swap [rotating_ellipse] for [shifted_torus] (tokamak-like) or
+# [island_divertor]; limiter_radius opens the edge into a sheath-drained SOL.
+[model]
+backend = "stellarator_turbulence"
+
+[rotating_ellipse]
+shape = [8, 12, 6]
+limiter_radius = 0.6
+
+[run]
+steps = 4
+dt = 2.0e-3
+sheath_sink = true
+frame_stride = 2
+seed = 1
+
+[output]
+directory = "../../output/stellarator_turbulence"
