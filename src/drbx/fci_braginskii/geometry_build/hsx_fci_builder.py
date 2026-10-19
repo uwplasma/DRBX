@@ -383,6 +383,23 @@ def _find_compatible_metric_cache(
     return None
 
 
+def _field_identity_json(identity: object) -> str:
+    return json.dumps(identity, sort_keys=True, default=str)
+
+
+def _hsx_field_identity(makegrid_path, provider_bfield, currents) -> dict:
+    """Identity of the magnetic field the FCI maps are traced in."""
+
+    return {
+        "makegrid": (
+            _metric_input_content_identity(makegrid_path)
+            if provider_bfield is None
+            else provider_bfield.content_identity()
+        ),
+        "makegrid_currents": None if currents is None else currents.tolist(),
+    }
+
+
 def _build_or_load_hsx_fci_maps(
     *,
     grid: CellCenteredGrid3D,
@@ -398,6 +415,7 @@ def _build_or_load_hsx_fci_maps(
     fci_trace_backend: str = "numpy",
     fci_trace_batch_size: int = 2048,
     fci_trace_device_count: int | None = None,
+    field_identity: object | None = None,
 ) -> tuple[
     FciMaps3D | None,
     dict[str, np.ndarray] | None,
@@ -462,6 +480,17 @@ def _build_or_load_hsx_fci_maps(
                     payload.get("fci_maps_trace_backend", np.asarray("numpy"))
                 ).item()
             )
+            if field_identity is not None:
+                cached_field = (
+                    str(np.asarray(payload["fci_maps_field_identity"]).item())
+                    if "fci_maps_field_identity" in payload
+                    else None
+                )
+                if cached_field != _field_identity_json(field_identity):
+                    raise ValueError(
+                        "cached FCI maps were traced in a different magnetic "
+                        "field (field source or currents changed)"
+                    )
             if (
                 cached_substeps != int(fci_trace_substeps)
                 or cached_source != source_fingerprint
@@ -620,6 +649,10 @@ def _build_or_load_hsx_fci_maps(
             int(fci_trace_substeps), dtype=np.int64
         )
         payload["fci_maps_trace_backend"] = np.asarray(trace_backend)
+        if field_identity is not None:
+            payload["fci_maps_field_identity"] = np.asarray(
+                _field_identity_json(field_identity)
+            )
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             _write_npz_atomic(cache_path, payload)
@@ -2473,6 +2506,9 @@ def build_hsx_fci_geometry(
         bfield=bfield,
         makegrid_path=makegrid_path,
         makegrid_currents=makegrid_current_array,
+        field_identity=_hsx_field_identity(
+            makegrid_path, provider_bfield, makegrid_current_array
+        ),
     )
     if maps is None:  # pragma: no cover - guarded by construct_fci_maps above
         raise RuntimeError("mapped HSX geometry construction returned no FCI maps")

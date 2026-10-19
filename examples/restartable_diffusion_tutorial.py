@@ -28,6 +28,7 @@ Run from the repository root:
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -43,7 +44,7 @@ from drbx.cli import main as cli_main
 from drbx.native.deck_runner import build_portable_array_payload, load_portable_array_payload, write_portable_array_payload
 from drbx.runtime import load_restart_bundle
 
-# --- PARAMETERS ------------------------------------------------------------------
+# ---- PARAMETERS ----
 CASE_NAME = "restartable_diffusion"  # prefix of every generated artifact
 OUTPUT_ROOT = Path("docs/data/restartable_diffusion_demo_artifacts")  # artifact root (cwd-relative)
 NX = 16                    # radial grid points
@@ -62,7 +63,6 @@ DENSITY_FUNCTION = "1 + H(x - 0.25) * H(0.75-x) * exp(-(y-π)^2)"  # initial Nh
 PRESSURE_FUNCTION = "Nh:function"  # initial Ph references the density function
 MAKE_MOVIE = True          # set False to skip the GIF (fastest QA loop)
 MOVIE_FPS = 4              # GIF frame rate
-QUIET_RUNS = False         # set True to silence the per-run CLI progress output
 
 
 # --- helpers ----------------------------------------------------------------------
@@ -118,7 +118,6 @@ def run_segment(
     output_dir: Path,
     restart_in: Path | None = None,
     resume_steps: int | None = None,
-    quiet: bool | None = None,
 ) -> None:
     """Invoke the public drbx CLI entry point for one run segment."""
 
@@ -129,12 +128,12 @@ def run_segment(
         argv.extend(["--restart-in", str(restart_in)])
     if resume_steps is not None:
         argv.extend(["--resume-steps", str(resume_steps)])
-    if quiet if quiet is not None else QUIET_RUNS:
-        argv.append("--quiet")
-    print(f"  cli_argv: drbx {' '.join(argv)}")
+    print(f"  cli_argv: drbx {' '.join(argv)}", flush=True)
+    started = time.perf_counter()
     exit_code = cli_main(argv)
     if exit_code != 0:
         raise RuntimeError(f"drbx run failed for {case_name} with exit code {exit_code}")
+    print(f"  {case_name} finished in {time.perf_counter() - started:.2f} s")
 
 
 def output_paths(case_name: str, output_dir: Path) -> dict[str, Path]:
@@ -176,6 +175,7 @@ def _extract_2d(array: np.ndarray, time_index: int) -> np.ndarray:
 
 
 # --- write the input deck ---------------------------------------------------------
+wall_start = time.perf_counter()
 print("Requested restartable diffusion demo")
 print(f"  case_name: {CASE_NAME}")
 print(f"  output_root: {OUTPUT_ROOT}")
@@ -216,7 +216,6 @@ run_segment(
     case_name=f"{CASE_NAME}_full",
     output_dir=uninterrupted_output_dir,
     resume_steps=FIRST_NOUT + RESUME_NOUT,
-    quiet=True,
 )
 uninterrupted_paths = output_paths(f"{CASE_NAME}_full", uninterrupted_output_dir)
 
@@ -250,21 +249,10 @@ write_portable_array_payload(array_payload, combined_history_path)
 
 # --- restart-consistency analysis JSON --------------------------------------------
 restart_bundle = load_restart_bundle(first_paths["restart"])
-max_abs_density_diff = float(
-    np.max(
-        np.abs(
-            np.asarray(stitched_payload["variables"]["Nh"], dtype=np.float64)
-            - np.asarray(uninterrupted_payload["variables"]["Nh"], dtype=np.float64)
-        )
-    )
-)
-max_abs_pressure_diff = float(
-    np.max(
-        np.abs(
-            np.asarray(stitched_payload["variables"]["Ph"], dtype=np.float64)
-            - np.asarray(uninterrupted_payload["variables"]["Ph"], dtype=np.float64)
-        )
-    )
+max_abs_density_diff, max_abs_pressure_diff = (
+    float(np.max(np.abs(np.asarray(stitched_payload["variables"][name], dtype=np.float64)
+                        - np.asarray(uninterrupted_payload["variables"][name], dtype=np.float64))))
+    for name in ("Nh", "Ph")
 )
 analysis_payload = {
     "case_name": CASE_NAME,
@@ -398,3 +386,4 @@ for label, path in {
     "density_movie": movie_path,
 }.items():
     print(f"  {label}: {path}")
+print(f"total wall time: {time.perf_counter() - wall_start:.1f} s")
