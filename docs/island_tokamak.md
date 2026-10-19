@@ -110,28 +110,23 @@ Raising the drive and cutting the collisional diffusion
 (fluctuation energy ~2) and the profile flattens across the chain — the
 gradient ratio drops to 0.83 at production resolution. The escalation
 ladder from laminar to flattened (fluctuation energy 0.004 → 0.03 → 0.2 →
-1.5 as the drive doubles) is reproducible with the env knobs alone.
+1.5 as the drive doubles) is reproducible with the PARAMETERS constants alone.
 
 ## Reproducing
 
 ```bash
-# laptop smoke test (~1 minute)
-DRBX_ISLAND_SHAPE=16,32,12 DRBX_ISLAND_STEPS=400 \
-  python examples/island_tokamak_profiles.py
-
-# GPU production (fp32; fp64 runs at 1/64 rate on consumer GPUs)
-DRBX_PRECISION=float32 DRBX_ISLAND_SHAPE=48,96,32 \
-  DRBX_ISLAND_DT=2.5e-4 DRBX_ISLAND_STEPS=24000 DRBX_ISLAND_EPS=0.03 \
-  DRBX_ISLAND_S0=24 DRBX_ISLAND_D=0.005 DRBX_ISLAND_HYPER=0.3 \
-  python examples/island_tokamak_profiles.py
-
-# figures and movies
-python examples/island_tokamak_figure.py poincare
-python examples/island_tokamak_figure.py 3d output/island_tokamak/island_tokamak.npz
-python examples/island_tokamak_figure.py evolution output/island_tokamak/island_tokamak.npz
-python examples/island_tokamak_figure.py dashboard output/island_tokamak/island_tokamak.npz
+# laptop smoke test (~1 minute; the default PARAMETERS preset, not converged)
+PYTHONPATH=src python examples/island_tokamak_profiles.py
+# figures (poincare, evolution, 3d; add "dashboard" to FIGURES for the movie)
+PYTHONPATH=src python examples/island_tokamak_figure.py
 ```
 
-Every physics knob is env-overridable: island amplitude (`DRBX_ISLAND_EPS`),
-throughput (`DRBX_ISLAND_S0`), perpendicular diffusion (`DRBX_ISLAND_D`),
-parallel friction (`DRBX_ISLAND_MU`), grid, timestep, and duration.
+For the GPU production run edit the PARAMETERS block of
+`island_tokamak_profiles.py`: `SHAPE = (48, 96, 32)`, `DT = 2.5e-4`,
+`N_STEPS = 24000`, `EPS = 0.03`, `SRC_S0 = 24`, `DENS_DIFF = 0.005`,
+`NU_HYPER = 0.3`, and run with `DRBX_PRECISION=float32` (fp64 runs at 1/64
+rate on consumer GPUs). Every physics knob -- island amplitude (`EPS`),
+throughput (`SRC_S0`), perpendicular diffusion (`DENS_DIFF`), parallel
+friction (`FRICTION_MU`), grid, timestep, and duration -- is a plain constant
+there. The figure script writes to `output/island_tokamak/`; set
+`OUT_DIR = Path("docs/media")` to refresh this page's media.

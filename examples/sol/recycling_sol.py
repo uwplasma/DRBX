@@ -26,6 +26,7 @@ writes ``output/recycling_sol/`` with a two-panel PNG and a JSON summary.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import jax
@@ -45,6 +46,8 @@ from drbx.native.neutrals import (  # noqa: E402
     sol_recycling_step,  # noqa: F401  (the single-step API, if you want a custom loop)
     target_ion_flux,
 )
+
+_T0 = time.perf_counter()
 
 # ----------------------------------------------------------------------------
 # PARAMETERS -- everything you might want to change, in one place.
@@ -201,3 +204,4 @@ fig.tight_layout()
 fig.savefig(OUTPUT_DIR / "recycling_sol.png", dpi=180)
 plt.close(fig)
 print(f"wrote {OUTPUT_DIR / 'recycling_sol.png'}")
+print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")
