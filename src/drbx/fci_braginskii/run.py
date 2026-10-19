@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Run a full seven-field EB blob on a precomputed HSX FCI geometry artifact.
 
-Entry points: ``drbx run <deck.toml>`` (deck with ``[model] backend =
-"fci_braginskii"``) and the compatibility script ``simulate_hsx_blob.py``.
-Both build one :class:`HsxBlobConfig` and call :func:`run`.
+Entry point: ``drbx run <deck.toml>`` (deck with ``[model] backend =
+"fci_braginskii"``), which builds one :class:`HsxBlobConfig` and calls :func:`run`.
 
 The construction path is:
 
@@ -22,7 +21,6 @@ sample operator-specific ghost/leg fills.
 
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass, fields, replace
 import hashlib
 import json
@@ -36,7 +34,7 @@ from typing import Callable, Sequence
 import zipfile
 
 # Defaults resolve against the repository checkout, as they did when this
-# module was the root ``simulate_hsx_blob.py`` script.
+# module was a root script.
 SCRIPT_DIR = Path(__file__).resolve().parents[3]
 DRBX_SRC = Path(__file__).resolve().parents[2]
 
@@ -121,6 +119,7 @@ GEOMETRY_PRODUCER_METADATA_KEYS = (
 FILAMENT_CACHE_FORMAT_VERSION = 2
 GMRES_TARGET_TOLERANCE = 1.0e-8
 FCI_BRAGINSKII_BACKEND = "fci_braginskii"
+GMRES_PRECONDITIONERS = ("none", "line-u")  # the one place a new preconditioner is added
 METRIC_FIELDS = (
     "J",
     "g11",
@@ -909,6 +908,7 @@ def build_local_eb_model(
     gmres_max_iterations: int,
     gmres_restart: int = 100,
     gmres_residual_correction_steps: int = 0,
+    gmres_preconditioner: str = "line-u",
     control_volume_geometry=None,
     control_volume_boundary_bc=None,
     curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
@@ -1014,7 +1014,7 @@ def build_local_eb_model(
             regularization_epsilon=float(
                 parameters.phi_inversion_regularization
             ),
-            preconditioner="line-u",
+            preconditioner=gmres_preconditioner,
             residual_correction_steps=int(gmres_residual_correction_steps),
         ),
         face_bc_builder=build_face_bc_bundle,
@@ -1441,6 +1441,7 @@ def run_full_eb(
     gmres_max_iterations: int,
     gmres_restart: int = 100,
     gmres_residual_correction_steps: int = 0,
+    gmres_preconditioner: str = "line-u",
     time_integrator: str = "imex-ssp222",
     advance_execution: str = "compiled",
     num_steps: int,
@@ -1705,6 +1706,7 @@ def run_full_eb(
             gmres_residual_correction_steps=int(
                 gmres_residual_correction_steps
             ),
+            gmres_preconditioner=gmres_preconditioner,
             control_volume_geometry=local_control_volume_geometry,
             control_volume_boundary_bc=control_volume_boundary_bc,
             curvature_face_coefficients_override=(
@@ -3343,8 +3345,7 @@ def recycling_parameters(config) -> fci_neutrals.RecyclingParameters | None:
 class HsxBlobConfig:
     """One HSX FCI blob run.
 
-    Field names are the ``simulate_hsx_blob.py`` option destinations and the
-    keys of a deck's ``[fci_braginskii]`` table.  These defaults are the only
+    Field names are the keys of a deck's ``[fci_braginskii]`` table.  These defaults are the only
     default table: the argument parser and the TOML loader both read them.
     """
 
@@ -3404,383 +3405,43 @@ class HsxBlobConfig:
     gmres_max_iterations: int = 500
     gmres_restart: int = 100
     gmres_residual_correction_steps: int = 1
+    gmres_preconditioner: str = "line-u"
     no_phase_timing: bool = False
     geometry_only: bool = False
     output: Path = SCRIPT_DIR / "hsx_blob_history.npz"
 
-
-_DEFAULTS = HsxBlobConfig()
-_PATH_FIELDS = frozenset(
-    ("geometry", "filament_cache_dir", "snapshot_dir", "restart_from", "output")
-)
-_SEQUENCE_ITEM_TYPES = {
-    "shard_counts": (int, 3),
-    "snapshot_times": (float, None),
-    "blob_center": (float, 2),
-}
-
-
-def _coerce_deck_value(name: str, value: object, base_dir: Path) -> object:
-    def scalar(kind: type, item: object) -> object:
-        if kind is float and isinstance(item, (int, float)) and not isinstance(item, bool):
-            return float(item)
-        if isinstance(item, kind) and (kind is bool or not isinstance(item, bool)):
-            return item
-        raise ValueError(f"[fci_braginskii] {name} must be {kind.__name__}, got {item!r}")
-
-    if name in _PATH_FIELDS:
-        path = Path(str(scalar(str, value))).expanduser()
-        return path if path.is_absolute() else base_dir / path
-    if name in _SEQUENCE_ITEM_TYPES:
-        kind, length = _SEQUENCE_ITEM_TYPES[name]
-        if not isinstance(value, list) or (length is not None and len(value) != length):
-            raise ValueError(f"[fci_braginskii] {name} must be a list of {length or 'any number of'} values")
-        return tuple(scalar(kind, item) for item in value)
-    return scalar(type(getattr(_DEFAULTS, name)), value)
+    def __post_init__(self) -> None:
+        for name, allowed in (
+            ("blob_initialization", ("field-aligned", "logical")),
+            ("advance_execution", ("compiled", "staged-compiled", "eager")),
+            ("gmres_preconditioner", GMRES_PRECONDITIONERS),
+        ):
+            if getattr(self, name) not in allowed:
+                raise ValueError(f"[fci_braginskii] {name} must be one of {allowed}")
+        if self.wall_closure not in WALL_CLOSURES:
+            raise ValueError(f"[fci_braginskii] wall_closure must be one of {WALL_CLOSURES}")
+        sheath_closure(self)
+        neutral_parameters(self)
+        recycling_parameters(self)
 
 
 def load_hsx_blob_deck(path: str | Path) -> HsxBlobConfig:
     """Read an ``[model] backend = "fci_braginskii"`` TOML deck.
 
     Relative paths resolve against the deck directory; unknown tables or keys
-    are errors.
+    are errors.  The generic schema loader lives in :mod:`drbx.deck`.
     """
 
-    from ..config.boutinp import tomllib
+    from ..deck import load_deck
 
-    source = Path(path)
-    data = tomllib.loads(source.read_text(encoding="utf-8"))
-    unknown_tables = sorted(set(data) - {"model", "fci_braginskii"})
-    if unknown_tables:
-        raise ValueError(f"unknown table(s) in fci_braginskii deck: {unknown_tables}")
-    model = data.get("model", {})
-    if set(model) != {"backend"} or model["backend"] != FCI_BRAGINSKII_BACKEND:
-        raise ValueError(f'[model] must contain only backend = "{FCI_BRAGINSKII_BACKEND}"')
-    table = data.get("fci_braginskii", {})
-    known = {field.name for field in fields(HsxBlobConfig)}
-    unknown = sorted(set(table) - known)
-    if unknown:
-        raise ValueError(f"unknown [fci_braginskii] key(s): {unknown}")
-    base_dir = source.resolve().parent
-    config = HsxBlobConfig(
-        **{name: _coerce_deck_value(name, value, base_dir) for name, value in table.items()}
-    )
-    if config.geometry is None:
-        raise ValueError("[fci_braginskii] geometry is required")
-    if config.blob_initialization not in ("field-aligned", "logical"):
-        raise ValueError("[fci_braginskii] blob_initialization must be 'field-aligned' or 'logical'")
-    if config.wall_closure not in WALL_CLOSURES:
-        raise ValueError(f"[fci_braginskii] wall_closure must be one of {WALL_CLOSURES}")
-    sheath_closure(config)
-    neutral_parameters(config)
-    if config.advance_execution not in ("compiled", "staged-compiled", "eager"):
-        raise ValueError(
-            "[fci_braginskii] advance_execution must be 'compiled', 'staged-compiled' or 'eager'"
-        )
-    return config
+    backend, config = load_deck(path)
+    if backend != FCI_BRAGINSKII_BACKEND:
+        raise ValueError(f'[model] backend must be "{FCI_BRAGINSKII_BACKEND}"')
+    return config["fci_braginskii"]
 
 
 def _deck_error(message: str) -> None:
     raise SystemExit(f"error: {message}")
-
-
-def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Run the full local/sharding-compatible seven-field electrostatic "
-            "Boussinesq model on a precomputed FCI simulation geometry artifact."
-        )
-    )
-
-    def option(name: str, *aliases: str, **kwargs: object) -> None:
-        """Add ``--name`` with its default (and type/nargs) from HsxBlobConfig."""
-
-        default = getattr(_DEFAULTS, name)
-        if isinstance(default, bool) and "action" not in kwargs:
-            kwargs["action"] = "store_true"
-        else:
-            kwargs.setdefault("default", default)
-        if "action" not in kwargs and "choices" not in kwargs:
-            if name in _SEQUENCE_ITEM_TYPES:
-                kind, length = _SEQUENCE_ITEM_TYPES[name]
-                kwargs.update(nargs=length or "+", type=kind)
-            else:
-                kwargs["type"] = Path if name in _PATH_FIELDS else type(default)
-        parser.add_argument("--" + name.replace("_", "-"), *aliases, **kwargs)
-
-    option(
-        "geometry",
-        required=require_geometry,
-        help=(
-            "Directory containing the precomputed FCI simulation geometry "
-            "artifact. It sets the topology, resolution and RLP owner profile."
-        ),
-    )
-    option(
-        "shard_counts",
-        "--shards",
-        metavar=("SU", "SV", "SETA"),
-        help=(
-            "Production JAX decomposition in u, the second logical "
-            "coordinate, and eta. Only eta decomposition is supported, so "
-            "the first two entries must be one. Neta must be divisible by "
-            "SETA, whose value must not exceed the available JAX device count."
-        ),
-    )
-    option("halo_width")
-    option(
-        "filament_cache_dir",
-        help="Directory for reusable initial-filament field-line label caches.",
-    )
-    option(
-        "no_filament_cache",
-        help="Disable loading and writing initial-filament label caches.",
-    )
-    option(
-        "rebuild_filament_cache",
-        help="Ignore a matching filament cache and replace it after tracing.",
-    )
-    option("final_time", help="Final normalized simulation time.")
-    option(
-        "num_steps",
-        help=(
-            "Number of equal IMEX-SSP222 steps used to reach --final-time. "
-            "The default gives dt = 7.5e-4 (0.15/200), validated with the "
-            "implicit current/phi pair at the default rho*."
-        ),
-    )
-    option("save_every")
-    option(
-        "checkpoint_every",
-        metavar="N",
-        help=(
-            "Write an atomic restartable checkpoint after every N completed "
-            "steps; 0 disables periodic checkpoints. Checkpoints are separate "
-            "step-indexed NPZ files and survive a later run failure."
-        ),
-    )
-    option(
-        "snapshot_times",
-        metavar="T",
-        help=(
-            "Absolute physical times at which durable atomic checkpoint NPZ "
-            "files are written during the run. A checkpoint is written at "
-            "the first completed step at or after each requested time."
-        ),
-    )
-    option(
-        "snapshot_dir",
-        help="Directory for scheduled snapshot NPZ files; defaults to the output directory.",
-    )
-    option(
-        "restart_from",
-        help="Restart from a snapshot NPZ or a saved history NPZ.",
-    )
-    option(
-        "restart_frame",
-        help="Frame to load from a history NPZ; ignored for a single snapshot.",
-    )
-    option(
-        "diagnostic_every",
-        metavar="N",
-        help=(
-            "Print compiled min/max/max-absolute diagnostics for every state "
-            "field every N steps; 0 disables periodic detailed output."
-        ),
-    )
-    option(
-        "blob_initialization",
-        choices=("field-aligned", "logical"),
-        help=(
-            "Use a backtraced, finite field-aligned density filament by "
-            "default. 'logical' restores the eta-copied Gaussian."
-        ),
-    )
-    option("density_amplitude")
-    option(
-        "temperature_amplitude",
-        help=(
-            "Electron-temperature perturbation used only by the legacy "
-            "logical initialization. The field-aligned filament is "
-            "density-only."
-        ),
-    )
-    option("blob_center", metavar=("U0", "V0"))
-    option("blob_width")
-    option(
-        "blob_reference_eta",
-        help="Toroidal reference plane of the field-aligned filament.",
-    )
-    option(
-        "blob_parallel_half_length",
-        help=(
-            "Half-length in eta radians of the compact cos^2 filament "
-            "envelope. It must be no larger than pi so the perturbation "
-            "vanishes at or before the full-torus periodic seam."
-        ),
-    )
-    option(
-        "fieldline_substeps_per_plane",
-        help=(
-            "RK4 tracing substeps per toroidal plane spacing, used only to "
-            "construct the initial field-line labels."
-        ),
-    )
-    option(
-        "toroidal_perturbation_amplitude",
-        help=(
-            "Relative cosine modulation used only by the legacy logical "
-            "blob. The finite field-aligned filament already breaks "
-            "field-period symmetry."
-        ),
-    )
-    option(
-        "toroidal_perturbation_mode",
-        help="Full-torus integer mode number used by the initial perturbation.",
-    )
-    option(
-        "toroidal_perturbation_phase",
-        help="Initial toroidal perturbation phase in radians.",
-    )
-    option("tau")
-    option(
-        "rho_star",
-        help=(
-            "rho_s / L_ref with L_ref = 1 m (lengths in the geometry are in "
-            "metres). Scales E x B and curvature drifts by rho*, "
-            "polarization by rho*^2. The default is hydrogen at Te ~ 24 eV "
-            "and B = 1 T; rho* scales as sqrt(Te)/B. --rho-star 1 "
-            "--no-implicit-current-phi-pair reproduces the base-commit "
-            "operators."
-        ),
-    )
-    option("mi_over_me")
-    option("perp_diffusion")
-    option("parallel_diffusion")
-    option("electron_collision_frequency")
-    option(
-        "implicit_current_phi_pair",
-        action=argparse.BooleanOptionalAction,
-        default=_DEFAULTS.implicit_current_phi_pair,
-        help=(
-            "Treat mu*grad_par(phi) and the homogeneous parallel current "
-            "divergence implicitly through a coupled potential solve in "
-            "each implicit IMEX stage (default). "
-            "--no-implicit-current-phi-pair restores the explicit "
-            "treatment, which at rho* = 5e-4 limits dt to about 1e-4."
-        ),
-    )
-    option(
-        "wall_closure",
-        choices=WALL_CLOSURES,
-        help=(
-            "Wall closure of parallel legs ending on the vessel: 'bohm' "
-            "(default; Bohm sheath entrance, local ambipolar floating wall, "
-            "sheath heat transmission) or 'zero-flow' (Vi = Ve = 0 wall "
-            "traces, the historical configuration)."
-        ),
-    )
-    option(
-        "electron_heat_transmission",
-        help="Total electron sheath heat transmission gamma_e; 0 selects the floating-wall value.",
-    )
-    option("ion_heat_transmission", help="Total ion sheath heat transmission gamma_i (>= 2.5).")
-    option("secondary_electron_emission", help="Secondary electron emission coefficient in [0, 1).")
-    option(
-        "neutrals",
-        help=(
-            "Evolve a diffusive neutral density with AMJUEL ionisation, "
-            "recombination and charge exchange (off by default)."
-        ),
-    )
-    option("neutral_reference_density_m3", help="n0 in m^-3, used only by the atomic rates.")
-    option("neutral_temperature_ev", help="Prescribed neutral temperature T_n [eV].")
-    option("neutral_mfp_max", help="Mean-free-path cap of the neutral diffusivity [m].")
-    option("neutral_initial_density", help="Initial neutral density at the wall (units of n0).")
-    option(
-        "neutral_initial_decay_length",
-        help="Initial neutral profile N0 exp(-(1-u)/L) in the radial label u; 0 = uniform.",
-    )
-    option("neutral_reaction_substeps", help="Explicit reaction substeps per time step.")
-    option(
-        "sheath_potential",
-        choices=SHEATH_POTENTIALS,
-        help=(
-            "Bohm wall electron closure: 'ambipolar' (default; Ve_w = Vi_w, "
-            "zero current per leg) or 'current' (experimental; sheath-limited "
-            "electron current j = n c_s [1 - exp(Lambda - phi/Te)] per wall "
-            "leg, linearized inside the implicit current/phi solve)."
-        ),
-    )
-    option(
-        "recycling",
-        help="Return R of the applied ion wall flux as neutrals in the wall cells (needs sheath + neutrals).",
-    )
-    option("recycling_coefficient", help="Recycling coefficient R in [0, 1].")
-    option(
-        "recycling_energy",
-        choices=("franck-condon", "wall"),
-        help="Energy of a recycled atom: Franck-Condon (fixed eV) or 3/2 T_wall.",
-    )
-    option("recycling_franck_condon_energy_ev", help="Franck-Condon energy per recycled atom [eV].")
-    option("recycling_wall_temperature_ev", help="Wall temperature for recycling_energy = wall [eV].")
-    option(
-        "advance_execution",
-        choices=("compiled", "staged-compiled", "eager"),
-        help=(
-            "Execution mode for time advancement. 'compiled' builds one "
-            "fused advance executable. 'staged-compiled' compiles reusable "
-            "implicit, explicit, phi, and diagnostic shard-map kernels "
-            "separately. 'eager' disables the outer jax.jit, although the "
-            "JAX backend may still compile kernels."
-        ),
-    )
-    option(
-        "gmres_acceptance_tolerance",
-        "--gmres-tolerance",
-        help=(
-            "Relative and absolute residual accepted after GMRES stops. "
-            "--gmres-tolerance is a backward-compatible alias."
-        ),
-    )
-    option(
-        "gmres_target_tolerance",
-        help="Relative and absolute residual target used to stop GMRES.",
-    )
-    option("gmres_max_iterations")
-    option(
-        "gmres_restart",
-        help="GMRES restart length; capped at --gmres-max-iterations.",
-    )
-    option(
-        "gmres_residual_correction_steps",
-        help=(
-            "Number of reliable true-residual correction solves attempted "
-            "only when the primary GMRES result would otherwise be rejected."
-        ),
-    )
-    option(
-        "no_phase_timing",
-        help=(
-            "Disable ordered in-executable timing markers for the operator "
-            "and GMRES portions of an advance. Phase timing is disabled "
-            "automatically for eager execution and multi-device shard_map."
-        ),
-    )
-    option(
-        "geometry_only",
-        help=(
-            "Stop after loading the geometry artifact and shard-local "
-            "geometry lowering."
-        ),
-    )
-    option("output")
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> None:
-    parser = _build_parser(require_geometry=True)
-    run(HsxBlobConfig(**vars(parser.parse_args(argv))), fail=parser.error)
 
 
 def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> None:
@@ -3794,7 +3455,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             (args.geometry / "manifest.json").read_bytes()
         ).hexdigest()
     except (OSError, KeyError, TypeError, ValueError) as error:
-        fail(f"could not load --geometry artifact: {error}")
+        fail(f"could not load geometry artifact: {error}")
     if simulation_geometry.polar_angular_geometry is None:
         fail("toroidal geometry artifacts must include the RLP topology")
     geometry_metadata = simulation_geometry.metadata
@@ -3819,10 +3480,10 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         fail("toroidal global NTHETA must be even")
     shard_counts = tuple(int(value) for value in args.shard_counts)
     if any(value < 1 for value in shard_counts):
-        fail("--shard-counts entries must be positive")
+        fail("shard_counts entries must be positive")
     if shard_counts[0] != 1 or shard_counts[1] != 1:
         fail(
-            "production sharding is eta-only; use --shard-counts 1 1 NETA_SHARDS"
+            "production sharding is eta-only; use shard_counts = [1, 1, NETA_SHARDS]"
         )
     for axis, (cell_count, shard_count) in enumerate(
         zip(resolution, shard_counts)
@@ -3837,45 +3498,45 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
     except (RuntimeError, ValueError) as error:
         fail(str(error))
     if args.num_steps < 1:
-        fail("--num-steps must be positive")
+        fail("num_steps must be positive")
     if args.final_time <= 0.0:
-        fail("--final-time must be positive")
+        fail("final_time must be positive")
     if args.save_every < 1:
-        fail("--save-every must be positive")
+        fail("save_every must be positive")
     if args.checkpoint_every < 0:
-        fail("--checkpoint-every must be nonnegative")
+        fail("checkpoint_every must be nonnegative")
     if any(float(value) < 0.0 for value in args.snapshot_times):
-        fail("--snapshot-times must be nonnegative")
+        fail("snapshot_times must be nonnegative")
     if any(float(value) > float(args.final_time) for value in args.snapshot_times):
-        fail("--snapshot-times must not exceed --final-time")
+        fail("snapshot_times must not exceed final_time")
     if len(set(float(value) for value in args.snapshot_times)) != len(args.snapshot_times):
-        fail("--snapshot-times must not contain duplicates")
+        fail("snapshot_times must not contain duplicates")
     if args.gmres_target_tolerance < 0.0:
-        fail("--gmres-target-tolerance must be nonnegative")
+        fail("gmres_target_tolerance must be nonnegative")
     if args.gmres_acceptance_tolerance < 0.0:
-        fail("--gmres-acceptance-tolerance must be nonnegative")
+        fail("gmres_acceptance_tolerance must be nonnegative")
     if args.gmres_max_iterations < 1:
-        fail("--gmres-max-iterations must be positive")
+        fail("gmres_max_iterations must be positive")
     if args.gmres_restart < 1:
-        fail("--gmres-restart must be positive")
+        fail("gmres_restart must be positive")
     if args.gmres_residual_correction_steps < 0:
-        fail("--gmres-residual-correction-steps must be nonnegative")
+        fail("gmres_residual_correction_steps must be nonnegative")
     if args.halo_width < 1:
-        fail("--halo-width must be positive")
+        fail("halo_width must be positive")
     if args.density_amplitude < 0.0:
-        fail("--density-amplitude must be nonnegative")
+        fail("density_amplitude must be nonnegative")
     if args.temperature_amplitude < 0.0:
-        fail("--temperature-amplitude must be nonnegative")
+        fail("temperature_amplitude must be nonnegative")
     if args.blob_width <= 0.0:
-        fail("--blob-width must be positive")
+        fail("blob_width must be positive")
     if not 0.0 < args.blob_parallel_half_length <= np.pi:
         fail(
-            "--blob-parallel-half-length must lie in (0, pi]"
+            "blob_parallel_half_length must lie in (0, pi]"
         )
     if args.fieldline_substeps_per_plane < 1:
-        fail("--fieldline-substeps-per-plane must be positive")
+        fail("fieldline_substeps_per_plane must be positive")
     if args.diagnostic_every < 0:
-        fail("--diagnostic-every must be nonnegative")
+        fail("diagnostic_every must be nonnegative")
     try:
         neutral_params = neutral_parameters(args)
         recycling_params = recycling_parameters(args)
@@ -3883,19 +3544,19 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         fail(str(error))
     if not 0.0 <= args.toroidal_perturbation_amplitude < 1.0:
         fail(
-            "--toroidal-perturbation-amplitude must lie in [0, 1)"
+            "toroidal_perturbation_amplitude must lie in [0, 1)"
         )
     if args.toroidal_perturbation_mode < 1:
-        fail("--toroidal-perturbation-mode must be positive")
+        fail("toroidal_perturbation_mode must be positive")
     if args.blob_initialization == "field-aligned":
         if args.temperature_amplitude != 0.0:
             fail(
-                "--temperature-amplitude must be zero for the density-only "
+                "temperature_amplitude must be zero for the density-only "
                 "field-aligned filament"
             )
         if args.toroidal_perturbation_amplitude != 0.0:
             fail(
-                "--toroidal-perturbation-amplitude must be zero for the "
+                "toroidal_perturbation_amplitude must be zero for the "
                 "field-aligned filament; its finite parallel envelope "
                 "already breaks field-period symmetry"
             )
@@ -3982,7 +3643,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         if restart_time < 0.0 or restart_time >= float(args.final_time):
             fail(
                 "restart time must be nonnegative and strictly earlier than "
-                "--final-time"
+                "final_time"
             )
         if any(float(value) < restart_time - 1.0e-14 for value in args.snapshot_times):
             fail(
@@ -4147,7 +3808,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         f"max_iterations={int(args.gmres_max_iterations)}, "
         f"restart={min(int(args.gmres_restart), int(args.gmres_max_iterations))}, "
         f"residual_corrections={int(args.gmres_residual_correction_steps)}, "
-        "preconditioner=line-u, "
+        f"preconditioner={args.gmres_preconditioner}, "
         + (
             "solver_space=owner-grid-RLP"
             if control_volume_descriptor is not None
@@ -4174,6 +3835,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         gmres_residual_correction_steps=int(
             args.gmres_residual_correction_steps
         ),
+        gmres_preconditioner=str(args.gmres_preconditioner),
         parallel_operator_scheme="fci",
         time_integrator="imex-ssp222",
         advance_execution=str(args.advance_execution),
@@ -4312,7 +3974,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             "gmres_residual_correction_steps": int(
                 args.gmres_residual_correction_steps
             ),
-            "gmres_preconditioner": "line-u",
+            "gmres_preconditioner": str(args.gmres_preconditioner),
             "phi_solver_space": (
                 "owner-grid-RLP"
                 if control_volume_descriptor is not None
@@ -4350,6 +4012,3 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         owner_host_geometry=owner_host_geometry,
     )
 
-
-if __name__ == "__main__":
-    main()

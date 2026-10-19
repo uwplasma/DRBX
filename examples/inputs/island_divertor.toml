@@ -1,0 +1,23 @@
+# Four-field FCI turbulence on an island-divertor stellarator edge (about 20 s).
+#   drbx run examples/inputs/island_divertor.toml
+# Resonant perturbations open island chains; open_field_line_masks marks the
+# scrape-off layer by tracing the field lines.
+
+[model]
+backend = "stellarator_turbulence"
+
+[island_divertor]
+shape = [6, 8, 4]       # [radial, poloidal, toroidal] cells
+open_field_line_masks = true # trace lines to find open endpoints (slower, physical SOL)
+mask_max_transits = 30  # toroidal transits traced before a line counts as closed
+
+[island_divertor.field]
+resonances = [[3, 2, 0.01], [4, 3, 0.01]] # [m, n, epsilon]: island at iota = n/m, relative width epsilon
+
+[run]
+steps = 4
+dt = 1.0e-3
+sheath_sink = true      # drain the open endpoints
+
+[output]
+directory = "../../output/island_divertor"
