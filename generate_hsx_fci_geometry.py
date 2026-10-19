@@ -27,7 +27,6 @@ if not DRBX_SRC.is_dir() or not (DRBX_SRC / "drbx").is_dir():
 if str(DRBX_SRC) not in sys.path:
     sys.path.insert(0, str(DRBX_SRC))
 
-from drbx.fci_braginskii.geometry_build.hsx_fci_builder import HSX_QHS_MAIN_CURRENT_AMPERES  # noqa: E402
 from drbx.fci_braginskii.geometry_build.hsx_simulation_geometry import (
     HsxSimulationGeometryConfig,
     build_hsx_simulation_geometry,
@@ -124,9 +123,6 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.makegrid is None and args.makegrid_currents is None:
-        # QHS: the six main coil groups at the nominal current, the six auxiliary groups off.
-        args.makegrid_currents = (HSX_QHS_MAIN_CURRENT_AMPERES,) * 6 + (0.0,) * 6
     config = HsxSimulationGeometryConfig(
         makegrid_path=args.makegrid,
         vessel_path=args.vessel,

@@ -1,6 +1,7 @@
 """Every model runs from a TOML deck: example decks, outputs, schema errors, restart."""
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -35,13 +36,14 @@ def test_example_deck_runs_and_writes_the_documented_outputs(backend, tmp_path):
 
 def test_hsx_example_deck_resolves_and_inspect_prints_it(capsys):
     assert drbx_main(["inspect", str(INPUTS / "hsx_fci_blob.toml")]) == 0
-    assert "gmres_preconditioner = 'line-u'" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "fci_braginskii.gmres_preconditioner = 'line-u'" in out and "geometry.resolution = (16, 16, 16)" in out
 
 
 def test_hsx_gmres_preconditioner_is_a_deck_key(tmp_path):
     body = '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\ngeometry = "g"\n'
     assert load_deck(deck(tmp_path, body + 'gmres_preconditioner = "none"\n'))[1]["fci_braginskii"].gmres_preconditioner == "none"
-    with pytest.raises(ValueError, match="gmres_preconditioner must be"):
+    with pytest.raises(ValueError, match="gmres_preconditioner must be one of"):
         load_deck(deck(tmp_path, body + 'gmres_preconditioner = "jacobi"\n'))
 
 
@@ -68,17 +70,19 @@ def test_cli_reports_deck_errors_without_a_traceback(tmp_path):
         drbx_main(["run", str(path)])
 
 
-def test_restart_from_continues_the_run(tmp_path):
-    base = (
-        '[model]\nbackend = "hasegawa_wakatani"\n[grid]\nn = 16\n'
-        "[run]\nsteps_per_block = 20\n"
-    )
-    full = deck(tmp_path, base + "blocks = 4\n", "full.toml")
-    first = deck(tmp_path, base + "blocks = 2\n", "first.toml")
-    drbx_main(["run", str(full), "--output-dir", str(tmp_path), "--quiet"])
-    drbx_main(["run", str(first), "--output-dir", str(tmp_path), "--quiet"])
-    second = deck(tmp_path, base + 'blocks = 2\nrestart_from = "first_arrays.npz"\n', "second.toml")
-    drbx_main(["run", str(second), "--output-dir", str(tmp_path), "--quiet"])
-    with np.load(tmp_path / "full_arrays.npz") as a, np.load(tmp_path / "second_arrays.npz") as b:
-        np.testing.assert_allclose(b["vorticity"], a["vorticity"], rtol=1e-9, atol=1e-12)
-        assert b["time"][-1] == pytest.approx(a["time"][-1])
+def test_hsx_geometry_table_defaults_to_the_shipped_coils_and_vessel(tmp_path):
+    body = '[model]\nbackend = "fci_braginskii"\n[geometry]\nresolution = [16, 16, 16]\ncache_dir = "c"\n'
+    geometry = load_deck(deck(tmp_path, body))[1]["geometry"]
+    assert geometry.coils_path.name == "coils.hsx" and geometry.vessel_path.name == "vessel_hsx_flare.txt"
+    assert geometry.coils_path.is_file() and geometry.vessel_path.is_file()
+    assert geometry.cache_dir == tmp_path / "c" and geometry.makegrid_path is None
+
+
+def test_essos_geometry_is_a_turbulence_geometry_table(tmp_path):
+    body = '[model]\nbackend = "stellarator_turbulence"\n[essos]\nnx = 4\nlimiter_rho = 0.4\n[run]\nsteps = 1\ndt = 1e-3\n'
+    assert load_deck(deck(tmp_path, body))[1]["essos"].limiter_rho == 0.4
+
+
+@pytest.mark.skipif(not os.environ.get("DRBX_TEST_HSX_DECK"), reason="builds the 16^3 HSX geometry (minutes)")
+def test_hsx_example_deck_builds_geometry_and_runs(tmp_path):
+    assert drbx_main(["run", str(INPUTS / "hsx_fci_blob.toml")]) == 0

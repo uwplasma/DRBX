@@ -119,6 +119,7 @@ GEOMETRY_PRODUCER_METADATA_KEYS = (
 FILAMENT_CACHE_FORMAT_VERSION = 2
 GMRES_TARGET_TOLERANCE = 1.0e-8
 FCI_BRAGINSKII_BACKEND = "fci_braginskii"
+GMRES_PRECONDITIONERS = ("none", "line-u")  # the one place a new preconditioner is added
 METRIC_FIELDS = (
     "J",
     "g11",
@@ -3024,6 +3025,15 @@ class HsxBlobConfig:
     geometry_only: bool = False
     output: Path = SCRIPT_DIR / "hsx_blob_history.npz"
 
+    def __post_init__(self) -> None:
+        for name, allowed in (
+            ("blob_initialization", ("field-aligned", "logical")),
+            ("advance_execution", ("compiled", "staged-compiled", "eager")),
+            ("gmres_preconditioner", GMRES_PRECONDITIONERS),
+        ):
+            if getattr(self, name) not in allowed:
+                raise ValueError(f"[fci_braginskii] {name} must be one of {allowed}")
+
 
 _DEFAULTS = HsxBlobConfig()
 _PATH_FIELDS = frozenset(
@@ -3278,7 +3288,7 @@ def _build_parser(*, require_geometry: bool = False) -> argparse.ArgumentParser:
     )
     option(
         "gmres_preconditioner",
-        choices=("none", "line-u"),
+        choices=GMRES_PRECONDITIONERS,
         help=(
             "Right preconditioner of the potential GMRES solves: the "
             "production per-eta radial-tree line-u solve, or none."

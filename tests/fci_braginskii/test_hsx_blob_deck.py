@@ -16,12 +16,15 @@ def test_parser_defaults_are_the_config_defaults():
     assert parsed == asdict(HsxBlobConfig())
 
 
-def test_example_deck_matches_equivalent_command_line():
-    deck = load_hsx_blob_deck(EXAMPLE)
-    argv = (
-        "--geometry", str(deck.geometry), "--final-time", "0.00375",
-        "--num-steps", "5", "--save-every", "5", "--output", str(deck.output),
+def test_deck_matches_equivalent_command_line(tmp_path):
+    deck_path = tmp_path / "deck.toml"
+    deck_path.write_text(
+        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\ngeometry = "g"\n'
+        'final_time = 0.00375\nnum_steps = 5\nsave_every = 5\noutput = "o"\n'
     )
+    deck = load_hsx_blob_deck(deck_path)
+    argv = ("--geometry", str(tmp_path / "g"), "--final-time", "0.00375", "--num-steps", "5",
+            "--save-every", "5", "--output", str(tmp_path / "o"))
     assert deck == HsxBlobConfig(**vars(_build_parser().parse_args(argv)))
 
 
@@ -32,6 +35,7 @@ def test_example_deck_matches_equivalent_command_line():
         ('geometry = "g"\nnum_steps = 2.5\n', "num_steps must be int"),
         ('geometry = "g"\nblob_center = [0.1]\n', "blob_center"),
         ("num_steps = 2\n", "geometry is required"),
+        ('geometry = "g"\ngmres_preconditioner = "x"\n', "gmres_preconditioner must be one of"),
     ],
 )
 def test_deck_errors(tmp_path, body, message):
@@ -45,4 +49,4 @@ def test_drbx_inspect_prints_resolved_config(capsys):
     assert drbx_main(["inspect", str(EXAMPLE)]) == 0
     out = capsys.readouterr().out
     assert "backend: fci_braginskii" in out
-    assert "num_steps = 5" in out and "rho_star = 0.0005" in out
+    assert "num_steps = 4" in out and "rho_star = 0.0005" in out

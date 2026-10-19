@@ -15,17 +15,13 @@ def documented_tables() -> dict[tuple[str, str], list[tuple[str, str, str]]]:
     """``{(backend, table): [(key, type, default)]}`` read from the page's key tables."""
 
     tables: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
-    backend = table = None
+    backend = None
     for line in PAGE.read_text(encoding="utf-8").splitlines():
         if match := re.match(r'`\[model\] backend = "(\w+)"`', line):
-            backend, table = match.group(1), None
-        elif match := re.match(r"#### `\[([\w.]+)\]`", line):
-            table = match.group(1)
-            tables[(backend, table)] = []
-        elif line.startswith("### "):
-            table = None
-        elif table and (match := re.match(r"\| `(\w+)` \| `([^`]+)` \| `([^`]*)` \|", line)):
-            tables[(backend, table)].append(match.groups())
+            backend = match.group(1)
+        elif match := re.match(r"\| `([\w.]+)\.(\w+)` \| `([^`]+)` \| `([^`]*)` \|", line):
+            table, key, kind, default = match.groups()
+            tables.setdefault((backend, table), []).append((key, kind, default))
     return tables
 
 
@@ -34,9 +30,7 @@ def documented_outputs(backend: str) -> tuple[set[str], set[str]]:
 
     text = PAGE.read_text(encoding="utf-8")
     section = text.split(f'`[model] backend = "{backend}"`')[1].split("\n## ")[0]
-    outputs = section.split("### Outputs")[1]
-    results = outputs.split("`results` keys:")[1] if "`results` keys:" in outputs else ""
-    arrays = outputs.split("`results` keys:")[0]
+    arrays, _, results = section.split("**Outputs**")[1].partition("`results` keys:")
     names = set()
     for row in re.findall(r"^\| ([^|]+) \|", arrays, flags=re.MULTILINE):
         names.update(re.findall(r"`(\w+)`", row))

@@ -1,582 +1,385 @@
 # Deck Reference
 
-`drbx run deck.toml` runs every DRBX model from a TOML file with the same configuration objects the Python API uses: each table is the dataclass (or function signature) of the Python call, so there is one set of defaults. This page documents every table, every key and every output. A test fails when this page and the code disagree.
+`drbx run deck.toml` runs every DRBX model from a TOML file. A deck names its model with `[model] backend = "<name>"`; every other table is the Python configuration dataclass or function signature of that model, so there is one set of defaults. A test fails when this page and the code disagree.
 
 ```bash
-drbx inspect deck.toml   # resolved configuration, nothing is run
-drbx run deck.toml       # run; add --output-dir DIR or --case-name NAME to override [output]
+drbx inspect deck.toml   # print the resolved configuration
+drbx run deck.toml       # run; --output-dir / --case-name override [output]
 ```
 
-## Rules
-
-- A deck names its model with `[model] backend = "<name>"`. Decks without `backend` use the BOUT-style native format (diffusion, periodic fluid, electrostatic vorticity; see [Inputs And Outputs](input_output_reference.md)).
-- Unknown tables and keys are errors that list the valid ones. Required keys are marked `required`; every other key may be omitted.
-- Relative paths resolve against the deck file. `[output] directory` defaults to `./output/<case_name>`.
-- Integers are accepted where a float is expected; lists are TOML arrays; `path` values are strings.
-- `[runtime]` and `[output]` exist for every backend except `fci_braginskii`, which names its own history file (`output`) and has no `--output-dir`, `--case-name` or `--precision`.
-- Every backend except `fci_braginskii` writes `<case_name>_summary.json` (`case_name`, `backend`, the resolved `config`, and `results`) and `<case_name>_arrays.npz`.
-- Time-dependent reduced models write `state_*` arrays; pass that file as `[run] restart_from` to continue.
-
-## Python versus deck
-
-| Python entry point | Deck `backend` | Example deck |
-| --- | --- | --- |
-| `hw_run`, `hw_run_flux_history` | `hasegawa_wakatani` | [`examples/inputs/hasegawa_wakatani.toml`](../examples/inputs/hasegawa_wakatani.toml) |
-| `sol_flux_tube_run`, `compute_fci_sheath_recycling` | `sol_flux_tube` | [`examples/inputs/sol_flux_tube.toml`](../examples/inputs/sol_flux_tube.toml) |
-| `sol_recycling_run` | `sol_recycling` | [`examples/inputs/sol_recycling.toml`](../examples/inputs/sol_recycling.toml) |
-| `detachment_sol_run`, `detachment_diagnostics`, `detachment_ledger` | `detachment_sd1d` | [`examples/inputs/detachment_sd1d.toml`](../examples/inputs/detachment_sd1d.toml) |
-| `run_stellarator_turbulence` with `build_rotating_ellipse_geometry`, `build_shifted_torus_geometry`, `build_island_divertor_geometry` | `stellarator_turbulence` | [`examples/inputs/stellarator_turbulence.toml`](../examples/inputs/stellarator_turbulence.toml) |
-| `build_context`, `differentiability_report` | `fci_differentiable` | [`examples/inputs/fci_differentiable.toml`](../examples/inputs/fci_differentiable.toml) |
-| `HsxBlobConfig`, `drbx.fci_braginskii.run.run` | `fci_braginskii` | [`examples/inputs/hsx_fci_blob.toml`](../examples/inputs/hsx_fci_blob.toml) |
-
-BOUT-style decks (diffusion, periodic fluid MMS, electrostatic vorticity, restart) are unchanged. Not available from a deck, because they are user-written objective or plotting code rather than a model: the Hasegawa-Wakatani, diffusion and detachment optimization scripts (`examples/tokamak/hasegawa_wakatani_optimization.py`, `examples/autodiff_diffusion_*.py`, `examples/autodiff/detachment_control.py`), imported-geometry builders that need external files (ESSOS coils, VMEC/VMEX, VMEC-extender), and the movie and figure scripts. Their model runs are covered by the backends above; the Hasegawa-Wakatani gradient is available through `[autodiff]`.
+- Unknown tables and keys are errors that list the valid ones; `required` keys have no default. Relative paths resolve against the deck. Decks without `backend` are the BOUT-style format ([Inputs And Outputs](input_output_reference.md)).
+- Every backend except `fci_braginskii` accepts `[runtime] precision` (`float64`/`float32`) and `[output] directory` (default `./output/<case_name>`), `case_name` (default: deck name), and writes `<case_name>_summary.json` (`case_name`, `backend`, resolved `config`, `results`) and `<case_name>_arrays.npz`.
+- Example decks: `examples/inputs/<backend>.toml` (`hsx_fci_blob.toml` for `fci_braginskii`).
+- Not available from a deck: optimization and inverse-design scripts (`hasegawa_wakatani_optimization.py`, `autodiff_diffusion_*.py`, `detachment_control.py`; the Hasegawa-Wakatani gradient is `[autodiff]`), VMEC/VMEX/VMEC-extender imports, and figure/movie scripts.
 
 ## Hasegawa-Wakatani drift-wave turbulence
 
 `[model] backend = "hasegawa_wakatani"`
 
-Two-field resistive drift-wave model on a doubly periodic pseudo-spectral box (Python: `drbx.native.hasegawa_wakatani`, `examples/tokamak/drift_wave_turbulence.py`). Units are the usual normalized ones (lengths in rho_s, times in L_n/c_s).
+Two-field resistive drift-wave model on a periodic pseudo-spectral box (`hw_run`; `examples/tokamak/drift_wave_turbulence.py`). Lengths in rho_s.
 
-### Tables
-
-#### `[hasegawa_wakatani]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `adiabaticity` | `float` | `1.0` | 1/time | alpha: parallel electron response coupling density and potential. |
-| `gradient` | `float` | `1.0` | 1/length | kappa: background density-gradient drive. |
-| `hyperviscosity` | `float` | `0.001` | length^4/time | nu: Laplacian-squared damping of the grid scale. |
-| `friction` | `float` | `0.0` | 1/time | mu: linear drag absorbing the inverse cascade. |
-
-#### `[grid]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `n` | `int` | `96` | cells | Points per side of the periodic `n x n` box. |
-| `length` | `float` | `50.26548245743669` | rho_s | Box side length. |
-
-#### `[run]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `dt` | `float` | `0.005` | time | RK4 time step. |
-| `steps_per_block` | `int` | `800` | steps | RK4 steps between diagnostics; one entry of `time`, `energy`, `particle_flux` per block. |
-| `blocks` | `int` | `40` | - | Number of blocks; total time is `blocks * steps_per_block * dt`. |
-| `seed` | `int` | `0` | - | RNG seed of the initial noise (Hasegawa-Wakatani) or of the seeded mode phases (turbulence). |
-| `seed_amplitude` | `float` | `0.05` | - | RMS of the initial real-space noise field. |
-| `save_frames` | `bool` | `False` | - | Also write `vorticity_frames` (one frame per block). |
-| `restart_from` | `Path | None` | `None` | path | `*_arrays.npz` of an earlier run of the same model; continues from its `state_*` arrays and time. |
-
-#### `[autodiff]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `parameter` | `str` | `required` | - | Hasegawa-Wakatani parameter to differentiate: `adiabaticity`, `gradient`, `hyperviscosity` or `friction`. The table is optional; omit it to skip the gradient. |
-| `fd_step` | `float` | `0.001` | relative | Central finite-difference step as a fraction of the parameter value (floor 1), used to check the autodiff gradient. |
-
-#### `[runtime]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `precision` | `str` | `'float64'` | - | `float64` or `float32` floating-point precision for the whole run. |
-
-#### `[output]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `directory` | `Path | None` | `None` | path | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
-| `case_name` | `str | None` | `None` | - | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
-
-### Outputs
-
-`<case_name>_arrays.npz`:
-
-| Name | Shape | Units | Meaning |
+| Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `time` | `(blocks,)` | time | Time at the end of each block. |
-| `energy` | `(blocks,)` | normalized | Fluctuation energy `sum(k^2 |phi_k|^2 + |n_k|^2) / n^4`. |
-| `particle_flux` | `(blocks,)` | normalized | Domain-averaged radial E x B particle flux. |
-| `vorticity` | `(n, n)` | normalized | Final real-space vorticity. |
-| `density` | `(n, n)` | normalized | Final real-space density fluctuation. |
-| `vorticity_frames` | `(blocks, n, n)` | normalized | Vorticity after each block (only with `save_frames`). |
-| `state_zeta_hat` | `(n, n) complex` | normalized | Final spectral vorticity (restart state). |
-| `state_n_hat` | `(n, n) complex` | normalized | Final spectral density (restart state). |
-| `state_time` | `()` | time | Final time (restart state). |
+| `hasegawa_wakatani.adiabaticity` | `float` | `1.0` | alpha: parallel electron response coupling density and potential. (1/time) |
+| `hasegawa_wakatani.gradient` | `float` | `1.0` | kappa: background density-gradient drive. (1/length) |
+| `hasegawa_wakatani.hyperviscosity` | `float` | `0.001` | nu: Laplacian-squared damping of the grid scale. (length^4/time) |
+| `hasegawa_wakatani.friction` | `float` | `0.0` | mu: linear drag absorbing the inverse cascade. (1/time) |
+| `grid.n` | `int` | `96` | Points per side of the periodic `n x n` box. (cells) |
+| `grid.length` | `float` | `50.26548245743669` | Box side length. (rho_s) |
+| `run.dt` | `float` | `0.005` | RK4 time step. (time) |
+| `run.steps_per_block` | `int` | `800` | RK4 steps between diagnostics; one entry of `time`, `energy`, `particle_flux` per block. (steps) |
+| `run.blocks` | `int` | `40` | Number of blocks; total time is `blocks * steps_per_block * dt`. |
+| `run.seed` | `int` | `0` | RNG seed of the initial noise (Hasegawa-Wakatani) or of the seeded mode phases (turbulence). |
+| `run.seed_amplitude` | `float` | `0.05` | RMS of the initial real-space noise field. |
+| `run.save_frames` | `bool` | `False` | Also write `vorticity_frames` (one frame per block). |
+| `autodiff.parameter` | `str` | `required` | Hasegawa-Wakatani parameter to differentiate: `adiabaticity`, `gradient`, `hyperviscosity` or `friction`. The table is optional; omit it to skip the gradient. |
+| `autodiff.fd_step` | `float` | `0.001` | Central finite-difference step as a fraction of the parameter value (floor 1), used to check the autodiff gradient. (relative) |
+| `runtime.precision` | `str` | `'float64'` | `float64` or `float32` floating-point precision for the whole run. |
+| `output.directory` | `Path | None` | `None` | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
+| `output.case_name` | `str | None` | `None` | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
 
-`<case_name>_summary.json` `results` keys: `final_time`, `final_energy`, `final_particle_flux`, `mean_particle_flux_second_half`, `autodiff` (only with `[autodiff]`: parameter, value, gradient, finite_difference, relative_error).
+**Outputs**
+
+| Name | Shape | Meaning |
+| --- | --- | --- |
+| `time` | `(blocks,)` | Time at the end of each block. |
+| `energy` | `(blocks,)` | Fluctuation energy `sum(k^2 |phi_k|^2 + |n_k|^2) / n^4`. |
+| `particle_flux` | `(blocks,)` | Domain-averaged radial E x B flux. |
+| `vorticity`, `density` | `(n, n)` | Final real-space fields. |
+| `vorticity_frames` | `(blocks, n, n)` | Vorticity after each block (only with `save_frames`). |
+
+`results` keys: `final_time`, `final_energy`, `final_particle_flux`, `mean_particle_flux_second_half`, `autodiff` (only with `[autodiff]`: parameter, value, gradient, finite_difference, relative_error).
 
 ## Open-field-line SOL flux tube
 
 `[model] backend = "sol_flux_tube"`
 
-Isothermal density and parallel-momentum Euler system with Bohm sheaths at both targets, plus the FCI sheath/recycling accounting (Python: `drbx.native.sol_flux_tube`, `compute_fci_sheath_recycling`, `examples/sol/open_sol_flux_tube.py`). The target diagnostic uses the `[run]` temperatures.
+Isothermal Euler system with Bohm sheaths at both targets plus the FCI sheath/recycling accounting (`sol_flux_tube_run`, `compute_fci_sheath_recycling`; `examples/sol/open_sol_flux_tube.py`).
 
-### Tables
-
-#### `[sol_flux_tube]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `sound_speed` | `float` | `1.0` | c_s | Normalized isothermal sound speed; sets the Bohm outflow. |
-| `source_amplitude` | `float` | `0.02` | n0 c_s/L | Peak of the Gaussian upstream particle source. |
-| `source_width` | `float` | `4.0` | L | Parallel 1/e width of the source. |
-| `density_floor` | `float` | `1e-06` | n0 | Positivity floor applied after each step. |
-
-#### `[open_slab]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `shape` | `tuple[int, int, int]` | `required` | cells | `[nx, ny, nz]` grid; `nz` cells along the field between the targets. |
-| `radial_extent` | `float` | `1.0` | L | Radial size of the flux tube. |
-| `binormal_extent` | `float` | `1.0` | L | Binormal size of the flux tube. |
-| `parallel_length` | `float` | `40.0` | L | Connection length between the two target plates. |
-
-#### `[sheath]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `recycling_fraction` | `float` | `0.98` | - | Fraction of the target ion flux returned as neutrals (0 = perfect absorber). |
-| `electron_sheath_transmission` | `float` | `5.0` | - | Electron sheath heat-transmission coefficient. |
-| `ion_sheath_transmission` | `float` | `3.5` | - | Ion sheath heat-transmission coefficient. |
-| `recycled_neutral_energy` | `float` | `0.03` | T_norm | Energy carried by each recycled neutral. |
-| `ion_mass` | `float` | `1.0` | m_p | Ion mass in the Bohm sound speed. |
-| `density_floor` | `float` | `1e-12` | n0 | Density floor inside the sheath closure. |
-| `temperature_floor` | `float` | `1e-12` | T_norm | Temperature floor inside the sheath closure. |
-
-#### `[run]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `cfl` | `float` | `0.4` | - | Time step is `cfl * dz / (c_s + 1)`. |
-| `steps` | `int` | `60000` | steps | Total time steps (SOL, recycling), or RK4 steps (turbulence). |
-| `report_every` | `int` | `10000` | steps | Steps per chunk; the steady-state residual is recorded after each chunk. |
-| `electron_temperature` | `float` | `0.5` | T_norm | Uniform electron temperature of the target sheath diagnostic. |
-| `ion_temperature` | `float` | `0.5` | T_norm | Uniform ion temperature of the target sheath diagnostic. |
-| `restart_from` | `Path | None` | `None` | path | `*_arrays.npz` of an earlier run of the same model; continues from its `state_*` arrays and time. |
-
-#### `[runtime]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `precision` | `str` | `'float64'` | - | `float64` or `float32` floating-point precision for the whole run. |
-
-#### `[output]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `directory` | `Path | None` | `None` | path | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
-| `case_name` | `str | None` | `None` | - | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
-
-### Outputs
-
-`<case_name>_arrays.npz`:
-
-| Name | Shape | Units | Meaning |
+| Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `z` | `(nz,)` | L | Parallel cell centers. |
-| `density` | `(nz,)` | n0 | Final density along the tube. |
-| `momentum` | `(nz,)` | n0 c_s | Final parallel momentum. |
-| `mach` | `(nz,)` | c_s | Parallel Mach number `m / (n c_s)`; expect -1 and +1 at the targets. |
-| `source` | `(nz,)` | n0 c_s/L | Upstream particle source. |
-| `report_step` | `(n_reports,)` | steps | Cumulative step count of each chunk. |
-| `residual` | `(n_reports,)` | n0 c_s/L | Steady-state residual `max|dn/dt|` per chunk. |
-| `ion_particle_loss` | `(nz,)` | normalized | Sheath ion loss per cell (non-zero at the targets). |
-| `target_heat_load` | `(nz,)` | normalized | Target heat load per cell. |
-| `recycled_particle_source` | `(nz,)` | normalized | Recycled-neutral source per cell. |
-| `state_density` | `(nx, ny, nz)` | n0 | Restart state. |
-| `state_momentum` | `(nx, ny, nz)` | n0 c_s | Restart state. |
-| `state_time` | `()` | L/c_s | Restart state time. |
+| `sol_flux_tube.sound_speed` | `float` | `1.0` | Normalized isothermal sound speed; sets the Bohm outflow. (c_s) |
+| `sol_flux_tube.source_amplitude` | `float` | `0.02` | Peak of the Gaussian upstream particle source. (n0 c_s/L) |
+| `sol_flux_tube.source_width` | `float` | `4.0` | Parallel 1/e width of the source. (L) |
+| `sol_flux_tube.density_floor` | `float` | `1e-06` | Positivity floor applied after each step. (n0) |
+| `open_slab.shape` | `tuple[int, int, int]` | `required` | `[nx, ny, nz]` grid; `nz` cells along the field between the targets. (cells) |
+| `open_slab.radial_extent` | `float` | `1.0` | Radial size of the flux tube. (L) |
+| `open_slab.binormal_extent` | `float` | `1.0` | Binormal size of the flux tube. (L) |
+| `open_slab.parallel_length` | `float` | `40.0` | Connection length between the two target plates. (L) |
+| `sheath.recycling_fraction` | `float` | `0.98` | Fraction of the target ion flux returned as neutrals (0 = perfect absorber). |
+| `sheath.electron_sheath_transmission` | `float` | `5.0` | Electron sheath heat-transmission coefficient. |
+| `sheath.ion_sheath_transmission` | `float` | `3.5` | Ion sheath heat-transmission coefficient. |
+| `sheath.recycled_neutral_energy` | `float` | `0.03` | Energy carried by each recycled neutral. (T_norm) |
+| `sheath.ion_mass` | `float` | `1.0` | Ion mass in the Bohm sound speed. (m_p) |
+| `sheath.density_floor` | `float` | `1e-12` | Density floor inside the sheath closure. (n0) |
+| `sheath.temperature_floor` | `float` | `1e-12` | Temperature floor inside the sheath closure. (T_norm) |
+| `run.cfl` | `float` | `0.4` | Time step is `cfl * dz / (c_s + 1)`. |
+| `run.steps` | `int` | `60000` | Total time steps (SOL, recycling), or RK4 steps (turbulence). (steps) |
+| `run.report_every` | `int` | `10000` | Steps per chunk; the steady-state residual is recorded after each chunk. (steps) |
+| `run.electron_temperature` | `float` | `0.5` | Uniform electron temperature of the target sheath diagnostic. (T_norm) |
+| `run.ion_temperature` | `float` | `0.5` | Uniform ion temperature of the target sheath diagnostic. (T_norm) |
+| `runtime.precision` | `str` | `'float64'` | `float64` or `float32` floating-point precision for the whole run. |
+| `output.directory` | `Path | None` | `None` | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
+| `output.case_name` | `str | None` | `None` | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
 
-`<case_name>_summary.json` `results` keys: `mach_at_targets`, `n_target_over_upstream` (two-point prediction 0.5), `total_target_ion_loss`, `total_recycled_source`, `total_target_heat_load`, `particle_recycling_residual`, `current_balance_residual`, `final_time`.
+**Outputs**
+
+| Name | Shape | Meaning |
+| --- | --- | --- |
+| `z`, `density`, `momentum`, `mach`, `source` | `(nz,)` | Parallel profiles of the relaxed state; `mach` is -1 and +1 at the targets. |
+| `report_step`, `residual` | `(n_reports,)` | Step count and steady-state residual `max|dn/dt|` per chunk. |
+| `ion_particle_loss`, `target_heat_load`, `recycled_particle_source` | `(nz,)` | Sheath accounting per cell (non-zero at the targets). |
+
+`results` keys: `mach_at_targets`, `n_target_over_upstream` (two-point prediction 0.5), `total_ion_particle_loss`, `total_recycled_particle_source`, `total_target_heat_load`, `particle_recycling_residual`, `current_balance_residual`, `final_time`.
 
 ## Recycling SOL with neutrals
 
 `[model] backend = "sol_recycling"`
 
-Plasma plus diffusive neutral on a flux tube with a prescribed temperature profile and AMJUEL ionization, recombination and charge-exchange rates (Python: `drbx.native.neutrals`, `examples/sol/recycling_sol.py`). The reference run uses `[sol_recycling] upstream_density`; each `[scan]` value is a fresh run.
+Plasma plus diffusive neutral with AMJUEL rates and a prescribed temperature profile (`sol_recycling_run`; `examples/sol/recycling_sol.py`). The reference run uses `upstream_density`; each `[scan]` value is a fresh run.
 
-### Tables
-
-#### `[sol_recycling]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `parallel_length` | `float` | `30.0` | m | Connection length, stagnation point to target (sets the atomic-rate scale). |
-| `upstream_density` | `float` | `1.0` | N_norm | Upstream ion density pinned at `z = 0`. |
-| `recycling_fraction` | `float` | `1.0` | - | Fraction R of the target ion flux returned as neutrals. |
-| `neutral_diffusion` | `float` | `8.0` | - | Neutral parallel diffusion enhancement (kinetic-transport proxy). |
-| `neutral_temperature` | `float` | `0.04` | T_norm | Neutral temperature (0.04 is about 2 eV). |
-| `ion_mass` | `float` | `2.0` | m_p | Ion mass (2 = deuterium). |
-| `density_floor` | `float` | `0.0001` | N_norm | Density floor. |
-
-#### `[sol_recycling.normalization]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `Nnorm` | `float` | `1e+19` | m^-3 | Density normalization. |
-| `Tnorm` | `float` | `100.0` | eV | Temperature normalization. |
-| `Bnorm` | `float` | `1.0` | T | Magnetic-field normalization. |
-| `ion_mass` | `float` | `2.0` | m_p | Ion mass used by the normalization. |
-
-#### `[profile]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `nz` | `int` | `200` | cells | Parallel cells, stagnation point to target. |
-| `upstream_ev` | `float` | `30.0` | eV | Prescribed upstream temperature. |
-| `target_ev` | `float` | `1.5` | eV | Prescribed target temperature (quadratic profile between the two). |
-| `neutral_seed` | `float` | `0.05` | N_norm | Initial trace neutral density. |
-
-#### `[run]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `dt` | `float | None` | `None` | L/c_s | Time step; default `0.1 / nz` (CFL 0.3 against 3 c_s) when omitted. |
-| `steps` | `int` | `60000` | steps | Total time steps (SOL, recycling), or RK4 steps (turbulence). |
-| `report_every` | `int` | `15000` | steps | Steps per chunk; the steady-state residual is recorded after each chunk. |
-| `restart_from` | `Path | None` | `None` | path | `*_arrays.npz` of an earlier run of the same model; continues from its `state_*` arrays and time. |
-
-#### `[scan]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `upstream_density` | `tuple[float, ...]` | `[]` | see text | Extra steady states, one per value (recycling: `N_norm`; detachment: m^-3). Detachment reuses the previous solution as the next guess. Empty: none. |
-
-#### `[runtime]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `precision` | `str` | `'float64'` | - | `float64` or `float32` floating-point precision for the whole run. |
-
-#### `[output]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `directory` | `Path | None` | `None` | path | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
-| `case_name` | `str | None` | `None` | - | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
-
-### Outputs
-
-`<case_name>_arrays.npz`:
-
-| Name | Shape | Units | Meaning |
+| Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `z_over_L` | `(nz,)` | - | Parallel coordinate, target at 1. |
-| `temperature` | `(nz,)` | T_norm | Prescribed temperature profile. |
-| `ion_density` | `(nz,)` | N_norm | Final ion density. |
-| `ion_momentum` | `(nz,)` | N_norm m_p c_s | Final ion momentum. |
-| `neutral_density` | `(nz,)` | N_norm | Final neutral density. |
-| `mach` | `(nz,)` | local c_s | Ion Mach number. |
-| `scan_upstream_density` | `(n_scan,)` | N_norm | Scan inputs. |
-| `scan_target_mach` | `(n_scan,)` | local c_s | Target Mach number per scan point. |
-| `scan_target_ion_flux` | `(n_scan,)` | normalized | Target ion flux per scan point. |
-| `state_ion_density` | `(nz,)` | N_norm | Restart state. |
-| `state_ion_momentum` | `(nz,)` | N_norm m_p c_s | Restart state. |
-| `state_neutral_density` | `(nz,)` | N_norm | Restart state. |
-| `state_time` | `()` | L/c_s | Restart state time. |
+| `sol_recycling.parallel_length` | `float` | `30.0` | Connection length, stagnation point to target (sets the atomic-rate scale). (m) |
+| `sol_recycling.upstream_density` | `float` | `1.0` | Upstream ion density pinned at `z = 0`. (N_norm) |
+| `sol_recycling.recycling_fraction` | `float` | `1.0` | Fraction R of the target ion flux returned as neutrals. |
+| `sol_recycling.neutral_diffusion` | `float` | `8.0` | Neutral parallel diffusion enhancement (kinetic-transport proxy). |
+| `sol_recycling.neutral_temperature` | `float` | `0.04` | Neutral temperature (0.04 is about 2 eV). (T_norm) |
+| `sol_recycling.ion_mass` | `float` | `2.0` | Ion mass (2 = deuterium). (m_p) |
+| `sol_recycling.density_floor` | `float` | `0.0001` | Density floor. (N_norm) |
+| `sol_recycling.normalization.Nnorm` | `float` | `1e+19` | Density normalization. (m^-3) |
+| `sol_recycling.normalization.Tnorm` | `float` | `100.0` | Temperature normalization. (eV) |
+| `sol_recycling.normalization.Bnorm` | `float` | `1.0` | Magnetic-field normalization. (T) |
+| `sol_recycling.normalization.ion_mass` | `float` | `2.0` | Ion mass used by the normalization. (m_p) |
+| `profile.nz` | `int` | `200` | Parallel cells, stagnation point to target. (cells) |
+| `profile.upstream_ev` | `float` | `30.0` | Prescribed upstream temperature. (eV) |
+| `profile.target_ev` | `float` | `1.5` | Prescribed target temperature (quadratic profile between the two). (eV) |
+| `profile.neutral_seed` | `float` | `0.05` | Initial trace neutral density. (N_norm) |
+| `run.dt` | `float | None` | `None` | Time step; default `0.1 / nz` (CFL 0.3 against 3 c_s) when omitted. (L/c_s) |
+| `run.steps` | `int` | `60000` | Total time steps (SOL, recycling), or RK4 steps (turbulence). (steps) |
+| `run.report_every` | `int` | `15000` | Steps per chunk; the steady-state residual is recorded after each chunk. (steps) |
+| `scan.upstream_density` | `tuple[float, ...]` | `[]` | Extra steady states, one per value (recycling: `N_norm`; detachment: m^-3). Detachment reuses the previous solution as the next guess. Empty: none. |
+| `runtime.precision` | `str` | `'float64'` | `float64` or `float32` floating-point precision for the whole run. |
+| `output.directory` | `Path | None` | `None` | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
+| `output.case_name` | `str | None` | `None` | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
 
-`<case_name>_summary.json` `results` keys: `target_mach`, `target_ion_flux`, `dt`, `final_time`, `neutral_cushion_ratio` (neutral density at target over midpoint).
+**Outputs**
+
+| Name | Shape | Meaning |
+| --- | --- | --- |
+| `z_over_L`, `temperature`, `mach`, `ion_density`, `ion_momentum`, `neutral_density` | `(nz,)` | Final profiles (target at `z_over_L = 1`). |
+| `scan_upstream_density`, `scan_target_mach`, `scan_target_ion_flux` | `(n_scan,)` | Detachment-onset scan. |
+
+`results` keys: `target_mach`, `target_ion_flux`, `dt`, `neutral_cushion_ratio` (neutral density at the target over the midpoint).
 
 ## SD1D 1-D detachment
 
 `[model] backend = "detachment_sd1d"`
 
-Plasma-neutral leg solved to steady state by pseudo-transient Newton continuation, matched to SD1D (Python: `drbx.native.neutrals.detachment_sol_run`, `examples/benchmarks/b6_detachment_sd1d.py`). With `[scan]`, one steady state per upstream density, each starting from the previous one.
+Plasma-neutral leg solved to steady state by pseudo-transient Newton continuation, matched to SD1D (`detachment_sol_run`; `examples/benchmarks/b6_detachment_sd1d.py`). Scan points start from the previous solution.
 
-### Tables
-
-#### `[detachment_sd1d]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `ny` | `int` | `800` | cells | Nonuniform cells along the leg. |
-| `length` | `float` | `30.0` | m | Total leg length. |
-| `length_xpt` | `float` | `10.0` | m | Length of the source region and position of the area kink (X-point). |
-| `area_expansion` | `float` | `2.0` | - | Flux-tube area ratio between the X-point and the target. |
-| `dymin` | `float` | `0.1` | - | Smallest cell size (grid refinement toward the target). |
-| `upstream_density` | `float` | `3e+19` | m^-3 | Density held at the upstream cell. |
-| `power_flux` | `float` | `50000000.0` | W/m^2 | Power flux injected over `length_xpt`. |
-| `particle_flux` | `float` | `4e+23` | m^-2 s^-1 | Particle-source flux (shape of the source). |
-| `ionisation_energy` | `float` | `13.6` | eV | Energy lost per ionisation. |
-| `recycling_fraction` | `float` | `0.99` | - | Target recycling fraction. |
-| `neutral_diffusion` | `float` | `10.0` | - | Neutral diffusion multiplier (`dneut`). |
-| `neutral_temperature_floor` | `float` | `0.5` | eV | Neutral temperature floor. |
-| `recycled_temperature` | `float` | `3.5` | eV | Franck-Condon temperature of recycled neutrals. |
-| `max_mean_free_path` | `float` | `0.1` | m | Cap on the neutral mean free path. |
-| `sheath_gamma` | `float` | `6.0` | - | Sheath heat-transmission coefficient. |
-| `charge_exchange` | `bool` | `True` | - | Include charge-exchange friction. |
-| `recombination` | `bool` | `True` | - | Include recombination. |
-| `Nnorm` | `float` | `1e+20` | m^-3 | Density normalization. |
-| `Tnorm` | `float` | `100.0` | eV | Temperature normalization. |
-| `Bnorm` | `float` | `1.0` | T | Magnetic-field normalization. |
-| `AA` | `float` | `2.0` | m_p | Ion mass number. |
-
-#### `[run]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `source_scale` | `float` | `0.1` | - | Initial multiplier of the proportional-integral particle source. |
-| `tol` | `float` | `1e-08` | - | Stop when the scaled steady-state residual falls below this. |
-| `max_iter` | `int` | `400` | - | Maximum pseudo-transient Newton iterations. |
-| `initial_dt` | `float` | `100.0` | 1/Omega_ci | Initial backward-Euler step (grown by the residual ratio). |
-| `newton_switch` | `float` | `1e-05` | - | Residual below which the step is a full Newton step. |
-
-#### `[scan]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `upstream_density` | `tuple[float, ...]` | `[]` | see text | Extra steady states, one per value (recycling: `N_norm`; detachment: m^-3). Detachment reuses the previous solution as the next guess. Empty: none. |
-
-#### `[runtime]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `precision` | `str` | `'float64'` | - | `float64` or `float32` floating-point precision for the whole run. |
-
-#### `[output]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `directory` | `Path | None` | `None` | path | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
-| `case_name` | `str | None` | `None` | - | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
-
-### Outputs
-
-`<case_name>_arrays.npz`:
-
-| Name | Shape | Units | Meaning |
+| Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `upstream_density`, `target_temperature_ev`, `target_ion_flux_area`, `target_density`, `target_mach`, `upstream_temperature_ev`, `residual`, `iterations`, `converged`, `particle_imbalance`, `power_imbalance` | `(n_points,)` | m^-3, eV, m^-2 s^-1, m^-3, -, eV, -, -, -, -, - | One entry per steady state (a single point without `[scan]`). |
-| `profile_ion_density`, `profile_ion_momentum`, `profile_plasma_pressure`, `profile_neutral_density`, `profile_neutral_momentum`, `profile_neutral_pressure` | `(ny,)` | normalized (SD1D) | Fields of the last steady state. |
+| `detachment_sd1d.ny` | `int` | `800` | Nonuniform cells along the leg. (cells) |
+| `detachment_sd1d.length` | `float` | `30.0` | Total leg length. (m) |
+| `detachment_sd1d.length_xpt` | `float` | `10.0` | Length of the source region and position of the area kink (X-point). (m) |
+| `detachment_sd1d.area_expansion` | `float` | `2.0` | Flux-tube area ratio between the X-point and the target. |
+| `detachment_sd1d.dymin` | `float` | `0.1` | Smallest cell size (grid refinement toward the target). |
+| `detachment_sd1d.upstream_density` | `float` | `3e+19` | Density held at the upstream cell. (m^-3) |
+| `detachment_sd1d.power_flux` | `float` | `50000000.0` | Power flux injected over `length_xpt`. (W/m^2) |
+| `detachment_sd1d.particle_flux` | `float` | `4e+23` | Particle-source flux (shape of the source). (m^-2 s^-1) |
+| `detachment_sd1d.ionisation_energy` | `float` | `13.6` | Energy lost per ionisation. (eV) |
+| `detachment_sd1d.recycling_fraction` | `float` | `0.99` | Target recycling fraction. |
+| `detachment_sd1d.neutral_diffusion` | `float` | `10.0` | Neutral diffusion multiplier (`dneut`). |
+| `detachment_sd1d.neutral_temperature_floor` | `float` | `0.5` | Neutral temperature floor. (eV) |
+| `detachment_sd1d.recycled_temperature` | `float` | `3.5` | Franck-Condon temperature of recycled neutrals. (eV) |
+| `detachment_sd1d.max_mean_free_path` | `float` | `0.1` | Cap on the neutral mean free path. (m) |
+| `detachment_sd1d.sheath_gamma` | `float` | `6.0` | Sheath heat-transmission coefficient. |
+| `detachment_sd1d.charge_exchange` | `bool` | `True` | Include charge-exchange friction. |
+| `detachment_sd1d.recombination` | `bool` | `True` | Include recombination. |
+| `detachment_sd1d.Nnorm` | `float` | `1e+20` | Density normalization. (m^-3) |
+| `detachment_sd1d.Tnorm` | `float` | `100.0` | Temperature normalization. (eV) |
+| `detachment_sd1d.Bnorm` | `float` | `1.0` | Magnetic-field normalization. (T) |
+| `detachment_sd1d.AA` | `float` | `2.0` | Ion mass number. (m_p) |
+| `scan.upstream_density` | `tuple[float, ...]` | `[]` | Extra steady states, one per value (recycling: `N_norm`; detachment: m^-3). Detachment reuses the previous solution as the next guess. Empty: none. |
+| `run.source_scale` | `float` | `0.1` | Initial multiplier of the proportional-integral particle source. |
+| `run.tol` | `float` | `1e-08` | Stop when the scaled steady-state residual falls below this. |
+| `run.max_iter` | `int` | `400` | Maximum pseudo-transient Newton iterations. |
+| `run.initial_dt` | `float` | `100.0` | Initial backward-Euler step (grown by the residual ratio). (1/Omega_ci) |
+| `run.newton_switch` | `float` | `1e-05` | Residual below which the step is a full Newton step. |
+| `runtime.precision` | `str` | `'float64'` | `float64` or `float32` floating-point precision for the whole run. |
+| `output.directory` | `Path | None` | `None` | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
+| `output.case_name` | `str | None` | `None` | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
 
-`<case_name>_summary.json` `results` keys: `points` (one dict per steady state with the per-point values above).
+**Outputs**
 
-## Four-field FCI turbulence (stellarator, tokamak, island divertor)
+| Name | Shape | Meaning |
+| --- | --- | --- |
+| `upstream_density`, `target_temperature_ev`, `target_ion_flux_area`, `target_density`, `target_mach`, `upstream_temperature_ev`, `residual`, `iterations`, `converged`, `particle_imbalance`, `power_imbalance` | `(n_points,)` | Per steady state: m^-3, eV, m^-2 s^-1, m^-3, -, eV, -, -, -, -, -. |
+| `profile_ion_density`, `profile_ion_momentum`, `profile_plasma_pressure`, `profile_neutral_density`, `profile_neutral_momentum`, `profile_neutral_pressure` | `(ny,)` | SD1D-normalized fields of the last steady state. |
+
+`results` keys: `points` (one dict per steady state with the values above).
+
+## Four-field FCI turbulence
 
 `[model] backend = "stellarator_turbulence"`
 
-Density, vorticity, ion and electron parallel velocity with a GMRES potential inversion on a flux-coordinate-independent geometry (Python: `drbx.native.stellarator_turbulence`, `examples/stellarator/stellarator_turbulence.py`). Exactly one geometry table selects the configuration: `[rotating_ellipse]` (stellarator, optionally with a limiter SOL), `[shifted_torus]` (tokamak-like) or `[island_divertor]`.
+Density, vorticity and parallel velocities with a GMRES potential inversion on an FCI geometry (`run_stellarator_turbulence`; `examples/stellarator/stellarator_turbulence.py`). Exactly one geometry table: `[rotating_ellipse]` (stellarator, optional limiter SOL), `[shifted_torus]` (tokamak-like), `[island_divertor]` or `[essos]` (coil field lines).
 
-### Tables
-
-Exactly one of `[rotating_ellipse]`, `[shifted_torus]`, `[island_divertor]`; `[run]` is required.
-
-#### `[rotating_ellipse]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `shape` | `tuple[int, int, int]` | `required` | cells | `[nx, ny, nz]` grid (radial, poloidal, toroidal). |
-| `r0` | `float` | `3.0` | L | Major-radius offset of the torus. |
-| `x_min` | `float` | `0.2` | L | Inner radial (minor-radius label) bound. |
-| `x_max` | `float` | `1.0` | L | Outer radial bound. |
-| `elongation` | `float` | `0.35` | - | Ellipse deformation delta in [0, 1); aspect ratio `(1+delta)/(1-delta)`. |
-| `n_field_periods` | `int` | `1` | - | Ellipse rotations per toroidal turn (field periods). |
-| `iota` | `float` | `0.9` | - | Rotational transform of the field. |
-| `c_phi` | `float` | `3.0` | - | Toroidal-field scaling constant. |
-| `map_substeps` | `int` | `8` | - | Field-line tracer substeps per toroidal cell. |
-| `limiter_radius` | `float | None` | `None` | L | Toroidal limiter at zeta=0 opening every line with `x > limiter_radius` into a sheath-drained SOL; omit for all-closed lines. |
-
-#### `[shifted_torus]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `shape` | `tuple[int, int, int]` | `required` | cells | `[nx, ny, nz]` grid (radial, poloidal, toroidal). |
-| `x_min` | `float` | `0.15` | L | Inner radial (minor-radius label) bound. |
-| `x_max` | `float` | `1.0` | L | Outer radial bound. |
-| `r0` | `float` | `3.0` | L | Major-radius offset of the torus. |
-| `alpha_value` | `float` | `0.25` | - | Shafranov-like shift amplitude. |
-| `iota` | `float` | `1.1` | - | Rotational transform of the field. |
-| `c_phi` | `float` | `3.0` | - | Toroidal-field scaling constant. |
-| `sigma` | `float` | `0.0` | - | Poloidal shear; non-zero makes the metric non-axisymmetric. |
-
-#### `[island_divertor]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `shape` | `tuple[int, int, int]` | `required` | cells | `[nx, ny, nz]` grid (radial, poloidal, toroidal). |
-| `r0` | `float` | `3.0` | L | Major-radius offset of the torus. |
-| `elongation` | `float` | `0.35` | - | Ellipse deformation delta in [0, 1); aspect ratio `(1+delta)/(1-delta)`. |
-| `n_field_periods` | `int` | `1` | - | Ellipse rotations per toroidal turn (field periods). |
-| `c_phi` | `float` | `3.0` | - | Toroidal-field scaling constant. |
-| `map_substeps` | `int` | `8` | - | Field-line tracer substeps per toroidal cell. |
-| `open_field_line_masks` | `bool` | `False` | - | Mark open endpoints by multi-transit field-line tracing. |
-| `mask_max_transits` | `int` | `30` | transits | Maximum toroidal transits traced when classifying open lines. |
-
-#### `[island_divertor.field]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `x_min` | `float` | `0.2` | L | Inner radial bound. |
-| `x_max` | `float` | `1.0` | L | Outer radial bound. |
-| `iota_axis` | `float` | `0.55` | - | Rotational transform at `x_min` (linear profile). |
-| `iota_edge` | `float` | `0.82` | - | Rotational transform at `x_max`. |
-| `resonances` | `tuple[tuple[int, int, float], ...]` | `[[3, 2, 0.005], [4, 3, 0.005], [5, 4, 0.005]]` | - | `[[m, n, epsilon], ...]`: island chains at `iota = n/m` with relative width epsilon. |
-
-#### `[run]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `steps` | `int` | `required` | steps | Number of RK4 steps (required). |
-| `dt` | `float` | `required` | time | RK4 time step (required). |
-| `amplitude` | `float` | `0.08` | - | Peak relative density perturbation of the seeded multi-mode state. |
-| `seed` | `int` | `0` | - | RNG seed of the initial noise (Hasegawa-Wakatani) or of the seeded mode phases (turbulence). |
-| `sheath_sink` | `bool` | `False` | - | Drain the open (SOL) endpoints with the Bohm sheath sink each step. |
-| `frame_stride` | `int` | `1` | steps | Record a frame every this many steps (the last step is always recorded). |
-
-#### `[runtime]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `precision` | `str` | `'float64'` | - | `float64` or `float32` floating-point precision for the whole run. |
-
-#### `[output]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `directory` | `Path | None` | `None` | path | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
-| `case_name` | `str | None` | `None` | - | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
-
-### Outputs
-
-`<case_name>_arrays.npz`:
-
-| Name | Shape | Units | Meaning |
+| Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `density_frames` | `(n_frames, nx, ny, nz) float32` | n0 | Density at the recorded steps (frame 0 is the initial state). |
-| `omega_frames` | `(n_frames, nx, ny, nz) float32` | normalized | Vorticity. |
-| `times` | `(n_frames,)` | time | Time of each frame. |
-| `particle_content` | `(n_frames,)` | normalized | Jacobian-weighted total density. |
-| `target_flux` | `(n_frames,)` | normalized | Total sheath ion loss (0 unless `sheath_sink`). |
+| `rotating_ellipse.shape` | `tuple[int, int, int]` | `required` | `[nx, ny, nz]` grid (radial, poloidal, toroidal). (cells) |
+| `rotating_ellipse.r0` | `float` | `3.0` | Major-radius offset of the torus. (L) |
+| `rotating_ellipse.x_min` | `float` | `0.2` | Inner radial (minor-radius label) bound. (L) |
+| `rotating_ellipse.x_max` | `float` | `1.0` | Outer radial bound. (L) |
+| `rotating_ellipse.elongation` | `float` | `0.35` | Ellipse deformation delta in [0, 1); aspect ratio `(1+delta)/(1-delta)`. |
+| `rotating_ellipse.n_field_periods` | `int` | `1` | Ellipse rotations per toroidal turn (field periods). |
+| `rotating_ellipse.iota` | `float` | `0.9` | Rotational transform of the field. |
+| `rotating_ellipse.c_phi` | `float` | `3.0` | Toroidal-field scaling constant. |
+| `rotating_ellipse.map_substeps` | `int` | `8` | Field-line tracer substeps per toroidal cell. |
+| `rotating_ellipse.limiter_radius` | `float | None` | `None` | Toroidal limiter at zeta=0 opening every line with `x > limiter_radius` into a sheath-drained SOL; omit for all-closed lines. (L) |
+| `shifted_torus.shape` | `tuple[int, int, int]` | `required` | `[nx, ny, nz]` grid (radial, poloidal, toroidal). (cells) |
+| `shifted_torus.x_min` | `float` | `0.15` | Inner radial (minor-radius label) bound. (L) |
+| `shifted_torus.x_max` | `float` | `1.0` | Outer radial bound. (L) |
+| `shifted_torus.r0` | `float` | `3.0` | Major-radius offset of the torus. (L) |
+| `shifted_torus.alpha_value` | `float` | `0.25` | Shafranov-like shift amplitude. |
+| `shifted_torus.iota` | `float` | `1.1` | Rotational transform of the field. |
+| `shifted_torus.c_phi` | `float` | `3.0` | Toroidal-field scaling constant. |
+| `shifted_torus.sigma` | `float` | `0.0` | Poloidal shear; non-zero makes the metric non-axisymmetric. |
+| `island_divertor.shape` | `tuple[int, int, int]` | `required` | `[nx, ny, nz]` grid (radial, poloidal, toroidal). (cells) |
+| `island_divertor.r0` | `float` | `3.0` | Major-radius offset of the torus. (L) |
+| `island_divertor.elongation` | `float` | `0.35` | Ellipse deformation delta in [0, 1); aspect ratio `(1+delta)/(1-delta)`. |
+| `island_divertor.n_field_periods` | `int` | `1` | Ellipse rotations per toroidal turn (field periods). |
+| `island_divertor.c_phi` | `float` | `3.0` | Toroidal-field scaling constant. |
+| `island_divertor.map_substeps` | `int` | `8` | Field-line tracer substeps per toroidal cell. |
+| `island_divertor.open_field_line_masks` | `bool` | `False` | Mark open endpoints by multi-transit field-line tracing. |
+| `island_divertor.mask_max_transits` | `int` | `30` | Maximum toroidal transits traced when classifying open lines. (transits) |
+| `island_divertor.field.x_min` | `float` | `0.2` | Inner radial bound. (L) |
+| `island_divertor.field.x_max` | `float` | `1.0` | Outer radial bound. (L) |
+| `island_divertor.field.iota_axis` | `float` | `0.55` | Rotational transform at `x_min` (linear profile). |
+| `island_divertor.field.iota_edge` | `float` | `0.82` | Rotational transform at `x_max`. |
+| `island_divertor.field.resonances` | `tuple[tuple[int, int, float], ...]` | `[[3, 2, 0.005], [4, 3, 0.005], [5, 4, 0.005]]` | `[[m, n, epsilon], ...]`: island chains at `iota = n/m` with relative width epsilon. |
+| `essos.coil_json_path` | `str | Path | None` | `None` | ESSOS coil JSON; default the bundled Landreman-Paul QA coils. |
+| `essos.vmec_wout_path` | `str | Path | None` | `None` | VMEC `wout` file of the seed surfaces. Not bundled: pass it or set `DRBX_ESSOS_ROOT`. |
+| `essos.map_source` | `str` | `'coil'` | `coil` (trace the coil field, keep open lines), `vmec` (closed surface-preserving maps) or `hybrid`. |
+| `essos.nx` | `int` | `6` | Radial cells. (cells) |
+| `essos.ny` | `int` | `8` | Toroidal-angle cells. (cells) |
+| `essos.nz` | `int` | `16` | Poloidal-angle cells. (cells) |
+| `essos.rho_min` | `float` | `0.1` | Inner normalized radius. |
+| `essos.rho_max` | `float` | `0.46` | Outer normalized radius. |
+| `essos.maxtime` | `float` | `140.0` | Integration time of each traced line. (ESSOS units) |
+| `essos.times_to_trace` | `int` | `768` | Samples per traced line. (samples) |
+| `essos.trace_tolerance` | `float` | `1e-08` | Integrator tolerance. |
+| `essos.limiter_rho` | `float | None` | `None` | Opens every surface beyond this rho into a sheath-drained SOL; omit for all closed. |
+| `run.steps` | `int` | `required` | Number of RK4 steps (required). (steps) |
+| `run.dt` | `float` | `required` | RK4 time step (required). (time) |
+| `run.amplitude` | `float` | `0.08` | Peak relative density perturbation of the seeded multi-mode state. |
+| `run.seed` | `int` | `0` | RNG seed of the initial noise (Hasegawa-Wakatani) or of the seeded mode phases (turbulence). |
+| `run.sheath_sink` | `bool` | `False` | Drain the open (SOL) endpoints with the Bohm sheath sink each step. |
+| `run.frame_stride` | `int` | `1` | Record a frame every this many steps (the last step is always recorded). (steps) |
+| `runtime.precision` | `str` | `'float64'` | `float64` or `float32` floating-point precision for the whole run. |
+| `output.directory` | `Path | None` | `None` | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
+| `output.case_name` | `str | None` | `None` | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
 
-`<case_name>_summary.json` `results` keys: `geometry`, `shape`, `n_frames`, `initial_particle_content`, `final_particle_content`, `total_target_flux`, `finite`.
+`run.steps` and `run.dt` are required.
+
+**Outputs**
+
+| Name | Shape | Meaning |
+| --- | --- | --- |
+| `density_frames`, `omega_frames` | `(n_frames, nx, ny, nz) float32` | Fields at the recorded steps (frame 0 is the initial state). |
+| `times`, `particle_content`, `target_flux` | `(n_frames,)` | Time, Jacobian-weighted total density, total sheath ion loss (0 unless `sheath_sink`). |
+
+`results` keys: `geometry`, `shape`, `n_frames`, `initial_particle_content`, `final_particle_content`, `total_target_flux`, `finite`.
 
 ## Differentiable FCI flux tube
 
 `[model] backend = "fci_differentiable"`
 
-Two-field shifted-torus FCI rollout whose gradient with respect to the initial amplitude is computed by reverse-mode autodiff and compared with a central finite difference (Python: `drbx.native.fci_differentiable_case`, `examples/stellarator/fci_differentiable.py`).
+Two-field shifted-torus rollout: reverse-mode gradient in the initial amplitude against a central finite difference (`differentiability_report`; `examples/stellarator/fci_differentiable.py`).
 
-### Tables
-
-#### `[fci_differentiable]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `shape` | `tuple[int, int, int]` | `[16, 16, 8]` | cells | `[nx, ny, nz]` grid. |
-| `sigma` | `float` | `0.6` | - | Poloidal shear of the shifted torus. |
-| `rho_star` | `float` | `1.0` | - | Drift scale rho_*. |
-| `x_min` | `float` | `0.15` | L | Inner radial bound. |
-| `x_max` | `float` | `1.0` | L | Outer radial bound. |
-| `r0` | `float` | `3.0` | L | Major-radius offset. |
-| `alpha_value` | `float` | `0.25` | - | Shafranov-like shift. |
-| `iota` | `float` | `1.1` | - | Rotational transform. |
-| `c_phi` | `float` | `3.0` | - | Toroidal-field scaling. |
-
-#### `[run]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `amp0` | `float` | `0.1` | - | Initial perturbation amplitude at which the gradient is evaluated. |
-| `n_steps` | `int` | `24` | steps | Rollout steps. |
-| `dt` | `float` | `0.001` | time | Rollout time step. |
-| `fd_step` | `float` | `1e-05` | - | Central finite-difference step in `amp0`. |
-
-#### `[runtime]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `precision` | `str` | `'float64'` | - | `float64` or `float32` floating-point precision for the whole run. |
-
-#### `[output]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `directory` | `Path | None` | `None` | path | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
-| `case_name` | `str | None` | `None` | - | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
-
-### Outputs
-
-`<case_name>_arrays.npz`:
-
-| Name | Shape | Units | Meaning |
+| Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `density` | `(nx, ny, nz)` | n0 | Final density. |
-| `v_parallel` | `(nx, ny, nz)` | c_s | Final parallel velocity. |
+| `fci_differentiable.shape` | `tuple[int, int, int]` | `[16, 16, 8]` | `[nx, ny, nz]` grid. (cells) |
+| `fci_differentiable.sigma` | `float` | `0.6` | Poloidal shear of the shifted torus. |
+| `fci_differentiable.rho_star` | `float` | `1.0` | Drift scale rho_*. |
+| `fci_differentiable.x_min` | `float` | `0.15` | Inner radial bound. (L) |
+| `fci_differentiable.x_max` | `float` | `1.0` | Outer radial bound. (L) |
+| `fci_differentiable.r0` | `float` | `3.0` | Major-radius offset. (L) |
+| `fci_differentiable.alpha_value` | `float` | `0.25` | Shafranov-like shift. |
+| `fci_differentiable.iota` | `float` | `1.1` | Rotational transform. |
+| `fci_differentiable.c_phi` | `float` | `3.0` | Toroidal-field scaling. |
+| `run.amp0` | `float` | `0.1` | Initial perturbation amplitude at which the gradient is evaluated. |
+| `run.n_steps` | `int` | `24` | Rollout steps. (steps) |
+| `run.dt` | `float` | `0.001` | Rollout time step. (time) |
+| `run.fd_step` | `float` | `1e-05` | Central finite-difference step in `amp0`. |
+| `runtime.precision` | `str` | `'float64'` | `float64` or `float32` floating-point precision for the whole run. |
+| `output.directory` | `Path | None` | `None` | Directory for the two result files. Default `./output/<case_name>`; relative paths resolve against the deck file. |
+| `output.case_name` | `str | None` | `None` | File prefix. Default: the deck file name without `.toml`. `--case-name` overrides. |
 
-`<case_name>_summary.json` `results` keys: `grad` (autodiff d objective / d amp0), `fd` (finite difference), `rel_error`, `fd_step`, `amp0`, `n_steps`, `dt`, `objective_value` (density variance), `finite`, `density_max`, `v_parallel_max`.
+**Outputs**
 
-## HSX FCI drift-reduced Braginskii (`fci_braginskii`)
+| Name | Shape | Meaning |
+| --- | --- | --- |
+| `density`, `v_parallel` | `(nx, ny, nz)` | Final fields. |
+
+`results` keys: `grad` (autodiff), `fd` (finite difference), `rel_error`, `fd_step`, `amp0`, `n_steps`, `dt`, `objective_value`, `finite`, `density_max`, `v_parallel_max`.
+
+## HSX FCI drift-reduced Braginskii
 
 `[model] backend = "fci_braginskii"`
 
-Seven-field electrostatic Boussinesq drift-reduced Braginskii model on the HSX toroidal FCI geometry artifact, advanced with IMEX-SSP222 and an FGMRES potential solve (Python: `drbx.fci_braginskii.run.HsxBlobConfig`/`run`, `simulate_hsx_blob.py`, see [HSX FCI Braginskii Backend](fci_braginskii_hsx_backend.md)). Every key is also a `simulate_hsx_blob.py` option with dashes. The geometry artifact is produced by `generate_hsx_fci_geometry.py`.
+Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IMEX-SSP222 with an FGMRES potential solve (`HsxBlobConfig`, `simulate_hsx_blob.py`; [HSX backend](fci_braginskii_hsx_backend.md)). `[fci_braginskii]` keys are the script options with underscores. With a `[geometry]` table the geometry is built from the shipped HSX coils and vessel (`generate_hsx_fci_geometry.py`'s builder) and cached.
 
-### Tables
-
-A single table, `[fci_braginskii]`.
-
-#### `[fci_braginskii]`
-
-| Key | Type | Default | Units | Meaning |
-| --- | --- | --- | --- | --- |
-| `geometry` | `Path | None` | `None` | path | Directory of the precomputed FCI simulation geometry artifact (sets topology, resolution, owner profile). Required. |
-| `shard_counts` | `tuple[int, int, int]` | `[1, 1, 1]` | - | JAX decomposition `[su, sv, seta]`; only eta decomposition is supported, so the first two are 1. |
-| `halo_width` | `int` | `2` | cells | Halo width exchanged between shards. |
-| `filament_cache_dir` | `Path` | `<repo>/.hsx_filament_cache` | path | Directory of reusable initial-filament field-line label caches. |
-| `no_filament_cache` | `bool` | `False` | - | Disable loading and writing filament caches. |
-| `rebuild_filament_cache` | `bool` | `False` | - | Ignore a matching cache and replace it after tracing. |
-| `final_time` | `float` | `0.15` | normalized time | Final simulation time. |
-| `num_steps` | `int` | `200` | steps | Equal IMEX-SSP222 steps to reach `final_time`. |
-| `save_every` | `int` | `1` | steps | History is stored every this many steps. |
-| `checkpoint_every` | `int` | `0` | steps | Atomic restartable checkpoint every N steps; 0 disables. |
-| `snapshot_times` | `tuple[float, ...]` | `[]` | normalized time | Times at which snapshot files are written (first step at or after each). |
-| `snapshot_dir` | `Path | None` | `None` | path | Directory for snapshot files; default the output directory. |
-| `restart_from` | `Path | None` | `None` | path | Snapshot or history NPZ to restart from. |
-| `restart_frame` | `int` | `-1` | - | Frame loaded from a history NPZ; ignored for a snapshot. |
-| `diagnostic_every` | `int` | `0` | steps | Print min/max diagnostics for every field every N steps; 0 disables. |
-| `blob_initialization` | `str` | `'field-aligned'` | - | `field-aligned` (backtraced finite filament) or `logical` (eta-copied Gaussian). |
-| `density_amplitude` | `float` | `0.05` | n0 | Relative density amplitude of the blob. |
-| `temperature_amplitude` | `float` | `0.0` | T0 | Electron-temperature perturbation (legacy logical initialization only). |
-| `blob_center` | `tuple[float, float]` | `[0.65, 0.5]` | logical u, v | Blob center `[u, v]`. |
-| `blob_width` | `float` | `0.1` | logical u, v | Gaussian width of the blob. |
-| `blob_reference_eta` | `float` | `3.141592653589793` | rad | Toroidal reference plane of the filament. |
-| `blob_parallel_half_length` | `float` | `3.141592653589793` | rad | Half-length of the cos^2 filament envelope in eta; at most pi. |
-| `fieldline_substeps_per_plane` | `int` | `4` | - | RK4 tracing substeps per plane spacing for the initial labels. |
-| `toroidal_perturbation_amplitude` | `float` | `0.0` | - | Relative cosine modulation (legacy logical blob only). |
-| `toroidal_perturbation_mode` | `int` | `1` | - | Full-torus integer mode number of the perturbation. |
-| `toroidal_perturbation_phase` | `float` | `0.0` | rad | Initial toroidal perturbation phase. |
-| `tau` | `float` | `1.0` | - | Ion-to-electron temperature ratio. |
-| `rho_star` | `float` | `0.0005` | - | rho_s / L_ref (L_ref = 1 m): scales E x B and curvature drifts by rho_*, polarization by rho_*^2. |
-| `mi_over_me` | `float` | `1836.0` | - | Ion-to-electron mass ratio. |
-| `perp_diffusion` | `float` | `1e-05` | normalized | Perpendicular diffusion coefficient. |
-| `parallel_diffusion` | `float` | `0.0` | normalized | Parallel diffusion coefficient. |
-| `electron_collision_frequency` | `float` | `0.0` | normalized | Electron collision frequency. |
-| `implicit_current_phi_pair` | `bool` | `True` | - | Treat `mu grad_par(phi)` and the parallel current divergence implicitly through a coupled potential solve (default). |
-| `advance_execution` | `str` | `'staged-compiled'` | - | `compiled` (one fused executable), `staged-compiled` (reusable kernels) or `eager`. |
-| `gmres_acceptance_tolerance` | `float` | `5e-05` | - | Residual accepted after GMRES stops. |
-| `gmres_target_tolerance` | `float` | `1e-08` | - | Residual target that stops GMRES. |
-| `gmres_max_iterations` | `int` | `500` | - | Maximum GMRES iterations. |
-| `gmres_restart` | `int` | `100` | - | GMRES restart length (capped at `gmres_max_iterations`). |
-| `gmres_residual_correction_steps` | `int` | `1` | - | True-residual correction solves tried when GMRES would be rejected. |
-| `gmres_preconditioner` | `str` | `'line-u'` | - | Right preconditioner of the potential solves: `line-u` (production per-eta radial-tree line solve) or `none`. |
-| `no_phase_timing` | `bool` | `False` | - | Disable in-executable timing markers. |
-| `geometry_only` | `bool` | `False` | - | Stop after loading and lowering the geometry. |
-| `output` | `Path` | `<repo>/hsx_blob_history.npz` | path | History NPZ written at the end of the run. |
-
-### Outputs
-
-Written to `[fci_braginskii] output` (default `<repo>/hsx_blob_history.npz`), plus snapshot and checkpoint files. Shapes use `nu, nv, neta` = the geometry artifact's radial, poloidal and toroidal cell counts; `n_saved` is the number of stored times.
-
-| Name | Shape | Units | Meaning |
+| Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `times` | `(n_saved,)` | normalized time | Stored times, starting with the initial state. |
-| `density`, `phi`, `Te`, `Ti`, `Vi`, `Ve`, `vorticity` | `(n_saved, nu, nv, neta)` | normalized | Field histories in `history_dtype` (float32). |
-| `u`, `v`, `theta`, `eta` | `(nu,)`, `(nv,)`, `(nv,)`, `(neta,)` | logical | Cell-center coordinates (`theta` equals `v`). |
-| `jacobian`, `Bmag` | `(nu, nv, neta)` | geometry units | Cell Jacobian and field strength. |
-| `B_contravariant`, `cartesian` | `(nu, nv, neta, 3)` | geometry units | Contravariant field and cell positions in metres. |
-| `owner_active`, `owner_aggregate_volume` | cell arrays | bool, volume | Angular-agglomeration owner masks and volumes (RLP geometries only). |
-| `nfp`, `simulated_field_periods`, `toroidal_extent`, `shard_counts`, `periodic_axes`, `axis_regular_axes`, `topology`, `coordinate_names_json`, `logical_extents`, `metric_mesh_shape`, `metric_radial_degree`, `metric_poloidal_modes`, `metric_toroidal_modes`, `eta_projection_iterations`, `parallel_operator_scheme`, `fci_trace_substeps`, `history_dtype` | scalars or short vectors | - | Geometry and run bookkeeping copied from the artifact. |
-| `run_metadata_json` | scalar string | - | JSON of the resolved run, including `gmres_preconditioner` and all solver settings. |
+| `fci_braginskii.geometry` | `Path | None` | `None` | Directory of a prebuilt geometry artifact. Omit it and give a `[geometry]` table to build one from the shipped coils. |
+| `fci_braginskii.shard_counts` | `tuple[int, int, int]` | `[1, 1, 1]` | JAX decomposition `[su, sv, seta]`; only eta decomposition is supported, so the first two are 1. |
+| `fci_braginskii.halo_width` | `int` | `2` | Halo width exchanged between shards. (cells) |
+| `fci_braginskii.filament_cache_dir` | `Path` | `<repo>/.hsx_filament_cache` | Directory of reusable initial-filament field-line label caches. |
+| `fci_braginskii.no_filament_cache` | `bool` | `False` | Disable loading and writing filament caches. |
+| `fci_braginskii.rebuild_filament_cache` | `bool` | `False` | Ignore a matching cache and replace it after tracing. |
+| `fci_braginskii.final_time` | `float` | `0.15` | Final simulation time. (normalized time) |
+| `fci_braginskii.num_steps` | `int` | `200` | Equal IMEX-SSP222 steps to reach `final_time`. (steps) |
+| `fci_braginskii.save_every` | `int` | `1` | History is stored every this many steps. (steps) |
+| `fci_braginskii.checkpoint_every` | `int` | `0` | Atomic restartable checkpoint every N steps; 0 disables. (steps) |
+| `fci_braginskii.snapshot_times` | `tuple[float, ...]` | `[]` | Times at which snapshot files are written (first step at or after each). (normalized time) |
+| `fci_braginskii.snapshot_dir` | `Path | None` | `None` | Directory for snapshot files; default the output directory. |
+| `fci_braginskii.restart_from` | `Path | None` | `None` | Snapshot or history NPZ to restart from. |
+| `fci_braginskii.restart_frame` | `int` | `-1` | Frame loaded from a history NPZ; ignored for a snapshot. |
+| `fci_braginskii.diagnostic_every` | `int` | `0` | Print min/max diagnostics for every field every N steps; 0 disables. (steps) |
+| `fci_braginskii.blob_initialization` | `str` | `'field-aligned'` | `field-aligned` (backtraced finite filament) or `logical` (eta-copied Gaussian). |
+| `fci_braginskii.density_amplitude` | `float` | `0.05` | Relative density amplitude of the blob. (n0) |
+| `fci_braginskii.temperature_amplitude` | `float` | `0.0` | Electron-temperature perturbation (legacy logical initialization only). (T0) |
+| `fci_braginskii.blob_center` | `tuple[float, float]` | `[0.65, 0.5]` | Blob center `[u, v]`. (logical u, v) |
+| `fci_braginskii.blob_width` | `float` | `0.1` | Gaussian width of the blob. (logical u, v) |
+| `fci_braginskii.blob_reference_eta` | `float` | `3.141592653589793` | Toroidal reference plane of the filament. (rad) |
+| `fci_braginskii.blob_parallel_half_length` | `float` | `3.141592653589793` | Half-length of the cos^2 filament envelope in eta; at most pi. (rad) |
+| `fci_braginskii.fieldline_substeps_per_plane` | `int` | `4` | RK4 tracing substeps per plane spacing for the initial labels. |
+| `fci_braginskii.toroidal_perturbation_amplitude` | `float` | `0.0` | Relative cosine modulation (legacy logical blob only). |
+| `fci_braginskii.toroidal_perturbation_mode` | `int` | `1` | Full-torus integer mode number of the perturbation. |
+| `fci_braginskii.toroidal_perturbation_phase` | `float` | `0.0` | Initial toroidal perturbation phase. (rad) |
+| `fci_braginskii.tau` | `float` | `1.0` | Ion-to-electron temperature ratio. |
+| `fci_braginskii.rho_star` | `float` | `0.0005` | rho_s / L_ref (L_ref = 1 m): scales E x B and curvature drifts by rho_*, polarization by rho_*^2. |
+| `fci_braginskii.mi_over_me` | `float` | `1836.0` | Ion-to-electron mass ratio. |
+| `fci_braginskii.perp_diffusion` | `float` | `1e-05` | Perpendicular diffusion coefficient. (normalized) |
+| `fci_braginskii.parallel_diffusion` | `float` | `0.0` | Parallel diffusion coefficient. (normalized) |
+| `fci_braginskii.electron_collision_frequency` | `float` | `0.0` | Electron collision frequency. (normalized) |
+| `fci_braginskii.implicit_current_phi_pair` | `bool` | `True` | Treat `mu grad_par(phi)` and the parallel current divergence implicitly through a coupled potential solve (default). |
+| `fci_braginskii.advance_execution` | `str` | `'staged-compiled'` | `compiled` (one fused executable), `staged-compiled` (reusable kernels) or `eager`. |
+| `fci_braginskii.gmres_acceptance_tolerance` | `float` | `5e-05` | Residual accepted after GMRES stops. |
+| `fci_braginskii.gmres_target_tolerance` | `float` | `1e-08` | Residual target that stops GMRES. |
+| `fci_braginskii.gmres_max_iterations` | `int` | `500` | Maximum GMRES iterations. |
+| `fci_braginskii.gmres_restart` | `int` | `100` | GMRES restart length (capped at `gmres_max_iterations`). |
+| `fci_braginskii.gmres_residual_correction_steps` | `int` | `1` | True-residual correction solves tried when GMRES would be rejected. |
+| `fci_braginskii.gmres_preconditioner` | `str` | `'line-u'` | Right preconditioner of the potential solves: `line-u` (production per-eta radial-tree line solve) or `none`. |
+| `fci_braginskii.no_phase_timing` | `bool` | `False` | Disable in-executable timing markers. |
+| `fci_braginskii.geometry_only` | `bool` | `False` | Stop after loading and lowering the geometry. |
+| `fci_braginskii.output` | `Path` | `<repo>/hsx_blob_history.npz` | History NPZ written at the end of the run. |
+| `geometry.resolution` | `tuple[int, int, int]` | `required` | Toroidal cell counts `[nu, ntheta, neta]` (ntheta even). Required. (cells) |
+| `geometry.makegrid_path` | `Path | None` | `None` | MAKEGRID vacuum-field file; when set it replaces the coils. |
+| `geometry.vessel_path` | `Path | None` | `<repo>/vessel_hsx_flare.txt` | Vessel/wall boundary file. Default: the vessel shipped in `examples/inputs/hsx`. |
+| `geometry.fit_sample_shape` | `tuple[int, int, int]` | `[8, 9, 8]` | Field-fit sample grid `[nr, nphi, nz]`. (points) |
+| `geometry.radial_degree` | `int` | `3` | Radial polynomial degree of the flux-surface fit. |
+| `geometry.vertical_degree` | `int` | `3` | Vertical polynomial degree of the fit. |
+| `geometry.toroidal_modes` | `int` | `2` | Toroidal Fourier modes of the fit. |
+| `geometry.metric_spline_degree` | `int` | `1` | Spline degree of the metric. |
+| `geometry.mmpde_iterations` | `int` | `0` | Moving-mesh smoothing iterations. |
+| `geometry.axis_core_radius` | `float` | `0.03` | Radius of the axis core region. (normalized) |
+| `geometry.reference_magnetic_field` | `float | None` | `None` | Reference field; default taken from the field. (T) |
+| `geometry.makegrid_currents` | `Sequence[float] | None` | `None` | One current per coil group; default QHS (six main groups at 10722 A, six auxiliary off). (A) |
+| `geometry.metric_mesh_shape` | `tuple[int, int, int] | None` | `None` | Metric mesh `[nu, ntheta, neta_period]`; default `resolution`. (cells) |
+| `geometry.metric_radial_degree` | `int` | `17` | Radial degree of the metric fit. |
+| `geometry.metric_poloidal_modes` | `int` | `15` | Poloidal modes of the metric fit. |
+| `geometry.metric_toroidal_modes` | `int` | `16` | Toroidal modes of the metric fit. |
+| `geometry.eta_projection_iterations` | `int` | `0` | Eta-projection iterations. |
+| `geometry.metric_cache_dir` | `Path | None` | `None` | Metric cache directory. |
+| `geometry.map_cache_path` | `Path | None` | `None` | Independent FCI map cache/checkpoint. |
+| `geometry.rebuild_metric_cache` | `bool` | `False` | Ignore a cached metric and rebuild. |
+| `geometry.include_curvature_edge_one_form` | `bool` | `False` | Store the curvature edge one-form. |
+| `geometry.trace_backend` | `str` | `'jax'` | `jax` (compiled, batch-sharded) or `numpy` (reference). |
+| `geometry.trace_batch_size` | `int` | `2048` | Compiled trace batch size. (trajectories) |
+| `geometry.trace_device_count` | `int | None` | `None` | Devices sharding the trace; default all. (devices) |
+| `geometry.coils_path` | `Path | None` | `<repo>/coils.hsx` | MAKEGRID coils file (B from the coil filaments). Default: the HSX coils shipped in `examples/inputs/hsx`. |
+| `geometry.coil_table_shape` | `tuple[int, int, int] | None` | `[96, 144, 96]` | In-memory coil field table `[nr, nphi, nz]` per field period. (points) |
+| `geometry.cache_dir` | `Path` | `<repo>/hsx_geometry` | The built artifact is stored (and reused when the table is unchanged) under `cache_dir/hsx_<res>_<hash>`. |
 
-Snapshot files (`<output stem>.snapshot_t<time>.npz`, `<output stem>.checkpoint_step<step>.npz`, `<output stem>.failure_step<step>.npz`) hold one frame: the seven fields without the time axis, plus `time`, `requested_snapshot_time`, `step`, the metric arrays `metric_*`, `jacobian`, `Bmag`, `B_contravariant`, the parallel-coefficient diagnostics, `wall_ghost_states`, `polarization_residual`, `grid_scale_diagnostics` and `run_metadata_json`. Any of them, or a history file, can be passed as `restart_from`.
+**Outputs**
+
+Written to `[fci_braginskii] output` (the `.npz` suffix is added; shapes below are from the 16^3 example deck, `n_saved` = steps/`save_every` + 1 = 5), plus snapshot/checkpoint files. `rc` = `[nu, nv, neta]`.
+
+| Name | Shape | Meaning |
+| --- | --- | --- |
+| `times` | `(n_saved,)` | Stored normalized times, starting with the initial state. |
+| `density`, `phi`, `Te`, `Ti`, `Vi`, `Ve`, `vorticity` | `(n_saved, 16, 16, 16)` float32 | Field histories. |
+| `u`, `v`, `theta`, `eta` | `(nu,)`, `(nv,)`, `(nv,)`, `(neta,)` | Cell-center logical coordinates (`theta` equals `v`). |
+| `jacobian`, `Bmag`, `owner_aggregate_volume`, `owner_active` | `(16, 16, 16)` | Cell Jacobian, field strength, owner volumes and mask. |
+| `B_contravariant`, `cartesian` | `(16, 16, 16, 3)` | Contravariant field and cell positions. |
+| `shard_counts`, `periodic_axes`, `axis_regular_axes`, `metric_mesh_shape` | `(3,)` | Decomposition, axis flags, metric mesh. |
+| `logical_extents` | `(3, 2)` | Logical-coordinate extents. |
+| `nfp`, `simulated_field_periods`, `toroidal_extent`, `metric_radial_degree`, `metric_poloidal_modes`, `metric_toroidal_modes`, `eta_projection_iterations`, `fci_trace_substeps` | `()` | Geometry bookkeeping. |
+| `topology`, `coordinate_names_json`, `parallel_operator_scheme`, `history_dtype` | `()` string | Geometry and storage labels. |
+| `run_metadata_json` | `()` string | JSON of the resolved run, including all solver settings. |
+
+Snapshot and checkpoint files (`<stem>.snapshot_t<time>.npz`, `<stem>.checkpoint_step<step>.npz`, `<stem>.failure_step<step>.npz`) hold one frame: the seven fields without the time axis, `time`, `requested_snapshot_time`, `step`, the `metric_*` arrays, `jacobian`, `Bmag`, `B_contravariant`, parallel-coefficient diagnostics, `wall_ghost_states`, `polarization_residual`, `grid_scale_diagnostics` and `run_metadata_json`. Any of them, or a history file, is valid for `restart_from`.
 
