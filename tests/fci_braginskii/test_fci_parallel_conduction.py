@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -142,11 +142,12 @@ def test_conduction_default_follows_the_wall_closure():
 
 @pytest.mark.slow
 def test_hsx_conduction_is_energy_neutral_and_finite(tmp_path, monkeypatch):
-    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): each conduction stage has zero domain energy."""
+    """Shipped-coil HSX at 16-cubed: each conduction stage has zero domain energy.
 
-    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
-    if bundle is None:
-        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX conduction check")
+    The geometry is built from the deck ``[geometry]`` table and cached under
+    ``output/hsx_geometry``, as in the Bohm regression test of test_fci_wall_closure.
+    """
+
     records = []
     solve = LocalFciDrbEBRhs.solve_implicit_parallel_conduction
 
@@ -166,10 +167,12 @@ def test_hsx_conduction_is_energy_neutral_and_finite(tmp_path, monkeypatch):
     monkeypatch.setattr(LocalFciDrbEBRhs, "solve_implicit_parallel_conduction", recording_solve)
     deck = tmp_path / "hsx.toml"
     deck.write_text(
-        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
-        f'geometry = "{bundle}"\noutput = "{tmp_path / "hsx"}"\n'
-        "final_time = 0.0075\nnum_steps = 4\nsave_every = 4\ntemperature_amplitude = 0.3\n"
-        'blob_initialization = "logical"\n'
+        '[model]\nbackend = "fci_braginskii"\n'
+        "[geometry]\nresolution = [16, 16, 16]\nmetric_mesh_shape = [16, 16, 16]\n"
+        "metric_poloidal_modes = 6\nmetric_toroidal_modes = 3\ntoroidal_modes = 3\n"
+        f'cache_dir = "{Path(__file__).resolve().parents[2] / "output" / "hsx_geometry"}"\n'
+        f'[fci_braginskii]\noutput = "{tmp_path / "hsx"}"\n'
+        "final_time = 0.0075\nnum_steps = 4\nsave_every = 4\n"
     )
     from drbx.cli import main
 
