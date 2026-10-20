@@ -755,7 +755,12 @@ under Neutrals (diffusive closure outside its Knudsen range).
 - With the default Bohm sheath the floating wall is local (zero current per
   leg) and the phi wall boundary is Dirichlet zero. The sheath-current wall
   (`sheath_potential = "current"`) is experimental and fails on HSX at step 47
-  (see Wall closure).
+  (see Wall closure); with the default parallel conduction the 16^3 deck reaches
+  step 236 (t = 0.177, density collapse next to the wall) instead of step 101.
+- The Spitzer conduction uses the support pair, whose wide stencil differs from
+  the 3-point `local_parallel_diffusion` of the explicit `parallel_diffusion` path;
+  on the 16^3 HSX grid the two operators applied to a smooth field differ by
+  about 70% (relative L2 away from walls), converging only with resolution.
 
 ## Tests
 
