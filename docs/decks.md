@@ -394,6 +394,10 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.mi_over_me` | `float` | `1836.0` | Ion-to-electron mass ratio. |
 | `fci_braginskii.perp_diffusion` | `float` | `1e-05` | Perpendicular diffusion coefficient. (normalized) |
 | `fci_braginskii.parallel_diffusion` | `float` | `0.0` | Parallel diffusion coefficient. (normalized) |
+| `fci_braginskii.parallel_conduction` | `str` | `'auto'` | Implicit Spitzer-Harm parallel heat conduction of Te and Ti: `auto` (on with the Bohm wall), `spitzer` or `off`. |
+| `fci_braginskii.reference_density_m3` | `float` | `1e+19` | Reference density n0 of the Spitzer conductivity. (m^-3) |
+| `fci_braginskii.coulomb_logarithm` | `float` | `15.0` | Coulomb logarithm of the Spitzer conductivity. |
+| `fci_braginskii.heat_flux_limiter` | `float` | `0.0` | Free-streaming flux limiter alpha, q_fs = alpha n T v_th; 0 disables. |
 | `fci_braginskii.electron_collision_frequency` | `float` | `0.0` | Electron collision frequency. (normalized) |
 | `fci_braginskii.implicit_current_phi_pair` | `bool` | `True` | Treat `mu grad_par(phi)` and the parallel current divergence implicitly through a coupled potential solve (default). |
 | `fci_braginskii.wall_closure` | `str` | `'bohm'` | Parallel wall closure: `bohm` (sheath outflow at the Bohm speed, default) or `zero-flow` (no particle or heat outflow). |
