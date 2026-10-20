@@ -118,8 +118,12 @@ GEOMETRY_PRODUCER_METADATA_KEYS = (
 )
 FILAMENT_CACHE_FORMAT_VERSION = 2
 GMRES_TARGET_TOLERANCE = 1.0e-8
+# Right preconditioner of the FGMRES phi solves (see SolvaxGmresConfig).  A
+# performance-only selector: every kind solves the same system to the same
+# GMRES tolerance, so it is a deck key (``gmres_preconditioner``) even though
+# the physics-affecting numerics stay fixed production configuration.
+GMRES_PRECONDITIONERS = ("none", "auto", "line-u", "line-u-pardiag", "line-uy-pardiag")  # the one place a new preconditioner is added
 FCI_BRAGINSKII_BACKEND = "fci_braginskii"
-GMRES_PRECONDITIONERS = ("none", "line-u")  # the one place a new preconditioner is added
 METRIC_FIELDS = (
     "J",
     "g11",
@@ -3405,7 +3409,7 @@ class HsxBlobConfig:
     gmres_max_iterations: int = 500
     gmres_restart: int = 100
     gmres_residual_correction_steps: int = 1
-    gmres_preconditioner: str = "line-u"
+    gmres_preconditioner: str = "auto"
     no_phase_timing: bool = False
     geometry_only: bool = False
     output: Path = SCRIPT_DIR / "hsx_blob_history.npz"

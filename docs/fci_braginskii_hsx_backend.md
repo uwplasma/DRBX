@@ -40,7 +40,7 @@ backend.
 - Boundaries: Bohm sheath on parallel legs that end on the vessel (default;
   `wall_closure = "zero-flow"` restores Vi = Ve = 0 face traces), physical-normal Neumann
   ghosts for density and temperatures, Dirichlet potential and vorticity.
-- Potential solve: SOLVAX FGMRES with the line-u preconditioner.
+- Potential solve: SOLVAX FGMRES with the line-u preconditioner, or on the single-shard RLP geometry the parallel-current-aware product form (`gmres_preconditioner = "auto"`, the default).
 
 The wall closure is a Bohm sheath entrance (see Wall closure below). An
 optional diffusive neutral model (off by default) is described under Neutrals
@@ -450,6 +450,13 @@ tolerances; see [Deck Reference](decks.md).
 - `compiled`: one fused IMEX step.
 - `eager`: no outer `jax.jit`; slow, but Python-level debugging and printing
   work inside the right-hand side.
+
+`--gmres-preconditioner` (deck key `gmres_preconditioner`) selects the right
+preconditioner of the potential solves: `auto` (default), `line-u`,
+`line-u-pardiag`, `line-uy-pardiag` or `none`. `auto` is `line-uy-pardiag`
+on a single-shard angular-RLP geometry and `line-u` otherwise (sharded runs,
+other topologies). It is performance-only (same solution to the GMRES
+tolerance, different iteration count), unlike the fixed production numerics.
 
 Phase timing, which reports the operator and GMRES shares of each step, is on
 by default; `no_phase_timing` disables it. At N32 with the defaults the
