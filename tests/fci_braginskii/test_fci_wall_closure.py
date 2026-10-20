@@ -433,22 +433,26 @@ def test_flux_tube_floating_sheath_potential_drop():
 
 @pytest.mark.slow
 def test_hsx_bohm_default_runs_past_the_old_te_collapse(tmp_path):
-    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE), default deck to t = 0.18.
+    """Shipped-coil HSX at 16-cubed, default deck to t = 0.18.
 
     A wall-endpoint trace hotter than the owner used to drain a wall-bounded
     cell's energy at the neighbours' temperature: Te fell to 0.07 and the
-    run failed near t = 0.17 (16-cubed, dt = 7.5e-4).
+    run failed near t = 0.17 (dt = 7.5e-4).  The geometry is built from the
+    deck ``[geometry]`` table and cached under ``output/hsx_geometry``.
     """
 
-    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
-    if bundle is None:
-        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX Bohm default")
+    from pathlib import Path
+
     from drbx.cli import main
 
+    cache = Path(__file__).resolve().parents[2] / "output" / "hsx_geometry"
     deck = tmp_path / "hsx.toml"
     deck.write_text(
-        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
-        f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
+        '[model]\nbackend = "fci_braginskii"\n'
+        "[geometry]\nresolution = [16, 16, 16]\nmetric_mesh_shape = [16, 16, 16]\n"
+        "metric_poloidal_modes = 6\nmetric_toroidal_modes = 3\ntoroidal_modes = 3\n"
+        f'cache_dir = "{cache}"\n'
+        f'[fci_braginskii]\noutput = "{tmp_path / "out" / "hsx"}"\n'
         "final_time = 0.18\nnum_steps = 240\nsave_every = 240\n"
     )
     assert main(["run", str(deck)]) in (0, None)
