@@ -147,7 +147,7 @@ def bohm_wall_state(trace, center, direction, tau) -> jnp.ndarray:
     """Return the Bohm sheath-entrance state for wall legs.
 
     ``trace`` holds the physical wall trace (Te, Ti from the Neumann wall
-    law); ``direction`` is +1 for a forward (+b) leg and -1 for a backward leg,
+    law, limited to the owner values); ``direction`` is +1 for a forward (+b) leg and -1 for a backward leg,
     i.e. ``sign(b.n_w)`` of the wall it hits.  The flow leaves at
     ``V_w = s*max(s*Vi_owner, c_s)`` (Bohm inequality) and the electrons follow
     at the same velocity (local ambipolar floating wall: zero current per
@@ -161,6 +161,13 @@ def bohm_wall_state(trace, center, direction, tau) -> jnp.ndarray:
     trace = jnp.asarray(trace, dtype=jnp.float64)
     center = jnp.asarray(center, dtype=jnp.float64)
     s = jnp.asarray(direction, dtype=jnp.float64)
+    # The sheath entrance cannot be hotter than the owner cell that feeds it:
+    # a wall-endpoint trace taken from hotter neighbours would drain the
+    # owner's energy at the neighbours' temperature and, with no heat supply,
+    # cool a wall-bounded cell toward zero (the cell then drives grid-scale
+    # curvature and electron-force terms and the run fails).
+    trace = trace.at[..., 1].set(jnp.minimum(trace[..., 1], center[..., 1]))
+    trace = trace.at[..., 2].set(jnp.minimum(trace[..., 2], center[..., 2]))
     cs = sound_speed(trace[..., 1], trace[..., 2], tau)
     velocity = s * jnp.maximum(s * center[..., 3], cs)
     n, Te, Ti, Vi = (center[..., i] for i in range(4))

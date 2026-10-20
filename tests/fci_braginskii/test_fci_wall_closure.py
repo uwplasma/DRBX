@@ -71,6 +71,19 @@ def test_bohm_state_sign_inequality_momentum_and_current():
         assert np.all(np.asarray(fluxes.particle) > 0.0)  # always outward
 
 
+def test_sheath_entrance_is_not_hotter_than_its_owner():
+    """A hotter wall-endpoint trace must not set the energy flux of a cooler owner."""
+
+    center = np.array([[0.5, 0.08, 0.6, 0.0, 0.0]])
+    hot = np.array([[0.5, 0.45, 0.8, 0.0, 0.0]])
+    cold = np.array([[0.5, 0.05, 0.4, 0.0, 0.0]])
+    for s in (1.0, -1.0):
+        wall = np.asarray(bohm_wall_state(hot, center, s, TAU))
+        np.testing.assert_array_equal(wall[:, 1:3], center[:, 1:3])
+        wall = np.asarray(bohm_wall_state(cold, center, s, TAU))
+        np.testing.assert_array_equal(wall[:, 1:3], cold[:, 1:3])
+
+
 def test_wall_leg_removes_exactly_the_contract_fluxes():
     """No double counting: inventory rates of a wall leg are the flux differences."""
 
@@ -416,3 +429,35 @@ def test_flux_tube_floating_sheath_potential_drop():
     np.testing.assert_allclose(phi - te * np.log(n), lam * te[0] - te[0] * np.log(n[0]), atol=1e-10)
     # the explicit wall current (the PR 1b attempt) diverges at the same step
     assert _sheath_flux_tube(dt=10.0, steps=200, implicit=False) is None
+
+
+@pytest.mark.slow
+def test_hsx_bohm_default_runs_past_the_old_te_collapse(tmp_path):
+    """Shipped-coil HSX at 16-cubed, default deck to t = 0.18.
+
+    A wall-endpoint trace hotter than the owner used to drain a wall-bounded
+    cell's energy at the neighbours' temperature: Te fell to 0.07 and the
+    run failed near t = 0.17 (dt = 7.5e-4).  The geometry is built from the
+    deck ``[geometry]`` table and cached under ``output/hsx_geometry``.
+    """
+
+    from pathlib import Path
+
+    from drbx.cli import main
+
+    cache = Path(__file__).resolve().parents[2] / "output" / "hsx_geometry"
+    deck = tmp_path / "hsx.toml"
+    deck.write_text(
+        '[model]\nbackend = "fci_braginskii"\n'
+        "[geometry]\nresolution = [16, 16, 16]\nmetric_mesh_shape = [16, 16, 16]\n"
+        "metric_poloidal_modes = 6\nmetric_toroidal_modes = 3\ntoroidal_modes = 3\n"
+        f'cache_dir = "{cache}"\n'
+        f'[fci_braginskii]\noutput = "{tmp_path / "out" / "hsx"}"\n'
+        "final_time = 0.18\nnum_steps = 240\nsave_every = 240\n"
+    )
+    assert main(["run", str(deck)]) in (0, None)
+    data = np.load(tmp_path / "out" / "hsx.npz")
+    for name in ("density", "Te", "Ti", "Vi", "Ve", "phi"):
+        assert np.all(np.isfinite(data[name]))
+    assert data["Te"][-1].min() > 0.1
+    assert np.abs(data["Ve"][-1]).max() < 20.0
