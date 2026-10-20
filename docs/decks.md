@@ -419,7 +419,7 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.gmres_max_iterations` | `int` | `500` | Maximum GMRES iterations. |
 | `fci_braginskii.gmres_restart` | `int` | `100` | GMRES restart length (capped at `gmres_max_iterations`). |
 | `fci_braginskii.gmres_residual_correction_steps` | `int` | `1` | True-residual correction solves tried when GMRES would be rejected. |
-| `fci_braginskii.gmres_preconditioner` | `str` | `'line-u'` | Right preconditioner of the potential solves: `line-u` (production per-eta radial-tree line solve) or `none`. |
+| `fci_braginskii.gmres_preconditioner` | `str` | `'auto'` | Right preconditioner of the potential solves: `auto` (default: `line-uy-pardiag` on a single-shard angular-RLP geometry, otherwise `line-u`), `line-u` (per-eta radial-tree line solve), `line-u-pardiag`, `line-uy-pardiag` (parallel-current-aware, with theta ring lines) or `none`. |
 | `fci_braginskii.no_phase_timing` | `bool` | `False` | Disable in-executable timing markers. |
 | `fci_braginskii.geometry_only` | `bool` | `False` | Stop after loading and lowering the geometry. |
 | `fci_braginskii.output` | `Path` | `<repo>/hsx_blob_history.npz` | History NPZ written at the end of the run. |

@@ -53,7 +53,7 @@ def test_gallery_lists_every_example_deck_and_shows_one_in_full():
 def test_hsx_example_deck_resolves_and_inspect_prints_it(capsys):
     assert drbx_main(["inspect", str(INPUTS / "hsx_fci_blob.toml")]) == 0
     out = capsys.readouterr().out
-    assert "fci_braginskii.gmres_preconditioner = 'line-u'" in out and "geometry.resolution = (16, 16, 16)" in out
+    assert "fci_braginskii.gmres_preconditioner = 'auto'" in out and "geometry.resolution = (16, 16, 16)" in out
 
 
 def test_hsx_gmres_preconditioner_is_a_deck_key(tmp_path):
