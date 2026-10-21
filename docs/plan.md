@@ -143,7 +143,10 @@ Each item is one small PR with its line delta, gate result and tests.
 A1. Assemble the HSX parallel operators D and G as matrices at 16³; check
     G = −Dᵀ in the volume inner product; eigenvalues of the linearised Ve–Te and
     Ve–φ–ω blocks with and without the sheath rows. Wiesenberger's
-    step-modulated advection test along b.
+    step-modulated advection test along b. Numerical perpendicular diffusion:
+    Stegmeir 2026 anisotropic heat blob (ε⊥ = 1e-8, 64 planes, L1 norm inside
+    the flux-surface volume, support vs naive) and Hariri's zonal-field test;
+    report the map-cell corrugation signature.
 A2. Profile one HSX 32³ step on CPU and GPU (per phase, host syncs counted).
 A3. Energy budget per run: sources, sheath, conduction, artificial diffusion,
     Ohmic heating; check J∥²/σ is present.
@@ -159,20 +162,35 @@ B2. Adjoint-by-construction parallel operators: `Div = −dV⁻¹ Gᵀ dV` with 
     Conduction becomes SPD: switch #64's solve to SOLVAX PCG with a line
     preconditioner. New gate baseline plus MMS convergence and closed-box
     budgets (mass, momentum, energy) and Shanahan's 1D sheath flow.
+    Options (GRILLIX, Stegmeir 2016/2018/2026): toroidally staggered dual
+    planes, Q canonical→dual with Q* = −V⁻¹QᵀV; the integration-interpolation
+    parameter X (2^2X subcells, built once with the map), never without the
+    adjoint pair (unstable). Baseline interpolation: cubic Hermite with direct
+    derivatives (error ∝ (k/N)⁴, Hariri & Ottaviani) or 4×4 bipolynomial.
+    Wall endpoint options next to LVF: ghost points with a second-order Taylor
+    Neumann/Dirichlet fill along the field line (Stegmeir 2016 Eq. 21) and
+    first-interior-point smoothing (1−2ε)u_P + ε(u_A + u_Q).
 B3. Slimming S2 + S3: collapse the near-identical `geometry_build` copies and
     retire the family-1 `Local*` layer (about −8 to −10k lines). Closes #41.
 B4. Move `validation/*` and `dev/` out of `src/` (about −5.5k lines moved).
 
 ### Phase C: stability and the sheath (#60)
 
-C1. Based on A1: stagger Ve/Vi on half-planes or use a skew-symmetric
-    gradient; add energy-consistent parallel diffusion on n and u in place of
+C1. Based on A1: stagger Ve/Vi (or the fluxes) on toroidally dual planes as
+    in GRILLIX, with a skew-symmetric gradient as fallback; perpendicular
+    hyper-diffusion (N = 2) as the odd-even damper; add energy-consistent parallel diffusion on n and u in place of
     uniform diffusion; optional map smoothing. Try LVF at the wall endpoint.
 C2. Sheath-current mode: adopt the Tecchiolli simplified set first, with an
     implicit sheath conductance (Newton on j(φ)) and a clamped exponent; then
-    the full Loizu set.
+    the full Loizu set. Start-up stabiliser if needed: a parallel resistivity
+    ramp through the initial transient (GRILLIX W7-AS used ×18 to 0.042 ms).
 C3. Implicit Ve–φ–ω block with linearised sheath rows and a
-    Schur-parabolised preconditioner (Bassanini); lagged conductivities;
+    Schur-parabolised preconditioner after Chacón, Knoll & Finn 2002 (as in
+    GRILLIX 2018 and Bassanini): eliminate δω = Pol δφ − Gφ, substitute δVe,
+    solve S = Pol − θ²Δt²c Q*(nD⁻¹)Q plus the linearised sheath conductance
+    on wall diagonals by PCG/multigrid with lagged coefficients, back-substitute.
+    S is SPD only with the exact adjoint pair, so C3 depends on B2. The
+    preconditioner may use first-order upwind fluxes. Lagged conductivities;
     Spitzer–Härm with the q = 2.5, α = 0.8 limiter as a documented option.
 
 ### Phase D: performance (each with A/B/A/B timings and a gate)
@@ -202,7 +220,12 @@ F1. 1D Hermes-3 gap: swap test with γe = 4.8, γi = 3.5, c_s(Ti+Te), identical
     AMJUEL rates, recycled-neutral energy and conduction law.
 F2. Port Hermes-3 `tests/integrated/*-fci` MMS cases; run Hermes-3's
     `stellarator-1D` and Dommaschk-3D examples as code-to-code rungs.
-F3. HSX: reproduce the Tecchiolli/Guttenfelder case (profiles, SOL width,
+F3a. TJ-K (Coelho 2023), the cheaper first stellarator rung: 6 periods,
+    R0 = 0.6 m, a ≈ 0.1 m, B ≈ 70 mT, ι ≈ 0.28, n ≈ 5×10¹⁷ m⁻³, Te ≈ 10 eV,
+    Ti < 1 eV, no neutrals; compare the n profile, ExB flux vs poloidal angle,
+    kyρs spectrum (peak ≈ 0.4, slope); GBS underestimates fluctuations ≥2× and
+    misses the Te and φ profiles.
+F3b. HSX: reproduce the Tecchiolli/Guttenfelder case (profiles, SOL width,
     fluctuation levels, kθρs, V_float); cross-check wall connection lengths
     against Garcia's FLARE maps; then Akerson's island SOL and Boeyaert's EMC3
     case.
@@ -220,13 +243,17 @@ G3. README (#58) and tutorial kept in step with each phase.
 VMEX + extender finite-beta field provider; electromagnetic (A∥) terms; GPU
 production runs and scaling.
 
-## 4. Missing references
+## 4. References in hand
 
-Hariri & Ottaviani, CPC 184 (2013); Chacón, Knoll & Finn, JCP 178 (2002);
-Coelho et al. 2023 GBS TJ-K validation (PPCF 65, 085018); the first GRILLIX
-stellarator paper (ref. [1] of Stegmeir 2026); Stegmeir 2016 and 2018 GRILLIX
-FCI papers (open access). `P4_115.pdf` in the folder is an unrelated MAST ETG
-poster.
+Also read on 2026-10-21: Hariri & Ottaviani, CPC 184 (2013) 2419 (original
+FCI); Chacón, Knoll & Finn, JCP 178 (2002) 15 (physics-based preconditioning);
+Coelho et al., PPCF 65 (2023) 085018 (GBS TJ-K); Stegmeir et al., CPC 318
+(2026) 109874 (GRILLIX for tokamaks and stellarators); Stegmeir et al. 2016
+(advances in FCI) and 2018 (GRILLIX). None of them changes the order of the
+phases; they sharpen B2, C1, C2, C3 and add the TJ-K rung F3a.
+
+Still wanted: tabulated HSX edge data (probes, Thomson, H-alpha, neutral
+pressure, target fluxes) from the HSX group.
 
 ## 5. Status log
 
@@ -234,4 +261,4 @@ poster.
 |---|---|---|
 | 2026-10-19 | #44, #45, #49, #38, #46, #47, #39, #37 | FCI unification PRs 0–1, threaded host eig, ESSOS adapter, HSX from coils, examples pattern, tutorial, vessel shipped |
 | 2026-10-20 | #59, #52–#56 (#62), #51, #57, #63 | decks; exhaust stack; integration; preconditioner `auto`; Bohm limiter |
-| 2026-10-21 | — | literature and code review; this plan |
+| 2026-10-21 | — | literature and code review (24 papers, Hermes-3/BOUT++/FELTOR source); this plan |
