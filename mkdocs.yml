@@ -74,6 +74,7 @@ nav:
       - Drift-Wave Turbulence: drift_wave_turbulence.md
   - Plans And Release:
       - Testing Strategy: testing_strategy.md
+      - Plan: plan.md
       - Geometry Roadmap: geometry_roadmap.md
       - Release Packaging: release_packaging.md
       - Release Notes: release_notes.md
