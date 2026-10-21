@@ -35,6 +35,9 @@ backend.
 - Parallel transport: FCI parallel operator, production-path characteristic
   material fluxes with support-core pairing and characteristic-SAT
   boundaries, physical-boundary-state characteristic wall law.
+- Parallel heat conduction: implicit Spitzer-Harm conduction of Te and Ti in
+  flux form on the support pair, on by default with the Bohm wall
+  (`parallel_conduction`, see Parallel heat conduction).
 - E x B advection: material-scalar third-order upwind bracket (compatible
   centred bracket for vorticity).
 - Boundaries: Bohm sheath on parallel legs that end on the vessel (default;
@@ -272,6 +275,63 @@ root cause: Te still collapses (to about 0) in wall-adjacent cells, where
 +-40. The cure for that is the wall-cell electron force (`G(phi)` against the
 sheath endpoint), not another flux term, so the default stays `"ambipolar"`.
 
+## Parallel heat conduction
+
+With the Bohm wall the cells next to the vessel lose heat through the sheath
+(`gamma n T c_s`) but, without conduction, receive none: the explicit
+`parallel_diffusion` is `0` by default and, being one coefficient shared by
+the temperatures, `Ve`/`Vi` viscosity, density and vorticity, cannot supply
+the physical Spitzer value (`chi_par_e` about 75 in `c_s0 L_ref`; an explicit
+step would need `chi dt / dx^2` of order 10). `parallel_conduction` adds the
+Spitzer-Harm conduction of `Te` and `Ti`, advanced implicitly. It is `"auto"`
+by default (on for `wall_closure = "bohm"`, off for `"zero-flow"`);
+`"spitzer"` forces it on and `"off"` removes it, which leaves every field
+bitwise identical to a run without the option. `parallel_diffusion` keeps its
+meaning and adds to the conduction if both are set.
+
+Conductivity (Braginskii, unmagnetized-parallel):
+
+```
+kappa_e = 3.16 n Te tau_e / m_e,   kappa_i = 3.9 n Ti tau_i / m_i
+        = kappa0 T^(5/2)           (tau ~ T^(3/2) / (n ln Lambda): n cancels)
+3/2 n dT/dt = D(kappa G(T)),       q = -kappa G(T)
+```
+
+`kappa0_e = kappa_e(Te0) / (n0 c_s0 L_ref)` with `Te0 = (rho_star e B_ref
+L_ref)^2 / m_i` (23.9 eV at `rho_star = 5e-4`), so it is the Spitzer
+`kappa / n` at the reference point in `c_s0 L_ref`: 74.7 for
+`reference_density_m3 = 1e19` and `coulomb_logarithm = 15`; it scales as
+`1/(n0 ln Lambda)`. The ion value uses `Ti0 = tau Te0` and `tau_i/tau_e =
+sqrt(2 m_i/m_e)` at equal temperature: `kappa0_i = kappa0_e (3.9/3.16)
+sqrt(2 m_e/m_i) tau^(5/2)` (3.04 for `tau = 1`). The startup log prints both
+(`[conduction]`). Optional flux limiter `heat_flux_limiter = alpha` (0 = off):
+`kappa -> kappa / (1 + |q_SH| / q_fs)` with `q_SH = kappa |G T|` and `q_fs =
+alpha n T v_th` (`v_th = sqrt(T/m)`; `sqrt(m_i/m_e Te)` and `sqrt(tau Ti)` in
+`c_s0`).
+
+Discretisation. `(G, D)` is the weighted support pair that already carries the
+sheath rows (see Wall closure): `sum_i V_i D(f)_i = 0` exactly and `G(1) = 0`,
+so the flux form conserves the domain `sum V 3/2 n T` to round-off and the wall
+legs remain the only loss. The pair has no flux through a physical wall: the
+conductive flux is zero on sheath faces, which carry `gamma T Gamma` alone, so
+nothing is counted twice. Backward Euler with `n` and `kappa` frozen at the
+stage start,
+
+```
+(3/2 n - dt D kappa G) dT = dt D(kappa G T)
+```
+
+is a symmetric positive (weighted) matrix-free system solved with SOLVAX
+FGMRES (rel. tol 1e-12, no preconditioner; about 13 iterations per species at
+`dt = 7.5e-4`) inside the existing implicit IMEX stage, before the wall-leg
+backward Euler, so the wall legs remove the heat that conduction delivered.
+Nothing is evaluated on the host and the step stays differentiable. The
+iterations appear as `cond-iters` in the progress line and in slot 5 of the
+stage diagnostics. One consequence for the wall-step ledger: its "wall" column
+is the whole implicit Te/Ti rate and weights it with the step-start `n`, so it
+contains the conduction increment times `n_stage - n_start` (conduction itself
+is exactly sum-free at the stage `n`).
+
 ## Geometry artifact
 
 `geometry` names a directory with `manifest.json` (schema
@@ -439,7 +499,8 @@ cache so repeated runs skip compilation.
 Remaining options cover time and output cadence, snapshots and restarts, the
 initial filament (`--blob-*`, `density_amplitude`), physical parameters
 (`tau`, `rho_star`, `mi_over_me`, `perp_diffusion`,
-`parallel_diffusion` (default 0), `electron_collision_frequency`) and GMRES
+`parallel_diffusion` (default 0), `parallel_conduction`, `reference_density_m3`,
+`coulomb_logarithm`, `heat_flux_limiter`, `electron_collision_frequency`) and GMRES
 tolerances; see [Deck Reference](decks.md).
 
 `advance_execution` selects how each step runs:
@@ -694,7 +755,12 @@ under Neutrals (diffusive closure outside its Knudsen range).
 - With the default Bohm sheath the floating wall is local (zero current per
   leg) and the phi wall boundary is Dirichlet zero. The sheath-current wall
   (`sheath_potential = "current"`) is experimental and fails on HSX at step 47
-  (see Wall closure).
+  (see Wall closure); with the default parallel conduction the 16^3 deck reaches
+  step 236 (t = 0.177, density collapse next to the wall) instead of step 101.
+- The Spitzer conduction uses the support pair, whose wide stencil differs from
+  the 3-point `local_parallel_diffusion` of the explicit `parallel_diffusion` path;
+  on the 16^3 HSX grid the two operators applied to a smooth field differ by
+  about 70% (relative L2 away from walls), converging only with resolution.
 
 ## Tests
 
