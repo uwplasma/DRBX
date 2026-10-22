@@ -2,43 +2,38 @@
 
 [![Tests](https://github.com/uwplasma/drbx/actions/workflows/test.yml/badge.svg)](https://github.com/uwplasma/drbx/actions/workflows/test.yml)
 [![Docs](https://github.com/uwplasma/drbx/actions/workflows/docs.yml/badge.svg)](https://github.com/uwplasma/drbx/actions/workflows/docs.yml)
-[![Coverage](https://github.com/uwplasma/drbx/actions/workflows/coverage.yml/badge.svg)](https://github.com/uwplasma/drbx/actions/workflows/coverage.yml)
 [![PyPI](https://img.shields.io/pypi/v/drbx.svg)](https://pypi.org/project/drbx/)
-[![Python](https://img.shields.io/pypi/pyversions/drbx.svg)](https://pypi.org/project/drbx/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![JAX](https://img.shields.io/badge/JAX-enabled-0a9396.svg)](https://jax.readthedocs.io/)
-[![Read the Docs](https://readthedocs.org/projects/drbx/badge/?version=latest)](https://drbx.readthedocs.io/)
 
-DRBX is a JAX code for drift-reduced Braginskii (DRB) fluid simulations of
-edge and scrape-off-layer (SOL) plasma turbulence. It runs on closed and open
-field lines, in axisymmetric (tokamak) and non-axisymmetric (stellarator)
-geometry, using the flux-coordinate-independent (FCI) approach for parallel
-operators. Every model is written in JAX, so each step is `jit`-compiled and
-differentiable: gradients of any output (a saturated fluctuation energy, a
-target temperature, a transport level) with respect to any input (a gradient
-drive, an adiabaticity, a diffusivity, a geometry parameter) are taken through
-the solver.
+DRBX is a JAX code for drift-reduced Braginskii fluid simulations of edge and
+scrape-off-layer (SOL) plasma turbulence. Parallel operators use the
+flux-coordinate-independent (FCI) approach, so the same models run on closed
+and open field lines in tokamak and non-axisymmetric stellarator geometry.
+Every solver is written in JAX: steps are `jit`-compiled, and outputs can be
+differentiated with respect to physical and geometric inputs.
 
-- **Turbulence models:** Hasegawa-Wakatani, two- and four-field drift-reduced models, electromagnetic terms.
-- **Geometry:** FCI on rotating-ellipse and shifted-torus stellarators, island divertors, imported ESSOS coil fields and VMEC (VMEX) equilibria.
-- **Boundary physics:** open field lines with Bohm-type sheath closures, fluid neutrals with AMJUEL rates, recycling and detachment.
-- **Gradients:** forward, reverse and checkpointed reverse mode, gated to agree; sensitivity, uncertainty, inverse design and control.
+- **Models:** Hasegawa-Wakatani, two- and four-field drift-reduced turbulence, electromagnetic terms, fluid neutrals with AMJUEL rates, a 1D divertor-leg model.
+- **Geometry:** rotating-ellipse and shifted-torus stellarators, island divertors, and imported ESSOS coil fields and VMEC (VMEX) equilibria.
+- **Gradients:** forward, reverse and checkpointed reverse mode, used for sensitivity, inverse design and control.
 - **Runtime:** TOML-deck CLI, small Python API, restartable runs, multi-device `shard_map` stepping.
 
 Documentation: [drbx.readthedocs.io](https://drbx.readthedocs.io/en/latest/).
+Every section below names the script that produces its figure; run it from the
+repository root.
 
 ## Install
 
 ```bash
-pip install drbx          # from PyPI
+pip install drbx
 # or, from source:
 git clone https://github.com/uwplasma/drbx && cd drbx && pip install -e .
 ```
 
-Runtime dependencies are `jax`, `scipy`, `matplotlib`, `netCDF4`, `rich`,
-`pillow`, and [`solvax`](https://github.com/uwplasma/SOLVAX). Python 3.10-3.12.
-
-For ESSOS field imports, install `drbx[essos]` (Python 3.10+).
+Python 3.10 or newer. CPU JAX is installed by default; for a GPU, install the
+matching JAX wheel following the
+[JAX guide](https://docs.jax.dev/en/latest/installation.html). ESSOS coil
+imports need `pip install "drbx[essos]"`; the 3D (PyVista, offscreen) renders in
+the field-line and HSX examples need `pip install "drbx[viz]"`.
 
 ## Quick start
 
@@ -46,306 +41,305 @@ New to DRBX? **Tutorial: start here** -- [one page](docs/tutorial.md)
 from a first run to a stellarator simulation and a gradient.
 
 ```bash
-drbx inspect examples/inputs/restartable_diffusion.toml   # resolve and print the plan
+drbx inspect examples/inputs/restartable_diffusion.toml   # print the resolved plan
 drbx run     examples/inputs/restartable_diffusion.toml   # run and write artifacts
 ```
 
-From Python, a differentiable turbulence run is a few lines:
+From Python, a Hasegawa-Wakatani run is one function call, and its gradient
+with respect to a physical parameter is one more:
 
 ```python
-import jax.numpy as jnp
-import numpy as np
+import jax, jax.numpy as jnp, numpy as np
 from drbx.native.hasegawa_wakatani import HasegawaWakataniParameters, hw_grid, hw_run
 
 grid = hw_grid(64, 2 * jnp.pi * 8)
-params = HasegawaWakataniParameters(adiabaticity=1.0, gradient=1.0)
 rng = np.random.default_rng(0)
 zeta0 = jnp.fft.fft2(jnp.asarray(1e-2 * rng.standard_normal((64, 64))))
 n0 = jnp.fft.fft2(jnp.asarray(1e-2 * rng.standard_normal((64, 64))))
-zeta, n = hw_run(zeta0, n0, grid, params, dt=5e-3, steps=500)  # jit-compiled, differentiable
+
+def density_energy(alpha):
+    params = HasegawaWakataniParameters(adiabaticity=alpha, gradient=1.0)
+    _, n = hw_run(zeta0, n0, grid, params, dt=5e-3, steps=200)
+    return jnp.sum(jnp.abs(n) ** 2).real
+
+print(jax.grad(density_energy)(1.0))   # d(energy)/d(adiabaticity) through 200 steps
 ```
 
-Every example is a flat script: parameters at the top, run, plot. Start with
-[`examples/model_selection_guide.py`](examples/model_selection_guide.py) to
-choose a model family, dimension and boundary conditions.
+## Running from a TOML deck
 
-## Stellarator turbulence in three dimensions
+Every model also runs from a TOML deck, with no Python needed:
 
-Four-field drift-reduced turbulence on a rotating-ellipse stellarator, a torus
-whose elliptical cross-section rotates with the toroidal angle. The cutaway
-shows density fluctuations on a flux surface and through the interior.
+```bash
+drbx inspect examples/inputs/hasegawa_wakatani.toml   # resolved plan, nothing runs
+drbx run     examples/inputs/hasegawa_wakatani.toml   # run and write artifacts
+```
 
-![Stellarator turbulence in 3D](docs/media/stellarator_3d_turbulence.gif)
+The decks in [`examples/inputs/`](examples/inputs) cover Hasegawa-Wakatani, the
+sheath SOL with recycling, the SD1D detachment leg, stellarator turbulence,
+the differentiable FCI operators, restartable diffusion and the HSX filament.
+Keys, defaults and outputs are listed in [docs/decks.md](docs/decks.md).
 
-*[`examples/stellarator/stellarator_3d_render.py`](examples/stellarator/stellarator_3d_render.py)*
+Examples are flat scripts: parameters at the top, then run and plot, writing
+to `output/`. [`examples/model_selection_guide.py`](examples/model_selection_guide.py)
+helps choose a model family, dimension and boundary conditions.
 
-## Closed and open field lines
+## Drift-wave turbulence
 
-The same geometry supports a closed core and an open SOL. Beyond a toroidal
-limiter the field lines (red) end on the limiter plate, where a Bohm sheath
-drains the plasma; core field lines (blue) stay on flux surfaces. The movies
-run the same multi-mode seed with all field lines closed and with the limiter
-SOL, on four toroidal cross-sections.
+The Hasegawa-Wakatani model on a doubly periodic plane: density-gradient-driven
+drift waves saturate into turbulence with zonal flows. The adiabaticity
+`alpha` sets the regime, from streamer-like transport at small `alpha` to
+wave-like transport at large `alpha`. The movie is the default run (96x96 modes, t = 400, about 2 min on a laptop CPU), shown from t = 124, after the energy (right) saturates.
 
-![Closed and open field lines in 3D](docs/media/stellarator_3d_field_lines.png)
+<img src="docs/media/drift_wave_turbulence.gif" width="700" alt="Drift-wave turbulence">
 
-![Stellarator turbulence, closed](docs/media/stellarator_turbulence_closed.gif)
+```bash
+python examples/tokamak/drift_wave_turbulence.py
+```
 
-![Stellarator SOL turbulence, open](docs/media/stellarator_turbulence_open.gif)
+## Stellarator turbulence on FCI geometry
 
-*[`examples/stellarator/stellarator_turbulence.py`](examples/stellarator/stellarator_turbulence.py)*
+Four-field interchange turbulence (density, vorticity, and ion and electron
+parallel velocity) on a rotating-ellipse stellarator, a torus whose
+elliptical cross-section rotates with the toroidal angle. The movie is a
+cutaway of density fluctuations on a flux surface and through the interior,
+from a 500-step run (t = 1.0, 16x32x16 cells). The fluctuation (about 3% rms)
+settles within t = 0.1 and the state stays quasi-steady; at this resolution it
+shows low-order band structures rather than fine-scale turbulence. The script
+also writes the closed and limiter-terminated open field lines of the same
+geometry. About 7 min on a laptop CPU.
 
-## Imported stellarator equilibria
+<img src="docs/media/stellarator_3d_turbulence.gif" width="700" alt="Stellarator turbulence in 3D">
 
-Field lines and turbulence run on imported geometry. The Landreman-Paul
-precise-QA configuration is read from ESSOS coils (Biot-Savart, Poincare
-classification of closed and open lines) or from a VMEC `wout` file through
-VMEX, where the traced rotational transform matches the equilibrium `iotaf`
-profile to about 1e-6. Four-field turbulence then runs on the imported field
-with a closed core and a sheath-drained SOL.
+```bash
+python examples/stellarator/stellarator_3d_render.py
+```
 
-![Landreman-Paul turbulence](docs/media/landreman_paul_turbulence.png)
+## FCI parallel operators
 
-*[`examples/stellarator/landreman_paul_turbulence.py`](examples/stellarator/landreman_paul_turbulence.py),
-[`examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py`](examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py),
-[`examples/geometry-3D/vmex/closed_field_lines.py`](examples/geometry-3D/vmex/closed_field_lines.py),
-[`examples/geometry-3D/vmex/closed_open_field_lines.py`](examples/geometry-3D/vmex/closed_open_field_lines.py)*
+Parallel derivatives come from field-line tracing and interpolation on a grid
+that is not field aligned. On the non-axisymmetric rotating-ellipse metric,
+both the direct and the traced-field-line parallel gradients converge at
+second order (measured orders 2.02 and 1.99 between 16^3 and 48^3), and the
+operator is differentiable with respect to the shape. About 40 s.
+
+<img src="docs/media/rotating_ellipse_fci.png" width="700" alt="Rotating-ellipse FCI convergence">
+
+```bash
+python examples/stellarator/rotating_ellipse_fci.py
+python examples/stellarator/fci_differentiable.py     # shape derivative of the operator
+```
+
+## Tilted planes: the FCI approach of the HSX backend
+
+Classic FCI codes put the poloidal planes at fixed toroidal angles and trace
+field lines from plane to plane. The HSX backend (`drbx.fci_braginskii`) keeps
+the plane-to-plane field-line maps, but its logical planes (the `eta` index of
+the geometry bundle) are wall-fitted surfaces: the boundary of every plane is
+a vessel contour, and the planes are tilted and curved to follow the twisting
+HSX cross-section. In the 32^3 bundle the toroidal angle of the cell centres
+varies by about 9 degrees across one plane, almost the 11.25 degrees between
+planes. The figure shows three consecutive planes (coloured), the
+constant-angle planes of a classic grid at the same positions (black outlines)
+and field lines traced through the coil field. Parallel
+operators use field lines traced from each cell to the neighbouring plane
+(mean traced length 0.27 m; about 3% of the forward maps end on the wall).
+
+<img src="docs/media/hsx_fci_planes.png" width="800" alt="Tilted FCI planes of the HSX geometry">
+
+```bash
+PYTHONPATH=src python examples/stellarator/hsx_fci_planes.py   # needs the 32^3 bundle and drbx[viz]
+```
 
 ## Island divertor
 
 A sheared rotational transform with resonant perturbations forms island chains
 and a stochastic edge. The open SOL is not imposed: multi-transit field-line
-tracing marks the finite connection-length region, and the turbulence drains
-through it.
+tracing marks the region of finite connection length, and the turbulence drains
+through it. The Poincare section uses 120 field lines and 600 transits each.
 
-![Island divertor](docs/media/island_divertor.png)
+<img src="docs/media/island_divertor.png" width="800" alt="Island divertor">
 
-*[`examples/stellarator/island_divertor.py`](examples/stellarator/island_divertor.py)*
+```bash
+python examples/stellarator/island_divertor.py
+```
 
-## FCI parallel operators
+## Imported stellarator fields
 
-Parallel derivatives are computed by field-line tracing and interpolation on a
-grid that need not be field aligned. On the genuinely non-axisymmetric
-rotating-ellipse metric, both the direct and traced-field-line parallel
-gradients converge at second order, and the operator is differentiable with
-respect to the shape.
+Field lines run on imported geometry. ESSOS coils give a Biot-Savart field;
+traced lines are classified by Poincare crossings as closed (stay on a flux
+surface) or open (leave the confined region). The same tracing is available for
+VMEC `wout` files through VMEX. The figure shows the traced lines in 3D
+and the Poincare section at phi = 0 (30 closed and 30 open lines, 16000 samples each). The 3D view is a PyVista render. Needs `drbx[essos,viz]`; about 3 min.
 
-![Rotating-ellipse FCI convergence](docs/media/rotating_ellipse_fci.png)
+<img src="docs/media/closed_open_vacuum_poincare.png" width="700" alt="Closed and open field lines from ESSOS coils">
 
-*[`examples/stellarator/rotating_ellipse_fci.py`](examples/stellarator/rotating_ellipse_fci.py),
-[`examples/stellarator/fci_differentiable.py`](examples/stellarator/fci_differentiable.py)*
+```bash
+python examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py
+```
+
+Four-field turbulence on the Landreman-Paul precise-QA field
+([`landreman_paul_turbulence.py`](examples/stellarator/landreman_paul_turbulence.py))
+additionally needs the QA `wout` from an ESSOS checkout:
+`DRBX_ESSOS_ROOT=/path/to/ESSOS python examples/stellarator/landreman_paul_turbulence.py`.
 
 ## Sheath-bounded SOL, neutrals and detachment
 
 On open field lines, parallel transport to Bohm-sheath targets relaxes to the
-two-point steady state (Mach 1 at the targets, target density half the
-upstream value). Fluid neutrals with AMJUEL ionization, recombination and
-charge-exchange rates conserve particles and momentum exactly against the
-plasma, and their energy transfers conserve thermal plus kinetic energy.
+two-point steady state (`examples/sol/open_sol_flux_tube.py`: Mach 0.94 at the
+targets, target-to-upstream density ratio 0.49; two-point theory gives 1 and
+0.5). With fluid neutrals (AMJUEL ionization, recombination and charge
+exchange) and recycling, raising the upstream density chokes the target flow:
+the Mach number at the target falls through 1 between upstream densities of 4
+and 8 in normalized units.
 
-The 1D divertor-leg model reproduces the SD1D equations (Dudson et al., PPCF
-61, 065008, 2019) term by term and solves for the steady state with a Newton
-method, so target quantities are differentiable through the implicit-function
-theorem. Against the published SD1D hydrogen-only scan (13.6 eV ionisation
-cost, 800 cells) the target temperature agrees within 0.35% and the target
-particle flux within 0.15% over 18 upstream densities, with particle and power
-ledgers closed to 1e-8. Carbon radiation and excitation are not modelled, so
-this case cools to ~3 eV without the flux rollover seen in SD1D's carbon runs.
+<img src="docs/media/recycling_sol.png" width="700" alt="Recycling SOL profiles and target Mach number">
 
-![SD1D comparison](docs/media/b6_detachment.png)
+```bash
+python examples/sol/recycling_sol.py      # under 10 s
+```
 
-*[`examples/sol/open_sol_flux_tube.py`](examples/sol/open_sol_flux_tube.py),
-[`examples/sol/recycling_sol.py`](examples/sol/recycling_sol.py),
-[`examples/benchmarks/b6_detachment_sd1d.py`](examples/benchmarks/b6_detachment_sd1d.py)*
+The 1D divertor-leg model implements the SD1D equations (Dudson et al.,
+*Plasma Phys. Control. Fusion* 61, 065008, 2019) and finds the steady state
+with a Newton method. The movie steps through an upstream-density scan; the leg
+is drawn with half-width proportional to the square root of the flux-tube area,
+on a logarithmic distance-to-target axis, next to the target temperature and
+flux against the published SD1D hydrogen-only 13.6 eV scan (800 cells).
+
+<img src="docs/media/b6_detachment.gif" width="800" alt="Detachment scan against SD1D">
+
+```bash
+python examples/benchmarks/b6_detachment_sd1d.py      # about 1 min
+```
+
+Analysis: as the upstream density rises from 1.7 to 7.5e19 m^-3 the target
+cools from 29 to 3 eV and the neutral density builds up in the last 0.1 m of
+the leg, while the target particle flux keeps rising (hydrogen only: no flux
+rollover without impurity radiation and excitation, which this model does not
+include). Seven of the eight SD1D densities agree to within 0.35% in target
+temperature and 0.15% in flux, with particle and power ledgers closed to 1e-9
+or better. The eighth SD1D point is not a steady state in its restart data and
+differs by about 10%.
 
 ## Differentiable design and control
 
-Because the solve is differentiable, gradients drive design loops. Implicit
-derivatives of the steady SD1D-matched solution give Newton steps that find the
-upstream density placing the target at a requested temperature (10 eV in four
-solves); gradient descent through a nonlinear drift-wave run recovers a drive
-parameter.
+The steady-state solve is differentiated with the implicit-function theorem, so
+a controller can use exact sensitivities. Newton steps on `dT_target/dn_upstream`
+find the upstream density that gives a 10 eV target temperature in three
+updates (200-cell grid, 2.706e19 m^-3, 10.0002 eV; about 2 min):
 
-![Detachment control](docs/media/detachment_control.png)
+```bash
+python examples/autodiff/detachment_control.py
+```
 
-Forward, reverse and checkpointed reverse mode give the same gradient at
-different cost; the example measures which is cheapest for a given problem.
+Gradients also pass through nonlinear turbulence. Starting from saturated
+Hasegawa-Wakatani turbulence at `alpha = 0.3`, a damped Newton iteration on
+`ln(alpha)` (bottom right: the windowed flux objective and `alpha` over the
+iterations) finds `alpha = 0.73`, which cuts the windowed flux by 4x. The
+figure compares the two long independent runs to t = 250 (top: density at the
+end; bottom left: flux traces and their means over the grey window). The
+saturated fluxes are 1.00 and 0.31, a 3.2x reduction: the flux fluctuates by
+about 25%, so the 4x target is met within the scatter of the short-window
+objective. About 3 min.
 
-![Differentiation methods](docs/media/differentiation_methods.png)
+<img src="docs/media/hasegawa_wakatani_optimization.png" width="650" alt="Hasegawa-Wakatani inverse design">
 
-*[`examples/autodiff/detachment_control.py`](examples/autodiff/detachment_control.py),
-[`examples/autodiff/differentiation_methods.py`](examples/autodiff/differentiation_methods.py),
-[`examples/tokamak/drift_wave_inverse_design.py`](examples/tokamak/drift_wave_inverse_design.py),
-plus [sensitivity](examples/autodiff_diffusion_sensitivity.py),
-[uncertainty](examples/autodiff_diffusion_uncertainty.py) and
-[inverse design](examples/autodiff_diffusion_inverse_design.py) on a reduced model.*
+```bash
+python examples/tokamak/hasegawa_wakatani_optimization.py
+python examples/autodiff/differentiation_methods.py   # forward vs reverse vs checkpointed cost
+```
 
-## Linear verification
+## Verification
 
-`drbx.linear` linearizes any model about an equilibrium. Drift-wave,
-shear-Alfven and interchange dispersion relations are reproduced against their
-analytic forms.
+`drbx.linear` linearizes a model about an equilibrium. The shear-Alfven
+operator reproduces the analytic dispersion relation to 4e-16 (relative), and
+the drift-wave operator is scanned in adiabaticity against the analytic
+frequency and growth rate. Method-of-manufactured-solutions tests check
+second-order convergence of the 1D fluid model and the FCI operators.
 
-![Linear dispersion](docs/media/linear_dispersion.png)
+<img src="docs/media/linear_dispersion.png" width="700" alt="Linear dispersion">
 
-*[`examples/benchmarks/linear_dispersion.py`](examples/benchmarks/linear_dispersion.py),
-[`examples/benchmarks/linear_drb_survey.py`](examples/benchmarks/linear_drb_survey.py)*
+```bash
+python examples/benchmarks/linear_dispersion.py
+pytest -n 2 -q tests/test_validation_fluid_1d_mms_convergence.py tests/test_mms_convergence.py
+```
+
 
 ## Parallel performance
 
-The FCI operator and domain-decomposition stack (`FciGeometry3D`,
-`fci_operators`, halo exchange) was contributed by **Aiken Xie** in
-[PR #3](https://github.com/uwplasma/drbx/pull/3). The drift-reduced two-field
-step runs across devices with `shard_map` and is bit-exact against the
-single-device step ([`tests/test_fci_sharded_2field.py`](tests/test_fci_sharded_2field.py)).
-On a 36-core Linux host a 1.05M-cell step reaches a 4.5x speedup at 16 shards
-(1.18 s to 0.27 s), and one NVIDIA A4000 GPU runs the same step about 21x faster
-than a single CPU shard, with identical checksums
-([docs](docs/performance_and_differentiability.md)). GPU runs are measured
-by hand; CI tests CPU only.
+The two-field drift-reduced step runs across devices with `shard_map`, and every
+device count gives the same result (checksums agree to 1e-10;
+[`tests/test_fci_sharded_2field.py`](tests/test_fci_sharded_2field.py)). The
+figure uses 512x256x32 cells (4.2 M) and 10 timed RK4 steps per device count,
+with CPU devices pinned one core each on a 36-core Linux host that was shared
+and heavily loaded (load average about 25): 8.0 s per step on one device and
+2.0 s on 16 (4.0x, throughput 0.5 to 2.1 Mcell/s). An earlier run of the same script on a
+256x128x32 grid (1.05 M cells) gave 6.2x at 16 shards. On a laptop one XLA device already
+threads across all cores, so sharding gains little there. One NVIDIA A4000 ran
+a 1.05M-cell step about 21x faster than a single CPU shard (measured by hand,
+not reproduced by the script). The FCI operator and domain-decomposition stack
+was contributed by Aiken Xie in [PR #3](https://github.com/uwplasma/drbx/pull/3).
 
-![Strong scaling](docs/media/strong_scaling.png)
-
-*[`examples/benchmarks/fci_sharded_strong_scaling.py`](examples/benchmarks/fci_sharded_strong_scaling.py)*
-
-## HSX stellarator scrape-off layer (experimental FCI backend)
-
-An experimental seven-field electrostatic Braginskii backend runs a seeded
-filament in the full HSX scrape-off layer, up to the vessel wall. Its eta
-slices are surfaces of a scalar potential that follow the stellarator; small
-wall-cut cells are merged into owner cells; the current and potential are
-advanced together in an implicit stage; and the potential is solved with GMRES
-sharded over eta. Verified on the canonical 32-cubed geometry: continuity of
-the returned (Ve, vorticity) across the implicit stage to about 1e-16, restarts
-bitwise equal to straight runs, identical GMRES counts on 1, 2 and 4 devices,
-normalization tests, and the real-geometry tests. Vorticity converges at about
-second order in time; n, T and Vi at 1.4-1.6, and phi near first order because
-the electron response is stiff at the physical mass ratio (see the
-[backend notes](docs/fci_braginskii_hsx_backend.md)). A step takes about 6 s on
-a laptop CPU and about 35 s on a shared RTX A4000, where GMRES dominates.
-
-![HSX FCI filament](docs/media/hsx_fci_blob.png)
-
-![HSX FCI filament evolution](docs/media/hsx_fci_blob.gif)
+<img src="docs/media/sharded_fci_step.png" width="800" alt="Sharded FCI step: time per step and throughput">
 
 ```bash
-drbx run examples/inputs/hsx_fci_blob.toml          # builds the geometry from the shipped coils, then runs
-python examples/stellarator/hsx_fci_blob_render.py run/history.npz docs/media
+python examples/benchmarks/fci_sharded_strong_scaling.py
 ```
 
-The geometry bundle is distributed separately; see
-[docs/fci_braginskii_hsx_backend.md](docs/fci_braginskii_hsx_backend.md).
-*Scope:* experimental and wall-limited: no sheath, neutral or recycling
-coupling yet.
+## HSX geometry and scrape-off-layer filament
 
-## Comparison with other edge and SOL codes
+The HSX geometry is built from the coils in
+[`examples/inputs/hsx/coils.hsx`](examples/inputs/hsx/coils.hsx) (QHS currents)
+and the vessel outline [`vessel_hsx_flare.txt`](examples/inputs/hsx/vessel_hsx_flare.txt).
+The figure shows the coils (PyVista render), the boundary of the simulated
+domain colored by |B| and the vessel; a Poincare section at phi = 0 traced
+through the coil field (90 lines, about 320 toroidal turns each; blue points
+stay inside the vessel, red diamonds mark lines that reach the wall); and the
+connection length to the wall on the same plane.
 
-✅ supported, 🟡 partial or reduced, ❌ not supported, ❔ not verified from a public source.
-For DRBX, ✅ means the feature is on `main` and covered by tests.
+<img src="docs/media/hsx_geometry.png" width="800" alt="HSX coils, Poincare section and connection length">
 
-| Feature | DRBX | BOUT++ / Hermes-3 | GRILLIX | GBS | SOLPS-ITER | EMC3-EIRENE | SOLEDGE3X |
-|---|---|---|---|---|---|---|---|
-| 3D turbulence | ✅ | ✅ [1b] | ✅ [3] | ✅ [5] | ❌ [7] | ❌ [8] | ✅ [9] |
-| Stellarator / non-axisymmetric geometry | ✅ | 🟡 [2] | 🟡 [3] | ✅ [6] | ❌ [7] | ✅ [8] | ❔ |
-| FCI | ✅ | 🟡 [2] | ✅ [3] | ❔ | ❌ [7] | ❌ [8] | ❔ |
-| Open + closed field lines | ✅ | ✅ [1] | ✅ [3] | ✅ [5] | ✅ [7] | ✅ [8] | ✅ [9] |
-| Fluid neutrals | 🟡 [a] | ✅ [1] | ✅ [4] | ❔ | ❔ | ❌ [8] | ❔ |
-| Kinetic neutrals (EIRENE) | ❌ | ❔ | ❔ | 🟡 [5] | ✅ [7] | ✅ [8] | ✅ [9] |
-| Sheath boundary conditions | 🟡 [b] | ✅ [1] | ✅ [3] | ✅ [5] | ✅ [7] | ✅ [8] | ✅ [9] |
-| Implicit time integration | 🟡 [c] | ✅ [1] | ✅ [10] | ❔ | ❔ | ❔ | ❔ |
-| GPU support | 🟡 [d] | ❔ | ❌ [10] | 🟡 [5] | ❔ | ❔ | ❔ |
-| Automatic differentiation / gradients | ✅ | ❔ | ❔ | ❔ | ❔ | ❔ | ❔ |
-| Python / TOML interface | ✅ | 🟡 [1] | ❔ | ❔ | ❔ | ❔ | ❔ |
-| Open source | ✅ | ✅ [1] | ❔ | ❔ | ❔ | ❔ | ❔ |
+The `drbx.fci_braginskii` backend evolves a density filament in the
+scrape-off layer up to the vessel wall. It has a Bohm sheath wall closure by
+default, with optional neutrals and recycling (deck keys `wall_closure`,
+`neutrals`, `recycling`; see [docs/decks.md](docs/decks.md)). The first run is
+`drbx run examples/inputs/hsx_fci_blob.toml`, which builds a 16^3 geometry from
+the shipped coils and vessel (about 4 min on a laptop). The movie is a 32^3 run
+(600 steps, t = 0.45 in L_ref/c_s, peak n - 1 = 0.8, rho* = 5e-3, zero-flow walls;
+about 35 min on one A4000). With the Bohm default, 32^3 runs of this kind stopped
+with an invalid IMEX stage after t = 0.10 to 0.14 (several amplitudes, rho* values
+and time steps; under investigation), so the movie uses the zero-flow closure. It shows isosurfaces of the density perturbation along the
+field over the boundary surface, with R-Z sections of density and potential
+through the filament. The potential builds up as a dipole around the filament
+within the first t = 0.05. The filament itself stays close to its flux surface
+in this time: its density-weighted radial index moves from 16.9 to 16.5 of 32
+cells while the peak decays from 0.75 to 0.48. The geometry bundle is described
+in [docs/fci_braginskii_hsx_backend.md](docs/fci_braginskii_hsx_backend.md).
 
-<details>
-<summary>Notes and evidence</summary>
-
-DRBX notes:
-- [a] Reduced fluid/diffusive neutral models with AMJUEL rates (`tests/test_native_recycling_sol.py`, `tests/test_fci_neutrals_3d.py`, `tests/test_neutral_energy_conservation.py`); no kinetic neutrals.
-- [b] Bohm-type reduced sheath closures on targets and limiters (`tests/test_open_field_line_sol.py`).
-- [c] Implicit Spitzer conduction in the 1D detachment model (`tests/test_native_detachment_sol.py`); the 3D turbulence steps are explicit.
-- [d] Runs on GPU through JAX and was measured by hand on an A4000; GPU is not exercised in CI.
-
-Other codes (❔ means no public source was checked for that cell; it is not a claim that the feature is absent):
-1. Hermes-3: Dudson et al., Comput. Phys. Commun. 296, 108991 (2024), [arXiv:2303.12131](https://arxiv.org/abs/2303.12131): CVODE, backward-Euler (PETSc) and IMEX-BDF2 time integration (sec. 2.1); fluid deuterium atoms coupled by reactions; Bohm–Chodura sheath boundaries; BOUT++ input files with Python post-processing; GPL-3 at [github.com/boutproject/hermes-3](https://github.com/boutproject/hermes-3). Kinetic neutrals, FCI and GPU are not discussed in that paper.
-   1b. 3D turbulence: Dudson et al., TCV-X21 validation, [arXiv:2506.12180](https://arxiv.org/abs/2506.12180) (neutrals omitted there).
-2. FCI and stellarator turbulence have been run in BOUT++ (BSTING: Shanahan, Dudson & Hill, PPCF 61, 025007 (2019), rotating ellipse and W7-X grids, no sheath boundaries in those runs); not established for Hermes-3 itself.
-3. GRILLIX: Stegmeir et al., [GRILLIX: a 3D turbulence code based on the FCI approach](https://pure.mpg.de/rest/items/item_2537240_5/component/file_2570380/content), and [advanced divertor configurations](https://arxiv.org/abs/1908.05398); FCI is described as compatible with stellarator geometry, published applications are tokamaks.
-4. GRILLIX fluid neutrals: [Self-consistent plasma-neutrals fluid modeling, PPCF (2025)](https://iopscience.iop.org/article/10.1088/1361-6587/add8ba).
-5. GBS: Giacomin et al., J. Comput. Phys. (2022), [arXiv:2112.03573](https://arxiv.org/abs/2112.03573); self-consistent kinetic neutral model (GBS's own, not EIRENE); GPU port stated as planned.
-6. GBS stellarators: [Global fluid simulation of plasma turbulence in stellarators with GBS, Nucl. Fusion (2024)](https://iopscience.iop.org/article/10.1088/1741-4326/ad4ef5); [TJ-K validation](https://arxiv.org/abs/2304.00758).
-7. SOLPS-ITER: Wiesen et al., J. Nucl. Mater. 463, 480 (2015); [Bonnin et al., Plasma Fusion Res. 11, 1403102 (2016)](https://www.jstage.jst.go.jp/article/pfr/11/0/11_1403102/_article): B2.5 2D axisymmetric fluid transport coupled to EIRENE.
-8. EMC3-EIRENE: [FusionWiki](https://wiki.fusion.ciemat.es/wiki/EMC3-EIRENE), [W7-X modelling, arXiv:2201.06341](https://arxiv.org/abs/2201.06341): 3D Monte Carlo fluid transport with anomalous diffusion and kinetic EIRENE neutrals; HSX application: Boeyaert et al., Nucl. Mater. Energy 42, 101874 (2025).
-10. GRILLIX numerics: Zholobenko et al., Contrib. Plasma Phys. 59 (2019) with its 2020 corrigendum (semi-implicit time stepping with GMRES); Zholobenko, PhD thesis (TU München), GPU support listed as future work.
-9. SOLEDGE3X: Bufferand et al., [Nucl. Fusion 61, 116052 (2021)](https://iopscience.iop.org/article/10.1088/1741-4326/ac2873): 2D transport or 3D turbulence, coupled to EIRENE, up to the first wall.
-
-</details>
-
-## Validation
-
-Each benchmark has a test and an example that regenerates its figure:
-
-| Case | Anchor | What is checked |
-|------|--------|-----------------|
-| Method of manufactured solutions | Riva et al., *Phys. Plasmas* 21, 062301 (2014); Dudson et al. 23, 062303 (2016) | operator / 1D-fluid / FCI convergence order 2 |
-| Resistive drift-wave dispersion | Dudson et al., *Comput. Phys. Commun.* 180, 1467 (2009) | growth rate and frequency vs analytic |
-| Shear-Alfven wave dispersion | Stegmeir et al., *Phys. Plasmas* 26, 052517 (2019) | phase velocity vs analytic (with electron inertia) |
-| Interchange / Rayleigh-Taylor | curvature-driven flute dispersion | growth rate vs `sqrt(g kappa) k_y/k` |
-| FCI on non-axisymmetric geometry | Shanahan et al., *PPCF* 61, 025007 (2019) | parallel-operator MMS; grad vs finite difference 6e-11 |
-| Rotating-ellipse FCI | Stegmeir et al., *Comput. Phys. Commun.* 198, 139 (2016) | second-order parallel gradient; shape-differentiable; seeded filament |
-| Island-divertor field | Shanahan et al., *J. Plasma Phys.* 90 (2024) | island chains, stochastic edge, emergent open SOL |
-| Open-field-line SOL | Stangeby, *The Plasma Boundary of Magnetic Fusion Devices* (2000) | Mach 1 at targets; target density half upstream; Bohm particle balance |
-| Neutrals and recycling | Dudson et al., *Comput. Phys. Commun.* 296, 108991 (2024); AMJUEL | exact plasma-neutral particle and momentum conservation |
-| SD1D 1D divertor leg | Dudson et al., *PPCF* 61, 065008 (2019) and its published dataset | 13.6 eV hydrogen scan: target T within 0.35%, target flux within 0.15% (800 cells); ledgers closed; grid convergence 100–1600 cells (~3% between 800 and 1600) |
-| HSX scrape-off-layer filament (experimental) | HSX geometry; FCI construction of Stegmeir et al., *Comput. Phys. Commun.* 198, 139 (2016) | implicit-stage continuity ~1e-16; bitwise restart; equal GMRES counts on 1/2/4 devices; time order 1.8-1.9 (vorticity), 1.4-1.6 (n, T, Vi), ~1 (phi, stiff electrons) |
-
-More in [docs/validation_gallery.md](docs/validation_gallery.md).
-
-## Documentation
-
-- Physics and numerics: [physics_models.md](docs/physics_models.md),
-  [equation_to_code_map.md](docs/equation_to_code_map.md),
-  [code_structure.md](docs/code_structure.md).
-- Performance and differentiability:
-  [performance_and_differentiability.md](docs/performance_and_differentiability.md),
-  [profiling_runtime.md](docs/profiling_runtime.md).
-- Testing policy: [testing_strategy.md](docs/testing_strategy.md).
-- Release notes: [release_notes.md](docs/release_notes.md).
-
-## Testing
+<img src="docs/media/hsx_fci_blob.gif" width="700" alt="HSX filament in 3D">
 
 ```bash
-pytest -q -m "not slow"                                   # fast suite
-pytest -q -m "not slow" --cov=drbx --cov-branch           # with coverage
+python examples/stellarator/hsx_fci_blob_render.py   # runs the backend, then renders both figures (drbx[viz])
 ```
 
-CI runs the fast suite on Python 3.10-3.12 (CPU).
+## Tests
 
-## Tokamak with an internal island chain
+```bash
+pip install -e ".[dev]"   # or: pip install pytest pytest-xdist
+pytest -n 2 -q -m "not slow"
+```
 
-A `(2, 1)` resonance at the `q = 2` surface opens an island chain; the
-four-field model evolves the density flux-driven (source shell in, wall buffer
-out, nothing clamped). The traced islands match the pendulum width
-`W = 4 sqrt(eps/(m |iota'|))` to about 1%, and in the turbulence-dominated
-regime the mean profile flattens across the chain (gradient ratio 0.83). Top
-row: the 3D state, the `q` profile and the Poincare section; bottom row: the
-evolving mean profile, turbulent radial particle flux and time traces.
-Production `48x96x32` runs take about 1 h on one 16 GB GPU.
+CI runs the fast suite on Python 3.10-3.12 (CPU). Policy:
+[docs/testing_strategy.md](docs/testing_strategy.md).
 
-![Island-tokamak turbulence dashboard](docs/media/island_tokamak_3d.gif)
+## More
 
-![Source-driven evolution summary](docs/media/island_tokamak_evolution.png)
+[Equation-to-code map](docs/equation_to_code_map.md),
+[physics models](docs/physics_models.md),
+[validation gallery](docs/validation_gallery.md) (with the comparison against
+other edge codes), [island-tokamak write-up](docs/island_tokamak.md) and
+[release notes](docs/release_notes.md).
 
-*[`examples/island_tokamak_profiles.py`](examples/island_tokamak_profiles.py);
-figures via [`examples/island_tokamak_figure.py`](examples/island_tokamak_figure.py);
-write-up in [docs/island_tokamak.md](docs/island_tokamak.md).*
+## Citing and license
 
-## Citing
-
-If you use DRBX in published work, please cite this repository
-(https://github.com/uwplasma/DRBX).
-
-## License
-
-MIT, see [LICENSE](LICENSE).
+If you use DRBX in published work, please cite https://github.com/uwplasma/DRBX.
+MIT license, see [LICENSE](LICENSE).
