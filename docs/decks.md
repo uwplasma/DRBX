@@ -394,6 +394,10 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.mi_over_me` | `float` | `1836.0` | Ion-to-electron mass ratio. |
 | `fci_braginskii.perp_diffusion` | `float` | `1e-05` | Perpendicular diffusion coefficient. (normalized) |
 | `fci_braginskii.parallel_diffusion` | `float` | `0.0` | Parallel diffusion coefficient. (normalized) |
+| `fci_braginskii.parallel_conduction` | `str` | `'auto'` | Implicit Spitzer-Harm parallel heat conduction of Te and Ti: `auto` (on with the Bohm wall), `spitzer` or `off`. |
+| `fci_braginskii.reference_density_m3` | `float` | `1e+19` | Reference density n0 of the Spitzer conductivity. (m^-3) |
+| `fci_braginskii.coulomb_logarithm` | `float` | `15.0` | Coulomb logarithm of the Spitzer conductivity. |
+| `fci_braginskii.heat_flux_limiter` | `float` | `0.0` | Free-streaming flux limiter alpha, q_fs = alpha n T v_th; 0 disables. |
 | `fci_braginskii.electron_collision_frequency` | `float` | `0.0` | Electron collision frequency. (normalized) |
 | `fci_braginskii.implicit_current_phi_pair` | `bool` | `True` | Treat `mu grad_par(phi)` and the parallel current divergence implicitly through a coupled potential solve (default). |
 | `fci_braginskii.wall_closure` | `str` | `'bohm'` | Parallel wall closure: `bohm` (sheath outflow at the Bohm speed, default) or `zero-flow` (no particle or heat outflow). |
@@ -419,7 +423,7 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.gmres_max_iterations` | `int` | `500` | Maximum GMRES iterations. |
 | `fci_braginskii.gmres_restart` | `int` | `100` | GMRES restart length (capped at `gmres_max_iterations`). |
 | `fci_braginskii.gmres_residual_correction_steps` | `int` | `1` | True-residual correction solves tried when GMRES would be rejected. |
-| `fci_braginskii.gmres_preconditioner` | `str` | `'line-u'` | Right preconditioner of the potential solves: `line-u` (production per-eta radial-tree line solve) or `none`. |
+| `fci_braginskii.gmres_preconditioner` | `str` | `'auto'` | Right preconditioner of the potential solves: `auto` (default: `line-uy-pardiag` on a single-shard angular-RLP geometry, otherwise `line-u`), `line-u` (per-eta radial-tree line solve), `line-u-pardiag`, `line-uy-pardiag` (parallel-current-aware, with theta ring lines) or `none`. |
 | `fci_braginskii.no_phase_timing` | `bool` | `False` | Disable in-executable timing markers. |
 | `fci_braginskii.geometry_only` | `bool` | `False` | Stop after loading and lowering the geometry. |
 | `fci_braginskii.output` | `Path` | `<repo>/hsx_blob_history.npz` | History NPZ written at the end of the run. |

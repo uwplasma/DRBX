@@ -10,7 +10,8 @@ from drbx.fci_braginskii.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
 
 
 @pytest.mark.slow
-def test_hsx_stage_residuals_from_returned_state(tmp_path, monkeypatch):
+@pytest.mark.parametrize("preconditioner", ["line-u", "line-u-pardiag", "line-uy-pardiag"])
+def test_hsx_stage_residuals_from_returned_state(tmp_path, monkeypatch, preconditioner):
     bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
     if bundle is None:
         pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to replay a real HSX artifact")
@@ -28,6 +29,7 @@ def test_hsx_stage_residuals_from_returned_state(tmp_path, monkeypatch):
     driver.main([
         "--geometry", bundle, "--final-time", "0.0015", "--num-steps", "2",
         "--output", str(tmp_path / "history.npz"),
+        "--gmres-preconditioner", preconditioner,
     ])
     assert len(records) >= 4
     for r in records:

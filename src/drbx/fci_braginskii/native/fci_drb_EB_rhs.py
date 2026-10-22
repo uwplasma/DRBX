@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import math
-from typing import Callable
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
@@ -62,7 +62,9 @@ from .fci_gmres import (
     SolvaxGmresInfo,
     _spmd_norm,
     _spmd_remove_weighted_mean,
+    solvax_gmres_solve,
 )
+from .fci_parallel_conduction import backward_euler_conduction, conductivity
 from .fci_support_pair import build_weighted_negative_adjoint
 from .fci_wall_closure import (
     SheathClosure,
@@ -246,6 +248,11 @@ class FciDrbEBRhsParameters:
     Vi_parallel_viscosity: float = 0.0
     vorticity_D_perp: float = 0.0
     vorticity_D_parallel: float = 0.0
+    # Implicit Spitzer-Harm conduction: kappa = kappa0 T^(5/2) (0 = off) and the
+    # free-streaming flux limiter alpha (0 = unlimited); see fci_parallel_conduction.
+    electron_conduction_kappa0: float = 0.0
+    ion_conduction_kappa0: float = 0.0
+    heat_flux_limiter: float = 0.0
 
     def tree_flatten(self):
         return (
@@ -273,6 +280,9 @@ class FciDrbEBRhsParameters:
                 self.Vi_parallel_viscosity,
                 self.vorticity_D_perp,
                 self.vorticity_D_parallel,
+                self.electron_conduction_kappa0,
+                self.ion_conduction_kappa0,
+                self.heat_flux_limiter,
             ),
             None,
         )
@@ -303,6 +313,9 @@ class FciDrbEBRhsParameters:
             Vi_parallel_viscosity,
             vorticity_D_perp,
             vorticity_D_parallel,
+            electron_conduction_kappa0,
+            ion_conduction_kappa0,
+            heat_flux_limiter,
         ) = children
         return cls(
             n0=n0,
@@ -328,6 +341,9 @@ class FciDrbEBRhsParameters:
             Vi_parallel_viscosity=Vi_parallel_viscosity,
             vorticity_D_perp=vorticity_D_perp,
             vorticity_D_parallel=vorticity_D_parallel,
+            electron_conduction_kappa0=electron_conduction_kappa0,
+            ion_conduction_kappa0=ion_conduction_kappa0,
+            heat_flux_limiter=heat_flux_limiter,
         )
 
 
@@ -2887,6 +2903,82 @@ class LocalFciDrbEBRhs:
             )
         info["selected_complete_residual_owner"] = complete_residual_owner
         return updated_state, increment_state, info
+
+    @property
+    def parallel_conduction(self) -> bool:
+        parameters = self.parameters
+        return bool(
+            float(parameters.electron_conduction_kappa0) != 0.0
+            or float(parameters.ion_conduction_kappa0) != 0.0
+        )
+
+    def solve_implicit_parallel_conduction(
+        self,
+        state_owned: FciDrbEBState,
+        *,
+        solve_dt: Any,
+    ) -> tuple[FciDrbEBState, FciDrbEBState, tuple[SolvaxGmresInfo, ...]]:
+        """Backward-Euler Spitzer-Harm parallel conduction of Te and Ti.
+
+        ``3/2 n dT/dt = D(kappa G(T))`` with ``(G, D)`` the weighted support
+        pair that carries the sheath rows, so ``sum V 3/2 n dT = 0`` and the wall
+        legs stay the only loss.  The pair has no flux through a physical wall:
+        the conductive flux is zero on sheath faces, which carry ``gamma T Gamma``
+        alone.  ``n`` and ``kappa`` are frozen at ``state_owned``; the matrix-free
+        operator is solved with SOLVAX FGMRES.  Returns the stage state, the
+        ``(Te, Ti)`` increment and the FGMRES infos of the active species.
+        """
+
+        h = jnp.asarray(solve_dt, dtype=jnp.float64)
+        parameters = self.parameters
+        state_owned = self._owner_state(state_owned)
+        gradient, divergence, _ = self._fci_support_core_pair(
+            face_bc=self._face_bcs(state_owned), context=self._stencil_builder_context()
+        )
+        expand = self._expand_owner_field_for_stencil
+        active = _solver_active_mask(self.geometry, self.control_volume_geometry)
+        config = replace(
+            self.gmres_config, tol=1.0e-12, atol=1.0e-30, acceptance_tol=1.0e-9,
+            acceptance_atol=1.0e-30, preconditioner="none",
+            residual_correction_steps=0, project_mean_zero=False,
+        )
+        density = jnp.maximum(state_owned.density, 1.0e-30)
+        zero = jnp.zeros_like(density)
+        updates, infos = {}, []
+        for name, kappa0, speed_squared in (
+            ("Te", parameters.electron_conduction_kappa0, parameters.mi_over_me),
+            ("Ti", parameters.ion_conduction_kappa0, parameters.tau),
+        ):
+            if float(kappa0) == 0.0:
+                updates[name] = zero
+                continue
+            temperature = getattr(state_owned, name)
+            kappa = conductivity(
+                expand(temperature), expand(density), float(kappa0),
+                float(speed_squared), float(parameters.heat_flux_limiter), gradient,
+            )
+
+            def flux_divergence(x, kappa=kappa):
+                return self._project_fine_cell_term(divergence(kappa * gradient(expand(x))))
+
+            def solve(apply_A, rhs):
+                return solvax_gmres_solve(
+                    apply_A, rhs, zero, self.geometry, self.domain, config,
+                    active_cell_mask=active,
+                    volume_weights=_solver_volume_weights(
+                        self.geometry, self.control_volume_geometry
+                    ),
+                )
+
+            updates[name], info = backward_euler_conduction(
+                flux_divergence, 1.5 * density, temperature, h, solve
+            )
+            infos.append(info)
+        increment = self._owner_state(FciDrbEBState(
+            density=zero, phi=zero, Te=updates["Te"], Ti=updates["Ti"],
+            Vi=zero, Ve=zero, vorticity=zero,
+        ))
+        return state_owned.axpy(increment, scale=1.0), increment, tuple(infos)
 
     def solve_implicit_current_phi_pair(
         self,

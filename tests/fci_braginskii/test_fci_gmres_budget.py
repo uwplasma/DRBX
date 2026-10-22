@@ -135,3 +135,12 @@ def test_relaxed_acceptance_is_reported_separately_from_strict_convergence():
     assert bool(relaxed.converged) and not bool(relaxed.failed)
     assert not bool(relaxed.strict_converged)
     assert 1.0e-12 < float(relaxed.final_residual_rel_l2) <= 0.5
+
+
+def test_pardiag_preconditioner_kinds_are_accepted_and_unknown_rejected():
+    from drbx.fci_braginskii.native.fci_gmres import SolvaxGmresConfig
+
+    for kind in ("line-u-pardiag", "line-uy-pardiag"):
+        assert SolvaxGmresConfig(preconditioner=kind).preconditioner == kind
+    with pytest.raises(ValueError, match="preconditioner"):
+        SolvaxGmresConfig(preconditioner="line-uz")

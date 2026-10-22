@@ -21,7 +21,7 @@ num_steps = 4           # IMEX-SSP222 steps (dt = final_time / num_steps; produc
 save_every = 1          # store the fields every step
 density_amplitude = 0.05 # relative filament amplitude
 rho_star = 5.0e-4       # rho_s / L_ref: scales drifts and polarization
-gmres_preconditioner = "line-u" # "line-u" (production) or "none"; for the potential solves
+gmres_preconditioner = "auto" # "auto" (default), "line-u", "line-u-pardiag", "line-uy-pardiag" or "none"; for the potential solves
 # wall_closure = "bohm"       # "bohm" sheath outflow (default) or "zero-flow"
 # neutrals = true             # diffusive neutral density (see docs/decks.md for neutral_* keys)
 # recycling = true            # return the ion wall flux as neutrals; needs neutrals and bohm

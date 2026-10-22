@@ -73,6 +73,7 @@ from drbx.fci_braginskii.native.fci_sharding import (  # noqa: E402
     make_shard_mesh,
 )
 from drbx.fci_braginskii.native.fci_gmres import SolvaxGmresConfig  # noqa: E402
+from drbx.fci_braginskii.native.fci_parallel_conduction import spitzer_prefactors  # noqa: E402
 from drbx.fci_braginskii.native.fci_wall_closure import SHEATH_POTENTIALS, WALL_CLOSURES, SheathClosure  # noqa: E402
 from drbx.fci_braginskii.native import fci_neutrals  # noqa: E402
 from drbx.fci_braginskii.native.fci_angular_agglomeration import (  # noqa: E402
@@ -118,8 +119,12 @@ GEOMETRY_PRODUCER_METADATA_KEYS = (
 )
 FILAMENT_CACHE_FORMAT_VERSION = 2
 GMRES_TARGET_TOLERANCE = 1.0e-8
+# Right preconditioner of the FGMRES phi solves (see SolvaxGmresConfig).  A
+# performance-only selector: every kind solves the same system to the same
+# GMRES tolerance, so it is a deck key (``gmres_preconditioner``) even though
+# the physics-affecting numerics stay fixed production configuration.
+GMRES_PRECONDITIONERS = ("none", "auto", "line-u", "line-u-pardiag", "line-uy-pardiag")  # the one place a new preconditioner is added
 FCI_BRAGINSKII_BACKEND = "fci_braginskii"
-GMRES_PRECONDITIONERS = ("none", "line-u")  # the one place a new preconditioner is added
 METRIC_FIELDS = (
     "J",
     "g11",
@@ -1148,6 +1153,7 @@ def _progress_line(
     gmres_relative_residual: float,
     elapsed_seconds: float,
     solver_label: str = "gmres-iters(avg4)",
+    conduction_iterations: float = 0.0,
 ) -> str:
     width = 24
     fraction = step / num_steps
@@ -1165,10 +1171,11 @@ def _progress_line(
         if solver_label == "gmres-iters(avg4)"
         else f"{solver_label}={gmres_iterations:.2f}"
     )
+    conduction_text = f"cond-iters={conduction_iterations:.1f} " if conduction_iterations else ""
     return (
         f"[{bar}] {step:5d}/{num_steps} "
         f"t={simulation_time:.6e} step={step_seconds:.2f}s"
-        f"{phase_text} {solver_text} "
+        f"{phase_text} {solver_text} {conduction_text}"
         f"gmres-relres(max4)={gmres_relative_residual:.3e} "
         f"ETA={eta_seconds:.1f}s "
         f"n=[{density_min:.6e}, {density_max:.6e}]"
@@ -1226,6 +1233,24 @@ def _format_phi_solver_diagnostics(
         )
     )
     return jnp.concatenate((first_five, jnp.zeros(2, dtype=jnp.float64)))
+
+
+def _fold_conduction_diagnostics(phi_info: jax.Array, infos: Sequence[object]) -> jax.Array:
+    """Fold the conduction FGMRES solves into the 7-slot stage record.
+
+    Iterations add up in slot 5; the worst relative residual, failure and
+    tolerance flags join slots 1-4.
+    """
+
+    for info in infos:
+        phi_info = (
+            phi_info.at[1].max(info.final_residual_rel_l2)
+            .at[2].max(jnp.asarray(info.failed, dtype=jnp.float64))
+            .at[3].min(jnp.asarray(info.converged, dtype=jnp.float64))
+            .at[4].min(jnp.asarray(info.strict_converged, dtype=jnp.float64))
+            .at[5].add(jnp.asarray(info.num_steps, dtype=jnp.float64))
+        )
+    return phi_info
 
 
 def _print_rk_stage_diagnostics(
@@ -1854,13 +1879,23 @@ def run_full_eb(
         solver diagnostics.
         """
 
+        # Conduction first, from the stage-start state (kappa frozen there): the
+        # wall legs then remove the energy that conduction has delivered.
+        conducted, conduction_increment, conduction_infos = base, None, ()
+        if model.parallel_conduction:
+            with jax.named_scope("gmres"):
+                conducted, conduction_increment, conduction_infos = (
+                    model.solve_implicit_parallel_conduction(base, solve_dt=solve_dt)
+                )
         updated, increment, _info = model.apply_short_leg_implicit_material_step(
-            base,
+            conducted,
             solve_dt=solve_dt,
             selection_dt=selection_dt,
             phi_owned=base.phi,
             return_increment=True,
         )
+        if conduction_increment is not None:
+            increment = increment.axpy(conduction_increment, scale=1.0)
         if model.implicit_current_phi_pair:
             with jax.named_scope("gmres"):
                 stage, pair_increment, pair_solver_info = (
@@ -1868,9 +1903,13 @@ def run_full_eb(
                 )
             mark_pair_solve_phi(stage.phi)
             phi_info = _format_phi_solver_diagnostics(pair_solver_info)
-            return stage, increment.axpy(pair_increment, scale=1.0), phi_info
+            return stage, increment.axpy(pair_increment, scale=1.0), _fold_conduction_diagnostics(
+                phi_info, conduction_infos
+            )
         stage_phi, phi_info = reconstruct_stage_phi(updated, model)
-        return updated.replace(phi=stage_phi), increment, phi_info
+        return updated.replace(phi=stage_phi), increment, _fold_conduction_diagnostics(
+            phi_info, conduction_infos
+        )
 
     def ssp222_stages(current, implicit, explicit, solve_phi, step_dt):
         """IMEX-SSP222 stage algebra shared by every advance_execution mode.
@@ -3070,6 +3109,7 @@ def run_full_eb(
             gmres_relative_residual=gmres_relative_residual_host,
             elapsed_seconds=time.perf_counter() - simulation_start,
             solver_label="gmres-iters(avg4)",
+            conduction_iterations=float(np.sum(gmres_stage_diagnostics_host[:, 5])) / 2.0,
         )
         if sys.stdout.isatty():
             print(f"\r{line}", end="\n" if step == int(num_steps) else "", flush=True)
@@ -3275,6 +3315,20 @@ def _parallel_characteristic_wall_metadata() -> dict[str, object]:
     }
 
 
+def conduction_prefactors(config) -> tuple[float, float]:
+    """``(kappa0_e, kappa0_i)`` of the implicit Spitzer-Harm conduction; ``(0, 0)`` when off."""
+
+    if config.parallel_conduction == "off" or (
+        config.parallel_conduction == "auto" and config.wall_closure != "bohm"
+    ):
+        return 0.0, 0.0
+    kappa0_e, kappa0_i, _ = spitzer_prefactors(
+        config.rho_star, config.mi_over_me, config.tau, config.reference_density_m3,
+        config.coulomb_logarithm,
+    )
+    return kappa0_e, kappa0_i
+
+
 def sheath_closure(config) -> SheathClosure | None:
     """The wall closure selected by a config (None = zero-flow wall)."""
 
@@ -3380,6 +3434,10 @@ class HsxBlobConfig:
     mi_over_me: float = 1836.0
     perp_diffusion: float = 1.0e-5
     parallel_diffusion: float = 0.0
+    parallel_conduction: str = "auto"
+    reference_density_m3: float = 1.0e19
+    coulomb_logarithm: float = 15.0
+    heat_flux_limiter: float = 0.0
     electron_collision_frequency: float = 0.0
     implicit_current_phi_pair: bool = True
     wall_closure: str = "bohm"
@@ -3405,7 +3463,7 @@ class HsxBlobConfig:
     gmres_max_iterations: int = 500
     gmres_restart: int = 100
     gmres_residual_correction_steps: int = 1
-    gmres_preconditioner: str = "line-u"
+    gmres_preconditioner: str = "auto"
     no_phase_timing: bool = False
     geometry_only: bool = False
     output: Path = SCRIPT_DIR / "hsx_blob_history.npz"
@@ -3414,12 +3472,18 @@ class HsxBlobConfig:
         for name, allowed in (
             ("blob_initialization", ("field-aligned", "logical")),
             ("advance_execution", ("compiled", "staged-compiled", "eager")),
+            ("parallel_conduction", ("auto", "spitzer", "off")),
             ("gmres_preconditioner", GMRES_PRECONDITIONERS),
         ):
             if getattr(self, name) not in allowed:
                 raise ValueError(f"[fci_braginskii] {name} must be one of {allowed}")
         if self.wall_closure not in WALL_CLOSURES:
             raise ValueError(f"[fci_braginskii] wall_closure must be one of {WALL_CLOSURES}")
+        if not (self.reference_density_m3 > 0.0 and self.coulomb_logarithm > 0.0 and self.heat_flux_limiter >= 0.0):
+            raise ValueError(
+                "[fci_braginskii] reference_density_m3 and coulomb_logarithm must be positive, "
+                "heat_flux_limiter non-negative"
+            )
         sheath_closure(self)
         neutral_parameters(self)
         recycling_parameters(self)
@@ -3663,6 +3727,16 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
     )
     diffusion = float(args.perp_diffusion)
     parallel_diffusion = float(args.parallel_diffusion)
+    kappa0_e, kappa0_i = conduction_prefactors(args)
+    if kappa0_e:
+        print(
+            f"[conduction] implicit Spitzer-Harm: kappa_e = {kappa0_e:.4g} Te^2.5, "
+            f"kappa_i = {kappa0_i:.4g} Ti^2.5 (c_s0 L_ref n0; Te0 = "
+            f"{spitzer_prefactors(args.rho_star, args.mi_over_me, args.tau, args.reference_density_m3, args.coulomb_logarithm)[2]:.4g} eV, "
+            f"n0 = {args.reference_density_m3:.3g} m^-3, ln Lambda = {args.coulomb_logarithm:g}, "
+            f"flux limiter = {args.heat_flux_limiter:g})",
+            flush=True,
+        )
     parameters = FciDrbEBRhsParameters(
         tau=float(args.tau),
         mi_over_me=float(args.mi_over_me),
@@ -3682,6 +3756,9 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         Vi_parallel_viscosity=parallel_diffusion,
         vorticity_D_perp=diffusion,
         vorticity_D_parallel=parallel_diffusion,
+        electron_conduction_kappa0=kappa0_e,
+        ion_conduction_kappa0=kappa0_i,
+        heat_flux_limiter=float(args.heat_flux_limiter),
     )
     if not restart_used:
         initial_state = build_initial_state(
@@ -3904,6 +3981,10 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             "mi_over_me": float(args.mi_over_me),
             "perp_diffusion": float(args.perp_diffusion),
             "parallel_diffusion": float(args.parallel_diffusion),
+            "parallel_conduction": (
+                f"spitzer-harm, implicit, kappa0_e={kappa0_e:.8g}, kappa0_i={kappa0_i:.8g}, "
+                f"limiter={float(args.heat_flux_limiter):g}" if kappa0_e else "off"
+            ),
             "electron_collision_frequency": float(
                 args.electron_collision_frequency
             ),
