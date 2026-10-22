@@ -100,6 +100,7 @@ from drbx.fci_braginskii.native.fci_operators import (  # noqa: E402
     build_local_perp_laplacian_face_projectors,
     expand_local_control_volume_owner_field,
 )
+from .geometry_build.hsx_fci_builder import TopologyDescriptor, _topology_metadata
 DEFAULT_FILAMENT_CACHE_DIR = SCRIPT_DIR / ".hsx_filament_cache"
 PLASMA_OPERATOR_BASELINE = "d340f4d638e0d9495546d1fd2e2c66c1c206704a"
 GEOMETRY_PRODUCER_METADATA_KEYS = (
@@ -160,17 +161,6 @@ FCI_MAP_FIELDS = (
 )
 
 
-@dataclass(frozen=True)
-class TopologyDescriptor:
-    """Logical-coordinate contract shared by geometry and runtime metadata."""
-
-    name: str
-    coordinate_names: tuple[str, str, str]
-    periodic_axes: tuple[bool, bool, bool]
-    axis_regular_axes: tuple[bool, bool, bool]
-    logical_extents: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
-
-
 WALL_LEDGER_COLUMNS = (
     "time", "particle", "parallel_momentum", "electron_energy", "ion_energy",
     "kinetic_energy", "current", "abs_current", "wall_legs", "particle_inventory",
@@ -204,16 +194,6 @@ _TOROIDAL_TOPOLOGY = topology_descriptor("toroidal")
 # Backward-compatible symbols used by the production toroidal runtime path.
 PERIODIC_AXES = _TOROIDAL_TOPOLOGY.periodic_axes
 AXIS_REGULAR_AXES = _TOROIDAL_TOPOLOGY.axis_regular_axes
-
-
-def _topology_metadata(descriptor: TopologyDescriptor) -> dict[str, object]:
-    return {
-        "topology": descriptor.name,
-        "coordinate_names": list(descriptor.coordinate_names),
-        "periodic_axes": list(descriptor.periodic_axes),
-        "axis_regular_axes": list(descriptor.axis_regular_axes),
-        "logical_extents": [list(extent) for extent in descriptor.logical_extents],
-    }
 
 
 def _aggregate_initial_owner_state(
