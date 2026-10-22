@@ -2227,24 +2227,6 @@ def _homogeneous_bc(bc: FciBoundaryCondition) -> FciBoundaryCondition:
     raise NotImplementedError("legacy axis-level boundary conditions have been removed")
 
 
-def _bc_kind(bc) -> str:
-    raise NotImplementedError("legacy axis-level boundary conditions have been removed")
-
-
-def _broadcast_boundary_value(value, target_shape: tuple[int, int]) -> jnp.ndarray:
-    array = jnp.asarray(value, dtype=jnp.float64)
-    return jnp.broadcast_to(array, target_shape)
-
-
-def _broadcast_axis_boundary_value(value, *, axis: int, field_shape: tuple[int, int, int]) -> jnp.ndarray:
-    target_shape = tuple(field_shape[index] for index in range(3) if index != axis)
-    return _broadcast_boundary_value(value, target_shape)
-
-
-def _set_axis_plane(field: jnp.ndarray, *, axis: int, index: int, value: jnp.ndarray) -> jnp.ndarray:
-    return field.at[_axis_index_nd(axis, index, field.ndim)].set(value)
-
-
 def _cell_volume_weights(geometry: FciGeometry3D) -> jnp.ndarray:
     return (
         jnp.asarray(geometry.cell_metric.J, dtype=jnp.float64)
