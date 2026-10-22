@@ -243,6 +243,39 @@ G3. README (#58) and tutorial kept in step with each phase.
 VMEX + extender finite-beta field provider; electromagnetic (A∥) terms; GPU
 production runs and scaling.
 
+### Phase A results (2026-10-21, partial; draft, `scripts/fci_diagnostics.py`)
+
+Setup: 16^3 HSX, default deck (200 steps, dt 7.5e-4), snapshot at step 100, CPU. Done: A1 operator
+adjointness and conduction symmetry, A1 advection/heat-blob first pass, A2 step timing, A3 static finding, A4.
+Not done: A1 eigenvalue blocks (script crashed once on a shape bug, fixed, rerun killed on pause),
+A2 per-phase/host-sync counts, A3 term-by-term rates and ledger closure, GPU, 32^3.
+
+- A1 adjointness, ||D + V^-1 G^T V|| / ||D|| (homogeneous wall data, 3216 active cells):
+  support pair 1.7e-16 (exact; sheath rows and #64 conduction use it; conduction V(DG) is symmetric to
+  1.4e-16 and dissipative); current/phi pair 1.3e-16; **legacy mapped pair 1.9 and support core + legacy wall
+  rows 1.9** (not adjoint at all: these carry the generic Ve/Vi/advection terms);
+  generic `parallel_diffusion` operator: V L asymmetric by 10%, sum V L(f) not zero (0.96 relative), so it is
+  neither conservative nor symmetric. Implies B2: adjoint-by-construction must cover all parallel terms.
+- A1 advection of a step-modulated field-aligned blob (central, no upwind): the support-pair D grows
+  modes (min/max f -0.65/2.6 after 2 legs, -48/51 after 8, label variance x3.3 after 2 legs); the
+  legacy D blows up (1e30). A field-aligned function gets |G P| dx/|P| = 0.37 (support) and 1.0
+  (legacy) instead of 0, i.e. numerical perpendicular/parallel error of order one cell at 16^3. The heat
+  blob (eps_perp = 0) never approaches the aligned steady state (L1 error 0.67 at short times, 0.86 at chi t/dx^2 = 1,
+  >1 later): heat leaks across field lines at O(1). 16^3 is coarse; trend with resolution not measured.
+  Implies C1: central operators need stagger/skew-symmetric gradients or damping.
+- A2: default step 0.58-0.76 s at 16^3 on this laptop CPU (operator 0.21-0.27 s, GMRES/solves 0.34-0.47 s);
+  on CPU the 5x5 eig is `jnp.linalg.eig` (the `pure_callback` path is only taken off CPU).
+- A3 (static): default `Ve_nu = 0`, `parallel_diffusion = 0`: **no J^2/sigma Ohmic heating and no
+  friction in the Te/Ve equations**; the only electron heating terms are the 0.71 thermal-force work and
+  the Ve grad pe work; no heat source in the default blob deck, so the budget is a wall-loss decay.
+  Perpendicular diffusion 1e-5 is the only artificial term. Implies adding Spitzer friction + Ohmic in C-phase.
+- A4: `SheathClosure.gamma_e` equals Stangeby 25.44-25.46 exactly: H Ti/Te=0: 4.84, Ti/Te=1: 4.49 (D 4.84
+  at Ti=0 not 5.0-5.3). In current mode `current_gamma_e(phi/Te)` equals it at phi = Lambda Te, and the
+  electron energy flux is gamma_e Te (Gamma_i - j) (Gamma_e as asked: yes). phi is the owner-cell
+  potential used as the entrance potential: the ~0.5-0.7 Te presheath drop is not applied (n_w = n/2 is,
+  phi is not), so the floating phi is Lambda Te rather than Lambda Te + ln 2 Te. Test:
+  `tests/test_sheath_heat_transmission.py`.
+
 ## 4. References in hand
 
 Also read on 2026-10-21: Hariri & Ottaviani, CPC 184 (2013) 2419 (original
