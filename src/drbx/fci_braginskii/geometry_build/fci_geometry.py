@@ -76,6 +76,20 @@ from ..geometry.fci_geometry import (  # noqa: F401
     _sample_local_fci_cut_wall_values,
     _sample_local_fci_table_rows,
 )
+from ..geometry.fci_geometry import (
+    LocalFciStencilBuilder,
+    LocalStencilBuilder,
+    StencilBuilderContext,
+    _evaluate_local_fci_direction_endpoint,
+    _normalize_remote_receive_values,
+    interpolate_B_contravariant,  # noqa: F401
+)
+from ...geometry.fci_geometry import (
+    CellVolumeGeometry3D,  # noqa: F401
+    FciGeometry3D,
+    LocalConservativeStencilBuilder,
+    build_curvature_coefficients,  # noqa: F401
+)
 
 
 _pytree_base = jax.tree_util.register_pytree_node_class
@@ -1443,53 +1457,6 @@ _VALID_SIDE_KINDS = frozenset(
 )
 
 
-@_pytree_base
-@dataclass(frozen=True)
-class StencilBuilderContext(_DataclassPyTreeMixin):
-    layout: HaloLayout3D
-    domain: LocalDomain3D | None = None
-    cut_wall_geometry: "LocalCutWallGeometry3D | None" = None
-    cut_wall_bc: "LocalCutWallBC3D | None" = None
-    cut_wall_value_reconstructor: "LocalCutWallValueReconstructor3D | None" = None
-    cut_wall_stencil_dependencies: (
-        "LocalCoordinateStencilDependencyMap3D | None"
-    ) = None
-    cut_wall_values: jnp.ndarray | None = None
-    cut_wall_stencil_remote_values: jnp.ndarray | None = None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.layout, HaloLayout3D):
-            raise TypeError("layout must be a HaloLayout3D instance")
-        if self.domain is not None and self.domain.layout != self.layout:
-            raise ValueError("StencilBuilderContext.domain must share the same layout")
-        if (
-            self.cut_wall_stencil_dependencies is not None
-            and self.cut_wall_stencil_dependencies.layout != self.layout
-        ):
-            raise ValueError(
-                "StencilBuilderContext.cut_wall_stencil_dependencies must share "
-                "the same layout"
-            )
-
-    def tree_flatten(self):
-        children = (
-            self.layout,
-            self.domain,
-            self.cut_wall_geometry,
-            self.cut_wall_bc,
-            self.cut_wall_value_reconstructor,
-            self.cut_wall_stencil_dependencies,
-            self.cut_wall_values,
-            self.cut_wall_stencil_remote_values,
-        )
-        return children, None
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        del aux_data
-        return cls(*children)
-
-
 # Backward-compatible aliases. Both historical context names now refer to the
 # same canonical PyTree type.
 LocalStencilBuilderContext = StencilBuilderContext
@@ -1733,32 +1700,6 @@ class RegularFaceGeometry3D(_DataclassPyTreeMixin):
     @property
     def centroid_offsets(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         return self.x_centroid_offset, self.y_centroid_offset, self.z_centroid_offset
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class CellVolumeGeometry3D(_DataclassPyTreeMixin):
-    """Effective cell-volume measure for conservative operators."""
-
-    volume: jnp.ndarray
-    volume_fraction: jnp.ndarray
-
-    def __post_init__(self) -> None:
-        volume = jnp.asarray(self.volume, dtype=jnp.float64)
-        if volume.ndim != 3:
-            raise ValueError(f"CellVolumeGeometry3D.volume must be 3D, got {volume.shape}")
-        shape = tuple(int(v) for v in volume.shape)
-        object.__setattr__(self, "volume", volume)
-        object.__setattr__(self, "volume_fraction", _require_float_shape(self.volume_fraction, shape, "CellVolumeGeometry3D.volume_fraction"))
-
-    @classmethod
-    def unit(cls, geometry: "FciGeometry3D") -> "CellVolumeGeometry3D":
-        volume = jnp.asarray(geometry.cell_metric.J, dtype=jnp.float64)
-        return cls(volume=volume, volume_fraction=jnp.ones_like(volume, dtype=jnp.float64))
-
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return tuple(int(v) for v in self.volume.shape)
 
 
 @_pytree_base
@@ -2767,62 +2708,6 @@ def agglomerate_owned_cell_average(
     return jnp.where(aggregate_geometry.aggregate_volume > 0.0, averaged, 0.0)
 
 
-@_pytree_base
-@dataclass(frozen=True)
-class FciGeometry3D(_DataclassPyTreeMixin):
-    """Centralized cell-centered FCI geometry payload.
-    Geometry is stored only on active cell centers and physical faces.
-    Computational ghost cells are not part of this object.
-    Native FCI coordinates:
-        (x, y, z) = (radial, poloidal, toroidal)
-    """
-    grid: CellCenteredGrid3D
-    maps: FciMaps3D
-    spacing: Spacing3D
-    cell_metric: MetricGeometry
-    face_metric: FaceMetricGeometry
-    cell_bfield: BFieldGeometry
-    face_bfield: FaceBFieldGeometry
-
-    def __post_init__(self) -> None:
-        shape = self.grid.shape
-        xface_shape = (shape[0] + 1, shape[1], shape[2])
-        yface_shape = (shape[0], shape[1] + 1, shape[2])
-        zface_shape = (shape[0], shape[1], shape[2] + 1)
-        if self.maps.shape != shape:
-            raise ValueError(f"maps shape must be {shape}, got {self.maps.shape}")
-        if self.spacing.shape != shape:
-            raise ValueError(f"spacing shape must be {shape}, got {self.spacing.shape}")
-        if self.cell_metric.shape != shape:
-            raise ValueError(f"cell_metric shape must be {shape}, got {self.cell_metric.shape}")
-        if self.cell_bfield.shape != shape:
-            raise ValueError(f"cell_bfield shape must be {shape}, got {self.cell_bfield.shape}")
-        if self.face_metric.x.shape != xface_shape:
-            raise ValueError(f"face_metric.x shape must be {xface_shape}, got {self.face_metric.x.shape}")
-        if self.face_metric.y.shape != yface_shape:
-            raise ValueError(f"face_metric.y shape must be {yface_shape}, got {self.face_metric.y.shape}")
-        if self.face_metric.z.shape != zface_shape:
-            raise ValueError(f"face_metric.z shape must be {zface_shape}, got {self.face_metric.z.shape}")
-        if self.face_bfield.x.shape != xface_shape:
-            raise ValueError(f"face_bfield.x shape must be {xface_shape}, got {self.face_bfield.x.shape}")
-        if self.face_bfield.y.shape != yface_shape:
-            raise ValueError(f"face_bfield.y shape must be {yface_shape}, got {self.face_bfield.y.shape}")
-        if self.face_bfield.z.shape != zface_shape:
-            raise ValueError(f"face_bfield.z shape must be {zface_shape}, got {self.face_bfield.z.shape}")
-
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        return self.grid.shape
-
-    @property
-    def logical_axis_vectors(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.grid.logical_axis_vectors
-
-    @property
-    def logical_face_vectors(self) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return self.grid.logical_face_vectors
-
-
 @lru_cache(maxsize=1)
 def _stencil_types():
     from .fci_boundaries import (
@@ -3354,36 +3239,6 @@ class ConservativeStencilBuilder(_DataclassPyTreeMixin):
 build_conservative_stencil_from_field = ConservativeStencilBuilder(_build_conservative_stencil_from_field)
 
 
-@_pytree_base
-@dataclass(frozen=True)
-class LocalStencilBuilder(_DataclassPyTreeMixin):
-    """Callable adapter that delegates local-stencil construction to an injected function."""
-
-    build_fn: Callable[
-        [
-            jnp.ndarray,
-            "LocalFciGeometry3D",
-            "StencilBuilderContext",
-        ],
-        "LocalStencil3D",
-    ]
-
-    def __call__(
-        self,
-        field_halo: jnp.ndarray,
-        geometry: "LocalFciGeometry3D",
-        context: "StencilBuilderContext",
-    ) -> "LocalStencil3D":
-        return self.build_fn(field_halo, geometry, context)
-
-    def tree_flatten(self):
-        return (), self.build_fn
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(aux_data)
-
-
 build_local_stencil_from_field = LocalStencilBuilder(_build_local_stencil_from_field)
 
 
@@ -3426,77 +3281,6 @@ def build_local_cell_gradient_from_field(
         reconstruction_mask=jnp.zeros(geometry.owned_shape, dtype=bool),
     )
     return direct_gradient
-
-
-def _normalize_remote_receive_values(
-    remote: LocalFciRemoteDependencyTable | None,
-    values: jnp.ndarray | None,
-    *,
-    dtype: jnp.dtype,
-    name: str,
-) -> jnp.ndarray | None:
-    if remote is None:
-        if values is not None:
-            values = jnp.asarray(values, dtype=dtype)
-            if values.ndim != 1:
-                raise ValueError(f"{name} must be 1D when supplied, got {values.shape}")
-        return None
-
-    expected = (remote.max_receive_values,)
-    if values is None:
-        if remote.max_receive_values == 0:
-            return jnp.zeros(expected, dtype=dtype)
-        raise ValueError(f"{name} is required when the direction has remote dependencies")
-    values = jnp.asarray(values, dtype=dtype)
-    if values.shape != expected:
-        raise ValueError(f"{name} must have shape {expected}, got {values.shape}")
-    return values
-
-
-def _evaluate_local_fci_direction_endpoint(
-    *,
-    field_halo: jnp.ndarray,
-    direction: LocalFciDirectionMap,
-    remote_values: jnp.ndarray | None,
-    cut_wall_values: jnp.ndarray,
-    n_owned: int,
-) -> jnp.ndarray:
-    table = direction.local
-    safe_target = jnp.clip(table.target_flat, 0, n_owned - 1)
-    samples = _sample_local_fci_table_rows(
-        field_halo,
-        table,
-        cut_wall_values,
-    )
-    active = table.active & (table.dependency_kind != FCI_DEP_INVALID)
-    values = jnp.zeros((n_owned,), dtype=field_halo.dtype)
-    values = values.at[safe_target].add(
-        jnp.where(active, table.weight * samples, 0.0)
-    )
-
-    remote = direction.remote
-    if remote is not None and remote.max_entries:
-        if remote_values is None:
-            raise ValueError("remote_values are required for a remote FCI table")
-        if remote.max_receive_values == 0:
-            remote_samples = jnp.zeros(remote.receive_slot.shape, dtype=field_halo.dtype)
-        else:
-            safe_slot = jnp.clip(
-                remote.receive_slot,
-                0,
-                remote.max_receive_values - 1,
-            )
-            remote_samples = remote_values[safe_slot]
-        safe_remote_target = jnp.clip(remote.target_flat, 0, n_owned - 1)
-        values = values.at[safe_remote_target].add(
-            jnp.where(remote.active, remote.weight * remote_samples, 0.0)
-        )
-
-    return jnp.where(
-        direction.target_valid.reshape((n_owned,)),
-        values,
-        field_halo[direction.layout.owned_slices_cell].reshape((n_owned,)),
-    ).reshape(direction.layout.owned_shape)
 
 
 def _build_local_fci_stencil_from_field(
@@ -3579,47 +3363,6 @@ def _build_local_fci_stencil_from_field(
         dx_min=jnp.where(valid, dx_min, 1.0),
         dx_plus=jnp.where(valid, dx_plus, 1.0),
     )
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class LocalFciStencilBuilder(_DataclassPyTreeMixin):
-    """Callable adapter that builds a second-order local FCI stencil."""
-
-    build_fn: Callable[
-        [
-            jnp.ndarray,
-            "LocalFciGeometry3D",
-            "StencilBuilderContext",
-        ],
-        "LocalStencil1D",
-    ]
-
-    def __call__(
-        self,
-        field_halo: jnp.ndarray,
-        geometry: "LocalFciGeometry3D",
-        context: "StencilBuilderContext",
-        *,
-        forward_remote_values: jnp.ndarray | None = None,
-        backward_remote_values: jnp.ndarray | None = None,
-        cut_wall_values: jnp.ndarray | None = None,
-    ) -> "LocalStencil1D":
-        return self.build_fn(
-            field_halo,
-            geometry,
-            context,
-            forward_remote_values=forward_remote_values,
-            backward_remote_values=backward_remote_values,
-            cut_wall_values=cut_wall_values,
-        )
-
-    def tree_flatten(self):
-        return (), self.build_fn
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(aux_data)
 
 
 build_local_fci_stencil_from_field = LocalFciStencilBuilder(
@@ -3722,36 +3465,6 @@ def _build_local_face_gradient_from_halo(
             f"face_grad.z must have shape {expected_face_shapes[2] + (3,)}, got {face_grad.z.shape}"
         )
     return face_grad
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class LocalConservativeStencilBuilder(_DataclassPyTreeMixin):
-    """Callable adapter that delegates local conservative-stencil construction."""
-
-    build_fn: Callable[
-        [
-            jnp.ndarray,
-            "LocalFciGeometry3D",
-            "StencilBuilderContext",
-        ],
-        "ConservativeStencil3D",
-    ]
-
-    def __call__(
-        self,
-        field_halo: jnp.ndarray,
-        geometry: "LocalFciGeometry3D",
-        context: "StencilBuilderContext",
-    ) -> "ConservativeStencil3D":
-        return self.build_fn(field_halo, geometry, context)
-
-    def tree_flatten(self):
-        return (), self.build_fn
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(aux_data)
 
 
 build_local_conservative_stencil_from_field = LocalConservativeStencilBuilder(
@@ -3993,436 +3706,6 @@ def build_local_direct_stencil_one_sided_physical_from_halo(
         for axis in range(3)
     )
     return LocalStencil3D(x=patched[0], y=patched[1], z=patched[2])
-
-
-def build_curvature_coefficients(
-    geometry: "FciGeometry3D",
-    *,
-    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
-    b_floor: float = 1.0e-30,
-    jacobian_floor: float = 1.0e-30,
-) -> jnp.ndarray:
-    """Build geometry-dependent curvature coefficients for a given geometry."""
-
-    periodic_axes = tuple(bool(value) for value in periodic_axes)
-    axis_regular_axes = tuple(bool(value) for value in axis_regular_axes)
-    if any(periodic and axis_regular for periodic, axis_regular in zip(periodic_axes, axis_regular_axes)):
-        raise ValueError(
-            "periodic_axes and axis_regular_axes cannot both be True on the same axis; "
-            f"got periodic_axes={periodic_axes}, axis_regular_axes={axis_regular_axes}"
-        )
-    if axis_regular_axes[1] or axis_regular_axes[2]:
-        raise NotImplementedError(
-            "axis_regular_axes currently only supports the lower x axis for curvature coefficients; "
-            f"got axis_regular_axes={axis_regular_axes}"
-        )
-    if axis_regular_axes[0] and geometry.shape[1] % 2:
-        raise ValueError("axis-regular lower-x curvature coefficients require an even poloidal grid")
-
-    def _covariant_field(metric: MetricGeometry, bfield: BFieldGeometry) -> jnp.ndarray:
-        b = jnp.asarray(bfield.B_contra, dtype=jnp.float64)
-        bmag = jnp.maximum(jnp.asarray(bfield.Bmag, dtype=jnp.float64), float(b_floor))
-        b_unit = b / bmag[..., None]
-        return jnp.einsum("...ij,...j->...i", metric.g_cov, b_unit) / bmag[..., None]
-
-    def _boundary_corrected_derivative(
-        values: jnp.ndarray,
-        spacing: jnp.ndarray,
-        *,
-        axis: int,
-        component: int,
-        periodic: bool,
-        lower_face_value: jnp.ndarray,
-        upper_face_value: jnp.ndarray,
-        lower_center_to_face: float,
-        upper_center_to_face: float,
-        lower_center_to_center: float,
-        upper_center_to_center: float,
-        axis_regular_lower_parity: float | None = None,
-    ) -> jnp.ndarray:
-        deriv = _first_derivative_3d(values, spacing, axis=axis, periodic=periodic)
-        if periodic:
-            return deriv
-
-        if values.shape[axis] < 3:
-            raise ValueError("curvature coefficient construction requires at least 3 cells along each axis")
-
-        lower_center = values[_axis_index_nd(axis, 0, values.ndim)]
-        if axis == 0 and axis_regular_axes[0]:
-            half_turn = values.shape[1] // 2
-            component_parity = float(axis_regular_lower_parity) if axis_regular_lower_parity is not None else (-1.0 if int(component) == 0 else 1.0)
-            lower_ghost = component_parity * jnp.roll(lower_center, shift=-half_turn, axis=0)
-        else:
-            lower_ghost = 2.0 * lower_face_value - lower_center
-        upper_ghost = 2.0 * upper_face_value - values[_axis_index_nd(axis, -1, values.ndim)]
-
-        lower_dx_min = jnp.asarray(2.0 * lower_center_to_face, dtype=jnp.float64)
-        upper_dx_plus = jnp.asarray(2.0 * upper_center_to_face, dtype=jnp.float64)
-        lower_dx_plus = jnp.asarray(lower_center_to_center, dtype=jnp.float64)
-        upper_dx_min = jnp.asarray(upper_center_to_center, dtype=jnp.float64)
-
-        def _fd(minus: jnp.ndarray, center: jnp.ndarray, plus: jnp.ndarray, dx_min: jnp.ndarray, dx_plus: jnp.ndarray) -> jnp.ndarray:
-            denom = jnp.maximum(dx_min * dx_plus * (dx_min + dx_plus), 1.0e-30)
-            c_minus = -dx_plus * dx_plus / denom
-            c_center = (dx_plus * dx_plus - dx_min * dx_min) / denom
-            c_plus = dx_min * dx_min / denom
-            return c_minus * minus + c_center * center + c_plus * plus
-
-        lower_deriv = _fd(
-            lower_ghost,
-            lower_center,
-            values[_axis_index_nd(axis, 1, values.ndim)],
-            lower_dx_min,
-            lower_dx_plus,
-        )
-        upper_deriv = _fd(
-            values[_axis_index_nd(axis, -2, values.ndim)],
-            values[_axis_index_nd(axis, -1, values.ndim)],
-            upper_ghost,
-            upper_dx_min,
-            upper_dx_plus,
-        )
-        return deriv.at[_axis_index_nd(axis, 0, values.ndim)].set(lower_deriv).at[_axis_index_nd(axis, -1, values.ndim)].set(upper_deriv)
-
-    metric = geometry.cell_metric
-    cell_bfield = geometry.cell_bfield
-    bmag = jnp.maximum(jnp.asarray(cell_bfield.Bmag, dtype=jnp.float64), float(b_floor))
-    covariant_field = _covariant_field(metric, cell_bfield)
-
-    face_covariant_x = _covariant_field(geometry.face_metric.x, geometry.face_bfield.x)
-    face_covariant_y = _covariant_field(geometry.face_metric.y, geometry.face_bfield.y)
-    face_covariant_z = _covariant_field(geometry.face_metric.z, geometry.face_bfield.z)
-    if axis_regular_axes[0]:
-        # The collapsed lower-x face is topological rather than physical. It is
-        # not used by the axis-regular lower derivative, but overwriting it keeps
-        # singular face geometry from lingering in the traced computation graph.
-        face_covariant_x = face_covariant_x.at[0].set(jnp.zeros_like(face_covariant_x[0]))
-
-    x_lower_center_to_face = jnp.asarray(geometry.grid.x.lower_center_to_face, dtype=jnp.float64)
-    x_upper_center_to_face = jnp.asarray(geometry.grid.x.upper_center_to_face, dtype=jnp.float64)
-    x_lower_center_to_center = jnp.asarray(geometry.grid.x.center_deltas[0], dtype=jnp.float64)
-    x_upper_center_to_center = jnp.asarray(geometry.grid.x.center_deltas[-1], dtype=jnp.float64)
-    y_lower_center_to_face = jnp.asarray(geometry.grid.y.lower_center_to_face, dtype=jnp.float64)
-    y_upper_center_to_face = jnp.asarray(geometry.grid.y.upper_center_to_face, dtype=jnp.float64)
-    y_lower_center_to_center = jnp.asarray(geometry.grid.y.center_deltas[0], dtype=jnp.float64)
-    y_upper_center_to_center = jnp.asarray(geometry.grid.y.center_deltas[-1], dtype=jnp.float64)
-    z_lower_center_to_face = jnp.asarray(geometry.grid.z.lower_center_to_face, dtype=jnp.float64)
-    z_upper_center_to_face = jnp.asarray(geometry.grid.z.upper_center_to_face, dtype=jnp.float64)
-    z_lower_center_to_center = jnp.asarray(geometry.grid.z.center_deltas[0], dtype=jnp.float64)
-    z_upper_center_to_center = jnp.asarray(geometry.grid.z.center_deltas[-1], dtype=jnp.float64)
-
-    dcov_dx = jnp.stack(
-        [
-            _boundary_corrected_derivative(
-                covariant_field[..., 0],
-                geometry.spacing.dx,
-                axis=0,
-                component=0,
-                periodic=periodic_axes[0],
-                lower_face_value=face_covariant_x[0, ..., 0],
-                upper_face_value=face_covariant_x[-1, ..., 0],
-                lower_center_to_face=x_lower_center_to_face,
-                upper_center_to_face=x_upper_center_to_face,
-                lower_center_to_center=x_lower_center_to_center,
-                upper_center_to_center=x_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 1],
-                geometry.spacing.dx,
-                axis=0,
-                component=1,
-                periodic=periodic_axes[0],
-                lower_face_value=face_covariant_x[0, ..., 1],
-                upper_face_value=face_covariant_x[-1, ..., 1],
-                lower_center_to_face=x_lower_center_to_face,
-                upper_center_to_face=x_upper_center_to_face,
-                lower_center_to_center=x_lower_center_to_center,
-                upper_center_to_center=x_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 2],
-                geometry.spacing.dx,
-                axis=0,
-                component=2,
-                periodic=periodic_axes[0],
-                lower_face_value=face_covariant_x[0, ..., 2],
-                upper_face_value=face_covariant_x[-1, ..., 2],
-                lower_center_to_face=x_lower_center_to_face,
-                upper_center_to_face=x_upper_center_to_face,
-                lower_center_to_center=x_lower_center_to_center,
-                upper_center_to_center=x_upper_center_to_center,
-            ),
-        ],
-        axis=-1,
-    )
-    dcov_dy = jnp.stack(
-        [
-            _boundary_corrected_derivative(
-                covariant_field[..., 0],
-                geometry.spacing.dy,
-                axis=1,
-                component=0,
-                periodic=periodic_axes[1],
-                lower_face_value=face_covariant_y[:, 0, ..., 0],
-                upper_face_value=face_covariant_y[:, -1, ..., 0],
-                lower_center_to_face=y_lower_center_to_face,
-                upper_center_to_face=y_upper_center_to_face,
-                lower_center_to_center=y_lower_center_to_center,
-                upper_center_to_center=y_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 1],
-                geometry.spacing.dy,
-                axis=1,
-                component=1,
-                periodic=periodic_axes[1],
-                lower_face_value=face_covariant_y[:, 0, ..., 1],
-                upper_face_value=face_covariant_y[:, -1, ..., 1],
-                lower_center_to_face=y_lower_center_to_face,
-                upper_center_to_face=y_upper_center_to_face,
-                lower_center_to_center=y_lower_center_to_center,
-                upper_center_to_center=y_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 2],
-                geometry.spacing.dy,
-                axis=1,
-                component=2,
-                periodic=periodic_axes[1],
-                lower_face_value=face_covariant_y[:, 0, ..., 2],
-                upper_face_value=face_covariant_y[:, -1, ..., 2],
-                lower_center_to_face=y_lower_center_to_face,
-                upper_center_to_face=y_upper_center_to_face,
-                lower_center_to_center=y_lower_center_to_center,
-                upper_center_to_center=y_upper_center_to_center,
-            ),
-        ],
-        axis=-1,
-    )
-    dcov_dz = jnp.stack(
-        [
-            _boundary_corrected_derivative(
-                covariant_field[..., 0],
-                geometry.spacing.dz,
-                axis=2,
-                component=0,
-                periodic=periodic_axes[2],
-                lower_face_value=face_covariant_z[:, :, 0, 0],
-                upper_face_value=face_covariant_z[:, :, -1, 0],
-                lower_center_to_face=z_lower_center_to_face,
-                upper_center_to_face=z_upper_center_to_face,
-                lower_center_to_center=z_lower_center_to_center,
-                upper_center_to_center=z_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 1],
-                geometry.spacing.dz,
-                axis=2,
-                component=1,
-                periodic=periodic_axes[2],
-                lower_face_value=face_covariant_z[:, :, 0, 1],
-                upper_face_value=face_covariant_z[:, :, -1, 1],
-                lower_center_to_face=z_lower_center_to_face,
-                upper_center_to_face=z_upper_center_to_face,
-                lower_center_to_center=z_lower_center_to_center,
-                upper_center_to_center=z_upper_center_to_center,
-            ),
-            _boundary_corrected_derivative(
-                covariant_field[..., 2],
-                geometry.spacing.dz,
-                axis=2,
-                component=2,
-                periodic=periodic_axes[2],
-                lower_face_value=face_covariant_z[:, :, 0, 2],
-                upper_face_value=face_covariant_z[:, :, -1, 2],
-                lower_center_to_face=z_lower_center_to_face,
-                upper_center_to_face=z_upper_center_to_face,
-                lower_center_to_center=z_lower_center_to_center,
-                upper_center_to_center=z_upper_center_to_center,
-            ),
-        ],
-        axis=-1,
-    )
-
-    curl = jnp.stack(
-        (
-            dcov_dy[..., 2] - dcov_dz[..., 1],
-            dcov_dz[..., 0] - dcov_dx[..., 2],
-            dcov_dx[..., 1] - dcov_dy[..., 0],
-        ),
-        axis=-1,
-    )
-    coefficient = bmag / (2.0 * jnp.maximum(jnp.asarray(metric.J, dtype=jnp.float64), float(jacobian_floor)))
-    curvature_coefficients = coefficient[..., None] * curl
-
-    if axis_regular_axes[0]:
-        rho = jnp.asarray(geometry.grid.x.centers, dtype=jnp.float64)
-        theta = jnp.asarray(geometry.grid.y.centers, dtype=jnp.float64)
-        rho_values = rho[:, None, None]
-        rho_safe = jnp.maximum(rho_values, 1.0e-30)
-        theta_values = theta[None, :, None]
-        cos_theta = jnp.cos(theta_values)
-        sin_theta = jnp.sin(theta_values)
-
-        A_rho = covariant_field[..., 0]
-        A_theta = covariant_field[..., 1]
-        A_zeta = covariant_field[..., 2]
-
-        A_X = A_rho * cos_theta - A_theta * sin_theta / rho_safe
-        A_Y = A_rho * sin_theta + A_theta * cos_theta / rho_safe
-        A_Z = A_zeta
-
-        x_upper_face_rho = jnp.asarray(geometry.grid.x.faces[-1], dtype=jnp.float64)
-        x_upper_face_rho_safe = jnp.maximum(x_upper_face_rho, 1.0e-30)
-        x_upper_A_X = face_covariant_x[-1, ..., 0] * cos_theta[0] - face_covariant_x[-1, ..., 1] * sin_theta[0] / x_upper_face_rho_safe
-        x_upper_A_Y = face_covariant_x[-1, ..., 0] * sin_theta[0] + face_covariant_x[-1, ..., 1] * cos_theta[0] / x_upper_face_rho_safe
-        x_upper_A_Z = face_covariant_x[-1, ..., 2]
-
-        def _axis_regular_cartesian_x_derivative(values: jnp.ndarray, upper_face_value: jnp.ndarray) -> jnp.ndarray:
-            return _boundary_corrected_derivative(
-                values,
-                geometry.spacing.dx,
-                axis=0,
-                component=0,
-                periodic=False,
-                lower_face_value=jnp.zeros_like(upper_face_value),
-                upper_face_value=upper_face_value,
-                lower_center_to_face=x_lower_center_to_face,
-                upper_center_to_face=x_upper_center_to_face,
-                lower_center_to_center=x_lower_center_to_center,
-                upper_center_to_center=x_upper_center_to_center,
-                axis_regular_lower_parity=1.0,
-            )
-
-        dA_X_drho = _axis_regular_cartesian_x_derivative(A_X, x_upper_A_X)
-        dA_Y_drho = _axis_regular_cartesian_x_derivative(A_Y, x_upper_A_Y)
-        dA_Z_drho = _axis_regular_cartesian_x_derivative(A_Z, x_upper_A_Z)
-
-        rho_xz_safe = jnp.maximum(rho[:, None], 1.0e-30)
-        y_lower_theta = jnp.asarray(geometry.grid.y.faces[0], dtype=jnp.float64)
-        y_upper_theta = jnp.asarray(geometry.grid.y.faces[-1], dtype=jnp.float64)
-        y_lower_cos_theta = jnp.cos(y_lower_theta)
-        y_lower_sin_theta = jnp.sin(y_lower_theta)
-        y_upper_cos_theta = jnp.cos(y_upper_theta)
-        y_upper_sin_theta = jnp.sin(y_upper_theta)
-        y_lower_A_X = face_covariant_y[:, 0, :, 0] * y_lower_cos_theta - face_covariant_y[:, 0, :, 1] * y_lower_sin_theta / rho_xz_safe
-        y_upper_A_X = face_covariant_y[:, -1, :, 0] * y_upper_cos_theta - face_covariant_y[:, -1, :, 1] * y_upper_sin_theta / rho_xz_safe
-        y_lower_A_Y = face_covariant_y[:, 0, :, 0] * y_lower_sin_theta + face_covariant_y[:, 0, :, 1] * y_lower_cos_theta / rho_xz_safe
-        y_upper_A_Y = face_covariant_y[:, -1, :, 0] * y_upper_sin_theta + face_covariant_y[:, -1, :, 1] * y_upper_cos_theta / rho_xz_safe
-        y_lower_A_Z = face_covariant_y[:, 0, :, 2]
-        y_upper_A_Z = face_covariant_y[:, -1, :, 2]
-
-        dA_X_dtheta = _boundary_corrected_derivative(
-            A_X,
-            geometry.spacing.dy,
-            axis=1,
-            component=0,
-            periodic=periodic_axes[1],
-            lower_face_value=y_lower_A_X,
-            upper_face_value=y_upper_A_X,
-            lower_center_to_face=y_lower_center_to_face,
-            upper_center_to_face=y_upper_center_to_face,
-            lower_center_to_center=y_lower_center_to_center,
-            upper_center_to_center=y_upper_center_to_center,
-        )
-        dA_Y_dtheta = _boundary_corrected_derivative(
-            A_Y,
-            geometry.spacing.dy,
-            axis=1,
-            component=1,
-            periodic=periodic_axes[1],
-            lower_face_value=y_lower_A_Y,
-            upper_face_value=y_upper_A_Y,
-            lower_center_to_face=y_lower_center_to_face,
-            upper_center_to_face=y_upper_center_to_face,
-            lower_center_to_center=y_lower_center_to_center,
-            upper_center_to_center=y_upper_center_to_center,
-        )
-        dA_Z_dtheta = _boundary_corrected_derivative(
-            A_Z,
-            geometry.spacing.dy,
-            axis=1,
-            component=2,
-            periodic=periodic_axes[1],
-            lower_face_value=y_lower_A_Z,
-            upper_face_value=y_upper_A_Z,
-            lower_center_to_face=y_lower_center_to_face,
-            upper_center_to_face=y_upper_center_to_face,
-            lower_center_to_center=y_lower_center_to_center,
-            upper_center_to_center=y_upper_center_to_center,
-        )
-
-        rho_xy_safe = jnp.maximum(rho[:, None], 1.0e-30)
-        theta_xy = theta[None, :]
-        cos_theta_xy = jnp.cos(theta_xy)
-        sin_theta_xy = jnp.sin(theta_xy)
-        z_lower_A_X = face_covariant_z[:, :, 0, 0] * cos_theta_xy - face_covariant_z[:, :, 0, 1] * sin_theta_xy / rho_xy_safe
-        z_upper_A_X = face_covariant_z[:, :, -1, 0] * cos_theta_xy - face_covariant_z[:, :, -1, 1] * sin_theta_xy / rho_xy_safe
-        z_lower_A_Y = face_covariant_z[:, :, 0, 0] * sin_theta_xy + face_covariant_z[:, :, 0, 1] * cos_theta_xy / rho_xy_safe
-        z_upper_A_Y = face_covariant_z[:, :, -1, 0] * sin_theta_xy + face_covariant_z[:, :, -1, 1] * cos_theta_xy / rho_xy_safe
-        z_lower_A_Z = face_covariant_z[:, :, 0, 2]
-        z_upper_A_Z = face_covariant_z[:, :, -1, 2]
-
-        dA_X_dzeta = _boundary_corrected_derivative(
-            A_X,
-            geometry.spacing.dz,
-            axis=2,
-            component=0,
-            periodic=periodic_axes[2],
-            lower_face_value=z_lower_A_X,
-            upper_face_value=z_upper_A_X,
-            lower_center_to_face=z_lower_center_to_face,
-            upper_center_to_face=z_upper_center_to_face,
-            lower_center_to_center=z_lower_center_to_center,
-            upper_center_to_center=z_upper_center_to_center,
-        )
-        dA_Y_dzeta = _boundary_corrected_derivative(
-            A_Y,
-            geometry.spacing.dz,
-            axis=2,
-            component=1,
-            periodic=periodic_axes[2],
-            lower_face_value=z_lower_A_Y,
-            upper_face_value=z_upper_A_Y,
-            lower_center_to_face=z_lower_center_to_face,
-            upper_center_to_face=z_upper_center_to_face,
-            lower_center_to_center=z_lower_center_to_center,
-            upper_center_to_center=z_upper_center_to_center,
-        )
-        inv_rho = 1.0 / rho_safe
-        dA_X_dY = sin_theta * dA_X_drho + cos_theta * inv_rho * dA_X_dtheta
-        dA_Y_dX = cos_theta * dA_Y_drho - sin_theta * inv_rho * dA_Y_dtheta
-        dA_Z_dX = cos_theta * dA_Z_drho - sin_theta * inv_rho * dA_Z_dtheta
-        dA_Z_dY = sin_theta * dA_Z_drho + cos_theta * inv_rho * dA_Z_dtheta
-
-        cartesian_curl = jnp.stack(
-            (
-                dA_Z_dY - dA_Y_dzeta,
-                dA_X_dzeta - dA_Z_dX,
-                dA_Y_dX - dA_X_dY,
-            ),
-            axis=-1,
-        )
-        cartesian_coefficient = (
-            bmag
-            * rho_safe
-            / (2.0 * jnp.maximum(jnp.asarray(metric.J, dtype=jnp.float64), float(jacobian_floor)))
-        )
-        C_X = cartesian_coefficient * cartesian_curl[..., 0]
-        C_Y = cartesian_coefficient * cartesian_curl[..., 1]
-        C_Z = cartesian_coefficient * cartesian_curl[..., 2]
-        axis_regular_lower_coefficients = jnp.stack(
-            (
-                C_X * cos_theta + C_Y * sin_theta,
-                (-C_X * sin_theta + C_Y * cos_theta) / rho_safe,
-                C_Z,
-            ),
-            axis=-1,
-        )
-        curvature_coefficients = curvature_coefficients.at[0].set(axis_regular_lower_coefficients[0])
-
-    return curvature_coefficients
 
 
 def build_local_curvature_coefficients(
@@ -4910,24 +4193,6 @@ def build_local_curvature_coefficients(
         )
 
     return curvature_coefficients
-
-
-def interpolate_B_contravariant(
-    geometry: FciGeometry3D,
-    points: jnp.ndarray,
-    *,
-    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-    boundary_value: float = jnp.nan,
-) -> jnp.ndarray:
-    """Trilinearly interpolate the cell-centered magnetic field at logical-space points."""
-
-    return _interpolate_B_contravariant_cell_centered(
-        geometry.grid,
-        geometry.cell_bfield.B_contra,
-        points,
-        periodic_axes=periodic_axes,
-        boundary_value=boundary_value,
-    )
 
 
 ANGULAR_AGGLOMERATION_HOST_CACHE_VERSION = 4
@@ -6665,8 +5930,6 @@ def logical_b_contravariant_from_traced_maps(
         ),
         axis=-1,
     )
-
-
 
 
 def metric_inverse_residual(geometry: FciGeometry3D) -> jnp.ndarray:

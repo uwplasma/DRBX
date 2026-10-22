@@ -86,12 +86,12 @@ from .fci_boundaries import (
     LocalStencil1D,
     LocalStencil3D,
 )
+from ..geometry.fci_geometry import _axis_index_nd
 
 
 # =============================================================================
 # Parallel-gradient operators
 # =============================================================================
-
 
 
 def grad_parallel_op_fci(
@@ -2175,12 +2175,6 @@ def _dirichlet_lift_correction_cut_wall_bc(cut_wall_bc: CutWallBC3D | None) -> C
             jnp.asarray(cut_wall_bc.value, dtype=jnp.float64),
         ),
     )
-
-
-def _axis_index_nd(axis: int, index: int, ndim: int) -> tuple[object, ...]:
-    slices: list[object] = [slice(None)] * ndim
-    slices[axis] = index
-    return tuple(slices)
 
 
 def _axis_name(axis: int) -> str:

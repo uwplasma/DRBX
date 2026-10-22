@@ -56,6 +56,8 @@ from ..native.fci_boundaries import (  # noqa: F401
     LocalCellGradient3D,
     LocalBoundaryFaceTrace3D,
 )
+from ..native.fci_boundaries import CoordinateFaceValues3D, LocalCutWallGeometry3D, _local_coordinate_face_values_from_halo
+from ...native.fci_boundaries import _local_side_samples
 
 
 _pytree_base = jax.tree_util.register_pytree_node_class
@@ -343,42 +345,6 @@ class LocalBoundaryConditionBuilder(_DataclassPyTreeMixin):
         return cls(prepare_fn=prepare_fn, finalize_fn=finalize_fn)
 
 
-
-def _local_coordinate_face_values_from_halo(
-    field_halo: jnp.ndarray,
-    geometry: LocalFciGeometry3D,
-    layout: HaloLayout3D,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Reconstruct local coordinate-face values from a complete halo field."""
-
-    values = _as_float64_array(field_halo, "LocalCoordinateFaceValueReconstructor3D.field_halo")
-    if values.shape != layout.cell_halo_shape:
-        raise ValueError(
-            "field_halo must have shape layout.cell_halo_shape; "
-            f"got {values.shape}, expected {layout.cell_halo_shape}"
-        )
-    if geometry.layout != layout:
-        raise ValueError("geometry and layout must share the same HaloLayout3D")
-    if layout.halo_width < 1:
-        raise ValueError("local face reconstruction requires halo_width >= 1")
-
-    h = layout.halo_width
-    nx, ny, nz = layout.owned_shape
-    x_faces = 0.5 * (
-        values[h - 1 : h + nx, h : h + ny, h : h + nz]
-        + values[h : h + nx + 1, h : h + ny, h : h + nz]
-    )
-    y_faces = 0.5 * (
-        values[h : h + nx, h - 1 : h + ny, h : h + nz]
-        + values[h : h + nx, h : h + ny + 1, h : h + nz]
-    )
-    z_faces = 0.5 * (
-        values[h : h + nx, h : h + ny, h - 1 : h + nz]
-        + values[h : h + nx, h : h + ny, h : h + nz + 1]
-    )
-    return x_faces, y_faces, z_faces
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalCoordinateFaceValueReconstructor3D(_DataclassPyTreeMixin):
@@ -407,33 +373,6 @@ class LocalCoordinateFaceValueReconstructor3D(_DataclassPyTreeMixin):
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         return cls(aux_data)
-
-
-def _local_side_samples(
-    field_halo: jnp.ndarray,
-    layout: HaloLayout3D,
-    axis: int,
-    side: int,
-    sample_count: int,
-) -> list[jnp.ndarray]:
-    values = _local_cell_halo_array(field_halo, layout, "field_halo")
-    axis = int(axis)
-    side = int(side)
-    if sample_count < 1:
-        raise ValueError(f"sample_count must be positive, got {sample_count}")
-    h = layout.halo_width
-    nx, ny, nz = layout.owned_shape
-    if axis == 0:
-        base = h if side == 0 else h + nx - 1
-        step = 1 if side == 0 else -1
-        return [values[base + step * i, h : h + ny, h : h + nz] for i in range(sample_count)]
-    if axis == 1:
-        base = h if side == 0 else h + ny - 1
-        step = 1 if side == 0 else -1
-        return [values[h : h + nx, base + step * i, h : h + nz] for i in range(sample_count)]
-    base = h if side == 0 else h + nz - 1
-    step = 1 if side == 0 else -1
-    return [values[h : h + nx, h : h + ny, base + step * i] for i in range(sample_count)]
 
 
 def _local_coordinate_side_values_from_array(
@@ -823,63 +762,6 @@ class LocalStencil3D:
 
 @_pytree_base
 @dataclass(frozen=True)
-class CoordinateFaceValues3D:
-    """Scalar values on the three coordinate-face grids.
-
-    The arrays form one coherent staggered grid for an owned cell shape:
-    ``x`` has one extra face in its first coordinate, ``y`` in its second,
-    and ``z`` in its third.
-    """
-
-    x: jnp.ndarray
-    y: jnp.ndarray
-    z: jnp.ndarray
-
-    def __post_init__(self) -> None:
-        x = _as_float64_array(self.x, "CoordinateFaceValues3D.x")
-        y = _as_float64_array(self.y, "CoordinateFaceValues3D.y")
-        z = _as_float64_array(self.z, "CoordinateFaceValues3D.z")
-
-        cell_shape = (int(x.shape[0] - 1), int(y.shape[1] - 1), int(z.shape[2] - 1))
-        if any(size <= 0 for size in cell_shape):
-            raise ValueError(
-                "CoordinateFaceValues3D requires positive cell dimensions; "
-                f"got x={x.shape}, y={y.shape}, z={z.shape}"
-            )
-        expected_x = (cell_shape[0] + 1, cell_shape[1], cell_shape[2])
-        expected_y = (cell_shape[0], cell_shape[1] + 1, cell_shape[2])
-        expected_z = (cell_shape[0], cell_shape[1], cell_shape[2] + 1)
-        if x.shape != expected_x or y.shape != expected_y or z.shape != expected_z:
-            raise ValueError(
-                "CoordinateFaceValues3D arrays must form one coherent face-grid layout; "
-                f"expected x={expected_x}, y={expected_y}, z={expected_z}, got "
-                f"x={x.shape}, y={y.shape}, z={z.shape}"
-            )
-
-        object.__setattr__(self, "x", x)
-        object.__setattr__(self, "y", y)
-        object.__setattr__(self, "z", z)
-
-    @property
-    def shape(self) -> tuple[int, int, int]:
-        """Return the owned-cell shape represented by the face grids."""
-
-        return (
-            int(self.x.shape[0] - 1),
-            int(self.y.shape[1] - 1),
-            int(self.z.shape[2] - 1),
-        )
-
-    def tree_flatten(self):
-        return ((self.x, self.y, self.z), None)
-
-    @classmethod
-    def tree_unflatten(cls, _aux_data, children):
-        return cls(*children)
-
-
-@_pytree_base
-@dataclass(frozen=True)
 class ConservativeStencil3D:
     """Nested 3D stencil for conservative operators.
 
@@ -1243,252 +1125,6 @@ def build_local_boundary_face_trace_from_halo(
                     layout,
                 )
     return result
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class LocalCutWallGeometry3D(_DataclassPyTreeMixin):
-    """Padded cut-wall geometry owned by one local shard.
-
-    ``normal_contra`` is the outward unit normal in contravariant logical
-    components, normalized with ``g_cov`` so that ``n^i g_ij n^j = 1``.
-    ``distance`` is the physical distance from the owner cell center to the
-    wall along that unit normal; coordinate-stencil distances belong in
-    ``stencil_distance`` instead.  Conservative wall fluxes use
-    ``J * area_covector`` as the signed logical wall-area covector, with
-    ``sign`` selecting the owner-cell outward orientation.  ``stencil_axis``
-    controls coordinate-stencil dependency construction; ``wall_axis`` records
-    the physical coordinate-plane orientation for rows whose owner was moved by
-    agglomeration and therefore have ``stencil_axis == -1``.
-    """
-
-    owner_i: jnp.ndarray
-    owner_j: jnp.ndarray
-    owner_k: jnp.ndarray
-    center: jnp.ndarray
-    normal_contra: jnp.ndarray
-    area_covector: jnp.ndarray
-    distance: jnp.ndarray
-    J: jnp.ndarray
-    g_contra: jnp.ndarray
-    g_cov: jnp.ndarray
-    B_contra: jnp.ndarray
-    Bmag: jnp.ndarray
-    sign: jnp.ndarray
-    active: jnp.ndarray
-    max_wall_faces: int
-    stencil_axis: jnp.ndarray | None = None
-    stencil_side: jnp.ndarray | None = None
-    stencil_distance: jnp.ndarray | None = None
-    wall_axis: jnp.ndarray | None = None
-
-    def __post_init__(self) -> None:
-        max_wall_faces = int(self.max_wall_faces)
-        if max_wall_faces < 0:
-            raise ValueError(f"max_wall_faces must be non-negative, got {max_wall_faces}")
-
-        owner_i = _as_local_wall_int_array(self.owner_i, max_wall_faces, "LocalCutWallGeometry3D.owner_i")
-        owner_j = _as_local_wall_int_array(self.owner_j, max_wall_faces, "LocalCutWallGeometry3D.owner_j")
-        owner_k = _as_local_wall_int_array(self.owner_k, max_wall_faces, "LocalCutWallGeometry3D.owner_k")
-        center = _as_local_wall_array(self.center, max_wall_faces, (3,), "LocalCutWallGeometry3D.center")
-        normal_contra = _as_local_wall_array(self.normal_contra, max_wall_faces, (3,), "LocalCutWallGeometry3D.normal_contra")
-        area_covector = _as_local_wall_array(self.area_covector, max_wall_faces, (3,), "LocalCutWallGeometry3D.area_covector")
-        distance = _as_local_wall_array(self.distance, max_wall_faces, (), "LocalCutWallGeometry3D.distance")
-        J = _as_local_wall_array(self.J, max_wall_faces, (), "LocalCutWallGeometry3D.J")
-        g_contra = _as_local_wall_array(self.g_contra, max_wall_faces, (3, 3), "LocalCutWallGeometry3D.g_contra")
-        g_cov = _as_local_wall_array(self.g_cov, max_wall_faces, (3, 3), "LocalCutWallGeometry3D.g_cov")
-        B_contra = _as_local_wall_array(self.B_contra, max_wall_faces, (3,), "LocalCutWallGeometry3D.B_contra")
-        Bmag = _as_local_wall_array(self.Bmag, max_wall_faces, (), "LocalCutWallGeometry3D.Bmag")
-        sign = _as_local_wall_array(self.sign, max_wall_faces, (), "LocalCutWallGeometry3D.sign")
-        active = _as_local_wall_bool_array(self.active, max_wall_faces, "LocalCutWallGeometry3D.active")
-        if self.stencil_axis is None:
-            stencil_axis = -jnp.ones((max_wall_faces,), dtype=jnp.int32)
-        else:
-            stencil_axis = _as_local_wall_int_array(
-                self.stencil_axis,
-                max_wall_faces,
-                "LocalCutWallGeometry3D.stencil_axis",
-            )
-        if self.stencil_side is None:
-            stencil_side = jnp.zeros((max_wall_faces,), dtype=jnp.int32)
-        else:
-            stencil_side = _as_local_wall_int_array(
-                self.stencil_side,
-                max_wall_faces,
-                "LocalCutWallGeometry3D.stencil_side",
-            )
-        if self.stencil_distance is None:
-            stencil_distance = jnp.zeros((max_wall_faces,), dtype=jnp.float64)
-        else:
-            stencil_distance = _as_local_wall_array(
-                self.stencil_distance,
-                max_wall_faces,
-                (),
-                "LocalCutWallGeometry3D.stencil_distance",
-            )
-        if self.wall_axis is None:
-            wall_axis = stencil_axis
-        else:
-            wall_axis = _as_local_wall_int_array(
-                self.wall_axis,
-                max_wall_faces,
-                "LocalCutWallGeometry3D.wall_axis",
-            )
-
-        axis_enabled = stencil_axis >= 0
-        wall_axis_enabled = wall_axis >= 0
-        valid_axis = (stencil_axis == -1) | ((stencil_axis >= 0) & (stencil_axis <= 2))
-        valid_wall_axis = (wall_axis == -1) | ((wall_axis >= 0) & (wall_axis <= 2))
-        valid_side = (~axis_enabled) | ((stencil_side >= 0) & (stencil_side <= 1))
-        valid_distance = (~(axis_enabled | wall_axis_enabled)) | (stencil_distance > 0.0)
-        if not bool(jnp.all(valid_axis)):
-            raise ValueError("LocalCutWallGeometry3D.stencil_axis must contain -1, 0, 1, or 2")
-        if not bool(jnp.all(valid_wall_axis)):
-            raise ValueError("LocalCutWallGeometry3D.wall_axis must contain -1, 0, 1, or 2")
-        if not bool(jnp.all(valid_side)):
-            raise ValueError(
-                "LocalCutWallGeometry3D.stencil_side must contain 0 or 1 for enabled stencil rows"
-            )
-        if not bool(jnp.all(valid_distance)):
-            raise ValueError(
-                "LocalCutWallGeometry3D.stencil_distance must be positive for enabled stencil or wall-axis rows"
-            )
-        stencil_side = jnp.where(axis_enabled, stencil_side, 0)
-        stencil_distance = jnp.where(axis_enabled | wall_axis_enabled, stencil_distance, 0.0)
-
-        object.__setattr__(self, "owner_i", owner_i)
-        object.__setattr__(self, "owner_j", owner_j)
-        object.__setattr__(self, "owner_k", owner_k)
-        object.__setattr__(self, "center", center)
-        object.__setattr__(self, "normal_contra", normal_contra)
-        object.__setattr__(self, "area_covector", area_covector)
-        object.__setattr__(self, "distance", distance)
-        object.__setattr__(self, "J", J)
-        object.__setattr__(self, "g_contra", g_contra)
-        object.__setattr__(self, "g_cov", g_cov)
-        object.__setattr__(self, "B_contra", B_contra)
-        object.__setattr__(self, "Bmag", Bmag)
-        object.__setattr__(self, "sign", sign)
-        object.__setattr__(self, "active", active)
-        object.__setattr__(self, "max_wall_faces", max_wall_faces)
-        object.__setattr__(self, "stencil_axis", stencil_axis)
-        object.__setattr__(self, "stencil_side", stencil_side)
-        object.__setattr__(self, "stencil_distance", stencil_distance)
-        object.__setattr__(self, "wall_axis", wall_axis)
-
-    @property
-    def n_wall_faces(self) -> int:
-        return int(self.max_wall_faces)
-
-    @classmethod
-    def empty(cls, max_wall_faces: int) -> "LocalCutWallGeometry3D":
-        max_wall_faces = int(max_wall_faces)
-        if max_wall_faces < 0:
-            raise ValueError(f"max_wall_faces must be non-negative, got {max_wall_faces}")
-        zeros3 = (max_wall_faces, 3)
-        zeros33 = (max_wall_faces, 3, 3)
-        obj = object.__new__(cls)
-        object.__setattr__(obj, "owner_i", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
-        object.__setattr__(obj, "owner_j", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
-        object.__setattr__(obj, "owner_k", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
-        object.__setattr__(obj, "center", jnp.zeros(zeros3, dtype=jnp.float64))
-        object.__setattr__(obj, "normal_contra", jnp.zeros(zeros3, dtype=jnp.float64))
-        object.__setattr__(obj, "area_covector", jnp.zeros(zeros3, dtype=jnp.float64))
-        object.__setattr__(obj, "distance", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
-        object.__setattr__(obj, "J", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
-        object.__setattr__(obj, "g_contra", jnp.zeros(zeros33, dtype=jnp.float64))
-        object.__setattr__(obj, "g_cov", jnp.zeros(zeros33, dtype=jnp.float64))
-        object.__setattr__(obj, "B_contra", jnp.zeros(zeros3, dtype=jnp.float64))
-        object.__setattr__(obj, "Bmag", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
-        object.__setattr__(obj, "sign", jnp.zeros((max_wall_faces,), dtype=jnp.float64))
-        object.__setattr__(obj, "active", jnp.zeros((max_wall_faces,), dtype=bool))
-        object.__setattr__(obj, "max_wall_faces", max_wall_faces)
-        object.__setattr__(
-            obj,
-            "stencil_axis",
-            -jnp.ones((max_wall_faces,), dtype=jnp.int32),
-        )
-        object.__setattr__(obj, "stencil_side", jnp.zeros((max_wall_faces,), dtype=jnp.int32))
-        object.__setattr__(
-            obj,
-            "stencil_distance",
-            jnp.zeros((max_wall_faces,), dtype=jnp.float64),
-        )
-        object.__setattr__(
-            obj,
-            "wall_axis",
-            -jnp.ones((max_wall_faces,), dtype=jnp.int32),
-        )
-        return obj
-
-    def tree_flatten(self):
-        return (
-            (
-                self.owner_i,
-                self.owner_j,
-                self.owner_k,
-                self.center,
-                self.normal_contra,
-                self.area_covector,
-                self.distance,
-                self.J,
-                self.g_contra,
-                self.g_cov,
-                self.B_contra,
-                self.Bmag,
-                self.sign,
-                self.active,
-                self.stencil_axis,
-                self.stencil_side,
-                self.stencil_distance,
-                self.wall_axis,
-            ),
-            self.max_wall_faces,
-        )
-
-    @classmethod
-    def tree_unflatten(cls, max_wall_faces, children):
-        (
-            owner_i,
-            owner_j,
-            owner_k,
-            center,
-            normal_contra,
-            area_covector,
-            distance,
-            J,
-            g_contra,
-            g_cov,
-            B_contra,
-            Bmag,
-            sign,
-            active,
-            stencil_axis,
-            stencil_side,
-            stencil_distance,
-            wall_axis,
-        ) = children
-        obj = object.__new__(cls)
-        object.__setattr__(obj, "owner_i", owner_i)
-        object.__setattr__(obj, "owner_j", owner_j)
-        object.__setattr__(obj, "owner_k", owner_k)
-        object.__setattr__(obj, "center", center)
-        object.__setattr__(obj, "normal_contra", normal_contra)
-        object.__setattr__(obj, "area_covector", area_covector)
-        object.__setattr__(obj, "distance", distance)
-        object.__setattr__(obj, "J", J)
-        object.__setattr__(obj, "g_contra", g_contra)
-        object.__setattr__(obj, "g_cov", g_cov)
-        object.__setattr__(obj, "B_contra", B_contra)
-        object.__setattr__(obj, "Bmag", Bmag)
-        object.__setattr__(obj, "sign", sign)
-        object.__setattr__(obj, "active", active)
-        object.__setattr__(obj, "max_wall_faces", int(max_wall_faces))
-        object.__setattr__(obj, "stencil_axis", stencil_axis)
-        object.__setattr__(obj, "stencil_side", stencil_side)
-        object.__setattr__(obj, "stencil_distance", stencil_distance)
-        object.__setattr__(obj, "wall_axis", wall_axis)
-        return obj
 
 
 @_pytree_base
@@ -4184,8 +3820,6 @@ class LocalCutWallValueReconstructor3D(_DataclassPyTreeMixin):
             stencil_width=stencil_width,
             max_wall_faces=max_wall_faces,
         )
-
-
 
 
 @_pytree_base
