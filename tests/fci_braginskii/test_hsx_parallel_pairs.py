@@ -123,7 +123,11 @@ def test_step_advection_along_b_is_bounded_with_face_flux_dissipation(operators,
         with capsys.disabled():
             print(f"[step advection] eps={eps}: min/max {rows[eps][0]:+.3f}/{rows[eps][1]:+.3f}, L2 growth {rows[eps][2]:.3f}, mass {rows[eps][3]:+.1e}")
     assert all(abs(row[3]) < 1e-12 for row in rows.values())  # the dissipation is conservative
-    assert rows[2.0][2] < rows[0.0][2]
+    growth = [rows[e][2] for e in EPSILONS]
+    assert all(a > b for a, b in zip(growth, growth[1:]))  # monotone damping
+    # Measured (HSX 16^3, 8 legs, unit speed): L2 growth 9.6 (eps 0), 4.3, 2.3, 1.5, 1.15, 0.98 (eps 2): a passive
+    # step at the signal speed needs eps ~ 2; the model scales eps by |V| + c_s, so Mach <= 0.05 is neutral at eps 0.1.
+    assert rows[2.0][2] < 1.0 + 1e-6
 
 
 def test_anisotropic_heat_blob_reports_perpendicular_leakage(operators, capsys):
