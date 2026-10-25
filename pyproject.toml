@@ -22,7 +22,7 @@ dependencies = [
     "netCDF4",
     "rich",
     "pillow",
-    "solvax>=0.28.2",
+    "solvax>=0.33.0",
     "tomli; python_version < '3.11'",
 ]
 

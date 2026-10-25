@@ -394,6 +394,7 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.mi_over_me` | `float` | `1836.0` | Ion-to-electron mass ratio. |
 | `fci_braginskii.perp_diffusion` | `float` | `1e-05` | Perpendicular diffusion coefficient. (normalized) |
 | `fci_braginskii.parallel_diffusion` | `float` | `0.0` | Parallel diffusion coefficient. (normalized) |
+| `fci_braginskii.parallel_dissipation` | `float` | `0.1` | Conservative face-flux dissipation of the parallel transport, `eps` times the local signal speed times the leg length (Rusanov factor; 0 = central). |
 | `fci_braginskii.parallel_conduction` | `str` | `'auto'` | Implicit Spitzer-Harm parallel heat conduction of Te and Ti: `auto` (on with the Bohm wall), `spitzer` or `off`. |
 | `fci_braginskii.reference_density_m3` | `float` | `1e+19` | Reference density n0 of the Spitzer conductivity. (m^-3) |
 | `fci_braginskii.coulomb_logarithm` | `float` | `15.0` | Coulomb logarithm of the Spitzer conductivity. |

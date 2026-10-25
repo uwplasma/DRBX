@@ -187,10 +187,10 @@ def test_conservative_parallel_rates_are_sum_free_with_reported_sources():
     divergence = lambda f: jnp.einsum("ij,...j->...i", D, f)
     primitive = {k: jnp.asarray(rng.uniform(lo, hi, cells)) for k, lo, hi in (
         ("density", 0.5, 2.0), ("Te", 0.5, 2.0), ("Ti", 0.5, 2.0), ("Vi", -1.0, 1.0), ("Ve", -3.0, 3.0))}
-    host = SimpleNamespace(parameters=SimpleNamespace(tau=TAU))
-    rates, sources = LocalFciDrbEBRhs._sheath_conservative_parallel_rates(host, primitive, gradient, divergence)
+    host = SimpleNamespace(parameters=SimpleNamespace(tau=TAU, mi_over_me=25.0))
+    rates, sources = LocalFciDrbEBRhs._conservative_parallel_rates(host, primitive, gradient, divergence)
     n, te, ti, vi = (np.asarray(primitive[k]) for k in ("density", "Te", "Ti", "Vi"))
-    dn, dte, dti, dvi = np.asarray(rates).T
+    dn, dte, dti, dvi, dve = np.asarray(rates).T
     assert abs(np.sum(mass * dn)) < 1e-12
     np.testing.assert_allclose(np.sum(mass * 1.5 * (te * dn + n * dte)), np.sum(mass * sources[:, 0]), atol=1e-11)
     np.testing.assert_allclose(np.sum(mass * 1.5 * TAU * (ti * dn + n * dti)), np.sum(mass * sources[:, 1]),

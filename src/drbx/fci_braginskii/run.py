@@ -3434,6 +3434,7 @@ class HsxBlobConfig:
     mi_over_me: float = 1836.0
     perp_diffusion: float = 1.0e-5
     parallel_diffusion: float = 0.0
+    parallel_dissipation: float = 0.1
     parallel_conduction: str = "auto"
     reference_density_m3: float = 1.0e19
     coulomb_logarithm: float = 15.0
@@ -3479,6 +3480,8 @@ class HsxBlobConfig:
                 raise ValueError(f"[fci_braginskii] {name} must be one of {allowed}")
         if self.wall_closure not in WALL_CLOSURES:
             raise ValueError(f"[fci_braginskii] wall_closure must be one of {WALL_CLOSURES}")
+        if not self.parallel_dissipation >= 0.0:
+            raise ValueError("[fci_braginskii] parallel_dissipation must be non-negative")
         if not (self.reference_density_m3 > 0.0 and self.coulomb_logarithm > 0.0 and self.heat_flux_limiter >= 0.0):
             raise ValueError(
                 "[fci_braginskii] reference_density_m3 and coulomb_logarithm must be positive, "
@@ -3759,6 +3762,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         electron_conduction_kappa0=kappa0_e,
         ion_conduction_kappa0=kappa0_i,
         heat_flux_limiter=float(args.heat_flux_limiter),
+        parallel_dissipation=float(args.parallel_dissipation),
     )
     if not restart_used:
         initial_state = build_initial_state(
@@ -3981,6 +3985,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             "mi_over_me": float(args.mi_over_me),
             "perp_diffusion": float(args.perp_diffusion),
             "parallel_diffusion": float(args.parallel_diffusion),
+            "parallel_dissipation": float(args.parallel_dissipation),
             "parallel_conduction": (
                 f"spitzer-harm, implicit, kappa0_e={kappa0_e:.8g}, kappa0_i={kappa0_i:.8g}, "
                 f"limiter={float(args.heat_flux_limiter):g}" if kappa0_e else "off"
