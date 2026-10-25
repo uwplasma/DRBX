@@ -78,7 +78,7 @@ def test_conduction_and_parallel_diffusion_are_symmetric_negative_semidefinite()
         vl = v[:, None] * _dense(lambda f: divergence(coefficient * gradient(f)), mass.shape)
         assert np.linalg.norm(vl - vl.T) <= 1e-13 * np.linalg.norm(vl)
         assert np.max(np.linalg.eigvalsh(0.5 * (vl + vl.T))) <= 1e-13 * np.linalg.norm(vl)
-        assert np.max(np.abs(v @ vl / v.sum())) <= 1e-13 * np.linalg.norm(vl)
+        assert np.max(np.abs(vl.sum(axis=0))) <= 1e-13 * np.linalg.norm(vl)
 
 
 @pytest.mark.parametrize("which", ["gradient", "divergence", "conduction"])
