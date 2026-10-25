@@ -36,8 +36,9 @@ backend.
   from the scatter of the mapped gather, carries every parallel term (the five
   material rows, parallel diffusion, conduction, `grad omega`); the current/phi pair
   is the second exact pair; a compact forward-leg face-flux dissipation
-  (`parallel_dissipation`) damps what the central pair cannot; characteristic-SAT
-  wall current and the physical-boundary-state law for the Ve wall leg remain.
+  (`parallel_dissipation`) damps what the central pair cannot. The characteristic-SAT wall
+  current lift (zero for the ambipolar and the zero-flow wall) and the host-eig
+  characteristic wall law are gone.
 - Parallel heat conduction: implicit Spitzer-Harm conduction of Te and Ti in
   flux form on the support pair, on by default with the Bohm wall
   (`parallel_conduction`, see Parallel heat conduction).

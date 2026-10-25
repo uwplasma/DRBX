@@ -72,9 +72,6 @@ from .fci_wall_closure import (
     sound_speed,
     wall_face_fluxes,
 )
-from .fci_parallel_production_flux import (
-    parallel_characteristic_wall_data,
-)
 
 
 @jax.tree_util.register_pytree_node_class
@@ -1819,53 +1816,24 @@ class LocalFciDrbEBRhs:
         )
 
         primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
-        stencils = []
-        for name in primitive_names:
-            field_halo, forward_remote, backward_remote = self._fci_prepare_q(
-                fields[name], getattr(parallel_boundary, name), context
-            )
-            stencils.append(build_local_fci_stencil_from_field(
-                field_halo, self.geometry, context,
-                forward_remote_values=forward_remote, backward_remote_values=backward_remote,
-            ))
-        center = jnp.stack(tuple(s.center for s in stencils), axis=-1)
-        minus = jnp.stack(tuple(s.minus for s in stencils), axis=-1)
-        plus = jnp.stack(tuple(s.plus for s in stencils), axis=-1)
-        backward_wall = self.geometry.maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
-        forward_wall = self.geometry.maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
-        backward_wall_state, forward_wall_state = self._parallel_wall_states(
-            center, minus, plus, backward_wall, forward_wall
-        )
-        wall_data = parallel_characteristic_wall_data(
-            center, minus, plus, stencils[0].dx_min, stencils[0].dx_plus,
-            self.parameters.tau, self.parameters.mi_over_me,
-            selection_dt=short_leg_selection_dt,
-            backward_wall=backward_wall, forward_wall=forward_wall,
-            backward_wall_state=backward_wall_state, forward_wall_state=forward_wall_state,
-        )
-        # Characteristic-SAT wall current: the difference between the
-        # characteristic wall-current divergence and the homogeneous pair is
-        # an affine lift applied only to the vorticity current divergence.
-        _, wall_current_divergence, _ = self._fci_current_phi_boundary_pair(
-            face_bc=face_bc, context=context, build_adjoint=False,
-            wall_endpoint_current_values=(
-                wall_data["backward_wall_characteristic_current"],
-                wall_data["forward_wall_characteristic_current"],
-            ),
-        )
+        # The wall current lift of the former characteristic-SAT closure is zero for the
+        # ambipolar Bohm wall (2e-16 of the current divergence on the 16^3 t=0.6 state)
+        # and for the zero-flow wall, and it was the only host-eig consumer left: a NaN
+        # in its callback ended the 32^3 run at step 453.
         homogeneous_current_divergence = current_divergence(fields["current"])
         q_halo, forward, backward = self._fci_prepare_flux_q(
             fields["current"], operator_boundary.current, context
         )
         # Rows outside the pair's target (no admissible map) keep the mapped
         # divergence as their only closure.
-        vorticity_current = wall_current_divergence(fields["current"]) + jnp.where(
+        closure = jnp.where(
             current_target, 0.0,
             local_parallel_q_flux_div_fci_op(
                 q_halo, self.geometry, context=context,
                 forward_remote_q_values=forward, backward_remote_q_values=backward,
             ),
         )
+        vorticity_current = homogeneous_current_divergence + closure
         rates, energy_sources = self._conservative_parallel_rates(
             {name: fields[name] for name in primitive_names}, gradient, divergence,
             self._fci_leg_laplacian(face_bc=face_bc, context=context)
@@ -1875,10 +1843,7 @@ class LocalFciDrbEBRhs:
             "grad_phi": phi_gradient(fields["phi"]),
             "grad_vorticity": gradient(fields["vorticity"]),
             "vorticity_current_flux_div": vorticity_current,
-            "vorticity_current_affine_flux_div": (
-                jnp.zeros_like(zero) if self._sheath_current_mode
-                else vorticity_current - homogeneous_current_divergence
-            ),
+            "vorticity_current_affine_flux_div": jnp.zeros_like(zero) if self._sheath_current_mode else closure,
             "conservative_rates": rates,
             "energy_sources": energy_sources,
         }
