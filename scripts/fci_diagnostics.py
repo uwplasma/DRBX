@@ -4,32 +4,29 @@ Edit the constants and run ``python scripts/fci_diagnostics.py``.  The script ru
 point where the sharded model can be built, captures that model and then reports
 
 A1  adjointness of the parallel operator pairs (G, D) as dense matrices, spectra of the linearised Ve-Te
-    and Ve-phi-omega blocks with and without the sheath rows, the field-aligned step advection and
-    anisotropic heat-blob tests (numerical perpendicular diffusion);
+    and Ve-phi-omega blocks with and without the sheath rows (advection and heat-blob tests: see plan.md);
 A2  host synchronisations and callbacks of one step;
 A3  electron energy rates of the state, term by term;
-A4  the sheath heat transmission (see also tests/test_sheath_heat_transmission.py).
+A4 (sheath heat transmission) is tests/test_sheath_heat_transmission.py.
 
 Snapshot ``STATE`` is a restart file written by ``snapshot_times`` of a default run (step 100 of 200).
 """
 
 import dataclasses
 import sys
+import time
 from pathlib import Path
 
 import jax
+import jax.extend.core
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg as sla
-import scipy.sparse.linalg as ssl
 from jax.sharding import PartitionSpec as P
 
 from drbx import deck
-from drbx.fci_braginskii import run as hsx_run
-from drbx.fci_braginskii.native.fci_drb_EB_rhs import FciDrbEBState
 from drbx.fci_braginskii.native.fci_operators import (
     local_grad_parallel_op_fci_compatible_from_q,
-    local_parallel_diffusion_fci_op,
     local_parallel_div_b_fci_from_q_op,
     local_parallel_q_flux_div_fci_op,
 )
@@ -42,8 +39,7 @@ DECK = "examples/inputs/hsx_fci_blob.toml"  # [geometry] table: shipped coils an
 GEOMETRY_CACHE = "output/hsx_geometry"
 STATE = "output/phaseA/hsx_snapshot_0.075.npz"  # state to linearise around (None: the initial blob)
 DT = 7.5e-4  # default step of the 200-step run
-EIGS = 12  # eigenvalues kept per block
-EIG_TOL = 1e-6
+EIGS = 6  # eigenvalues kept per block
 SHEATH_CHANGES = {"with sheath rows": {"wall_closure": "bohm"}, "without sheath rows": {"wall_closure": "zero-flow"}}
 
 
@@ -94,12 +90,8 @@ def dense(op, shape):
 def homogeneous_halo_ops(model, face_bc):
     """Legacy mapped q-flux divergence and compatible gradient with homogeneous wall data (linear parts)."""
     ctx = model._stencil_builder_context()
-    zero_bc = dataclasses.replace(
-        face_bc.phi,
-        value_x=jnp.zeros_like(face_bc.phi.value_x),
-        value_y=jnp.zeros_like(face_bc.phi.value_y),
-        value_z=jnp.zeros_like(face_bc.phi.value_z),
-    )
+    phi_bc = face_bc.phi
+    zero_bc = dataclasses.replace(phi_bc, value_x=0 * phi_bc.value_x, value_y=0 * phi_bc.value_y, value_z=0 * phi_bc.value_z)
     bmag = jnp.maximum(model.geometry.cell_bfield.Bmag_owned, 1e-30)
     inv_b = model._fci_prepare_inverse_b(face_bc, ctx)
     div_b = local_parallel_div_b_fci_from_q_op(
@@ -123,18 +115,7 @@ def homogeneous_halo_ops(model, face_bc):
             forward_remote_q_values=fwd, backward_remote_q_values=bwd,
         )
 
-    def diffusion(values):
-        halo = model._prepare_fine_storage_halo(values, zero_bc)
-        ones = jnp.ones_like(halo)
-        f, d = model._fci_remote_values(halo, ctx), model._fci_remote_values(ones, ctx)
-        return local_parallel_diffusion_fci_op(
-            halo, model.geometry, context=ctx, diffusivity_halo_full=ones, inverse_b_halo_full=inv_b[0],
-            forward_remote_values=f[0], backward_remote_values=f[1],
-            forward_remote_diffusivity_values=d[0], backward_remote_diffusivity_values=d[1],
-            forward_remote_inverse_b_values=inv_b[1], backward_remote_inverse_b_values=inv_b[2],
-        )
-
-    return divergence, gradient, diffusion
+    return divergence, gradient
 
 
 def forward_values(model, face_bc, values):
@@ -157,18 +138,17 @@ def operator_matrices(model, state):
     gp, dp, ptarget = model._fci_current_phi_boundary_pair(
         face_bc=face_bc, context=ctx, wall_endpoint_current_values=(zero, zero)
     )
-    dl, gl, lap = homogeneous_halo_ops(model, face_bc)
+    dl, gl = homogeneous_halo_ops(model, face_bc)
     cvg = model.control_volume_geometry
     active = model.geometry.active_cell_mask_owned
     if cvg is not None:
         active = active & cvg.cells.is_active_owner
     return {
         "Gs": dense(gs, shape), "Ds": dense(ds, shape), "Gp": dense(gp, shape), "Dp": dense(dp, shape),
-        "Gl": dense(gl, shape), "Dl": dense(dl, shape), "Lap": dense(lap, shape),
+        "Gl": dense(gl, shape), "Dl": dense(dl, shape),
         "core": core, "ptarget": ptarget, "active": active, "volume": model._fci_pair_cell_mass(),
         "wall": (model.geometry.maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
         | (model.geometry.maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY),
-        "dx": jnp.abs(forward_values(model, face_bc, zero)[3]),
     }
 
 
@@ -185,10 +165,7 @@ def adjoint_report(name, g, d, v):
         f"max|G(1)|/|G|_inf = {np.max(np.abs(g.sum(1))) / np.max(np.abs(g).sum(1)):.3e}"
     )
 
-
-# ---------------------------------------------------------------------------------------------------
 # A1: operators
-# ---------------------------------------------------------------------------------------------------
 cap = capture()
 state0 = cap["state"]
 shape = tuple(int(n) for n in state0.density.shape)
@@ -197,8 +174,7 @@ act = np.flatnonzero(mats["active"].ravel())
 sub = lambda m: m[np.ix_(act, act)]
 vol = mats["volume"].ravel()[act]
 core = mats["core"].ravel()[act].astype(float)
-pt = mats["ptarget"].ravel()[act].astype(float)
-Gs, Ds, Gp, Dp, Gl, Dl, Lap = (sub(mats[k]) for k in ("Gs", "Ds", "Gp", "Dp", "Gl", "Dl", "Lap"))
+Gs, Ds, Gp, Dp, Gl, Dl = (sub(mats[k]) for k in ("Gs", "Ds", "Gp", "Dp", "Gl", "Dl"))
 Gc, Dc = Gs + (1 - core)[:, None] * Gl, Ds + (1 - core)[:, None] * Dl  # support core + legacy closure rows
 print(f"[A1] {len(act)} active cells of {np.prod(shape)}; support-core rows {int(core.sum())}")
 print("[A1] adjointness of the parallel operator pairs (homogeneous wall data):")
@@ -206,72 +182,13 @@ adjoint_report("support pair (sheath, conduction)", Gs, Ds, vol)
 adjoint_report("support core + legacy wall rows", Gc, Dc, vol)
 adjoint_report("legacy mapped (G_compat, D_flux)", Gl, Dl, vol)
 adjoint_report("current/phi pair", Gp, Dp, vol)
-vl = vol[:, None] * Lap
-print(
-    f"  parallel_diffusion op: |VL-(VL)^T|/|VL| = {np.linalg.norm(vl - vl.T) / np.linalg.norm(vl):.3e}, "
-    f"sum V.L(f) = {np.max(np.abs(vol @ Lap)) / np.max(np.abs(vol) @ np.abs(Lap)):.3e} (relative), "
-    f"max eig sym(VL)/|VL| = {np.max(sla.eigvalsh(0.5 * (vl + vl.T))) / np.linalg.norm(vl, 2):.3e}"
-)
 vd = vol[:, None] * (Ds @ Gs)  # conduction operator D(kappa G .) with kappa = 1; kappa > 0 keeps the structure
-sym = 0.5 * (vd + vd.T)
 print(
     f"  conduction D G (kappa=1): |V(DG)-(V DG)^T|/|V DG| = {np.linalg.norm(vd - vd.T) / np.linalg.norm(vd):.3e}, "
-    f"max eig sym(V D G) = {np.max(sla.eigvalsh(sym)):.3e} (<= 0 for a dissipative operator)"
+    f"max eig sym(V D G) = {np.max(sla.eigvalsh(0.5 * (vd + vd.T))):.3e} (<= 0 for a dissipative operator)"
 )
 
-# field-aligned test functions: Gaussian of the field-line label traced to the reference plane (exactly b.grad F = 0)
-geometry, config = cap["global_geometry"], cap["parameters"]
-traced, valid = hsx_run._trace_logical_labels_to_eta_plane(geometry, reference_eta=np.pi, tracing_substeps_per_plane=4)
-u, v, eta = np.meshgrid(*(np.asarray(g.centers) for g in (geometry.grid.x, geometry.grid.y, geometry.grid.z)), indexing="ij")
-center, width = (0.65, 0.5), 0.1
-dist2 = traced[..., 0] ** 2 + center[0] ** 2 - 2 * traced[..., 0] * center[0] * np.cos(traced[..., 1] - center[1])
-profile = np.exp(-dist2 / (2 * width**2)) * valid  # field-aligned filament profile P(label)
-envelope = np.cos(0.5 * (eta - np.pi)) ** 2  # the default blob's parallel envelope (half length pi)
-step_along_b = (np.abs(eta - np.pi) < np.pi / 2).astype(float)  # Wiesenberger-style step modulation along b
-inside = (u < 0.8).ravel()[act] & valid.ravel()[act]  # cells in the closed-surface part of the grid
-dx = np.mean(mats["dx"].ravel()[act])
-print(f"[A1] label trace valid in {100 * valid.mean():.1f}% of cells; mean parallel leg {dx:.4f} (normalised length)")
-
-
-def label_variance(f):
-    w = vol * np.maximum(f, 0)
-    d2 = dist2.ravel()[act]
-    return np.sum(w * d2) / np.sum(w)
-
-
-pf = profile.ravel()[act]
-for name, g, d in (("support pair", Gs, Ds), ("legacy mapped", Gl, Dl)):
-    # Hill/Shanahan flux-function test: parallel gradient of an exactly aligned function = numerical error
-    leak = g @ pf
-    print(f"[A1] {name}: |G P(label)| V-rms / (|P|_rms / dx) = "
-          f"{np.sqrt(np.sum(vol * leak**2) / np.sum(vol * pf**2)) * dx:.3e} (aligned function, zero in the continuum)")
-    print(f"     spectral abscissa of -D (growth rate per unit length; 0 for a skew/dissipative advection) = {np.max(sla.eigvals(-d).real):+.3e}")
-    # Wiesenberger step-modulated advection d_t f = -D f, f0 = P(label) * step(eta), t in parallel-leg crossings
-    f0 = (profile * step_along_b).ravel()[act]
-    for crossings in (2, 8):
-        f = ssl.expm_multiply(-crossings * dx * d, f0)
-        print(f"     advected {crossings} legs: min/max f = {f.min():+.3f}/{f.max():+.3f} (initial 0/{f0.max():.3f}), "
-              f"mass change {np.sum(vol * f) / np.sum(vol * f0) - 1:+.2e}, "
-              f"label variance growth {label_variance(f) / label_variance(f0) - 1:+.3e}, "
-              f"period-2 content {np.sum(vol * np.abs(f - 0.25 * (np.roll(f, 1) + 2 * f + np.roll(f, -1)))) / np.sum(vol * np.abs(f)):.3f}")
-    # Stegmeir anisotropic heat blob, eps_perp = 0: T0 = P(label) * envelope; ideal long-time T = c P(label)
-    a = d @ g if name == "support pair" else None
-    if name != "support pair":
-        a = Lap
-    t0 = (profile * envelope).ravel()[act]
-    values, vectors = sla.eig(a)
-    coeffs = np.linalg.solve(vectors, t0.astype(complex))
-    ideal = pf * np.sum(vol * t0) / np.sum(vol * pf)
-    row = []
-    for t in (1.0, 1e1, 1e2, 1e3, 1e4, 1e5):
-        tt = (vectors @ (np.exp(t * values / dx**2) * coeffs)).real  # chi_par = 1, time in dx^2 units
-        row.append(f"{t:g}: {np.sum((vol * np.abs(tt - ideal))[inside]) / np.sum((vol * ideal)[inside]):.3f}")
-    print(f"[A1] heat blob ({name}): L1 error vs aligned steady state inside u<0.8 at chi t/dx^2 = " + ", ".join(row))
-
-
-# ---------------------------------------------------------------------------------------------------
 # A1: spectra of the linearised blocks
-# ---------------------------------------------------------------------------------------------------
 def total_rate(model, x):
     """Explicit RHS plus the selected wall-leg rows (implicit in the time stepper) of a state."""
     rate = model.evaluate_stage(x, phi_owned=x.phi, short_leg_selection_dt=DT)
@@ -313,61 +230,66 @@ def block_jvp(model, base, dfirst, dsecond, block):
 
 
 def eigen_block(cap, base, block):
-    """Largest-real-part eigenvalues and eigenvectors of a block Jacobian (matrix-free ARPACK)."""
+    """Largest-real-part eigenpairs of the dense block Jacobian (ARPACK did not converge: spectrum is stiff and oscillatory)."""
     n = len(act)
-    jvp = on(cap, lambda model, state, a, b: block_jvp(model, state, a, b, block))
     scatter = lambda x: jnp.zeros(shape).ravel().at[act].set(x).reshape(shape)
 
-    def matvec(x):
-        a, b = jvp(base, scatter(x[:n]), scatter(x[n:]))
-        return np.concatenate([np.asarray(a).ravel()[act], np.asarray(b).ravel()[act]])
+    def columns(model, state):
+        def column(i):
+            e = jnp.zeros(2 * n).at[i].set(1.0)
+            a, b = block_jvp(model, state, scatter(e[:n]), scatter(e[n:]), block)
+            return jnp.concatenate([a.ravel()[act], b.ravel()[act]])
 
-    return ssl.eigs(ssl.LinearOperator((2 * n, 2 * n), matvec=matvec, dtype=float), k=EIGS, which="LR", tol=EIG_TOL)
+        return jax.lax.map(column, jnp.arange(2 * n), batch_size=16)
+
+    jac = np.asarray(on(cap, columns)(base)).T
+    values = sla.eigvals(jac)
+    top = values[np.argsort(-values.real)[:EIGS]]
+    vectors = []
+    for lam in top:  # inverse iteration for the eigenvector
+        v = np.random.default_rng(0).standard_normal(2 * n).astype(complex)
+        for _ in range(3):
+            v = np.linalg.solve(jac - (lam + 1e-7 * abs(lam)) * np.eye(2 * n), v)
+            v /= np.linalg.norm(v)
+        vectors.append(v)
+    return top, np.array(vectors).T, values.real.max(), int(np.sum(values.real > 0))
 
 
-def along_b_correlation(cap, base, field):
+def along_b_correlation(plus, base, field):
     """<f, f_plus>/<f, f> of the forward field-line neighbour value: +1 smooth along b, -1 for period 2."""
-    plus = on(cap, lambda model, state, f: forward_values(model, model._face_bcs(state), f)[1])
     f = np.zeros(shape).ravel()
     f[act] = field
     p = np.asarray(plus(base, jnp.asarray(f.reshape(shape)))).ravel()[act]
-    return np.sum(vol * field * p) / np.sum(vol * field**2)
-
+    return np.sum(vol * field * p) / max(np.sum(vol * field**2), 1e-300)
 
 wall_cells = mats["wall"].ravel()[act]
 for label, changes in SHEATH_CHANGES.items():
     cap_b = cap if label.startswith("with ") else capture(**changes)
     base = cap_b["state"]
     for block, names in (("Ve-Te", ("Te", "Ve")), ("Ve-phi-omega", ("Ve", "omega"))):
-        values, vectors = eigen_block(cap_b, base, block)
+        values, vectors, abscissa, unstable = eigen_block(cap_b, base, block)
+        plus = on(cap_b, lambda model, state, f: forward_values(model, model._face_bcs(state), f)[1])
         n = len(act)
-        print(f"[A1] {label}, {block} block: {len(values)} eigenvalues of largest real part (rates per normalised time)")
+        print(f"[A1] {label}, {block} block: spectral abscissa {abscissa:+.3e}, {unstable} of {2 * n} eigenvalues with Re > 0; the {len(values)} of largest real part:")
         for lam, vec in sorted(zip(values, vectors.T), key=lambda p: -p[0].real):
             parts = (vec[:n], vec[n:])
             total = sum(np.sum(vol * np.abs(p) ** 2) for p in parts)
             share = [np.sum(vol * np.abs(p) ** 2) / total for p in parts]
-            rho = [(along_b_correlation(cap_b, base, p.real) + along_b_correlation(cap_b, base, p.imag)) / 2 for p in parts]
+            rho = [(along_b_correlation(plus, base, p.real) + along_b_correlation(plus, base, p.imag)) / 2 for p in parts]
             near_wall = [np.sum((vol * np.abs(p) ** 2)[wall_cells]) / np.sum(vol * np.abs(p) ** 2) for p in parts]
             print(f"     lambda = {lam.real:+.3e}{lam.imag:+.3e}i  |lam| dt = {abs(lam) * DT:.2f}  "
                   f"energy share {names[0]}/{names[1]} = {share[0]:.2f}/{share[1]:.2f}  "
                   f"along-b correlation {rho[0]:+.2f}/{rho[1]:+.2f} (-1: period 2)  wall-cell share {near_wall[0]:.2f}/{near_wall[1]:.2f}")
 
-
-# ---------------------------------------------------------------------------------------------------
 # A2: time and host synchronisations of one step
-# ---------------------------------------------------------------------------------------------------
-import time
-
-
 def callback_count(jaxpr):
     """Host callbacks (pure/io/debug) in a jaxpr, recursively."""
     total = 0
     for eqn in jaxpr.eqns:
         total += "callback" in eqn.primitive.name
-        for sub in jax.core.jaxprs_in_params(eqn.params):
+        for sub in jax.extend.core.jaxprs_in_params(eqn.params):
             total += callback_count(sub)
     return total
-
 
 phases = {
     "explicit RHS": lambda model, x: total_rate(model, x),
@@ -409,14 +331,9 @@ for n_steps in (2, 6):
 per_step = {k: (steps[6].get(k, 0) - steps[2].get(k, 0)) / 4 for k in steps[6]}
 print(f"[A2] host syncs per step from run_full_eb (jax.Array methods, difference of a 6- and a 2-step run): {per_step}")
 
-
-# ---------------------------------------------------------------------------------------------------
 # A3: electron energy budget
-# ---------------------------------------------------------------------------------------------------
 from drbx.fci_braginskii.native.fci_drb_EB_rhs import RHS_TERM_NAMES
-from drbx.fci_braginskii.native.fci_wall_closure import SheathClosure, current_gamma_e, sheath_lambda
 
-HISTORY = "output/phaseA/run200/hsx.npz"  # the 200-step default run (wall ledger)
 TERM_TO_DENSITY = {0: 0, 1: 1, 2: 2, 4: 3, 5: 4, 6: 5}  # Te term slot -> density slot with the same name
 
 
@@ -434,37 +351,16 @@ def electron_energy_rates(model, x):
     return jnp.stack(rates + [
         energy(w[..., 0], w[..., 1]),
         jnp.sum(mass * 1.5 * x.density * conduction_rate(model, x, x.Te)) if model.parallel_conduction else 0.0,
-        ledger[2], ledger[9], ledger[12], jnp.sum(mass * ohmic), jnp.sum(mass * 1.5 * x.density * x.Te),
+        ledger[2], ledger[9], ledger[12], jnp.sum(mass * ohmic),
     ])
 
-
+config = cap["parameters"]
 names = [RHS_TERM_NAMES[1][k] for k in range(7)] + ["implicit wall legs", "Spitzer conduction", "wall flux (ledger, outward)",
-                                                     "W_e inventory", "parallel work source S_e", "Ohmic J^2/sigma if present", "W_e kinetic of 3/2 n Te"]
+                                                     "W_e inventory", "parallel work source S_e", "Ohmic J^2/sigma if present"]
 rates = np.asarray(on(cap, electron_energy_rates)(state0))
 print(f"[A3] electron energy rates at the snapshot (n0 Te0 c_s0 L^2 per normalised time); Ve_nu = {config.Ve_nu}, "
       f"parallel_diffusion = {config.electron_temperature_chi_parallel}, perp D = {config.electron_temperature_D_perp}")
-sink = abs(rates[7])
+sink, power = abs(rates[7]), rates[:7][rates[:7] > 0].sum()
+print(f"     input power (sum of the positive Te terms) = {power:+.4e}")
 for name, value in zip(names, rates):
-    print(f"     {name:<32s} {value:+.4e}   {100 * value / sink:+8.2f}% of the wall-leg loss")
-if Path(HISTORY).is_file():
-    ledger = np.load(HISTORY)
-    cols = list(ledger["wall_ledger_columns"])
-    rows = ledger["wall_ledger"]
-    col = lambda c: rows[:, cols.index(c)]
-    total = {c: np.nansum(col(c)) for c in ("step_electron_energy_wall", "step_electron_energy_other", "step_electron_energy_product")}
-    w0, w1 = col("electron_energy_inventory")[[0, -1]]
-    print(f"[A3] 200-step run: W_e {w0:.5e} -> {w1:.5e}; integrated wall legs (-) {total['step_electron_energy_wall']:.4e}, "
-          f"explicit terms {total['step_electron_energy_other']:.4e}, 3/2 dn dT {total['step_electron_energy_product']:.4e}; "
-          f"closure {(w1 - w0) - (total['step_electron_energy_other'] - total['step_electron_energy_wall'] + total['step_electron_energy_product']):+.2e}")
-
-# ---------------------------------------------------------------------------------------------------
-# A4: sheath heat transmission
-# ---------------------------------------------------------------------------------------------------
-print("[A4] electron sheath heat transmission, floating wall, delta = 0 (Stangeby 25.44-25.46):")
-for ion, ratio in (("H", 1836.0), ("D", 3671.0)):
-    for ti in (0.0, 1.0):
-        stangeby = 2.0 - 0.5 * np.log(2 * np.pi * (1 + ti) / ratio)
-        code = float(SheathClosure().gamma_e(ti, ratio))
-        lam = float(sheath_lambda(ti, ratio))
-        print(f"     {ion} Ti/Te={ti:.0f}: formula {stangeby:.3f}  SheathClosure.gamma_e {code:.3f}  "
-              f"current mode 2+phi/Te at phi = Lambda Te ({lam:.3f}) {float(current_gamma_e(lam)):.3f}")
+    print(f"     {name:<32s} {value:+.4e}   {100 * value / sink:+8.2f}% of the wall-leg loss   {100 * value / power:+8.2f}% of input power")

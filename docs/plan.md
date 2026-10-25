@@ -243,12 +243,11 @@ G3. README (#58) and tutorial kept in step with each phase.
 VMEX + extender finite-beta field provider; electromagnetic (A∥) terms; GPU
 production runs and scaling.
 
-### Phase A results (2026-10-21, partial; draft, `scripts/fci_diagnostics.py`)
+### Phase A results (2026-10-25; `scripts/fci_diagnostics.py`)
 
-Setup: 16^3 HSX, default deck (200 steps, dt 7.5e-4), snapshot at step 100, CPU. Done: A1 operator
-adjointness and conduction symmetry, A1 advection/heat-blob first pass, A2 step timing, A3 static finding, A4.
-Not done: A1 eigenvalue blocks (script crashed once on a shape bug, fixed, rerun killed on pause),
-A2 per-phase/host-sync counts, A3 term-by-term rates and ledger closure, GPU, 32^3.
+Setup: 16^3 HSX, default deck (200 steps, dt 7.5e-4), snapshot at t = 0.075 (step 100), CPU, x64. Done: A1
+(adjointness, advection/heat-blob first pass, eigenvalues), A2 (phase timing, host syncs), A3 (term rates), A4.
+Not done: GPU, 32^3 (resolution trend of the heat-blob leakage not measured).
 
 - A1 adjointness, ||D + V^-1 G^T V|| / ||D|| (homogeneous wall data, 3216 active cells):
   support pair 1.7e-16 (exact; sheath rows and #64 conduction use it; conduction V(DG) is symmetric to
@@ -263,12 +262,40 @@ A2 per-phase/host-sync counts, A3 term-by-term rates and ledger closure, GPU, 32
   blob (eps_perp = 0) never approaches the aligned steady state (L1 error 0.67 at short times, 0.86 at chi t/dx^2 = 1,
   >1 later): heat leaks across field lines at O(1). 16^3 is coarse; trend with resolution not measured.
   Implies C1: central operators need stagger/skew-symmetric gradients or damping.
-- A2: default step 0.58-0.76 s at 16^3 on this laptop CPU (operator 0.21-0.27 s, GMRES/solves 0.34-0.47 s);
-  on CPU the 5x5 eig is `jnp.linalg.eig` (the `pure_callback` path is only taken off CPU).
-- A3 (static): default `Ve_nu = 0`, `parallel_diffusion = 0`: **no J^2/sigma Ohmic heating and no
-  friction in the Te/Ve equations**; the only electron heating terms are the 0.71 thermal-force work and
-  the Ve grad pe work; no heat source in the default blob deck, so the budget is a wall-loss decay.
-  Perpendicular diffusion 1e-5 is the only artificial term. Implies adding Spitzer friction + Ohmic in C-phase.
+- A1 eigenvalues (dense 6432 x 6432 Jacobians by JVP over the 3216 active cells, `scipy.linalg.eigvals`;
+  ARPACK `eigs` with `which="LR"` did not converge on the Ve-Te block in 60 restarts because the spectrum is
+  stiff and oscillatory, so the full spectrum is used; eigenvectors by inverse iteration):
+  | block | sheath rows (Bohm) | zero-flow (no sheath rows) |
+  |---|---|---|
+  | Ve-Te | **18 of 6432 eigenvalues with Re > 0**, max +0.65 (complex pairs, +-0.3i) | stable, max -4.3e-3 |
+  | Ve-phi-omega | stable, max -0.42 | stable, max -0.42 |
+
+  **The unstable Ve-Te eigenvectors are not period-2 along b.** The along-b neighbour correlation
+  <f, f_plus>/<f, f> (+1 smooth, -1 period 2) is -0.12 to -0.14 for Te and +0.03 to +0.07 for Ve, i.e.
+  uncorrelated/rough, not a checkerboard (-1). They are localized at the wall: 80% of the Te part and 60% of the
+  Ve part sit in cells with a physical-boundary field-line endpoint, and the
+  Ve part dominates the energy norm. The growth is slow (e-folding about 1.5 time units, |lambda| dt ~ 5e-4), so
+  it is a physical-rate instability of the sheath-closed system, not a time-step-limited numerical mode. The
+  Ve-phi-omega modes are Ve-dominated (94-99%), also not period 2 (correlation -0.26..+0.05). Without sheath
+  rows the leading Ve-Te modes are smooth (correlation +0.35..+0.75). Implies B2/C1: the sheath rows (Bohm outflow
+  coupling of Ve and Te to the wall legs), not the interior central stencil, create the positive spectrum;
+  the interior advection tests below remain a separate accuracy issue.
+- A2: default step 0.58-0.89 s at 16^3 on CPU (operator 0.21-0.28 s, GMRES/solves 0.34-0.62 s). One stage of
+  each phase (compiled, median of 5): explicit RHS 0.093 s, implicit wall legs 0.027 s, Spitzer conduction
+  solve 0.037 s, current/phi pair solve 0.088 s, phi reconstruction 0.009 s. **Host callbacks in the jaxprs:
+  18 in the explicit RHS, 6 in the wall-leg step, 0 in the solves** (on CPU the 5x5 eig is `jnp.linalg.eig`; the
+  `pure_callback` path is only taken off CPU). Host synchronisations of `run_full_eb`, difference of a 6- and
+  a 2-step run: 6.25 `block_until_ready` per step, no `__bool__`/`__float__`/`__array__` (so 6 per step are
+  the stage/solve boundaries; nothing hidden in the loop). GPU not measured.
+- A3 (default `Ve_nu = 0`, `parallel_diffusion = 0`, perpendicular diffusion 1e-5; at t = 0.075, units
+  n0 Te0 c_s0 L^2 per normalised time): the only positive Te term is the parallel work, **+9.8e-4 = the whole
+  input power**; Poisson bracket -4.0e-4 (-41%), curvature -1.5e-4 (-15%), perpendicular diffusion -6.9e-4
+  (-70%). The implicit wall legs remove **0.51, i.e. 519 times the input power** (= 49% of the electron
+  inventory W_e = 1.04 per unit time); the Spitzer conduction integral is zero to 1e-18 (conservative). The
+  J^2/sigma that Spitzer would give at this state, 1.4e-3 (143% of the input power), is absent from the
+  equations. Over the 200-step run W_e fell 1.086 -> 1.006; the ledger closes to -2.8e-17 (integrated wall legs
+  8.05e-2, explicit terms -6.3e-5, 3/2 dn dT +6.1e-5). So the default blob run is a wall-loss decay; the
+  volumetric terms are 3 orders smaller than the sheath sink.
 - A4: `SheathClosure.gamma_e` equals Stangeby 25.44-25.46 exactly: H Ti/Te=0: 4.84, Ti/Te=1: 4.49 (D 4.84
   at Ti=0 not 5.0-5.3). In current mode `current_gamma_e(phi/Te)` equals it at phi = Lambda Te, and the
   electron energy flux is gamma_e Te (Gamma_i - j) (Gamma_e as asked: yes). phi is the owner-cell
