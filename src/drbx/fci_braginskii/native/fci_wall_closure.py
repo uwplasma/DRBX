@@ -249,7 +249,7 @@ def sheath_tube_lengths(dx_minus, dx_plus, backward_wall, forward_wall):
 
 def sheath_wall_leg_residual(
     wall_state, center, dx, direction, tau, gamma_e, gamma_i, conservative_bulk=False,
-    wall_current=None,
+    wall_current=None, mass_ratio=None,
 ) -> jnp.ndarray:
     """Conservative wall-leg rates for the (n, Te, Ti, Vi) rows.
 
@@ -271,6 +271,9 @@ def sheath_wall_leg_residual(
     ``gamma_e Te (n_w Vi_w - j_w)`` and the density-change terms of the
     other rows; the ion fluxes (momentum, ``gamma_i n Ti Vi``) keep the ion
     flow.  ``gamma_e`` may then be an array (see :func:`current_gamma_e`).
+
+    With ``mass_ratio`` (``m_i/m_e``) the Ve row is the same flux-form leg for the electron
+momentum ``d(n Ve) = -D(n Ve^2) - mu G(pe)``.
 
     ``conservative_bulk=True`` is the production HSX form, where the bulk
     density and thermal energy rows are the sum-free support-pair fluxes
@@ -321,7 +324,15 @@ def sheath_wall_leg_residual(
     rate_vi = factor * ((Fw[1] - centre_momentum) - c[..., 3] * d_particle) / n_c
     rate_te = factor * ((Fw[2] - keep * Fc[2]) - 1.5 * c[..., 1] * d_particle) / (1.5 * n_c)
     rate_ti = factor * ((Fw[3] - keep * Fc[3]) - 1.5 * c[..., 2] * d_particle) / (1.5 * n_c)
-    return jnp.stack((rate_n, rate_te, rate_ti, rate_vi, jnp.zeros_like(rate_n)), axis=-1)
+    rate_ve = jnp.zeros_like(rate_n)
+    if mass_ratio is not None and conservative_bulk:
+        # Electron momentum leg, in the same flux form: convective flux n Ve^2 and pressure
+        # mu n Te of the wall state less the leg's share mu pe_c of the mirror force.
+        rate_ve = factor * (
+            (w[..., 0] * w[..., 4] ** 2 + mass_ratio * (w[..., 0] * w[..., 1] - c[..., 0] * c[..., 1]))
+            - c[..., 4] * d_particle
+        ) / n_c
+    return jnp.stack((rate_n, rate_te, rate_ti, rate_vi, rate_ve), axis=-1)
 
 
 __all__ = [

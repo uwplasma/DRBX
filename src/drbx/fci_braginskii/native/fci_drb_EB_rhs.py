@@ -2121,7 +2121,7 @@ class LocalFciDrbEBRhs:
             backward_wall_state=backward_wall_state,
             forward_wall_state=forward_wall_state,
         )
-        rows = jnp.asarray((1.0, 1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
+        rows = jnp.ones(5, dtype=jnp.float64)
         residual = jnp.zeros_like(center)
         jacobian = jnp.zeros(center.shape + (5,), dtype=jnp.float64)
         tube_minus, tube_plus = sheath_tube_lengths(dx_minus, dx_plus, backward_wall, forward_wall)
@@ -2138,6 +2138,7 @@ class LocalFciDrbEBRhs:
                 return sheath_wall_leg_residual(
                     state, owner, dx, direction, tau, ge, gamma_i,
                     conservative_bulk=True, wall_current=wall_current,
+                    mass_ratio=self.parameters.mi_over_me,
                 )
 
             if self.sheath is None:
