@@ -236,7 +236,7 @@ def test_hsx_sheath_step_ledger_closes(tmp_path):
     np.testing.assert_allclose(wall, contract, rtol=5e-3)
 
 
-def flux_tube_bulk_rates(cells: int, dx: float, mu: float, epsilon: float = 0.1):
+def flux_tube_bulk_rates(cells: int, dx: float, mu: float, epsilon: float = 0.1, slave_ve: bool = True):
     """``rates(u, ge, gi)``: pair-based bulk plus production wall rows of a 1D open field line.
 
     The support pair is built as on HSX (wall rows close with the owner value), the bulk
@@ -268,7 +268,8 @@ def flux_tube_bulk_rates(cells: int, dx: float, mu: float, epsilon: float = 0.1)
         fst = jnp.where(forward[:, None], bohm_wall_state(plus, u, 1.0, TAU), plus)
         primitive = {k: u[:, i] for i, k in enumerate(("density", "Te", "Ti", "Vi", "Ve"))}
         r, _ = LocalFciDrbEBRhs._conservative_parallel_rates(host, primitive, gradient, divergence, laplacian)
-        r = r.at[:, 4].set(0.0)  # quasineutral ambipolar flow slaves Ve to Vi
+        if slave_ve:
+            r = r.at[:, 4].set(0.0)  # quasineutral ambipolar flow slaves Ve to Vi
         r = r + jnp.where(backward[:, None], sheath_wall_leg_residual(bst, u, dx, -1.0, TAU, ge, gi, conservative_bulk=True), 0.0)
         r = r + jnp.where(forward[:, None], sheath_wall_leg_residual(fst, u, dx, 1.0, TAU, ge, gi, conservative_bulk=True), 0.0)
         return r, bst, fst
