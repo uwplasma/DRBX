@@ -114,12 +114,13 @@ geometry. About 7 min on a laptop CPU.
 python examples/stellarator/stellarator_3d_render.py
 ```
 
-## FCI parallel operators
+## FCI parallel gradient on the rotating ellipse
 
 Parallel derivatives come from field-line tracing and interpolation on a grid
-that is not field aligned. On the non-axisymmetric rotating-ellipse metric,
-both the direct and the traced-field-line parallel gradients converge at
-second order (measured orders 2.02 and 1.99 between 16^3 and 48^3), and the
+that is not field aligned. On the rotating-ellipse geometry (nested flux
+surfaces, no wall), the parallel gradient b·∇f converges at second order
+(measured orders 2.02 direct and 1.99 traced between 16^3 and 48^3). This
+tests the bulk only; the wall, where FCI is harder, is not included. The
 operator is differentiable with respect to the shape. About 40 s.
 
 <img src="docs/media/rotating_ellipse_fci.png" width="700" alt="Rotating-ellipse FCI convergence">
@@ -185,14 +186,18 @@ additionally needs the QA `wout` from an ESSOS checkout:
 ## Sheath-bounded SOL, neutrals and detachment
 
 On open field lines, parallel transport to Bohm-sheath targets relaxes to the
-two-point steady state (`examples/sol/open_sol_flux_tube.py`: Mach 0.94 at the
-targets, target-to-upstream density ratio 0.49; two-point theory gives 1 and
-0.5). With fluid neutrals (AMJUEL ionization, recombination and charge
-exchange) and recycling, raising the upstream density chokes the target flow:
-the Mach number at the target falls through 1 between upstream densities of 4
-and 8 in normalized units.
+two-point steady state (`examples/sol/open_sol_flux_tube.py`: target-to-upstream
+density ratio 0.49; two-point theory gives 0.5). The Bohm condition is imposed on
+the target face, where the flux uses |v| = max(|v_cell|, c_s), so the flow at the
+sheath entrance is at least c_s by construction. The Mach number printed and
+plotted is that of the last cell centre (0.94 here), half a cell upstream of the
+face; it can be below 1. With fluid neutrals (AMJUEL ionization, recombination
+and charge exchange) and recycling, raising the upstream density chokes the flow
+into the sheath: the Mach number of the last cell falls through 1 between
+upstream densities of 4 and 8 in normalized units, while the face keeps the
+c_s floor and the target flux stays n c_s.
 
-<img src="docs/media/recycling_sol.png" width="700" alt="Recycling SOL profiles and target Mach number">
+<img src="docs/media/recycling_sol.png" width="700" alt="Recycling SOL profiles and last-cell Mach number">
 
 ```bash
 python examples/sol/recycling_sol.py      # under 10 s
@@ -299,15 +304,17 @@ connection length to the wall on the same plane.
 <img src="docs/media/hsx_geometry.png" width="800" alt="HSX coils, Poincare section and connection length">
 
 The `drbx.fci_braginskii` backend evolves a density filament in the
-scrape-off layer up to the vessel wall. It has a Bohm sheath wall closure by
-default, with optional neutrals and recycling (deck keys `wall_closure`,
-`neutrals`, `recycling`; see [docs/decks.md](docs/decks.md)). The first run is
-`drbx run examples/inputs/hsx_fci_blob.toml`, which builds a 16^3 geometry from
-the shipped coils and vessel (about 4 min on a laptop). The movie is a 32^3 run
-(600 steps, t = 0.45 in L_ref/c_s, peak n - 1 = 0.8, rho* = 5e-3, zero-flow walls;
-about 35 min on one A4000). With the Bohm default, 32^3 runs of this kind stopped
-with an invalid IMEX stage after t = 0.10 to 0.14 (several amplitudes, rho* values
-and time steps; under investigation), so the movie uses the zero-flow closure. It shows isosurfaces of the density perturbation along the
+scrape-off layer up to the vessel wall. It uses a Bohm sheath wall
+closure by default, with implicit Spitzer-Harm parallel conduction
+(`parallel_conduction = "auto"`, on with the Bohm wall) and optional neutrals
+and recycling (deck keys `wall_closure`, `parallel_conduction`, `neutrals`,
+`recycling`; see [docs/decks.md](docs/decks.md)). The default HSX deck is
+verified to t = 0.6 at 16^3 only; 32^3 runs with these defaults are still under
+investigation. The first run is `drbx run examples/inputs/hsx_fci_blob.toml`,
+which builds a 16^3 geometry from the shipped coils and vessel (about 4 min on
+a laptop). The movie predates the Bohm and conduction defaults: it is a 32^3 run
+(600 steps, t = 0.45 in L_ref/c_s, peak n - 1 = 0.8, rho* = 5e-3, zero-flow
+walls; about 35 min on one A4000) and will be re-rendered with the defaults. It shows isosurfaces of the density perturbation along the
 field over the boundary surface, with R-Z sections of density and potential
 through the filament. The potential builds up as a dipole around the filament
 within the first t = 0.05. The filament itself stays close to its flux surface

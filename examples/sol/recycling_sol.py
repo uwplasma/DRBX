@@ -12,9 +12,9 @@ rate fits, while charge exchange + recombination friction drag the ion flow.
 The script first relaxes a reference case and prints per-chunk progress (target
 Mach number, target ion flux, neutral cushion), then scans the upstream density
 and prints one line per scan point: as the density rises, charge-exchange
-friction chokes the flow (target Mach falls toward and below 1) -- the onset of
+friction chokes the flow (the Mach number of the last cell falls below 1; the Bohm sheath face stays at c_s) -- the onset of
 detachment. The left figure panel shows the steady-state parallel profiles; the
-right panel shows the target Mach number across the scan.
+right panel shows the last-cell Mach number across the scan.
 
 Run:
 
@@ -140,7 +140,7 @@ mach = (np.asarray(state.ion_momentum)
         / (ION_MASS * np.maximum(density, params.density_floor))) / sound_speed
 neutral_cushion = float(neutral[-1] / max(neutral[NZ // 2], 1e-9))
 print("== Reference steady state ==")
-print(f"   target Mach = {mach[-1]:.4f} (Bohm-attached would be ~1)")
+print(f"   last-cell Mach = {mach[-1]:.4f}; the Bohm face velocity is max(|v_cell|, c_s) = {max(abs(mach[-1]), 1.0):.4f} c_s")
 print(f"   neutral cushion: n_neutral(target)/n_neutral(midpoint) = {neutral_cushion:.1f}")
 print(f"   target ion flux n c_s = {float(target_ion_flux(state, temperature, params)):.4f}")
 
@@ -159,7 +159,7 @@ for upstream in UPSTREAM_SCAN:
     )
     target_mach.append(float(scan_velocity[-1] / sound_speed[-1]))
     target_flux.append(float(target_ion_flux(scan_state, temperature, scan_params)))
-    print(f"   n_up = {upstream:5.1f}:  target Mach = {target_mach[-1]:.4f},  "
+    print(f"   n_up = {upstream:5.1f}:  last-cell Mach = {target_mach[-1]:.4f},  "
           f"target flux = {target_flux[-1]:.4f},  "
           f"n_neutral(target) = {float(np.asarray(scan_state.neutral_density)[-1]):.3f}")
 print(f"   Mach falls {target_mach[0]:.3f} -> {target_mach[-1]:.3f} across the scan: "
@@ -184,7 +184,7 @@ fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.8))
 ax = axes[0]
 ax.plot(z, density / density[0], color="#1f77b4", lw=2, label="ion density n / n_up")
 ax.plot(z, neutral / neutral.max(), color="#2ca02c", lw=2, label="neutral density (norm.)")
-ax.plot(z, mach, color="#d62728", lw=2, label="Mach  v / c_s")
+ax.plot(z, mach, color="#d62728", lw=2, label="Mach  v / c_s (cell centres)")
 ax.axhline(1.0, color="#d62728", ls=":", alpha=0.5)
 ax.set_xlabel("parallel coordinate z / L (target at z=1)")
 ax.set_title(f"profiles along the leg (n_up = {REFERENCE_DENSITY:g})", fontsize=10)
@@ -192,11 +192,11 @@ ax.legend(fontsize=9, loc="upper left")
 ax.grid(True, ls=":", alpha=0.4)
 
 ax = axes[1]
-ax.plot(UPSTREAM_SCAN, target_mach, "o-", color="#d62728", label="target Mach")
+ax.plot(UPSTREAM_SCAN, target_mach, "o-", color="#d62728", label="Mach of the last cell")
 ax.axhline(1.0, color="gray", ls=":", alpha=0.6)
 ax.set_xlabel("upstream density (normalized)")
-ax.set_ylabel("target Mach number")
-ax.set_title("target Mach number vs upstream density", fontsize=10)
+ax.set_ylabel("Mach number of the last cell")
+ax.set_title("flow into the sheath vs upstream density", fontsize=10)
 ax.grid(True, ls=":", alpha=0.4)
 ax.legend(fontsize=9)
 
