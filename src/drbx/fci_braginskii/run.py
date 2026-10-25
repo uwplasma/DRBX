@@ -1993,18 +1993,15 @@ def run_full_eb(
         diagnostics = jnp.stack(
             (state_mins[-1], state_maxs[-1], state_abs_maxs[-1]), axis=1
         )
-        if model.sheath is None:
-            step_ledger = jnp.zeros((11,), dtype=jnp.float64)
-        else:
-            implicit_1, explicit_1, implicit_2, explicit_2, _ = stage_rates
-            step_ledger = model.wall_step_ledger(
-                stage_states[0],
-                implicit_1.axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
-                explicit_1.axpy(explicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
-                dt,
-            )
-            for mesh_axis_name in ("x", "y", "z"):
-                step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
+        implicit_1, explicit_1, implicit_2, explicit_2, _ = stage_rates
+        step_ledger = model.wall_step_ledger(
+            stage_states[0],
+            implicit_1.axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
+            explicit_1.axpy(explicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
+            dt,
+        )
+        for mesh_axis_name in ("x", "y", "z"):
+            step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
         outputs = (
             stage_states[-1],
             diagnostics,
@@ -2714,22 +2711,20 @@ def run_full_eb(
             return compiled_advance(*advance_args)
 
     wall_ledger_rows: list[list[float]] = []
-    wall_ledger = None
-    if sheath is not None:
-        def wall_ledger_kernel(local_state, cell_fields_owned, map_fields_owned, control_volume_fields_owned):
-            model = build_local_model(cell_fields_owned, map_fields_owned, control_volume_fields_owned)
-            totals = model.wall_flux_ledger(local_state)
-            for axis_name in ("x", "y", "z"):
-                totals = jax.lax.psum(totals, axis_name)
-            return totals
+    def wall_ledger_kernel(local_state, cell_fields_owned, map_fields_owned, control_volume_fields_owned):
+        model = build_local_model(cell_fields_owned, map_fields_owned, control_volume_fields_owned)
+        totals = model.wall_flux_ledger(local_state)
+        for axis_name in ("x", "y", "z"):
+            totals = jax.lax.psum(totals, axis_name)
+        return totals
 
-        wall_ledger = jax.jit(jax.shard_map(
-            wall_ledger_kernel,
-            mesh=mesh,
-            in_specs=(state_spec, geometry_spec, geometry_spec, geometry_spec),
-            out_specs=replicated_spec,
-            check_vma=False,
-        ))
+    wall_ledger = jax.jit(jax.shard_map(
+        wall_ledger_kernel,
+        mesh=mesh,
+        in_specs=(state_spec, geometry_spec, geometry_spec, geometry_spec),
+        out_specs=replicated_spec,
+        check_vma=False,
+    ))
 
     def wall_totals(current_state) -> np.ndarray:
         with jax.disable_jit(advance_execution == "eager"):
