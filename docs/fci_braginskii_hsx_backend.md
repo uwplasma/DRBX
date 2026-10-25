@@ -32,9 +32,12 @@ backend.
   divergence implicitly, with every other coefficient frozen at the stage
   state; the wall current lift stays explicit.
   `implicit_current_phi_pair = false` restores the explicit pair.
-- Parallel transport: FCI parallel operator, production-path characteristic
-  material fluxes with support-core pairing and characteristic-SAT
-  boundaries, physical-boundary-state characteristic wall law.
+- Parallel transport: one exact weighted-adjoint pair `(G, D)`, `D = -V^-1 G^T V`
+  from the scatter of the mapped gather, carries every parallel term (the five
+  material rows, parallel diffusion, conduction, `grad omega`); the current/phi pair
+  is the second exact pair; a compact forward-leg face-flux dissipation
+  (`parallel_dissipation`) damps what the central pair cannot; characteristic-SAT
+  wall current and the physical-boundary-state law for the Ve wall leg remain.
 - Parallel heat conduction: implicit Spitzer-Harm conduction of Te and Ti in
   flux form on the support pair, on by default with the Bohm wall
   (`parallel_conduction`, see Parallel heat conduction).
@@ -85,22 +88,25 @@ backward) and velocities in `c_s0 = sqrt(Te0/m_i)`:
   is the isothermal two-point result `n_t = n_u/2`. The Neumann density trace
   is not used: with it the conservative momentum row below is unstable.
 - One flux per quantity. With the sheath, the bulk parallel density and
-  thermal-energy rows are written in flux form with the weighted support pair
-  (`LocalFciDrbEBRhs._sheath_conservative_parallel_rates`): `D`, the weighted
+  thermal-energy and momentum rows (and Ve, and the zero-flow wall) are written in
+  flux form with the weighted support pair
+  (`LocalFciDrbEBRhs._conservative_parallel_rates`): `D`, the weighted
   negative adjoint of the constant-exact gradient `G`, satisfies
   `sum_i V_i D(f)_i = 0` exactly, and
 
   ```
-  dn/dt   = -D(n Ve)
-  dW_e/dt = -D(5/2 pe Ve - 0.71 Te j) + Ve G(pe) - 0.71 j G(Te)
-  dW_i/dt = -D(5/2 pi Vi)             + Vi G(pi) + 5/2 Ti D(j)
+  dn/dt      = -D(n Ve)
+  dW_e/dt    = -D(5/2 pe Ve - 0.71 Te j) + Ve G(pe) - 0.71 j G(Te)
+  dW_i/dt    = -D(5/2 pi Vi)             + Vi G(pi) + 5/2 Ti D(j)
+  d(n Vi)/dt = -D(n Vi^2 + p) + p D(1) + Vi D(j)
+  d(n Ve)/dt = -D(n Ve^2) - mu (G(pe) + 0.71 n G(Te))
   ```
 
   (`W = 3/2 p`, `j = n (Vi - Ve)`; the same five-field equations as the
   characteristic matrix, regrouped, including the `div b` terms). The first
   terms only move particles and energy between rows; the second are the
   parallel work and current exchange, reported as volumetric sources `S_e`,
-  `S_i`. The characteristic material rows are not used for n, Te and Ti here:
+  `S_i`, `S_m`. The characteristic upwind rows are gone:
   on FCI maps a row's legs end on interpolated points, not on its neighbours'
   legs, so their fluxes do not telescope, and at HSX wall cells the mismatch
   was about 40% of the wall loss.
@@ -110,7 +116,22 @@ backward) and velocities in `c_s0 = sqrt(Te0/m_i)`:
   `gamma n T Vi`. The Vi row is in flux form too (see Sheath potential and
   the momentum row below); its leg is `-s (F_w - p_c)/L`. These rows replace the
   characteristic rows in the local backward-Euler block, with their own exact
-  local Jacobian (traces frozen); the Ve row keeps the characteristic law.
+  local Jacobian (traces frozen); the Ve row keeps the characteristic wall law. The
+  zero-flow wall has no flux: its conservative rows vanish.
+- Wall rows. The pair includes the wall rows, closed with the owner value at the
+  wall leg and the interior leg length (zero-gradient ghost), so `D` is the
+  finite-volume divergence with zero wall flux there and `G` its adjoint (Neumann
+  gradient). Dropping them from the pair left `D` inconsistent on the two cells next
+  to a wall and a wall-localised growing mode (rate about `c_s/(2 dx)`).
+- Dissipation (`parallel_dissipation = eps`, a numerical term without physical scale).
+  The central pair does not damp the odd-even mode along b, and `-D` is not skew: on
+  sheared maps it has eigenvalues of positive real part (HSX 16^3: `+0.77/dx`).
+  `eps` adds `L(f) = D+(eps a dx G+ f)`, the Rusanov face flux `eps a (f+ - f)` of the
+  conserved `n`, `n Vi`, `3/2 n Te`, `3/2 n Ti` at `a = |Vi| + c_s` and of `Ve` at
+  `a = |Ve| + sqrt(mu Te)`; `G+ f = (f+ - f)/dx` is the forward-leg difference and
+  `D+` its weighted adjoint (compact, symmetric negative semi-definite, `sum V L = 0`,
+  no flux through a wall leg). It conserves mass, ion momentum and thermal energy and
+  removes kinetic energy only. `eps = 0` is the central scheme.
 - Flux-tube length `L` (`sheath_tube_lengths`): the length of the owner's
   interior leg, so the wall flux crosses the cross-section `A = V / L` that
   the bulk gives the same row (both legs on walls: `L = dx_minus +
@@ -321,9 +342,11 @@ stage start,
 (3/2 n - dt D kappa G) dT = dt D(kappa G T)
 ```
 
-is a symmetric positive (weighted) matrix-free system solved with SOLVAX
-FGMRES (rel. tol 1e-12, no preconditioner; about 13 iterations per species at
-`dt = 7.5e-4`) inside the existing implicit IMEX stage, before the wall-leg
+is self-adjoint and positive definite in the volume inner product and is solved with
+SOLVAX PCG on the symmetrised system `V^1/2 A V^-1/2` (rel. tol 1e-12, Jacobi
+preconditioner with diagonal `3/2 n + dt kappa/(2 dx^2)`; about 11 iterations per
+species at `dt = 7.5e-4` on 16^3, unpreconditioned 15 rising to 50 as the SOL cools;
+FGMRES on a sharded domain, where SOLVAX PCG has no global inner product) inside the existing implicit IMEX stage, before the wall-leg
 backward Euler, so the wall legs remove the heat that conduction delivered.
 Nothing is evaluated on the host and the step stays differentiable. The
 iterations appear as `cond-iters` in the progress line and in slot 5 of the
@@ -757,10 +780,8 @@ under Neutrals (diffusive closure outside its Knudsen range).
   (`sheath_potential = "current"`) is experimental and fails on HSX at step 47
   (see Wall closure); with the default parallel conduction the 16^3 deck reaches
   step 236 (t = 0.177, density collapse next to the wall) instead of step 101.
-- The Spitzer conduction uses the support pair, whose wide stencil differs from
-  the 3-point `local_parallel_diffusion` of the explicit `parallel_diffusion` path;
-  on the 16^3 HSX grid the two operators applied to a smooth field differ by
-  about 70% (relative L2 away from walls), converging only with resolution.
+- `parallel_diffusion` is `D(c G f)` on the support pair (conservative, symmetric negative
+  semi-definite); its wide stencil does not damp the odd-even mode along b.
 
 ## Tests
 
