@@ -276,6 +276,31 @@ def flux_tube_bulk_rates(cells: int, dx: float, mu: float, epsilon: float = 0.1)
     return rates
 
 
+@pytest.mark.slow
+def test_hsx_zero_flow_wall_is_a_closed_box_for_particles_and_thermal_energy(tmp_path):
+    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): no wall flux, parallel bulk sum-free."""
+
+    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
+    if bundle is None:
+        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX zero-flow ledger")
+    from drbx.cli import main
+
+    deck = tmp_path / "hsx.toml"
+    deck.write_text(
+        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
+        f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
+        'wall_closure = "zero-flow"\nfinal_time = 0.0015\nnum_steps = 2\nsave_every = 2\n'
+    )
+    assert main(["run", str(deck)]) in (0, None)
+    data = np.load(tmp_path / "out" / "hsx.npz")
+    col = {name: data["wall_ledger"][:, k] for k, name in enumerate(data["wall_ledger_columns"])}
+    inventory = col["particle_inventory"]
+    assert np.all(np.abs(col["step_particle_wall"][1:]) <= 1e-12 * inventory[0])
+    np.testing.assert_allclose(np.diff(inventory), col["step_particle_other"][1:], rtol=0, atol=1e-12 * inventory[0])
+    for kind in ("electron", "ion"):
+        assert np.all(np.abs(col[f"step_{kind}_energy_wall"][1:]) <= 1e-12 * col[f"{kind}_energy_inventory"][0])
+
+
 def _flux_tube(cells: int, *, isothermal: bool, mu: float = 25.0, periods: int = 10):
     length = 2.0
     dx = length / cells
