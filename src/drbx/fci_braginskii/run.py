@@ -100,7 +100,7 @@ from drbx.fci_braginskii.native.fci_operators import (  # noqa: E402
     build_local_perp_laplacian_face_projectors,
     expand_local_control_volume_owner_field,
 )
-from .geometry_build.hsx_fci_builder import TopologyDescriptor, _topology_metadata
+from drbx.fci_braginskii.geometry_build.hsx_fci_builder import TopologyDescriptor, _topology_metadata  # noqa: E402
 DEFAULT_FILAMENT_CACHE_DIR = SCRIPT_DIR / ".hsx_filament_cache"
 PLASMA_OPERATOR_BASELINE = "d340f4d638e0d9495546d1fd2e2c66c1c206704a"
 GEOMETRY_PRODUCER_METADATA_KEYS = (
