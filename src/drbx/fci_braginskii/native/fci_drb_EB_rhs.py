@@ -74,7 +74,6 @@ from .fci_wall_closure import (
 )
 from .fci_parallel_production_flux import (
     parallel_characteristic_wall_data,
-    parallel_short_wall_material_data,
 )
 
 
@@ -2096,15 +2095,18 @@ class LocalFciDrbEBRhs:
     def _sheath_wall_backward_euler(
         self, center, minus, plus, dx_minus, dx_plus, backward_wall,
         forward_wall, backward_wall_state, forward_wall_state,
-        selection_dt, solve_dt, phi_dense=None,
+        solve_dt, phi_dense=None,
     ):
         """Local backward Euler of the wall legs under the sheath closure.
 
         The (n, Te, Ti, Vi) rows of each wall leg are the conservative sheath
         flux difference (``sheath_wall_leg_residual``) with their own exact
-        local Jacobian (wall traces frozen); the Ve row keeps the frozen
-        characteristic residual and Jacobian.  The zero-flow wall has no
-        flux: its conservative rows vanish.
+        local Jacobian (wall traces frozen).  The Ve row has no wall leg: the
+        pair gives the wall row the Neumann half gradient, and every Ve wall
+        law tried (the characteristic residual, a flux-form electron momentum
+        leg) added a wall-localised growing mode to the Ve-Te block (Re up to
+        +3.7 and +19 at 16^3; none, Re < 0.1, without).  The zero-flow wall
+        has no flux: its legs vanish.
         With ``phi_dense`` (the ``"current"`` potential mode) the density leg
         removes the electron flux ``n_w Vi_w - j_w`` and the electron energy
         leg ``gamma_e(phi) Te_w`` times it, with the sheath current ``j_w``
@@ -2113,21 +2115,12 @@ class LocalFciDrbEBRhs:
 
         tau = self.parameters.tau
         gamma_e, gamma_i = self._sheath_gammas() if self.sheath is not None else (0.0, 0.0)
-        _, _, info = parallel_short_wall_material_data(
-            center, minus, plus, dx_minus, dx_plus, tau,
-            self.parameters.mi_over_me,
-            selection_dt=selection_dt,
-            backward_wall=backward_wall, forward_wall=forward_wall,
-            backward_wall_state=backward_wall_state,
-            forward_wall_state=forward_wall_state,
-        )
-        rows = jnp.ones(5, dtype=jnp.float64)
         residual = jnp.zeros_like(center)
         jacobian = jnp.zeros(center.shape + (5,), dtype=jnp.float64)
         tube_minus, tube_plus = sheath_tube_lengths(dx_minus, dx_plus, backward_wall, forward_wall)
-        for wall, trace, dx, direction, side in (
-            (backward_wall, minus, tube_minus, -1.0, "backward"),
-            (forward_wall, plus, tube_plus, 1.0, "forward"),
+        for wall, trace, dx, direction in (
+            (backward_wall, minus, tube_minus, -1.0),
+            (forward_wall, plus, tube_plus, 1.0),
         ):
             def leg(owner, trace=trace, dx=dx, direction=direction):
                 state = bohm_wall_state(trace, owner, direction, tau)
@@ -2138,13 +2131,12 @@ class LocalFciDrbEBRhs:
                 return sheath_wall_leg_residual(
                     state, owner, dx, direction, tau, ge, gamma_i,
                     conservative_bulk=True, wall_current=wall_current,
-                    mass_ratio=self.parameters.mi_over_me,
                 )
 
             if self.sheath is None:
                 # Zero-flow wall: no particle, energy or net momentum flux
                 # (p_w = p_c cancels the mirror share), so the conservative
-                # rows of the leg vanish; the Ve row keeps its wall law.
+                # rows of the leg vanish.
                 conservative = jnp.zeros_like(center)
                 conservative_jacobian = jnp.zeros(center.shape + (5,), dtype=jnp.float64)
             else:
@@ -2154,30 +2146,20 @@ class LocalFciDrbEBRhs:
                     for k in range(5)
                 ]
                 conservative_jacobian = jnp.stack(columns, axis=-1)
-            residual = residual + jnp.where(
-                wall[..., None],
-                rows * conservative + (1.0 - rows) * info[f"{side}_residual"],
-                0.0,
-            )
-            jacobian = jacobian + jnp.where(
-                wall[..., None, None],
-                rows[:, None] * conservative_jacobian
-                + (1.0 - rows)[:, None] * info[f"{side}_jacobian"],
-                0.0,
-            )
+            residual = residual + jnp.where(wall[..., None], conservative, 0.0)
+            jacobian = jacobian + jnp.where(wall[..., None, None], conservative_jacobian, 0.0)
         selected_wall = backward_wall | forward_wall
         solve_dt = jnp.broadcast_to(
             jnp.asarray(solve_dt, dtype=jnp.float64), residual.shape[:-1]
         )
         system = jnp.eye(5, dtype=jnp.float64) - solve_dt[..., None, None] * jacobian
         increment = jnp.linalg.solve(system, (solve_dt[..., None] * residual)[..., None])[..., 0]
-        info = dict(info)
-        info.update({
+        info = {
             "selected_wall": selected_wall,
             "selected_complete_residual": residual,
             "selected_complete_jacobian": jacobian,
             "implicit_finite": jnp.all(jnp.isfinite(center + increment), axis=-1),
-        })
+        }
         return increment, info
 
     def _ledger_masses(self):
@@ -2394,7 +2376,7 @@ class LocalFciDrbEBRhs:
             center, minus, plus, primitive_stencils[0].dx_min,
             primitive_stencils[0].dx_plus, backward_wall, forward_wall,
             backward_wall_state, forward_wall_state,
-            selection_dt, solve_dt,
+            solve_dt,
             phi_dense=(
                 self._expand_owner_field_for_stencil(phi_owned)
                 if self._sheath_current_mode else None
