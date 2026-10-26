@@ -86,12 +86,12 @@ from .fci_boundaries import (
     LocalStencil1D,
     LocalStencil3D,
 )
+from ..geometry.fci_geometry import _axis_index_nd
 
 
 # =============================================================================
 # Parallel-gradient operators
 # =============================================================================
-
 
 
 def grad_parallel_op_fci(
@@ -2177,12 +2177,6 @@ def _dirichlet_lift_correction_cut_wall_bc(cut_wall_bc: CutWallBC3D | None) -> C
     )
 
 
-def _axis_index_nd(axis: int, index: int, ndim: int) -> tuple[object, ...]:
-    slices: list[object] = [slice(None)] * ndim
-    slices[axis] = index
-    return tuple(slices)
-
-
 def _axis_name(axis: int) -> str:
     return ("x", "y", "z")[int(axis)]
 
@@ -2231,24 +2225,6 @@ def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) 
 
 def _homogeneous_bc(bc: FciBoundaryCondition) -> FciBoundaryCondition:
     raise NotImplementedError("legacy axis-level boundary conditions have been removed")
-
-
-def _bc_kind(bc) -> str:
-    raise NotImplementedError("legacy axis-level boundary conditions have been removed")
-
-
-def _broadcast_boundary_value(value, target_shape: tuple[int, int]) -> jnp.ndarray:
-    array = jnp.asarray(value, dtype=jnp.float64)
-    return jnp.broadcast_to(array, target_shape)
-
-
-def _broadcast_axis_boundary_value(value, *, axis: int, field_shape: tuple[int, int, int]) -> jnp.ndarray:
-    target_shape = tuple(field_shape[index] for index in range(3) if index != axis)
-    return _broadcast_boundary_value(value, target_shape)
-
-
-def _set_axis_plane(field: jnp.ndarray, *, axis: int, index: int, value: jnp.ndarray) -> jnp.ndarray:
-    return field.at[_axis_index_nd(axis, index, field.ndim)].set(value)
 
 
 def _cell_volume_weights(geometry: FciGeometry3D) -> jnp.ndarray:

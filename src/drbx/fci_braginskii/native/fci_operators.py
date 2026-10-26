@@ -97,12 +97,12 @@ from .fci_curvature_production_flux import (
     curvature_strict_principal_matrix,
     reconstruct_third_order_face_states,
 )
+from ...native.fci_operators import _apply_local_face_flux_bc
 
 
 # =============================================================================
 # Parallel-gradient operators
 # =============================================================================
-
 
 
 def _active_cell_mask_owned(geometry: LocalFciGeometry3D) -> jnp.ndarray:
@@ -1635,66 +1635,6 @@ def _patch_local_axis_face_gradients(
     face_grad = face_grad.at[_axis_index_nd(axis, -1, face_grad.ndim)].set(upper_plane)
 
     return face_grad
-
-
-def _apply_local_face_flux_bc(
-    flux: jnp.ndarray,
-    *,
-    axis: int,
-    axis_kind: jnp.ndarray,
-    axis_value: jnp.ndarray,
-    axis_mask: jnp.ndarray,
-    axis_regular_axes: tuple[bool, bool, bool],
-) -> jnp.ndarray:
-    """Apply local physical face flux boundary conditions on owned faces."""
-
-    if axis_regular_axes[1] or axis_regular_axes[2]:
-        raise NotImplementedError(
-            "axis_regular_axes currently only supports the lower x axis; "
-            f"got axis_regular_axes={axis_regular_axes}"
-        )
-
-    result = jnp.asarray(flux, dtype=jnp.float64)
-    kind = jnp.asarray(axis_kind, dtype=jnp.int32)
-    value = jnp.asarray(axis_value, dtype=jnp.float64)
-    mask = jnp.asarray(axis_mask, dtype=bool)
-
-    if axis == 0:
-        lower_kind = kind[0]
-        upper_kind = kind[-1]
-        lower_value = value[0]
-        upper_value = value[-1]
-        lower_mask = mask[0]
-        upper_mask = mask[-1]
-        skip_lower = bool(axis_regular_axes[0])
-    elif axis == 1:
-        lower_kind = kind[:, 0, :]
-        upper_kind = kind[:, -1, :]
-        lower_value = value[:, 0, :]
-        upper_value = value[:, -1, :]
-        lower_mask = mask[:, 0, :]
-        upper_mask = mask[:, -1, :]
-        skip_lower = False
-    else:
-        lower_kind = kind[:, :, 0]
-        upper_kind = kind[:, :, -1]
-        lower_value = value[:, :, 0]
-        upper_value = value[:, :, -1]
-        lower_mask = mask[:, :, 0]
-        upper_mask = mask[:, :, -1]
-        skip_lower = False
-
-    if not skip_lower:
-        lower_plane = result[_axis_index_nd(axis, 0, result.ndim)]
-        lower_plane = jnp.where(lower_mask & (lower_kind == BC_NORMALFLUX), lower_value, lower_plane)
-        lower_plane = jnp.where(lower_mask & (lower_kind == BC_NOFLUX), 0.0, lower_plane)
-        result = result.at[_axis_index_nd(axis, 0, result.ndim)].set(lower_plane)
-
-    upper_plane = result[_axis_index_nd(axis, -1, result.ndim)]
-    upper_plane = jnp.where(upper_mask & (upper_kind == BC_NORMALFLUX), upper_value, upper_plane)
-    upper_plane = jnp.where(upper_mask & (upper_kind == BC_NOFLUX), 0.0, upper_plane)
-    result = result.at[_axis_index_nd(axis, -1, result.ndim)].set(upper_plane)
-    return result
 
 
 def _apply_local_face_value_dirichlet_bc(

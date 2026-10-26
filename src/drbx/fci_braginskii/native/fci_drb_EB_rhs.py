@@ -18,7 +18,6 @@ from ..geometry.fci_geometry import (
     build_local_conservative_stencil_from_field,
     build_local_fci_stencil_from_field,
 )
-from .fci_model import FciModelState
 from .fci_model import inject_owned_field_to_halo, inject_owned_state_to_halo
 from .fci_boundaries import (
     BC_DIRICHLET,
@@ -72,20 +71,7 @@ from .fci_wall_closure import (
     sound_speed,
     wall_face_fluxes,
 )
-
-
-@jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
-class FciDrbEBState(FciModelState):
-    """State for the electrostatic Boussinesq drift-reduced Braginskii scaffold."""
-
-    density: jax.Array
-    phi: jax.Array
-    Te: jax.Array
-    Ti: jax.Array
-    Vi: jax.Array
-    Ve: jax.Array
-    vorticity: jax.Array
+from ...native.fci_drb_EB_rhs import FciDrbEBState
 
 
 RHS_TERM_FIELD_NAMES = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")
