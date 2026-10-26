@@ -37,6 +37,7 @@ import numpy as np
 from numpy.polynomial.chebyshev import chebder, chebval, chebvander
 
 from .Bfield_evaluator import BFieldEvaluator
+from .Bfield_evaluator import _points
 
 
 ReferenceAxis = Callable[
@@ -764,15 +765,6 @@ def _axis(values: Any, name: str) -> np.ndarray:
     if np.any(np.diff(axis) <= 0.0):
         raise ValueError(f"{name} must be strictly increasing")
     return axis
-
-
-def _points(values: Any, name: str) -> tuple[np.ndarray, tuple[int, ...]]:
-    points = np.asarray(values, dtype=np.float64)
-    if points.ndim == 0 or points.shape[-1:] != (3,):
-        raise ValueError(f"{name} must have shape (..., 3)")
-    if not np.all(np.isfinite(points)):
-        raise ValueError(f"{name} must contain only finite values")
-    return points.reshape((-1, 3)), points.shape[:-1]
 
 
 def _cartesian_to_cylindrical(
