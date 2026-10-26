@@ -102,3 +102,27 @@ def test_essos_geometry_is_a_turbulence_geometry_table(tmp_path):
 @pytest.mark.slow
 def test_hsx_example_deck_builds_geometry_and_runs(tmp_path):
     assert drbx_main(["run", str(INPUTS / "hsx_fci_blob.toml")]) == 0
+
+
+def test_set_override_and_python_api_match_cli(tmp_path, capsys):
+    src = INPUTS / "hasegawa_wakatani.toml"
+    base = ["run", str(src), "--quiet", "--set", "run.blocks=1", "--set", "run.steps_per_block=5", "--set", "autodiff.parameter='gradient'"]
+    assert drbx_main([*base, "--output-dir", str(tmp_path / "cli")]) == 0
+    import drbx
+
+    out = drbx.run(src, output_dir=tmp_path / "api", run={"blocks": 1, "steps_per_block": 5}, autodiff={"parameter": "gradient"})
+    cli = json.loads((tmp_path / "cli" / "hasegawa_wakatani_summary.json").read_text())
+    assert cli["config"]["run"]["blocks"] == 1 and out["config"]["run"]["steps_per_block"] == 5
+    assert out["paths"] and all(Path(p).exists() for p in out["paths"])
+    with np.load(tmp_path / "cli" / "hasegawa_wakatani_arrays.npz") as a, np.load(out["paths"][1]) as b:
+        assert set(a.files) == set(b.files)
+        assert all(np.array_equal(a[k], b[k]) for k in a.files)
+    assert cli["results"] == out["results"]
+
+
+def test_set_rejects_unknown_key_and_bad_syntax(tmp_path):
+    src = str(INPUTS / "hasegawa_wakatani.toml")
+    with pytest.raises(SystemExit, match="bogus"):
+        drbx_main(["run", src, "--set", "run.bogus=1"])
+    with pytest.raises(SystemExit, match="table.key=value"):
+        drbx_main(["run", src, "--set", "oops"])
