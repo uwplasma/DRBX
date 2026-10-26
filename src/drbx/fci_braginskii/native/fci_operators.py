@@ -1878,7 +1878,15 @@ def _curvature_bc_characteristic_wall_states(
     # Do not sanitize a failed physical trace.  A non-finite or inadmissible
     # trace must remain visible in the eigensystem/solve and ultimately fail
     # the RK stage rather than selecting an interior or floored wall state.
-    matrix = curvature_strict_principal_matrix(boundary_trace, bmag, tau)
+    # The frozen characteristic basis is built at the raw trace, with each thermodynamic
+    # entry bounded below by a tenth of the interior value: a wall trace that undershoots
+    # to ~1e-4 of its owner (Te = 7.6e-5 against 0.10 at 32^3, t = 0.339) gives a matrix of
+    # condition number 1e8, an invalid spectrum and a NaN wall state that ended the run.
+    # The residual targets below still use the unmodified trace.
+    matrix_state = boundary_trace.at[..., :3].set(
+        jnp.maximum(boundary_trace[..., :3], 0.1 * interior[..., :3])
+    )
+    matrix = curvature_strict_principal_matrix(matrix_state, bmag, tau)
     normal_matrix = jnp.asarray(normal, dtype=jnp.float64)[..., None, None] * matrix
     frozen = jax.lax.stop_gradient(normal_matrix)
     eigenvalues, eigenvectors = small_batched_eig(frozen)
