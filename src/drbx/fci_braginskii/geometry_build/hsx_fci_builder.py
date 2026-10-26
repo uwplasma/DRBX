@@ -72,40 +72,6 @@ METRIC_FIELDS = (
 )
 
 
-def _vi_near_band_report(
-    vi_terms: np.ndarray,
-    vi_state: np.ndarray,
-    near_start: int,
-) -> dict[str, object]:
-    """Return unnormalized-RFFT near-band energies and state inner products."""
-
-    terms = np.asarray(vi_terms, dtype=np.float64)
-    state = np.asarray(vi_state, dtype=np.float64)
-    if terms.ndim != 4 or state.shape != terms.shape[1:]:
-        raise ValueError("Vi terms must be (term, radial, theta, eta) and match state")
-    term_spectrum = np.fft.rfft(terms, axis=2)[:, :, near_start:, :]
-    state_spectrum = np.fft.rfft(state, axis=1)[:, near_start:, :]
-    term_energy = np.sum(np.abs(term_spectrum) ** 2, axis=(1, 2, 3))
-    term_inner = np.sum(
-        term_spectrum * np.conj(state_spectrum)[None], axis=(1, 2, 3)
-    )
-    sum_spectrum = np.sum(term_spectrum, axis=0)
-    sum_energy = np.sum(np.abs(sum_spectrum) ** 2)
-    sum_inner = np.sum(sum_spectrum * np.conj(state_spectrum))
-
-    def pair(value):
-        return {"real": float(np.real(value)), "imag": float(np.imag(value))}
-
-    return {
-        "rfft_normalization": "numpy-unnormalized",
-        "term_near_band_energy": [float(value) for value in term_energy],
-        "term_near_band_inner_product_with_saved_Vi": [
-            pair(value) for value in term_inner
-        ],
-        "sum_term_near_band_energy": float(sum_energy),
-        "sum_term_near_band_inner_product_with_saved_Vi": pair(sum_inner),
-    }
-
 # This is intentionally duplicated as a small driver-level contract.  The
 # global FciMaps3D object is the map-generation/cache boundary, so adding a
 # field to that object must also update the cache and quality checks here.
@@ -714,38 +680,6 @@ def load_fci_simulation_geometry(path: Path):
     from . import fci_simulation_geometry
 
     return fci_simulation_geometry.load_fci_simulation_geometry(Path(path))
-
-
-def _artifact_topology_descriptor(topology) -> TopologyDescriptor:
-    """Normalize an artifact topology record without rebuilding geometry."""
-
-    if isinstance(topology, str):
-        return topology_descriptor(topology)
-    if isinstance(topology, Mapping):
-        name = topology.get("name", topology.get("topology"))
-        if name is not None:
-            return topology_descriptor(str(name))
-    name = getattr(topology, "name", None)
-    if name is not None:
-        try:
-            return topology_descriptor(str(name))
-        except ValueError:
-            pass
-    if all(
-        hasattr(topology, field)
-        for field in (
-            "name", "coordinate_names", "periodic_axes", "axis_regular_axes",
-            "logical_extents",
-        )
-    ):
-        return TopologyDescriptor(
-            name=str(topology.name),
-            coordinate_names=tuple(topology.coordinate_names),
-            periodic_axes=tuple(bool(v) for v in topology.periodic_axes),
-            axis_regular_axes=tuple(bool(v) for v in topology.axis_regular_axes),
-            logical_extents=tuple(tuple(float(x) for x in pair) for pair in topology.logical_extents),
-        )
-    raise ValueError("simulation geometry artifact has no valid topology record")
 
 
 _SQUARE_TOPOLOGY = topology_descriptor("square")

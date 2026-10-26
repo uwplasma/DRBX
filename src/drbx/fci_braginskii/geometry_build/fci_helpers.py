@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal, Sequence
 
-import jax
 import jax.numpy as jnp
 
-from .fci_geometry import HaloLayout3D, LocalDomain3D
 
 # Definitions identical to (and closure-equivalent with) the shared module;
 # re-exported here so existing import paths keep working.
@@ -57,50 +54,3 @@ def _as_coordinate_face_tuple(
     return x_value, y_value, z_value
 
 
-def _local_owned_cell_array(value: jnp.ndarray, layout: HaloLayout3D, name: str) -> jnp.ndarray:
-    """Validate a local owned-cell array."""
-
-    array = jnp.asarray(value, dtype=jnp.float64)
-    if array.shape != layout.owned_shape:
-        raise ValueError(f"{name} must have shape {layout.owned_shape}, got {array.shape}")
-    return array
-
-
-def _local_coordinate_face_tuple(
-    value: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-    layout: HaloLayout3D,
-    name: str,
-    *,
-    region: Literal["control", "halo_face"] = "control",
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Validate a local coordinate-face tuple against a halo layout."""
-
-    if len(value) != 3:
-        raise ValueError(f"{name} must be a tuple of three face arrays")
-    validators = (
-        _local_control_face_array if region == "control" else _local_face_halo_array
-    )
-    x_value = validators(value[0], layout, 0, f"{name}.x")
-    y_value = validators(value[1], layout, 1, f"{name}.y")
-    z_value = validators(value[2], layout, 2, f"{name}.z")
-    return x_value, y_value, z_value
-
-
-def _as_local_side_plane_array(
-    value: jnp.ndarray | float,
-    layout: HaloLayout3D,
-    axis: int,
-    name: str,
-    *,
-    dtype=jnp.float64,
-) -> jnp.ndarray:
-    """Validate a local side-plane payload used by ghost-fill boundary helpers."""
-
-    axis = _validate_axis(axis)
-    array = jnp.asarray(value, dtype=dtype)
-    expected_shape = local_side_plane_shape(layout, axis)
-    if array.ndim == 0:
-        return jnp.broadcast_to(array, expected_shape)
-    if array.shape != expected_shape:
-        raise ValueError(f"{name} must have shape {expected_shape}, got {array.shape}")
-    return array

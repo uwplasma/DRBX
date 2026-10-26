@@ -2174,13 +2174,6 @@ def _harmonic_extend_boundaries(
     return positions
 
 
-def _harmonic_extend_boundary(boundary: np.ndarray, nu: int, nv: int) -> np.ndarray:
-    """Compatibility wrapper for extending one wall contour."""
-    return _harmonic_extend_boundaries(
-        np.asarray(boundary, dtype=np.float64)[None, ...], nu, nv
-    )[:, :, 0]
-
-
 def build_wall_fitted_initial_mesh(
     eta_evaluator: Any,
     wall_evaluator: Any,

@@ -113,19 +113,6 @@ def _triangulate(poly: np.ndarray) -> list[tuple[np.ndarray, tuple[int, int, int
     return triangles
 
 
-def _edge_key(a: tuple[int, int], b: tuple[int, int], ny: int) -> tuple[str, int, int]:
-    i0, j0, i1, j1 = int(a[0]), int(a[1]) % ny, int(b[0]), int(b[1]) % ny
-    if i0 != i1:
-        if j0 != j1:
-            raise ValueError("owner topology has a non-adjacent radial edge")
-        return ("r", min(i0, i1), j0)
-    if (j0 + 1) % ny == j1:
-        return ("a", i0, j0)
-    if (j1 + 1) % ny == j0:
-        return ("a", i0, j1)
-    raise ValueError("owner topology has a non-adjacent angular edge")
-
-
 def _edge_loops(cells: list[tuple[int, int]], ny: int, collapse_axis: bool) -> list[list[tuple[int, int]]]:
     edges: dict[tuple[tuple[int, int], tuple[int, int]], None] = {}
     def canon(v: tuple[int, int]) -> tuple[int, int]:
@@ -192,24 +179,6 @@ def _metric_values(callback: Any, logical: np.ndarray, interface: int) -> np.nda
     if values.size != len(points) or np.any(~np.isfinite(values)) or np.any(values <= 0.0):
         raise ValueError("metric callback must return one finite positive value per point")
     return values
-
-
-def _raw_faces(geometry: Any, owner_geometry: Any, shape: tuple[int, int, int]) -> list[dict[str, Any]]:
-    grid = _get(geometry, "grid")
-    xf = np.asarray(_get(_get(grid, "x"), "faces"), dtype=float)
-    yf = np.asarray(_get(_get(grid, "y"), "faces"), dtype=float)
-    top = _get(owner_geometry, "topology", default=owner_geometry)
-    owners = np.asarray(_get(top, "aggregate_id", default=_get(owner_geometry, "owner_map")), dtype=int)
-    if owners.shape != shape or xf.size != shape[0] + 1 or yf.size != shape[1] + 1:
-        raise ValueError("owner map/grid shape mismatch")
-    out: list[dict[str, Any]] = []
-    for i in range(shape[0]):
-        for j in range(shape[1]):
-            for k in range(shape[2]):
-                owner = int(owners[i, j, k])
-                if owner >= 0:
-                    out.append({"owner": owner, "index": (i, j, k), "plane": k, "vertices": np.asarray(((xf[i], yf[j]), (xf[i + 1], yf[j]), (xf[i + 1], yf[j + 1]), (xf[i], yf[j + 1])), dtype=float)})
-    return out
 
 
 def _raw_faces_for_plane(

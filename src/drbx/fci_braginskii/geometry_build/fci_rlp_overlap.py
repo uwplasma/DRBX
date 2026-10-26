@@ -40,10 +40,6 @@ __all__ = [
 ]
 
 
-def _array(value: Any, dtype: Any = float) -> np.ndarray:
-    return np.asarray(value, dtype=dtype)
-
-
 def _polygon_area(poly: np.ndarray) -> float:
     p = np.asarray(poly, dtype=float)
     if p.shape[0] < 3:

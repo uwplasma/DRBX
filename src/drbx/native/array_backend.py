@@ -51,14 +51,3 @@ def zeros_like(value: Any, *, use_jax: bool):
     return np.zeros_like(np.asarray(value, dtype=np.float64), dtype=np.float64)
 
 
-def maximum_reduce(values: tuple[Any, ...], *, use_jax: bool):
-    """Backend-preserving equivalent of ``np.maximum.reduce``."""
-
-    if not values:
-        raise ValueError("maximum_reduce requires at least one value.")
-    if use_jax:
-        result = jnp.asarray(values[0], dtype=jnp.float64)
-        for value in values[1:]:
-            result = jnp.maximum(result, jnp.asarray(value, dtype=jnp.float64))
-        return result
-    return np.maximum.reduce(tuple(np.asarray(value, dtype=np.float64) for value in values))

@@ -11,46 +11,9 @@ from .metrics import StructuredMetrics
 
 
 @dataclass(frozen=True)
-class OneStepDiffusionResult:
-    density: jnp.ndarray
-    pressure: jnp.ndarray
-
-
-@dataclass(frozen=True)
 class DiffusionHistoryResult:
     density_history: jnp.ndarray
     pressure_history: jnp.ndarray
-
-
-def advance_anomalous_diffusion_one_step(
-    density: jnp.ndarray,
-    pressure: jnp.ndarray,
-    *,
-    mesh: StructuredMesh,
-    metrics: StructuredMetrics,
-    anomalous_D: float,
-    density_boundary: str,
-    pressure_boundary: str,
-    timestep: float,
-) -> OneStepDiffusionResult:
-    dtype = runtime_jax_dtype()
-    if mesh.nz != 1:
-        raise NotImplementedError("Native one-step anomalous diffusion currently supports nz = 1 only.")
-    if density_boundary.strip().lower() != "neumann" or pressure_boundary.strip().lower() != "neumann":
-        raise NotImplementedError("Native one-step anomalous diffusion currently supports Neumann X boundaries only.")
-    tolerance = 1e-6 if dtype == jnp.float32 else 1e-12
-    if not jnp.allclose(density, pressure, rtol=tolerance, atol=tolerance):
-        raise NotImplementedError(
-            "Native one-step anomalous diffusion currently requires identical density and pressure initial states."
-        )
-    if not jnp.allclose(metrics.g23, 0.0, rtol=tolerance, atol=tolerance):
-        raise NotImplementedError("Native one-step anomalous diffusion currently supports g23 = 0 structured metrics only.")
-
-    operator = _build_radial_diffusion_operator(mesh, metrics, anomalous_D)
-    propagator = expm(operator * timestep)
-    density_next = _advance_field_with_operator(density, propagator, mesh, boundary_kind=density_boundary)
-    pressure_next = _advance_field_with_operator(pressure, propagator, mesh, boundary_kind=pressure_boundary)
-    return OneStepDiffusionResult(density=density_next, pressure=pressure_next)
 
 
 def advance_anomalous_diffusion_history(

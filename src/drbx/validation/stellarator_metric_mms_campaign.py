@@ -10,6 +10,7 @@ import numpy as np
 
 from ..geometry import MetricTensor3D, build_synthetic_stellarator_geometry
 from ..native.fci import metric_weighted_scalar_laplacian_3d
+from .stellarator_fci_operator_campaign import _fit_convergence_slope
 
 
 @dataclass(frozen=True)
@@ -283,7 +284,3 @@ def _diagonal_metric(metric: MetricTensor3D) -> MetricTensor3D:
     )
 
 
-def _fit_convergence_slope(h: np.ndarray, error: np.ndarray) -> float:
-    safe = np.maximum(error, 1.0e-16)
-    slope, _ = np.polyfit(np.log(h), np.log(safe), 1)
-    return float(slope)

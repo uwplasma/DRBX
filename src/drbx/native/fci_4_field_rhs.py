@@ -22,7 +22,6 @@ from .fci_boundaries import (
     FourFieldBoundaryConditions,
 )
 from .fci_operators import (
-    _cell_volume_weights,
     PerpLaplacianInverseSolver,
     PerpLaplacianMgHierarchy,
     curvature_op,
@@ -150,16 +149,6 @@ def _resolve_four_field_bcs(
             f"also passed explicitly: {', '.join(conflicts)}"
         )
     return boundary_conditions
-
-
-def _weighted_mean(field: jnp.ndarray, geometry: FciGeometry3D) -> jnp.ndarray:
-    weights = _cell_volume_weights(geometry)
-    return jnp.sum(weights * field) / jnp.maximum(jnp.sum(weights), 1.0e-30)
-
-
-def _weighted_l2(field: jnp.ndarray, geometry: FciGeometry3D) -> jnp.ndarray:
-    weights = _cell_volume_weights(geometry)
-    return jnp.sqrt(jnp.sum(weights * field * field) / jnp.maximum(jnp.sum(weights), 1.0e-30))
 
 
 def _assemble_4field_non_diffusive_rhs(
