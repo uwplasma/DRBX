@@ -310,7 +310,9 @@ closure by default, with implicit Spitzer-Harm parallel conduction
 and recycling (deck keys `wall_closure`, `parallel_conduction`, `neutrals`,
 `recycling`; see [docs/decks.md](docs/decks.md)). The default HSX deck is
 verified to t = 0.6 at 16^3 only; 32^3 runs with these defaults are still under
-investigation. The first run is `drbx run examples/inputs/hsx_fci_blob.toml`,
+investigation. Until the parallel-operator update lands, set
+`parallel_diffusion = 1.0` for Bohm-wall runs; it damps a wall-localised
+mode of the current parallel discretisation. The first run is `drbx run examples/inputs/hsx_fci_blob.toml`,
 which builds a 16^3 geometry from the shipped coils and vessel (about 4 min on
 a laptop). The movie predates the Bohm and conduction defaults: it is a 32^3 run
 (600 steps, t = 0.45 in L_ref/c_s, peak n - 1 = 0.8, rho* = 5e-3, zero-flow
