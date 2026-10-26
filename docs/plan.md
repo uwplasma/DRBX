@@ -243,6 +243,34 @@ G3. README (#58) and tutorial kept in step with each phase.
 VMEX + extender finite-beta field provider; electromagnetic (A∥) terms; GPU
 production runs and scaling.
 
+### B2 results (2026-10-25, PR #68; 16^3 HSX, default Bohm deck)
+
+- **Pairs.** One exact weighted-adjoint pair `D = -V^-1 G^T V` (scatter of the mapped gather) carries every
+  parallel term: the five material rows including Ve, the zero-flow wall, parallel diffusion `D(c G f)`,
+  conduction and `grad omega`; the current/phi pair is the second exact pair; a compact forward-leg pair
+  `(G+, D+)` carries the face-flux dissipation. Real HSX 16^3: `|D + V^-1 G^T V|/|D|` 1.7e-16 (support), 8e-17
+  (leg), `sum V D(f)` 2e-17, `G(1)` 1.4e-16, conduction symmetry 1.4e-16 and `max eig` of its symmetric part 4e-20.
+- **Wall rows.** The core-only pair left `D` inconsistent on the two cells next to a wall (1D Bohm flux tube:
+  growth rate `c_s/(2dx)`, blow-up). Wall rows now close with the owner value (finite-volume divergence with zero
+  wall flux, Neumann `G`). The Ve wall law was the other source of a wall-localised mode: Ve-Te block of the
+  16^3 snapshot t=0.075 with Bohm rows: main (from #66) 18 modes with Re>0, max +0.65; with the characteristic Ve
+  wall leg on the new pair 16 modes, max +3.7 (95% in wall cells, 100% Ve); with a flux-form Ve leg 224 modes, max
+  +19; with no Ve wall leg 4 modes, max +0.07. The final code has no Ve wall leg.
+- **Advection.** `-D` is not skew: on sheared maps it has eigenvalues of positive real part (toy +0.1/dz;
+  HSX 16^3 `+0.77/dx`; 8-leg step advection min/max -12.8/+15.6, L2 growth 9.6; old pair -48/+51). The skew form
+  `-(D+G)/2` is exactly neutral but not conservative. A staggered one-map flux form `-D+ A f` conserves but still grows
+  (toy +0.05 to +0.18/dz). `parallel_dissipation` (eps, default 0.1) adds the Rusanov face flux `eps a (f+ - f)` with
+  `a = |V| + c_s` (`sqrt(mu Te)` for Ve): unit-speed step advection L2 growth 4.3 (0.1), 2.3 (0.25), 1.5 (0.5),
+  1.15 (1), 0.98 (2): neutral at `eps a/|u| ~ 2`, i.e. flows below ~5% of the signal speed at eps = 0.1. It is a
+  numerical term without physical scale; its kinetic-energy sink is 0.29% of the wall power at t = 0.6 (0.6% with the
+  previous Ve wall law), mass, ion momentum and thermal energy are untouched.
+- **Heat blob (Stegmeir).** Perpendicular leakage is a map-interpolation property and is unchanged: L1 error of the
+  aligned steady state 0.94 to 1.6 (central `D G`) and 1.15 to 1.5 (compact `D+ G+`) at 16^3.
+- **Runs.** Default deck to t = 0.6 at 16^3: finite (Te >= 0.035, |Ve| <= 1.9; main-style legacy Ve gave 7.5), mass /
+  Te / Ti energy / momentum ledger imbalance <= 4e-15 / 2e-15 / 4e-15 / 2e-12 of the wall loss. The wall electron
+  energy loss is about 500 times the volumetric input power (there is no heat source in the default blob: a decaying
+  blob, not a steady SOL).
+
 ## 4. References in hand
 
 Also read on 2026-10-21: Hariri & Ottaviani, CPC 184 (2013) 2419 (original

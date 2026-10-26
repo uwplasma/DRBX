@@ -19,19 +19,11 @@ import numpy as np
 import pytest
 
 from drbx.fci_braginskii.native import fci_neutrals as F
-from drbx.fci_braginskii.native.fci_parallel_production_flux import (
-    parallel_short_wall_material_data,
-    parallel_target_row_material_residual,
-)
-from drbx.fci_braginskii.native.fci_wall_closure import (
-    SheathClosure,
-    bohm_wall_state,
-    sheath_wall_leg_residual,
-    wall_face_fluxes,
-)
+from drbx.fci_braginskii.native.fci_wall_closure import SheathClosure, wall_face_fluxes
 from drbx.fci_braginskii.run import HsxBlobConfig, recycling_parameters
 
 from .test_fci_neutrals import _random_plasma, annulus, sheared_slab
+from .test_fci_wall_closure import flux_tube_bulk_rates
 
 jax.config.update("jax_enable_x64", True)
 
@@ -131,23 +123,10 @@ def _recycling_flux_tube(coefficient, *, cells=20, mu=25.0, periods=None, e_iz=0
     shape_b, shape_f = shape_b / (shape_b.sum() * dx), shape_f / (shape_f.sum() * dx)
     sheath = SheathClosure()
     ge, gi = float(sheath.gamma_e(TAU, mu)), sheath.ion_heat_transmission
-    backward = jnp.zeros(cells, bool).at[0].set(True)
-    forward = jnp.zeros(cells, bool).at[-1].set(True)
-    rows = jnp.asarray((1.0, 1.0, 1.0, 1.0, 0.0))
+    bulk = flux_tube_bulk_rates(cells, dx, mu)
 
     def rates(u):
-        minus = jnp.concatenate([u[:1], u[:-1]])
-        plus = jnp.concatenate([u[1:], u[-1:]])
-        bst = jnp.where(backward[:, None], bohm_wall_state(minus, u, -1.0, TAU), minus)
-        fst = jnp.where(forward[:, None], bohm_wall_state(plus, u, 1.0, TAU), plus)
-        kw = dict(backward_wall=backward, forward_wall=forward, backward_wall_state=bst, forward_wall_state=fst)
-        r, _ = parallel_target_row_material_residual(u, minus, plus, dx, dx, TAU, mu, **kw)
-        rw, _, info = parallel_short_wall_material_data(u, minus, plus, dx, dx, TAU, mu, **kw)
-        r = r + rw
-        r = r + jnp.where(backward[:, None], rows * (
-            sheath_wall_leg_residual(bst, u, dx, -1.0, TAU, ge, gi) - info["backward_residual"]), 0.0)
-        r = r + jnp.where(forward[:, None], rows * (
-            sheath_wall_leg_residual(fst, u, dx, 1.0, TAU, ge, gi) - info["forward_residual"]), 0.0)
+        r, bst, fst = bulk(u, ge, gi)
         # the recycled flux is the wall closure's own particle flux, per target
         flux_b = wall_face_fluxes(bst[0], -1.0, TAU, ge, gi, u[0, 3]).particle
         flux_f = wall_face_fluxes(fst[-1], 1.0, TAU, ge, gi, u[-1, 3]).particle

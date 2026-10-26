@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
+from solvax import pcg_linear_solve
 
 from ..geometry.fci_geometry import (
     FCI_DEP_FIELD_INTERIOR,
@@ -13,7 +14,6 @@ from ..geometry.fci_geometry import (
     LocalCurvatureFaceCoefficients3D,
     LocalDomain3D,
     LocalFciGeometry3D,
-    SIDE_PHYSICAL,
     StencilBuilderContext,
     build_local_conservative_stencil_from_field,
     build_local_fci_stencil_from_field,
@@ -39,10 +39,6 @@ from .fci_halo import (
 from .fci_operators import (
     LocalPerpLaplacianInverseSolver,
     local_parallel_q_flux_div_fci_op,
-    local_parallel_div_b_fci_from_q_op,
-    local_grad_parallel_op_fci_compatible_from_q,
-    local_grad_parallel_op_fci_compatible_from_q_components,
-    local_parallel_diffusion_fci_op,
     local_grad_parallel_op_fci,
     local_perp_laplacian_conservative_op,
     local_curvature_conservative_op,
@@ -63,8 +59,8 @@ from .fci_gmres import (
     _spmd_remove_weighted_mean,
     solvax_gmres_solve,
 )
-from .fci_parallel_conduction import backward_euler_conduction, conductivity
-from .fci_support_pair import build_weighted_negative_adjoint
+from .fci_parallel_conduction import ConductionInfo, backward_euler_conduction, conductivity
+from .fci_support_pair import build_support_pair, build_weighted_negative_adjoint
 from .fci_wall_closure import (
     SheathClosure,
     bohm_wall_state,
@@ -74,12 +70,6 @@ from .fci_wall_closure import (
     current_gamma_e,
     sound_speed,
     wall_face_fluxes,
-)
-from .fci_parallel_production_flux import (
-    parallel_characteristic_wall_data,
-    parallel_short_wall_backward_euler,
-    parallel_short_wall_material_data,
-    parallel_target_row_material_residual,
 )
 from ...native.fci_drb_EB_rhs import FciDrbEBState
 
@@ -239,6 +229,9 @@ class FciDrbEBRhsParameters:
     electron_conduction_kappa0: float = 0.0
     ion_conduction_kappa0: float = 0.0
     heat_flux_limiter: float = 0.0
+    # Conservative face-flux dissipation of the parallel transport, in units of the
+    # local signal speed times the leg length (Rusanov factor; 0 = central).
+    parallel_dissipation: float = 0.0
 
     def tree_flatten(self):
         return (
@@ -269,6 +262,7 @@ class FciDrbEBRhsParameters:
                 self.electron_conduction_kappa0,
                 self.ion_conduction_kappa0,
                 self.heat_flux_limiter,
+                self.parallel_dissipation,
             ),
             None,
         )
@@ -302,6 +296,7 @@ class FciDrbEBRhsParameters:
             electron_conduction_kappa0,
             ion_conduction_kappa0,
             heat_flux_limiter,
+            parallel_dissipation,
         ) = children
         return cls(
             n0=n0,
@@ -330,6 +325,7 @@ class FciDrbEBRhsParameters:
             electron_conduction_kappa0=electron_conduction_kappa0,
             ion_conduction_kappa0=ion_conduction_kappa0,
             heat_flux_limiter=heat_flux_limiter,
+            parallel_dissipation=parallel_dissipation,
         )
 
 
@@ -1312,6 +1308,7 @@ class LocalFciDrbEBRhs:
         self,
         *,
         include_physical_wall: bool,
+        exclude_radial_ghost: bool | None = None,
     ) -> jnp.ndarray:
         """Return rows admissible for a cell-centred FCI support pair.
 
@@ -1384,7 +1381,9 @@ class LocalFciDrbEBRhs:
             & maps.backward.target_valid
         )
         admitted = admitted & self.geometry.active_cell_mask_owned
-        if include_physical_wall:
+        if exclude_radial_ghost is None:
+            exclude_radial_ghost = not include_physical_wall
+        if not exclude_radial_ghost:
             return admitted
         return (
             admitted
@@ -1395,9 +1394,14 @@ class LocalFciDrbEBRhs:
         )
 
     def _fci_support_core_target_mask(self) -> jnp.ndarray:
-        """Return ordinary interior rows admitted by the support-core pair."""
+        """Return the rows of the support pair: interior rows and wall rows.
 
-        return self._fci_pair_target_mask(include_physical_wall=False)
+        A wall row (one leg ends on a physical wall) closes the wall leg with
+        the owner value, so its divergence is the finite-volume divergence with
+        zero wall flux; the wall flux enters through the wall legs.
+        """
+
+        return self._fci_pair_target_mask(include_physical_wall=True, exclude_radial_ghost=True)
 
     def _fci_pair_cell_mass(self) -> jnp.ndarray:
         """Return the fine-cell measure preserved by the downstream RLP map."""
@@ -1594,12 +1598,7 @@ class LocalFciDrbEBRhs:
         )
         # Preserve the halo closure's linear topology/periodic semantics while
         # deleting prescribed affine values before linear_transpose sees it.
-        homogeneous_q_bc = replace(
-            face_bc.phi,
-            value_x=jnp.zeros_like(face_bc.phi.value_x),
-            value_y=jnp.zeros_like(face_bc.phi.value_y),
-            value_z=jnp.zeros_like(face_bc.phi.value_z),
-        )
+        homogeneous_q_bc = self._homogeneous_halo_bc(face_bc)
         def legacy_homogeneous_core_divergence(
             values_owned: jnp.ndarray,
         ) -> jnp.ndarray:
@@ -1608,67 +1607,131 @@ class LocalFciDrbEBRhs:
                 values / bmag_owned, homogeneous_q_bc
             )
             forward, backward = self._fci_remote_values(q_halo, context)
-            divergence = local_parallel_q_flux_div_fci_op(
-                q_halo,
-                self.geometry,
-                context=context,
-                forward_remote_q_values=forward,
-                backward_remote_q_values=backward,
+            q = build_local_fci_stencil_from_field(
+                q_halo, self.geometry, context,
+                forward_remote_values=forward, backward_remote_values=backward,
             )
+            divergence = bmag_owned * local_grad_parallel_op_fci(q, self.geometry)
+            # Wall rows: zero-gradient ghost at the wall leg, interior leg length.
+            backward_wall = self.geometry.maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
+            forward_wall = self.geometry.maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
+            one_sided = bmag_owned * jnp.where(
+                backward_wall & forward_wall, 0.0,
+                jnp.where(
+                    backward_wall,
+                    (q.plus - q.center) / (2.0 * jnp.abs(q.dx_plus)),
+                    (q.center - q.minus) / (2.0 * jnp.abs(q.dx_min)),
+                ),
+            )
+            divergence = jnp.where(backward_wall | forward_wall, one_sided, divergence)
             return jnp.where(core_target, divergence, 0.0)
 
-        cell_mass = self._fci_pair_cell_mass()
-        h_adjoint = build_weighted_negative_adjoint(
+        support_gradient, support_divergence = build_support_pair(
             legacy_homogeneous_core_divergence,
-            cell_mass,
-            cell_mass,
-            primal_active=active,
-            dual_active=core_target,
-        )
-        constant_adjoint = h_adjoint(jnp.ones(self.geometry.owned_shape))
-
-        def support_gradient(values_owned: jnp.ndarray) -> jnp.ndarray:
-            values = jnp.where(active, jnp.asarray(values_owned, dtype=jnp.float64), 0.0)
-            return h_adjoint(values) - constant_adjoint * values
-
-        support_divergence = build_weighted_negative_adjoint(
-            support_gradient,
-            cell_mass,
-            cell_mass,
-            primal_active=active,
-            dual_active=active,
+            self._fci_pair_cell_mass(),
+            active=active,
+            core=core_target,
         )
         return support_gradient, support_divergence, core_target
 
-    def _sheath_conservative_parallel_rates(self, primitive, gradient, divergence):
-        """Conservative parallel (n, Te, Ti) rates of the sheath configuration.
+    @staticmethod
+    def _homogeneous_halo_bc(face_bc: LocalFciDrbEBFaceBCBundle):
+        """Phi face BC with the prescribed affine values deleted (linear topology only)."""
 
-        With a sheath the plasma leaves through the wall legs, so the bulk
-        parallel transport of the conserved quantities must telescope exactly
-        onto them.  The characteristic material rows are not conservative on
-        the FCI maps (a row's legs end on interpolated points, not on the
-        neighbouring rows' legs), so the density and thermal energy rows use
-        the weighted support pair: ``D`` (exactly sum-free,
-        ``sum_i m_i D(f)_i = 0``) for the fluxes and its constant-exact
-        gradient ``G`` for the parallel work.  The same five-field
-        Braginskii equations in flux form (``j = n (Vi - Ve)``)::
+        return replace(
+            face_bc.phi,
+            value_x=jnp.zeros_like(face_bc.phi.value_x),
+            value_y=jnp.zeros_like(face_bc.phi.value_y),
+            value_z=jnp.zeros_like(face_bc.phi.value_z),
+        )
+
+    def _fci_leg_stencil(self, *, face_bc: LocalFciDrbEBFaceBCBundle, context: StencilBuilderContext):
+        """``stencil(f)``: the mapped field-line stencil of a scalar with homogeneous wall data."""
+
+        homogeneous_bc = self._homogeneous_halo_bc(face_bc)
+
+        def stencil(values):
+            halo = self._prepare_fine_storage_halo(values, homogeneous_bc)
+            forward, backward = self._fci_remote_values(halo, context)
+            return build_local_fci_stencil_from_field(
+                halo, self.geometry, context, forward_remote_values=forward, backward_remote_values=backward
+            )
+
+        return stencil
+
+    def _fci_leg_pair(self, *, face_bc: LocalFciDrbEBFaceBCBundle, context: StencilBuilderContext):
+        """Compact forward-leg pair ``(G+, D+, dx)``.
+
+        ``G+ f = (f+ - f)/dx`` is the difference along the forward leg (``f+`` the
+        mapped endpoint value, zero where the leg ends on a wall or has no map),
+        ``D+ = -V^-1 G+^T V`` its weighted adjoint (the scatter of the same
+        gather) and ``dx`` the leg length.  ``D+ (k G+ f)`` is the compact
+        three-point parallel diffusion: symmetric negative semi-definite, ``sum V
+        D+(.) = 0``, and unlike ``D G`` of the central pair it couples
+        neighbouring cells, so it damps the odd-even mode along b.
+        """
+
+        leg = self._fci_support_core_target_mask() & (
+            self.geometry.maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR
+        )
+        stencil = self._fci_leg_stencil(face_bc=face_bc, context=context)
+
+        def gradient(values):
+            st = stencil(values)
+            return jnp.where(leg, (st.plus - st.center) / jnp.maximum(jnp.abs(st.dx_plus), 1.0e-30), 0.0)
+
+        mass = self._fci_pair_cell_mass()
+        divergence = build_weighted_negative_adjoint(
+            gradient, mass, mass, primal_active=self.geometry.active_cell_mask_owned, dual_active=leg
+        )
+        length = jnp.abs(stencil(jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)).dx_plus)
+        return gradient, divergence, length
+
+    def _fci_leg_laplacian(self, *, face_bc: LocalFciDrbEBFaceBCBundle, context: StencilBuilderContext):
+        """``L(speed, f) = D+(eps speed dx G+ f)``: the Rusanov face flux ``eps speed (f+ - f)``.
+
+        The conservative dissipation of the parallel transport (``parallel_dissipation =
+        eps``); a batch of fields shares one ``speed``.  There is no dissipative flux
+        through a wall leg.
+        """
+
+        gradient, divergence, length = self._fci_leg_pair(face_bc=face_bc, context=context)
+        epsilon = float(self.parameters.parallel_dissipation)
+
+        def laplacian(speed, values):
+            difference = gradient if values.ndim == 3 else jax.vmap(gradient)
+            return divergence(epsilon * speed * length * difference(values))
+
+        return laplacian
+
+    def _conservative_parallel_rates(self, primitive, gradient, divergence, laplacian=None):
+        """Conservative parallel ``(n, Te, Ti, Vi, Ve)`` rates from one adjoint pair.
+
+        Every parallel transport term of the five material rows is built from
+        one weighted pair ``(G, D)`` with ``D = -V^-1 G^T V`` (exactly
+        ``sum V D(f) = 0``, ``G(1) = 0``).  The bulk parallel transport of the
+        conserved quantities then telescopes exactly onto the wall legs (or
+        onto nothing for the zero-flow wall).  The five-field Braginskii
+        equations in flux form (``j = n (Vi - Ve)``)::
 
             dn/dt     = -D(n Ve)
             dW_e/dt   = -D(5/2 pe Ve - 0.71 Te j) + Ve G(pe) - 0.71 j G(Te)
             dW_i/dt   = -D(5/2 pi Vi)             + Vi G(pi) + 5/2 Ti D(j)
 
             d(n Vi)/dt = -D(n Vi^2 + p) + p D(1) + Vi D(j)
+            d(n Ve)/dt = -D(n Ve^2) - mu (G(pe) + 0.71 n G(Te))
 
-        with ``W = 3/2 p`` (the ion row without ``tau``) and ``p = n (Te +
-        tau Ti)``.  The momentum row is the characteristic ``dVi/dt = -Vi
-        G(Vi) - G(p)/n`` regrouped with ``dn = -D(n Ve)``; ``p D(1)`` with the
-        wall legs' ``s p_c / dx`` is the well-balanced mirror force ``p
-        div(b)`` (uniform static pressure is in equilibrium).  The first
-        terms move particles, energy and momentum only between rows; the
-        wall legs are the only parallel loss.  The second terms are the
-        parallel work, current exchange and mirror/current forces, returned
-        as volumetric sources ``(S_e, tau S_i, S_m)`` for the ledger.
-        Returns the primitive rates ``(dn, dTe, dTi, dVi)`` and the sources.
+        with ``W = 3/2 p`` (the ion row without ``tau``), ``p = n (Te + tau
+        Ti)`` and ``mu = m_i/m_e``.  The velocity rows are the primitive
+        ``dV = (d(n V) - V dn)/n``.  ``p D(1)`` with the wall legs' ``s p_c /
+        dx`` is the well-balanced mirror force ``p div(b)`` (uniform static
+        pressure is in equilibrium).  The first terms move particles, energy
+        and momentum only between rows; the wall legs are the only parallel
+        loss.  The second terms are the parallel work, current exchange and
+        mirror/current forces, returned as volumetric sources ``(S_e, tau S_i,
+        S_m)`` for the ledger.  The electron work ``Ve G(pe)`` of the thermal
+        row and of the ``Ve`` row use the same ``G``.  Returns the primitive
+        rates ``(dn, dTe, dTi, dVi, dVe)`` and the sources.
         """
 
         n, Te, Ti, Vi, Ve = (primitive[k] for k in ("density", "Te", "Ti", "Vi", "Ve"))
@@ -1676,10 +1739,11 @@ class LocalFciDrbEBRhs:
         pe, pi, current = n * Te, n * Ti, n * (Vi - Ve)
         grad_pe, grad_te, grad_pi = gradient(jnp.stack((pe, Te, pi), axis=0))
         tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+        mu = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
         pressure = n * (Te + tau * Ti)
-        div_particle, div_qe, div_qi, div_current, div_momentum, div_one = divergence(jnp.stack((
+        div_particle, div_qe, div_qi, div_current, div_momentum, div_one, div_ve = divergence(jnp.stack((
             n * Ve, 2.5 * pe * Ve - 0.71 * Te * current, 2.5 * pi * Vi, current,
-            n * Vi * Vi + pressure, jnp.ones_like(n),
+            n * Vi * Vi + pressure, jnp.ones_like(n), n * Ve * Ve,
         ), axis=0))
         source_e = Ve * grad_pe - 0.71 * current * grad_te
         source_i = Vi * grad_pi + 2.5 * Ti * div_current
@@ -1688,8 +1752,19 @@ class LocalFciDrbEBRhs:
         dte = (-div_qe + source_e - 1.5 * Te * dn) / (1.5 * n_safe)
         dti = (-div_qi + source_i - 1.5 * Ti * dn) / (1.5 * n_safe)
         dvi = (-div_momentum + source_m - Vi * dn) / n_safe
+        dve = (-div_ve - mu * (grad_pe + 0.71 * n * grad_te) - Ve * dn) / n_safe
+        if laplacian is not None:
+            # Face-flux dissipation of the conserved n, n Vi and the thermal
+            # energies at the ion signal speed, of Ve at the electron one.
+            speed = jnp.abs(Vi) + jnp.sqrt(jnp.maximum(Te + tau * Ti, 0.0))
+            ln, lm, le, li = laplacian(speed, jnp.stack((n, n * Vi, 1.5 * n * Te, 1.5 * n * Ti), axis=0))
+            dn = dn + ln
+            dte = dte + (le - 1.5 * Te * ln) / (1.5 * n_safe)
+            dti = dti + (li - 1.5 * Ti * ln) / (1.5 * n_safe)
+            dvi = dvi + (lm - Vi * ln) / n_safe
+            dve = dve + laplacian(jnp.abs(Ve) + jnp.sqrt(mu * jnp.maximum(Te, 0.0)), Ve)
         return (
-            jnp.stack((dn, dte, dti, dvi), axis=-1),
+            jnp.stack((dn, dte, dti, dvi, dve), axis=-1),
             jnp.stack((source_e, tau * source_i, source_m), axis=-1),
         )
 
@@ -1701,577 +1776,85 @@ class LocalFciDrbEBRhs:
         operator_boundary: LocalFciDrbEBOperatorBoundaryBundle,
         parallel_boundary: LocalFciDrbEBOperatorBoundaryBundle,
         context: StencilBuilderContext,
-        return_electron_force_diagnostics: bool = False,
         short_leg_selection_dt: Any = 0.0,
     ) -> dict[str, jnp.ndarray]:
-        """Evaluate the mapped parallel operator family for one RHS state.
+        """Evaluate the parallel operator family for one RHS state.
 
-        Composite first-order operands use their level-2 operator traces.  The
-        primitive diffusion operands use their already closed field halos.
-        The returned geometry-only div(b) is shared by all compatible gradients.
+        Two exact weighted-adjoint pairs carry every parallel term: the
+        support pair ``(G, D)`` (material rows, ``grad omega``,
+        parallel diffusion ``D(c G f)``) and the current/phi pair (``grad
+        phi`` and the vorticity current divergence).  Both are built from the
+        scatter (transpose) of the mapped gather, so ``D = -V^-1 G^T V``.
         """
 
         owned = self.domain.layout.owned_slices_cell
         fields = {
-            "density": state_halo.density,
-            "Te": state_halo.Te,
-            "Ti": state_halo.Ti,
-            "Vi": state_halo.Vi,
-            "Ve": state_halo.Ve,
-            "phi": state_halo.phi,
-            "vorticity": state_halo.vorticity,
-            "density_flux": state_halo.density * state_halo.Ve,
-            "current": state_halo.density * (state_halo.Vi - state_halo.Ve),
-            "Pe": state_halo.density * state_halo.Te,
-            "pressure": state_halo.density * state_halo.Te
-            + self.parameters.tau * state_halo.density * state_halo.Ti,
+            name: getattr(state_halo, name)[owned]
+            for name in ("density", "Te", "Ti", "Vi", "Ve", "phi", "vorticity")
         }
-        traces = {
-            "density": parallel_boundary.density,
-            "Te": parallel_boundary.Te,
-            "Ti": parallel_boundary.Ti,
-            "Vi": parallel_boundary.Vi,
-            "Ve": parallel_boundary.Ve,
-            "phi": operator_boundary.phi,
-            "vorticity": operator_boundary.vorticity,
-            "density_flux": parallel_boundary.density_flux,
-            "current": parallel_boundary.current,
-            "Pe": parallel_boundary.Pe,
-            "pressure": parallel_boundary.pressure,
-        }
-        q_data = {
-            name: self._fci_prepare_flux_q(field[owned], traces[name], context)
-            for name, field in fields.items()
-        }
-        # The vorticity current uses the same operator trace as the potential
-        # pair.  The parallel-characteristic trace was an abandoned closure
-        # ablation and is not part of the production contract.
-        vorticity_current_boundary = operator_boundary.current
-        q_data["vorticity_current"] = self._fci_prepare_flux_q(
-            fields["current"][owned], vorticity_current_boundary, context
-        )
-        inverse_b_halo, inverse_b_forward, inverse_b_backward = (
-            self._fci_prepare_inverse_b(face_bc, context)
+        fields["current"] = fields["density"] * (fields["Vi"] - fields["Ve"])
+        gradient, divergence, _ = self._fci_support_core_pair(face_bc=face_bc, context=context)
+        zero = jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
+        # The current/phi pair is the homogeneous weighted adjoint; the
+        # characteristic-SAT wall lift below is its only affine part.
+        phi_gradient, current_divergence, current_target = self._fci_current_phi_boundary_pair(
+            face_bc=face_bc, context=context, wall_endpoint_current_values=(zero, zero)
         )
 
-        characteristic_sat_homogeneous_current_divergence = None
-        characteristic_sat_affine_current_divergence = None
-        characteristic_sat_current_divergence = None
-        support_gradient_values: dict[str, jnp.ndarray] = {}
-        support_flux_values: dict[str, jnp.ndarray] = {}
-        support_gradient, support_divergence, support_core_target = (
-            self._fci_support_core_pair(
-                face_bc=face_bc,
-                context=context,
-            )
-        )
-        # Support-core production always uses the homogeneous current/phi
-        # weighted-adjoint pair.  Characteristic-SAT changes only the
-        # endpoint current lift below; it does not replace this pair.
-        # For characteristic-SAT, D0 is the derivative with the
-        # projected wall endpoint held fixed at zero; ordinary mapped
-        # endpoints retain their existing FCI values.
-        current_phi_gradient, current_phi_divergence, current_phi_target = (
-            self._fci_current_phi_boundary_pair(
-                face_bc=face_bc,
-                context=context,
-                wall_endpoint_current_values=(
-                    jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-                    jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64),
-                ),
-            )
-        )
-        support_gradient_names = (
-            "density", "Te", "Ti", "Vi", "Ve", "Pe",
-            "pressure", "current", "vorticity",
-        )
-        # In production material mode the final RHS directly consumes
-        # only Ti/phi/vorticity from this legacy gradient family.  Keep
-        # the remaining values exact, but put them in a separate batch so
-        # XLA can eliminate that whole transpose application when no
-        # diagnostic/output path observes it.
-        primary_gradient_names = ("Ti", "vorticity")
-        secondary_gradient_names = tuple(
-            name for name in support_gradient_names
-            if name not in primary_gradient_names
-        )
-        for names in (primary_gradient_names, secondary_gradient_names):
-            batch = support_gradient(jnp.stack(
-                tuple(fields[name][owned] for name in names), axis=0
-            ))
-            support_gradient_values.update(dict(zip(names, batch)))
-        support_gradient_values["phi"] = current_phi_gradient(
-            fields["phi"][owned]
-        )
-        support_flux_names = (
-            "density_flux", "current", "Vi", "Ve",
-        )
-        support_flux_fields = {
-            "density_flux": fields["density_flux"][owned],
-            "current": fields["current"][owned],
-            "Vi": fields["Vi"][owned],
-            "Ve": fields["Ve"][owned],
-        }
-        support_flux_batch = support_divergence(jnp.stack(
-            tuple(
-                support_flux_fields[name]
-                for name in support_flux_names
-            ),
-            axis=0,
-        ))
-        support_flux_values = dict(zip(
-            support_flux_names,
-            support_flux_batch,
-        ))
-        support_flux_values["vorticity_current"] = current_phi_divergence(
-            fields["current"][owned]
-        )
-
-        diagnostic_names = ("density", "Te", "Ti", "Vi", "Ve", "phi", "Pe")
-        diagnostic_gradient_components: dict[str, jnp.ndarray] = {}
-        diagnostic_endpoint_values: dict[str, jnp.ndarray] = {}
-        if return_electron_force_diagnostics:
-            for name in diagnostic_names:
-                q_halo, forward, backward = q_data[name]
-                components, endpoints = (
-                    local_grad_parallel_op_fci_compatible_from_q_components(
-                        q_halo,
-                        inverse_b_halo,
-                        self.geometry,
-                        context=context,
-                        field_owned=fields[name][owned],
-                        forward_remote_q_values=forward,
-                        backward_remote_q_values=backward,
-                        forward_remote_inverse_b_values=inverse_b_forward,
-                        backward_remote_inverse_b_values=inverse_b_backward,
-                    )
-                )
-                # The support pair is not a three-point local stencil: its
-                # transpose can scatter from any admitted core row.  Keep the
-                # diagnostic lane schema while placing the full paired
-                # gradient in the center lane, so its lane sum is exactly the
-                # production support-gradient value.
-                gradient_target = (
-                    current_phi_target if name == "phi" else support_core_target
-                )
-                paired = support_gradient_values[name] + jnp.where(
-                    gradient_target,
-                    0.0,
-                    jnp.sum(components, axis=0),
-                )
-                components = jnp.stack(
-                    (jnp.zeros_like(paired), paired, jnp.zeros_like(paired)),
-                    axis=0,
-                )
-                diagnostic_gradient_components[name] = components
-                diagnostic_endpoint_values[name] = endpoints
-
-        def q_div(name: str) -> jnp.ndarray:
-            q_halo, forward, backward = q_data[name]
-            value = local_parallel_q_flux_div_fci_op(
-                q_halo,
-                self.geometry,
-                context=context,
-                forward_remote_q_values=forward,
-                backward_remote_q_values=backward,
-            )
-            return value
-
-        div_b = local_parallel_div_b_fci_from_q_op(
-            inverse_b_halo,
-            self.geometry,
-            context=context,
-            forward_remote_q_values=inverse_b_forward,
-            backward_remote_q_values=inverse_b_backward,
-        )
-
-        def flux_div(name: str) -> jnp.ndarray:
-            legacy_value = q_div(name)
-            # The support pair owns every admissible dual row.  Its transpose
-            # is intentionally left unmasked on primal targets: a core flux
-            # may contribute to an excluded/wall-adjacent target.  The legacy
-            # divergence supplies only the omitted target rows as boundary
-            # closure, avoiding a double contribution on the support core.
-            flux_target = (
-                current_phi_target
-                if name == "vorticity_current"
-                else support_core_target
-            )
-            return support_flux_values[name] + jnp.where(
-                flux_target, 0.0, legacy_value
-            )
-
-        def grad(name: str) -> jnp.ndarray:
-            q_halo, forward, backward = q_data[name]
-            legacy_value = local_grad_parallel_op_fci_compatible_from_q(
-                q_halo,
-                self.geometry,
-                context=context,
-                field_owned=fields[name][owned],
-                div_b=div_b,
-                forward_remote_q_values=forward,
-                backward_remote_q_values=backward,
-            )
-            gradient_target = (
-                current_phi_target if name == "phi" else support_core_target
-            )
-            return support_gradient_values[name] + jnp.where(
-                gradient_target, 0.0, legacy_value
-            )
-
-        gradient_values = {
-            name: grad(name)
-            for name in (
-                "density",
-                "Te",
-                "Ti",
-                "Vi",
-                "Ve",
-                "phi",
-                "Pe",
-                "pressure",
-                "current",
-                "vorticity",
-            )
-        }
-
-        material_upwind_correction = jnp.zeros(
-            self.geometry.owned_shape + (5,), dtype=jnp.float64
-        )
-        material_upwind_correction_components = jnp.zeros(
-            self.geometry.owned_shape + (3, 5), dtype=jnp.float64
-        )
-        material_centered_principal = jnp.zeros(
-            self.geometry.owned_shape + (5,), dtype=jnp.float64
-        )
-        material_upwind_principal = jnp.zeros(
-            self.geometry.owned_shape + (5,), dtype=jnp.float64
-        )
-        material_characteristic_endpoint_values = jnp.zeros(
-            self.geometry.owned_shape + (2, 5), dtype=jnp.float64
-        )
-        material_characteristic_leg_lengths = jnp.zeros(
-            self.geometry.owned_shape + (2,), dtype=jnp.float64
-        )
-        parallel_material_residual = jnp.zeros(
-            self.geometry.owned_shape + (5,), dtype=jnp.float64
-        )
-        parallel_material_explicit_components = jnp.zeros(
-            self.geometry.owned_shape + (3, 5,), dtype=jnp.float64
-        )
-        parallel_material_diagnostics = {
-            "backward_wall": jnp.zeros(self.geometry.owned_shape, dtype=bool),
-            "forward_wall": jnp.zeros(self.geometry.owned_shape, dtype=bool),
-            "wall_row": jnp.zeros(self.geometry.owned_shape, dtype=bool),
-            "ordinary_row": jnp.ones(self.geometry.owned_shape, dtype=bool),
-            "spectral_fallback": jnp.zeros(self.geometry.owned_shape, dtype=bool),
-            "positivity_fallback": jnp.zeros(self.geometry.owned_shape, dtype=bool),
-            "wall_spectral_fallback": jnp.zeros(self.geometry.owned_shape, dtype=bool),
-            "fallback": jnp.zeros(self.geometry.owned_shape, dtype=bool),
-            "admissible": jnp.ones(self.geometry.owned_shape, dtype=bool),
-        }
         primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
-        primitive_stencils = []
-        for name in primitive_names:
-            field_halo, forward_remote, backward_remote = self._fci_prepare_q(
-                fields[name][owned], traces[name], context
-            )
-            primitive_stencils.append(
-                build_local_fci_stencil_from_field(
-                    field_halo,
-                    self.geometry,
-                    context,
-                    forward_remote_values=forward_remote,
-                    backward_remote_values=backward_remote,
-                )
-            )
-        center = jnp.stack(
-            tuple(stencil.center for stencil in primitive_stencils), axis=-1
+        # The wall current lift of the former characteristic-SAT closure is zero for the
+        # ambipolar Bohm wall (2e-16 of the current divergence on the 16^3 t=0.6 state)
+        # and for the zero-flow wall, and it was the only host-eig consumer left: a NaN
+        # in its callback ended the 32^3 run at step 453.
+        homogeneous_current_divergence = current_divergence(fields["current"])
+        q_halo, forward, backward = self._fci_prepare_flux_q(
+            fields["current"], operator_boundary.current, context
         )
-        minus = jnp.stack(
-            tuple(stencil.minus for stencil in primitive_stencils), axis=-1
+        # Rows outside the pair's target (no admissible map) keep the mapped
+        # divergence as their only closure.
+        closure = jnp.where(
+            current_target, 0.0,
+            local_parallel_q_flux_div_fci_op(
+                q_halo, self.geometry, context=context,
+                forward_remote_q_values=forward, backward_remote_q_values=backward,
+            ),
         )
-        plus = jnp.stack(
-            tuple(stencil.plus for stencil in primitive_stencils), axis=-1
+        vorticity_current = homogeneous_current_divergence + closure
+        rates, energy_sources = self._conservative_parallel_rates(
+            {name: fields[name] for name in primitive_names}, gradient, divergence,
+            self._fci_leg_laplacian(face_bc=face_bc, context=context)
+            if float(self.parameters.parallel_dissipation) > 0.0 else None,
         )
-        backward_wall = (
-            self.geometry.maps.backward.endpoint_kind
-            == FCI_DEP_PHYSICAL_BOUNDARY
-        )
-        forward_wall = (
-            self.geometry.maps.forward.endpoint_kind
-            == FCI_DEP_PHYSICAL_BOUNDARY
-        )
-        # Keep one canonical live eigensystem/endpoint projection for the
-        # material residual and the characteristic current closure.  The
-        # projected primitive vector is a first-order modal trace, so the
-        # current exported to the vorticity/phi pair is the corresponding
-        # first-order characteristic current, not a nonlinear product of
-        # projected primitive components.
-        backward_wall_state, forward_wall_state = self._parallel_wall_states(
-            center, minus, plus, backward_wall, forward_wall
-        )
-        wall_data = parallel_characteristic_wall_data(
-            center,
-            minus,
-            plus,
-            primitive_stencils[0].dx_min,
-            primitive_stencils[0].dx_plus,
-            self.parameters.tau,
-            self.parameters.mi_over_me,
-            selection_dt=short_leg_selection_dt,
-            backward_wall=backward_wall,
-            forward_wall=forward_wall,
-            backward_wall_state=backward_wall_state,
-            forward_wall_state=forward_wall_state,
-        )
-        # The homogeneous pair is the weighted-adjoint operator used
-        # for grad(phi).  The characteristic wall trace is evaluated
-        # separately and its difference is an affine lift applied
-        # only to the vorticity current divergence.
-        _, characteristic_current_divergence, _ = (
-            self._fci_current_phi_boundary_pair(
-                face_bc=face_bc,
-                context=context,
-                wall_endpoint_current_values=(
-                    wall_data["backward_wall_characteristic_current"],
-                    wall_data["forward_wall_characteristic_current"],
-                ),
-                build_adjoint=False,
-            )
-        )
-        actual_current = fields["current"][owned]
-        characteristic_sat_current_divergence = characteristic_current_divergence(
-            actual_current
-        )
-        characteristic_sat_homogeneous_current_divergence = (
-            current_phi_divergence(actual_current)
-        )
-        characteristic_sat_affine_current_divergence = (
-            characteristic_sat_current_divergence
-            - characteristic_sat_homogeneous_current_divergence
-        )
-        # The affine characteristic wall-current lift is part of the
-        # selected characteristic SAT closure. The former suppressed
-        # variant was diagnostic-only.
-        support_flux_values["vorticity_current"] = (
-            characteristic_sat_current_divergence
-        )
-        parallel_material_residual, parallel_material_diagnostics = (
-            parallel_target_row_material_residual(
-                center,
-                minus,
-                plus,
-                primitive_stencils[0].dx_min,
-                primitive_stencils[0].dx_plus,
-                self.parameters.tau,
-                self.parameters.mi_over_me,
-                backward_wall=backward_wall,
-                forward_wall=forward_wall,
-                backward_wall_state=backward_wall_state,
-                forward_wall_state=forward_wall_state,
-                div_b=div_b,
-                selection_dt=short_leg_selection_dt,
-            )
-        )
-        if return_electron_force_diagnostics:
-            # Exact additive split of the *live explicit* production
-            # residual. Selected physical-wall legs are advanced by the
-            # local implicit solve and therefore contribute zero here;
-            # the middle lane retains the geometric div(b) source and
-            # any algebraic remainder. This uses the already-live
-            # directional actions rather than restoring the retired
-            # full-grid provenance diagnostics.
-            explicit_backward_residual = jnp.where(
-                wall_data["selected_backward_wall"][..., None],
-                0.0,
-                wall_data["backward_residual"],
-            )
-            explicit_forward_residual = jnp.where(
-                wall_data["selected_forward_wall"][..., None],
-                0.0,
-                wall_data["forward_residual"],
-            )
-            explicit_center_geometric_residual = (
-                parallel_material_residual
-                - explicit_backward_residual
-                - explicit_forward_residual
-            )
-            parallel_material_explicit_components = jnp.stack(
-                (
-                    explicit_backward_residual,
-                    explicit_center_geometric_residual,
-                    explicit_forward_residual,
-                ),
-                axis=-2,
-            )
-            # The production path has the same directional residuals and
-            # endpoint states as the wall helper.  Retain them in the
-            # replay diagnostics so the electron-force report does not
-            # silently show zero characteristic terms in production mode.
-            backward_residual = wall_data["backward_residual"]
-            forward_residual = wall_data["forward_residual"]
-            material_upwind_principal = (
-                backward_residual + forward_residual
-            )
-            material_centered_principal = (
-                parallel_material_residual - material_upwind_principal
-            )
-            material_upwind_correction_components = jnp.stack(
-                (
-                    backward_residual,
-                    material_centered_principal,
-                    forward_residual,
-                ),
-                axis=-2,
-            )
-            material_characteristic_endpoint_values = jnp.stack(
-                (
-                    wall_data["backward_endpoint_state"],
-                    wall_data["forward_endpoint_state"],
-                ),
-                axis=-2,
-            )
-            material_characteristic_leg_lengths = jnp.stack(
-                (
-                    primitive_stencils[0].dx_min,
-                    primitive_stencils[0].dx_plus,
-                ),
-                axis=-1,
-            )
-        vorticity_current_flux_div_value = flux_div("vorticity_current")
-        # Affine-only variant: the same target-masked closure with the
-        # homogeneous D_h(J) part subtracted off, leaving just the wall
-        # current lift.  Non-target rows are unaffected (already masked).
-        vorticity_current_affine_flux_div_value = (
-            vorticity_current_flux_div_value
-            - (
-                jnp.zeros_like(div_b)
-                if characteristic_sat_homogeneous_current_divergence is None
-                else characteristic_sat_homogeneous_current_divergence
-            )
-        )
-        if self._sheath_current_mode:
-            # The wall current is the sheath-limited current of the implicit
-            # current/phi solve; the characteristic wall-current lift would
-            # count a second wall current.
-            vorticity_current_affine_flux_div_value = jnp.zeros_like(div_b)
         result = {
-            "parallel_div_b": div_b,
-            "density_flux_div": flux_div("density_flux"),
-            "current_flux_div": flux_div("current"),
-            "vorticity_current_flux_div": vorticity_current_flux_div_value,
-            "vorticity_current_affine_flux_div": (
-                vorticity_current_affine_flux_div_value
-            ),
-            "parallel_Vi_flux_div": flux_div("Vi"),
-            "Ve_flux_div": flux_div("Ve"),
-            "grad_density": gradient_values["density"],
-            "grad_Te": gradient_values["Te"],
-            "grad_Ti": gradient_values["Ti"],
-            "grad_Ve": gradient_values["Ve"],
-            "grad_Vi": gradient_values["Vi"],
-            "grad_phi": gradient_values["phi"],
-            "grad_Pe": gradient_values["Pe"],
-            "grad_pressure": gradient_values["pressure"],
-            "grad_current": gradient_values["current"],
-            "grad_vorticity": gradient_values["vorticity"],
-            "material_upwind_correction": material_upwind_correction,
-            "parallel_material_residual": parallel_material_residual,
-            "parallel_material_diagnostics": parallel_material_diagnostics,
-            # Boundary characteristic-SAT decomposition.  The homogeneous
-            # term is the current/phi paired operator; the affine lift is
-            # applied only to the vorticity current divergence.
-            "characteristic_sat_homogeneous_current_divergence": (
-                jnp.zeros_like(div_b)
-                if characteristic_sat_homogeneous_current_divergence is None
-                else characteristic_sat_homogeneous_current_divergence
-            ),
-            "characteristic_sat_affine_current_divergence": (
-                jnp.zeros_like(div_b)
-                if characteristic_sat_affine_current_divergence is None
-                else characteristic_sat_affine_current_divergence
-            ),
-            "characteristic_sat_current_divergence": (
-                jnp.zeros_like(div_b)
-                if characteristic_sat_current_divergence is None
-                else characteristic_sat_current_divergence
-            ),
+            "grad_phi": phi_gradient(fields["phi"]),
+            "grad_vorticity": gradient(fields["vorticity"]),
+            "vorticity_current_flux_div": vorticity_current,
+            "vorticity_current_affine_flux_div": jnp.zeros_like(zero) if self._sheath_current_mode else closure,
+            "conservative_rates": rates,
+            "energy_sources": energy_sources,
         }
-        if self.sheath is not None:
-            result["sheath_conservative_rates"], result["sheath_energy_sources"] = (
-                self._sheath_conservative_parallel_rates(
-                    {name: fields[name][owned] for name in ("density", "Te", "Ti", "Vi", "Ve")},
-                    support_gradient,
-                    support_divergence,
-                )
+        diffusion = tuple(
+            (name, float(coefficient))
+            for name, coefficient in (
+                ("density", self.parameters.density_D_parallel),
+                ("Te", self.parameters.electron_temperature_chi_parallel),
+                ("Ti", self.parameters.ion_temperature_chi_parallel),
+                ("Vi", self.parameters.Vi_parallel_viscosity),
+                ("Ve", self.parameters.Ve_parallel_viscosity),
+                ("vorticity", self.parameters.vorticity_D_parallel),
             )
-        if return_electron_force_diagnostics:
-            result.update(
-                {
-                    "electron_force_gradient_components": jnp.stack(
-                        tuple(
-                            diagnostic_gradient_components[name]
-                            for name in ("Ve", "phi", "Pe", "Te")
-                        ),
-                        axis=0,
-                    ),
-                    "electron_force_endpoint_values": jnp.stack(
-                        tuple(
-                            diagnostic_endpoint_values[name]
-                            for name in diagnostic_names
-                        ),
-                        axis=0,
-                    ),
-                    "material_upwind_correction_components": (
-                        material_upwind_correction_components
-                    ),
-                    "material_centered_principal": material_centered_principal,
-                    "material_upwind_principal": material_upwind_principal,
-                    "material_characteristic_endpoint_values": (
-                        material_characteristic_endpoint_values
-                    ),
-                    "material_characteristic_leg_lengths": (
-                        material_characteristic_leg_lengths
-                    ),
-                    "parallel_material_explicit_components": (
-                        parallel_material_explicit_components
-                    ),
-                }
+            if float(coefficient) != 0.0
+        )
+        if diffusion:
+            # Parallel diffusion D(c G f): conservative and symmetric
+            # negative semi-definite by the adjoint pair.
+            coefficients = jnp.asarray([c for _, c in diffusion], dtype=jnp.float64)
+            flux = coefficients[:, None, None, None] * gradient(
+                jnp.stack(tuple(fields[name] for name, _ in diffusion), axis=0)
             )
-        for name, coefficient in (
-            ("density", self.parameters.density_D_parallel),
-            ("Te", self.parameters.electron_temperature_chi_parallel),
-            ("Ti", self.parameters.ion_temperature_chi_parallel),
-            ("Vi", self.parameters.Vi_parallel_viscosity),
-            ("Ve", self.parameters.Ve_parallel_viscosity),
-            ("vorticity", self.parameters.vorticity_D_parallel),
-        ):
-            if float(coefficient) == 0.0:
-                result[f"{name}_parallel_diff"] = jnp.zeros(
-                    self.geometry.owned_shape, dtype=jnp.float64
-                )
-                continue
-            field_remote = self._fci_remote_values(fields[name], context)
-            diffusivity_halo = jnp.ones_like(fields[name], dtype=jnp.float64)
-            diffusivity_remote = self._fci_remote_values(diffusivity_halo, context)
-            value = jnp.asarray(
-                coefficient, dtype=jnp.float64
-            ) * local_parallel_diffusion_fci_op(
-                fields[name],
-                self.geometry,
-                context=context,
-                diffusivity_halo_full=diffusivity_halo,
-                inverse_b_halo_full=inverse_b_halo,
-                forward_remote_values=field_remote[0],
-                backward_remote_values=field_remote[1],
-                forward_remote_diffusivity_values=diffusivity_remote[0],
-                backward_remote_diffusivity_values=diffusivity_remote[1],
-                forward_remote_inverse_b_values=inverse_b_forward,
-                backward_remote_inverse_b_values=inverse_b_backward,
-            )
-            result[f"{name}_parallel_diff"] = value
-
+            result.update(zip((f"{name}_parallel_diff" for name, _ in diffusion), divergence(flux)))
+        for name in ("density", "Te", "Ti", "Vi", "Ve", "vorticity"):
+            result.setdefault(f"{name}_parallel_diff", zero)
         return result
 
     def _parallel_operator_boundary(
@@ -2322,7 +1905,6 @@ class LocalFciDrbEBRhs:
             neumann_normal_scheme=self.neumann_normal_scheme,
         )
         ti_laplacian = self._restrict_fine_field(ti_laplacian)
-        owned = self.domain.layout.owned_slices_cell
         phi_rhs = (
             jnp.asarray(self.parameters.tau, dtype=jnp.float64) * ti_laplacian
             - jnp.asarray(state_owned.vorticity, dtype=jnp.float64)
@@ -2464,15 +2046,18 @@ class LocalFciDrbEBRhs:
     def _sheath_wall_backward_euler(
         self, center, minus, plus, dx_minus, dx_plus, backward_wall,
         forward_wall, backward_wall_state, forward_wall_state,
-        coupled_residual, selection_dt, solve_dt, phi_dense=None,
+        solve_dt, phi_dense=None,
     ):
         """Local backward Euler of the wall legs under the sheath closure.
 
         The (n, Te, Ti, Vi) rows of each wall leg are the conservative sheath
         flux difference (``sheath_wall_leg_residual``) with their own exact
-        local Jacobian (wall traces frozen); the Ve row keeps the frozen
-        characteristic residual and Jacobian.  ``coupled_residual`` (the
-        electron Ti force) is added on wall rows as in the zero-flow path.
+        local Jacobian (wall traces frozen).  The Ve row has no wall leg: the
+        pair gives the wall row the Neumann half gradient, and every Ve wall
+        law tried (the characteristic residual, a flux-form electron momentum
+        leg) added a wall-localised growing mode to the Ve-Te block (Re up to
+        +3.7 and +19 at 16^3; none, Re < 0.1, without).  The zero-flow wall
+        has no flux: its legs vanish.
         With ``phi_dense`` (the ``"current"`` potential mode) the density leg
         removes the electron flux ``n_w Vi_w - j_w`` and the electron energy
         leg ``gamma_e(phi) Te_w`` times it, with the sheath current ``j_w``
@@ -2480,22 +2065,13 @@ class LocalFciDrbEBRhs:
         """
 
         tau = self.parameters.tau
-        gamma_e, gamma_i = self._sheath_gammas()
-        _, _, info = parallel_short_wall_material_data(
-            center, minus, plus, dx_minus, dx_plus, tau,
-            self.parameters.mi_over_me,
-            selection_dt=selection_dt,
-            backward_wall=backward_wall, forward_wall=forward_wall,
-            backward_wall_state=backward_wall_state,
-            forward_wall_state=forward_wall_state,
-        )
-        rows = jnp.asarray((1.0, 1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
+        gamma_e, gamma_i = self._sheath_gammas() if self.sheath is not None else (0.0, 0.0)
         residual = jnp.zeros_like(center)
         jacobian = jnp.zeros(center.shape + (5,), dtype=jnp.float64)
         tube_minus, tube_plus = sheath_tube_lengths(dx_minus, dx_plus, backward_wall, forward_wall)
-        for wall, trace, dx, direction, side in (
-            (backward_wall, minus, tube_minus, -1.0, "backward"),
-            (forward_wall, plus, tube_plus, 1.0, "forward"),
+        for wall, trace, dx, direction in (
+            (backward_wall, minus, tube_minus, -1.0),
+            (forward_wall, plus, tube_plus, 1.0),
         ):
             def leg(owner, trace=trace, dx=dx, direction=direction):
                 state = bohm_wall_state(trace, owner, direction, tau)
@@ -2508,37 +2084,33 @@ class LocalFciDrbEBRhs:
                     conservative_bulk=True, wall_current=wall_current,
                 )
 
-            conservative = leg(center)
-            columns = [
-                jax.jvp(leg, (center,), (jnp.zeros_like(center).at[..., k].set(1.0),))[1]
-                for k in range(5)
-            ]
-            conservative_jacobian = jnp.stack(columns, axis=-1)
-            residual = residual + jnp.where(
-                wall[..., None],
-                rows * conservative + (1.0 - rows) * info[f"{side}_residual"],
-                0.0,
-            )
-            jacobian = jacobian + jnp.where(
-                wall[..., None, None],
-                rows[:, None] * conservative_jacobian
-                + (1.0 - rows)[:, None] * info[f"{side}_jacobian"],
-                0.0,
-            )
+            if self.sheath is None:
+                # Zero-flow wall: no particle, energy or net momentum flux
+                # (p_w = p_c cancels the mirror share), so the conservative
+                # rows of the leg vanish.
+                conservative = jnp.zeros_like(center)
+                conservative_jacobian = jnp.zeros(center.shape + (5,), dtype=jnp.float64)
+            else:
+                conservative = leg(center)
+                columns = [
+                    jax.jvp(leg, (center,), (jnp.zeros_like(center).at[..., k].set(1.0),))[1]
+                    for k in range(5)
+                ]
+                conservative_jacobian = jnp.stack(columns, axis=-1)
+            residual = residual + jnp.where(wall[..., None], conservative, 0.0)
+            jacobian = jacobian + jnp.where(wall[..., None, None], conservative_jacobian, 0.0)
         selected_wall = backward_wall | forward_wall
-        residual = residual + jnp.where(selected_wall[..., None], coupled_residual, 0.0)
         solve_dt = jnp.broadcast_to(
             jnp.asarray(solve_dt, dtype=jnp.float64), residual.shape[:-1]
         )
         system = jnp.eye(5, dtype=jnp.float64) - solve_dt[..., None, None] * jacobian
         increment = jnp.linalg.solve(system, (solve_dt[..., None] * residual)[..., None])[..., 0]
-        info = dict(info)
-        info.update({
+        info = {
             "selected_wall": selected_wall,
             "selected_complete_residual": residual,
             "selected_complete_jacobian": jacobian,
             "implicit_finite": jnp.all(jnp.isfinite(center + increment), axis=-1),
-        })
+        }
         return increment, info
 
     def _ledger_masses(self):
@@ -2715,14 +2287,6 @@ class LocalFciDrbEBRhs:
             context=context,
             short_leg_selection_dt=selection_dt,
         )
-        coupled_force = (
-            self.parameters.mi_over_me
-            * self.parameters.tau
-            * parallel_terms["grad_Ti"]
-        )
-        coupled_residual = jnp.zeros(
-            self.geometry.owned_shape + (5,), dtype=jnp.float64
-        ).at[..., 4].set(coupled_force)
         owned = self.domain.layout.owned_slices_cell
         primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
         primitive_stencils = []
@@ -2759,36 +2323,16 @@ class LocalFciDrbEBRhs:
         backward_wall_state, forward_wall_state = self._parallel_wall_states(
             center, minus, plus, backward_wall, forward_wall
         )
-        if self.sheath is None:
-            (
-                updated,
-                increment,
-                info,
-            ) = parallel_short_wall_backward_euler(
-                center, minus, plus,
-                primitive_stencils[0].dx_min,
-                primitive_stencils[0].dx_plus,
-                self.parameters.tau,
-                self.parameters.mi_over_me,
-                selection_dt=selection_dt,
-                solve_dt=solve_dt,
-                backward_wall=backward_wall,
-                forward_wall=forward_wall,
-                backward_wall_state=backward_wall_state,
-                forward_wall_state=forward_wall_state,
-                coupled_residual=coupled_residual,
-            )
-        else:
-            increment, info = self._sheath_wall_backward_euler(
-                center, minus, plus, primitive_stencils[0].dx_min,
-                primitive_stencils[0].dx_plus, backward_wall, forward_wall,
-                backward_wall_state, forward_wall_state, coupled_residual,
-                selection_dt, solve_dt,
-                phi_dense=(
-                    self._expand_owner_field_for_stencil(phi_owned)
-                    if self._sheath_current_mode else None
-                ),
-            )
+        increment, info = self._sheath_wall_backward_euler(
+            center, minus, plus, primitive_stencils[0].dx_min,
+            primitive_stencils[0].dx_plus, backward_wall, forward_wall,
+            backward_wall_state, forward_wall_state,
+            solve_dt,
+            phi_dense=(
+                self._expand_owner_field_for_stencil(phi_owned)
+                if self._sheath_current_mode else None
+            ),
+        )
 
         if self._uses_projected_fine_grid:
             increment_owner = jax.vmap(
@@ -2861,12 +2405,8 @@ class LocalFciDrbEBRhs:
             columns = (*fluxes, direction * fluxes.parallel_momentum, direction * centre_pressure)
             wall_rates.append(jnp.stack(columns, axis=-1) * inverse_dx[..., None])
         info["wall_flux_rates"] = wall_rates[0] + wall_rates[1]
-        if self.sheath is not None:
-            info["sheath_energy_sources"] = parallel_terms["sheath_energy_sources"]
+        info["sheath_energy_sources"] = parallel_terms["energy_sources"]
         info["wall_leg_count"] = backward_wall.astype(jnp.float64) + forward_wall.astype(jnp.float64)
-        info["selected_coupled_force"] = jnp.where(
-            info["selected_wall"], coupled_force, 0.0
-        )
         complete_residual = jnp.moveaxis(
             info["selected_complete_residual"], -1, 0
         )
@@ -2910,17 +2450,19 @@ class LocalFciDrbEBRhs:
         pair that carries the sheath rows, so ``sum V 3/2 n dT = 0`` and the wall
         legs stay the only loss.  The pair has no flux through a physical wall:
         the conductive flux is zero on sheath faces, which carry ``gamma T Gamma``
-        alone.  ``n`` and ``kappa`` are frozen at ``state_owned``; the matrix-free
-        operator is solved with SOLVAX FGMRES.  Returns the stage state, the
-        ``(Te, Ti)`` increment and the FGMRES infos of the active species.
+        alone.  ``n`` and ``kappa`` are frozen at ``state_owned``.  ``D = -V^-1
+        G^T V`` makes ``3/2 n - dt D kappa G`` self-adjoint and positive definite
+        in the volume inner product, so it is solved by SOLVAX PCG on the
+        symmetrised system ``V^1/2 A V^-1/2`` (FGMRES on a sharded domain, whose
+        PCG has no global inner product).  Returns the stage state, the
+        ``(Te, Ti)`` increment and the solver infos of the active species.
         """
 
         h = jnp.asarray(solve_dt, dtype=jnp.float64)
         parameters = self.parameters
         state_owned = self._owner_state(state_owned)
-        gradient, divergence, _ = self._fci_support_core_pair(
-            face_bc=self._face_bcs(state_owned), context=self._stencil_builder_context()
-        )
+        face_bc, context = self._face_bcs(state_owned), self._stencil_builder_context()
+        gradient, divergence, _ = self._fci_support_core_pair(face_bc=face_bc, context=context)
         expand = self._expand_owner_field_for_stencil
         active = _solver_active_mask(self.geometry, self.control_volume_geometry)
         config = replace(
@@ -2928,6 +2470,13 @@ class LocalFciDrbEBRhs:
             acceptance_atol=1.0e-30, preconditioner="none",
             residual_correction_steps=0, project_mean_zero=False,
         )
+        sharded = any(int(count) != 1 for count in self.domain.shard_spec.shard_counts)
+        leg = self._fci_leg_stencil(face_bc=face_bc, context=context)(
+            jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
+        )
+        leg_length = jnp.maximum(0.5 * (jnp.abs(leg.dx_min) + jnp.abs(leg.dx_plus)), 1.0e-30)
+        _, mass = self._ledger_masses()
+        root = jnp.sqrt(jnp.where(active & (mass > 0.0), mass, 1.0))
         density = jnp.maximum(state_owned.density, 1.0e-30)
         zero = jnp.zeros_like(density)
         updates, infos = {}, []
@@ -2944,16 +2493,35 @@ class LocalFciDrbEBRhs:
                 float(speed_squared), float(parameters.heat_flux_limiter), gradient,
             )
 
+            # Jacobi: the diagonal of 3/2 n - dt D kappa G is 3/2 n + dt kappa/(2 dx^2)
+            # for the wide central stencil (exact on a uniform smooth leg).
+            diagonal = jnp.where(
+                active,
+                1.5 * density + h * self._project_fine_cell_term(kappa / (2.0 * leg_length**2)),
+                1.0,
+            )
+
             def flux_divergence(x, kappa=kappa):
                 return self._project_fine_cell_term(divergence(kappa * gradient(expand(x))))
 
             def solve(apply_A, rhs):
-                return solvax_gmres_solve(
-                    apply_A, rhs, zero, self.geometry, self.domain, config,
-                    active_cell_mask=active,
-                    volume_weights=_solver_volume_weights(
-                        self.geometry, self.control_volume_geometry
-                    ),
+                if sharded:
+                    return solvax_gmres_solve(
+                        apply_A, rhs, zero, self.geometry, self.domain, config,
+                        active_cell_mask=active,
+                        volume_weights=_solver_volume_weights(
+                            self.geometry, self.control_volume_geometry
+                        ),
+                    )
+                solution = pcg_linear_solve(
+                    lambda y: jnp.where(active, root * apply_A(jnp.where(active, y / root, 0.0)), 0.0),
+                    jnp.where(active, root * rhs, 0.0),
+                    precond=lambda r: r / diagonal,
+                    rtol=1.0e-12, atol=1.0e-30, max_steps=200,
+                )
+                return solution.x / root, ConductionInfo(
+                    solution.iterations, solution.converged, ~solution.converged,
+                    solution.relative_residual_norm, solution.converged,
                 )
 
             updates[name], info = backward_euler_conduction(
@@ -3309,28 +2877,6 @@ class LocalFciDrbEBRhs:
             self.geometry,
             context,
         )
-        Pe_halo = state_halo.density * state_halo.Te
-        pressure_halo = (
-            Pe_halo
-            + self.parameters.tau * state_halo.density * state_halo.Ti
-        )
-        current_halo = state_halo.density * (Vi_perp_halo - Ve_perp_halo)
-        density_flux_halo = state_halo.density * Ve_perp_halo
-
-        density_flux_conservative_stencil = (
-            build_local_conservative_stencil_from_field(
-                density_flux_halo,
-                self.geometry,
-                context,
-            )
-        )
-        current_conservative_stencil = (
-            build_local_conservative_stencil_from_field(
-                current_halo,
-                self.geometry,
-                context,
-            )
-        )
         density_conservative_stencil = build_local_conservative_stencil_from_field(
             state_halo.density,
             self.geometry,
@@ -3351,22 +2897,11 @@ class LocalFciDrbEBRhs:
             self.geometry,
             context,
         )
-        Pe_conservative_stencil = build_local_conservative_stencil_from_field(
-            Pe_halo,
-            self.geometry,
-            context,
-        )
-        pressure_conservative_stencil = build_local_conservative_stencil_from_field(
-            pressure_halo,
-            self.geometry,
-            context,
-        )
         vorticity_conservative_stencil = build_local_conservative_stencil_from_field(
             state_halo.vorticity,
             self.geometry,
             context,
         )
-        parallel_div_b = fci_parallel_terms["parallel_div_b"]
 
         owned = self.domain.layout.owned_slices_cell
         density = jnp.asarray(state_halo.density[owned], dtype=jnp.float64)
@@ -3383,8 +2918,6 @@ class LocalFciDrbEBRhs:
         tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
         mi_over_me = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
         Ve_nu = jnp.asarray(self.parameters.Ve_nu, dtype=jnp.float64)
-        current = density * (Vi - Ve)
-
         density_diff = self._field_perp_diffusion(
             state_halo.density,
             face_bc.density,
@@ -3477,26 +3010,9 @@ class LocalFciDrbEBRhs:
             if self.implicit_current_phi_pair
             else "vorticity_current_flux_div"
         ]
-        grad_parallel_Te = stage_parallel_terms["grad_Te"]
-        grad_parallel_Ti = stage_parallel_terms["grad_Ti"]
-        grad_parallel_Ve = stage_parallel_terms["grad_Ve"]
-        grad_parallel_Vi = stage_parallel_terms["grad_Vi"]
         grad_parallel_phi = stage_parallel_terms["grad_phi"]
-        grad_parallel_Pe = stage_parallel_terms["grad_Pe"]
-        grad_parallel_pressure = stage_parallel_terms["grad_pressure"]
-        grad_parallel_current = stage_parallel_terms["grad_current"]
         grad_parallel_vorticity = stage_parallel_terms["grad_vorticity"]
-        material_upwind_correction = stage_parallel_terms.get(
-            "material_upwind_correction",
-            jnp.zeros(self.geometry.owned_shape + (5,), dtype=jnp.float64),
-        )
-        production_material_residual = stage_parallel_terms.get(
-            "parallel_material_residual",
-            jnp.zeros(self.geometry.owned_shape + (5,), dtype=jnp.float64),
-        )
-        # The coupled production residual already contains all five material
-        # equations, including the geometric div(b) terms.
-        material_upwind_correction = jnp.zeros_like(production_material_residual)
+        production_material_residual = stage_parallel_terms["conservative_rates"]
         current_parallel_value = density * (Vi - Ve)
         vorticity_parallel_advection = -Vi * grad_parallel_vorticity
         Ve_collision_term = mi_over_me * Ve_nu * current_parallel_value
@@ -3507,22 +3023,7 @@ class LocalFciDrbEBRhs:
             if self.implicit_current_phi_pair
             else mi_over_me * grad_parallel_phi
         )
-        Ve_Ti_force_complete_term = mi_over_me * tau * grad_parallel_Ti
-        material_diagnostics = stage_parallel_terms.get(
-            "parallel_material_diagnostics", {}
-        )
-        selected_short_wall = material_diagnostics.get(
-            "selected_wall",
-            jnp.zeros(self.geometry.owned_shape, dtype=bool),
-        )
-        # The material Ti column and mu*tau*grad(Ti) are one principal
-        # balance.  Hand both to the same short-leg stage.  The phi force is
-        # not masked: it stays explicit with its weighted-adjoint
-        # current-divergence partner in the vorticity equation.
-        Ve_Ti_force_term = jnp.where(
-            selected_short_wall, 0.0, Ve_Ti_force_complete_term
-        )
-        Ve_electrostatic_term = Ve_phi_force_term + Ve_Ti_force_term
+        Ve_electrostatic_term = Ve_phi_force_term
         vorticity_current_term = (
             (bmag * bmag / density_safe) * vorticity_current_flux_divergence
         )
@@ -3552,17 +3053,12 @@ class LocalFciDrbEBRhs:
         curvature_Ti_contribution = rho_star * curvature_Ti_contribution
         curvature_vorticity_contribution = rho_star * curvature_vorticity_contribution
 
-        if self.sheath is not None:
-            production_material_residual = production_material_residual.at[..., :4].set(
-                stage_parallel_terms["sheath_conservative_rates"]
-            )
         density_rhs = (
             -(poisson_density * rho_star)
             + production_material_residual[..., 0]
             + curvature_density_contribution
             + density_diff
             + density_parallel_diff
-            + material_upwind_correction[..., 0]
         )
         Te_rhs = (
             -(poisson_Te * rho_star)
@@ -3570,7 +3066,6 @@ class LocalFciDrbEBRhs:
             + curvature_Te_contribution
             + Te_diff
             + Te_parallel_diff
-            + material_upwind_correction[..., 1]
         )
         Ti_rhs = (
             -(poisson_Ti * rho_star)
@@ -3578,7 +3073,6 @@ class LocalFciDrbEBRhs:
             + curvature_Ti_contribution
             + Ti_diff
             + Ti_parallel_diff
-            + material_upwind_correction[..., 2]
         )
         Vi_perpendicular_rhs = (
             -(poisson_Vi * rho_star)
@@ -3593,7 +3087,6 @@ class LocalFciDrbEBRhs:
             Vi_perpendicular_rhs
             + production_material_residual[..., 3]
             + Vi_parallel_diff
-            + material_upwind_correction[..., 3]
         )
         Ve_rhs = (
             Ve_perpendicular_rhs
@@ -3644,7 +3137,7 @@ class LocalFciDrbEBRhs:
                     curvature_density_contribution,
                     density_diff,
                     density_parallel_diff,
-                    material_upwind_correction[..., 0],
+                    zero_term,
                 ),
             )
             Te_terms = pack_rhs_terms(
@@ -3655,7 +3148,7 @@ class LocalFciDrbEBRhs:
                     zero_term,
                     Te_diff,
                     Te_parallel_diff,
-                    material_upwind_correction[..., 1],
+                    zero_term,
                 ),
             )
             Ti_terms = pack_rhs_terms(
@@ -3666,7 +3159,7 @@ class LocalFciDrbEBRhs:
                     zero_term,
                     Ti_diff,
                     Ti_parallel_diff,
-                    material_upwind_correction[..., 2],
+                    zero_term,
                 ),
             )
             Vi_terms = pack_rhs_terms(
@@ -3676,7 +3169,7 @@ class LocalFciDrbEBRhs:
                     zero_term,
                     Vi_diff_term,
                     Vi_parallel_diff,
-                    material_upwind_correction[..., 3],
+                    zero_term,
                 ),
             )
             Ve_terms = pack_rhs_terms(
