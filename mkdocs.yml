@@ -35,9 +35,11 @@ nav:
       - Installation: installation.md
       - Feature Reference: feature_reference.md
       - Inputs And Outputs: input_output_reference.md
+      - Deck Reference: decks.md
       - Native Runtime CLI: native_runtime_cli.md
       - Restartable Diffusion Tutorial: restartable_diffusion_tutorial.md
       - Examples And Artifacts: examples.md
+  - Tutorial (start here): tutorial.md
   - Tutorials:
       - Turbulence From Zero: tutorial_hasegawa_wakatani.md
       - Open SOL, Neutrals, Detachment: tutorial_open_sol.md
@@ -63,8 +65,7 @@ nav:
       - Stellarator Turbulence: stellarator_turbulence.md
       - HSX FCI Braginskii Backend: fci_braginskii_hsx_backend.md
       - VMEC Extender Edge Fields: vmec_extender_edge_fields.md
-      - ESSOS Field-Line Import: essos_fieldline_import.md
-      - ESSOS Imported FCI Validation: essos_imported_fci_validation.md
+      - ESSOS Coil Fields: essos_fieldline_import.md
   - Validation:
       - Validation Gallery: validation_gallery.md
       - Fluid 1D MMS Convergence: fluid_1d_mms_convergence.md
@@ -73,6 +74,7 @@ nav:
       - Drift-Wave Turbulence: drift_wave_turbulence.md
   - Plans And Release:
       - Testing Strategy: testing_strategy.md
+      - Plan: plan.md
       - Geometry Roadmap: geometry_roadmap.md
       - Release Packaging: release_packaging.md
       - Release Notes: release_notes.md

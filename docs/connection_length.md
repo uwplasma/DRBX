@@ -142,34 +142,12 @@ has three map-source semantics:
   the current bridge for open-field SOL closure tests on a smooth
   non-axisymmetric interpolation map.
 
-The imported validation campaign in
-[`src/drbx/validation/essos_imported_fci_campaign.py`](../src/drbx/validation/essos_imported_fci_campaign.py)
-checks the connection-length arrays before they are used for physics claims.
-`build_essos_imported_fci_map_diagnostics(...)` verifies finite and
-nonnegative values, records radial means, and computes single-grid neighbor
-jump diagnostics. `build_essos_imported_connection_length_refinement_diagnostics(...)`
-then compares nested grids by restricting each fine grid to the coarser grid
-and reporting normalized RMS, 95th-percentile, and \(L_\infty\) errors plus an
-observed order when three or more levels are available. Manufactured examples
-use conservative block restriction. Live imported levels can instead use
-coordinate-aware restriction, which interpolates the fine grid at the coarse
-\((\rho,\phi,\theta)\) points before forming the difference. For the closed
-VMEC adjacent-plane map, the grid-invariant refinement quantity is
-\(L_{\parallel,\Delta\phi}/\Delta\phi\), the parallel step length per toroidal
-radian, because the raw adjacent-plane step length changes when the toroidal
-spacing is refined. The importer now keeps three quantities separate:
-`raw_connection_length` for backward-compatible mixed reports,
-`adjacent_step_length` for the consumed FCI map step, and
-`target_exit_length` for wall-hit or target-exit diagnostics. Open-field target
-lengths still need a separate gate because target-exit lengths and
-adjacent-plane fallback lengths have different grid-scaling behavior. The
-clean-clone example
-[`examples/geometry-3D/essos-field-lines/imported_connection_length_refinement.py`](../examples/geometry-3D/essos-field-lines/imported_connection_length_refinement.py)
-exercises that exact refinement path on manufactured non-axisymmetric data and
-sets `require_observed_order=True` so a two-level report cannot be promoted as
-convergence evidence. The same example writes a lightweight sweep summary JSON
-that aggregates `promotion_ready`, `evidence_role`, finest errors, observed
-order, and finite-overlap thresholds across all resolved map sources.
+The importer keeps three quantities separate: `raw_connection_length` for
+mixed reports, `adjacent_step_length` for the consumed FCI map step, and
+`target_exit_length` for wall-hit or target-exit diagnostics, masked to the
+cells whose maps leave the domain. Open-field target lengths need their own
+refinement study because target-exit and adjacent-plane lengths scale
+differently with the grid.
 
 ## Current Promotion Rule
 

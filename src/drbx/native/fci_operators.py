@@ -8,8 +8,12 @@ import jax
 import jax.numpy as jnp
 
 from solvax import gmres as solvax_gmres
+from ..fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
+    _take_stencil_finite_difference,
+    _axis_slice_nd,
+    _pytree_base,
+)
 
-_pytree_base = jax.tree_util.register_pytree_node_class
 
 from ..geometry import (
     CellVolumeGeometry3D,
@@ -82,33 +86,12 @@ from .fci_boundaries import (
     LocalStencil1D,
     LocalStencil3D,
 )
+from ..geometry.fci_geometry import _axis_index_nd
 
 
 # =============================================================================
 # Parallel-gradient operators
 # =============================================================================
-
-def _take_stencil_finite_difference(stencil: LocalStencil1D) -> jnp.ndarray:
-    """Apply a reconstructed 1D derivative stencil.
-
-    The stencil arrays may represent either global/reference cells or local
-    owned cells. The output has the same shape as the stencil.
-    """
-
-    if stencil.center.ndim != 3:
-        raise ValueError(
-            f"stencil center must be 3D, got shape {stencil.center.shape}"
-        )
-
-    minus = jnp.asarray(stencil.minus, dtype=jnp.float64)
-    center = jnp.asarray(stencil.center, dtype=jnp.float64)
-    plus = jnp.asarray(stencil.plus, dtype=jnp.float64)
-
-    c_minus = jnp.asarray(stencil.derivative_minus_weight, dtype=jnp.float64)
-    c_center = jnp.asarray(stencil.derivative_center_weight, dtype=jnp.float64)
-    c_plus = jnp.asarray(stencil.derivative_plus_weight, dtype=jnp.float64)
-
-    return c_minus * minus + c_center * center + c_plus * plus
 
 
 def grad_parallel_op_fci(
@@ -2194,18 +2177,6 @@ def _dirichlet_lift_correction_cut_wall_bc(cut_wall_bc: CutWallBC3D | None) -> C
     )
 
 
-def _axis_index_nd(axis: int, index: int, ndim: int) -> tuple[object, ...]:
-    slices: list[object] = [slice(None)] * ndim
-    slices[axis] = index
-    return tuple(slices)
-
-
-def _axis_slice_nd(axis: int, start: int | None, stop: int | None, ndim: int) -> tuple[object, ...]:
-    slices: list[object] = [slice(None)] * ndim
-    slices[axis] = slice(start, stop)
-    return tuple(slices)
-
-
 def _axis_name(axis: int) -> str:
     return ("x", "y", "z")[int(axis)]
 
@@ -2254,24 +2225,6 @@ def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) 
 
 def _homogeneous_bc(bc: FciBoundaryCondition) -> FciBoundaryCondition:
     raise NotImplementedError("legacy axis-level boundary conditions have been removed")
-
-
-def _bc_kind(bc) -> str:
-    raise NotImplementedError("legacy axis-level boundary conditions have been removed")
-
-
-def _broadcast_boundary_value(value, target_shape: tuple[int, int]) -> jnp.ndarray:
-    array = jnp.asarray(value, dtype=jnp.float64)
-    return jnp.broadcast_to(array, target_shape)
-
-
-def _broadcast_axis_boundary_value(value, *, axis: int, field_shape: tuple[int, int, int]) -> jnp.ndarray:
-    target_shape = tuple(field_shape[index] for index in range(3) if index != axis)
-    return _broadcast_boundary_value(value, target_shape)
-
-
-def _set_axis_plane(field: jnp.ndarray, *, axis: int, index: int, value: jnp.ndarray) -> jnp.ndarray:
-    return field.at[_axis_index_nd(axis, index, field.ndim)].set(value)
 
 
 def _cell_volume_weights(geometry: FciGeometry3D) -> jnp.ndarray:

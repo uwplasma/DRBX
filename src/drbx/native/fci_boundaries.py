@@ -41,16 +41,14 @@ from .fci_helpers import (
     _as_local_wall_stencil_index_array,
     _as_local_wall_stencil_weight_array,
 )
-
-
-_pytree_base = jax.tree_util.register_pytree_node_class
-
-
-BC_NONE = 0
-BC_DIRICHLET = 1
-BC_NEUMANN = 2
-BC_NORMALFLUX = 3
-BC_NOFLUX = 4
+from ..fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
+    BC_NONE,
+    BC_DIRICHLET,
+    BC_NEUMANN,
+    BC_NORMALFLUX,
+    BC_NOFLUX,
+    _pytree_base,
+)
 
 
 BoundaryPayloadT = TypeVar("BoundaryPayloadT")

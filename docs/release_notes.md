@@ -1,5 +1,17 @@
 # Release Notes
 
+## Unreleased
+
+**New: every model runs from a TOML deck** (`[model] backend = "<name>"`).
+Hasegawa-Wakatani (with an autodiff gradient), the open-field-line SOL flux tube
+with sheath/recycling accounting, the recycling SOL, SD1D detachment, four-field
+FCI turbulence on rotating-ellipse, shifted-torus and island-divertor geometry,
+and the differentiable FCI case join the HSX Braginskii deck. Tables are the
+Python configuration objects (one set of defaults), unknown keys are errors, and
+`docs/decks.md` documents every key and output, checked against the code by a
+test. `gmres_preconditioner` (`line-u` or `none`) is now an explicit HSX config
+field, deck key and script option.
+
 ## 2.1.0
 
 **New: experimental HSX FCI Braginskii backend** (`drbx.fci_braginskii`, #6).
@@ -54,8 +66,9 @@ Headline capabilities in 2.0.0:
 - rotating-ellipse and island-divertor stellarators, plus imported ESSOS coil
   and VMEC (VMEX) equilibria, including four-field turbulence on the
   Landreman-Paul configuration with a sheath-drained scrape-off layer;
-- hermes-3 neutral model (packaged AMJUEL rates) with a self-consistent
-  detaching SOL (SD1D rollover);
+- hermes-3 neutral model (packaged AMJUEL rates) and an SD1D-matched 1D
+  plasma-neutral SOL (matches SD1D's 13.6 eV case; no flux rollover without
+  impurity radiation);
 - structured solves via `solvax` (the perpendicular-Laplacian GMRES potential
   inversion, tridiagonal, Fourier-Helmholtz); the sync-free RHS and solvax
   GMRES roughly halved the single-CPU four-field step;

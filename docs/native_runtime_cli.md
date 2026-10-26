@@ -21,6 +21,8 @@ drbx run path/to/input.toml
 
 ## Input Layout
 
+Decks with `[model] backend = "<name>"` (Hasegawa-Wakatani, SOL, recycling, detachment, FCI turbulence, HSX Braginskii, differentiable FCI) are documented in the [Deck Reference](decks.md); the layout below is the BOUT-style format.
+
 The native CLI accepts organized TOML decks and also keeps compatibility with legacy `.inp` decks. The intended TOML layout is:
 
 - `[time]`
@@ -109,7 +111,7 @@ PYTHONPATH=src .venv/bin/python examples/diffusion_precision_benchmark.py
 
 The committed example benchmark artifacts are in:
 
-- [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json)
+- [docs/runtime_precision_benchmark/data/diffusion_precision_analysis.json](runtime_precision_benchmark/data/diffusion_precision_analysis.json)
 - [https://github.com/uwplasma/drbx/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png](https://github.com/uwplasma/drbx/releases/download/validation-artifacts-2026-04-28/docs__runtime_precision_benchmark__images__diffusion_precision_elapsed.png)
 
 On the current machine, the warm second-run `float32` diffusion path is about `1.23x` faster than `float64` (`2.096s` vs `2.584s`) on the same input.
@@ -224,8 +226,8 @@ resume_steps = 2
 
 The runnable tutorial for the full flow is:
 
-- [examples/restartable_diffusion_tutorial.py](examples/restartable_diffusion_tutorial.py)
+- [examples/restartable_diffusion_tutorial.py](../examples/restartable_diffusion_tutorial.py)
 
 And the simplest shipped example deck is:
 
-- [examples/inputs/restartable_diffusion.toml](examples/inputs/restartable_diffusion.toml)
+- [examples/inputs/restartable_diffusion.toml](../examples/inputs/restartable_diffusion.toml)

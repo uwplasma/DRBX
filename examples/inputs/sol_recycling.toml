@@ -1,0 +1,30 @@
+# Recycling SOL with neutrals and a detachment-onset scan (about 5 s).
+#   drbx run examples/inputs/sol_recycling.toml
+# Fields are hermes-3 normalized (N_norm, T_norm); time in parallel transit times.
+
+[model]
+backend = "sol_recycling"
+
+[sol_recycling]
+parallel_length = 30.0  # m, stagnation point to target
+upstream_density = 4.0  # N_norm, pinned at the stagnation point; raise it to detach
+recycling_fraction = 0.95 # share of the target ion flux returned as neutrals
+
+[sol_recycling.normalization]
+Nnorm = 1.0e19          # m^-3
+Tnorm = 100.0           # eV
+
+[profile]
+nz = 100                # parallel cells
+upstream_ev = 30.0      # prescribed hot upstream temperature (10 - 100 eV)
+target_ev = 1.5         # prescribed cold target temperature (1 - 10 eV)
+
+[run]
+steps = 6000            # relaxation steps; use ~60000 for a converged state
+report_every = 3000
+
+[scan]
+upstream_density = [1.0, 8.0]  # extra runs; the target Mach number falls as friction chokes the flow
+
+[output]
+directory = "../../output/sol_recycling"

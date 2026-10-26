@@ -42,6 +42,9 @@ For ESSOS field imports, install `drbx[essos]` (Python 3.10+).
 
 ## Quick start
 
+New to DRBX? **Tutorial: start here** -- [one page](docs/tutorial.md)
+from a first run to a stellarator simulation and a gradient.
+
 ```bash
 drbx inspect examples/inputs/restartable_diffusion.toml   # resolve and print the plan
 drbx run     examples/inputs/restartable_diffusion.toml   # run and write artifacts
@@ -226,7 +229,7 @@ a laptop CPU and about 35 s on a shared RTX A4000, where GMRES dominates.
 ![HSX FCI filament evolution](docs/media/hsx_fci_blob.gif)
 
 ```bash
-drbx run examples/inputs/hsx_fci_blob.toml          # or: python simulate_hsx_blob.py --geometry <bundle> ...
+drbx run examples/inputs/hsx_fci_blob.toml          # builds the geometry from the shipped coils, then runs
 python examples/stellarator/hsx_fci_blob_render.py run/history.npz docs/media
 ```
 

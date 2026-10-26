@@ -17,10 +17,20 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp  # noqa: E402
 
-from drbx.geometry import essos_runtime_available  # noqa: E402
+from drbx.geometry import essos_runtime_available, resolve_essos_landreman_qa_wout  # noqa: E402
+
+
+def _qa_wout_available() -> bool:
+    try:
+        resolve_essos_landreman_qa_wout()
+    except FileNotFoundError:
+        return False
+    return True
+
 
 pytestmark = pytest.mark.skipif(
-    not essos_runtime_available(), reason="ESSOS runtime not importable"
+    not (essos_runtime_available() and _qa_wout_available()),
+    reason="ESSOS runtime or the Landreman-Paul QA wout (DRBX_ESSOS_ROOT) is not available",
 )
 
 LIMITER_RHO = 0.85

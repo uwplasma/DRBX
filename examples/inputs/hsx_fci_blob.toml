@@ -1,19 +1,29 @@
-# HSX FCI drift-reduced Braginskii blob (drbx.fci_braginskii.run).
-#
-#   drbx inspect examples/inputs/hsx_fci_blob.toml   # resolved configuration
+# HSX seven-field drift-reduced Braginskii: density filament on the HSX stellarator
+# built from the shipped coils (about 4 min on a laptop, mostly the one-time geometry).
 #   drbx run examples/inputs/hsx_fci_blob.toml
-#
-# Keys are the HsxBlobConfig fields (the simulate_hsx_blob.py options with
-# dashes as underscores); omitted keys take the same defaults as the script,
-# unknown keys are errors.  Relative paths resolve against this file.
-# The geometry artifact is produced by generate_hsx_fci_geometry.py.
+# The geometry is built once and cached under cache_dir; later runs start at once.
+# To use a prebuilt artifact instead, delete [geometry] and set geometry = "path" below.
 
 [model]
 backend = "fci_braginskii"
 
+[geometry]
+resolution = [16, 16, 16]   # [nu, ntheta, neta] cells; 32^3 is the production size (hours)
+metric_mesh_shape = [16, 16, 16] # metric fit mesh; keep equal to resolution
+metric_poloidal_modes = 6   # metric fit modes: lower for 16^3, defaults (15, 16) for 32^3
+metric_toroidal_modes = 3
+toroidal_modes = 3          # field-fit toroidal modes
+cache_dir = "../../output/hsx_geometry"  # coils.hsx and the vessel are the shipped HSX files
+
 [fci_braginskii]
-geometry = "../../hsx_fci_32x32x32"
-final_time = 0.00375
-num_steps = 5
-save_every = 5
-output = "../../output/hsx_fci_blob/hsx"
+final_time = 0.003      # normalized time
+num_steps = 4           # IMEX-SSP222 steps (dt = final_time / num_steps; production uses ~7.5e-4)
+save_every = 1          # store the fields every step
+density_amplitude = 0.05 # relative filament amplitude
+rho_star = 5.0e-4       # rho_s / L_ref: scales drifts and polarization
+gmres_preconditioner = "auto" # "auto" (default), "line-u", "line-u-pardiag", "line-uy-pardiag" or "none"; for the potential solves
+# wall_closure = "bohm"       # "bohm" sheath outflow (default) or "zero-flow"
+# neutrals = true             # diffusive neutral density (see docs/decks.md for neutral_* keys)
+# recycling = true            # return the ion wall flux as neutrals; needs neutrals and bohm
+# recycling_coefficient = 0.99
+output = "../../output/hsx_fci_blob/hsx"   # history .npz; add restart_from = "that.npz" to continue

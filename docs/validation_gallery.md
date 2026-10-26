@@ -119,8 +119,7 @@ campaign numbers and per-campaign figures are documented in
 ESSOS-owned field evaluation, adaptive field-line tracing, and Poincare
 extraction exported into portable artifacts; VMEC surface registration; the
 VMEX adapter with traced rotational transform matching the wout `iotaf`
-profile to ~1e-6. Pages: [ESSOS Field-Line Import](essos_fieldline_import.md),
-[ESSOS Imported FCI Validation](essos_imported_fci_validation.md),
+profile to ~1e-6. Pages: [ESSOS Coil Fields](essos_fieldline_import.md),
 [VMEC Extender Edge Fields](vmec_extender_edge_fields.md).
 
 ## Differentiable Validation
@@ -170,8 +169,7 @@ python scripts/fetch_example_artifacts.py
 ```
 
 Asset names for the per-campaign figures are listed in
-[Stellarator FCI Validation](stellarator_fci_validation.md) and
-[ESSOS Imported FCI Validation](essos_imported_fci_validation.md).
+[Stellarator FCI Validation](stellarator_fci_validation.md).
 
 ## Regeneration
 

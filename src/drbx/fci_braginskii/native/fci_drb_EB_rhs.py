@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import math
-from typing import Callable
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
@@ -18,7 +18,6 @@ from ..geometry.fci_geometry import (
     build_local_conservative_stencil_from_field,
     build_local_fci_stencil_from_field,
 )
-from .fci_model import FciModelState
 from .fci_model import inject_owned_field_to_halo, inject_owned_state_to_halo
 from .fci_boundaries import (
     BC_DIRICHLET,
@@ -62,27 +61,27 @@ from .fci_gmres import (
     SolvaxGmresInfo,
     _spmd_norm,
     _spmd_remove_weighted_mean,
+    solvax_gmres_solve,
 )
+from .fci_parallel_conduction import backward_euler_conduction, conductivity
 from .fci_support_pair import build_weighted_negative_adjoint
+from .fci_wall_closure import (
+    SheathClosure,
+    bohm_wall_state,
+    sheath_current,
+    sheath_tube_lengths,
+    sheath_wall_leg_residual,
+    current_gamma_e,
+    sound_speed,
+    wall_face_fluxes,
+)
 from .fci_parallel_production_flux import (
     parallel_characteristic_wall_data,
     parallel_short_wall_backward_euler,
+    parallel_short_wall_material_data,
     parallel_target_row_material_residual,
 )
-
-
-@jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
-class FciDrbEBState(FciModelState):
-    """State for the electrostatic Boussinesq drift-reduced Braginskii scaffold."""
-
-    density: jax.Array
-    phi: jax.Array
-    Te: jax.Array
-    Ti: jax.Array
-    Vi: jax.Array
-    Ve: jax.Array
-    vorticity: jax.Array
+from ...native.fci_drb_EB_rhs import FciDrbEBState
 
 
 RHS_TERM_FIELD_NAMES = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")
@@ -235,6 +234,11 @@ class FciDrbEBRhsParameters:
     Vi_parallel_viscosity: float = 0.0
     vorticity_D_perp: float = 0.0
     vorticity_D_parallel: float = 0.0
+    # Implicit Spitzer-Harm conduction: kappa = kappa0 T^(5/2) (0 = off) and the
+    # free-streaming flux limiter alpha (0 = unlimited); see fci_parallel_conduction.
+    electron_conduction_kappa0: float = 0.0
+    ion_conduction_kappa0: float = 0.0
+    heat_flux_limiter: float = 0.0
 
     def tree_flatten(self):
         return (
@@ -262,6 +266,9 @@ class FciDrbEBRhsParameters:
                 self.Vi_parallel_viscosity,
                 self.vorticity_D_perp,
                 self.vorticity_D_parallel,
+                self.electron_conduction_kappa0,
+                self.ion_conduction_kappa0,
+                self.heat_flux_limiter,
             ),
             None,
         )
@@ -292,6 +299,9 @@ class FciDrbEBRhsParameters:
             Vi_parallel_viscosity,
             vorticity_D_perp,
             vorticity_D_parallel,
+            electron_conduction_kappa0,
+            ion_conduction_kappa0,
+            heat_flux_limiter,
         ) = children
         return cls(
             n0=n0,
@@ -317,6 +327,9 @@ class FciDrbEBRhsParameters:
             Vi_parallel_viscosity=Vi_parallel_viscosity,
             vorticity_D_perp=vorticity_D_perp,
             vorticity_D_parallel=vorticity_D_parallel,
+            electron_conduction_kappa0=electron_conduction_kappa0,
+            ion_conduction_kappa0=ion_conduction_kappa0,
+            heat_flux_limiter=heat_flux_limiter,
         )
 
 
@@ -529,6 +542,150 @@ class LocalFciDrbEBRhs:
     # stage (see ``solve_implicit_current_phi_pair``).  Default False here
     # must match the integrator, which the driver controls.
     implicit_current_phi_pair: bool = False
+    # Physical-wall closure for parallel legs ending on a wall.  ``None`` is
+    # the zero-flow wall (Vi = Ve = 0 traces, the historical configuration);
+    # a ``SheathClosure`` uses the Bohm wall state and the conservative
+    # sheath wall-leg fluxes in the selected-wall block.
+    sheath: SheathClosure | None = None
+
+    def _parallel_wall_states(self, center, minus, plus, backward_wall, forward_wall):
+        """Wall states consumed by the characteristic wall legs."""
+
+        if self.sheath is None:
+            return minus, plus
+        tau = self.parameters.tau
+        return (
+            jnp.where(backward_wall[..., None], bohm_wall_state(minus, center, -1.0, tau), minus),
+            jnp.where(forward_wall[..., None], bohm_wall_state(plus, center, 1.0, tau), plus),
+        )
+
+    def _sheath_gammas(self):
+        tau = self.parameters.tau
+        return (
+            self.sheath.gamma_e(tau, self.parameters.mi_over_me),
+            self.sheath.ion_heat_transmission,
+        )
+
+    @property
+    def _sheath_current_mode(self) -> bool:
+        return self.sheath is not None and self.sheath.potential == "current"
+
+    def _sheath_currents(
+        self, center, backward_wall_state, forward_wall_state, backward_wall, forward_wall, phi_dense
+    ):
+        """Sheath-limited wall currents along +b and their phi derivatives.
+
+        Per wall leg, ``j = s n_w c_s [1 - exp(Lambda - phi/Te_w)]`` with the
+        Bohm entrance density ``n_w``, ``c_s = sqrt(Te_w + tau Ti_w)``,
+        ``Lambda`` of :func:`sheath_lambda` at the local ``tau Ti_w/Te_w`` and
+        ``phi`` the owner-cell potential (the potential at the sheath entrance
+        relative to the wall at ``phi = 0``).  Returns ``(j_backward,
+        j_forward, dj_backward, dj_forward)``, zero off the wall legs.
+        """
+
+        del center
+        out = []
+        for state, wall, direction in (
+            (backward_wall_state, backward_wall, -1.0),
+            (forward_wall_state, forward_wall, 1.0),
+        ):
+            j, dj = self._sheath_leg_current(state, phi_dense, direction)
+            out.append((jnp.where(wall, j, 0.0), jnp.where(wall, dj, 0.0)))
+        return out[0][0], out[1][0], out[0][1], out[1][1]
+
+    def _sheath_leg_current(self, state, phi, direction):
+        """``(j, dj/dphi)`` of one wall leg from its Bohm entrance state."""
+
+        tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+        te = jnp.maximum(state[..., 1], 1.0e-30)
+        lam = self.sheath.sheath_lambda(tau * state[..., 2] / te, self.parameters.mi_over_me)
+        return sheath_current(
+            state[..., 0], sound_speed(state[..., 1], state[..., 2], tau), te, phi, lam, direction
+        )
+
+    def _sheath_current_gamma_e(self, state, phi, floating_gamma_e):
+        """Electron transmission at the sheath drop ``phi`` (explicit value wins)."""
+
+        if self.sheath.electron_heat_transmission is not None:
+            return floating_gamma_e
+        te = jnp.maximum(state[..., 1], 1.0e-30)
+        return current_gamma_e(phi / te, self.sheath.secondary_electron_emission)
+
+    def _sheath_insulating_pair(self, gradient, divergence, target):
+        """Wall-leg closure of the current/phi pair under the sheath current.
+
+        The homogeneous pair ``(G, D)`` closes the wall leg with zero endpoint
+        current, whose adjoint ``G = -M^-1 D^T M`` sees ``phi = 0`` at the
+        wall: a wall cell's electron force ``mu G(phi)`` pulls toward the
+        conducting wall while the sheath holds the cell near ``Lambda Te``,
+        and the central stencil decouples the two (grid-scale phi along b).
+        The bulk current also leaks through the wall face (``D`` of a
+        constant is not zero there) on top of the sheath current.
+
+        With the sheath, the potential at the sheath entrance is the owner
+        potential and the wall face carries only the sheath current.  The pair
+        becomes ``G' = G - w G(1)``, ``D' = D + w G(1)`` (``w`` the wall-leg
+        cells, a diagonal, so ``G' = -M^-1 D'^T M`` stays the weighted
+        negative adjoint): ``G'(1) = 0`` on wall cells (Neumann phi at the
+        entrance, the phi drop is in the sheath) and ``<1, D' q>_M`` loses
+        the wall-face part of the bulk current, so the only charge crossing
+        the wall is ``j_w`` of :meth:`_sheath_currents`.  Exact adjointness
+        keeps the discrete energy identity ``<phi, D' (n G' phi)> =
+        -<G' phi, n G' phi> <= 0``: the pair is dissipative and the wall power
+        is ``phi j_w`` alone.
+        """
+
+        maps = self.geometry.maps
+        wall = (
+            (maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+            | (maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+        ) & target & self.geometry.active_cell_mask_owned
+        diagonal = jnp.where(
+            wall, gradient(jnp.ones(self.geometry.owned_shape, dtype=jnp.float64)), 0.0
+        )
+
+        def insulating_gradient(values):
+            return gradient(values) - diagonal * values
+
+        def insulating_divergence(values):
+            return divergence(values) + diagonal * values
+
+        return insulating_gradient, insulating_divergence
+
+    def _sheath_wall_primitives(self, state_owned: FciDrbEBState):
+        """Owner and Bohm wall states of every wall leg (no parallel terms)."""
+
+        state_owned = self._owner_state(state_owned)
+        face_bc = self._face_bcs(state_owned)
+        state_halo = self._prepare_state_halo(state_owned, face_bc)
+        phi_owned = _mask_inactive_owned(state_owned.phi, self.geometry)
+        state_halo = state_halo.replace(phi=self._prepare_phi_halo(phi_owned, face_bc.phi))
+        operator_boundary = build_local_fci_drb_eb_operator_boundary_bundle(
+            state_halo, self.geometry, self.domain, face_bc, tau=self.parameters.tau,
+        )
+        parallel_boundary = self._parallel_operator_boundary(
+            state_halo=state_halo, operator_boundary=operator_boundary,
+        )
+        context = self._stencil_builder_context()
+        owned = self.domain.layout.owned_slices_cell
+        stencils = []
+        for name in ("density", "Te", "Ti", "Vi", "Ve"):
+            field_halo, forward_remote, backward_remote = self._fci_prepare_q(
+                getattr(state_halo, name)[owned], getattr(parallel_boundary, name), context
+            )
+            stencils.append(build_local_fci_stencil_from_field(
+                field_halo, self.geometry, context,
+                forward_remote_values=forward_remote, backward_remote_values=backward_remote,
+            ))
+        center = jnp.stack(tuple(st.center for st in stencils), axis=-1)
+        minus = jnp.stack(tuple(st.minus for st in stencils), axis=-1)
+        plus = jnp.stack(tuple(st.plus for st in stencils), axis=-1)
+        backward_wall = self.geometry.maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
+        forward_wall = self.geometry.maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
+        backward_state, forward_state = self._parallel_wall_states(
+            center, minus, plus, backward_wall, forward_wall
+        )
+        return center, backward_state, forward_state, backward_wall, forward_wall
 
     @property
     def neumann_normal_scheme(self) -> str:
@@ -544,6 +701,11 @@ class LocalFciDrbEBRhs:
         )
 
     def __post_init__(self) -> None:
+        if self._sheath_current_mode and not self.implicit_current_phi_pair:
+            raise ValueError(
+                "the sheath-current wall needs implicit_current_phi_pair: its "
+                "linearized wall current is a boundary condition of that solve"
+            )
         has_cv = self.control_volume_geometry is not None
         if has_cv != (self.control_volume_boundary_bc is not None):
             raise ValueError(
@@ -1478,6 +1640,59 @@ class LocalFciDrbEBRhs:
         )
         return support_gradient, support_divergence, core_target
 
+    def _sheath_conservative_parallel_rates(self, primitive, gradient, divergence):
+        """Conservative parallel (n, Te, Ti) rates of the sheath configuration.
+
+        With a sheath the plasma leaves through the wall legs, so the bulk
+        parallel transport of the conserved quantities must telescope exactly
+        onto them.  The characteristic material rows are not conservative on
+        the FCI maps (a row's legs end on interpolated points, not on the
+        neighbouring rows' legs), so the density and thermal energy rows use
+        the weighted support pair: ``D`` (exactly sum-free,
+        ``sum_i m_i D(f)_i = 0``) for the fluxes and its constant-exact
+        gradient ``G`` for the parallel work.  The same five-field
+        Braginskii equations in flux form (``j = n (Vi - Ve)``)::
+
+            dn/dt     = -D(n Ve)
+            dW_e/dt   = -D(5/2 pe Ve - 0.71 Te j) + Ve G(pe) - 0.71 j G(Te)
+            dW_i/dt   = -D(5/2 pi Vi)             + Vi G(pi) + 5/2 Ti D(j)
+
+            d(n Vi)/dt = -D(n Vi^2 + p) + p D(1) + Vi D(j)
+
+        with ``W = 3/2 p`` (the ion row without ``tau``) and ``p = n (Te +
+        tau Ti)``.  The momentum row is the characteristic ``dVi/dt = -Vi
+        G(Vi) - G(p)/n`` regrouped with ``dn = -D(n Ve)``; ``p D(1)`` with the
+        wall legs' ``s p_c / dx`` is the well-balanced mirror force ``p
+        div(b)`` (uniform static pressure is in equilibrium).  The first
+        terms move particles, energy and momentum only between rows; the
+        wall legs are the only parallel loss.  The second terms are the
+        parallel work, current exchange and mirror/current forces, returned
+        as volumetric sources ``(S_e, tau S_i, S_m)`` for the ledger.
+        Returns the primitive rates ``(dn, dTe, dTi, dVi)`` and the sources.
+        """
+
+        n, Te, Ti, Vi, Ve = (primitive[k] for k in ("density", "Te", "Ti", "Vi", "Ve"))
+        n_safe = jnp.maximum(n, 1.0e-30)
+        pe, pi, current = n * Te, n * Ti, n * (Vi - Ve)
+        grad_pe, grad_te, grad_pi = gradient(jnp.stack((pe, Te, pi), axis=0))
+        tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+        pressure = n * (Te + tau * Ti)
+        div_particle, div_qe, div_qi, div_current, div_momentum, div_one = divergence(jnp.stack((
+            n * Ve, 2.5 * pe * Ve - 0.71 * Te * current, 2.5 * pi * Vi, current,
+            n * Vi * Vi + pressure, jnp.ones_like(n),
+        ), axis=0))
+        source_e = Ve * grad_pe - 0.71 * current * grad_te
+        source_i = Vi * grad_pi + 2.5 * Ti * div_current
+        source_m = pressure * div_one + Vi * div_current
+        dn = -div_particle
+        dte = (-div_qe + source_e - 1.5 * Te * dn) / (1.5 * n_safe)
+        dti = (-div_qi + source_i - 1.5 * Ti * dn) / (1.5 * n_safe)
+        dvi = (-div_momentum + source_m - Vi * dn) / n_safe
+        return (
+            jnp.stack((dn, dte, dti, dvi), axis=-1),
+            jnp.stack((source_e, tau * source_i, source_m), axis=-1),
+        )
+
     def _fci_parallel_terms(
         self,
         *,
@@ -1793,6 +2008,9 @@ class LocalFciDrbEBRhs:
         # current exported to the vorticity/phi pair is the corresponding
         # first-order characteristic current, not a nonlinear product of
         # projected primitive components.
+        backward_wall_state, forward_wall_state = self._parallel_wall_states(
+            center, minus, plus, backward_wall, forward_wall
+        )
         wall_data = parallel_characteristic_wall_data(
             center,
             minus,
@@ -1804,8 +2022,8 @@ class LocalFciDrbEBRhs:
             selection_dt=short_leg_selection_dt,
             backward_wall=backward_wall,
             forward_wall=forward_wall,
-            backward_wall_state=minus,
-            forward_wall_state=plus,
+            backward_wall_state=backward_wall_state,
+            forward_wall_state=forward_wall_state,
         )
         # The homogeneous pair is the weighted-adjoint operator used
         # for grad(phi).  The characteristic wall trace is evaluated
@@ -1850,8 +2068,8 @@ class LocalFciDrbEBRhs:
                 self.parameters.mi_over_me,
                 backward_wall=backward_wall,
                 forward_wall=forward_wall,
-                backward_wall_state=minus,
-                forward_wall_state=plus,
+                backward_wall_state=backward_wall_state,
+                forward_wall_state=forward_wall_state,
                 div_b=div_b,
                 selection_dt=short_leg_selection_dt,
             )
@@ -1933,6 +2151,11 @@ class LocalFciDrbEBRhs:
                 else characteristic_sat_homogeneous_current_divergence
             )
         )
+        if self._sheath_current_mode:
+            # The wall current is the sheath-limited current of the implicit
+            # current/phi solve; the characteristic wall-current lift would
+            # count a second wall current.
+            vorticity_current_affine_flux_div_value = jnp.zeros_like(div_b)
         result = {
             "parallel_div_b": div_b,
             "density_flux_div": flux_div("density_flux"),
@@ -1975,6 +2198,14 @@ class LocalFciDrbEBRhs:
                 else characteristic_sat_current_divergence
             ),
         }
+        if self.sheath is not None:
+            result["sheath_conservative_rates"], result["sheath_energy_sources"] = (
+                self._sheath_conservative_parallel_rates(
+                    {name: fields[name][owned] for name in ("density", "Te", "Ti", "Vi", "Ve")},
+                    support_gradient,
+                    support_divergence,
+                )
+            )
         if return_electron_force_diagnostics:
             result.update(
                 {
@@ -2230,6 +2461,189 @@ class LocalFciDrbEBRhs:
             axis=0,
         )
 
+    def _sheath_wall_backward_euler(
+        self, center, minus, plus, dx_minus, dx_plus, backward_wall,
+        forward_wall, backward_wall_state, forward_wall_state,
+        coupled_residual, selection_dt, solve_dt, phi_dense=None,
+    ):
+        """Local backward Euler of the wall legs under the sheath closure.
+
+        The (n, Te, Ti, Vi) rows of each wall leg are the conservative sheath
+        flux difference (``sheath_wall_leg_residual``) with their own exact
+        local Jacobian (wall traces frozen); the Ve row keeps the frozen
+        characteristic residual and Jacobian.  ``coupled_residual`` (the
+        electron Ti force) is added on wall rows as in the zero-flow path.
+        With ``phi_dense`` (the ``"current"`` potential mode) the density leg
+        removes the electron flux ``n_w Vi_w - j_w`` and the electron energy
+        leg ``gamma_e(phi) Te_w`` times it, with the sheath current ``j_w``
+        and the transmission ``2/(1-d) + phi/Te_w`` of the same potential.
+        """
+
+        tau = self.parameters.tau
+        gamma_e, gamma_i = self._sheath_gammas()
+        _, _, info = parallel_short_wall_material_data(
+            center, minus, plus, dx_minus, dx_plus, tau,
+            self.parameters.mi_over_me,
+            selection_dt=selection_dt,
+            backward_wall=backward_wall, forward_wall=forward_wall,
+            backward_wall_state=backward_wall_state,
+            forward_wall_state=forward_wall_state,
+        )
+        rows = jnp.asarray((1.0, 1.0, 1.0, 1.0, 0.0), dtype=jnp.float64)
+        residual = jnp.zeros_like(center)
+        jacobian = jnp.zeros(center.shape + (5,), dtype=jnp.float64)
+        tube_minus, tube_plus = sheath_tube_lengths(dx_minus, dx_plus, backward_wall, forward_wall)
+        for wall, trace, dx, direction, side in (
+            (backward_wall, minus, tube_minus, -1.0, "backward"),
+            (forward_wall, plus, tube_plus, 1.0, "forward"),
+        ):
+            def leg(owner, trace=trace, dx=dx, direction=direction):
+                state = bohm_wall_state(trace, owner, direction, tau)
+                ge, wall_current = gamma_e, None
+                if phi_dense is not None:
+                    wall_current, _ = self._sheath_leg_current(state, phi_dense, direction)
+                    ge = self._sheath_current_gamma_e(state, phi_dense, gamma_e)
+                return sheath_wall_leg_residual(
+                    state, owner, dx, direction, tau, ge, gamma_i,
+                    conservative_bulk=True, wall_current=wall_current,
+                )
+
+            conservative = leg(center)
+            columns = [
+                jax.jvp(leg, (center,), (jnp.zeros_like(center).at[..., k].set(1.0),))[1]
+                for k in range(5)
+            ]
+            conservative_jacobian = jnp.stack(columns, axis=-1)
+            residual = residual + jnp.where(
+                wall[..., None],
+                rows * conservative + (1.0 - rows) * info[f"{side}_residual"],
+                0.0,
+            )
+            jacobian = jacobian + jnp.where(
+                wall[..., None, None],
+                rows[:, None] * conservative_jacobian
+                + (1.0 - rows)[:, None] * info[f"{side}_jacobian"],
+                0.0,
+            )
+        selected_wall = backward_wall | forward_wall
+        residual = residual + jnp.where(selected_wall[..., None], coupled_residual, 0.0)
+        solve_dt = jnp.broadcast_to(
+            jnp.asarray(solve_dt, dtype=jnp.float64), residual.shape[:-1]
+        )
+        system = jnp.eye(5, dtype=jnp.float64) - solve_dt[..., None, None] * jacobian
+        increment = jnp.linalg.solve(system, (solve_dt[..., None] * residual)[..., None])[..., 0]
+        info = dict(info)
+        info.update({
+            "selected_wall": selected_wall,
+            "selected_complete_residual": residual,
+            "selected_complete_jacobian": jacobian,
+            "implicit_finite": jnp.all(jnp.isfinite(center + increment), axis=-1),
+        })
+        return increment, info
+
+    def _ledger_masses(self):
+        """Raw-cell (fine wall-leg rates) and owner (inventory) volumes."""
+
+        if self.control_volume_geometry is not None:
+            # Fine wall-leg rates reach the owners through the raw-volume
+            # restriction, which sums every raw cell with positive volume.
+            cells = self.control_volume_geometry.cells
+            loss_mass = jnp.where(cells.raw_volume > 0.0, cells.raw_volume, 0.0)
+            owner_mass = jnp.where(cells.is_active_owner, cells.aggregate_volume, 0.0)
+        else:
+            loss_mass = self._fci_pair_cell_mass() * self.geometry.active_cell_mask_owned
+            owner_mass = loss_mass
+        return loss_mass, owner_mass
+
+    def wall_step_ledger(self, current, implicit_rate, explicit_rate, step_dt) -> jnp.ndarray:
+        """Local (unreduced) ledger of one applied IMEX step.
+
+        ``implicit_rate`` and ``explicit_rate`` are the stage-weighted owner
+        rates the step applies (``next = current + dt (implicit + explicit)``).
+        Under the sheath the implicit density row is the wall flux alone and
+        the explicit parallel density flux is sum-free, so
+        ``particle_wall = -sum V dt implicit.n`` is the particle loss the step
+        actually applied.  Returns ``[particle_wall, particle_other,
+        electron_energy_wall, electron_energy_other, electron_energy_product,
+        ion_energy_wall, ion_energy_other, ion_energy_product,
+        momentum_wall, momentum_other, momentum_product]``, with
+        ``dN = particle_other - particle_wall`` and
+        ``dW = other - wall + product`` exactly; ``product`` is the
+        ``3/2 dn dT`` (``dn dVi`` for the momentum ``P = sum V n Vi``) term
+        of the primitive update.  ``momentum_wall`` is the implicit wall-leg
+        increment: the signed wall momentum flux less the legs' mirror force.
+        """
+
+        _, mass = self._ledger_masses()
+        current = self._owner_state(current)
+        dt = jnp.asarray(step_dt, dtype=jnp.float64)
+        n, te, ti = current.density, current.Te, current.Ti
+        tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
+        imp = implicit_rate.map_fields(lambda value: dt * value)
+        exp = explicit_rate.map_fields(lambda value: dt * value)
+        dn, dte, dti = imp.density + exp.density, imp.Te + exp.Te, imp.Ti + exp.Ti
+
+        def energy(part_n, part_t, temperature):
+            return jnp.sum(mass * 1.5 * (temperature * part_n + n * part_t))
+
+        return jnp.stack((
+            -jnp.sum(mass * imp.density),
+            jnp.sum(mass * exp.density),
+            -energy(imp.density, imp.Te, te),
+            energy(exp.density, exp.Te, te),
+            jnp.sum(mass * 1.5 * dn * dte),
+            -tau * energy(imp.density, imp.Ti, ti),
+            tau * energy(exp.density, exp.Ti, ti),
+            tau * jnp.sum(mass * 1.5 * dn * dti),
+            -jnp.sum(mass * (current.Vi * imp.density + n * imp.Vi)),
+            jnp.sum(mass * (current.Vi * exp.density + n * exp.Vi)),
+            jnp.sum(mass * dn * (imp.Vi + exp.Vi)),
+        ))
+
+    def wall_flux_ledger(self, state_owned: FciDrbEBState) -> jnp.ndarray:
+        """Local (unreduced) wall losses and inventories of one state.
+
+        Returns ``[particle, parallel_momentum, electron_energy, ion_energy,
+        kinetic_energy, current, |current|, wall_legs, N, W_e, W_i, K_i, S_e,
+        S_i, momentum_wall, momentum_leg_pressure, S_m, P]``: the first six are volume integrals of the wall-face flux
+        contract (outward, in ``n0 c_s0 L_ref^2`` and ``n0 Te0 c_s0
+        L_ref^2``), then the owner inventories ``sum V n``, ``sum V 3/2 n
+        Te``, ``sum V 3/2 tau n Ti`` and ``sum V n Vi^2/2``, and the volume
+        integrals of the parallel work sources of the conservative thermal
+        energy rows (``_sheath_conservative_parallel_rates``), then the
+        momentum ledger: signed wall momentum flux ``sum V s F_m / L``, the
+        legs' mirror force ``sum V s p_c / L``, the bulk source ``S_m`` (``p
+        D(1) + Vi D(j)``) and the inventory ``P = sum V n Vi``, so that
+        ``dP/dt = -momentum_wall + momentum_leg_pressure + S_m`` plus the
+        non-parallel terms.  With the sheath-current wall ``current`` is the
+        sheath-limited current at the state potential.  Losses use the
+        raw-cell volumes of the restriction that carries the fine wall-leg
+        rates to the owners.  Callers psum over shards.
+        """
+
+        _, _, info = self.apply_short_leg_implicit_material_step(
+            state_owned, 0.0, phi_owned=state_owned.phi, return_increment=True
+        )
+        state_owned = self._owner_state(state_owned)
+        loss_mass, owner_mass = self._ledger_masses()
+        rates = info["wall_flux_rates"]
+        n, te, ti, vi = state_owned.density, state_owned.Te, state_owned.Ti, state_owned.Vi
+        totals = [jnp.sum(loss_mass * rates[..., i]) for i in range(6)]
+        totals.append(jnp.sum(loss_mass * jnp.abs(rates[..., 5])))
+        totals.append(jnp.sum(info["wall_leg_count"] * (loss_mass > 0.0)))
+        totals.append(jnp.sum(owner_mass * n))
+        totals.append(jnp.sum(owner_mass * 1.5 * n * te))
+        totals.append(jnp.sum(owner_mass * 1.5 * self.parameters.tau * n * ti))
+        totals.append(jnp.sum(owner_mass * 0.5 * n * vi * vi))
+        sources = info.get("sheath_energy_sources")
+        for k in range(2):
+            totals.append(jnp.sum(loss_mass * sources[..., k]) if sources is not None else jnp.zeros(()))
+        totals.append(jnp.sum(loss_mass * rates[..., 6]))
+        totals.append(jnp.sum(loss_mass * rates[..., 7]))
+        totals.append(jnp.sum(loss_mass * sources[..., 2]) if sources is not None else jnp.zeros(()))
+        totals.append(jnp.sum(owner_mass * n * vi))
+        return jnp.stack(totals)
+
     def apply_short_leg_implicit_material_step(
         self,
         state_owned: FciDrbEBState,
@@ -2342,24 +2756,39 @@ class LocalFciDrbEBRhs:
         plus = jnp.stack(tuple(s.plus for s in primitive_stencils), axis=-1)
         backward_wall = self.geometry.maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
         forward_wall = self.geometry.maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY
-        (
-            updated,
-            increment,
-            info,
-        ) = parallel_short_wall_backward_euler(
-            center, minus, plus,
-            primitive_stencils[0].dx_min,
-            primitive_stencils[0].dx_plus,
-            self.parameters.tau,
-            self.parameters.mi_over_me,
-            selection_dt=selection_dt,
-            solve_dt=solve_dt,
-            backward_wall=backward_wall,
-            forward_wall=forward_wall,
-            backward_wall_state=minus,
-            forward_wall_state=plus,
-            coupled_residual=coupled_residual,
+        backward_wall_state, forward_wall_state = self._parallel_wall_states(
+            center, minus, plus, backward_wall, forward_wall
         )
+        if self.sheath is None:
+            (
+                updated,
+                increment,
+                info,
+            ) = parallel_short_wall_backward_euler(
+                center, minus, plus,
+                primitive_stencils[0].dx_min,
+                primitive_stencils[0].dx_plus,
+                self.parameters.tau,
+                self.parameters.mi_over_me,
+                selection_dt=selection_dt,
+                solve_dt=solve_dt,
+                backward_wall=backward_wall,
+                forward_wall=forward_wall,
+                backward_wall_state=backward_wall_state,
+                forward_wall_state=forward_wall_state,
+                coupled_residual=coupled_residual,
+            )
+        else:
+            increment, info = self._sheath_wall_backward_euler(
+                center, minus, plus, primitive_stencils[0].dx_min,
+                primitive_stencils[0].dx_plus, backward_wall, forward_wall,
+                backward_wall_state, forward_wall_state, coupled_residual,
+                selection_dt, solve_dt,
+                phi_dense=(
+                    self._expand_owner_field_for_stencil(phi_owned)
+                    if self._sheath_current_mode else None
+                ),
+            )
 
         if self._uses_projected_fine_grid:
             increment_owner = jax.vmap(
@@ -2394,6 +2823,47 @@ class LocalFciDrbEBRhs:
             vorticity=zero,
         ))
         info = dict(info)
+        # Wall-face flux contract: outward fluxes carried by the wall states
+        # actually consumed above, as per-volume rates F/dx on each wall
+        # leg's owner (fine) cell.  ``wall_flux_ledger`` integrates them.
+        gamma_e, gamma_i = (
+            self._sheath_gammas() if self.sheath is not None else (0.0, 0.0)
+        )
+        wall_rates = []
+        tube_minus, tube_plus = sheath_tube_lengths(
+            primitive_stencils[0].dx_min, primitive_stencils[0].dx_plus, backward_wall, forward_wall
+        )
+        if self._sheath_current_mode:
+            sheath_j = self._sheath_currents(
+                center, backward_wall_state, forward_wall_state, backward_wall, forward_wall,
+                self._expand_owner_field_for_stencil(phi_owned),
+            )[:2]
+        else:
+            sheath_j = (None, None)
+        centre_pressure = center[..., 0] * (center[..., 1] + self.parameters.tau * center[..., 2])
+        for state, direction, wall, dx, j_sheath in (
+            (backward_wall_state, -1.0, backward_wall, tube_minus, sheath_j[0]),
+            (forward_wall_state, 1.0, forward_wall, tube_plus, sheath_j[1]),
+        ):
+            ge = gamma_e
+            if j_sheath is not None:
+                ge = self._sheath_current_gamma_e(
+                    state, self._expand_owner_field_for_stencil(phi_owned), gamma_e
+                )
+            fluxes = wall_face_fluxes(
+                state, direction, self.parameters.tau, ge, gamma_i, center[..., 3],
+                wall_current=j_sheath,
+            )
+            if j_sheath is not None:
+                # outward sheath current (s j_par) at the state potential
+                fluxes = fluxes._replace(current=direction * j_sheath)
+            inverse_dx = jnp.where(wall, 1.0 / jnp.maximum(jnp.abs(dx), 1.0e-30), 0.0)
+            columns = (*fluxes, direction * fluxes.parallel_momentum, direction * centre_pressure)
+            wall_rates.append(jnp.stack(columns, axis=-1) * inverse_dx[..., None])
+        info["wall_flux_rates"] = wall_rates[0] + wall_rates[1]
+        if self.sheath is not None:
+            info["sheath_energy_sources"] = parallel_terms["sheath_energy_sources"]
+        info["wall_leg_count"] = backward_wall.astype(jnp.float64) + forward_wall.astype(jnp.float64)
         info["selected_coupled_force"] = jnp.where(
             info["selected_wall"], coupled_force, 0.0
         )
@@ -2419,6 +2889,82 @@ class LocalFciDrbEBRhs:
             )
         info["selected_complete_residual_owner"] = complete_residual_owner
         return updated_state, increment_state, info
+
+    @property
+    def parallel_conduction(self) -> bool:
+        parameters = self.parameters
+        return bool(
+            float(parameters.electron_conduction_kappa0) != 0.0
+            or float(parameters.ion_conduction_kappa0) != 0.0
+        )
+
+    def solve_implicit_parallel_conduction(
+        self,
+        state_owned: FciDrbEBState,
+        *,
+        solve_dt: Any,
+    ) -> tuple[FciDrbEBState, FciDrbEBState, tuple[SolvaxGmresInfo, ...]]:
+        """Backward-Euler Spitzer-Harm parallel conduction of Te and Ti.
+
+        ``3/2 n dT/dt = D(kappa G(T))`` with ``(G, D)`` the weighted support
+        pair that carries the sheath rows, so ``sum V 3/2 n dT = 0`` and the wall
+        legs stay the only loss.  The pair has no flux through a physical wall:
+        the conductive flux is zero on sheath faces, which carry ``gamma T Gamma``
+        alone.  ``n`` and ``kappa`` are frozen at ``state_owned``; the matrix-free
+        operator is solved with SOLVAX FGMRES.  Returns the stage state, the
+        ``(Te, Ti)`` increment and the FGMRES infos of the active species.
+        """
+
+        h = jnp.asarray(solve_dt, dtype=jnp.float64)
+        parameters = self.parameters
+        state_owned = self._owner_state(state_owned)
+        gradient, divergence, _ = self._fci_support_core_pair(
+            face_bc=self._face_bcs(state_owned), context=self._stencil_builder_context()
+        )
+        expand = self._expand_owner_field_for_stencil
+        active = _solver_active_mask(self.geometry, self.control_volume_geometry)
+        config = replace(
+            self.gmres_config, tol=1.0e-12, atol=1.0e-30, acceptance_tol=1.0e-9,
+            acceptance_atol=1.0e-30, preconditioner="none",
+            residual_correction_steps=0, project_mean_zero=False,
+        )
+        density = jnp.maximum(state_owned.density, 1.0e-30)
+        zero = jnp.zeros_like(density)
+        updates, infos = {}, []
+        for name, kappa0, speed_squared in (
+            ("Te", parameters.electron_conduction_kappa0, parameters.mi_over_me),
+            ("Ti", parameters.ion_conduction_kappa0, parameters.tau),
+        ):
+            if float(kappa0) == 0.0:
+                updates[name] = zero
+                continue
+            temperature = getattr(state_owned, name)
+            kappa = conductivity(
+                expand(temperature), expand(density), float(kappa0),
+                float(speed_squared), float(parameters.heat_flux_limiter), gradient,
+            )
+
+            def flux_divergence(x, kappa=kappa):
+                return self._project_fine_cell_term(divergence(kappa * gradient(expand(x))))
+
+            def solve(apply_A, rhs):
+                return solvax_gmres_solve(
+                    apply_A, rhs, zero, self.geometry, self.domain, config,
+                    active_cell_mask=active,
+                    volume_weights=_solver_volume_weights(
+                        self.geometry, self.control_volume_geometry
+                    ),
+                )
+
+            updates[name], info = backward_euler_conduction(
+                flux_divergence, 1.5 * density, temperature, h, solve
+            )
+            infos.append(info)
+        increment = self._owner_state(FciDrbEBState(
+            density=zero, phi=zero, Te=updates["Te"], Ti=updates["Ti"],
+            Vi=zero, Ve=zero, vorticity=zero,
+        ))
+        return state_owned.axpy(increment, scale=1.0), increment, tuple(infos)
 
     def solve_implicit_current_phi_pair(
         self,
@@ -2485,6 +3031,11 @@ class LocalFciDrbEBRhs:
             )
         )
 
+        if self._sheath_current_mode:
+            current_phi_gradient, current_phi_divergence = self._sheath_insulating_pair(
+                current_phi_gradient, current_phi_divergence, _current_phi_target
+            )
+
         omega_b = jnp.asarray(state_owned.vorticity, dtype=jnp.float64)
         Ve_b = jnp.asarray(state_owned.Ve, dtype=jnp.float64)
 
@@ -2494,6 +3045,49 @@ class LocalFciDrbEBRhs:
         omega_pred = omega_b + h * self._project_fine_cell_term(
             kappa_dense * homogeneous_div_dense
         )
+
+        # Sheath-limited wall current as a boundary condition of this solve.
+        # Linearized about the stage potential phi_b:
+        #   j_w(phi) = [j_w(phi_b) - J phi_b] + J phi,   J = dj_w/dphi,
+        # the affine part enters omega_pred (RHS), the homogeneous part J phi
+        # the operator.  W(e) is the divergence of the wall endpoint current
+        # e alone (interior values zero), i.e. the affine lift of the
+        # characteristic-SAT pair with the sheath current as endpoint data.
+        sheath_wall = None
+        if self._sheath_current_mode:
+            center_w, backward_state_w, forward_state_w, backward_wall_w, forward_wall_w = (
+                self._sheath_wall_primitives(state_owned)
+            )
+            phi_b_dense = self._expand_owner_field_for_stencil(
+                jnp.asarray(state_owned.phi, dtype=jnp.float64)
+            )
+            j_bw, j_fw, dj_bw, dj_fw = self._sheath_currents(
+                center_w, backward_state_w, forward_state_w,
+                backward_wall_w, forward_wall_w, phi_b_dense,
+            )
+            zero_dense = jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)
+
+            def wall_divergence(endpoint_backward, endpoint_forward):
+                _, divergence, _ = self._fci_current_phi_boundary_pair(
+                    face_bc=face_bc,
+                    context=context,
+                    wall_endpoint_current_values=(endpoint_backward, endpoint_forward),
+                    build_adjoint=False,
+                )
+                return divergence(zero_dense)
+
+            def sheath_homogeneous(field_owned):
+                phi_dense = self._expand_owner_field_for_stencil(field_owned)
+                return self._project_fine_cell_term(
+                    kappa_dense * wall_divergence(dj_bw * phi_dense, dj_fw * phi_dense)
+                )
+
+            sheath_affine = self._project_fine_cell_term(kappa_dense * wall_divergence(
+                j_bw - dj_bw * phi_b_dense, j_fw - dj_fw * phi_b_dense
+            ))
+            omega_pred = omega_pred + h * sheath_affine
+            sheath_wall = (sheath_homogeneous, dj_bw, dj_fw, j_bw - dj_bw * phi_b_dense,
+                           j_fw - dj_fw * phi_b_dense)
 
         # tau * L_perp(Ti_b), restricted to owner space exactly as
         # _reconstruct_phi_from_prepared computes its own phi_rhs.
@@ -2525,9 +3119,14 @@ class LocalFciDrbEBRhs:
         def extra_operator(field_owned: jnp.ndarray) -> jnp.ndarray:
             g_dense = self._owner_current_gradient(field_owned, current_phi_gradient)
             divergence_dense = current_phi_divergence(density_dense * g_dense)
-            return -coefficient * self._project_fine_cell_term(
+            result = -coefficient * self._project_fine_cell_term(
                 kappa_dense * divergence_dense
             )
+            if sheath_wall is not None:
+                # omega gains h*W(J phi); moved to the left of -L phi = ... it
+                # is +(h/rho*^2) W(J phi), a positive (dissipative) term.
+                result = result + (h / rho_star ** 2) * sheath_wall[0](field_owned)
+            return result
 
         solver = LocalPerpLaplacianInverseSolver(
             geometry=self.geometry,
@@ -2573,6 +3172,8 @@ class LocalFciDrbEBRhs:
         omega_star = omega_pred - h ** 2 * mu * self._project_fine_cell_term(
             kappa_dense * coupled_divergence_dense
         )
+        if sheath_wall is not None:
+            omega_star = omega_star + h * sheath_wall[0](phi_owned)
 
         residuals = None
         if return_residuals:
@@ -2603,6 +3204,8 @@ class LocalFciDrbEBRhs:
             omega_rec = omega_b + h * self._project_fine_cell_term(
                 kappa_dense * current_phi_divergence(current_rec)
             )
+            if sheath_wall is not None:
+                omega_rec = omega_rec + h * (sheath_affine + sheath_wall[0](phi_owned))
             cfg = solver.config
             residuals = {
                 "polarization": norm(
@@ -2949,6 +3552,10 @@ class LocalFciDrbEBRhs:
         curvature_Ti_contribution = rho_star * curvature_Ti_contribution
         curvature_vorticity_contribution = rho_star * curvature_vorticity_contribution
 
+        if self.sheath is not None:
+            production_material_residual = production_material_residual.at[..., :4].set(
+                stage_parallel_terms["sheath_conservative_rates"]
+            )
         density_rhs = (
             -(poisson_density * rho_star)
             + production_material_residual[..., 0]

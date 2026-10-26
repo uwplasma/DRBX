@@ -33,9 +33,29 @@ from ...geometry.fci_geometry import (  # noqa: F401
     _bracket_axis,
     _trilinear_sample,
 )
+from ...fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
+    FCI_DEP_INVALID,
+    FCI_DEP_FIELD_INTERIOR,
+    FCI_DEP_PHYSICAL_BOUNDARY,
+    FCI_DEP_CUT_WALL,
+    NeighborIndex3D,
+    OptionalNeighborIndex3D,
+    SIDE_PHYSICAL,
+    SIDE_SIMPLE_PERIODIC,
+    SIDE_AXIS_REGULAR,
+    SIDE_TOPOLOGY_MAPPED,
+    SIDE_UNUSED,
+    _VALID_SIDE_KINDS,
+    _physical_domain_valid_mask,
+    _extend_axis_with_ghost_cells,
+    _extend_values_x,
+    _extend_values_y,
+    _extend_values_z,
+    _pytree_base,
+)
+from ...geometry.fci_geometry import LocalConservativeStencilBuilder, _interpolate_B_contravariant_cell_centered, _interpolate_scalar_cell_centered  # noqa: F401
+from ...native.fci_operators import _lift_cell_field_to_faces
 
-
-_pytree_base = jax.tree_util.register_pytree_node_class
 
 def _validate_coordinate_stencil_dependency_rows(
     *,
@@ -363,13 +383,6 @@ class LocalCellCenteredGrid3D(_DataclassPyTreeMixin):
         return self.z.faces
 
 
-# Dependency kinds are shared by local and remote FCI dependency metadata.
-FCI_DEP_INVALID = 0
-FCI_DEP_FIELD_INTERIOR = 1
-FCI_DEP_PHYSICAL_BOUNDARY = 2
-FCI_DEP_CUT_WALL = 3
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalFciRemoteDependencyTable(_DataclassPyTreeMixin):
@@ -586,7 +599,6 @@ class LocalFciRemoteDependencyTable(_DataclassPyTreeMixin):
     def max_receive_values(self) -> int:
         """Maximum number of requested/received scalar values."""
         return int(self.request_active.size)
-
 
 
 @_pytree_base
@@ -1619,28 +1631,6 @@ def build_local_curvature_face_coefficients(
            - Ax_yz[ix, slice(h, h + ny), iz_face]) / sy[None, :, None]
     )
     return LocalCurvatureFaceCoefficients3D(layout=geometry.layout, x=qx, y=qy, z=qz)
-
-NeighborIndex3D = tuple[int, int, int]
-OptionalNeighborIndex3D = NeighborIndex3D | None
-
-
-# Meaning of a global lower/upper side in a ShardSpec3D. These values are
-# metadata for later halo stages; HaloExchange3D only owns regular-neighbor
-# and SIDE_SIMPLE_PERIODIC data.
-SIDE_PHYSICAL = 1
-SIDE_SIMPLE_PERIODIC = 2
-SIDE_AXIS_REGULAR = 3
-SIDE_TOPOLOGY_MAPPED = 4
-SIDE_UNUSED = 5
-_VALID_SIDE_KINDS = frozenset(
-    {
-        SIDE_PHYSICAL,
-        SIDE_SIMPLE_PERIODIC,
-        SIDE_AXIS_REGULAR,
-        SIDE_TOPOLOGY_MAPPED,
-        SIDE_UNUSED,
-    }
-)
 
 
 @_pytree_base
@@ -3250,48 +3240,6 @@ def _coordinate_face_values_from_stencils(
     )
 
 
-def _lift_cell_field_to_faces(field: jnp.ndarray, *, axis: int, periodic: bool) -> jnp.ndarray:
-    """Map a cell-centered field onto the corresponding face grid along one axis."""
-
-    values_3d = jnp.asarray(field, dtype=jnp.float64)
-    axis_n = values_3d.shape[axis]
-    face_shape = list(values_3d.shape)
-    face_shape[axis] += 1
-
-    if axis_n == 1:
-        return jnp.broadcast_to(values_3d, tuple(face_shape))
-
-    first = jnp.take(values_3d, 0, axis=axis)
-    second = jnp.take(values_3d, 1, axis=axis)
-    last = jnp.take(values_3d, -1, axis=axis)
-    penultimate = jnp.take(values_3d, -2, axis=axis)
-
-    if periodic:
-        lower_ghost = last
-        upper_ghost = first
-    else:
-        # Second-order ghost-cell extrapolation:
-        #   q_{-1}  = 2 q_0 - q_1
-        #   q_{n}   = 2 q_{n-1} - q_{n-2}
-        # This lets the same face-average reconstruction be used at the
-        # boundary without dropping to first order.
-        lower_ghost = 2.0 * first - second
-        upper_ghost = 2.0 * last - penultimate
-
-    ext = jnp.concatenate(
-        (
-            jnp.expand_dims(lower_ghost, axis=axis),
-            values_3d,
-            jnp.expand_dims(upper_ghost, axis=axis),
-        ),
-        axis=axis,
-    )
-    return 0.5 * (
-        jnp.take(ext, jnp.arange(axis_n + 1), axis=axis)
-        + jnp.take(ext, jnp.arange(1, axis_n + 2), axis=axis)
-    )
-
-
 def _build_conservative_stencil_from_field(
     field_halo: jnp.ndarray,
     geometry: LocalFciGeometry3D,
@@ -4046,216 +3994,9 @@ def _build_local_face_gradient_from_halo(
     return face_grad
 
 
-@_pytree_base
-@dataclass(frozen=True)
-class LocalConservativeStencilBuilder(_DataclassPyTreeMixin):
-    """Callable adapter that delegates local conservative-stencil construction."""
-
-    build_fn: Callable[
-        [
-            jnp.ndarray,
-            "LocalFciGeometry3D",
-            "StencilBuilderContext",
-        ],
-        "ConservativeStencil3D",
-    ]
-
-    def __call__(
-        self,
-        field_halo: jnp.ndarray,
-        geometry: "LocalFciGeometry3D",
-        context: "StencilBuilderContext",
-    ) -> "ConservativeStencil3D":
-        return self.build_fn(field_halo, geometry, context)
-
-    def tree_flatten(self):
-        return (), self.build_fn
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(aux_data)
-
-
 build_local_conservative_stencil_from_field = LocalConservativeStencilBuilder(
     _build_conservative_stencil_from_field
 )
-
-
-def _physical_domain_valid_mask(
-    grid: CellCenteredGrid3D,
-    x: jnp.ndarray,
-    y: jnp.ndarray,
-    z: jnp.ndarray,
-    *,
-    periodic_axes: tuple[bool, bool, bool],
-) -> jnp.ndarray:
-    valid_x = jnp.isfinite(x) if periodic_axes[0] else (jnp.isfinite(x) & (x >= grid.x.faces[0]) & (x <= grid.x.faces[-1]))
-    valid_y = jnp.isfinite(y) if periodic_axes[1] else (jnp.isfinite(y) & (y >= grid.y.faces[0]) & (y <= grid.y.faces[-1]))
-    valid_z = jnp.isfinite(z) if periodic_axes[2] else (jnp.isfinite(z) & (z >= grid.z.faces[0]) & (z <= grid.z.faces[-1]))
-    return valid_x & valid_y & valid_z
-
-
-def _extend_axis_with_ghost_cells(grid_axis: Grid1D) -> jnp.ndarray:
-    centers = grid_axis.centers
-    faces = grid_axis.faces
-    lower = 2.0 * faces[0] - centers[0]
-    upper = 2.0 * faces[-1] - centers[-1]
-    return jnp.concatenate([
-        jnp.asarray([lower], dtype=jnp.float64),
-        centers,
-        jnp.asarray([upper], dtype=jnp.float64),
-    ])
-
-def _extend_values_x(values: jnp.ndarray, grid_axis: Grid1D) -> jnp.ndarray:
-    centers = grid_axis.centers
-    faces = grid_axis.faces
-    xg_lower = 2.0 * faces[0] - centers[0]
-    xg_upper = 2.0 * faces[-1] - centers[-1]
-
-    if values.shape[0] == 1:
-        lower = values[0:1, :, :]
-        upper = values[-1:, :, :]
-    else:
-        lower_slope = (values[1, :, :] - values[0, :, :]) / (centers[1] - centers[0])
-        upper_slope = (values[-1, :, :] - values[-2, :, :]) / (centers[-1] - centers[-2])
-
-        lower = (values[0, :, :] + (xg_lower - centers[0]) * lower_slope)[None, :, :]
-        upper = (values[-1, :, :] + (xg_upper - centers[-1]) * upper_slope)[None, :, :]
-
-    return jnp.concatenate([lower, values, upper], axis=0)
-
-
-def _extend_values_y(values: jnp.ndarray, grid_axis: Grid1D) -> jnp.ndarray:
-    centers = grid_axis.centers
-    faces = grid_axis.faces
-    yg_lower = 2.0 * faces[0] - centers[0]
-    yg_upper = 2.0 * faces[-1] - centers[-1]
-
-    if values.shape[1] == 1:
-        lower = values[:, 0:1, :]
-        upper = values[:, -1:, :]
-    else:
-        lower_slope = (values[:, 1, :] - values[:, 0, :]) / (centers[1] - centers[0])
-        upper_slope = (values[:, -1, :] - values[:, -2, :]) / (centers[-1] - centers[-2])
-
-        lower = (values[:, 0, :] + (yg_lower - centers[0]) * lower_slope)[:, None, :]
-        upper = (values[:, -1, :] + (yg_upper - centers[-1]) * upper_slope)[:, None, :]
-
-    return jnp.concatenate([lower, values, upper], axis=1)
-
-
-def _extend_values_z(values: jnp.ndarray, grid_axis: Grid1D) -> jnp.ndarray:
-    centers = grid_axis.centers
-    faces = grid_axis.faces
-    zg_lower = 2.0 * faces[0] - centers[0]
-    zg_upper = 2.0 * faces[-1] - centers[-1]
-
-    if values.shape[2] == 1:
-        lower = values[:, :, 0:1]
-        upper = values[:, :, -1:]
-    else:
-        lower_slope = (values[:, :, 1] - values[:, :, 0]) / (centers[1] - centers[0])
-        upper_slope = (values[:, :, -1] - values[:, :, -2]) / (centers[-1] - centers[-2])
-
-        lower = (values[:, :, 0] + (zg_lower - centers[0]) * lower_slope)[:, :, None]
-        upper = (values[:, :, -1] + (zg_upper - centers[-1]) * upper_slope)[:, :, None]
-
-    return jnp.concatenate([lower, values, upper], axis=2)
-
-def _interpolate_scalar_cell_centered(
-    values: jnp.ndarray,
-    x: jnp.ndarray,
-    y: jnp.ndarray,
-    z: jnp.ndarray,
-    *,
-    grid: CellCenteredGrid3D,
-    periodic_axes: tuple[bool, bool, bool],
-    boundary_value: float,
-) -> jnp.ndarray:
-    values = jnp.asarray(values, dtype=jnp.float64)
-    x = jnp.asarray(x, dtype=jnp.float64)
-    y = jnp.asarray(y, dtype=jnp.float64)
-    z = jnp.asarray(z, dtype=jnp.float64)
-
-    if values.shape != grid.shape:
-        raise ValueError(f"values must have shape {grid.shape}, got {values.shape}")
-
-    valid = _physical_domain_valid_mask(
-        grid,
-        x,
-        y,
-        z,
-        periodic_axes=periodic_axes,
-    )
-
-    if periodic_axes[0]:
-        x_axis = grid.x.centers
-        x0, x1, wx, _ = _bracket_axis(x_axis, x, periodic=True)
-    else:
-        values = _extend_values_x(values, grid.x)
-        x_axis = _extend_axis_with_ghost_cells(grid.x)
-        x0, x1, wx, _ = _bracket_axis(x_axis, x, periodic=False)
-
-    if periodic_axes[1]:
-        y_axis = grid.y.centers
-        y0, y1, wy, _ = _bracket_axis(y_axis, y, periodic=True)
-    else:
-        values = _extend_values_y(values, grid.y)
-        y_axis = _extend_axis_with_ghost_cells(grid.y)
-        y0, y1, wy, _ = _bracket_axis(y_axis, y, periodic=False)
-
-    if periodic_axes[2]:
-        z_axis = grid.z.centers
-        z0, z1, wz, _ = _bracket_axis(z_axis, z, periodic=True)
-    else:
-        values = _extend_values_z(values, grid.z)
-        z_axis = _extend_axis_with_ghost_cells(grid.z)
-        z0, z1, wz, _ = _bracket_axis(z_axis, z, periodic=False)
-
-    interpolated = _trilinear_sample(values, x0, x1, wx, y0, y1, wy, z0, z1, wz)
-    return jnp.where(
-        valid,
-        interpolated,
-        jnp.asarray(boundary_value, dtype=jnp.float64),
-    )
-
-
-def _interpolate_B_contravariant_cell_centered(
-    grid: CellCenteredGrid3D,
-    B_contra_cell: jnp.ndarray,
-    points: jnp.ndarray,
-    *,
-    periodic_axes: tuple[bool, bool, bool],
-    boundary_value: float,
-) -> jnp.ndarray:
-    sampled_points = jnp.asarray(points, dtype=jnp.float64)
-    if sampled_points.shape == (3,):
-        sampled_points = sampled_points[None, :]
-        squeeze = True
-    else:
-        if sampled_points.ndim < 1 or sampled_points.shape[-1] != 3:
-            raise ValueError(f"points must have shape (3,) or (..., 3), got {sampled_points.shape}")
-        squeeze = False
-
-    B_contra_cell = jnp.asarray(B_contra_cell, dtype=jnp.float64)
-    if B_contra_cell.shape != grid.shape + (3,):
-        raise ValueError(f"B_contra_cell must have shape {grid.shape + (3,)}, got {B_contra_cell.shape}")
-
-    samples = []
-    for component in range(3):
-        samples.append(
-            _interpolate_scalar_cell_centered(
-                B_contra_cell[..., component],
-                sampled_points[..., 0],
-                sampled_points[..., 1],
-                sampled_points[..., 2],
-                grid=grid,
-                periodic_axes=periodic_axes,
-                boundary_value=boundary_value,
-            )
-        )
-    result = jnp.stack(samples, axis=-1)
-    return result[0] if squeeze else result
 
 
 def interpolate_B_contravariant(

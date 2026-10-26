@@ -1,0 +1,20 @@
+# Four-field FCI turbulence on a tokamak-like shifted torus (about 15 s).
+#   drbx run examples/inputs/four_field_tokamak.toml
+# Same model and outputs as stellarator_turbulence.toml, axisymmetric geometry.
+
+[model]
+backend = "stellarator_turbulence"
+
+[shifted_torus]
+shape = [6, 8, 4]       # [radial, poloidal, toroidal] cells
+alpha_value = 0.25      # Shafranov-like shift of the flux surfaces
+iota = 1.1              # rotational transform (safety factor q = 1/iota)
+sigma = 0.0             # poloidal shear; non-zero breaks axisymmetry
+
+[run]
+steps = 4               # RK4 steps
+dt = 1.0e-3             # normalized time step (limited by the fastest parallel wave)
+amplitude = 0.08        # peak relative density seed
+
+[output]
+directory = "../../output/four_field_tokamak"
