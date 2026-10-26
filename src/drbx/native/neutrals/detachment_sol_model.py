@@ -124,12 +124,9 @@ class DetachmentSolParameters:
     recycled_temperature: float = 3.5    # eV (Franck-Condon)
     max_mean_free_path: float = 0.1      # m
     sheath_gamma: float = 6.0
-    # Target-face closures. Defaults reproduce SD1D; the alternatives exist to isolate
-    # which closure separates DRBX from Hermes-3 (benchmarks/hermes3_1d/README.md).
-    sheath_momentum_flux: str = "minmod"      # "minmod": SD1D (MinMod NV_i x V_out); "face": N_out V_out^2
-    sheath_extrapolation: str = "linear"      # N, P, T guard cells: "linear" (SD1D) or "exponential"
-    sheath_speed_temperature: str = "cell"    # c_s from the last-cell T (SD1D) or the face T
-    sheath_velocity: str = "cell"             # V_out floor from the last-cell V (SD1D) or the extrapolated face V
+    # "minmod": SD1D (MinMod NV_i at the face times V_out, about 14 % below N_out V_out^2 at
+    # 800 cells); "face": N_out V_out^2. Opt-in, for the Hermes-3 comparison (benchmarks/hermes3_1d).
+    sheath_momentum_flux: str = "minmod"
     charge_exchange: bool = True
     recombination: bool = True
     Nnorm: float = 1.0e20
@@ -397,21 +394,9 @@ def _terms(u, s, theta, params: DetachmentSolParameters, grid: _Grid) -> _Terms:
     kappa_n = params.neutral_diffusion * Nnlim * vth2 / sigma
 
     # Sheath (upper) and symmetry (lower) guards
-    if params.sheath_extrapolation == "exponential":
-        # Hermes-3 limitFree: exponential if decreasing towards the wall, else zero gradient
-        def _guard(f):
-            return jnp.where(f[-2] < f[-1], f[-1], f[-1] ** 2 / jnp.maximum(f[-2], 1e-10))
-
-        Nout = 0.5 * (Ne[-1] + _guard(Ne))
-        Pout = 0.5 * (P[-1] + _guard(P))
-        Te_face = 0.5 * (Te[-1] + _guard(Te))
-    else:
-        Nout = jnp.maximum(0.5 * (3.0 * Ne[-1] - Ne[-2]), 0.0)
-        Pout = jnp.maximum(0.5 * (3.0 * P[-1] - P[-2]), 0.0)
-        Te_face = 0.5 * (3.0 * Te[-1] - Te[-2])
-    Te_cs = Te_face if params.sheath_speed_temperature == "face" else Te[-1]
-    Vfloor = 1.5 * Vi[-1] - 0.5 * Vi[-2] if params.sheath_velocity == "extrapolated" else Vi[-1]
-    Vout = jnp.maximum(jnp.sqrt(2.0 * Te_cs), Vfloor)
+    Vout = jnp.maximum(jnp.sqrt(2.0 * Te[-1]), Vi[-1])
+    Nout = jnp.maximum(0.5 * (3.0 * Ne[-1] - Ne[-2]), 0.0)
+    Pout = jnp.maximum(0.5 * (3.0 * P[-1] - P[-2]), 0.0)
     Ne_x = _ext(Ne, Ne[0], 2.0 * Nout - Ne[-1])
     Vi_x = _ext(Vi, -Vi[0], 2.0 * Vout - Vi[-1])
     NVi_x = _ext(NVi, -NVi[0], Nout * Vout)
@@ -485,7 +470,7 @@ def _terms(u, s, theta, params: DetachmentSolParameters, grid: _Grid) -> _Terms:
     ddt_p = -div_p - (2.0 / 3.0) * P * _grad_c(Vi_x, grid) - (2.0 / 3.0) * (R + E) + pe_src
     ddt_p = ddt_p + (2.0 / 3.0) * _div_diffusion(_ext(kappa, kappa[0], kappa[-1]), Te_x, grid, upwind=True)
     face_t = 0.5 * (J[-3] + J[-2])
-    q_extra = (params.sheath_gamma - 6.0) * Te_cs * Nout * Vout
+    q_extra = (params.sheath_gamma - 6.0) * Te[-1] * Nout * Vout
     ddt_p = ddt_p.at[-1].add(-(2.0 / 3.0) * q_extra * face_t / (grid.dl[-3] * J[-3]))
     low = (Ne < 1e-5) & (ddt_n < 0.0)
     ddt_n = jnp.where(low, 0.0, ddt_n)
