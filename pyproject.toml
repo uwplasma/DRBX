@@ -28,6 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 essos = ["essos>=0.19.4"]
+viz = ["pyvista>=0.43", "imageio>=2.30", "pillow"]
 dev = ["pytest", "pytest-cov", "pytest-xdist"]
 docs = ["mkdocs", "pymdown-extensions"]
 
