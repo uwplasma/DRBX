@@ -225,6 +225,7 @@ Plasma-neutral leg solved to steady state by pseudo-transient Newton continuatio
 | `detachment_sd1d.recycled_temperature` | `float` | `3.5` | Franck-Condon temperature of recycled neutrals. (eV) |
 | `detachment_sd1d.max_mean_free_path` | `float` | `0.1` | Cap on the neutral mean free path. (m) |
 | `detachment_sd1d.sheath_gamma` | `float` | `6.0` | Sheath heat-transmission coefficient. |
+| `detachment_sd1d.sheath_momentum_flux` | `str` | `'minmod'` | Target-face ion momentum flux: `minmod` (SD1D) or `face` (`N V_out^2`). |
 | `detachment_sd1d.charge_exchange` | `bool` | `True` | Include charge-exchange friction. |
 | `detachment_sd1d.recombination` | `bool` | `True` | Include recombination. |
 | `detachment_sd1d.Nnorm` | `float` | `1e+20` | Density normalization. (m^-3) |
