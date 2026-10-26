@@ -243,6 +243,24 @@ G3. README (#58) and tutorial kept in step with each phase.
 VMEX + extender finite-beta field provider; electromagnetic (A∥) terms; GPU
 production runs and scaling.
 
+### Revision 2026-10-25 (after review of Phase A)
+
+Aiken Xie's `2D_fci` branch already has the full parallel operator this plan was going to build on main:
+a mass-weighted adjoint pair, characteristic jump upwinding, a characteristic SAT wall closure and
+split-form advection, now in MMS and performance work. Main's FCI backend has further convergence and
+conservation problems that this branch would not fix. Decision:
+
+- Do not rebuild that operator on main. C1 (staggered or skew-symmetric gradients, damping) and the
+  cross-field leakage work move to `2D_fci`; B2 on main is reduced to an intermediate setup.
+- Intermediate setup (#68): the exact adjoint pair for the parallel terms with `parallel_dissipation`
+  on by default (ε > 0). Accept it if the default 16^3 deck reaches t = 0.6 with the wall ledger closed;
+  32^3 is reported, not required. Until #68 merges, `parallel_diffusion = 1.0` is the interim setting
+  for Bohm-wall runs.
+- When `2D_fci` finishes, it replaces the parallel operator on main; B3 (retiring the family-1 layer)
+  and C2/C3 (sheath-current mode, implicit Ve–φ–ω) are planned on top of it.
+- Phases D (performance outside the parallel operator), E (neutrals), F (V&V) and G (usability)
+  continue on main.
+
 ### Phase A results (2026-10-25; `scripts/fci_diagnostics.py`)
 
 Setup: 16^3 HSX, default deck (200 steps, dt 7.5e-4), snapshot at t = 0.075 (step 100), CPU, x64. Done: A1
@@ -280,6 +298,16 @@ Not done: GPU, 32^3 (resolution trend of the heat-blob leakage not measured).
   rows the leading Ve-Te modes are smooth (correlation +0.35..+0.75). Implies B2/C1: the sheath rows (Bohm outflow
   coupling of Ve and Te to the wall legs), not the interior central stencil, create the positive spectrum;
   the interior advection tests below remain a separate accuracy issue.
+
+  Reviewer note (Aiken Xie, 2026-10-25): the same wall-localised, Ve-dominated modes with Re > 0 appear on
+  `2D_fci` even with an exactly adjoint pair; there they come from the wall closure combined with the
+  flux-form advection, which is not skew-symmetric (the discrete ∇·b term). So "physical-rate" above means
+  slow, not physical: the growth is a property of the discretisation. They were resolved (tentatively) with
+  a characteristic SAT wall closure (penalising only incoming characteristics, from SBP-SAT work) and
+  split-form advection. Also, `zero-flow` in this A/B switches the bulk n/Te/Ti/Vi rows back to the upwinded
+  characteristic rows, not only the wall: with the Bohm wall and only the upwinded bulk rows restored, the
+  default 16^3 deck ran to t = 0.6 with max |Ve| ≈ 1 (20 Oct). The central bulk flux form is part of the
+  cause, not only the sheath rows.
 - A2: default step 0.58-0.89 s at 16^3 on CPU (operator 0.21-0.28 s, GMRES/solves 0.34-0.62 s). One stage of
   each phase (compiled, median of 5): explicit RHS 0.093 s, implicit wall legs 0.027 s, Spitzer conduction
   solve 0.037 s, current/phi pair solve 0.088 s, phi reconstruction 0.009 s. **Host callbacks in the jaxprs:
