@@ -94,7 +94,7 @@ not public).
   fluid value; do not stack the kinetic reduction on top.
 - **Hermes-3 FCI sheath** (`sheath_boundary_fci.cxx:406-407`) may omit the 0.5
   factor used elsewhere in the same file; do not copy numbers from it unchecked.
-- **The 1D Hermes-3 gap** (+2.6% n_up, +4.1% T_t): T_t ∝ γ⁻², so +4.1% is a −2%
+- **The 1D Hermes-3 gap** (+2.6% n_up, +4.1% T_t): T_t ∝ γ⁻¹ at fixed flow (measured), so +4.1% is a −4%
   shift in effective γ, the size of the difference between a fixed 4.8 and
   2 + φ/Te. Also check ionisation and recycled-neutral energy bookkeeping and
   neutral momentum exchange.
@@ -218,6 +218,9 @@ E3. Split the energy ledger into plasma sheath cooling and surface power
 
 F1. 1D Hermes-3 gap: swap test with γe = 4.8, γi = 3.5, c_s(Ti+Te), identical
     AMJUEL rates, recycled-neutral energy and conduction law.
+    Done in #50 (`benchmarks/hermes3_1d/README.md`, last section): the 1D model uses SD1D's fixed γ = 6, and the
+    face-temperature, face-velocity and guard-extrapolation swaps are null. Hermes-3 and DRBX recycled-neutral energies differ by 1.5.
+    The gap (+3.4 % n_up, +5 % T_t at equal recycled energy) is open: it needs per-process energy diagnostics.
 F2. Port Hermes-3 `tests/integrated/*-fci` MMS cases; run Hermes-3's
     `stellarator-1D` and Dommaschk-3D examples as code-to-code rungs.
 F3a. TJ-K (Coelho 2023), the cheaper first stellarator rung: 6 periods,

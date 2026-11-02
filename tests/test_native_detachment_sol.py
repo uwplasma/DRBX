@@ -83,6 +83,20 @@ def test_colored_block_jacobian_is_exact() -> None:
     np.testing.assert_allclose(assembled, np.asarray(dense), rtol=0, atol=1e-14 * float(jnp.max(jnp.abs(dense))))
 
 
+def test_sheath_momentum_flux_option_sets_the_face_flux() -> None:
+    def face_flux(**kw):
+        params = DetachmentSolParameters(ny=20, **kw)
+        grid = dsm._grid(params)
+        u = jnp.stack(dsm.detachment_initial_state(params), axis=1)
+        t = dsm._terms(u, jnp.asarray(0.1), dsm._theta(params), params, grid)
+        return t, 0.5 * (grid.area[-3] + grid.area[-2])
+
+    t, ft = face_flux(sheath_momentum_flux="face")
+    np.testing.assert_allclose(t.nvi_flux[-1], t.Nout * t.Vout**2 * ft, rtol=1e-14)
+    default, _ = face_flux()
+    assert abs(float(default.nvi_flux[-1] / t.nvi_flux[-1]) - 1.0) > 1e-3
+
+
 def test_charge_exchange_fit_matches_double_sum() -> None:
     temperatures = jnp.asarray([0.5, 3.0, 30.0, 300.0])
     log_t, log_e = np.log(np.asarray(temperatures)), np.log(10.0)
