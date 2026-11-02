@@ -15,7 +15,7 @@ the domain sum of ``W`` is unchanged and the wall legs stay the only loss.
 from __future__ import annotations
 
 import math
-from typing import Callable
+from typing import Callable, NamedTuple
 
 import jax.numpy as jnp
 
@@ -25,6 +25,16 @@ VACUUM_PERMITTIVITY = 8.8541878128e-12
 B_REF = 1.0  # tesla
 L_REF = 1.0  # metre
 TEMPERATURE_FLOOR = 1.0e-6
+
+
+class ConductionInfo(NamedTuple):
+    """The slots of a solver info that the stage record folds (see ``SolvaxGmresInfo``)."""
+
+    num_steps: jnp.ndarray
+    converged: jnp.ndarray
+    failed: jnp.ndarray
+    final_residual_rel_l2: jnp.ndarray
+    strict_converged: jnp.ndarray
 
 
 def spitzer_prefactors(
