@@ -223,7 +223,8 @@ print("[figure] rendering flux surfaces and convergence panels...")
 surface_geometry = build_rotating_ellipse_geometry(SURFACE_SHAPE, **GEOMETRY_KWARGS)
 z_indices = [int(round(frac * (surface_geometry.shape[2] - 1))) for frac in (0.0, 0.25, 0.5, 0.75)]
 
-fig, axes = plt.subplots(1, 2, figsize=(12.5, 5.2))
+plt.rcParams.update({"font.size": 10})
+fig, axes = plt.subplots(1, 2, figsize=(9.0, 4.0))
 palette = plt.cm.viridis(np.linspace(0.15, 0.9, len(z_indices)))
 for color, z_index in zip(palette, z_indices):
     zeta, surfaces = _cross_section(surface_geometry, z_index)
@@ -234,8 +235,8 @@ for color, z_index in zip(palette, z_indices):
 axes[0].set_aspect("equal")
 axes[0].set_xlabel("R - R0")
 axes[0].set_ylabel("Z")
-axes[0].set_title("Rotating-ellipse flux surfaces vs toroidal angle")
-axes[0].legend(loc="upper right", fontsize=8)
+axes[0].set_title("Flux surfaces at four toroidal angles")
+axes[0].legend(loc="upper right", fontsize=8, ncol=2)
 axes[0].grid(True, ls=":", alpha=0.4)
 
 res = np.asarray(study["resolutions"], dtype=np.float64)
@@ -244,13 +245,13 @@ axes[1].loglog(res, study["fci_traced_rms_errors"], "s-", label=f"FCI traced, or
 axes[1].loglog(res, study["direct_rms_errors"][0] * (res / res[0]) ** -2.0, "--", color="gray", label="slope -2")
 axes[1].set_xlabel("resolution")
 axes[1].set_ylabel("parallel-gradient rms error")
-axes[1].set_title("FCI parallel-gradient convergence")
-axes[1].legend(fontsize=8)
+axes[1].set_title("Parallel-gradient convergence")
+axes[1].legend(fontsize=9)
 axes[1].grid(True, which="both", ls=":", alpha=0.4)
 
-fig.suptitle("Rotating-ellipse FCI: non-axisymmetric geometry and parallel-operator convergence")
+fig.suptitle("Rotating-ellipse FCI: geometry and operator convergence")
 fig.tight_layout()
-fig.savefig(OUTPUT_DIR / "rotating_ellipse_fci.png", dpi=200)
+fig.savefig(OUTPUT_DIR / "rotating_ellipse_fci.png", dpi=100)
 plt.close(fig)
 print(f"[done] wrote {OUTPUT_DIR / 'rotating_ellipse_fci.png'} and summary.json")
 print(f"[time] total wall-clock {time.perf_counter() - _T0:.1f} s")
