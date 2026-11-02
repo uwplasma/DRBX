@@ -1980,7 +1980,7 @@ def run_full_eb(
         _, explicit_1, _, explicit_2, _ = stage_rates
         step_ledger = model.wall_step_check(
             (stage_states[0], stage_states[2]), (stage_states[1], stage_states[3]),
-            (explicit_1, explicit_2), IMEX_SSP222_GAMMA * dt, dt,
+            (explicit_1, explicit_2), IMEX_SSP222_GAMMA * dt,
         )
         for mesh_axis_name in ("x", "y", "z"):
             step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
@@ -2743,25 +2743,20 @@ def run_full_eb(
         if split_change is not None:
             change -= np.asarray([split_change[k] for k in (8, 9, 10, 17)])
         run_check[:] += np.concatenate((step, change))
-        # Applied (implicit stages) against face (wall-face states of the stage states).
         tiny = 1.0e-300
         diff = np.asarray(balance_mismatch(applied, face))
         # the signed wall momentum cancels against the leg pressure to round-off: scale P by the wall term
         diff[3] = (applied[3] - face[3]) / max(abs(row[15]) * float(timestep), tiny)
         print(
-            "[wall-step] applied-face/face: n={:.2e} W_e={:.2e} W_i={:.2e} P={:.2e} | explicit sum V dn/wall "
-            "loss={:.2e} (|.|: {:.2e})".format(
-                *diff, step[8] / max(abs(face[0]), tiny), step[9] / max(abs(face[0]), tiny)
-            ),
+            "[wall-step] (applied-face)/max: n={:.2e} W_e={:.2e} W_i={:.2e} P={:.2e} | explicit sum V dn / wall "
+            "loss={:.2e}".format(*diff, step[8] / max(abs(face[0]), tiny)),
             flush=True,
         )
-        total = run_check
         print(
-            "[wall-run] t={:.6e} n: dN={:.6e} int face={:.6e} int explicit={:.3e} closure={:.2e} of the wall loss | "
-            "bulk change not claimed (dW - int face) W_e={:.3e} W_i={:.3e}".format(
-                float(time_value), total[10], total[1], total[8],
-                (total[10] - total[8] - total[1]) / max(abs(total[1]), tiny),
-                total[11] - total[3], total[12] - total[5],
+            "[wall-run] t={:.6e} dN={:.6e} int face={:.6e} int explicit={:.3e} closure={:.2e} of the wall loss | "
+            "dW-int face (bulk, not claimed) W_e={:.3e} W_i={:.3e}".format(
+                float(time_value), *run_check[[10, 1, 8]], (run_check[10] - run_check[8] - run_check[1]) / abs(run_check[1]),
+                run_check[11] - run_check[3], run_check[12] - run_check[5],
             ),
             flush=True,
         )

@@ -2127,35 +2127,22 @@ class LocalFciDrbEBRhs:
             owner_mass = loss_mass
         return loss_mass, owner_mass
 
-    def wall_step_check(self, bases, stages, explicit_rates, gamma_dt, step_dt) -> jnp.ndarray:
+    def wall_step_check(self, bases, stages, explicit_rates, gamma_dt) -> jnp.ndarray:
         """Local (unreduced) independent check of one IMEX step.
 
-        ``bases[k]`` and ``stages[k]`` are the start and the result of
-        implicit stage ``k``; ``explicit_rates[k]`` the explicit rate at the
-        stage state.  Two kinds of number come back, none of which is the
-        state update checked against itself:
-
-        * ``applied[k]`` is the owner inventory rate the implicit stage
-          really produced, ``(I(stage) - I(base)) / gamma_dt`` for
-          ``I = (sum V n, sum V 3/2 n Te, sum V 3/2 tau n Ti, sum V n Vi)``;
-        * ``face[k]`` is the rate the wall must remove, computed from the
-          wall-face states of the *stage state* by :func:`wall_face_fluxes`
-          (``wall_flux_ledger``): ``-F_n``, ``-q_e``, ``-q_i`` and
-          ``-F_m + p_leg`` (the wall leg's momentum flux less its share of the
-          mirror force).  The labelled parallel work sources ``S`` belong to
-          the explicit bulk rows, not to this stage.  The linearised
-          backward-Euler stage satisfies ``applied = face`` only to its
-          linearisation error.
-
-        The explicit bulk density rate must integrate to zero by itself, so
-        ``sum V exp.n`` and ``sum V |exp.n|`` are returned for each stage.
-        Layout: ``[applied_1(4), face_1(4), applied_2(4), face_2(4),
-        exp_n_1, exp_n_2, |exp_n|_1, |exp_n|_2]``.
+        Per implicit stage ``k``: ``applied`` is the owner inventory rate the
+        stage produced, ``(I(stage) - I(base)) / gamma_dt`` for ``I = (sum V n,
+        sum V 3/2 n Te, sum V 3/2 tau n Ti, sum V n Vi)``; ``face`` is the rate
+        the wall must remove, from the wall-face states of the *stage state*
+        (``wall_flux_ledger``): ``-F_n, -q_e, -q_i, -F_m + p_leg``.  The two are
+        computed separately and agree only to the linearisation error of the
+        backward-Euler stage.  The explicit density rate must integrate to
+        zero by itself: ``sum V exp.n`` and ``sum V |exp.n|`` are returned.
+        Layout: ``[applied_1(4), face_1(4), applied_2(4), face_2(4), exp_n(2), |exp_n|(2)]``.
         """
 
         _, mass = self._ledger_masses()
         tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
-        rate_dt = jnp.asarray(gamma_dt, dtype=jnp.float64)
 
         def inventory(state):
             state = self._owner_state(state)
@@ -2169,7 +2156,7 @@ class LocalFciDrbEBRhs:
         for base, stage in zip(bases, stages):
             wall = self.wall_flux_ledger(stage)
             face = jnp.stack((-wall[0], -wall[2], -wall[3], -wall[14] + wall[15]))
-            rows += [(inventory(stage) - inventory(base)) / rate_dt, face]
+            rows += [(inventory(stage) - inventory(base)) / gamma_dt, face]
         explicit = [self._owner_state(rate).density for rate in explicit_rates]
         rows.append(jnp.stack([jnp.sum(mass * e) for e in explicit]))
         rows.append(jnp.stack([jnp.sum(mass * jnp.abs(e)) for e in explicit]))
