@@ -2127,50 +2127,52 @@ class LocalFciDrbEBRhs:
             owner_mass = loss_mass
         return loss_mass, owner_mass
 
-    def wall_step_ledger(self, current, implicit_rate, explicit_rate, step_dt) -> jnp.ndarray:
-        """Local (unreduced) ledger of one applied IMEX step.
+    def wall_step_check(self, bases, stages, explicit_rates, gamma_dt, step_dt) -> jnp.ndarray:
+        """Local (unreduced) independent check of one IMEX step.
 
-        ``implicit_rate`` and ``explicit_rate`` are the stage-weighted owner
-        rates the step applies (``next = current + dt (implicit + explicit)``).
-        Under the sheath the implicit density row is the wall flux alone and
-        the explicit parallel density flux is sum-free, so
-        ``particle_wall = -sum V dt implicit.n`` is the particle loss the step
-        actually applied.  Returns ``[particle_wall, particle_other,
-        electron_energy_wall, electron_energy_other, electron_energy_product,
-        ion_energy_wall, ion_energy_other, ion_energy_product,
-        momentum_wall, momentum_other, momentum_product]``, with
-        ``dN = particle_other - particle_wall`` and
-        ``dW = other - wall + product`` exactly; ``product`` is the
-        ``3/2 dn dT`` (``dn dVi`` for the momentum ``P = sum V n Vi``) term
-        of the primitive update.  ``momentum_wall`` is the implicit wall-leg
-        increment: the signed wall momentum flux less the legs' mirror force.
+        ``bases[k]`` and ``stages[k]`` are the start and the result of
+        implicit stage ``k``; ``explicit_rates[k]`` the explicit rate at the
+        stage state.  Two kinds of number come back, none of which is the
+        state update checked against itself:
+
+        * ``applied[k]`` is the owner inventory rate the implicit stage
+          really produced, ``(I(stage) - I(base)) / gamma_dt`` for
+          ``I = (sum V n, sum V 3/2 n Te, sum V 3/2 tau n Ti, sum V n Vi)``;
+        * ``face[k]`` is the rate the wall must remove, computed from the
+          wall-face states of the *stage state* by :func:`wall_face_fluxes`
+          (``wall_flux_ledger``): ``-F_n``, ``-q_e + S_e``, ``-q_i + S_i``,
+          ``-F_m + p_leg + S_m`` with ``S`` the labelled parallel work
+          sources.  The linearised backward-Euler stage satisfies
+          ``applied = face`` only to its linearisation error.
+
+        The explicit bulk density rate must integrate to zero by itself, so
+        ``sum V exp.n`` and ``sum V |exp.n|`` are returned for each stage.
+        Layout: ``[applied_1(4), face_1(4), applied_2(4), face_2(4),
+        exp_n_1, exp_n_2, |exp_n|_1, |exp_n|_2]``.
         """
 
         _, mass = self._ledger_masses()
-        current = self._owner_state(current)
-        dt = jnp.asarray(step_dt, dtype=jnp.float64)
-        n, te, ti = current.density, current.Te, current.Ti
         tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
-        imp = implicit_rate.map_fields(lambda value: dt * value)
-        exp = explicit_rate.map_fields(lambda value: dt * value)
-        dn, dte, dti = imp.density + exp.density, imp.Te + exp.Te, imp.Ti + exp.Ti
+        rate_dt = jnp.asarray(gamma_dt, dtype=jnp.float64)
 
-        def energy(part_n, part_t, temperature):
-            return jnp.sum(mass * 1.5 * (temperature * part_n + n * part_t))
+        def inventory(state):
+            state = self._owner_state(state)
+            n = state.density
+            return jnp.stack((
+                jnp.sum(mass * n), jnp.sum(mass * 1.5 * n * state.Te),
+                jnp.sum(mass * 1.5 * tau * n * state.Ti), jnp.sum(mass * n * state.Vi),
+            ))
 
-        return jnp.stack((
-            -jnp.sum(mass * imp.density),
-            jnp.sum(mass * exp.density),
-            -energy(imp.density, imp.Te, te),
-            energy(exp.density, exp.Te, te),
-            jnp.sum(mass * 1.5 * dn * dte),
-            -tau * energy(imp.density, imp.Ti, ti),
-            tau * energy(exp.density, exp.Ti, ti),
-            tau * jnp.sum(mass * 1.5 * dn * dti),
-            -jnp.sum(mass * (current.Vi * imp.density + n * imp.Vi)),
-            jnp.sum(mass * (current.Vi * exp.density + n * exp.Vi)),
-            jnp.sum(mass * dn * (imp.Vi + exp.Vi)),
-        ))
+        rows = []
+        for base, stage in zip(bases, stages):
+            wall = self.wall_flux_ledger(stage)
+            face = jnp.stack((-wall[0], -wall[2] + wall[12], -wall[3] + wall[13],
+                              -wall[14] + wall[15] + wall[16]))
+            rows += [(inventory(stage) - inventory(base)) / rate_dt, face]
+        explicit = [self._owner_state(rate).density for rate in explicit_rates]
+        rows.append(jnp.stack([jnp.sum(mass * e) for e in explicit]))
+        rows.append(jnp.stack([jnp.sum(mass * jnp.abs(e)) for e in explicit]))
+        return jnp.concatenate(rows)
 
     def wall_flux_ledger(self, state_owned: FciDrbEBState) -> jnp.ndarray:
         """Local (unreduced) wall losses and inventories of one state.

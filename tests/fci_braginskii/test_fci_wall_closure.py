@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 from functools import partial
 from types import SimpleNamespace
 
@@ -22,6 +23,7 @@ from drbx.fci_braginskii.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
 from drbx.fci_braginskii.native.fci_support_pair import build_support_pair, build_weighted_negative_adjoint
 from drbx.fci_braginskii.native.fci_wall_closure import (
     SheathClosure,
+    balance_mismatch,
     bohm_wall_state,
     current_gamma_e,
     sheath_current,
@@ -197,46 +199,43 @@ def test_conservative_parallel_rates_are_sum_free_with_reported_sources():
 
 
 @pytest.mark.slow
-def test_hsx_sheath_step_ledger_closes(tmp_path):
-    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): applied wall flux is the only parallel loss."""
+def test_hsx_sheath_step_check_is_independent_of_the_update(tmp_path):
+    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): the implicit stages remove what the wall faces say."""
 
     bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
     if bundle is None:
         pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX sheath ledger")
+    col = _hsx_ledger(tmp_path, bundle)
+    applied, face = col["step_particle_applied"][1:], col["step_particle_face"][1:]
+    assert np.all(face < 0.0)
+    # the explicit bulk density rate is sum-free on its own (perpendicular flux through the radial edge only)
+    assert np.all(np.abs(col["step_particle_explicit"][1:]) < 1e-3 * np.abs(face))
+    # the linearised implicit stage applies the face flux of the stage state up to O(dt^2)
+    for name, tolerance in (("particle", 5e-3), ("electron_energy", 2e-2), ("ion_energy", 2e-2)):
+        mismatch = balance_mismatch(col[f"step_{name}_applied"][1:], col[f"step_{name}_face"][1:])
+        assert np.max(np.abs(mismatch)) < tolerance, (name, mismatch)
+    # the whole run: the inventory change is the face flux integral plus the explicit sum
+    explicit = np.sum(col["step_particle_explicit"][1:])
+    assert balance_mismatch(np.diff(col["particle_inventory"]).sum() - explicit, np.sum(face)) == pytest.approx(0.0, abs=5e-3)
+    assert applied.shape == face.shape
+
+
+def _hsx_ledger(tmp_path, bundle, extra=""):
     from drbx.cli import main
 
     deck = tmp_path / "hsx.toml"
     deck.write_text(
         '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
         f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
-        "final_time = 0.0015\nnum_steps = 2\nsave_every = 2\n"
+        "final_time = 0.0015\nnum_steps = 2\nsave_every = 2\n" + extra
     )
     assert main(["run", str(deck)]) in (0, None)
     data = np.load(tmp_path / "out" / "hsx.npz")
-    rows, columns = data["wall_ledger"], list(data["wall_ledger_columns"])
-    col = {name: rows[:, k] for k, name in enumerate(columns)}
-    wall, other = col["step_particle_wall"][1:], col["step_particle_other"][1:]
-    assert np.all(wall > 0.0)
-    np.testing.assert_allclose(np.diff(col["particle_inventory"]), other - wall, rtol=0, atol=1e-9 * wall.max())
-    # what is not the wall is perpendicular transport only (the parallel bulk is sum-free)
-    assert np.all(np.abs(other) < 1e-3 * wall)
-    for kind in ("electron", "ion"):
-        inventory = np.diff(col[f"{kind}_energy_inventory"])
-        applied = (col[f"step_{kind}_energy_other"] - col[f"step_{kind}_energy_wall"]
-                   + col[f"step_{kind}_energy_product"])[1:]
-        np.testing.assert_allclose(inventory, applied, rtol=0, atol=1e-9 * abs(inventory).max())
-    # parallel momentum P = sum V n Vi: flux-form Vi row, same applied-step identity
-    momentum = np.diff(col["momentum_inventory"])
-    applied = (col["step_momentum_other"] - col["step_momentum_wall"] + col["step_momentum_product"])[1:]
-    scale = max(abs(momentum).max(), abs(col["step_momentum_other"][1:]).max())
-    np.testing.assert_allclose(momentum, applied, rtol=0, atol=1e-9 * scale)
-    # the applied flux is the contract flux of the step states to first order in dt
-    dt = np.diff(col["time"])
-    contract = 0.5 * (col["particle"][1:] + col["particle"][:-1]) * dt
-    np.testing.assert_allclose(wall, contract, rtol=5e-3)
+    return {name: data["wall_ledger"][:, k] for k, name in enumerate(data["wall_ledger_columns"])}
 
 
-def flux_tube_bulk_rates(cells: int, dx: float, mu: float, epsilon: float = 0.1, slave_ve: bool = True):
+def flux_tube_bulk_rates(cells: int, dx: float, mu: float, epsilon: float = 0.1, slave_ve: bool = True,
+                         with_sources: bool = False):
     """``rates(u, ge, gi)``: pair-based bulk plus production wall rows of a 1D open field line.
 
     The support pair is built as on HSX (wall rows close with the owner value), the bulk
@@ -267,14 +266,71 @@ def flux_tube_bulk_rates(cells: int, dx: float, mu: float, epsilon: float = 0.1,
         bst = jnp.where(backward[:, None], bohm_wall_state(minus, u, -1.0, TAU), minus)
         fst = jnp.where(forward[:, None], bohm_wall_state(plus, u, 1.0, TAU), plus)
         primitive = {k: u[:, i] for i, k in enumerate(("density", "Te", "Ti", "Vi", "Ve"))}
-        r, _ = LocalFciDrbEBRhs._conservative_parallel_rates(host, primitive, gradient, divergence, laplacian)
+        r, sources = LocalFciDrbEBRhs._conservative_parallel_rates(host, primitive, gradient, divergence, laplacian)
         if slave_ve:
             r = r.at[:, 4].set(0.0)  # quasineutral ambipolar flow slaves Ve to Vi
         r = r + jnp.where(backward[:, None], sheath_wall_leg_residual(bst, u, dx, -1.0, TAU, ge, gi, conservative_bulk=True), 0.0)
         r = r + jnp.where(forward[:, None], sheath_wall_leg_residual(fst, u, dx, 1.0, TAU, ge, gi, conservative_bulk=True), 0.0)
-        return r, bst, fst
+        return (r, bst, fst, sources) if with_sources else (r, bst, fst)
 
     return rates
+
+
+def _tube_balance(rates, u, ge, gi):
+    """Applied inventory rates of the tube operator against the wall-face fluxes (n, W_e, W_i)."""
+
+    cells = u.shape[0]
+    dx = 2.0 / cells
+    r, bst, fst, sources = rates(u, ge, gi)
+    n, te, ti = u[:, 0], u[:, 1], u[:, 2]
+    applied = np.asarray([
+        jnp.sum(dx * r[:, 0]),
+        jnp.sum(dx * 1.5 * (te * r[:, 0] + n * r[:, 1])),
+        jnp.sum(dx * 1.5 * TAU * (ti * r[:, 0] + n * r[:, 2])),
+    ])
+    faces = [wall_face_fluxes(bst[0], -1.0, TAU, ge, gi, u[0, 3]), wall_face_fluxes(fst[-1], 1.0, TAU, ge, gi, u[-1, 3])]
+    face = np.asarray([
+        -sum(float(f.particle) for f in faces),
+        -sum(float(f.electron_energy) for f in faces) + dx * float(jnp.sum(sources[:, 0])),
+        -sum(float(f.ion_energy) for f in faces) + dx * float(jnp.sum(sources[:, 1])),
+    ])
+    return applied, face
+
+
+def test_wall_balance_is_independent_and_fails_on_a_leak_or_a_wrong_wall_flux(monkeypatch):
+    """The check compares the operator with the face fluxes, so a defect shows; it is not round-off by identity."""
+
+    from drbx.fci_braginskii.native import fci_wall_closure as closure
+
+    rng = np.random.default_rng(5)
+    cells, mu = 24, 25.0
+    u = jnp.asarray(np.stack([rng.uniform(0.5, 2.0, cells), rng.uniform(0.5, 2.0, cells), rng.uniform(0.5, 2.0, cells),
+                              rng.uniform(-0.5, 0.5, cells), rng.uniform(-0.5, 0.5, cells)], axis=-1))
+    sheath = SheathClosure()
+    ge, gi = float(sheath.gamma_e(TAU, mu)), sheath.ion_heat_transmission
+    rates = flux_tube_bulk_rates(cells, 2.0 / cells, mu, with_sources=True)
+    # production operator: every row closes to round-off
+    applied, face = _tube_balance(rates, u, ge, gi)
+    assert np.max(np.abs(np.asarray(balance_mismatch(applied, face)))) < 1e-11
+
+    # defect 1: a volumetric particle leak of 1% of the density per unit time
+    def leaking(u, ge, gi):
+        r, bst, fst, sources = rates(u, ge, gi)
+        return r.at[:, 0].add(-0.01 * u[:, 0]), bst, fst, sources
+
+    mismatch = np.asarray(balance_mismatch(*_tube_balance(leaking, u, ge, gi)))
+    assert np.all(np.abs(mismatch[:2]) > 1e-3), mismatch
+
+    # defect 2: the wall legs of the update remove 2% more than the face flux
+    original = closure.sheath_wall_leg_residual
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "sheath_wall_leg_residual",
+        lambda *args, **kwargs: 1.02 * original(*args, **kwargs),
+        raising=True,
+    )
+    mismatch = np.asarray(balance_mismatch(*_tube_balance(rates, u, ge, gi)))
+    assert np.all(np.abs(mismatch) > 5e-3), mismatch
 
 
 @pytest.mark.slow
@@ -284,22 +340,15 @@ def test_hsx_zero_flow_wall_is_a_closed_box_for_particles_and_thermal_energy(tmp
     bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
     if bundle is None:
         pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX zero-flow ledger")
-    from drbx.cli import main
-
-    deck = tmp_path / "hsx.toml"
-    deck.write_text(
-        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
-        f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
-        'wall_closure = "zero-flow"\nfinal_time = 0.0015\nnum_steps = 2\nsave_every = 2\n'
-    )
-    assert main(["run", str(deck)]) in (0, None)
-    data = np.load(tmp_path / "out" / "hsx.npz")
-    col = {name: data["wall_ledger"][:, k] for k, name in enumerate(data["wall_ledger_columns"])}
+    col = _hsx_ledger(tmp_path, bundle, 'wall_closure = "zero-flow"\n')
     inventory = col["particle_inventory"]
-    assert np.all(np.abs(col["step_particle_wall"][1:]) <= 1e-12 * inventory[0])
-    np.testing.assert_allclose(np.diff(inventory), col["step_particle_other"][1:], rtol=0, atol=1e-12 * inventory[0])
+    # no wall flux from the wall faces, none applied, and the inventory moves only by the perpendicular edge flux
+    assert np.all(np.abs(col["step_particle_face"][1:]) <= 1e-12 * inventory[0])
+    assert np.all(np.abs(col["step_particle_applied"][1:]) <= 1e-12 * inventory[0])
+    np.testing.assert_allclose(np.diff(inventory), col["step_particle_explicit"][1:], rtol=0, atol=1e-6 * inventory[0])
     for kind in ("electron", "ion"):
-        assert np.all(np.abs(col[f"step_{kind}_energy_wall"][1:]) <= 1e-12 * col[f"{kind}_energy_inventory"][0])
+        assert np.all(np.abs(col[f"step_{kind}_energy_face"][1:]) <= 1e-12 * col[f"{kind}_energy_inventory"][0])
+        assert np.all(np.abs(col[f"step_{kind}_energy_applied"][1:]) <= 1e-12 * col[f"{kind}_energy_inventory"][0])
 
 
 def _flux_tube(cells: int, *, isothermal: bool, mu: float = 25.0, periods: int = 10):
