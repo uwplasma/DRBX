@@ -63,22 +63,6 @@ def annotate_bars(
         )
 
 
-def support_window_slice(
-    *arrays: np.ndarray,
-    padding: int = 4,
-    threshold: float = 1.0e-12,
-) -> slice:
-    support = np.zeros_like(np.asarray(arrays[0], dtype=np.float64), dtype=bool)
-    for array in arrays:
-        support |= np.abs(np.asarray(array, dtype=np.float64)) > threshold
-    indices = np.flatnonzero(support)
-    if indices.size == 0:
-        return slice(0, support.size)
-    start = max(0, int(indices[0]) - padding)
-    stop = min(support.size, int(indices[-1]) + padding + 1)
-    return slice(start, stop)
-
-
 def save_publication_figure(figure, output_path: str | Path) -> None:
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)

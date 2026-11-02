@@ -100,6 +100,7 @@ from drbx.fci_braginskii.native.fci_operators import (  # noqa: E402
     build_local_perp_laplacian_face_projectors,
     expand_local_control_volume_owner_field,
 )
+from drbx.fci_braginskii.geometry_build.hsx_fci_builder import TopologyDescriptor, _topology_metadata  # noqa: E402
 DEFAULT_FILAMENT_CACHE_DIR = SCRIPT_DIR / ".hsx_filament_cache"
 PLASMA_OPERATOR_BASELINE = "d340f4d638e0d9495546d1fd2e2c66c1c206704a"
 GEOMETRY_PRODUCER_METADATA_KEYS = (
@@ -160,17 +161,6 @@ FCI_MAP_FIELDS = (
 )
 
 
-@dataclass(frozen=True)
-class TopologyDescriptor:
-    """Logical-coordinate contract shared by geometry and runtime metadata."""
-
-    name: str
-    coordinate_names: tuple[str, str, str]
-    periodic_axes: tuple[bool, bool, bool]
-    axis_regular_axes: tuple[bool, bool, bool]
-    logical_extents: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
-
-
 WALL_LEDGER_COLUMNS = (
     "time", "particle", "parallel_momentum", "electron_energy", "ion_energy",
     "kinetic_energy", "current", "abs_current", "wall_legs", "particle_inventory",
@@ -204,16 +194,6 @@ _TOROIDAL_TOPOLOGY = topology_descriptor("toroidal")
 # Backward-compatible symbols used by the production toroidal runtime path.
 PERIODIC_AXES = _TOROIDAL_TOPOLOGY.periodic_axes
 AXIS_REGULAR_AXES = _TOROIDAL_TOPOLOGY.axis_regular_axes
-
-
-def _topology_metadata(descriptor: TopologyDescriptor) -> dict[str, object]:
-    return {
-        "topology": descriptor.name,
-        "coordinate_names": list(descriptor.coordinate_names),
-        "periodic_axes": list(descriptor.periodic_axes),
-        "axis_regular_axes": list(descriptor.axis_regular_axes),
-        "logical_extents": [list(extent) for extent in descriptor.logical_extents],
-    }
 
 
 def _aggregate_initial_owner_state(
@@ -1993,18 +1973,15 @@ def run_full_eb(
         diagnostics = jnp.stack(
             (state_mins[-1], state_maxs[-1], state_abs_maxs[-1]), axis=1
         )
-        if model.sheath is None:
-            step_ledger = jnp.zeros((11,), dtype=jnp.float64)
-        else:
-            implicit_1, explicit_1, implicit_2, explicit_2, _ = stage_rates
-            step_ledger = model.wall_step_ledger(
-                stage_states[0],
-                implicit_1.axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
-                explicit_1.axpy(explicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
-                dt,
-            )
-            for mesh_axis_name in ("x", "y", "z"):
-                step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
+        implicit_1, explicit_1, implicit_2, explicit_2, _ = stage_rates
+        step_ledger = model.wall_step_ledger(
+            stage_states[0],
+            implicit_1.axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
+            explicit_1.axpy(explicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
+            dt,
+        )
+        for mesh_axis_name in ("x", "y", "z"):
+            step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
         outputs = (
             stage_states[-1],
             diagnostics,
@@ -2714,22 +2691,20 @@ def run_full_eb(
             return compiled_advance(*advance_args)
 
     wall_ledger_rows: list[list[float]] = []
-    wall_ledger = None
-    if sheath is not None:
-        def wall_ledger_kernel(local_state, cell_fields_owned, map_fields_owned, control_volume_fields_owned):
-            model = build_local_model(cell_fields_owned, map_fields_owned, control_volume_fields_owned)
-            totals = model.wall_flux_ledger(local_state)
-            for axis_name in ("x", "y", "z"):
-                totals = jax.lax.psum(totals, axis_name)
-            return totals
+    def wall_ledger_kernel(local_state, cell_fields_owned, map_fields_owned, control_volume_fields_owned):
+        model = build_local_model(cell_fields_owned, map_fields_owned, control_volume_fields_owned)
+        totals = model.wall_flux_ledger(local_state)
+        for axis_name in ("x", "y", "z"):
+            totals = jax.lax.psum(totals, axis_name)
+        return totals
 
-        wall_ledger = jax.jit(jax.shard_map(
-            wall_ledger_kernel,
-            mesh=mesh,
-            in_specs=(state_spec, geometry_spec, geometry_spec, geometry_spec),
-            out_specs=replicated_spec,
-            check_vma=False,
-        ))
+    wall_ledger = jax.jit(jax.shard_map(
+        wall_ledger_kernel,
+        mesh=mesh,
+        in_specs=(state_spec, geometry_spec, geometry_spec, geometry_spec),
+        out_specs=replicated_spec,
+        check_vma=False,
+    ))
 
     def wall_totals(current_state) -> np.ndarray:
         with jax.disable_jit(advance_execution == "eager"):
@@ -3434,6 +3409,7 @@ class HsxBlobConfig:
     mi_over_me: float = 1836.0
     perp_diffusion: float = 1.0e-5
     parallel_diffusion: float = 0.0
+    parallel_dissipation: float = 0.1
     parallel_conduction: str = "auto"
     reference_density_m3: float = 1.0e19
     coulomb_logarithm: float = 15.0
@@ -3479,6 +3455,8 @@ class HsxBlobConfig:
                 raise ValueError(f"[fci_braginskii] {name} must be one of {allowed}")
         if self.wall_closure not in WALL_CLOSURES:
             raise ValueError(f"[fci_braginskii] wall_closure must be one of {WALL_CLOSURES}")
+        if not self.parallel_dissipation >= 0.0:
+            raise ValueError("[fci_braginskii] parallel_dissipation must be non-negative")
         if not (self.reference_density_m3 > 0.0 and self.coulomb_logarithm > 0.0 and self.heat_flux_limiter >= 0.0):
             raise ValueError(
                 "[fci_braginskii] reference_density_m3 and coulomb_logarithm must be positive, "
@@ -3759,6 +3737,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         electron_conduction_kappa0=kappa0_e,
         ion_conduction_kappa0=kappa0_i,
         heat_flux_limiter=float(args.heat_flux_limiter),
+        parallel_dissipation=float(args.parallel_dissipation),
     )
     if not restart_used:
         initial_state = build_initial_state(
@@ -3981,6 +3960,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             "mi_over_me": float(args.mi_over_me),
             "perp_diffusion": float(args.perp_diffusion),
             "parallel_diffusion": float(args.parallel_diffusion),
+            "parallel_dissipation": float(args.parallel_dissipation),
             "parallel_conduction": (
                 f"spitzer-harm, implicit, kappa0_e={kappa0_e:.8g}, kappa0_i={kappa0_i:.8g}, "
                 f"limiter={float(args.heat_flux_limiter):g}" if kappa0_e else "off"

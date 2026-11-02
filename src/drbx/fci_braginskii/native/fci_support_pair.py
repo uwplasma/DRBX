@@ -146,8 +146,41 @@ def build_weighted_negative_adjoint(
     return divergence
 
 
+def build_support_pair(
+    core_divergence: Divergence,
+    mass: Array,
+    *,
+    active: Array,
+    core: Array,
+) -> tuple[Gradient, Divergence]:
+    """Constant-exact weighted support pair ``(G, D)`` of a core-row divergence ``D0``.
+
+    ``D0`` is a homogeneous linear mapped flux divergence restricted to the
+    ``core`` rows.  Its weighted negative adjoint is ``H``; the diagonal
+    correction ``G(f) = H(f) - H(1) f`` makes constants exact, and a second
+    weighted negative adjoint closes ``D = -M^-1 G^T M``.  Then ``D`` is the
+    exact adjoint of ``G`` (``sum M D(f) = 0``) and neither transpose output
+    is target-masked: core rows may scatter onto excluded cells.
+    """
+
+    adjoint = build_weighted_negative_adjoint(
+        core_divergence, mass, mass, primal_active=active, dual_active=core
+    )
+    constant = adjoint(jnp.ones(mass.shape, dtype=mass.dtype))
+
+    def gradient(values: Array) -> Array:
+        values = jnp.where(active, jnp.asarray(values, dtype=mass.dtype), 0.0)
+        return adjoint(values) - constant * values
+
+    divergence = build_weighted_negative_adjoint(
+        gradient, mass, mass, primal_active=active, dual_active=active
+    )
+    return gradient, divergence
+
+
 __all__ = [
     "Gradient",
     "Divergence",
+    "build_support_pair",
     "build_weighted_negative_adjoint",
 ]
