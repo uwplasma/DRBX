@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-import os
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from solvax import available_cpus
 
 
 # Definitions identical to (and closure-equivalent with) the shared module;
@@ -39,13 +39,9 @@ _HOST_EIG_MAX_THREADS = 64
 
 
 def _host_eig_threads() -> int:
-    """CPUs available to this process (affinity-aware), capped at 64."""
+    """CPUs available to this process, capped at 64."""
 
-    try:
-        available = len(os.sched_getaffinity(0))
-    except (AttributeError, OSError):
-        available = os.cpu_count() or 1
-    return max(1, min(available, _HOST_EIG_MAX_THREADS))
+    return min(available_cpus(), _HOST_EIG_MAX_THREADS)
 
 
 def _host_eig(matrix):
