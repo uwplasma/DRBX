@@ -124,6 +124,9 @@ class DetachmentSolParameters:
     recycled_temperature: float = 3.5    # eV (Franck-Condon)
     max_mean_free_path: float = 0.1      # m
     sheath_gamma: float = 6.0
+    # "minmod": SD1D (MinMod NV_i at the face times V_out, about 14 % below N_out V_out^2 at
+    # 800 cells); "face": N_out V_out^2. Opt-in, for the Hermes-3 comparison (benchmarks/hermes3_1d).
+    sheath_momentum_flux: str = "minmod"
     charge_exchange: bool = True
     recombination: bool = True
     Nnorm: float = 1.0e20
@@ -457,6 +460,10 @@ def _terms(u, s, theta, params: DetachmentSolParameters, grid: _Grid) -> _Terms:
     # Plasma
     div_n, flux_n = _div_fs(Ne_x, Vi_x, a_x, grid)
     div_nv, flux_nv = _div_fs(NVi_x, Vi_x, a_x, grid)
+    if params.sheath_momentum_flux == "face":
+        ft = 0.5 * (J[-3] + J[-2])
+        div_nv = div_nv.at[-1].add((Nout * Vout * Vout * ft - flux_nv[-1]) / (grid.dl[-3] * J[-3]))
+        flux_nv = flux_nv.at[-1].set(Nout * Vout * Vout * ft)
     div_p, flux_p = _div_fs(P_x, Vi_x, a_x, grid)
     ddt_n = -div_n - S + s * ne_src
     ddt_nv = -div_nv - _grad_c(P_x, grid) - F
