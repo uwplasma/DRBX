@@ -220,6 +220,25 @@ def test_hsx_sheath_step_check_is_independent_of_the_update(tmp_path):
     assert applied.shape == face.shape
 
 
+@pytest.mark.slow
+def test_hsx_step_check_fails_when_the_update_removes_the_wrong_amount(tmp_path, monkeypatch):
+    """Mutation: the wall block removes 5% too many particles; the check must see it."""
+
+    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
+    if bundle is None:
+        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX mutation check")
+    original = LocalFciDrbEBRhs._sheath_wall_backward_euler
+
+    def too_strong(self, *args, **kwargs):
+        increment, info = original(self, *args, **kwargs)
+        return increment.at[..., 0].multiply(1.05), info
+
+    monkeypatch.setattr(LocalFciDrbEBRhs, "_sheath_wall_backward_euler", too_strong)
+    col = _hsx_ledger(tmp_path, bundle)
+    mismatch = balance_mismatch(col["step_particle_applied"][1:], col["step_particle_face"][1:])
+    assert np.all(np.abs(mismatch) > 1e-2), mismatch
+
+
 def _hsx_ledger(tmp_path, bundle, extra=""):
     from drbx.cli import main
 

@@ -2140,10 +2140,12 @@ class LocalFciDrbEBRhs:
           ``I = (sum V n, sum V 3/2 n Te, sum V 3/2 tau n Ti, sum V n Vi)``;
         * ``face[k]`` is the rate the wall must remove, computed from the
           wall-face states of the *stage state* by :func:`wall_face_fluxes`
-          (``wall_flux_ledger``): ``-F_n``, ``-q_e + S_e``, ``-q_i + S_i``,
-          ``-F_m + p_leg + S_m`` with ``S`` the labelled parallel work
-          sources.  The linearised backward-Euler stage satisfies
-          ``applied = face`` only to its linearisation error.
+          (``wall_flux_ledger``): ``-F_n``, ``-q_e``, ``-q_i`` and
+          ``-F_m + p_leg`` (the wall leg's momentum flux less its share of the
+          mirror force).  The labelled parallel work sources ``S`` belong to
+          the explicit bulk rows, not to this stage.  The linearised
+          backward-Euler stage satisfies ``applied = face`` only to its
+          linearisation error.
 
         The explicit bulk density rate must integrate to zero by itself, so
         ``sum V exp.n`` and ``sum V |exp.n|`` are returned for each stage.
@@ -2166,8 +2168,7 @@ class LocalFciDrbEBRhs:
         rows = []
         for base, stage in zip(bases, stages):
             wall = self.wall_flux_ledger(stage)
-            face = jnp.stack((-wall[0], -wall[2] + wall[12], -wall[3] + wall[13],
-                              -wall[14] + wall[15] + wall[16]))
+            face = jnp.stack((-wall[0], -wall[2], -wall[3], -wall[14] + wall[15]))
             rows += [(inventory(stage) - inventory(base)) / rate_dt, face]
         explicit = [self._owner_state(rate).density for rate in explicit_rates]
         rows.append(jnp.stack([jnp.sum(mass * e) for e in explicit]))

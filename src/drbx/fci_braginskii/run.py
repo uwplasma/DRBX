@@ -2746,6 +2746,8 @@ def run_full_eb(
         # Applied (implicit stages) against face (wall-face states of the stage states).
         tiny = 1.0e-300
         diff = np.asarray(balance_mismatch(applied, face))
+        # the signed wall momentum cancels against the leg pressure to round-off: scale P by the wall term
+        diff[3] = (applied[3] - face[3]) / max(abs(row[15]) * float(timestep), tiny)
         print(
             "[wall-step] applied-face/face: n={:.2e} W_e={:.2e} W_i={:.2e} P={:.2e} | explicit sum V dn/wall "
             "loss={:.2e} (|.|: {:.2e})".format(
