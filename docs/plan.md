@@ -440,3 +440,4 @@ pressure, target fluxes) from the HSX group.
 | 2026-10-20 | #59, #52–#56 (#62), #51, #57, #63 | decks; exhaust stack; integration; preconditioner `auto`; Bohm limiter |
 | 2026-10-21 | — | literature and code review (24 papers, Hermes-3/BOUT++/FELTOR source); this plan |
 | 2026-11-02 | #68 | B2 merged (Aiken approved). Ledger correction: the wall-step ledger was by construction; independent `wall_step_check` replaces it, figures above retracted (see "Ledger correction 2026-11-01") |
+| 2026-11-02 | physics/conservative-perp-diffusion (stacked on #72) | Perpendicular T diffusion in flux form of n T (energy rate D lap(nT), sum-free); one `reference_density_m3` (neutrals now 1e19, was 5e18). Unit test added; the 16^3 HSX rerun (before: dW_e - int face = -2.852e-3, dW_i = -1.735e-3) was started and stopped by a pause before completing, so the after figures are pending |
