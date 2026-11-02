@@ -126,8 +126,8 @@ def test_every_rate_is_differentiable_and_finite_over_the_fit_range() -> None:
 
 def test_ionisation_energy_cost_is_at_least_the_ionisation_potential() -> None:
     # Electron energy lost per ionisation <sigma v E>/<sigma v> (radiation + 13.6 eV) is >= 13.6 eV
-    # and falls toward it with temperature.
+    # and falls with temperature.
     te = jnp.array([2.0, 5.0, 20.0, 100.0])
     cost = np.asarray(energy_loss_coefficient("d", "iz", te, N_REF) / rate_coefficient("d", "iz", te, N_REF))
-    assert np.all(cost >= 13.6) and np.all(cost < 60.0)
+    assert np.all(cost >= 13.6) and 20.0 < cost[-1] < 30.0  # ~24 eV at 100 eV, ~119 eV at 2 eV (multistep radiation)
     assert cost[0] > cost[-1]
