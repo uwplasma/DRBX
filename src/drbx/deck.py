@@ -12,7 +12,7 @@ import inspect
 import json
 import types
 import typing
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -516,11 +516,37 @@ def _expected_tables(backend: Backend) -> dict[str, type]:
     return {**tables, "runtime": RuntimeConfig, "output": OutputConfig} if backend.generic else tables
 
 
-def load_deck(path: str | Path) -> tuple[str, dict[str, Any]]:
-    """Parse ``path`` into ``(backend name, {table name: config object})``."""
+def parse_set(items: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """``["table.key=value", ...]`` (TOML value syntax; bare words are strings) -> ``{table: {key: value}}``."""
 
-    source = Path(path)
-    data = tomllib.loads(source.read_text(encoding="utf-8"))
+    out: dict[str, dict[str, Any]] = {}
+    for item in items:
+        target, sep, text = item.partition("=")
+        table, dot, key = target.strip().partition(".")
+        if not (sep and dot and key):
+            raise ValueError(f"--set expects table.key=value, got {item!r}")
+        try:
+            value = tomllib.loads(f"v = {text.strip()}")["v"]
+        except tomllib.TOMLDecodeError:
+            value = text.strip()
+        out.setdefault(table, {})[key] = value
+    return out
+
+
+def load_deck(path: str | Path | Mapping[str, Any], overrides: Mapping[str, Mapping[str, Any]] | None = None) -> tuple[str, dict[str, Any]]:
+    """Parse a deck file (or an equivalent dict) into ``(backend name, {table name: config object})``.
+
+    ``overrides`` is ``{table: {key: value}}`` applied on top before validation."""
+
+    if isinstance(path, Mapping):
+        source, data = Path.cwd() / "deck.toml", {t: dict(v) for t, v in path.items()}
+    else:
+        source = Path(path)
+        data = tomllib.loads(source.read_text(encoding="utf-8"))
+    for table, keys in (overrides or {}).items():
+        if not isinstance(data.get(table, {}), dict):
+            raise ValueError(f"[{table}] must be a table")
+        data.setdefault(table, {}).update(keys)
     model = data.get("model", {})
     name = model.get("backend") if isinstance(model, dict) else None
     if name not in BACKENDS:
@@ -550,12 +576,12 @@ def describe(name: str, config: Mapping[str, Any]) -> str:
     return "\n".join([f"backend: {name}", *(f"{t}.{k} = {v!r}" for t, c in config.items() for k, v in vars_of(c).items())])
 
 
-def run_deck(path: str | Path, *, output_dir: Path | None = None, case_name: str | None = None, quiet: bool = False):
+def run_deck(path: str | Path | Mapping[str, Any], *, output_dir: Path | None = None, case_name: str | None = None, quiet: bool = False, overrides: Mapping[str, Mapping[str, Any]] | None = None):
     """Run a deck; write ``<case>_summary.json`` and ``<case>_arrays.npz``; return the summary payload."""
 
-    name, config = load_deck(path)
+    name, config = load_deck(path, overrides)
     output = config.get("output", OutputConfig())
-    case = case_name or output.case_name or Path(path).stem
+    case = case_name or output.case_name or (name if isinstance(path, Mapping) else Path(path).stem)
     say = (lambda message: None) if quiet else (lambda message: print(f"[{case}] {message}", flush=True))
     if "runtime" in config:
         from .runtime import configure_jax_runtime
@@ -571,5 +597,14 @@ def run_deck(path: str | Path, *, output_dir: Path | None = None, case_name: str
                "config": json.loads(json.dumps({t: vars_of(c) for t, c in config.items()}, default=str))}
     (directory / f"{case}_summary.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     np.savez_compressed(directory / f"{case}_arrays.npz", **{k: np.asarray(v) for k, v in arrays.items()})
-    say(f"wrote {directory / (case + '_summary.json')} and {directory / (case + '_arrays.npz')}")
-    return payload
+    paths = [directory / f"{case}_summary.json", directory / f"{case}_arrays.npz"]
+    say(f"wrote {paths[0]} and {paths[1]}")
+    return {**payload, "paths": [str(p) for p in paths]}
+
+
+def run(deck: str | Path | Mapping[str, Any], *, output_dir: Path | None = None, case_name: str | None = None, quiet: bool = True, **overrides: Mapping[str, Any]):
+    """Run a deck file or dict exactly as ``drbx run`` does; ``table={"key": value}`` kwargs override deck keys.
+
+    Returns the summary payload (``results``, ``config``) plus ``paths`` of the files written."""
+
+    return run_deck(deck, output_dir=output_dir, case_name=case_name, quiet=quiet, overrides=overrides)

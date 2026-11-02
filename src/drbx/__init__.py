@@ -7,7 +7,16 @@ configure_jax_runtime()
 from .config.boutinp import BoutConfig, NumericResolver, ROOT_SECTION, load_bout_input, parse_bout_input
 from .config.normalization import MetricPolicy, ModelNormalization
 
+def run(deck, **kwargs):
+    """Run a TOML deck (path or dict) like ``drbx run``; see :func:`drbx.deck.run`."""
+
+    from .deck import run as _run
+
+    return _run(deck, **kwargs)
+
+
 __all__ = [
+    "run",
     "BoutConfig",
     "MetricPolicy",
     "ModelNormalization",
