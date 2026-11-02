@@ -274,7 +274,7 @@ def sheath_wall_leg_residual(
 
     ``conservative_bulk=True`` is the production HSX form, where the bulk
     density and thermal energy rows are the sum-free support-pair fluxes
-    (``LocalFciDrbEBRhs._sheath_conservative_parallel_rates``).  Those fluxes
+    (``LocalFciDrbEBRhs._conservative_parallel_rates``).  Those fluxes
     already end on the owner row, so the (n, Te, Ti) legs are the wall flux
     alone, ``-s F_w / dx``, and each quantity leaves through exactly one face
     flux.  The Vi row is in flux form too (``d(n Vi) = -D(n Vi^2 + p) + p
