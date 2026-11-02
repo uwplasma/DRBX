@@ -97,3 +97,37 @@ def test_hydrogen_rates_pin_amjuel_2020_values() -> None:
     np.testing.assert_allclose(np.asarray(charge_exchange_rate_coefficient(temperatures)), charge_exchange, rtol=3e-3)
     np.testing.assert_allclose(float(rate_coefficient("d", "rec", 1.0, 1.0e19)), 8.57e-19, rtol=3e-3)
     np.testing.assert_allclose(float(rate_coefficient("d", "rec", 100.0, 1.0e19)), 6.17e-21, rtol=3e-3)
+
+
+def test_every_rate_is_differentiable_and_finite_over_the_fit_range() -> None:
+    # N0: one rates module serves the SD1D and FCI paths; all channels (including the
+    # radiated energy per ionisation, AMJUEL H.10 2.1.5) have finite jax.grad in T and n_e.
+    from drbx.native.neutrals import atomic_rates as ar
+
+    temperatures = jnp.array([0.05, 0.5, 2.0, 10.0, 100.0, 1.0e3, 2.0e4])  # includes both clamps
+    densities = jnp.array([1.0e12, 1.0e16, 1.0e19, 1.0e21, 1.0e23])
+    t, n = jnp.meshgrid(temperatures, densities)
+    channels = (
+        lambda t, n: ar.rate_coefficient("d", "iz", t, n),
+        lambda t, n: ar.rate_coefficient("d", "rec", t, n),
+        lambda t, n: ar.energy_loss_coefficient("d", "iz", t, n),
+        lambda t, n: ar.energy_loss_coefficient("d", "rec", t, n),
+        lambda t, n: ar.charge_exchange_rate_coefficient(t),
+        lambda t, n: ar.sd1d_ionisation_rate(t),
+        lambda t, n: ar.sd1d_recombination_rate(n, t),
+        lambda t, n: ar.sd1d_charge_exchange_rate(t),
+    )
+    for f in channels:
+        value = jax.vmap(jax.vmap(f))(t, n)
+        grads = jax.vmap(jax.vmap(jax.grad(f, argnums=(0, 1))))(t, n)
+        assert np.all(np.isfinite(np.asarray(value)))
+        assert all(np.all(np.isfinite(np.asarray(g))) for g in grads)
+
+
+def test_ionisation_energy_cost_is_at_least_the_ionisation_potential() -> None:
+    # Electron energy lost per ionisation <sigma v E>/<sigma v> (radiation + 13.6 eV) is >= 13.6 eV
+    # and falls toward it with temperature.
+    te = jnp.array([2.0, 5.0, 20.0, 100.0])
+    cost = np.asarray(energy_loss_coefficient("d", "iz", te, N_REF) / rate_coefficient("d", "iz", te, N_REF))
+    assert np.all(cost >= 13.6) and np.all(cost < 60.0)
+    assert cost[0] > cost[-1]
