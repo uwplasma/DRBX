@@ -2744,7 +2744,7 @@ def run_full_eb(
             change -= np.asarray([split_change[k] for k in (8, 9, 10, 17)])
         run_check[:] += np.concatenate((step, change))
         tiny = 1.0e-300
-        diff = np.asarray(balance_mismatch(applied, face))
+        diff = np.array(balance_mismatch(applied, face))
         # the signed wall momentum cancels against the leg pressure to round-off: scale P by the wall term
         diff[3] = (applied[3] - face[3]) / max(abs(row[15]) * float(timestep), tiny)
         print(
