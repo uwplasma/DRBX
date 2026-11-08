@@ -279,6 +279,27 @@ not established. It belongs with C2/C3 (#60) and the Phase A wall rows above.
     E removes that site and fails with Te = −4.7e-3 at an r = 30 cell with |Ve| = 26. A on the main state: 152
     unstable (Te, Ve) modes of the layer, abscissa +10.7 (main: 216, +18.5). The cause is therefore not the
     two-wall cells alone but every cell whose parallel gradient is a one-sided scatter.
+14. **Spitzer friction and Ohmic heating** (default; `electron_collision_frequency` `0` = Spitzer, `> 0` constant
+    override, `< 0` off). `dVe = mu nu n (Vi - Ve)`, `nu = 1.612/(kappa0 Te^1.5)` (0.51 times the collision rate that
+    gives `kappa = kappa0 Te^2.5`, so `ln Lambda` and the reference state are those of the conduction), implicit in the
+    current/phi solve (`Ve = c (Ve_b + h a Vi + h mu G phi)`, `a = mu nu n`, `c = 1/(1 + h a)`, current weight `n c`,
+    the adjoint pair unchanged), and `dTe = nu n (Vi - Ve)^2/1.5` (Ohmic, the slot `ohmic_heating`). Wall-layer
+    spectrum on the main state of step 350: abscissa +10.7 (A) to +1.2, but four modes at +4018 on the cells with
+    Te = 0.017 (`d nu/d Te ~ Te^-2.5` makes the Ohmic feedback of a large `Ve - Vi` positive; present only on the
+    state main has already lost). On the state of step 700 of the E run below: (Te, Ve) +1.1 (Te share 0.82), 32 of 2048
+    modes, all real and 1000 times below the stiffness.
+15. **Runs with friction** (restart at step 300, `ε = 0.1`): A + friction fails at step 564 (t = 0.423, a hot one-wall cell
+    at r = 31 with `G(pe) = 0` and `mu G_p(phi) = 1e4`, Ve = 59); **E + friction** (cells without a complete stencil
+    outside both pairs, `G = D = 0`) reaches step 723 (**t = 0.5415**, Te < 0 on an r = 31 cell after phi falls to −43 on
+    a two-cell patch while n goes 0.245 → 0.107 in 20 steps; Ve ≈ 0 there). The same code from t = 0 fails at step 442
+    (t = 0.3315) with |Ve| = 185 on hot (Te = 1.4) cells without wall legs at r = 29…31, phi = −158 on an r = 31 cell.
+    Two sectors remain: the ambipolar layer cells (no parallel current can discharge `omega`: `j_w = 0` per leg) and a
+    Ve–phi–omega mode on interior layer cells (+6.8 ± 3.2i in the pair-off block).
+    Ledger identity of the wall step (#72) ≤ 8e-12 over the 16³ run (main 5e-10); 16³ at t = 0.6: wall particle flux
+    6.73e-2 (main 6.06e-2), N 0.6648 (0.6629), W_e 0.9388 (0.9244), max|Ve| 2.3 (1.9): the friction heats and slows the
+    16³ layer, it does not degrade the closure.
+16. **Not done:** the skew (central) pair for `Ve G(pe)`, the thermal force and `Ve grad Te`. With friction the real
+    (Te, Ve) modes are +1.1 and the failure is the two sectors of item 15, so the skew pair would not move it.
 13. **Open (next).** The Ve–Te block needs a gradient/divergence pair in which the work term `Ve G(pe)` and the
     thermal force have no one-signed diagonal, or a physical parallel friction in the Ve row (Spitzer, same `κ0` as
     the conduction; the constant `electron_collision_frequency` already delays the failure by 0.063 on A). The
