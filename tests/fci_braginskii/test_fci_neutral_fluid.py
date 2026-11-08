@@ -110,6 +110,18 @@ def test_wall_absorption_removes_exactly_the_reported_nuclei_and_energy(geometry
     assert abs(w0 - w1 - float(wall[1])) < 0.05 * float(wall[1])  # up to the (small) kinetic work of the wall-driven flow
 
 
+def test_inactive_cells_with_no_neutrals_stay_finite():
+    geometry = sheared_slab()
+    grid = F.build_neutral_grid(geometry)
+    mask = jnp.arange(geometry.shape[1])[None, :, None] != 3  # a column of cells outside the domain
+    grid = dataclasses.replace(grid, owner=grid.owner & mask, volume=jnp.where(mask, grid.volume, 0.0))
+    n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 2)
+    Nn, Tn = jnp.where(mask, Nn, 0.0), 0.05 + 0.3 * Te
+    out = FL.neutral_fluid_step(n, Vi, Te, Ti, Nn, jnp.zeros(geometry.shape), Tn, 0.02, grid, PARAMS)
+    assert all(bool(jnp.all(jnp.isfinite(x))) for x in out)
+    assert float(FL.flux_limiter(0.0, 0.0)) == 1.0
+
+
 def test_viscosity_diffuses_a_velocity_jump_and_conserves_momentum_of_that_stage():
     geometry = sheared_slab()
     grid = F.build_neutral_grid(geometry)

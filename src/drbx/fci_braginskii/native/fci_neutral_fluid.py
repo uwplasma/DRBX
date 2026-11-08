@@ -81,7 +81,7 @@ FLUID_LEDGER_COLUMNS = (  # the first thirteen sit at the positions of ``fci_neu
 def flux_limiter(gamma_c, gamma_lim, alpha=1.0, power=2.0):
     """``Gamma_fl / Gamma_c = [1 + (|Gamma_c| / (alpha Gamma_lim))^power]^(-1/power)`` (smooth, in (0, 1])."""
 
-    return (1.0 + (jnp.abs(gamma_c) / (alpha * gamma_lim)) ** power) ** (-1.0 / power)
+    return (1.0 + (jnp.abs(gamma_c) / jnp.maximum(alpha * gamma_lim, 1.0e-300)) ** power) ** (-1.0 / power)
 
 
 def transport_coefficients(density, Te, Ti, neutral_density, neutral_temperature, params: NeutralParameters):
@@ -194,7 +194,7 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
     u_a = m_a / n_safe
     gu = sel(grad_norm(_fine(u_a, grid), grid))
     p_n = neutral_density * neutral_temperature
-    eta_l = eta * flux_limiter(eta * gu, p_n)
+    eta_l = sel(eta * flux_limiter(eta * gu, p_n))
 
     def momentum_flux(u):
         up = _upwind(u, (fx, fy, fz), grid)
