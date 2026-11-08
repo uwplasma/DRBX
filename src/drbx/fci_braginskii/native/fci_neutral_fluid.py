@@ -188,7 +188,8 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
     absorbed = rate_n * p_star / tl
     n_new = sel(neutral_density + dt * (owner_inflow(fx, fy, fz, grid) + sn - absorbed))
     m_a = sel(m0 - dt * gp)
-    n_safe = jnp.maximum(n_new, 1.0e-300)
+    # a vacuum floor relative to the largest density keeps the implicit solves O(1) on empty and inactive cells
+    n_safe = jnp.where(owner, jnp.maximum(n_new, 1.0e-12 * jnp.max(n_new)), 1.0)
 
     # u: implicit upwind advection by the particle flux and limited viscosity, conservative in M
     u_a = m_a / n_safe
@@ -223,7 +224,7 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
     w_old = 1.5 * neutral_density * neutral_temperature
     rhs_e = w_old + dt * se
     diag = (1.5 + dt * rate_e) * n_safe + dt * _diffusion_diagonal(kappa, grid)
-    t_star, rel_e = _gmres(energy_operator, rhs_e, neutral_temperature, diag, params)
+    t_star, rel_e = _gmres(energy_operator, rhs_e, sel(neutral_temperature), diag, params)
     wall_energy = rate_e * n_safe * t_star
     w_new = rhs_e + dt * (owner_inflow(*energy_flux(t_star), grid) - wall_energy)
     t_new = sel(w_new / (1.5 * n_safe))

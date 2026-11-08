@@ -110,6 +110,20 @@ def test_wall_absorption_removes_exactly_the_reported_nuclei_and_energy(geometry
     assert abs(w0 - w1 - float(wall[1])) < 0.05 * float(wall[1])  # up to the (small) kinetic work of the wall-driven flow
 
 
+def test_nuclei_check_fails_on_a_one_percent_leak():
+    # the check compares the nuclei change with an expectation built from the unleaked source
+    geometry = sheared_slab()
+    grid = F.build_neutral_grid(geometry)
+    n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 2)
+    source, v, Tn = 0.1 * jnp.ones(geometry.shape), grid.volume, 0.05 + 0.3 * Te
+    closure = []
+    for leak in (0.0, 0.01):
+        out = FL.neutral_fluid_step(n, Vi, Te, Ti, Nn, 0 * Nn, Tn, 0.02, grid, PARAMS, volume_source=(1 - leak) * source)
+        change = float(jnp.sum(v * (out[0] + out[4] - n - Nn)))
+        closure.append(abs(change - 0.02 * float(jnp.sum(v * source))) / (0.02 * float(jnp.sum(v * source))))
+    assert closure[0] < 1e-12 and closure[1] == pytest.approx(0.01, rel=1e-6)
+
+
 def test_inactive_cells_with_no_neutrals_stay_finite():
     geometry = sheared_slab()
     grid = F.build_neutral_grid(geometry)
