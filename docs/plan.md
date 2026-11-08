@@ -245,7 +245,7 @@ not established. It belongs with C2/C3 (#60) and the Phase A wall rows above.
 10. **Open candidates (untested).** (a) A stable sheath-current mode (C2/C3): a current-mode Ve row with the
     insulating pair. (b) The long one-sided support-pair stencil that a both-legs-wall cell receives from the
     scatter of a core row (item 3). (c) The implicit current/phi pair solve itself at both-legs-wall cells (the net
-    Ve rate it produces from items 3 was not measured).
+    Ve rate it produces from item 3 was not measured).
 
 ### Phase D: performance (each with A/B/A/B timings and a gate)
 
