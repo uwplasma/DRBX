@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-
 import jax
 import jax.numpy as jnp
-import numpy as np
-from solvax import available_cpus
 
 
 # Definitions identical to (and closure-equivalent with) the shared module;
@@ -24,81 +20,60 @@ from ...native.fci_helpers import (  # noqa: F401
 from ...native.fci_helpers import _local_side_mask, local_physical_side_active  # noqa: F401
 
 
-_HOST_EIG_MIN_CHUNK = 1024
-_HOST_EIG_POOL: ThreadPoolExecutor | None = None
-# jaxlib >= 0.11 runs the batched CPU ``geev`` custom call on one thread; up to
-# 0.10 it was spread over XLA's intra-op pool (one thread per core).  At HSX
-# 32^3 that made the explicit operator phase about 5x slower.
-_CPU_EIG_ON_HOST = tuple(int(p) for p in jax.__version__.split(".")[:2]) >= (0, 11)
-
-
-# pip NumPy's OpenBLAS is built for at most 64 threads; more Python threads
-# calling into it overflow its per-thread buffers ("precompiled NUM_THREADS
-# exceeded", then heap corruption), as seen on 128/256-core nodes.
-_HOST_EIG_MAX_THREADS = 64
-
-
-def _host_eig_threads() -> int:
-    """CPUs available to this process, capped at 64."""
-
-    return min(available_cpus(), _HOST_EIG_MAX_THREADS)
-
-
-def _host_eig(matrix):
-    """Batched LAPACK ``geev`` on the host, split over one thread per core.
-
-    NumPy releases the GIL in ``linalg.eig`` and calls LAPACK ``geev`` like
-    jaxlib's CPU kernel, so each matrix's result agrees with
-    ``jnp.linalg.eig`` to round-off (bitwise when NumPy and jaxlib use the
-    same LAPACK build; pip wheels ship different ones and can differ in the
-    last bits).  Only the batch is split across threads, as XLA's intra-op
-    pool did before jaxlib 0.11; the result does not depend on the split.
-    The matrices are at most 5x5, where ``geev`` does not use BLAS threading,
-    so the worker threads do not oversubscribe cores.
-    """
-
-    global _HOST_EIG_POOL
-    matrix = np.asarray(matrix)
-    batch = matrix.reshape((-1,) + matrix.shape[-2:])
-    threads = _host_eig_threads()
-    pieces = min(threads, batch.shape[0] // _HOST_EIG_MIN_CHUNK)
-    if pieces > 1:
-        if _HOST_EIG_POOL is None:
-            _HOST_EIG_POOL = ThreadPoolExecutor(threads)
-        results = list(_HOST_EIG_POOL.map(np.linalg.eig, np.array_split(batch, pieces)))
-        values = np.concatenate([r[0] for r in results])
-        vectors = np.concatenate([r[1] for r in results])
-    else:
-        values, vectors = np.linalg.eig(batch)
-    return (
-        values.astype(np.complex128).reshape(matrix.shape[:-1]),
-        vectors.astype(np.complex128).reshape(matrix.shape),
-    )
-
-
 def small_batched_eig(matrix: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """``jnp.linalg.eig`` for batches of small real matrices on any backend.
+    """Eigen-decomposition of batches of real 4x4 matrices with a zero last column.
 
-    The input must already be stopped-gradient.  Results agree with
-    ``jnp.linalg.eig`` on CPU to round-off.  The host path (threaded LAPACK ``geev`` via
-    ``pure_callback``) is used on non-CPU backends, where XLA's GPU ``eig``
-    solves one matrix at a time (about 20 ms per 4x4 matrix on an RTX A4000),
-    and on CPU with jaxlib >= 0.11, whose batched ``geev`` custom call is
-    single-threaded.  CPU with older jaxlib keeps the in-graph custom call.
+    This is the shape of every curvature principal matrix: the vorticity
+    column vanishes, so ``A = [[M, 0], [r, 0]]`` has the eigenvalue 0 (vector
+    ``e_3``) and the three eigenvalues of ``M``, which are the roots of a cubic
+    (trigonometric form, one Newton step) with eigenvectors ``(u, r.u / lambda)``
+    where ``u`` is the largest cross product of two rows of ``M - lambda I``.
+    Columns are unit vectors, as LAPACK returns them.  Everything is plain
+    array arithmetic, so it runs fused on any backend (a host ``geev``
+    callback cost 0.7 s per CPU step and a device round trip per call on a GPU).
+
+    The input must already be stopped-gradient.  Returns complex eigenvalues
+    and real eigenvectors.  When the roots of ``M`` are not real (the cubic's
+    discriminant is negative), the eigenvalues get a unit imaginary part and
+    the vectors are the identity; callers reject that case through their
+    spectrum-validity test exactly as for a complex LAPACK spectrum.
     """
 
-    matrix = jnp.asarray(matrix, dtype=jnp.float64)
-    cplx = jnp.complex128
-    shapes = (
-        jax.ShapeDtypeStruct(matrix.shape[:-1], cplx),
-        jax.ShapeDtypeStruct(matrix.shape, cplx),
+    a = jnp.asarray(matrix, dtype=jnp.float64)
+    m, r = a[..., :3, :3], a[..., 3, :3]
+    eye = jnp.eye(3, dtype=a.dtype)
+    shift = (m[..., 0, 0] + m[..., 1, 1] + m[..., 2, 2]) / 3.0
+    b = m - shift[..., None, None] * eye
+    p_cubic = -0.5 * jnp.einsum("...ij,...ji->...", b, b)  # t^3 + P t + Q = 0, t = lambda - shift
+    q_cubic = -(
+        b[..., 0, 0] * (b[..., 1, 1] * b[..., 2, 2] - b[..., 1, 2] * b[..., 2, 1])
+        - b[..., 0, 1] * (b[..., 1, 0] * b[..., 2, 2] - b[..., 1, 2] * b[..., 2, 0])
+        + b[..., 0, 2] * (b[..., 1, 0] * b[..., 2, 1] - b[..., 1, 1] * b[..., 2, 0])
     )
+    radius = jnp.sqrt(jnp.maximum(-p_cubic / 3.0, 0.0))
+    cosine = q_cubic / (2.0 * jnp.where(radius > 0.0, radius, 1.0) ** 3)
+    complex_roots = ~((radius > 0.0) | (q_cubic == 0.0)) | (jnp.abs(cosine) > 1.0 + 1.0e-10)
+    angle = jnp.arccos(jnp.clip(-cosine, -1.0, 1.0))[..., None] / 3.0
+    t = 2.0 * radius[..., None] * jnp.cos(angle - jnp.asarray((0.0, 2.0, 4.0)) * (jnp.pi / 3.0))
+    # One Newton step on the characteristic polynomial removes the trigonometric rounding.
+    slope = 3.0 * t**2 + p_cubic[..., None]
+    t = t - jnp.where(slope != 0.0, (t**3 + p_cubic[..., None] * t + q_cubic[..., None]) / jnp.where(slope != 0.0, slope, 1.0), 0.0)
+    lam = shift[..., None] + t
 
-    def host(m):
-        return jax.pure_callback(_host_eig, shapes, m, vmap_method="broadcast_all")
-
-    if _CPU_EIG_ON_HOST:
-        return host(matrix)
-    return jax.lax.platform_dependent(
-        matrix, cpu=lambda m: tuple(jnp.linalg.eig(m)), default=host
+    rows = (m[..., None, :, :] - lam[..., :, None, None] * eye)  # (..., k, 3, 3)
+    crosses = jnp.stack(
+        [jnp.cross(rows[..., 0, :], rows[..., 1, :]), jnp.cross(rows[..., 1, :], rows[..., 2, :]),
+         jnp.cross(rows[..., 2, :], rows[..., 0, :])]
     )
+    best = jnp.argmax(jnp.linalg.norm(crosses, axis=-1), axis=0)
+    pick = best[None] == jnp.arange(3).reshape((3,) + (1,) * best.ndim)
+    u = jnp.sum(jnp.where(pick[..., None], crosses, 0.0), axis=0)
+    u = u / jnp.maximum(jnp.linalg.norm(u, axis=-1, keepdims=True), 1.0e-300)
+    tail = jnp.sum(r[..., None, :] * u, axis=-1) / jnp.where(lam != 0.0, lam, 1.0)
+    v = jnp.concatenate([u, tail[..., None]], axis=-1)
+    v = v / jnp.linalg.norm(v, axis=-1, keepdims=True)
+    e3 = jnp.broadcast_to(jnp.asarray((0.0, 0.0, 0.0, 1.0)), v[..., :1, :].shape)
+    vectors = jnp.swapaxes(jnp.concatenate([v, e3], axis=-2), -1, -2)
+    vectors = jnp.where(complex_roots[..., None, None], jnp.eye(4), vectors)
+    values = jnp.concatenate([lam, jnp.zeros_like(lam[..., :1])], axis=-1) + 1.0j * complex_roots[..., None]
+    return values, vectors
