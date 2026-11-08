@@ -131,7 +131,7 @@ def neutral_transport(neutral_density, neutral_temperature, dp, kappa, dt, grid:
     n_new = jnp.where(owner, neutral_density + dt * (owner_inflow(fx, fy, fz, grid) + sn), 0.0)
 
     # energy: upwind enthalpy 5/2 T Gamma plus conduction, implicit in T
-    scale = jnp.max(jnp.abs(fx)) + jnp.max(jnp.abs(fy)) + jnp.max(jnp.abs(fz)) + 1.0e-300
+    scale = jnp.max(jnp.abs(fx)) + jnp.max(jnp.abs(fy)) + jnp.max(jnp.abs(fz))
     kf = _fine(kappa, grid)
     n_safe = jnp.maximum(n_new, 1.0e-300)
 
@@ -139,7 +139,7 @@ def neutral_transport(neutral_density, neutral_temperature, dp, kappa, dt, grid:
         tf = _fine(t, grid)
         out = []
         for ax, flux, cond in zip((0, 1, 2), (fx, fy, fz), _face_fluxes(tf, kf, grid)):
-            s = flux / jnp.sqrt(flux**2 + (1.0e-8 * scale) ** 2)
+            s = flux / jnp.sqrt(flux**2 + (1.0e-8 * scale + 1.0e-30) ** 2)
             tn_ = jnp.roll(tf, -1, axis=ax)
             out.append(2.5 * (0.5 * (tf + tn_) - 0.5 * s * (tn_ - tf)) * flux + cond)
         return out

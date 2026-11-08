@@ -214,6 +214,31 @@ E2. Ballistic neutrals with Knudsen-cosine wall emission, reflection fraction
 E3. Split the energy ledger into plasma sheath cooling and surface power
     (+ I_iz Γ); secondary emission δ as an explicit input.
 
+### Phase E (revision 2026-11-08): one differentiable 3D fluid neutral model, stages N0-N6
+
+Goal: one full fluid neutral model on the FCI grid (n_n, parallel/3D momentum, T_n; not Monte Carlo, not kinetic)
+replacing the diffusive model (`fci_neutrals.py`: diffusive N, fixed T_n, mean-free-path cap) as the default once
+validated; then the old model is deleted. Closure: advanced fluid neutral (Horsten 2017, Van Uytven 2022):
+tau_n^-1 = n_i K_cx + n_e K_i, pressure diffusion Gamma = -(tau_n/m) grad p_n, eta = p_n tau_n, kappa = 5 p_n tau_n/(2m),
+flux limiter Gamma_fl = Gamma_c [1 + (|Gamma_c|/(alpha Gamma_lim))^gamma]^(-1/gamma), alpha = 1, gamma = 2, on particle,
+heat and viscous fluxes; nine-point (cross-metric) terms kept. Valid for Kn <~ 0.1-0.3, so every run reports a Knudsen map.
+Rates: AMJUEL 2020 in 3D; the SD1D fits stay only for the SD1D 1% parity path (deck option for the rates set,
+default AMJUEL in 3D).
+
+- N0 (done, #73): one rates module, `native/neutrals/atomic_rates.py`, used by the SD1D and FCI paths.
+- N1 (#73): `native/fci_neutral_fluid.py`: implicit conservative (n_n, T_n) transport with limited D_p and kappa, exact
+  exchange with the plasma through `reaction_source`; nuclei and neutral energy change only by fluxes and sources.
+- N2: parallel neutral momentum (advection, pressure gradient, limited viscosity, CX/ionisation friction with the ions)
+  and exact momentum/energy exchange tests (radiation is the only energy sink).
+- N3: wiring into the FCI run: deck option `neutral_model = "fluid"`; history, ledger and restart carry n_n, u_n, T_n;
+  reflection wall BC (energy reflection coefficient, Franck-Condon energy for the dissociated remainder); recycling
+  from the face ion flux (uses `wall_step_check` from #72); a conservation check independent of the step that fails
+  on a 1% injected leak.
+- N4: validation: 16^3 HSX run with neutrals, Knudsen map, comparison with the diffusive model, 1D slab penetration
+  length against the mean free path.
+- N5: fluid becomes the default; the diffusive model is deleted (fewest lines).
+- N6: molecules / hybrid (kinetic or ballistic) for Kn > 0.3 regions, only if N4 shows the fluid model is outside its range.
+
 ### Phase F: verification and validation (#42)
 
 F1. 1D Hermes-3 gap: swap test with γe = 4.8, γi = 3.5, c_s(Ti+Te), identical
