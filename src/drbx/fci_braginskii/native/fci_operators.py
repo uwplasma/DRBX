@@ -4619,39 +4619,41 @@ def _angular_tree_solver(
     """Exact nested radial-tree solve of ``(diagonal - child_edge graph) x = rhs``.
 
     ``rhs`` is already in the conductance (volume-weighted) scale.  Ring ``i``
-    keeps its ``ny // profile[i]`` owners (every ``profile[i]``-th theta index);
-    the owners of a ring are the contiguous children of the owners of the ring
-    inside it, so child-to-parent sums and parent-to-child copies are reshapes.
-    The pivots do not depend on the right-hand side and are eliminated once.
+    keeps its ``ny // profile[i]`` owners (every ``profile[i]``-th theta index),
+    packed ring after ring by one static gather; the owners of a ring are the
+    contiguous children of the owners of the ring inside it, so child-to-parent
+    sums and parent-to-child copies are reshapes.  The pivots do not depend on
+    the right-hand side and are eliminated once, leaving fused elementwise
+    sweeps (one launch instead of one per ring and sweep on a GPU).
     """
     nx, ny, nz = diagonal.shape
     if profile[0] != ny or any(a % b for a, b in zip(profile[:-1], profile[1:])):
         raise ValueError("angular tree needs a single axis owner and nested rings")
-    take = lambda a, i: a[i, :: profile[i]]
-    mask = [take(active, i) for i in range(nx)]
-    edge = [jnp.where(mask[i], take(child_edge, i), 0.0) for i in range(nx)]
-    pivot = [take(diagonal, i) for i in range(nx)]
-    ratio = [0] + [profile[i - 1] // profile[i] for i in range(1, nx)]
-    to_parent = lambda v, i: v.reshape(-1, ratio[i], nz).sum(axis=1)
+    start = np.concatenate([[0], np.cumsum([ny // p for p in profile])])
+    owners = np.concatenate([i * ny + np.arange(0, ny, p) for i, p in enumerate(profile)])
+    unpack = np.full(nx * ny, start[-1])
+    unpack[owners] = np.arange(start[-1])
+    pack = lambda a: a.reshape(nx * ny, nz)[owners]
+    rings = lambda a: [a[start[i] : start[i + 1]] for i in range(nx)]
+    ratio = [1] + [profile[i - 1] // profile[i] for i in range(1, nx)]
+    to_parent = lambda v, i: v if ratio[i] == 1 else v.reshape(-1, ratio[i], nz).sum(axis=1)
+    mask = rings(pack(active))
+    edge = rings(jnp.where(pack(active), pack(child_edge), 0.0))
+    pivot = rings(pack(diagonal))
     for i in range(nx - 1, 0, -1):
-        schur = jnp.where(mask[i], -(edge[i] * edge[i]) / jnp.where(mask[i], pivot[i], 1.0), 0.0)
-        pivot[i - 1] = pivot[i - 1] + to_parent(schur, i)
+        pivot[i - 1] = pivot[i - 1] - to_parent(edge[i] ** 2 / jnp.where(mask[i], pivot[i], 1.0), i)
+    inverse = [jnp.where(m, 1.0 / jnp.where(m, p, 1.0), 0.0) for m, p in zip(mask, pivot)]
 
     def solve(rhs: jnp.ndarray) -> jnp.ndarray:
-        r = [take(rhs, i) for i in range(nx)]
+        r = rings(pack(rhs))
         for i in range(nx - 1, 0, -1):
-            r[i - 1] = r[i - 1] + to_parent(
-                jnp.where(mask[i], edge[i] * r[i] / jnp.where(mask[i], pivot[i], 1.0), 0.0), i
-            )
-        x = [r[0] / pivot[0]]
+            r[i - 1] = r[i - 1] + to_parent(edge[i] * inverse[i] * r[i], i)
+        x = [r[0] * inverse[0]]
         for i in range(1, nx):
-            parent = jnp.repeat(x[i - 1], ratio[i], axis=0)
-            x.append(jnp.where(mask[i], (r[i] + edge[i] * parent) / jnp.where(mask[i], pivot[i], 1.0), 0.0))
-        levels = [
-            jnp.zeros((ny // profile[i], profile[i], nz), x[i].dtype).at[:, 0].set(x[i]).reshape(ny, nz)
-            for i in range(nx)
-        ]
-        return jnp.where(active, jnp.stack(levels), 0.0)
+            parent = jnp.repeat(x[i - 1], ratio[i], axis=0) if ratio[i] > 1 else x[i - 1]
+            x.append((r[i] + edge[i] * parent) * inverse[i])
+        full = jnp.concatenate(x + [jnp.zeros((1, nz), rhs.dtype)])[unpack]
+        return full.reshape(nx, ny, nz)
 
     return solve
 
