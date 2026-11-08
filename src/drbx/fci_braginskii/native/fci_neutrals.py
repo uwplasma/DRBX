@@ -301,6 +301,16 @@ def _face_fluxes(field_fine, d_fine, grid: NeutralGrid):
     return flux_x, flux_y, flux_z
 
 
+def grad_norm(f, grid: NeutralGrid):
+    """Physical ``|grad f|`` of a fine-cell field (full metric)."""
+
+    g = grid.g_contra
+    gx, gy, gz = _cell_gradients(f, grid)
+    sq = (g[0] * gx * gx + g[3] * gy * gy + g[5] * gz * gz
+          + 2.0 * (g[1] * gx * gy + g[2] * gx * gz + g[4] * gy * gz))
+    return jnp.sqrt(jnp.maximum(sq, 0.0))
+
+
 def _owner_sum(fine_integrated, grid: NeutralGrid):
     n = fine_integrated.size
     total = jax.ops.segment_sum(fine_integrated.ravel(), grid.owner_flat.ravel(), num_segments=n)
@@ -314,9 +324,13 @@ def neutral_diffusion_rate(neutral_density, diffusivity, grid: NeutralGrid, wall
     face (shape ``grid.shape[1:]``); zero means a reflecting wall.
     """
 
-    f = _fine(neutral_density, grid)
-    d = _fine(diffusivity, grid)
-    fx, fy, fz = _face_fluxes(f, d, grid)
+    fx, fy, fz = _face_fluxes(_fine(neutral_density, grid), _fine(diffusivity, grid), grid)
+    return owner_inflow(fx, fy, fz, grid, wall_influx)
+
+
+def owner_inflow(fx, fy, fz, grid: NeutralGrid, wall_influx=None):
+    """Owner rate ``-div F`` of integrated fine-face fluxes (+axis direction); x wall face is the last one."""
+
     net = (jnp.roll(fx, 1, axis=0).at[0].set(0.0) - fx)
     net = net + jnp.roll(fy, 1, axis=1) - fy + jnp.roll(fz, 1, axis=2) - fz
     if wall_influx is not None:
@@ -427,12 +441,15 @@ def apply_volumetric_source(density, Vi, Te, Ti, source: VolumetricSource, dt, *
     return keep(n_new, n), keep(Vi_new, Vi), keep(Te_new, Te), keep(Ti_new, Ti)
 
 
-def reaction_source(density, Vi, Te, Ti, neutral_density, params: NeutralParameters, owner):
-    """AMJUEL hydrogen reaction channels as a plasma ``VolumetricSource`` plus the neutral side."""
+def reaction_source(density, Vi, Te, Ti, neutral_density, params: NeutralParameters, owner, neutral_temperature=None):
+    """AMJUEL hydrogen reaction channels as a plasma ``VolumetricSource`` plus the neutral side.
+
+    ``neutral_temperature``: evolved ``T_n`` field (fluid model); default the fixed ``T_n``.
+    """
 
     n = jnp.where(owner, jnp.maximum(density, 0.0), 0.0)
     nn = jnp.where(owner, jnp.maximum(neutral_density, 0.0), 0.0)
-    Tn = jnp.full_like(n, params.neutral_temperature)
+    Tn = jnp.full_like(n, params.neutral_temperature) if neutral_temperature is None else neutral_temperature
     out = compute_hydrogen_reaction_sources(
         n, Vi, params.tau * jnp.maximum(Ti, 0.0), jnp.maximum(Te, 0.0), nn, jnp.zeros_like(n), Tn,
         normalization=params.normalization,
@@ -458,14 +475,15 @@ def rate_validity_counts(density, Te, Ti, params: NeutralParameters, owner):
     )
 
 
-def collision_frequencies(density, Te, Ti, params: NeutralParameters):
-    """Per-neutral CX and ionisation frequencies (backend time units)."""
+def collision_frequencies(density, Te, Ti, params: NeutralParameters, neutral_temperature=None):
+    """Per-neutral CX and ionisation frequencies (backend time units); ``T_n`` field or the fixed one."""
 
     scale = params.reference_density_m3 * time_unit_s(params.reference_temperature_ev)
     n = jnp.maximum(density, 0.0)
     ne_m3 = n * params.reference_density_m3
     te_ev = jnp.maximum(Te, 0.0) * params.reference_temperature_ev
-    tcx = (params.tau * jnp.maximum(Ti, 0.0) + params.neutral_temperature) * params.reference_temperature_ev
+    tn = params.neutral_temperature if neutral_temperature is None else neutral_temperature
+    tcx = (params.tau * jnp.maximum(Ti, 0.0) + tn) * params.reference_temperature_ev
     nu_iz = n * rate_coefficient("d", "iz", te_ev, ne_m3) * scale
     nu_cx = n * charge_exchange_rate_coefficient(tcx) * scale
     return nu_cx, nu_iz
@@ -480,13 +498,14 @@ def neutral_diffusivity(density, Te, Ti, params: NeutralParameters):
     return vth * jnp.minimum(mfp, params.mfp_max), mfp
 
 
-def inventories(density, Vi, Te, Ti, neutral_density, grid: NeutralGrid, params: NeutralParameters):
+def inventories(density, Vi, Te, Ti, neutral_density, grid: NeutralGrid, params: NeutralParameters, neutral_temperature=None):
     """(nuclei, plasma thermal+kinetic energy, neutral thermal energy) on the owner measure."""
 
     v = grid.volume
     nuclei = jnp.sum(v * (density + neutral_density))
     plasma = jnp.sum(v * (1.5 * density * Te + 1.5 * params.tau * density * Ti + 0.5 * density * Vi**2))
-    neutral = jnp.sum(v * 1.5 * params.neutral_temperature * neutral_density)
+    tn = params.neutral_temperature if neutral_temperature is None else neutral_temperature
+    neutral = jnp.sum(v * 1.5 * tn * neutral_density)
     return nuclei, plasma, neutral
 
 
@@ -617,14 +636,10 @@ def knudsen_map(density, Te, Ti, neutral_density, grid: NeutralGrid, params: Neu
     """
 
     _, mfp = neutral_diffusivity(density, Te, Ti, params)
-    g = grid.g_contra
 
     def grad_length(field):
         f = _fine(field, grid)
-        gx, gy, gz = _cell_gradients(f, grid)
-        sq = (g[0] * gx * gx + g[3] * gy * gy + g[5] * gz * gz
-              + 2.0 * (g[1] * gx * gy + g[2] * gx * gz + g[4] * gy * gz))
-        return jnp.abs(f) / jnp.maximum(jnp.sqrt(jnp.maximum(sq, 0.0)), 1.0e-300)
+        return jnp.abs(f) / jnp.maximum(grad_norm(f, grid), 1.0e-300)
 
     length = jnp.minimum(grad_length(neutral_density), grad_length(density))
     mfp_f = _fine(mfp, grid)
