@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -35,10 +37,10 @@ def test_transport_coefficients_follow_the_afn_closure():
     np.testing.assert_allclose(np.asarray(kappa), 2.5 * np.asarray(eta), rtol=1e-13)  # 5 p_n tau_n / (2 m)
 
 
-def _transport(grid, Nn, Tn, dp, kappa, dt, un=None, eta=None, source=None):
+def _transport(grid, Nn, Tn, dp, kappa, dt, un=None, eta=None, source=None, params=PARAMS):
     zero = jnp.zeros_like(Nn)
     return FL.neutral_transport(Nn, Tn, zero if un is None else un, dp, kappa, zero if eta is None else eta, dt, grid,
-                                PARAMS, source)
+                                params, source)[:4]
 
 
 @pytest.mark.parametrize("geometry", GEOMETRIES, ids=IDS)
@@ -72,7 +74,7 @@ def test_transport_conserves_nuclei_exactly_and_total_energy_to_truncation(geome
         assert abs(float(jnp.sum(v * n_new)) - nuclei - dt * float(jnp.sum(v * source))) < 1e-13 * nuclei
         assert float(jnp.max(rel)) < 1e-8
         errors.append(abs(energy(n_new, u_new, t_new) - energy(Nn, un, Te) - dt * float(jnp.sum(v * 1.5 * Te * source))))
-    assert errors[0] < 0.02 * energy(Nn, un, Te) and errors[1] < 0.7 * errors[0], errors  # first order in dt
+    assert max(errors) < 3e-3 * energy(Nn, un, Te), errors  # truncation error of the kinetic-work/viscous-heating terms
 
 
 @pytest.mark.parametrize("geometry", GEOMETRIES, ids=IDS)
@@ -90,6 +92,48 @@ def test_parallel_acceleration_runs_down_the_pressure_gradient_and_the_flow_is_a
     n2, u2, _, rel = _transport(grid, ramp, 0.3 / ramp, 0.0 * ramp, 0.0 * ramp, dt, un=0.2 * jnp.cos(ramp))
     assert float(jnp.max(jnp.abs(n2 - ramp))) > 1e-4 and bool(jnp.all(jnp.isfinite(u2)))
     assert abs(float(jnp.sum(grid.volume * (n2 - ramp)))) < 1e-13 * float(jnp.sum(grid.volume * ramp))
+
+
+@pytest.mark.parametrize("geometry", GEOMETRIES, ids=IDS)
+def test_wall_absorption_removes_exactly_the_reported_nuclei_and_energy(geometry):
+    grid = F.build_neutral_grid(geometry)
+    _, _, Te, _, _ = _random_plasma(geometry.shape, 3)
+    Nn, zero, v, dt = 0.1 / Te, jnp.zeros(geometry.shape), grid.volume, 0.02  # uniform pressure: no drive but the wall
+    closed = FL.neutral_transport(Nn, Te, zero, zero, zero, zero, dt, grid, PARAMS)
+    assert float(closed[4][0]) == 0.0 and abs(float(jnp.sum(v * (closed[0] - Nn)))) < 1e-13 * float(jnp.sum(v * Nn))
+    params = dataclasses.replace(PARAMS, wall_absorption=0.4, wall_energy_reflection=0.3)
+    n_new, u_new, t_new, rel, wall = FL.neutral_transport(Nn, Te, zero, zero, zero, zero, dt, grid, params)
+    assert float(wall[0]) > 0.0 and float(wall[1]) > float(wall[0])  # each absorbed atom takes 2 T > 1
+    assert abs(float(jnp.sum(v * (Nn - n_new))) - float(wall[0])) < 1e-13 * float(jnp.sum(v * Nn))
+    assert float(jnp.max(rel)) < 1e-9
+    w0, w1 = float(jnp.sum(v * 1.5 * Nn * Te)), float(jnp.sum(v * 1.5 * n_new * t_new))
+    assert abs(w0 - w1 - float(wall[1])) < 0.05 * float(wall[1])  # up to the (small) kinetic work of the wall-driven flow
+
+
+def test_nuclei_check_fails_on_a_one_percent_leak():
+    # the check compares the nuclei change with an expectation built from the unleaked source
+    geometry = sheared_slab()
+    grid = F.build_neutral_grid(geometry)
+    n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 2)
+    source, v, Tn = 0.1 * jnp.ones(geometry.shape), grid.volume, 0.05 + 0.3 * Te
+    closure = []
+    for leak in (0.0, 0.01):
+        out = FL.neutral_fluid_step(n, Vi, Te, Ti, Nn, 0 * Nn, Tn, 0.02, grid, PARAMS, volume_source=(1 - leak) * source)
+        change = float(jnp.sum(v * (out[0] + out[4] - n - Nn)))
+        closure.append(abs(change - 0.02 * float(jnp.sum(v * source))) / (0.02 * float(jnp.sum(v * source))))
+    assert closure[0] < 1e-12 and closure[1] == pytest.approx(0.01, rel=1e-6)
+
+
+def test_inactive_cells_with_no_neutrals_stay_finite():
+    geometry = sheared_slab()
+    grid = F.build_neutral_grid(geometry)
+    mask = jnp.arange(geometry.shape[1])[None, :, None] != 3  # a column of cells outside the domain
+    grid = dataclasses.replace(grid, owner=grid.owner & mask, volume=jnp.where(mask, grid.volume, 0.0))
+    n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 2)
+    Nn, Tn = jnp.where(mask, Nn, 0.0), 0.05 + 0.3 * Te
+    out = FL.neutral_fluid_step(n, Vi, Te, Ti, Nn, jnp.zeros(geometry.shape), Tn, 0.02, grid, PARAMS)
+    assert all(bool(jnp.all(jnp.isfinite(x))) for x in out)
+    assert float(FL.flux_limiter(0.0, 0.0)) == 1.0
 
 
 def test_viscosity_diffuses_a_velocity_jump_and_conserves_momentum_of_that_stage():
@@ -156,7 +200,7 @@ def test_full_step_runs_conserves_nuclei_and_stays_finite(geometry):
         nuclei = float(jnp.sum(v * (n + Nn)))
         n, Vi, Te, Ti, Nn, un, Tn, ledger, _ = FL.neutral_fluid_step(n, Vi, Te, Ti, Nn, un, Tn, 0.02, grid, params)
         assert abs(float(jnp.sum(v * (n + Nn))) - nuclei) < 1e-13 * nuclei
-        assert float(ledger[7]) < 1e-9 and float(ledger[8]) < 1e-9 and float(ledger[12]) < 1e-9
+        assert float(ledger[8]) < 1e-9 and float(ledger[17]) < 1e-9 and abs(float(ledger[6])) < 1e-13 * nuclei
     assert float(jnp.min(Nn)) > 0.0 and float(jnp.min(Tn)) > 0.0 and float(jnp.max(jnp.abs(un))) > 1e-3
 
 

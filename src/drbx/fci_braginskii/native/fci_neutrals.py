@@ -114,6 +114,9 @@ class NeutralParameters:
     gmres_tolerance: float = 1.0e-10
     gmres_restart: int = 60
     gmres_maxiter: int = 20
+    model: str = "diffusive"  # "diffusive" (fixed T_n) or "fluid" (evolved n_n, u_n, T_n; native/fci_neutral_fluid.py)
+    wall_absorption: float = 0.0  # fluid model: probability that a wall-incident atom is absorbed
+    wall_energy_reflection: float = 1.0  # fluid model: energy fraction kept by a reflected atom
 
     @property
     def neutral_temperature(self) -> float:
@@ -640,7 +643,7 @@ def recycled_neutral_source(wall_loss_rate, coefficient, owner):
     return jnp.where(owner, coefficient * wall_loss_rate, 0.0)
 
 
-def knudsen_map(density, Te, Ti, neutral_density, grid: NeutralGrid, params: NeutralParameters):
+def knudsen_map(density, Te, Ti, neutral_density, grid: NeutralGrid, params: NeutralParameters, neutral_temperature=None):
     """Neutral Knudsen numbers on the fine cells.
 
     ``Kn_cell = mfp / h`` (``h`` the smallest physical cell size) and
@@ -650,7 +653,9 @@ def knudsen_map(density, Te, Ti, neutral_density, grid: NeutralGrid, params: Neu
     more than a cell between collisions.  Returns ``(mfp, Kn_cell, Kn_grad)``.
     """
 
-    _, mfp = neutral_diffusivity(density, Te, Ti, params)
+    nu_cx, nu_iz = collision_frequencies(density, Te, Ti, params, neutral_temperature)
+    vth = jnp.sqrt(params.neutral_temperature if neutral_temperature is None else neutral_temperature)
+    mfp = vth / jnp.maximum(nu_cx + nu_iz, 1.0e-300)
 
     def grad_length(field):
         f = _fine(field, grid)
