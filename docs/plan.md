@@ -298,9 +298,69 @@ production runs and scaling.
 - **Heat blob (Stegmeir).** Perpendicular leakage is a map-interpolation property and is unchanged: L1 error of the
   aligned steady state 0.94 to 1.6 (central `D G`) and 1.15 to 1.5 (compact `D+ G+`) at 16^3.
 - **Runs.** Default deck to t = 0.6 at 16^3: finite (Te >= 0.035, |Ve| <= 1.9; main-style legacy Ve gave 7.5), mass /
-  Te / Ti energy / momentum ledger imbalance <= 4e-15 / 2e-15 / 4e-15 / 2e-12 of the wall loss. The wall electron
+  Te / Ti energy / momentum ledger imbalance <= 4e-15 / 2e-15 / 4e-15 / 2e-12 of the wall loss (**by construction,
+  see "Ledger correction 2026-11-01": an identity of the update, not a conservation result**). The wall electron
   energy loss is about 500 times the volumetric input power (there is no heat source in the default blob: a decaying
   blob, not a steady SOL).
+
+### Ledger correction 2026-11-01 (independent conservation checks)
+
+Aiken Xie's review of #68 found that `wall_step_ledger` could not fail: wall = -sum V dt (implicit increment), other =
+sum V dt (explicit increment), and the inventory change is exactly sum V dt (implicit + explicit), so the "imbalance"
+was round-off for any scheme. **Every figure quoted from it (1e-12, 4e-15, 2e-15, 2e-12, 1e-11, 2.0e-12 ... of the wall
+loss, in this plan, `docs/fci_braginskii_hsx_backend.md` and the PR #68 and #53-#56 descriptions) was by
+construction and is retracted.** It is replaced by `LocalFciDrbEBRhs.wall_step_check`: per implicit stage, the
+inventory rate the stage produced (stage minus base state) against the rate the wall faces of the stage state give
+(`wall_face_fluxes` through `wall_flux_ledger`), plus the explicit density sum, which has to vanish on its own. A
+mutation test (`test_wall_balance_is_independent_and_fails_on_a_leak_or_a_wrong_wall_flux`: 1% volumetric leak,
+2% wrong wall flux, production operators) fails the check; the unperturbed operator closes to 4e-16.
+
+| Check | Status before | Now |
+|---|---|---|
+| `wall_step_ledger` n / W_e / W_i / P imbalance, HSX 1e-12 table row | tautological | removed; `wall_step_check` |
+| `wall_flux_ledger` face fluxes and inventories | real (face states, owner sums) | kept |
+| applied vs contract flux of the step states (5e-3 test) | real | kept in effect: stage-face check, trapezoid of end states agrees to 3e-5 |
+| recycling `nuclei_change` vs `step_particle_other - (1-R) wall` | tautological (IMEX part is an identity) | wall loss from the face states, explicit sum from the explicit rate |
+| `recycled_particles == R wall` at 1e-12 | tautological (deposit built from the same rate) | against the face loss, 5e-3 |
+| neutral split nuclei / energy | real but weak: plasma and neutral updates share the reaction rate; relative to the inventory | kept, stated as such |
+| `wall_influx` equals `recycled_particles` | bookkeeping (one number recorded twice) | kept, not evidence |
+| neutral diffusion unit tests (null of D, closed box, influx) | real | kept |
+| conduction (#64): sum V 3/2 n dT = 0 per stage, closed-wall test | real (property of the SPD solve) | kept; the cross term with the stage n appears in applied-face |
+| #53 leg rows equal the face flux; 1D flux tube steady state | real | kept |
+| zero-flow HSX "closed box" (`diff(inventory) == other`) | tautological | face and applied wall terms both 1e-12, inventory moves by the explicit sum |
+| momentum `P` ledger | tautological | applied vs face, scaled by the wall momentum term |
+| Phase A: "ledger closes to -2.8e-17" | tautological | retracted above |
+| SD1D `detachment_ledger` (README 1e-9) | real (steady residual, target flux separate) | kept |
+| conservative parallel rates sum-free with reported sources | real | kept |
+
+Real numbers, default deck, 16^3 HSX, dt = 7.5e-4, 800 steps to t = 0.6 (office; the wall loss integrates to 6.13e-2
+particles, N 0.7243 to 0.6629):
+
+- Applied against face, per step: particles max 1.6e-4 (mean 8.9e-5), W_e max 6.3e-4 (mean 3.8e-4), W_i max 1.9e-4
+  (mean 1.4e-4), P at most 1.8e-5 of the wall momentum term. This is the first-order error of the frozen-Jacobian
+  backward-Euler stage, not round-off. It shrinks as the loss rate falls (n 1.6e-4 to 6.7e-5, W_e 6.3e-4 to 2.8e-4).
+- Whole run, particles: dN = -6.1323e-2 against the integrated face flux -6.1329e-2 and the integrated explicit sum
+  +2.0e-7: closure 9.4e-5 of the wall loss (running maximum 1.6e-4). No particle leak. The explicit density sum is
+  3.3e-6 of the integrated wall loss, up to 1.75e-3 of the instantaneous loss at the end (perpendicular transport, not
+  separated from the radial-edge flux; its absolute sum is up to 0.58 of the loss, so the sum is a cancellation).
+- Energy does **not** close to the wall flux. W_e fell by 0.16197 against an integrated face flux of 0.15912 (2.85e-3
+  more, 1.8% of the wall loss); W_i by 0.12296 against 0.12123 (1.7e-3, 1.4%); total W_e + W_i + K_i fell by 0.28433
+  against the integrated wall energy flux 0.28035 (3.97e-3, 1.4% of the wall loss). The wall flux is not the whole
+  budget. Term by term at t = 0.6 (rates as a share of the electron wall loss): perpendicular diffusion -6.7%,
+  Poisson bracket -1.4%, curvature -0.7%, parallel work source S_e -0.1%; for ions -4.8%, -1.2%, -0.3%, +0.7%. The
+  perpendicular diffusion is `D lap(T)` and `D lap(n)` of the primitive fields with one D (1e-5) for all six diffused
+  fields, so `sum V 3/2 (n D lap T + T D lap n)` is -3 D sum V grad n . grad T plus edge terms, not zero (analysis;
+  the interior and the edge part were not separated numerically): thermal energy is not conserved by it in the
+  interior. It is a model choice (an n-weighted flux `div(n D grad T)` would
+  conserve it), not a wall or indexing error, and it is not a bug in the new check. Left alone: changing the
+  diffusion form changes the physics, so it is the owner's call. The Poisson bracket and curvature terms are the
+  usual non-conservative drift forms (energy exchanged with the E x B motion, not tracked).
+
+What #58 needs (do not edit its branch from here): rebase onto main and take main's
+`docs/fci_braginskii_hsx_backend.md` (its copy still carries `wall_step_ledger`, the 1e-12 per-step bullet, the
+"Applied-step imbalance" table row, the 1e-11 neutrals bullet and the recycling ledger text; the README of #58 quotes
+no HSX ledger figure, its "1e-9" is the SD1D steady-state ledger and stays valid); re-run its HSX movie only if the
+movie caption quotes a conservation figure.
 
 ### Revision 2026-10-25 (after review of Phase A)
 
@@ -380,7 +440,8 @@ Not done: GPU, 32^3 (resolution trend of the heat-blob leakage not measured).
   (-70%). The implicit wall legs remove **0.51, i.e. 519 times the input power** (= 49% of the electron
   inventory W_e = 1.04 per unit time); the Spitzer conduction integral is zero to 1e-18 (conservative). The
   J^2/sigma that Spitzer would give at this state, 1.4e-3 (143% of the input power), is absent from the
-  equations. Over the 200-step run W_e fell 1.086 -> 1.006; the ledger closes to -2.8e-17 (integrated wall legs
+  equations. Over the 200-step run W_e fell 1.086 -> 1.006; the ledger closes to -2.8e-17 (**by construction**:
+  inventory change against the sum of the increments that made it; integrated wall legs
   8.05e-2, explicit terms -6.3e-5, 3/2 dn dT +6.1e-5). So the default blob run is a wall-loss decay; the
   volumetric terms are 3 orders smaller than the sheath sink.
 - A4: `SheathClosure.gamma_e` equals Stangeby 25.44-25.46 exactly: H Ti/Te=0: 4.84, Ti/Te=1: 4.49 (D 4.84
@@ -409,3 +470,4 @@ pressure, target fluxes) from the HSX group.
 | 2026-10-19 | #44, #45, #49, #38, #46, #47, #39, #37 | FCI unification PRs 0–1, threaded host eig, ESSOS adapter, HSX from coils, examples pattern, tutorial, vessel shipped |
 | 2026-10-20 | #59, #52–#56 (#62), #51, #57, #63 | decks; exhaust stack; integration; preconditioner `auto`; Bohm limiter |
 | 2026-10-21 | — | literature and code review (24 papers, Hermes-3/BOUT++/FELTOR source); this plan |
+| 2026-11-02 | #68 | B2 merged (Aiken approved). Ledger correction: the wall-step ledger was by construction; independent `wall_step_check` replaces it, figures above retracted (see "Ledger correction 2026-11-01") |

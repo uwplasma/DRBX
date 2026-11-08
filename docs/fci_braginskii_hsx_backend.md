@@ -165,13 +165,20 @@ state actually applied, the outward particle flux `n V s`, the momentum flux
 remove exactly these. `LocalFciDrbEBRhs.wall_flux_ledger` integrates them
 over all wall legs with `A = V_cell / L` and returns the particle, thermal and
 ion kinetic inventories on the same cell measure and the sources `S_e`,
-`S_i`. `LocalFciDrbEBRhs.wall_step_ledger` gives what one IMEX step actually
-applied (`next = current + dt (implicit + explicit)`): the wall part is the
-implicit increment of the wall-leg block, the rest is the explicit rate, and
-`dN = other - wall`, `dW = other - wall + (3/2) dn dT` hold to round-off.
-With the sheath on, `drbx run` prints a `[wall]` line (contract at the state)
-and a `[wall-step]` line (applied over the step) per step and stores both as
-`wall_ledger` (`wall_ledger_columns`) in the history file.
+`S_i`. `LocalFciDrbEBRhs.wall_step_check` compares, for each implicit stage,
+what the stage did to the owner inventory (`applied`, from the stage and its
+base state) with what the wall faces of the stage state say the wall removes
+(`face`, from `wall_face_fluxes` through `wall_flux_ledger`). The two are
+computed separately, so their difference is the linearisation error of the
+backward-Euler stage plus any defect in the wall rows or the restriction; it
+is not round-off by construction. (An earlier `wall_step_ledger` summed the
+implicit and explicit increments and compared the sum with the inventory
+change, which is an identity of the update; its 1e-12 figures proved nothing.)
+The explicit bulk density rate must integrate to zero on its own
+(`step_particle_explicit`). With the sheath on, `drbx run` prints a `[wall]`
+line (contract at the state), a `[wall-step]` line (applied against face per
+step) and a `[wall-run]` line (inventory change against the integrated face
+flux) per step, and stores them as `wall_ledger` (`wall_ledger_columns`).
 
 `wall_closure = "zero-flow"` keeps the historical Vi = Ve = 0 wall traces;
 the advance is then bitwise the code without the closure
@@ -198,8 +205,11 @@ from 0.205 to 0.187 particles, 0.919 to 0.757 (electron) and 0.511 to 0.452
 (ion) energy per unit time, the wall current is zero, n stays in [0.857, 1.049]
 and the particle inventory falls by 0.40%. Ledger per step:
 
-- Inventory change against the applied fluxes: `dN - (other - wall)` and the
-  energy equivalents are 1e-12 of the wall loss or less.
+- Retracted: "inventory change against the applied fluxes, `dN - (other -
+  wall)`, 1e-12 of the wall loss". `wall` and `other` were the implicit and
+  explicit increments of the update, so the difference was round-off for any
+  scheme. The independent figures are the next two bullets and the 16-cubed
+  run below.
 - Particles: `other`, everything that is not the wall, is the perpendicular
   transport through the radial boundary and grows to 9e-5 of the wall loss;
   the parallel bulk contributes nothing (`sum V D(n Ve)` is 1e-18).
@@ -258,7 +268,7 @@ p_c/L` of the well-balanced mirror force (`div b = D(1) + sum_legs s/L`, so a
 uniform static pressure is in equilibrium). Ledger: `dP/dt =
 -momentum_wall + momentum_leg_pressure + momentum_source` plus non-parallel
 terms (`wall_flux_ledger`), and the applied-step columns
-`step_momentum_{wall,other,product}`.
+`step_momentum_{applied,face}`.
 
 HSX, 32-cubed, dt = 7.5e-4, 100 steps (t = 0.075):
 
@@ -269,7 +279,7 @@ HSX, 32-cubed, dt = 7.5e-4, 100 steps (t = 0.075):
 | Wall current (contract) | 0 | -2.27 at t = 0, -0.80 at t = 0.030 (electron-dominated, decaying) |
 | n range at end | [0.530, 1.162] | [0.157, 1.611] at step 46 |
 | Particle loss rate | 0.205 to 0.137 | 0.205 to 0.180 at t = 0.030 |
-| Applied-step imbalance (n, W_e, W_i, P) | <= 1e-12 each | <= 1e-12 (n, W); P 3e-9 |
+| Applied-step imbalance (n, W_e, W_i, P) | retracted (identity of the update, proved nothing) | retracted |
 
 The `"current"` failure: wall-adjacent cells get pulled to `phi ~ Lambda Te`
 and their parallel neighbours do not, so phi becomes grid-scale along b near
@@ -351,10 +361,11 @@ FGMRES on a sharded domain, where SOLVAX PCG has no global inner product) inside
 backward Euler, so the wall legs remove the heat that conduction delivered.
 Nothing is evaluated on the host and the step stays differentiable. The
 iterations appear as `cond-iters` in the progress line and in slot 5 of the
-stage diagnostics. One consequence for the wall-step ledger: its "wall" column
-is the whole implicit Te/Ti rate and weights it with the step-start `n`, so it
-contains the conduction increment times `n_stage - n_start` (conduction itself
-is exactly sum-free at the stage `n`).
+stage diagnostics. One consequence for the wall-step check: the `applied`
+energy rate is the whole implicit stage change, weighted with the stage `n`, so
+it contains the conduction increment times `n_stage - n_start` (conduction
+itself is exactly sum-free at the start `n`). That cross term is part of the
+reported applied-minus-face mismatch.
 
 ## Geometry artifact
 
@@ -691,12 +702,12 @@ HSX (32-cubed bundle, sheath on, defaults plus `neutrals = true`: n0 =
 
 - Stable: n in [0.66, 1.08], `N > 0` everywhere (minimum 1.2e-4 at the
   end), GMRES relres 1e-8 at every solve.
-- Split identities at every step: nuclei 3e-16, energy 9e-11 of the sinks.
-  The wall-step imbalance (split removed) stays below 1e-11 of the wall
-  loss (measured: particles 2.0e-12, W_i 1.2e-12, W_e 9e-13, P 2.7e-13 over
-  100 steps with neutrals and recycling). The bar is 1e-11 rather than
-  1e-12 because the imbalance is a difference of O(1) inventories, so it
-  sits at round-off of the inventory, not of the wall term. No rate input left the AMJUEL range.
+- Split identities at every step: nuclei 3e-16 of the nuclei inventory,
+  energy 9e-11 of the sinks. These compare the plasma and neutral updates
+  of one reaction step with each other (they share the rate), so they are
+  real but test the split algebra, not the wall. The earlier wall-step
+  imbalance figures (particles 2.0e-12, W_i 1.2e-12, W_e 9e-13, P 2.7e-13)
+  were identities of the update and are retracted. No rate input left the AMJUEL range.
 - The neutrals spread inward (`sqrt(D t)` about 3 cm): the radial mean of `N`
   goes from 3.4e-3 (edge) / 0 (axis) to 2.4e-3 / 1.6e-4. The neutral
   inventory falls 10% (ionisation 2.2e-6 to 2.5e-6 per step against CX
@@ -733,8 +744,8 @@ traces the same code as without it.
 - **Source.** `S = R x (-implicit.n)` of the IMEX step: the wall ion loss
   actually applied to each wall owner cell. Under the sheath the implicit
   density row is the area-weighted wall-leg flux alone, the increment
-  `wall_step_ledger` reports. The atoms are deposited in the same owner
-  cells (not as a radial boundary influx of the diffusion), and enter the
+  `wall_step_check` compares with the wall-face flux. The atoms are
+  deposited in the same owner cells (not as a radial boundary influx of the diffusion), and enter the
   conservative backward-Euler update as `volume_source`, so
   `sum V dN = dt sum V S` exactly. The same amount is added to the
   `wall_influx` column of the neutral ledger.
@@ -744,23 +755,27 @@ traces the same code as without it.
   energy is accounted in the split's energy check; the remainder goes to
   the reservoir.
 - **Ledger.** Each step prints a `[recycling]` line and stores
-  `recycling_ledger`: wall ion loss, recycled particles, recycled energy,
-  the `3/2 T_n` part, reservoir remainder, nuclei, d(nuclei) and the expected
-  `step_particle_other - (1-R) wall`. The particle and energy checks of the
+  `recycling_ledger`: wall ion loss (from the wall-face states of the stage
+  states), recycled particles (what the neutral step deposited), recycled
+  energy, the `3/2 T_n` part, reservoir remainder, nuclei, d(nuclei) and the
+  expected `step_particle_explicit - (1-R) wall`. Recycled particles equal
+  `R x wall` only to the linearisation error of the implicit stage. The particle and energy checks of the
   split subtract the recycled particles and their `3/2 T_n`.
 - Deck keys: `recycling`, `recycling_coefficient` (default 0.99),
   `recycling_energy`, `recycling_franck_condon_energy_ev`,
   `recycling_wall_temperature_ev`.
 
 Checks (`tests/fci_braginskii/test_fci_recycling.py`): closed box at R = 1
-and 0.9 on the slab and the annulus (`d(n+N) = -(1-R) wall` to 1e-13, energy
+and 0.9 on the slab and the annulus (`d(n+N) = -(1-R) wall` to 1e-13 against
+the supplied influx, which the neutral step integrates separately from the
+state update, energy
 identity with the recycled `3/2 T_n`, off equals the unchanged split); the
 1D flux-tube high-recycling trend (target density rises and target
 temperature falls for R = 0, 0.5, 0.8, with `(1-R) wall` equal to the core
 source within 1%; the flux-tube relaxation time grows like `1/(1-R)`, so the
 test integrates `30/(1-R)` periods); and, with the HSX bundle, a 3-step
 ledger at R = 1 and 0.9 that also confirms that the owner cell volumes of
-`wall_step_ledger` equal the neutral grid volumes.
+`wall_step_check` equal the neutral grid volumes.
 
 Recycling in a neutrals-only model is a closure for the particle and energy
 ledger and the coupling; the neutral model keeps the validity limits stated
