@@ -212,8 +212,11 @@ def total_rate(model, x):
     rate = model.evaluate_stage(x, phi_owned=x.phi, short_leg_selection_dt=DT)
     info = model.apply_short_leg_implicit_material_step(x, DT, phi_owned=x.phi, return_increment=True)[2]
     wall = info["selected_complete_residual_owner"]
+    # the friction is implicit in the current/phi solve, so it is not in the explicit rate
+    friction = model.implicit_current_phi_pair * float(model.parameters.mi_over_me) * model._electron_friction(x.Te) * x.density * (x.Vi - x.Ve)
     return rate.replace(density=rate.density + wall[..., 0], Te=rate.Te + wall[..., 1], Ti=rate.Ti + wall[..., 2],
-                        Vi=rate.Vi + wall[..., 3], Ve=rate.Ve + wall[..., 4])
+                        Vi=rate.Vi + wall[..., 3],
+                        Ve=rate.Ve + wall[..., 4] + friction)
 
 
 def conduction_rate(model, base, temperature):
