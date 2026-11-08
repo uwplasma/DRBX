@@ -338,3 +338,16 @@ __all__ = [
     "sound_speed",
     "wall_face_fluxes",
 ]
+
+
+def balance_mismatch(applied, face):
+    """``(applied - face) / max(|applied|, |face|)``: the ledger check.
+
+    ``applied`` is a rate (or an increment) the discrete update produced;
+    ``face`` the same quantity computed independently from the wall-face
+    states with :func:`wall_face_fluxes`.  Neither may be derived from the
+    other, otherwise the mismatch is round-off whatever the scheme does.
+    """
+
+    applied, face = jnp.asarray(applied), jnp.asarray(face)
+    return (applied - face) / jnp.maximum(jnp.maximum(jnp.abs(applied), jnp.abs(face)), 1.0e-300)
