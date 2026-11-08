@@ -581,3 +581,22 @@ def test_hsx_bohm_default_runs_past_the_old_te_collapse(tmp_path):
         assert np.all(np.isfinite(data[name]))
     assert data["Te"][-1].min() > 0.1
     assert np.abs(data["Ve"][-1]).max() < 20.0
+
+
+def test_perpendicular_energy_diffusion_is_sum_free_on_a_closed_box():
+    """The 3/2 n T rate from the diffusion terms integrates to round-off on a periodic box."""
+
+    rng = np.random.default_rng(3)
+    n = jnp.asarray(1.0 + 0.3 * rng.random((8, 8, 8)))
+    T = jnp.asarray(1.0 + 0.5 * rng.random((8, 8, 8)))
+    D = 1.0e-2
+
+    def lap(f):
+        return sum(jnp.roll(f, s, a) for a in range(3) for s in (1, -1)) - 6.0 * f
+
+    stub = SimpleNamespace(_field_perp_diffusion=lambda f, bc, c: c * lap(f))
+    dn = D * lap(n)
+    dT = LocalFciDrbEBRhs._energy_perp_diffusion(stub, n, T, n, T, dn, None, D)
+    assert abs(float(jnp.sum(n * dT + T * dn))) < 1e-13 * float(jnp.sum(jnp.abs(n * dT)))
+    primitive = D * lap(T)  # the old form: D lap(T) with D lap(n)
+    assert abs(float(jnp.sum(n * primitive + T * dn))) > 1e-3 * float(jnp.sum(jnp.abs(n * primitive)))

@@ -3334,7 +3334,6 @@ def neutral_parameters(config) -> fci_neutrals.NeutralParameters | None:
     if not config.neutrals:
         return None
     checks = (
-        (config.neutral_reference_density_m3 > 0.0, "neutral_reference_density_m3 must be positive"),
         (config.neutral_temperature_ev > 0.0, "neutral_temperature_ev must be positive"),
         (config.neutral_mfp_max > 0.0, "neutral_mfp_max must be positive"),
         (config.neutral_initial_density >= 0.0, "neutral_initial_density must be nonnegative"),
@@ -3347,7 +3346,7 @@ def neutral_parameters(config) -> fci_neutrals.NeutralParameters | None:
             raise ValueError(message)
     reference_temperature = fci_neutrals.reference_temperature_ev(float(config.rho_star))
     return fci_neutrals.NeutralParameters(
-        reference_density_m3=float(config.neutral_reference_density_m3),
+        reference_density_m3=float(config.reference_density_m3),
         reference_temperature_ev=reference_temperature,
         neutral_temperature_ev=float(config.neutral_temperature_ev),
         mfp_max=float(config.neutral_mfp_max),
@@ -3431,7 +3430,6 @@ class HsxBlobConfig:
     ion_heat_transmission: float = 2.5
     secondary_electron_emission: float = 0.0
     neutrals: bool = False
-    neutral_reference_density_m3: float = 5.0e18
     neutral_temperature_ev: float = 3.0
     neutral_mfp_max: float = 0.05
     neutral_initial_density: float = 0.01
@@ -3990,7 +3988,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
                 {
                     "neutrals": True,
                     "neutral_model": "diffusive, prescribed T_n, AMJUEL-2020 iz/rec/cx, operator split after IMEX",
-                    "neutral_reference_density_m3": float(args.neutral_reference_density_m3),
+                    "reference_density_m3": float(args.reference_density_m3),
                     "neutral_reference_temperature_ev": neutral_params.reference_temperature_ev,
                     "neutral_temperature_ev": float(args.neutral_temperature_ev),
                     "neutral_mfp_max": float(args.neutral_mfp_max),

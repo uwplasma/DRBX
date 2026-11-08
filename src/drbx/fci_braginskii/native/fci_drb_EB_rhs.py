@@ -1179,6 +1179,15 @@ class LocalFciDrbEBRhs:
             neumann_normal_scheme=self.neumann_normal_scheme,
         )
 
+    def _energy_perp_diffusion(self, n_halo, T_halo, n, T, n_diff, face_bc, coefficient):
+        """Temperature rate whose energy ``n dT + T dn`` is ``D lap(n T)``.
+
+        Flux form of the product: the volume sum of the energy rate is a sum of
+        face fluxes (``n_diff`` is the density rate, ``n``/``T`` the owned fields).
+        """
+        energy = self._field_perp_diffusion(n_halo * T_halo, face_bc, coefficient)
+        return (energy - T * n_diff) / jnp.maximum(n, 1.0e-30)
+
     def _fci_remote_values(
         self,
         field_halo: jnp.ndarray,
@@ -2913,15 +2922,13 @@ class LocalFciDrbEBRhs:
             face_bc.density,
             self.parameters.density_D_perp,
         )
-        Te_diff = self._field_perp_diffusion(
-            state_halo.Te,
-            face_bc.Te,
-            self.parameters.electron_temperature_D_perp,
+        Te_diff = self._energy_perp_diffusion(
+            state_halo.density, state_halo.Te, density, Te, density_diff,
+            face_bc.Te, self.parameters.electron_temperature_D_perp,
         )
-        Ti_diff = self._field_perp_diffusion(
-            state_halo.Ti,
-            face_bc.Ti,
-            self.parameters.ion_temperature_D_perp,
+        Ti_diff = self._energy_perp_diffusion(
+            state_halo.density, state_halo.Ti, density, Ti, density_diff,
+            face_bc.Ti, self.parameters.ion_temperature_D_perp,
         )
         Vi_diff = self._field_perp_diffusion(
             Vi_perp_halo,
