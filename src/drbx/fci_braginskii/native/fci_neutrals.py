@@ -590,14 +590,14 @@ def neutral_step(
 # ------------------------------------------------------------------ recycling
 RECYCLING_LEDGER_COLUMNS = (
     "time",
-    "wall_ion_loss",  # applied ion wall particle loss of the IMEX step (= step_particle_wall)
+    "wall_ion_loss",  # ion wall particle loss of the IMEX step from the wall-face states (step_particle_face)
     "recycled_particles",  # R * wall_ion_loss, deposited as neutrals in the wall cells
     "recycled_energy",  # recycled_particles * E_rec (energy the wall returns with the atoms)
     "recycled_neutral_thermal",  # recycled_particles * 3/2 T_n (what the fixed-T_n inventory gains)
     "recycled_energy_reservoir",  # recycled_energy - recycled_neutral_thermal
     "nuclei",  # sum V (n + N) after the split
     "nuclei_change",  # over the whole step (IMEX + split)
-    "nuclei_change_expected",  # step_particle_other - (1 - R) wall_ion_loss
+    "nuclei_change_expected",  # explicit density sum (step_particle_explicit) - (1 - R) wall_ion_loss
 )
 
 
@@ -632,8 +632,9 @@ def recycled_neutral_source(wall_loss_rate, coefficient, owner):
 
     ``wall_loss_rate`` is ``-implicit.n`` of the IMEX step: under the sheath
     the implicit density row is the area-weighted sum of the wall-leg ion
-    fluxes of that owner (``wall_step_ledger``), so the deposit is exactly
-    the flux the ledger reports, per leg and per owner.
+    fluxes of that owner, so the deposit is the flux the implicit stages
+    applied.  ``LocalFciDrbEBRhs.wall_step_check`` compares that flux with the
+    one computed from the wall-face states.
     """
 
     return jnp.where(owner, coefficient * wall_loss_rate, 0.0)
