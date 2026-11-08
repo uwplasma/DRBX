@@ -153,3 +153,22 @@ pytest -q tests/test_native_atomic_rates.py tests/test_native_reactions.py \
           tests/test_native_detachment_sol.py
 pytest -q -m slow tests/test_native_detachment_sol.py   # SD1D scan, profiles, grid convergence
 ```
+
+## Fluid neutrals (`neutral_model = "fluid"`)
+
+[`fci_neutral_fluid.py`](../src/drbx/fci_braginskii/native/fci_neutral_fluid.py) evolves the neutral density `n_n`, the
+velocity `u_n` along `b` and the temperature `T_n` on the FCI grid (advanced fluid neutral closure of Horsten et al. 2017
+and Van Uytven et al. 2022): perpendicular pressure diffusion `Gamma = -(tau_n/m) grad_perp p_n` with
+`tau_n^-1 = n_i K_cx + n_e K_i`, parallel flow with its own momentum equation, viscosity `p_n tau_n`, conductivity
+`5 p_n tau_n / (2m)`, and the flux limiter `[1 + (|Gamma|/Gamma_lim)^2]^(-1/2)` on the conductive fluxes. Reactions
+exchange nuclei, momentum and energy with the plasma exactly (the electron loss is the only sink). Wall: reflecting with
+absorption `neutral_wall_absorption` and energy reflection `neutral_wall_energy_reflection`; recycled atoms carry the
+Franck-Condon or wall energy as thermal energy. History files carry `neutral_density`, `neutral_velocity` and
+`neutral_temperature`, and `restart_from` restores them.
+
+Validity: the closure needs the Knudsen number `lambda / L <~ 0.1-0.3`; every run prints the fractions of cells in each
+range and saves `neutral_knudsen_gradient`. Verified: the steady penetration length of neutrals into a uniform plasma
+slab equals `lambda_mfp / sqrt(nu_iz / nu)` to 0.2 %; nuclei, momentum and energy balances close to round-off in the
+reaction step and the run ledgers close to 1e-5 on HSX. At HSX edge parameters (`n0 = 5e18 m^-3`, mean free path ~6 cm)
+almost all cells have `Kn >= 1`: the fluid model is then limiter-bound (the particle flux is 1-3 % of the diffusive
+one) and should be read as an upper-density-regime model; a kinetic or hybrid neutral treatment is needed there.

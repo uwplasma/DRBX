@@ -243,6 +243,10 @@ default AMJUEL in 3D).
   R_E (implicit sinks, ledgered); the recycling ledger of #72 is the independent check (1% leak test).
 - N4: validation: 16^3 HSX run with neutrals, Knudsen map, comparison with the diffusive model, 1D slab penetration
   length against the mean free path.
+  Done in the N4 PR (32^3 HSX, the only artifact available; a 16^3 one needs the NERSC mgrid): slab penetration length
+  matches lambda_mfp/sqrt(nu_iz/nu) to 0.2%; HSX 6-step fluid vs diffusive ionisation rate within 1.5%; Knudsen map: 99.8% of
+  the cells have Kn_grad >= 1 (mfp 6 cm at n0 = 5e18 m^-3), so at these plasma parameters neither neutral model is in its
+  validity range and the fluid particle limiter is at 0.01-0.03 of the diffusive flux.
 - N5: fluid becomes the default; the diffusive model is deleted (fewest lines).
 - N6: molecules / hybrid (kinetic or ballistic) for Kn > 0.3 regions, only if N4 shows the fluid model is outside its range.
 

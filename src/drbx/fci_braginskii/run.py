@@ -3140,7 +3140,8 @@ def run_full_eb(
         fractions = [float(np.mean(kn_grad < 0.1)), float(np.mean((kn_grad >= 0.1) & (kn_grad < 1.0))), float(np.mean(kn_grad >= 1.0))]
         print(
             "[neutrals] Knudsen (mfp / min(L_N, L_n)) fractions of cells: "
-            f"diffusive<0.1={fractions[0]:.3f}, transitional={fractions[1]:.3f}, kinetic>=1={fractions[2]:.3f}; "
+            f"diffusive<0.1={fractions[0]:.3f}, transitional={fractions[1]:.3f}, kinetic>=1={fractions[2]:.3f}, "
+            f"fluid-valid<0.3={float(np.mean(kn_grad < 0.3)):.3f}; "
             f"mfp in [{float(np.min(mfp)):.3e}, {float(np.max(mfp)):.3e}] m; "
             f"mfp/cell in [{float(np.min(kn_cell)):.2e}, {float(np.max(kn_cell)):.2e}]; "
             f"cumulative electron energy loss={cumulative_sinks[0]:.6e}, reservoir={cumulative_sinks[1]:.6e}",
