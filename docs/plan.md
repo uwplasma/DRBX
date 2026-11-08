@@ -230,6 +230,9 @@ default AMJUEL in 3D).
   exchange with the plasma through `reaction_source`; nuclei and neutral energy change only by fluxes and sources.
 - N2: parallel neutral momentum (advection, pressure gradient, limited viscosity, CX/ionisation friction with the ions)
   and exact momentum/energy exchange tests (radiation is the only energy sink).
+  Done in the N2 PR: `(n_n, M = n_n u_n)` implicit acoustic coupling through p_n with perpendicular pressure diffusion
+  (Horsten model 2), implicit upwind advection and limited viscosity of u_n, pressure work and viscous heating in the T_n
+  equation, friction as the explicit reaction momentum exchange (stability number `max_dt_nu`); curvature of b neglected.
 - N3: wiring into the FCI run: deck option `neutral_model = "fluid"`; history, ledger and restart carry n_n, u_n, T_n;
   reflection wall BC (energy reflection coefficient, Franck-Condon energy for the dissociated remainder); recycling
   from the face ion flux (uses `wall_step_check` from #72); a conservation check independent of the step that fails
