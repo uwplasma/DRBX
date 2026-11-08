@@ -234,7 +234,7 @@ def test_hsx_fluid_neutral_ledger_closes_and_detects_a_one_percent_leak(tmp_path
     deck.write_text(
         '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
         f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
-        "final_time = 0.00225\nnum_steps = 3\nsave_every = 3\nneutrals = true\nneutral_model = \"fluid\"\n"
+        "final_time = 0.00225\nnum_steps = 3\nsave_every = 3\nneutrals = true\n"
         "neutral_wall_absorption = 0.1\nneutral_wall_energy_reflection = 0.5\n"
         "recycling = true\nrecycling_coefficient = 0.9\n"
     )
