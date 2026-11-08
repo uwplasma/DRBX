@@ -46,6 +46,13 @@ def _geometry(cov_fn, shape, lengths):
         U, V, W = np.meshgrid(u, v, w, indexing="ij")
         return _metric(cov_fn(U, V, W))
 
+    def field(u, v, w):
+        """Unit direction b^i = (0.3, 0.5, 0.8) / norm (a field line crossing every face family)."""
+
+        U, V, W = np.meshgrid(u, v, w, indexing="ij")
+        cov, b = cov_fn(U, V, W), np.array([0.3, 0.5, 0.8])
+        return SimpleNamespace(b_contra=b / np.sqrt(np.einsum("i,...ij,j->...", b, cov, b))[..., None])
+
     return SimpleNamespace(
         shape=shape,
         grid=SimpleNamespace(x=gx, y=gy, z=gz),
@@ -54,6 +61,12 @@ def _geometry(cov_fn, shape, lengths):
             x=at(gx.faces, gy.centers, gz.centers),
             y=at(gx.centers, gy.faces, gz.centers),
             z=at(gx.centers, gy.centers, gz.faces),
+        ),
+        cell_bfield=field(gx.centers, gy.centers, gz.centers),
+        face_bfield=SimpleNamespace(
+            x=field(gx.faces, gy.centers, gz.centers),
+            y=field(gx.centers, gy.faces, gz.centers),
+            z=field(gx.centers, gy.centers, gz.faces),
         ),
     )
 
