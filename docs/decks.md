@@ -410,7 +410,7 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.parallel_diffusion` | `float` | `0.0` | Parallel diffusion coefficient. (normalized) |
 | `fci_braginskii.parallel_dissipation` | `float` | `0.1` | Conservative face-flux dissipation of the parallel transport, `eps` times the local signal speed times the leg length (Rusanov factor; 0 = central). |
 | `fci_braginskii.parallel_conduction` | `str` | `'auto'` | Implicit Spitzer-Harm parallel heat conduction of Te and Ti: `auto` (on with the Bohm wall), `spitzer` or `off`. |
-| `fci_braginskii.reference_density_m3` | `float` | `1e+19` | Reference density n0 of the Spitzer conductivity. (m^-3) |
+| `fci_braginskii.reference_density_m3` | `float` | `1e+19` | Reference density n0 of the density normalisation: Spitzer conductivity and neutral reaction rates. (m^-3) |
 | `fci_braginskii.coulomb_logarithm` | `float` | `15.0` | Coulomb logarithm of the Spitzer conductivity. |
 | `fci_braginskii.heat_flux_limiter` | `float` | `0.0` | Free-streaming flux limiter alpha, q_fs = alpha n T v_th; 0 disables. |
 | `fci_braginskii.electron_collision_frequency` | `float` | `0.0` | Electron collision frequency. (normalized) |
@@ -420,7 +420,6 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.ion_heat_transmission` | `float` | `2.5` | Ion sheath heat transmission coefficient. |
 | `fci_braginskii.secondary_electron_emission` | `float` | `0.0` | Secondary electron emission coefficient of the wall. |
 | `fci_braginskii.neutrals` | `bool` | `False` | Evolve a diffusive neutral density with ionization, charge exchange and recombination sources. |
-| `fci_braginskii.neutral_reference_density_m3` | `float` | `5e+18` | Reference plasma density used to dimensionalize the neutral reaction rates. (m^-3) |
 | `fci_braginskii.neutral_temperature_ev` | `float` | `3.0` | Neutral temperature. (eV) |
 | `fci_braginskii.neutral_mfp_max` | `float` | `0.05` | Upper cap of the neutral mean free path. (normalized length) |
 | `fci_braginskii.neutral_initial_density` | `float` | `0.01` | Neutral density at the wall at t = 0. (normalized) |
