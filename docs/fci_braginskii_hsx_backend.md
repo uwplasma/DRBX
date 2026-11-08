@@ -626,8 +626,8 @@ Model choices:
   same code and data as the 1D model): ionisation, recombination and charge
   exchange, receiver mixing heat, CX frictional heat, and the electron
   energy loss `<sigma v E>` with the 13.6 eV recombination add-back
-  (`energy_loss_coefficient`). Rates use `n0 = neutral_reference_density_m3`
-  (default 5e18 m^-3; the plasma model itself is normalized) and
+  (`energy_loss_coefficient`). Rates use `n0 = reference_density_m3`
+  (default 1e19 m^-3, the same n0 as the conduction; the plasma model itself is normalized) and
   `Te0 = (rho* e B_ref L_ref)^2 / (m_i e)` (23.9 eV at rho* = 5e-4). The
   physical ion temperature is `tau Ti`. Inputs outside the fit range
   (`T` in [0.1, 1e4] eV, `n_e` in [1e14, 1e22] m^-3) are clamped by the
@@ -667,7 +667,7 @@ Knudsen map: `Kn_cell = lambda / h` (`h` the smallest physical cell size,
 is valid where `Kn_grad << 1`. The run prints the fractions of cells below
 0.1, between 0.1 and 1, and above 1.
 
-Deck keys (and `--` options): `neutrals`, `neutral_reference_density_m3`,
+Deck keys (and `--` options): `neutrals`,
 `neutral_temperature_ev`, `neutral_mfp_max`, `neutral_initial_density`
 (at the wall, units of n0), `neutral_initial_decay_length` (initial profile
 `N0 exp(-(1-u)/L)` in the radial label, 0 = uniform),
