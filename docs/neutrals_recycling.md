@@ -170,5 +170,5 @@ Validity: the closure needs the Knudsen number `lambda / L <~ 0.1-0.3`; every ru
 range and saves `neutral_knudsen_gradient`. Verified: the steady penetration length of neutrals into a uniform plasma
 slab equals `lambda_mfp / sqrt(nu_iz / nu)` to 0.2 %; nuclei, momentum and energy balances close to round-off in the
 reaction step and the run ledgers close to 1e-5 on HSX. At HSX edge parameters (`n0 = 5e18 m^-3`, mean free path ~6 cm)
-almost all cells have `Kn >= 1`: the fluid model is then limiter-bound (the particle flux is 1-3 % of the diffusive
-one) and should be read as an upper-density-regime model; a kinetic or hybrid neutral treatment is needed there.
+almost all cells have `Kn >= 1`: the fluid model is then limiter-bound (the particle limiter drops to 1-3 % in the most limited
+cells) and should be read as an upper-density-regime model; a kinetic or hybrid neutral treatment is needed there.
