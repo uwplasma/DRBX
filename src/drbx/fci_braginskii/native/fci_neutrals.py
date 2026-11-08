@@ -166,10 +166,15 @@ class NeutralGrid:
     cell_length: jnp.ndarray  # min physical cell size per fine cell [m]
     wall_area: jnp.ndarray  # physical area of each wall (u = 1) fine face [m^2]
     g_contra: jnp.ndarray  # cell g^11, g^12, g^13, g^22, g^23, g^33 stacked on axis 0
+    pb_x: jnp.ndarray  # J b^i dA on the faces normal to each axis (wall face zero): flux of a parallel flow
+    pb_y: jnp.ndarray
+    pb_z: jnp.ndarray
+    b_cell: jnp.ndarray  # cell unit field direction b^i (contravariant) stacked on axis 0
 
     _ARRAYS = (
         "a_x", "c_xy", "c_xz", "a_y", "c_yx", "c_yz", "a_z", "c_zx", "c_zy", "inv_dx2",
         "owner_flat", "volume", "owner", "cross_x", "cross_y", "cross_z", "cell_length", "wall_area", "g_contra",
+        "pb_x", "pb_y", "pb_z", "b_cell",
     )
 
     def tree_flatten(self):
@@ -255,6 +260,11 @@ def build_neutral_grid(geometry, owner_geometry=None) -> NeutralGrid:
     cell_length = np.minimum(np.minimum(hx, hy), hz)
     # wall face area |J grad u| dy dz = J sqrt(g^11) dy dz
     wall_area = np.asarray(fx.J)[-1] * np.sqrt(np.asarray(fx.g11)[-1]) * dy * dz
+    fb, cb = geometry.face_bfield, geometry.cell_bfield
+    pb_x = np.asarray(fx.J)[1:] * np.asarray(fb.x.b_contra)[1:, :, :, 0] * dy * dz
+    pb_x[-1] = 0.0
+    pb_y = np.asarray(fy.J)[:, 1:] * np.asarray(fb.y.b_contra)[:, 1:, :, 1] * dxw[:, None, None] * dz
+    pb_z = np.asarray(fz.J)[:, :, 1:] * np.asarray(fb.z.b_contra)[:, :, 1:, 2] * dxw[:, None, None] * dy
     j = lambda v, dt=jnp.float64: jnp.asarray(v, dtype=dt)
     return NeutralGrid(
         a_x=j(a_x), c_xy=j(c_xy), c_xz=j(c_xz),
@@ -265,6 +275,7 @@ def build_neutral_grid(geometry, owner_geometry=None) -> NeutralGrid:
         cross_x=jnp.asarray(cross_x), cross_y=jnp.asarray(cross_y), cross_z=jnp.asarray(cross_z),
         cell_length=j(cell_length), wall_area=j(wall_area),
         g_contra=j(np.stack([np.asarray(getattr(cm, k)) for k in ("g11", "g12", "g13", "g22", "g23", "g33")])),
+        pb_x=j(pb_x), pb_y=j(pb_y), pb_z=j(pb_z), b_cell=j(np.moveaxis(np.asarray(cb.b_contra), -1, 0)),
     )
 
 
@@ -441,17 +452,20 @@ def apply_volumetric_source(density, Vi, Te, Ti, source: VolumetricSource, dt, *
     return keep(n_new, n), keep(Vi_new, Vi), keep(Te_new, Te), keep(Ti_new, Ti)
 
 
-def reaction_source(density, Vi, Te, Ti, neutral_density, params: NeutralParameters, owner, neutral_temperature=None):
+def reaction_source(density, Vi, Te, Ti, neutral_density, params: NeutralParameters, owner, neutral_temperature=None,
+                    neutral_velocity=None):
     """AMJUEL hydrogen reaction channels as a plasma ``VolumetricSource`` plus the neutral side.
 
-    ``neutral_temperature``: evolved ``T_n`` field (fluid model); default the fixed ``T_n``.
+    ``neutral_temperature``, ``neutral_velocity``: evolved ``T_n`` and ``u_n`` fields (fluid model); default the
+    fixed ``T_n`` and atoms at rest.
     """
 
     n = jnp.where(owner, jnp.maximum(density, 0.0), 0.0)
     nn = jnp.where(owner, jnp.maximum(neutral_density, 0.0), 0.0)
     Tn = jnp.full_like(n, params.neutral_temperature) if neutral_temperature is None else neutral_temperature
     out = compute_hydrogen_reaction_sources(
-        n, Vi, params.tau * jnp.maximum(Ti, 0.0), jnp.maximum(Te, 0.0), nn, jnp.zeros_like(n), Tn,
+        n, Vi, params.tau * jnp.maximum(Ti, 0.0), jnp.maximum(Te, 0.0), nn,
+        jnp.zeros_like(n) if neutral_velocity is None else neutral_velocity, Tn,
         normalization=params.normalization,
     )
     plasma = VolumetricSource(
@@ -498,14 +512,15 @@ def neutral_diffusivity(density, Te, Ti, params: NeutralParameters):
     return vth * jnp.minimum(mfp, params.mfp_max), mfp
 
 
-def inventories(density, Vi, Te, Ti, neutral_density, grid: NeutralGrid, params: NeutralParameters, neutral_temperature=None):
-    """(nuclei, plasma thermal+kinetic energy, neutral thermal energy) on the owner measure."""
+def inventories(density, Vi, Te, Ti, neutral_density, grid: NeutralGrid, params: NeutralParameters, neutral_temperature=None,
+                neutral_velocity=0.0):
+    """(nuclei, plasma thermal+kinetic energy, neutral thermal+kinetic energy) on the owner measure."""
 
     v = grid.volume
     nuclei = jnp.sum(v * (density + neutral_density))
     plasma = jnp.sum(v * (1.5 * density * Te + 1.5 * params.tau * density * Ti + 0.5 * density * Vi**2))
     tn = params.neutral_temperature if neutral_temperature is None else neutral_temperature
-    neutral = jnp.sum(v * 1.5 * tn * neutral_density)
+    neutral = jnp.sum(v * (1.5 * tn + 0.5 * neutral_velocity**2) * neutral_density)
     return nuclei, plasma, neutral
 
 

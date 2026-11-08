@@ -35,72 +35,129 @@ def test_transport_coefficients_follow_the_afn_closure():
     np.testing.assert_allclose(np.asarray(kappa), 2.5 * np.asarray(eta), rtol=1e-13)  # 5 p_n tau_n / (2 m)
 
 
+def _transport(grid, Nn, Tn, dp, kappa, dt, un=None, eta=None, source=None):
+    zero = jnp.zeros_like(Nn)
+    return FL.neutral_transport(Nn, Tn, zero if un is None else un, dp, kappa, zero if eta is None else eta, dt, grid,
+                                PARAMS, source)
+
+
 @pytest.mark.parametrize("geometry", GEOMETRIES, ids=IDS)
-def test_transport_matches_the_diffusive_model_at_uniform_temperature(geometry):
+def test_transport_reduces_to_pressure_diffusion_when_the_inertial_response_equals_it(geometry):
+    # at rest, the parallel flux is -dt b.grad p and the diffusive one -D_p grad p: equal for D_p = dt (model 1)
     grid = F.build_neutral_grid(geometry)
     _, _, _, _, Nn = _random_plasma(geometry.shape, 1)
-    dp = jnp.asarray(0.05 + np.random.default_rng(2).random(geometry.shape))
-    tn = jnp.full(geometry.shape, 0.4)
-    n_new, _, rel_n, _ = FL.neutral_transport(Nn, tn, dp, 0.0 * dp, 0.05, grid, PARAMS)
-    reference, _ = F.implicit_diffusion(Nn, 0.4 * dp, 0.05, grid, PARAMS)  # D = T/nu
+    dt, tn = 0.05, jnp.full(geometry.shape, 0.4)
+    n_new, _, _, rel = _transport(grid, Nn, tn, jnp.full(geometry.shape, dt), 0.0 * Nn, dt)
+    reference, _ = F.implicit_diffusion(Nn, 0.4 * dt * jnp.ones(geometry.shape), dt, grid, PARAMS)
     np.testing.assert_allclose(np.asarray(n_new), np.asarray(reference), rtol=1e-7)
-    assert float(rel_n) < 1e-9
+    assert float(jnp.max(rel)) < 1e-9
 
 
 @pytest.mark.parametrize("geometry", GEOMETRIES, ids=IDS)
-def test_transport_conserves_nuclei_and_energy_exactly_with_sources(geometry):
+def test_transport_conserves_nuclei_exactly_and_total_energy_to_truncation(geometry):
     grid = F.build_neutral_grid(geometry)
-    _, _, Te, _, Nn = _random_plasma(geometry.shape, 4)
-    dp = jnp.asarray(0.05 + np.random.default_rng(5).random(geometry.shape))
-    kappa = 2.5 * dp * Nn * Te
-    source = jnp.asarray(np.random.default_rng(6).random(geometry.shape))
-    dt, v = 0.04, grid.volume
-    n_new, t_new, rel_n, rel_e = FL.neutral_transport(Nn, Te, dp, kappa, dt, grid, PARAMS, source)
-    assert float(jnp.sum(v * jnp.abs(n_new - Nn))) > 1e-3 and float(rel_e) < 1e-9
-    nuclei = float(jnp.sum(v * Nn))
-    assert abs(float(jnp.sum(v * n_new)) - nuclei - dt * float(jnp.sum(v * source))) < 1e-13 * nuclei
-    w0, w1 = float(jnp.sum(v * 1.5 * Nn * Te)), float(jnp.sum(v * 1.5 * n_new * t_new))
-    assert abs(w1 - w0 - dt * float(jnp.sum(v * 1.5 * Te * source))) < 1e-13 * w0  # atoms born at local T_n
+    i, j, k = (jnp.arange(m) / m for m in geometry.shape)
+    smooth = lambda a, b, c: jnp.sin(2 * jnp.pi * (a * i[:, None, None] + b * j[None, :, None] + c * k[None, None, :]))
+    Nn, Te = 0.3 + 0.1 * smooth(1, 0, 1), 0.5 + 0.2 * smooth(0, 1, 1)
+    dp, un, source = 0.05 + 0.02 * smooth(1, 1, 0), 0.3 * smooth(1, 1, 1), 0.2 + 0.1 * smooth(0, 1, 2)
+    v = grid.volume
+
+    def energy(n, u, t):
+        return float(jnp.sum(v * (1.5 * n * t + 0.5 * n * u**2)))
+
+    errors = []
+    for dt in (0.02, 0.01):
+        n_new, u_new, t_new, rel = _transport(grid, Nn, Te, dp, 2.5 * dp * Nn * Te, dt, un, Nn * Te * dp, source)
+        nuclei = float(jnp.sum(v * Nn))
+        assert abs(float(jnp.sum(v * n_new)) - nuclei - dt * float(jnp.sum(v * source))) < 1e-13 * nuclei
+        assert float(jnp.max(rel)) < 1e-8
+        errors.append(abs(energy(n_new, u_new, t_new) - energy(Nn, un, Te) - dt * float(jnp.sum(v * 1.5 * Te * source))))
+    assert errors[0] < 0.02 * energy(Nn, un, Te) and errors[1] < 0.7 * errors[0], errors  # first order in dt
+
+
+@pytest.mark.parametrize("geometry", GEOMETRIES, ids=IDS)
+def test_parallel_acceleration_runs_down_the_pressure_gradient_and_the_flow_is_advected(geometry):
+    grid = F.build_neutral_grid(geometry)
+    shape = geometry.shape
+    ramp = (1.0 + 0.5 * jnp.sin(jnp.arange(shape[0]) * 0.5))[:, None, None] * jnp.ones(shape)
+    tn = jnp.full(shape, 0.3)
+    dt = 0.01
+    _, u_new, _, rel = _transport(grid, ramp, tn, 0.0 * ramp, 0.0 * ramp, dt)
+    gp = FL._par_grad(ramp * tn, grid)
+    assert float(jnp.sum(grid.volume * u_new * gp)) < 0.0  # accelerates against b.grad p
+    np.testing.assert_allclose(np.asarray(u_new * ramp)[1:-1], -dt * np.asarray(gp)[1:-1], rtol=0.5)  # M ~ -dt b.grad p
+    # uniform pressure and a flow: density changes only through div(n u b) (nuclei conserved) and u stays finite
+    n2, u2, _, rel = _transport(grid, ramp, 0.3 / ramp, 0.0 * ramp, 0.0 * ramp, dt, un=0.2 * jnp.cos(ramp))
+    assert float(jnp.max(jnp.abs(n2 - ramp))) > 1e-4 and bool(jnp.all(jnp.isfinite(u2)))
+    assert abs(float(jnp.sum(grid.volume * (n2 - ramp)))) < 1e-13 * float(jnp.sum(grid.volume * ramp))
+
+
+def test_viscosity_diffuses_a_velocity_jump_and_conserves_momentum_of_that_stage():
+    geometry = sheared_slab()
+    grid = F.build_neutral_grid(geometry)
+    shape = geometry.shape
+    nn, tn = jnp.full(shape, 0.5), jnp.full(shape, 0.3)  # uniform p: no pressure drive
+    jump = jnp.where(jnp.arange(shape[0]) < shape[0] // 2, 1.0, -1.0)[:, None, None] * jnp.ones(shape)
+    eta = jnp.full(shape, 0.2)
+    _, u_new, _, rel = _transport(grid, nn, tn, 0.0 * nn, 0.0 * nn, 0.05, un=jump, eta=eta)
+    assert float(jnp.max(jnp.abs(u_new))) < 1.0 and float(jnp.max(jnp.abs(u_new))) > 0.3
+    v = grid.volume
+    assert abs(float(jnp.sum(v * nn * (u_new - jump)))) < 1e-12 * float(jnp.sum(v * nn))
 
 
 def test_pure_conduction_relaxes_a_hot_spot_without_changing_the_energy():
     geometry = sheared_slab()
     grid = F.build_neutral_grid(geometry)
     shape = geometry.shape
-    nn = jnp.full(shape, 0.3)
     tn = 0.2 + 0.5 * jnp.exp(-((jnp.arange(shape[0]) - 8.0) ** 2 / 6.0))[:, None, None] * jnp.ones(shape)
+    nn = 0.06 / tn  # uniform pressure: no flow
     kappa = jnp.full(shape, 0.2)
-    n_new, t_new, _, rel_e = FL.neutral_transport(nn, tn, 0.0 * kappa, kappa, 0.1, grid, PARAMS)
-    np.testing.assert_allclose(np.asarray(n_new), 0.3, rtol=1e-14)
+    n_new, u_new, t_new, rel = _transport(grid, nn, tn, 0.0 * kappa, kappa, 0.1)
+    np.testing.assert_allclose(np.asarray(n_new), np.asarray(nn), rtol=1e-12)
+    assert float(jnp.max(jnp.abs(u_new))) < 1e-12
     assert float(jnp.max(t_new)) < float(jnp.max(tn)) and float(jnp.min(t_new)) > float(jnp.min(tn)) - 1e-12
     v = grid.volume
-    assert abs(float(jnp.sum(v * t_new)) - float(jnp.sum(v * tn))) < 1e-13 * float(jnp.sum(v * tn))
-    assert float(rel_e) < 1e-9
+    assert abs(float(jnp.sum(v * nn * t_new)) - float(jnp.sum(v * nn * tn))) < 1e-13 * float(jnp.sum(v * nn * tn))
+    assert float(rel[2]) < 1e-9
 
 
 @pytest.mark.parametrize("geometry", GEOMETRIES, ids=IDS)
-def test_full_step_conserves_nuclei_and_total_energy_between_plasma_and_neutrals(geometry):
-    # Exchange terms: sum_V (S_plasma + S_neutral) = 0 for nuclei and energy (plasma kinetic + thermal,
-    # neutral thermal, plus the electron energy radiated); wall_step_check (PR 72) is not on main yet.
+def test_reactions_exchange_nuclei_momentum_and_energy_exactly(geometry):
+    # sum_V (plasma + neutral): nuclei, momentum and thermal+kinetic energy are conserved; the electron loss is the only sink
     grid = F.build_neutral_grid(geometry)
     params = F.NeutralParameters(
         reference_density_m3=5.0e18, reference_temperature_ev=PARAMS.reference_temperature_ev, reaction_substeps=3
     )
     n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 7)
-    Tn = 0.05 + 0.3 * Te
-    changed = 0.0
+    Tn, un = 0.05 + 0.3 * Te, 0.4 * jnp.cos(Nn * 40.0)
+    v = grid.volume
+    total = lambda *x: [float(a) for a in (
+        F.inventories(*x[:5], grid, params, x[6], x[5])[0], jnp.sum(v * (x[0] * x[1] + x[4] * x[5])),
+        sum(F.inventories(*x[:5], grid, params, x[6], x[5])[1:]))]
+    before = total(n, Vi, Te, Ti, Nn, un, Tn)
+    out = FL.neutral_reactions(n, Vi, Te, Ti, Nn, un, Tn, 0.02, grid, params)
+    after = total(*out[:7])
+    inc = out[7]
+    assert abs(after[0] - before[0]) < 1e-14 * before[0]
+    assert abs(after[1] - before[1]) < 1e-13 * abs(before[1]) + 1e-15
+    assert float(inc[3]) > 0.0 and abs(after[2] + float(inc[3]) - before[2]) < 1e-12 * float(inc[3])
+    assert float(jnp.min(out[4])) > 0.0 and float(jnp.max(jnp.abs(out[5] - un))) > 1e-4  # the friction acts
+
+
+@pytest.mark.parametrize("geometry", GEOMETRIES, ids=IDS)
+def test_full_step_runs_conserves_nuclei_and_stays_finite(geometry):
+    grid = F.build_neutral_grid(geometry)
+    params = F.NeutralParameters(
+        reference_density_m3=5.0e18, reference_temperature_ev=PARAMS.reference_temperature_ev, reaction_substeps=3
+    )
+    n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 7)
+    Tn, un, v = 0.05 + 0.3 * Te, jnp.zeros(geometry.shape), grid.volume
     for _ in range(4):
-        before = F.inventories(n, Vi, Te, Ti, Nn, grid, params, Tn)
-        n, Vi, Te, Ti, Nn, Tn_new, ledger, _ = FL.neutral_fluid_step(n, Vi, Te, Ti, Nn, Tn, 0.02, grid, params)
-        changed += float(jnp.max(jnp.abs(Tn_new - Tn)))
-        Tn = Tn_new
-        after = F.inventories(n, Vi, Te, Ti, Nn, grid, params, Tn)
-        assert abs(float(after[0] - before[0])) < 1e-14 * float(before[0])
-        sink = float(ledger[3])
-        assert sink > 0.0
-        assert abs(float(after[1] + after[2] + sink - before[1] - before[2])) < 1e-12 * sink
-        assert float(ledger[7]) < 1e-9 and float(ledger[8]) < 1e-9
-    assert changed > 1e-3 and float(jnp.min(Nn)) > 0.0 and float(jnp.min(Tn)) > 0.0
+        nuclei = float(jnp.sum(v * (n + Nn)))
+        n, Vi, Te, Ti, Nn, un, Tn, ledger, _ = FL.neutral_fluid_step(n, Vi, Te, Ti, Nn, un, Tn, 0.02, grid, params)
+        assert abs(float(jnp.sum(v * (n + Nn))) - nuclei) < 1e-13 * nuclei
+        assert float(ledger[7]) < 1e-9 and float(ledger[8]) < 1e-9 and float(ledger[12]) < 1e-9
+    assert float(jnp.min(Nn)) > 0.0 and float(jnp.min(Tn)) > 0.0 and float(jnp.max(jnp.abs(un))) > 1e-3
 
 
 def test_limiter_engages_on_steep_gradients_and_caps_the_particle_flux():
@@ -122,8 +179,8 @@ def test_fluid_step_is_differentiable():
     Tn = 0.05 + 0.3 * Te
 
     def functional(scale):
-        out = FL.neutral_fluid_step(n, Vi, Te, scale * Ti, Nn, Tn, 0.02, grid, PARAMS)
-        return jnp.sum(grid.volume * out[4] * out[5])
+        out = FL.neutral_fluid_step(n, Vi, Te, scale * Ti, Nn, 0.1 * Vi, Tn, 0.02, grid, PARAMS)
+        return jnp.sum(grid.volume * out[4] * (out[6] + out[5] ** 2))
 
     g = float(jax.grad(functional)(1.0))
     eps = 1e-5
