@@ -45,6 +45,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Only inspect configuration and exit successfully.",
     )
     run_parser.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="TABLE.KEY=VALUE",
+        help="Override a TOML deck key (repeatable; value in TOML syntax), e.g. --set run.blocks=2.",
+    )
+    run_parser.add_argument(
         "--precision",
         choices=("float32", "float64"),
         default=None,
@@ -140,10 +147,11 @@ def _is_backend_deck(path: Path) -> bool:
 def _backend_deck_command(args: argparse.Namespace, *, inspect_only: bool) -> int:
     """Inspect or run a ``[model] backend`` deck: the same models as the Python API."""
 
-    from .deck import describe, load_deck, run_deck
+    from .deck import describe, load_deck, parse_set, run_deck
 
     try:
-        name, config = load_deck(args.input_file)
+        overrides = parse_set(getattr(args, "set", []))
+        name, config = load_deck(args.input_file, overrides)
     except ValueError as error:
         raise SystemExit(f"{args.input_file}: {error}") from None
     if inspect_only:
@@ -158,7 +166,7 @@ def _backend_deck_command(args: argparse.Namespace, *, inspect_only: bool) -> in
             f"{', '.join('--' + n.replace('_', '-') for n in given)} not supported for {name} decks; "
             "set the deck keys instead"
         )
-    run_deck(args.input_file, output_dir=args.output_dir, case_name=args.case_name, quiet=args.quiet)
+    run_deck(args.input_file, output_dir=args.output_dir, case_name=args.case_name, quiet=args.quiet, overrides=overrides)
     return 0
 
 
@@ -204,6 +212,8 @@ def _run_command(args: argparse.Namespace) -> int:
         return _inspect_command(args)
     if _is_backend_deck(args.input_file):
         return _backend_deck_command(args, inspect_only=False)
+    if args.set:
+        raise SystemExit("--set applies to [model] backend decks only")
     config = load_bout_input(args.input_file)
     run_config = RunConfiguration.from_config(config)
     resolved_precision = resolve_runtime_precision(

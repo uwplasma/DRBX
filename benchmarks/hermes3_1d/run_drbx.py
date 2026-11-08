@@ -1,11 +1,10 @@
 """DRBX side of the Hermes-3 L3/L4 comparison: SD1D-matched steady states on 100-1600 cells.
 
 Usage: python run_drbx.py OUTDIR VARIANT N_UP [N_UP ...]
-VARIANT: base | amjuel_rec (recombination rate replaced by the AMJUEL H.4 2.1.8 fit that
+VARIANT: base | key=value[,key=value] (DetachmentSolParameters fields) | amjuel_rec (recombination rate replaced by the AMJUEL H.4 2.1.8 fit that
 Hermes-3 uses; needs HERMES_JSON=<hermes-3>/json_database) | no_rec (recombination off).
 Writes one JSON per (n_up, ny) with the profiles, ledger and normalised state that compare.py and
-momentum_budget.py read. To run with the consistent sheath momentum flux, apply
-drbx_sheath_momentum.patch to a copy of src/ and put that copy first on PYTHONPATH.
+momentum_budget.py read. The consistent sheath momentum flux is the option sheath_momentum_flux=face.
 """
 
 import json
@@ -22,6 +21,11 @@ import drbx.native.neutrals.detachment_sol_model as m
 out, variant = Path(sys.argv[1]), sys.argv[2]
 out.mkdir(parents=True, exist_ok=True)
 kw = {"no_rec": {"recombination": False}}.get(variant, {})
+if "=" in variant:  # e.g. sheath_momentum_flux=face,sheath_gamma=5.5 (any DetachmentSolParameters field)
+    kw = {
+        k: (float(v) if v.replace(".", "", 1).replace("e", "", 1).isdigit() else v)
+        for k, v in (a.split("=") for a in variant.split(","))
+    }
 if variant == "amjuel_rec":
     c = np.array(
         json.load(open(Path(os.environ["HERMES_JSON"]) / "AMJUEL_H.4_2.1.8.json"))[
@@ -84,7 +88,7 @@ for n_up in map(float, sys.argv[3:]):
                 k: np.asarray(v).tolist() for k, v in r.state._asdict().items()
             },  # normalised (momentum_budget.py)
         )
-        f = out / f"drbx_{variant}_{n_up:.5e}_{ny}.json"
+        f = out / f"drbx_{variant.replace('=', '-').replace(',', '_')}_{n_up:.5e}_{ny}.json"
         f.write_text(json.dumps(rec))
         print(
             f.name,
