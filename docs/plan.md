@@ -248,6 +248,8 @@ default AMJUEL in 3D).
   the cells have Kn_grad >= 1 (mfp 6 cm at n0 = 5e18 m^-3), so at these plasma parameters neither neutral model is in its
   validity range and the fluid particle limiter reaches 0.01-0.03 in its most limited cells.
 - N5: fluid becomes the default; the diffusive model is deleted (fewest lines).
+  Done in the N5 PR: `neutrals = true` runs the fluid model; `neutral_step`, `implicit_diffusion`, `neutral_diffusivity`, the
+  mean-free-path cap (`neutral_mfp_max`) and the `neutral_model` key are deleted (the SD1D path keeps its own fits).
 - N6: molecules / hybrid (kinetic or ballistic) for Kn > 0.3 regions, only if N4 shows the fluid model is outside its range.
 
 ### Phase F: verification and validation (#42)

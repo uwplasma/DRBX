@@ -419,16 +419,14 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.electron_heat_transmission` | `float` | `0.0` | Electron sheath heat transmission coefficient; 0 derives it from the sheath potential and `secondary_electron_emission`. |
 | `fci_braginskii.ion_heat_transmission` | `float` | `2.5` | Ion sheath heat transmission coefficient. |
 | `fci_braginskii.secondary_electron_emission` | `float` | `0.0` | Secondary electron emission coefficient of the wall. |
-| `fci_braginskii.neutrals` | `bool` | `False` | Evolve a diffusive neutral density with ionization, charge exchange and recombination sources. |
+| `fci_braginskii.neutrals` | `bool` | `False` | Evolve fluid neutrals (density, parallel velocity, temperature) with ionization, charge exchange and recombination sources. |
 | `fci_braginskii.neutral_reference_density_m3` | `float` | `5e+18` | Reference plasma density used to dimensionalize the neutral reaction rates. (m^-3) |
-| `fci_braginskii.neutral_temperature_ev` | `float` | `3.0` | Neutral temperature. (eV) |
-| `fci_braginskii.neutral_mfp_max` | `float` | `0.05` | Upper cap of the neutral mean free path. (normalized length) |
+| `fci_braginskii.neutral_temperature_ev` | `float` | `3.0` | Initial neutral temperature. (eV) |
 | `fci_braginskii.neutral_initial_density` | `float` | `0.01` | Neutral density at the wall at t = 0. (normalized) |
 | `fci_braginskii.neutral_initial_decay_length` | `float` | `0.1` | Decay length of the initial neutral profile from the wall; 0 gives a uniform profile. (normalized length) |
 | `fci_braginskii.neutral_reaction_substeps` | `int` | `1` | Substeps of the stiff neutral reaction update per time step. (substeps) |
-| `fci_braginskii.neutral_model` | `str` | `'diffusive'` | `diffusive` (fixed `T_n`) or `fluid`: evolved `n_n`, parallel `u_n` and `T_n` with the advanced-fluid-neutral closure and flux limiters; `fluid` supports restart. |
-| `fci_braginskii.neutral_wall_absorption` | `float` | `0.0` | Fluid model: probability that a wall-incident atom is absorbed, in [0, 1]. |
-| `fci_braginskii.neutral_wall_energy_reflection` | `float` | `1.0` | Fluid model: energy fraction kept by an atom reflected at the wall, in [0, 1]. |
+| `fci_braginskii.neutral_wall_absorption` | `float` | `0.0` | Probability that a wall-incident atom is absorbed, in [0, 1]. |
+| `fci_braginskii.neutral_wall_energy_reflection` | `float` | `1.0` | Energy fraction kept by an atom reflected at the wall, in [0, 1]. |
 | `fci_braginskii.sheath_potential` | `str` | `'ambipolar'` | Sheath potential model used by the Bohm closure (`ambipolar` by default). |
 | `fci_braginskii.recycling` | `bool` | `False` | Return ion wall flux as neutrals; requires `neutrals = true` and `wall_closure = "bohm"`. |
 | `fci_braginskii.recycling_coefficient` | `float` | `0.99` | Fraction of the ion wall flux recycled as neutrals, in [0, 1]. |
