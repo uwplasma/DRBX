@@ -74,7 +74,9 @@ from drbx.fci_braginskii.native.fci_sharding import (  # noqa: E402
 )
 from drbx.fci_braginskii.native.fci_gmres import SolvaxGmresConfig  # noqa: E402
 from drbx.fci_braginskii.native.fci_parallel_conduction import spitzer_prefactors  # noqa: E402
-from drbx.fci_braginskii.native.fci_wall_closure import SHEATH_POTENTIALS, WALL_CLOSURES, SheathClosure  # noqa: E402
+from drbx.fci_braginskii.native.fci_wall_closure import (  # noqa: E402
+    SHEATH_POTENTIALS, WALL_CLOSURES, SheathClosure, balance_mismatch,
+)
 from drbx.fci_braginskii.native import fci_neutrals  # noqa: E402
 from drbx.fci_braginskii.native.fci_angular_agglomeration import (  # noqa: E402
     RLP_PACKED_FIELD_COUNT,
@@ -167,12 +169,14 @@ WALL_LEDGER_COLUMNS = (
     "electron_energy_inventory", "ion_energy_inventory", "ion_kinetic_inventory",
     "electron_energy_source", "ion_energy_source",
     "momentum_wall", "momentum_leg_pressure", "momentum_source", "momentum_inventory",
-    # Applied over the step ending at this row (NaN on the first row); see
-    # ``LocalFciDrbEBRhs.wall_step_ledger``.
-    "step_particle_wall", "step_particle_other", "step_electron_energy_wall",
-    "step_electron_energy_other", "step_electron_energy_product", "step_ion_energy_wall",
-    "step_ion_energy_other", "step_ion_energy_product",
-    "step_momentum_wall", "step_momentum_other", "step_momentum_product",
+    # Over the step ending at this row (NaN on the first row); see
+    # ``LocalFciDrbEBRhs.wall_step_check``.  ``applied`` is what the implicit
+    # stages did to the owner inventory, ``face`` what the wall-face states
+    # of the stage states say the wall removes (independent of the update).
+    "step_particle_applied", "step_particle_face", "step_electron_energy_applied",
+    "step_electron_energy_face", "step_ion_energy_applied", "step_ion_energy_face",
+    "step_momentum_applied", "step_momentum_face", "step_particle_explicit",
+    "step_particle_explicit_abs",
 )
 
 def topology_descriptor(topology: str) -> TopologyDescriptor:
@@ -1973,12 +1977,10 @@ def run_full_eb(
         diagnostics = jnp.stack(
             (state_mins[-1], state_maxs[-1], state_abs_maxs[-1]), axis=1
         )
-        implicit_1, explicit_1, implicit_2, explicit_2, _ = stage_rates
-        step_ledger = model.wall_step_ledger(
-            stage_states[0],
-            implicit_1.axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
-            explicit_1.axpy(explicit_2, scale=1.0).map_fields(lambda value: 0.5 * value),
-            dt,
+        _, explicit_1, _, explicit_2, _ = stage_rates
+        step_ledger = model.wall_step_check(
+            (stage_states[0], stage_states[2]), (stage_states[1], stage_states[3]),
+            (explicit_1, explicit_2), IMEX_SSP222_GAMMA * dt,
         )
         for mesh_axis_name in ("x", "y", "z"):
             step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
@@ -1992,7 +1994,7 @@ def run_full_eb(
         )
         if recycling is not None:
             # Owner-space applied wall loss rate of this step: the implicit
-            # density row is the wall flux alone (``wall_step_ledger``).
+            # density row is the wall flux alone.
             implicit_1, _, implicit_2, _, _ = stage_rates
             outputs = outputs + (-0.5 * (implicit_1.density + implicit_2.density),)
         return outputs
@@ -2710,16 +2712,23 @@ def run_full_eb(
         with jax.disable_jit(advance_execution == "eager"):
             return np.asarray(wall_ledger(current_state, cell_fields, map_fields, control_volume_fields))
 
+    run_check = np.zeros(14)  # sums over the run: 10 step columns, then dN, dW_e, dW_i, dP
+
     def record_wall_ledger(time_value: float, step_ledger=None, split_change=None) -> None:
         """``split_change``: inventory change of the neutral split substep (removed from dN, dW, dP)."""
 
         if wall_ledger is None:
             return
         totals = wall_totals(state)
-        applied = (
-            np.full(11, np.nan) if step_ledger is None else np.asarray(step_ledger, dtype=np.float64)
-        )
-        wall_ledger_rows.append([float(time_value), *(float(v) for v in totals), *(float(v) for v in applied)])
+        step = np.full(10, np.nan)
+        if step_ledger is not None:
+            c = np.asarray(step_ledger, dtype=np.float64)
+            half = 0.5 * float(timestep)
+            applied = half * (c[0:4] + c[8:12])
+            face = half * (c[4:8] + c[12:16])
+            step = np.concatenate((np.stack((applied, face), axis=1).ravel(), half * c[16:18].sum(keepdims=True),
+                                   half * c[18:20].sum(keepdims=True)))
+        wall_ledger_rows.append([float(time_value), *(float(v) for v in totals), *(float(v) for v in step)])
         print(
             "[wall] t={:.6e} particle={:.6e} momentum={:.6e} q_e={:.6e} q_i={:.6e} q_kin={:.6e} "
             "current={:.3e} |current|={:.3e} legs={:.0f} N={:.9e} W_e={:.9e} W_i={:.9e} K_i={:.9e}".format(
@@ -2727,31 +2736,30 @@ def run_full_eb(
             ),
             flush=True,
         )
-        if step_ledger is not None and len(wall_ledger_rows) > 1:
-            previous, row = wall_ledger_rows[-2], wall_ledger_rows[-1]
-            d_n, d_we, d_wi, d_p = (row[k] - previous[k] for k in (9, 10, 11, 18))
-            if split_change is not None:
-                d_n, d_we, d_wi, d_p = (
-                    d_n - split_change[8], d_we - split_change[9], d_wi - split_change[10],
-                    d_p - split_change[17],
-                )
-            p_wall, p_other, e_wall, e_other, e_prod, i_wall, i_other, i_prod, m_wall, m_other, m_prod = applied
-            print(
-                "[wall-step] applied: particle={:.6e} other={:.3e} imbalance={:.3e} | "
-                "W_e wall={:.6e} other={:.3e} imbalance={:.3e} | "
-                "W_i wall={:.6e} other={:.3e} imbalance={:.3e} | "
-                "P wall={:.6e} other={:.3e} imbalance={:.3e}".format(
-                    p_wall, p_other, (d_n - (p_other - p_wall)) / max(abs(p_wall), 1.0e-300),
-                    e_wall, e_other, (d_we - (e_other - e_wall + e_prod)) / max(abs(e_wall), 1.0e-300),
-                    i_wall, i_other, (d_wi - (i_other - i_wall + i_prod)) / max(abs(i_wall), 1.0e-300),
-                    # the signed wall momentum nearly cancels between the two
-                    # ends, so the momentum imbalance is relative to the
-                    # largest term
-                    m_wall, m_other, (d_p - (m_other - m_wall + m_prod))
-                    / max(abs(m_wall), abs(m_other), abs(d_p), 1.0e-300),
-                ),
-                flush=True,
-            )
+        if step_ledger is None or len(wall_ledger_rows) < 2:
+            return
+        previous, row = wall_ledger_rows[-2], wall_ledger_rows[-1]
+        change = np.array([row[k] - previous[k] for k in (9, 10, 11, 18)])
+        if split_change is not None:
+            change -= np.asarray([split_change[k] for k in (8, 9, 10, 17)])
+        run_check[:] += np.concatenate((step, change))
+        tiny = 1.0e-300
+        diff = np.array(balance_mismatch(applied, face))
+        # the signed wall momentum cancels against the leg pressure to round-off: scale P by the wall term
+        diff[3] = (applied[3] - face[3]) / max(abs(row[15]) * float(timestep), tiny)
+        print(
+            "[wall-step] (applied-face)/max: n={:.2e} W_e={:.2e} W_i={:.2e} P={:.2e} | explicit sum V dn / wall "
+            "loss={:.2e}".format(*diff, step[8] / max(abs(face[0]), tiny)),
+            flush=True,
+        )
+        print(
+            "[wall-run] t={:.6e} dN={:.6e} int face={:.6e} int explicit={:.3e} closure={:.2e} of the wall loss | "
+            "dW-int face (bulk, not claimed) W_e={:.3e} W_i={:.3e}".format(
+                float(time_value), *run_check[[10, 1, 8]], (run_check[10] - run_check[8] - run_check[1]) / abs(run_check[1]),
+                run_check[11] - run_check[3], run_check[12] - run_check[5],
+            ),
+            flush=True,
+        )
 
     record_wall_ledger(float(start_time))
 
@@ -2892,10 +2900,12 @@ def run_full_eb(
                 - recycled_thermal
             ) / max(abs(neutral_ledger[3]) + abs(neutral_ledger[4]), 1.0e-300)
             if recycling is not None:
-                wall_loss = float(np.asarray(step_ledger)[0])
+                check = np.asarray(step_ledger)
+                half = 0.5 * float(timestep)
+                wall_loss = -half * (check[4] + check[12])  # from the wall-face states of the stage states
                 recycled_energy = recycled_energy_per_atom * recycled
                 change = nuclei_a - nuclei_previous
-                expected = float(np.asarray(step_ledger)[1]) - (1.0 - recycling.coefficient) * wall_loss
+                expected = half * (check[16] + check[17]) - (1.0 - recycling.coefficient) * wall_loss
                 recycling_rows.append([
                     current_time, wall_loss, recycled, recycled_energy, recycled_thermal,
                     recycled_energy - recycled_thermal, nuclei_a, change, expected,
@@ -3324,7 +3334,6 @@ def neutral_parameters(config) -> fci_neutrals.NeutralParameters | None:
     if not config.neutrals:
         return None
     checks = (
-        (config.neutral_reference_density_m3 > 0.0, "neutral_reference_density_m3 must be positive"),
         (config.neutral_temperature_ev > 0.0, "neutral_temperature_ev must be positive"),
         (config.neutral_mfp_max > 0.0, "neutral_mfp_max must be positive"),
         (config.neutral_initial_density >= 0.0, "neutral_initial_density must be nonnegative"),
@@ -3337,7 +3346,7 @@ def neutral_parameters(config) -> fci_neutrals.NeutralParameters | None:
             raise ValueError(message)
     reference_temperature = fci_neutrals.reference_temperature_ev(float(config.rho_star))
     return fci_neutrals.NeutralParameters(
-        reference_density_m3=float(config.neutral_reference_density_m3),
+        reference_density_m3=float(config.reference_density_m3),
         reference_temperature_ev=reference_temperature,
         neutral_temperature_ev=float(config.neutral_temperature_ev),
         mfp_max=float(config.neutral_mfp_max),
@@ -3421,7 +3430,6 @@ class HsxBlobConfig:
     ion_heat_transmission: float = 2.5
     secondary_electron_emission: float = 0.0
     neutrals: bool = False
-    neutral_reference_density_m3: float = 5.0e18
     neutral_temperature_ev: float = 3.0
     neutral_mfp_max: float = 0.05
     neutral_initial_density: float = 0.01
@@ -3980,7 +3988,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
                 {
                     "neutrals": True,
                     "neutral_model": "diffusive, prescribed T_n, AMJUEL-2020 iz/rec/cx, operator split after IMEX",
-                    "neutral_reference_density_m3": float(args.neutral_reference_density_m3),
+                    "reference_density_m3": float(args.reference_density_m3),
                     "neutral_reference_temperature_ev": neutral_params.reference_temperature_ev,
                     "neutral_temperature_ev": float(args.neutral_temperature_ev),
                     "neutral_mfp_max": float(args.neutral_mfp_max),
