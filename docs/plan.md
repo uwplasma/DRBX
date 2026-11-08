@@ -502,7 +502,8 @@ No recompiles per step and no hidden host syncs were found (6 `block_until_ready
 | #84+#85+#86 | combined | 2.59 -> 1.78 s (-31%); cold compile 99 -> 69 s | step 1.05 -> 0.66 s best-of (1.6x); cold compile 687 -> 340 s; initial phi 87 -> 41 s |
 | #87 | neutral implicit solves: banded x-line preconditioner, restart 200 -> 30 (stacked on #82) | stiff slab test 20-22 -> 10.6 s | not measured |
 
-Peak RSS is unchanged within the run-to-run spread (5.2-5.4 GB warm). GPU peak memory 0.47 GB (1.5 GB during the initial cold phi).
+Office 36-core CPU (load average 34, one A/B pair only, so indicative): step 26.4 -> 20.0 s (-24%), cold compile 238 -> 195 s, peak RSS 6.9 -> 5.0 GB.
+Peak RSS on the Mac is unchanged within the run-to-run spread (5.2-5.4 GB warm). GPU peak memory 0.47 GB (1.5 GB during the initial cold phi).
 Equivalence: wall-ledger lines (10 digits) of a 4-step run agree with main; the eig matches LAPACK to 2.5e-13 relative in the
 absolute-value action; the tree solve matches a dense solve to 1e-12; flat GMRES matches the custom-product path in iteration
 count and to 1e-8 in the solution (the solver tolerance).
