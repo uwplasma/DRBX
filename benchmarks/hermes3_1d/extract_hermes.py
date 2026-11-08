@@ -92,9 +92,12 @@ fw = Nn * Tn * 1.602176634e-19 * cs
 e_src = (
     1.5 * sum(vint(g(f"SP{s}")) for s in sp) * pw
 )  # all energy sources incl. sheath, conduction, atomic
-e_work = (
-    sum(vint(g(f"E{s}_VgradP")) for s in sp) * pw
-)  # V grad P exchange with the flow (kinetic) energy
+try:
+    e_work = (
+        sum(vint(g(f"E{s}_VgradP")) for s in sp) * pw
+    )  # V grad P exchange with the flow (kinetic) energy
+except ValueError:  # p_div_v = true writes E_PdivV instead; the ledger is then not closed here
+    e_work = float("nan")
 e_adv = sum(flow(f"ef{s}_adv_ylow") for s in sp) * fw  # 5/2 P V through the sheath face
 ledger = dict(
     particle_source=vint(src),

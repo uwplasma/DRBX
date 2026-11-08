@@ -199,6 +199,18 @@ They also answer the first CPU-parallelism question:
   bounded strong-scaling tool, not as an automatic replacement for accelerator
   execution.
 
+### Defaults And When To Change Them
+
+By default DRBX runs float64 on JAX's default device, with a persistent compilation cache under `~/.cache/drbx` (or `XDG_CACHE_HOME`; macOS uses `~/Library/Caches`).
+
+| Setting | Default | Change it when |
+| --- | --- | --- |
+| `JAX_PLATFORMS=cpu` | GPU when a CUDA `jaxlib` is installed | The grid overflows the GPU, as described above |
+| `DRBX_HOST_DEVICE_COUNT=N` | not set: one CPU device, XLA threads | Running a device-parallel transform; set it before importing `drbx` or `jax` |
+| `DRBX_PRECISION` | `float64` | You have checked that `float32` keeps the accuracy you need |
+| `XLA_PYTHON_CLIENT_PREALLOCATE=false` | JAX preallocates most GPU memory | Several processes share one GPU |
+| `DRBX_CACHE_DIR`, `DRBX_DISABLE_COMPILATION_CACHE=1` | cache on | The cache filesystem is slow or small |
+
 ### Parallelization Model
 
 There are three distinct execution modes worth separating:

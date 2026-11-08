@@ -5,7 +5,20 @@
 ```bash
 drbx inspect deck.toml   # print the resolved configuration
 drbx run deck.toml       # run; --output-dir / --case-name override [output]
+drbx run deck.toml --set run.blocks=2 --set 'hasegawa_wakatani.gradient=1.5'   # override any key (TOML value syntax, repeatable)
 ```
+
+The same code path is available from Python; keyword arguments are `table={"key": value}` overrides, and the return value is the summary payload plus the `paths` written:
+
+```python
+import drbx
+
+out = drbx.run("examples/inputs/hasegawa_wakatani.toml", output_dir="out",
+               run={"blocks": 2}, hasegawa_wakatani={"gradient": 1.5})
+print(out["results"], out["paths"])
+```
+
+`--set` and keyword overrides are validated by the same schema, so unknown keys are errors. (`--set` applies to `[model] backend` decks, not BOUT-style ones.)
 
 - Unknown tables and keys are errors that list the valid ones; `required` keys have no default. Relative paths resolve against the deck. Decks without `backend` are the BOUT-style format ([Inputs And Outputs](input_output_reference.md)).
 - Every backend except `fci_braginskii` accepts `[runtime] precision` (`float64`/`float32`) and `[output] directory` (default `./output/<case_name>`), `case_name` (default: deck name), and writes `<case_name>_summary.json` (`case_name`, `backend`, resolved `config`, `results`) and `<case_name>_arrays.npz`.
@@ -225,6 +238,7 @@ Plasma-neutral leg solved to steady state by pseudo-transient Newton continuatio
 | `detachment_sd1d.recycled_temperature` | `float` | `3.5` | Franck-Condon temperature of recycled neutrals. (eV) |
 | `detachment_sd1d.max_mean_free_path` | `float` | `0.1` | Cap on the neutral mean free path. (m) |
 | `detachment_sd1d.sheath_gamma` | `float` | `6.0` | Sheath heat-transmission coefficient. |
+| `detachment_sd1d.sheath_momentum_flux` | `str` | `'minmod'` | Target-face ion momentum flux: `minmod` (SD1D) or `face` (`N V_out^2`). |
 | `detachment_sd1d.charge_exchange` | `bool` | `True` | Include charge-exchange friction. |
 | `detachment_sd1d.recombination` | `bool` | `True` | Include recombination. |
 | `detachment_sd1d.Nnorm` | `float` | `1e+20` | Density normalization. (m^-3) |
