@@ -235,8 +235,12 @@ python examples/stellarator/hsx_fci_blob_render.py run/history.npz docs/media
 
 The geometry bundle is distributed separately; see
 [docs/fci_braginskii_hsx_backend.md](docs/fci_braginskii_hsx_backend.md).
-*Scope:* experimental and wall-limited: no sheath, neutral or recycling
-coupling yet.
+*Scope:* experimental. The Bohm sheath wall closure is the default; fluid
+neutrals (`n_n`, `u_n`, `T_n`) with wall recycling are optional
+(`examples/inputs/hsx_fci_neutrals.toml`). The fluid closure needs
+`Kn <~ 0.3`, and HSX edge cells are mostly `Kn >= 1`, so the neutral fields are
+not a quantitative prediction there. Each step with the sheath on prints an
+independent wall-flux conservation check (`[wall-step]`, `[wall-run]`).
 
 ## Comparison with other edge and SOL codes
 
@@ -262,7 +266,7 @@ For DRBX, ✅ means the feature is on `main` and covered by tests.
 <summary>Notes and evidence</summary>
 
 DRBX notes:
-- [a] Reduced fluid/diffusive neutral models with AMJUEL rates (`tests/test_native_recycling_sol.py`, `tests/test_fci_neutrals_3d.py`, `tests/test_neutral_energy_conservation.py`); no kinetic neutrals.
+- [a] Fluid neutral models (3D FCI: density, parallel velocity, temperature; 1D SOL: diffusive) with AMJUEL rates (`tests/test_native_recycling_sol.py`, `tests/test_fci_neutrals_3d.py`, `tests/test_neutral_energy_conservation.py`); no kinetic neutrals.
 - [b] Bohm-type reduced sheath closures on targets and limiters (`tests/test_open_field_line_sol.py`).
 - [c] Implicit Spitzer conduction in the 1D detachment model (`tests/test_native_detachment_sol.py`); the 3D turbulence steps are explicit.
 - [d] Runs on GPU through JAX and was measured by hand on an A4000; GPU is not exercised in CI.

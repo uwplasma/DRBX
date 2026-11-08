@@ -33,6 +33,7 @@ inputs, outputs, source modules, tests, and documentation page, see
 | --- | --- |
 | [`examples/sol/open_sol_flux_tube.py`](../examples/sol/open_sol_flux_tube.py) | Open slab flux tube with Bohm sheath targets; relaxation to the two-point steady state; sheath/recycling accounting. [Tutorial](tutorial_open_sol.md). |
 | [`examples/sol/recycling_sol.py`](../examples/sol/recycling_sol.py) | Coupled plasma + recycled neutral with AMJUEL rates; neutral cushion; detachment-onset density scan. |
+| [`examples/neutrals/fluid_neutral_slab.py`](../examples/neutrals/fluid_neutral_slab.py) | Fluid neutrals (n_n, u_n, T_n) entering a uniform plasma slab: the fitted penetration length against `lambda_mfp / sqrt(nu_iz / nu)` and the particle balance; plot. About 10 s. [Neutrals](neutrals_recycling.md). |
 
 ![Open SOL flux tube](media/open_sol_flux_tube.png)
 
