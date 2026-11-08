@@ -18,7 +18,8 @@ Van Uytven et al. (Nucl. Fusion 62, 086023, 2022), hydrogen, ``m_n = m_i`` (back
   parallel flow carried by ``M = n u``), ``d_t M + div(u Gamma - eta grad u) = -b.grad p + S_M`` with the limited viscosity
   ``eta`` (flux limit ``p_n``).  ``(n, M)`` are advanced together implicitly (acoustic coupling through ``p = n T``,
   so no sound-speed or diffusion CFL), then ``u`` by an implicit upwind-advection and viscosity solve in flux form.  The
-  internal energy gains ``(Gamma/n).grad p`` (pressure work) and ``eta |grad u|^2`` (viscous heating).  Curvature of
+  internal energy gains the parallel pressure work ``u b.grad p`` and the viscous heating ``eta |grad u|^2``.  (The work of
+  the perpendicular pressure-diffusive drift is cancelled by its friction heating, so neither appears.)  Curvature of
   ``b`` (``S_curv``) is neglected.  Friction with the ions is the CX/ionisation momentum exchange of the reaction step
   (explicit, ``max_dt_nu`` is its stability number), so momentum, nuclei and total energy are exchanged exactly.
 - Exchange with the plasma: ``fci_neutrals.reaction_source`` (AMJUEL rates, one source hook), with the evolved
@@ -211,8 +212,7 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
 
     # T: upwind enthalpy 5/2 T Gamma plus conduction, implicit in T; pressure work and viscous heating as sources
     kf = _fine(kappa, grid)
-    gperp2 = grad_norm(_fine(p_star, grid), grid) ** 2 - gp**2
-    se = se + sel(u_a * gp - dp / n_safe * gperp2 + eta_l * gu**2)
+    se = se + sel(u_a * gp + eta_l * gu**2)
 
     def energy_flux(t):
         up = _upwind(t, (fx, fy, fz), grid)

@@ -56,7 +56,7 @@ def test_transport_reduces_to_pressure_diffusion_when_the_inertial_response_equa
 
 
 @pytest.mark.parametrize("geometry", GEOMETRIES, ids=IDS)
-def test_transport_conserves_nuclei_exactly_and_total_energy_to_truncation(geometry):
+def test_transport_conserves_nuclei_exactly_and_total_energy_to_1e_3(geometry):
     grid = F.build_neutral_grid(geometry)
     i, j, k = (jnp.arange(m) / m for m in geometry.shape)
     smooth = lambda a, b, c: jnp.sin(2 * jnp.pi * (a * i[:, None, None] + b * j[None, :, None] + c * k[None, None, :]))
@@ -74,7 +74,7 @@ def test_transport_conserves_nuclei_exactly_and_total_energy_to_truncation(geome
         assert abs(float(jnp.sum(v * n_new)) - nuclei - dt * float(jnp.sum(v * source))) < 1e-13 * nuclei
         assert float(jnp.max(rel)) < 1e-8
         errors.append(abs(energy(n_new, u_new, t_new) - energy(Nn, un, Te) - dt * float(jnp.sum(v * 1.5 * Te * source))))
-    assert errors[0] < 0.02 * energy(Nn, un, Te) and errors[1] < 0.7 * errors[0], errors  # first order in dt
+    assert max(errors) < 1e-3 * energy(Nn, un, Te), errors  # truncation error of the kinetic-work/viscous-heating terms
 
 
 @pytest.mark.parametrize("geometry", GEOMETRIES, ids=IDS)
