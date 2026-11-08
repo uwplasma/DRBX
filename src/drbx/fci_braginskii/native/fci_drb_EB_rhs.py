@@ -1389,7 +1389,7 @@ class LocalFciDrbEBRhs:
             & maps.forward.target_valid
             & maps.backward.target_valid
         )
-        admitted = admitted & self.geometry.active_cell_mask_owned
+        admitted = admitted & self._fci_pair_active_mask()
         if exclude_radial_ghost is None:
             exclude_radial_ghost = not include_physical_wall
         if not exclude_radial_ghost:
@@ -1401,6 +1401,29 @@ class LocalFciDrbEBRhs:
             & ~has_remote_radial_ghost(maps.forward)
             & ~has_remote_radial_ghost(maps.backward)
         )
+
+    def _fci_both_wall_mask(self) -> jnp.ndarray:
+        """Cells whose two field-line legs both end on a physical wall."""
+
+        maps = self.geometry.maps
+        return (
+            (maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+            & (maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+        )
+
+    def _fci_pair_active_mask(self) -> jnp.ndarray:
+        """Cells of the parallel pairs: active cells that have a leg to the field.
+
+        A both-legs-wall cell has no parallel stencil of its own, so the pair
+        would give it only the scatter of a core row over a leg that is long
+        against its own wall legs, and ``G(pe)``, ``G(Te)`` there would not
+        balance ``G_p(phi)``.  Such a cell is outside the pairs (``G = D = 0``);
+        the leg of a core row that ends in it is dropped from the pairs (zero
+        flux, constants stay exact) and the cell is closed by its own sheath
+        wall legs alone.
+        """
+
+        return self.geometry.active_cell_mask_owned & ~self._fci_both_wall_mask()
 
     def _fci_support_core_target_mask(self) -> jnp.ndarray:
         """Return the rows of the support pair: interior rows and wall rows.
@@ -1464,7 +1487,7 @@ class LocalFciDrbEBRhs:
         """
 
         target = self._fci_pair_target_mask(include_physical_wall=True)
-        active = self.geometry.active_cell_mask_owned
+        active = self._fci_pair_active_mask()
         b_floor = 1.0e-30
         bmag_owned = jnp.maximum(
             jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
@@ -1555,7 +1578,9 @@ class LocalFciDrbEBRhs:
                 divergence = jnp.asarray(bmag_owned) * local_grad_parallel_op_fci(
                     q_stencil, self.geometry
                 )
-                return jnp.where(target, divergence, 0.0)
+                # A both-legs-wall cell is outside the pair but carries the divergence
+                # of its own two wall-leg currents (zero for the homogeneous pair).
+                return jnp.where(target | self._fci_both_wall_mask(), divergence, 0.0)
             divergence = local_parallel_q_flux_div_fci_op(
                 q_halo,
                 self.geometry,
@@ -1600,7 +1625,7 @@ class LocalFciDrbEBRhs:
         """
 
         core_target = self._fci_support_core_target_mask()
-        active = self.geometry.active_cell_mask_owned
+        active = self._fci_pair_active_mask()
         bmag_owned = jnp.maximum(
             jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
             1.0e-30,
@@ -1691,7 +1716,7 @@ class LocalFciDrbEBRhs:
 
         mass = self._fci_pair_cell_mass()
         divergence = build_weighted_negative_adjoint(
-            gradient, mass, mass, primal_active=self.geometry.active_cell_mask_owned, dual_active=leg
+            gradient, mass, mass, primal_active=self._fci_pair_active_mask(), dual_active=leg
         )
         length = jnp.abs(stencil(jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)).dx_plus)
         return gradient, divergence, length
@@ -1822,7 +1847,7 @@ class LocalFciDrbEBRhs:
         # Rows outside the pair's target (no admissible map) keep the mapped
         # divergence as their only closure.
         closure = jnp.where(
-            current_target, 0.0,
+            current_target | self._fci_both_wall_mask(), 0.0,
             local_parallel_q_flux_div_fci_op(
                 q_halo, self.geometry, context=context,
                 forward_remote_q_values=forward, backward_remote_q_values=backward,

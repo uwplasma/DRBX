@@ -247,6 +247,43 @@ not established. It belongs with C2/C3 (#60) and the Phase A wall rows above.
     scatter of a core row (item 3). (c) The implicit current/phi pair solve itself at both-legs-wall cells (the net
     Ve rate it produces from item 3 was not measured).
 
+    **Measurements of 2026-11-08 (branch `fix/sheath-wall-closure`, restarts from the step-300 checkpoint, dt = 7.5e-4,
+    ε = 0.1, GPU).** Correction to item 2: 544 of the 1024 r = 31 cells have a *forward* wall leg and 544 a *backward*
+    one; **216** have both (r = 30: 56). Every r = 31 cell has both legs shorter than 1 (0.016 to 0.3). The upstream
+    request to Aiken on #41 had no reply at this date; his `2D_fci` branch is a different (nodal) code base, and its
+    `docs/characteristic_wall_boundary_design.md` does not treat cells with two wall legs, so nothing was ported.
+11. **Spectrum of the r = 31 layer** (`scripts/fci_diagnostics.py` with `WALL_LAYER = 31`: the Jacobian of the
+    (Te, Ve) block restricted to the 1024 cells of the layer, state of step 350, 2048 columns). Main: spectral
+    abscissa +18.5, **216 of 2048 eigenvalues with Re > 0**, all real, eigenvectors on one cell (Ve share 1.00,
+    along-b correlation 0, wall-cell share ≥ 0.96), in four degenerate field-period images (+18.5 and +15.9). The
+    (Ve, ω) block is stable (−0.35). The diagonal ∂(rate Ve)/∂Ve of every probed r = 31 cell (40 of each wall class)
+    is negative (−0.6 … −26), so the growth is the Ve–Te loop through one cell: `G` of a row that is only the scatter
+    of a core row has a diagonal of one sign, `δTe' = (G pe)_c/(3/2 n) δVe` and `δVe' = −μ(1.71)(G δTe)_c` multiply
+    to a positive number (one-sided differences in both equations of a wave pair give a real exponent, a central
+    pair an imaginary one).
+12. **Variants** (first invalid step after the restart at step 300; main fails at 52, t = 0.264):
+
+    | variant | change | first invalid step | t |
+    |---|---|---|---|
+    | A | cells with two wall legs outside the pairs (`G = D = 0`, legs into them dropped from both pairs, zero closure) | 200 | 0.375 |
+    | A + B | A, and the insulating pair `G − wG(1)` also in ambipolar mode | 191 | 0.369 |
+    | A + ν | A with `electron_collision_frequency = 0.1` (main with it: 52, Ve = 1019 at the same cell) | 284 | 0.438 |
+    | C | A, current/φ pair rows = support-pair rows (radial-ghost rows dropped) | 98 | 0.299 |
+    | D | A, support pair rows extended to the radial-ghost rows with the Neumann q closure of the current pair | 95 | 0.296 |
+    | E | A, and cells whose legs read a radial ghost outside both pairs (r = 31 has no pair row) | 162 | 0.347 |
+    | `sheath_potential = "current"` | A, restart from the ambipolar state: NaN in the host 5×5 eigensolve after step 1 (initial wall current −1.08); from t = 0: Ve ≈ 50 at t = 0.04, invalid at step 84 (t = 0.063) | 84 from t = 0 | 0.063 |
+
+    A moves the failure from the two-wall cells to one-wall and interior r = 29…31 cells: at step 450 the
+    largest Ve is 216 at (31, 29, k) (backward wall leg 0.275, forward leg 0.295, `G(pe) = 0` because r = 31 rows
+    touch the radial ghost and are outside the support pair, `μ G_p(φ) = +1.3e4`, φ = −36 on a two-cell patch).
+    E removes that site and fails with Te = −4.7e-3 at an r = 30 cell with |Ve| = 26. A on the main state: 152
+    unstable (Te, Ve) modes of the layer, abscissa +10.7 (main: 216, +18.5). The cause is therefore not the
+    two-wall cells alone but every cell whose parallel gradient is a one-sided scatter.
+13. **Open (next).** The Ve–Te block needs a gradient/divergence pair in which the work term `Ve G(pe)` and the
+    thermal force have no one-signed diagonal, or a physical parallel friction in the Ve row (Spitzer, same `κ0` as
+    the conduction; the constant `electron_collision_frequency` already delays the failure by 0.063 on A). The
+    sheath-current mode needs the Schur-parabolised solve of C3 before it can be a closure.
+
 ### Phase D: performance (each with A/B/A/B timings and a gate)
 
 D1. Replace the host 5×5 `eig` callbacks with an in-JAX eigensolve (Rusanov
