@@ -77,7 +77,7 @@ from drbx.fci_braginskii.native.fci_parallel_conduction import spitzer_prefactor
 from drbx.fci_braginskii.native.fci_wall_closure import (  # noqa: E402
     SHEATH_POTENTIALS, WALL_CLOSURES, SheathClosure, balance_mismatch,
 )
-from drbx.fci_braginskii.native import fci_neutrals  # noqa: E402
+from drbx.fci_braginskii.native import fci_neutral_fluid, fci_neutrals  # noqa: E402
 from drbx.fci_braginskii.native.fci_angular_agglomeration import (  # noqa: E402
     RLP_PACKED_FIELD_COUNT,
     assemble_local_polar_angular_agglomeration_geometry,
@@ -1417,6 +1417,17 @@ def _load_restart_state(
     return FciDrbEBState(**arrays), restart_time
 
 
+def _load_neutral_restart(path: Path, frame: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(n_n, u_n, T_n)`` of one frame of a fluid-neutral history NPZ."""
+
+    with np.load(path, allow_pickle=False) as data:
+        names = ("neutral_density", "neutral_velocity", "neutral_temperature")
+        missing = [name for name in names if name not in data]
+        if missing:
+            raise ValueError(f"restart file {path} has no fluid neutral fields {missing}")
+        return tuple(np.asarray(data[name])[frame] for name in names)
+
+
 def _restart_step_offset(path: Path) -> int:
     """Return the global step stored in a snapshot/checkpoint, else 0.
 
@@ -1479,6 +1490,7 @@ def run_full_eb(
     neutrals: fci_neutrals.NeutralParameters | None = None,
     neutral_initial_density: float = 0.0,
     neutral_initial_decay_length: float = 0.0,
+    neutral_restart: tuple | None = None,
     recycling: fci_neutrals.RecyclingParameters | None = None,
 ) -> FciDrbEBState:
     """Advance the global EB state.
@@ -2772,19 +2784,26 @@ def run_full_eb(
             if neutral_initial_decay_length > 0.0
             else np.ones_like(x_label)
         )
-        neutral_density = jax.device_put(
-            np.where(
-                np.asarray(neutral_grid.owner),
+        fluid = neutrals.model == "fluid"
+        owner_mask = np.asarray(neutral_grid.owner)
+        neutral_initial = (
+            neutral_restart
+            if neutral_restart is not None
+            else (
                 float(neutral_initial_density) * np.broadcast_to(profile, global_geometry.shape),
-                0.0,
-            ),
-            state_sharding,
+                np.zeros(global_geometry.shape),
+                np.full(global_geometry.shape, neutrals.neutral_temperature),
+            )
+        )
+        neutral_density, neutral_velocity, neutral_temperature = (
+            jax.device_put(np.where(owner_mask, np.asarray(field, dtype=np.float64), fill), state_sharding)
+            for field, fill in zip(neutral_initial, (0.0, 0.0, neutrals.neutral_temperature))
         )
 
-        def neutral_split_kernel(current, neutral, wall_loss_rate=None):
-            before = fci_neutrals.inventories(
-                current.density, current.Vi, current.Te, current.Ti, neutral, neutral_grid, neutrals
-            )
+        def neutral_split_kernel(current, nn, un, tn, wall_loss_rate=None):
+            inventories = lambda c, nn_, un_, tn_: jnp.stack(fci_neutrals.inventories(
+                c.density, c.Vi, c.Te, c.Ti, nn_, neutral_grid, neutrals, tn_, un_))
+            before = inventories(current, nn, un, tn)
             source = (
                 None
                 if wall_loss_rate is None
@@ -2792,21 +2811,30 @@ def run_full_eb(
                     wall_loss_rate, recycling.coefficient, neutral_grid.owner
                 )
             )
-            n, vi, te, ti, neutral_new, ledger, ionisation = fci_neutrals.neutral_step(
-                current.density, current.Vi, current.Te, current.Ti, neutral, dt, neutral_grid, neutrals,
-                volume_source=source,
-            )
-            after = fci_neutrals.inventories(n, vi, te, ti, neutral_new, neutral_grid, neutrals)
+            if fluid:
+                energy = None if source is None else recycled_energy_per_atom * source
+                n, vi, te, ti, nn_new, un_new, tn_new, ledger, ionisation = fci_neutral_fluid.neutral_fluid_step(
+                    current.density, current.Vi, current.Te, current.Ti, nn, un, tn, dt, neutral_grid, neutrals,
+                    volume_source=source, volume_energy=energy,
+                )
+            else:
+                n, vi, te, ti, nn_new, ledger, ionisation = fci_neutrals.neutral_step(
+                    current.density, current.Vi, current.Te, current.Ti, nn, dt, neutral_grid, neutrals,
+                    volume_source=source,
+                )
+                un_new, tn_new = un, tn
+            after = inventories(current.replace(density=n, Vi=vi, Te=te, Ti=ti), nn_new, un_new, tn_new)
             return (
                 current.replace(density=n, Vi=vi, Te=te, Ti=ti),
-                neutral_new,
+                nn_new, un_new, tn_new,
                 ledger,
-                jnp.stack(before + after),
+                jnp.concatenate((before, after)),
                 ionisation,
             )
 
         neutral_split = jax.jit(neutral_split_kernel)
-        neutral_history = [np.asarray(materialized_owner_array(neutral_density), dtype=history_numpy_dtype)]
+        neutral_history = [[np.asarray(materialized_owner_array(f), dtype=history_numpy_dtype)] for f in (
+            neutral_density, neutral_velocity, neutral_temperature)]
         ionisation_field = jnp.zeros_like(neutral_density)
         cumulative_sinks = np.zeros(2)  # electron energy loss, neutral reservoir energy
         inventory0 = None
@@ -2817,10 +2845,11 @@ def run_full_eb(
         nuclei_previous = float(np.asarray(jax.jit(
             lambda c, nn: fci_neutrals.inventories(c.density, c.Vi, c.Te, c.Ti, nn, neutral_grid, neutrals)[0]
         )(state, neutral_density)))
+        ledger_columns = fci_neutral_fluid.FLUID_LEDGER_COLUMNS if fluid else fci_neutrals.NEUTRAL_LEDGER_COLUMNS
         print(
-            "[neutrals] diffusive neutral density on ("
+            f"[neutrals] {neutrals.model} neutrals on ("
             + (
-                "reflecting wall, no recycling); "
+                f"{'reflecting' if neutrals.wall_absorption == 0.0 else f'absorbing p={neutrals.wall_absorption:.3g}'} wall, no recycling); "
                 if recycling is None
                 else f"recycling R={recycling.coefficient:.4g} of the applied ion wall flux into the wall cells, "
                 f"energy {recycling.energy} = {recycled_energy_per_atom * neutrals.reference_temperature_ev:.4g} eV/atom); "
@@ -2879,11 +2908,12 @@ def run_full_eb(
         split_change = None
         if neutrals is not None:
             totals_before_split = wall_totals(state) if wall_ledger is not None else None
-            state, neutral_density, neutral_ledger, neutral_inventory, ionisation_field = neutral_split(
-                state, neutral_density, *wall_loss_output
-            )
+            state, neutral_density, neutral_velocity, neutral_temperature, neutral_ledger, neutral_inventory, \
+                ionisation_field = neutral_split(state, neutral_density, neutral_velocity, neutral_temperature,
+                                                 *wall_loss_output)
             state = state.map_fields(lambda value: jax.device_put(value, state_sharding))
-            neutral_density = jax.device_put(neutral_density, state_sharding)
+            neutral_density, neutral_velocity, neutral_temperature = (
+                jax.device_put(f, state_sharding) for f in (neutral_density, neutral_velocity, neutral_temperature))
             if totals_before_split is not None:
                 split_change = wall_totals(state) - totals_before_split
             neutral_ledger = np.asarray(neutral_ledger, dtype=np.float64)
@@ -2893,8 +2923,9 @@ def run_full_eb(
                 inventory0 = neutral_inventory[:3]
             nuclei_b, plasma_b, neutral_b, nuclei_a, plasma_a, neutral_a = neutral_inventory
             recycled = float(neutral_ledger[7]) if recycling is not None else 0.0
-            recycled_thermal = 1.5 * neutrals.neutral_temperature * recycled
-            particle_error = (nuclei_a - nuclei_b - recycled) / max(abs(nuclei_b), 1.0e-300)
+            absorbed = float(neutral_ledger[14]) if fluid else 0.0  # nuclei the wall takes from the neutrals
+            recycled_thermal = float(neutral_ledger[13]) if fluid else 1.5 * neutrals.neutral_temperature * recycled
+            particle_error = (nuclei_a - nuclei_b - recycled + absorbed) / max(abs(nuclei_b), 1.0e-300)
             energy_error = (
                 (plasma_a + neutral_a + neutral_ledger[3] + neutral_ledger[4]) - (plasma_b + neutral_b)
                 - recycled_thermal
@@ -2905,7 +2936,7 @@ def run_full_eb(
                 wall_loss = -half * (check[4] + check[12])  # from the wall-face states of the stage states
                 recycled_energy = recycled_energy_per_atom * recycled
                 change = nuclei_a - nuclei_previous
-                expected = half * (check[16] + check[17]) - (1.0 - recycling.coefficient) * wall_loss
+                expected = half * (check[16] + check[17]) - (1.0 - recycling.coefficient) * wall_loss - absorbed
                 recycling_rows.append([
                     current_time, wall_loss, recycled, recycled_energy, recycled_thermal,
                     recycled_energy - recycled_thermal, nuclei_a, change, expected,
@@ -2924,10 +2955,10 @@ def run_full_eb(
                 *(split_change[8:11] if split_change is not None else (np.nan,) * 3),
             ])
             print(
-                "[neutrals] t={:.6e} iz={:.4e} rec={:.4e} cx={:.4e} E_loss_e={:.4e} E_reservoir={:.4e} "
-                "N_n={:.6e} nuclei={:.9e} split: dN/N={:.2e} dE/sinks={:.2e} diff_relres={:.1e} "
+                "[neutrals] t={:.6e} iz={:.4e} rec={:.4e} cx={:.4e} E_loss_e={:.4e} E_sink2={:.4e} "
+                "W_n={:.6e} nuclei={:.9e} split: dN/N={:.2e} dE/sinks={:.2e} diff_relres={:.1e} "
                 "max_dt_nu={:.2e} out_of_range(Te,ne,Tcx)=({:.0f},{:.0f},{:.0f})".format(
-                    current_time, *neutral_ledger[:5], neutral_a / (1.5 * neutrals.neutral_temperature),
+                    current_time, *neutral_ledger[:5], neutral_a,
                     nuclei_a, particle_error, energy_error, neutral_ledger[8], neutral_ledger[9],
                     *neutral_ledger[10:13],
                 ),
@@ -2943,9 +2974,8 @@ def run_full_eb(
                     np.asarray(value, dtype=history_numpy_dtype)
                 )
             if neutrals is not None:
-                neutral_history.append(
-                    np.asarray(materialized_owner_array(neutral_density), dtype=history_numpy_dtype)
-                )
+                for frames, field in zip(neutral_history, (neutral_density, neutral_velocity, neutral_temperature)):
+                    frames.append(np.asarray(materialized_owner_array(field), dtype=history_numpy_dtype))
 
         diagnostics_host = np.asarray(diagnostics)
         gmres_stage_diagnostics_host = np.asarray(gmres_stage_diagnostics)
@@ -3103,8 +3133,9 @@ def run_full_eb(
 
     def neutral_output() -> dict[str, np.ndarray]:
         mfp, kn_cell, kn_grad = jax.jit(
-            lambda n, te, ti, nn: fci_neutrals.knudsen_map(n, te, ti, nn, neutral_grid, neutrals)
-        )(state.density, state.Te, state.Ti, neutral_density)
+            lambda n, te, ti, nn, tn: fci_neutrals.knudsen_map(
+                n, te, ti, nn, neutral_grid, neutrals, tn if fluid else None)
+        )(state.density, state.Te, state.Ti, neutral_density, neutral_temperature)
         kn_grad = np.asarray(kn_grad)
         fractions = [float(np.mean(kn_grad < 0.1)), float(np.mean((kn_grad >= 0.1) & (kn_grad < 1.0))), float(np.mean(kn_grad >= 1.0))]
         print(
@@ -3116,14 +3147,20 @@ def run_full_eb(
             flush=True,
         )
         return {
-            "neutral_density": np.stack(neutral_history, axis=0),
+            "neutral_density": np.stack(neutral_history[0], axis=0),
+            **(
+                {"neutral_velocity": np.stack(neutral_history[1], axis=0),
+                 "neutral_temperature": np.stack(neutral_history[2], axis=0)}
+                if fluid
+                else {}
+            ),
             "neutral_ionisation_rate": np.asarray(materialized_owner_array(ionisation_field), dtype=np.float64),
             "neutral_mean_free_path": np.asarray(mfp, dtype=np.float64),
             "neutral_knudsen_cell": np.asarray(kn_cell, dtype=np.float64),
             "neutral_knudsen_gradient": kn_grad,
-            "neutral_ledger": np.asarray(neutral_rows, dtype=np.float64).reshape(-1, 1 + len(fci_neutrals.NEUTRAL_LEDGER_COLUMNS) + 9),
+            "neutral_ledger": np.asarray(neutral_rows, dtype=np.float64).reshape(-1, 1 + len(ledger_columns) + 9),
             "neutral_ledger_columns": np.asarray(
-                ("time", *fci_neutrals.NEUTRAL_LEDGER_COLUMNS, "nuclei_before", "plasma_energy_before",
+                ("time", *ledger_columns, "nuclei_before", "plasma_energy_before",
                  "neutral_energy_before", "nuclei_after", "plasma_energy_after", "neutral_energy_after",
                  # the split's change of the wall ledger's (N, W_e, W_i) inventories (nan without sheath)
                  "split_wall_particle_inventory", "split_wall_electron_energy_inventory",
@@ -3339,7 +3376,13 @@ def neutral_parameters(config) -> fci_neutrals.NeutralParameters | None:
         (config.neutral_initial_density >= 0.0, "neutral_initial_density must be nonnegative"),
         (config.neutral_initial_decay_length >= 0.0, "neutral_initial_decay_length must be nonnegative"),
         (config.neutral_reaction_substeps >= 1, "neutral_reaction_substeps must be positive"),
-        (config.restart_from is None, "neutrals do not support restart yet (the checkpoint has no neutral field)"),
+        (config.neutral_model in ("diffusive", "fluid"), "neutral_model must be 'diffusive' or 'fluid'"),
+        (config.restart_from is None or config.neutral_model == "fluid",
+         "only the fluid neutral model supports restart (the diffusive one has no neutral checkpoint)"),
+        (0.0 <= config.neutral_wall_absorption <= 1.0, "neutral_wall_absorption must lie in [0, 1]"),
+        (0.0 <= config.neutral_wall_energy_reflection <= 1.0, "neutral_wall_energy_reflection must lie in [0, 1]"),
+        (config.neutral_model == "fluid" or config.neutral_wall_absorption == 0.0,
+         "neutral_wall_absorption needs neutral_model = 'fluid'"),
     )
     for ok, message in checks:
         if not ok:
@@ -3352,6 +3395,9 @@ def neutral_parameters(config) -> fci_neutrals.NeutralParameters | None:
         mfp_max=float(config.neutral_mfp_max),
         tau=float(config.tau),
         reaction_substeps=int(config.neutral_reaction_substeps),
+        model=str(config.neutral_model),
+        wall_absorption=float(config.neutral_wall_absorption),
+        wall_energy_reflection=float(config.neutral_wall_energy_reflection),
     )
 
 
@@ -3435,6 +3481,9 @@ class HsxBlobConfig:
     neutral_initial_density: float = 0.01
     neutral_initial_decay_length: float = 0.1
     neutral_reaction_substeps: int = 1
+    neutral_model: str = "diffusive"  # "fluid": evolved n_n, u_n, T_n (docs/neutrals_recycling.md)
+    neutral_wall_absorption: float = 0.0
+    neutral_wall_energy_reflection: float = 1.0
     sheath_potential: str = "ambipolar"
     recycling: bool = False
     recycling_coefficient: float = 0.99
@@ -3681,6 +3730,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
 
     restart_time = 0.0
     restart_used = args.restart_from is not None
+    neutral_restart = None
     if restart_used:
         try:
             initial_state, restart_time = _load_restart_state(
@@ -3700,6 +3750,12 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
                 "restart runs cannot schedule snapshots earlier than the "
                 "restart time"
             )
+        neutral_restart = None
+        if neutral_params is not None:
+            try:
+                neutral_restart = _load_neutral_restart(args.restart_from, int(args.restart_frame))
+            except (OSError, ValueError, KeyError, IndexError) as error:
+                fail(str(error))
         print(
             f"[restart] loaded all seven fields from {args.restart_from}; "
             f"frame={int(args.restart_frame)}, start_time={restart_time:.6e}",
@@ -3918,6 +3974,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         neutrals=neutral_params,
         neutral_initial_density=float(args.neutral_initial_density),
         neutral_initial_decay_length=float(args.neutral_initial_decay_length),
+        neutral_restart=neutral_restart,
         recycling=recycling_params,
         run_metadata={
             "command": " ".join(sys.argv),
@@ -3987,7 +4044,11 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             **(
                 {
                     "neutrals": True,
-                    "neutral_model": "diffusive, prescribed T_n, AMJUEL-2020 iz/rec/cx, operator split after IMEX",
+                    "neutral_model": (
+                        "fluid n_n, u_n, T_n (AFN pressure diffusion, flux limiter), AMJUEL-2020, split after IMEX"
+                        if neutral_params.model == "fluid"
+                        else "diffusive, prescribed T_n, AMJUEL-2020 iz/rec/cx, operator split after IMEX"
+                    ),
                     "reference_density_m3": float(args.reference_density_m3),
                     "neutral_reference_temperature_ev": neutral_params.reference_temperature_ev,
                     "neutral_temperature_ev": float(args.neutral_temperature_ev),
@@ -3995,7 +4056,11 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
                     "neutral_initial_density": float(args.neutral_initial_density),
                     "neutral_initial_decay_length": float(args.neutral_initial_decay_length),
                     "neutral_reaction_substeps": int(args.neutral_reaction_substeps),
-                    "neutral_wall": "reflecting (zero flux)",
+                    "neutral_wall": (
+                        f"absorption {neutral_params.wall_absorption}, energy reflection {neutral_params.wall_energy_reflection}"
+                        if neutral_params.wall_absorption > 0.0
+                        else "reflecting (zero flux)"
+                    ),
                     **(
                         {
                             "recycling": True,

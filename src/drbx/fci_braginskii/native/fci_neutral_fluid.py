@@ -18,7 +18,8 @@ Van Uytven et al. (Nucl. Fusion 62, 086023, 2022), hydrogen, ``m_n = m_i`` (back
   parallel flow carried by ``M = n u``), ``d_t M + div(u Gamma - eta grad u) = -b.grad p + S_M`` with the limited viscosity
   ``eta`` (flux limit ``p_n``).  ``(n, M)`` are advanced together implicitly (acoustic coupling through ``p = n T``,
   so no sound-speed or diffusion CFL), then ``u`` by an implicit upwind-advection and viscosity solve in flux form.  The
-  internal energy gains ``(Gamma/n).grad p`` (pressure work) and ``eta |grad u|^2`` (viscous heating).  Curvature of
+  internal energy gains the parallel pressure work ``u b.grad p`` and the viscous heating ``eta |grad u|^2``.  (The work of
+  the perpendicular pressure-diffusive drift is cancelled by its friction heating, so neither appears.)  Curvature of
   ``b`` (``S_curv``) is neglected.  Friction with the ions is the CX/ionisation momentum exchange of the reaction step
   (explicit, ``max_dt_nu`` is its stability number), so momentum, nuclei and total energy are exchanged exactly.
 - Exchange with the plasma: ``fci_neutrals.reaction_source`` (AMJUEL rates, one source hook), with the evolved
@@ -37,6 +38,7 @@ from .fci_neutrals import (
     _diffusion_diagonal,
     _face_fluxes,
     _fine,
+    _owner_sum,
     apply_volumetric_source,
     collision_frequencies,
     grad_norm,
@@ -55,30 +57,32 @@ __all__ = [
     "transport_coefficients",
 ]
 
-FLUID_LEDGER_COLUMNS = (
+FLUID_LEDGER_COLUMNS = (  # the first thirteen sit at the positions of ``fci_neutrals.NEUTRAL_LEDGER_COLUMNS``
     "ionisation",  # sum V I dt
     "recombination",
     "charge_exchange",
     "electron_energy_loss",  # -sum V S_Ee dt
+    "wall_energy_loss",  # energy the wall takes from the neutrals (absorbed and reflected-with-loss atoms)
     "neutral_momentum",  # sum V S_Mn dt (exact exchange with the ions)
+    "transport_particle_residual",  # sum V dn_n - (sources - wall absorption) dt over the transport step (round-off)
     "particle_source",  # sum V S dt of the volumetric neutral source (recycling)
-    "energy_source",  # sum V S_E dt carried by that source
-    "density_relres",
-    "energy_relres",
-    "min_particle_limiter",  # min of the particle limiter factor (1 = diffusive)
-    "min_heat_limiter",
-    "max_dt_nu",
-    "velocity_relres",
+    "max_relres",  # largest implicit-solve relative residual
+    "max_dt_nu",  # reaction stability number (raise reaction_substeps if > ~0.5)
     "out_of_range_Te",
     "out_of_range_ne",
     "out_of_range_Tcx",
+    "energy_source",  # sum V S_E dt carried by that source
+    "wall_absorbed",  # nuclei absorbed by the wall
+    "min_particle_limiter",  # min of the particle limiter factor (1 = unlimited)
+    "min_heat_limiter",
+    "velocity_relres",
 )
 
 
 def flux_limiter(gamma_c, gamma_lim, alpha=1.0, power=2.0):
     """``Gamma_fl / Gamma_c = [1 + (|Gamma_c| / (alpha Gamma_lim))^power]^(-1/power)`` (smooth, in (0, 1])."""
 
-    return (1.0 + (jnp.abs(gamma_c) / (alpha * gamma_lim)) ** power) ** (-1.0 / power)
+    return (1.0 + (jnp.abs(gamma_c) / jnp.maximum(alpha * gamma_lim, 1.0e-300)) ** power) ** (-1.0 / power)
 
 
 def transport_coefficients(density, Te, Ti, neutral_density, neutral_temperature, params: NeutralParameters):
@@ -150,7 +154,11 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
 
     ``volume_source`` / ``volume_energy``: owner particle and thermal-energy sources per unit volume and time (atoms
     are born at rest relative to the grid: the parallel momentum source is zero).
-    Returns ``(n_new, u_new, T_new, relres)``, ``relres = (density, velocity, energy)`` solver residuals.
+    The x wall is a reflecting wall with absorption: the Maxwellian wall flux ``n v/4`` (``v = sqrt(8 T/pi)``) is absorbed
+    with probability ``params.wall_absorption``; the atoms that return keep the fraction ``wall_energy_reflection`` of
+    their energy, so the wall takes ``(a + (1 - a)(1 - R_E)) 2 T`` per incident atom.  Both are implicit sinks.
+    Returns ``(n_new, u_new, T_new, relres, wall)``: solver residuals ``(density, velocity, energy)`` and the wall's
+    ``(absorbed nuclei, energy loss)`` of the step.
     """
 
     owner = grid.owner
@@ -159,6 +167,11 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
     tl = jnp.maximum(neutral_temperature, tn_floor)
     m0 = neutral_density * neutral_velocity
     sel = lambda x: jnp.where(owner, x, 0.0)
+    a, r_e = params.wall_absorption, params.wall_energy_reflection
+    area = jnp.zeros(grid.shape).at[-1].set(grid.wall_area)
+    geom = sel(_owner_sum(area, grid) / jnp.where(owner, grid.volume, 1.0))  # wall area per owner volume
+    vbar = jnp.sqrt(8.0 * tl / jnp.pi)
+    rate_n, rate_e = a * vbar / 4.0 * geom, (a + (1.0 - a) * (1.0 - r_e)) * vbar / 2.0 * geom  # 1/time; energy: x T n
 
     # (n, M): M_new = M - dt b.grad p_new; the parallel part of the limited isotropic diffusion is replaced by it, so the
     # flux is  -D g.grad p + b (D b.grad p + M_new) = perpendicular diffusion + the inertial parallel flow.
@@ -169,19 +182,21 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
 
     base = _parallel_flux(_fine(m0, grid), grid)
     rhs = neutral_density + dt * (sn + owner_inflow(*base, grid))
-    p_star, rel_n = _gmres(lambda p: p / tl - dt * owner_inflow(*particle_flux(p), grid), rhs, rhs * tl,
-                           1.0 / tl + dt * _diffusion_diagonal(dp, grid), params)
+    p_star, rel_n = _gmres(lambda p: (1.0 + dt * rate_n) * p / tl - dt * owner_inflow(*particle_flux(p), grid), rhs,
+                           rhs * tl, (1.0 + dt * rate_n) / tl + dt * _diffusion_diagonal(dp, grid), params)
     gp = _par_grad(p_star, grid)
     fx, fy, fz = [a + b for a, b in zip(particle_flux(p_star), base)]
-    n_new = sel(neutral_density + dt * (owner_inflow(fx, fy, fz, grid) + sn))
+    absorbed = rate_n * p_star / tl
+    n_new = sel(neutral_density + dt * (owner_inflow(fx, fy, fz, grid) + sn - absorbed))
     m_a = sel(m0 - dt * gp)
-    n_safe = jnp.maximum(n_new, 1.0e-300)
+    # a vacuum floor relative to the largest density keeps the implicit solves O(1) on empty and inactive cells
+    n_safe = jnp.where(owner, jnp.maximum(n_new, 1.0e-12 * jnp.max(n_new)), 1.0)
 
     # u: implicit upwind advection by the particle flux and limited viscosity, conservative in M
     u_a = m_a / n_safe
     gu = sel(grad_norm(_fine(u_a, grid), grid))
     p_n = neutral_density * neutral_temperature
-    eta_l = eta * flux_limiter(eta * gu, p_n)
+    eta_l = sel(eta * flux_limiter(eta * gu, p_n))
 
     def momentum_flux(u):
         up = _upwind(u, (fx, fy, fz), grid)
@@ -197,23 +212,25 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
 
     # T: upwind enthalpy 5/2 T Gamma plus conduction, implicit in T; pressure work and viscous heating as sources
     kf = _fine(kappa, grid)
-    gperp2 = grad_norm(_fine(p_star, grid), grid) ** 2 - gp**2
-    se = se + sel(u_a * gp - dp / n_safe * gperp2 + eta_l * gu**2)
+    se = se + sel(u_a * gp + eta_l * gu**2)
 
     def energy_flux(t):
         up = _upwind(t, (fx, fy, fz), grid)
         return [2.5 * f * x + c for f, x, c in zip(up, (fx, fy, fz), _face_fluxes(_fine(t, grid), kf, grid))]
 
     def energy_operator(t):
-        return 1.5 * n_safe * t - dt * owner_inflow(*energy_flux(t), grid)
+        return (1.5 + dt * rate_e) * n_safe * t - dt * owner_inflow(*energy_flux(t), grid)
 
     w_old = 1.5 * neutral_density * neutral_temperature
     rhs_e = w_old + dt * se
-    diag = 1.5 * n_safe + dt * _diffusion_diagonal(kappa, grid)
-    t_star, rel_e = _gmres(energy_operator, rhs_e, neutral_temperature, diag, params)
-    w_new = rhs_e + dt * owner_inflow(*energy_flux(t_star), grid)
+    diag = (1.5 + dt * rate_e) * n_safe + dt * _diffusion_diagonal(kappa, grid)
+    t_star, rel_e = _gmres(energy_operator, rhs_e, sel(neutral_temperature), diag, params)
+    wall_energy = rate_e * n_safe * t_star
+    w_new = rhs_e + dt * (owner_inflow(*energy_flux(t_star), grid) - wall_energy)
     t_new = sel(w_new / (1.5 * n_safe))
-    return n_new, u_new, t_new, jnp.stack((rel_n, rel_u, rel_e))
+    v = grid.volume
+    return n_new, u_new, t_new, jnp.stack((rel_n, rel_u, rel_e)), dt * jnp.stack(
+        (jnp.sum(v * absorbed), jnp.sum(v * wall_energy)))
 
 
 def neutral_reactions(density, Vi, Te, Ti, neutral_density, neutral_velocity, neutral_temperature, dt, grid: NeutralGrid,
@@ -267,15 +284,15 @@ def neutral_fluid_step(density, Vi, Te, Ti, neutral_density, neutral_velocity, n
     _, out = reaction_source(density, Vi, Te, Ti, neutral_density, params, owner, neutral_temperature, neutral_velocity)
     dp, kappa, fp, fh = limited_coefficients(n, te, ti, nn, tn, grid, params)
     eta = transport_coefficients(n, te, ti, nn, tn, params)[2]
-    nn_new, un_new, tn_new, relres = neutral_transport(nn, tn, un, dp, kappa, eta, dt, grid, params, volume_source,
-                                                       volume_energy)
+    nn_new, un_new, tn_new, relres, wall = neutral_transport(
+        nn, tn, un, dp, kappa, eta, dt, grid, params, volume_source, volume_energy)
     sn = jnp.where(owner, 0.0 if volume_source is None else volume_source, 0.0)
     s_n = dt * jnp.sum(v * sn)
     s_e = dt * jnp.sum(v * (1.5 * tn * sn if volume_energy is None else jnp.where(owner, volume_energy, 0.0)))
+    residual = jnp.sum(v * (nn_new - nn)) - s_n + wall[0]
     ledger = jnp.concatenate((
-        acc,
-        jnp.stack((s_n, s_e, relres[0], relres[2], jnp.min(jnp.where(owner, fp, 1.0)),
-                   jnp.min(jnp.where(owner, fh, 1.0)), max_nu, relres[1])),
+        acc[:4], wall[1:], acc[4:], jnp.stack((residual, s_n, jnp.max(relres), max_nu)),
         jnp.stack(rate_validity_counts(n, te, ti, params, owner)),
+        jnp.stack((s_e, wall[0], jnp.min(jnp.where(owner, fp, 1.0)), jnp.min(jnp.where(owner, fh, 1.0)), relres[1])),
     ))
     return n, vi, te, ti, nn_new, un_new, tn_new, ledger, out.ionization_rate

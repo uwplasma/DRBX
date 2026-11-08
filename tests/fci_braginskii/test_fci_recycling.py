@@ -214,3 +214,35 @@ def test_hsx_recycling_ledger_closes(tmp_path):
         np.testing.assert_allclose(rec["nuclei_change"], rec["nuclei_change_expected"], rtol=0, atol=5e-3 * wall.max())
         neutral = {name: data["neutral_ledger"][:, k] for k, name in enumerate(data["neutral_ledger_columns"])}
         np.testing.assert_allclose(neutral["wall_influx"], rec["recycled_particles"], rtol=1e-12)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("leak", [0.0, 0.01])
+def test_hsx_fluid_neutral_ledger_closes_and_detects_a_one_percent_leak(tmp_path, monkeypatch, leak):
+    """Real HSX: the recycling ledger (wall loss from the stage states, independent of the neutral update) closes to
+    1e-3 of the wall loss with the fluid neutrals and absorbing wall, and fails when 1% of the deposit is dropped."""
+
+    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
+    if bundle is None:
+        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX recycling ledger")
+    from drbx.cli import main
+    from drbx.fci_braginskii.native import fci_neutrals
+
+    original = fci_neutrals.recycled_neutral_source
+    monkeypatch.setattr(fci_neutrals, "recycled_neutral_source", lambda *a: (1.0 - leak) * original(*a))
+    deck = tmp_path / "hsx.toml"
+    deck.write_text(
+        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
+        f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
+        "final_time = 0.00225\nnum_steps = 3\nsave_every = 3\nneutrals = true\nneutral_model = \"fluid\"\n"
+        "neutral_wall_absorption = 0.1\nneutral_wall_energy_reflection = 0.5\n"
+        "recycling = true\nrecycling_coefficient = 0.9\n"
+    )
+    assert main(["run", str(deck)]) in (0, None)
+    data = np.load(tmp_path / "out" / "hsx.npz")
+    rec = {name: data["recycling_ledger"][:, k] for k, name in enumerate(data["recycling_ledger_columns"])}
+    closure = np.max(np.abs(rec["nuclei_change"] - rec["nuclei_change_expected"])) / rec["wall_ion_loss"].max()
+    assert (closure < 1e-3) if leak == 0.0 else (closure > 5e-3), closure
+    assert data["neutral_velocity"].shape == data["neutral_temperature"].shape == data["neutral_density"].shape
+    neutral = {name: data["neutral_ledger"][:, k] for k, name in enumerate(data["neutral_ledger_columns"])}
+    assert np.all(neutral["wall_absorbed"] > 0.0) and np.all(np.isfinite(data["neutral_knudsen_gradient"]))

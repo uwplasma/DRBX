@@ -425,6 +425,9 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.neutral_initial_density` | `float` | `0.01` | Neutral density at the wall at t = 0. (normalized) |
 | `fci_braginskii.neutral_initial_decay_length` | `float` | `0.1` | Decay length of the initial neutral profile from the wall; 0 gives a uniform profile. (normalized length) |
 | `fci_braginskii.neutral_reaction_substeps` | `int` | `1` | Substeps of the stiff neutral reaction update per time step. (substeps) |
+| `fci_braginskii.neutral_model` | `str` | `'diffusive'` | `diffusive` (fixed `T_n`) or `fluid`: evolved `n_n`, parallel `u_n` and `T_n` with the advanced-fluid-neutral closure and flux limiters; `fluid` supports restart. |
+| `fci_braginskii.neutral_wall_absorption` | `float` | `0.0` | Fluid model: probability that a wall-incident atom is absorbed, in [0, 1]. |
+| `fci_braginskii.neutral_wall_energy_reflection` | `float` | `1.0` | Fluid model: energy fraction kept by an atom reflected at the wall, in [0, 1]. |
 | `fci_braginskii.sheath_potential` | `str` | `'ambipolar'` | Sheath potential model used by the Bohm closure (`ambipolar` by default). |
 | `fci_braginskii.recycling` | `bool` | `False` | Return ion wall flux as neutrals; requires `neutrals = true` and `wall_closure = "bohm"`. |
 | `fci_braginskii.recycling_coefficient` | `float` | `0.99` | Fraction of the ion wall flux recycled as neutrals, in [0, 1]. |

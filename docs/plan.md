@@ -237,6 +237,10 @@ default AMJUEL in 3D).
   reflection wall BC (energy reflection coefficient, Franck-Condon energy for the dissociated remainder); recycling
   from the face ion flux (uses `wall_step_check` from #72); a conservation check independent of the step that fails
   on a 1% injected leak.
+  Done in the N3 PR (stacked on #72, which it merges): deck keys `neutral_model`, `neutral_wall_absorption`,
+  `neutral_wall_energy_reflection`; the run carries n_n, u_n, T_n through history, ledger and restart; recycling energy is
+  deposited as thermal neutral energy; the Maxwellian wall flux is absorbed with probability a and energy-reflected with
+  R_E (implicit sinks, ledgered); the recycling ledger of #72 is the independent check (1% leak test).
 - N4: validation: 16^3 HSX run with neutrals, Knudsen map, comparison with the diffusive model, 1D slab penetration
   length against the mean free path.
 - N5: fluid becomes the default; the diffusive model is deleted (fewest lines).
