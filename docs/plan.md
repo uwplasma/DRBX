@@ -328,6 +328,44 @@ not established. It belongs with C2/C3 (#60) and the Phase A wall rows above.
     curvature flux (frozen principal matrix, `max_condition` 1e8, `sigma I` fallback) is singular on them. Next: the
     curvature flux at low n (or a floor-free positivity-preserving wall particle sink), then the full run.
 
+20. **Cause of the step-405 failure of item 19 (measured, 32³ HSX, `sheath_potential = "current"`, restart from the step-404 state).**
+    The state is ordinary at stage 1 (n = 0.0972, Te = 0.27, Ti = 0.81, neighbours n = 0.71 and 0.48); the curvature
+    terms jump from O(0.06) at step 400 to 5e6/5e7/−6e8 on the same state, so the density hole is the trigger, not
+    the cause. Instrumenting `curvature_face_linearized_fluctuations`: the three offenders are the upper-wall faces
+    (axis 0, face 32) at (6, 14) and its two field-period images (6, 6), (6, 30), with `spectral_fallback = True`, face
+    density **−3.6e-4** (owner 0.097, left/right jump states 0.0972/0.0973, radial profile 0.88 → 0.097 over the last
+    cell), flux 1.8e9, Frobenius norm of the principal matrix 1.4e30. Mechanism: the face state of a wall face was the raw
+    wall trace (`_curvature_bc_characteristic_wall_states` returned `boundary_trace`), whose density undershoots to
+    ≤ 0; the fluctuation matrix floors it at 1e-12, the `4 Te²/(3 n)` entries reach 1e12, the condition test sends it to
+    the `sigma I` fallback with `sigma = ||A||_F = 1e30`, and the flux is `sigma` times the jump. The basis of the same
+    function was already built at `max(trace, 0.1 owner)` (the Te = 7.6e-5 case of the comment there); the returned face
+    state was not. Fix: return that floored state (+1/−1 source lines). Max curvature flux on the same state afterwards:
+    1.4, no spectral fallback (was 1.8e9 at 3 faces).
+21. **Second failure, after the curvature fix: negative density at an r = 31 cell at t = 0.4855 (step 647 from t = 0).**
+    The run from the step-404 state reaches t = 0.4845 and then fails (`invalid imex-ssp222 stage after step 243`); the
+    minimum density falls at a constant ≈ 0.4 per unit time (not ∝ n): 0.0898 (t = 0.318) → 0.0143 (0.45) → 2.3e-4
+    (0.4845). Density terms at the minimum cell (31, 24, 17) of the t = 0.45 state (n = 0.0143, φ = 0.94 against 0.48, −0.02,
+    0.36, 0.34 around it): **E×B bracket −0.712**, curvature −0.019, perpendicular diffusion +0.444, sheath wall sink
+    −0.126; the sum −0.41 is the observed rate. The sink is not the wall (it is ∝ n, 9 n); at the step-404 state the wall
+    sink was −1.04 against +0.54 of perpendicular diffusion. The bracket is the advective form
+    `D(U q_face) − q_centre D(U)` with the third-order upwind face value `qL = q0 + (δ⁻ + 2 δ⁺)/6`
+    (δ⁻ = q0 − q−1, δ⁺ = q1 − q0): at a minimum of a positive scalar the outflow face value exceeds the cell value, so
+    the advection lowers the minimum by an amount independent of n. Fix in `_third_order_scalar_face_states_from_halo`
+    (positive scalars n, Te, Ti only, i.e. `positivity_floor` set): first-order face value at the minimum along the
+    axis (`q0 < q−1 & q0 < q1` for the left state, `q1 < q2 & q1 < q0` for the right). The same density term of the same
+    state: −0.712 → **+0.055**.
+22. **Result, 32³ HSX, `sheath_potential = "current"`, from t = 0:** 800 steps to **t = 0.6**, no invalid stage, all fields
+    finite at the end (n 0.0210…1.39, Te 0.0156…4.42, Ti 0.175…6.13, Ve −4.1…2.0, Vi −0.22…0.31, φ −8.2…18.6). The minimum
+    density falls from 0.097 (t = 0.30) to 0.021 and stays near 0.02 from t = 0.5 on. CPU step cost, local, idle: 2.89 s (mean
+    of 800 steps; operators 0.50 s, GMRES 2.38 s, 59.8 iterations per step); the curvature-only fix measured 3.03 s
+    (median, with a test suite running alongside), the unfixed code 2.9–3.0 s before it stopped. Ledger, 16³ default deck to t = 0.6 (ambipolar), final code: operator-level wall balance
+    (`test_wall_balance_is_independent...`, the ≈ 8e-12 figure) passes at < 1e-11; the run-level `[wall-step]` applied-versus-face
+    mismatch (a linearisation error, not round-off) has the same maxima as with the curvature fix alone (n 1.6e-4, W_e 6.3e-4,
+    W_i 1.9e-4, P 9e-6), `[wall-run]` closure 9.3e-5 of the wall loss; t = 0.6 wall particle flux 6.85e-2, N 0.6644, W_e 0.9383,
+    max|Ve| 2.4 (item 15: 6.73e-2, 0.6648, 0.9388, 2.3). 16³ step 0.298 s (final) against 0.314/0.367 (parent, two runs) and
+    0.335/0.339 (curvature fix) in A/B/A/B of 30 steps. Not done: GPU profile (both A4000 busy with other jobs at 80–100 % for the whole session); a positivity-preserving *wall
+    sink* (item 21 shows the wall sink is not what empties the cell).
+
 ### Phase D: performance (each with A/B/A/B timings and a gate)
 
 D1. Replace the host 5×5 `eig` callbacks with an in-JAX eigensolve (Rusanov
