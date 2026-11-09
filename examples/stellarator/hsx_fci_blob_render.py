@@ -38,6 +38,7 @@ NUM_STEPS = 5               # quick preset; documented run uses 200 (dt = 7.5e-4
 SAVE_EVERY = 1              # history frames (movie frames); documented run uses 10
 OUTPUT_DIR = Path("output/hsx_fci_blob")
 HISTORY_PATH = OUTPUT_DIR / "history.npz"
+MOVIE_STRIDE = 4            # history frames per movie frame
 RUN_SIMULATION = True       # False: re-render an existing HISTORY_PATH only
 # ---------------------------------------------------------------------------
 
@@ -113,22 +114,25 @@ fig.suptitle("HSX FCI Braginskii backend: seeded filament on the canonical 32^3 
 fig.savefig(out / "hsx_fci_blob.png", metadata={"Software": None})
 print(f"saved {out / 'hsx_fci_blob.png'}", flush=True)
 
-# Movie: n - 1 and phi on the same four planes, fixed colour scales.
-fig, axs = plt.subplots(2, len(planes), figsize=(2.2 * len(planes), 4.6), dpi=80)
-scales = [float(np.abs(dn).max()), float(np.abs(phi).max())]
+# Movie: n - 1, phi and the parallel flows Vi, Ve on the same four planes, fixed colour scales.
+Vi, Ve = (data[name].astype(np.float64) for name in ("Vi", "Ve"))
+movie = [("n - 1", dn, "RdBu_r"), ("phi", phi, "PuOr_r"), ("Vi", Vi, "PiYG_r"), ("Ve", Ve, "PiYG_r")]
+fig, axs = plt.subplots(len(movie), len(planes), figsize=(1.25 * len(planes) + 0.4, 1.7 * len(movie) + 0.3), dpi=60)
+fig.subplots_adjust(left=0.1, right=0.99, bottom=0.01, top=0.95, wspace=0.05, hspace=0.04)
+# colour scales: 99.5th percentile of |field| in the active cells, so thin wall layers do not wash out the interior
+scales = [float(np.percentile(np.abs(f[:, active]), 99.5)) for _, f, _ in movie]
 
 
 def frame(it):
-    for row, (field, cmap, vmax) in zip(axs, [(dn, "RdBu_r", scales[0]), (phi, "PuOr_r", scales[1])]):
+    for row, (name, field, cmap), vmax in zip(axs, movie, scales):
         for ax, k in zip(row, planes):
             ax.clear()
             section(ax, field[it], k, vmax, cmap)
             ax.set_xticks([])
             ax.set_yticks([])
-    axs[0, 0].set_ylabel("n - 1", fontsize=8)
-    axs[1, 0].set_ylabel("phi", fontsize=8)
+        row[0].set_ylabel(f"{name}\n(+-{vmax:.2g})", fontsize=7)
     fig.suptitle(f"HSX FCI filament, t = {times[it]:.3f}", fontsize=9)
 
 
-FuncAnimation(fig, frame, frames=len(times)).save(out / "hsx_fci_blob.gif", writer=PillowWriter(fps=5))
+FuncAnimation(fig, frame, frames=range(0, len(times), MOVIE_STRIDE)).save(out / "hsx_fci_blob.gif", writer=PillowWriter(fps=5))
 print(f"saved {out / 'hsx_fci_blob.gif'}; max |n-1| = {np.abs(dn[last]).max():.3e}, max |phi| = {np.abs(phi[last]).max():.3e} at t = {times[last]:.4g}; render {time.perf_counter() - start:.1f} s")
