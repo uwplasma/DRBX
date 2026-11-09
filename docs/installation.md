@@ -57,6 +57,9 @@ python -m mkdocs build --clean --site-dir /tmp/drbx_docs
 
 Coil fields and field-line tracing use the installed ESSOS package:
 `pip install 'drbx[essos]'`. The Landreman--Paul QA coil set is bundled.
+
+The 3D renders in the field-line, HSX and FCI-plane examples use PyVista (offscreen) through
+`drbx.viz`; install it with `pip install 'drbx[viz]'`. It is optional and not needed by the solvers.
 Examples that need the matching VMEC `wout` read it from an ESSOS checkout
 named by `DRBX_ESSOS_ROOT`; they are not required for the basic native
 examples.

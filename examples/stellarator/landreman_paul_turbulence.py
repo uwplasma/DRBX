@@ -1,38 +1,17 @@
-"""Four-field turbulence on the Landreman-Paul stellarator: closed core + open SOL.
+"""Four-field turbulence on the Landreman-Paul QA stellarator: closed core plus open SOL.
 
-This example runs a drift-reduced four-field interchange turbulence simulation
-on the real Landreman-Paul 2021 quasi-axisymmetric configuration, with both
-closed and open field lines:
+The FCI geometry (metric, |B|, surface-preserving field-line maps; iota ~ 0.42) comes from
+the Landreman-Paul VMEC equilibrium via ESSOS. Cells outside ``LIMITER_RHO`` drain through
+a Bohm sheath at the toroidal target planes while the core stays closed. A multi-mode density
+seed is advanced with plain RK4 (field energy and sheath loss printed each step) and compared
+with a closed reference run; the figure shows the density fluctuations at one toroidal plane.
 
-1. build a flux-coordinate-independent (FCI) geometry from the actual
-   Landreman-Paul VMEC equilibrium -- the metric, the magnetic-field
-   magnitude, and the surface-preserving parallel field-line maps all come
-   from the real equilibrium (via the ESSOS import machinery), so the
-   rotational transform recovered from the maps matches the equilibrium value
-   (iota ~ 0.42);
-2. open a scrape-off layer with a radial limiter: cells outside ``LIMITER_RHO``
-   (the last closed flux surface, in the island-divertor / limiter sense) drain
-   through a Bohm sheath at the toroidal target planes, while the core stays
-   closed;
-3. seed a multi-mode density perturbation and advance the four-field model with
-   a plain RK4 loop, printing the field energy and the sheath particle loss
-   each step;
-4. compare against a closed reference run (no limiter, no sink) to show the SOL
-   draining, and draw the final density fluctuations at one toroidal plane with
-   the closed/open boundary marked.
+Needs ``essos`` and an ESSOS checkout for the wout (the coils are bundled):
+``DRBX_ESSOS_ROOT=/path/to/ESSOS``.
 
-The setup is written out explicitly -- geometry, four-field parameters,
-boundary conditions, phi solver, seed, and the stepping loop -- so it can be
-retargeted to a different equilibrium, grid, or limiter position by editing the
-PARAMETERS block.
+    PYTHONPATH=src python examples/stellarator/landreman_paul_turbulence.py
 
-Requires the installed ``essos`` package and an ESSOS checkout for the
-Landreman-Paul QA VMEC wout (the coil set is bundled with DRBX):
-
-    DRBX_ESSOS_ROOT=/path/to/ESSOS \
-        PYTHONPATH=src python examples/stellarator/landreman_paul_turbulence.py
-
-writes ``output/landreman_paul_turbulence/landreman_paul_turbulence.png``.
+Writes ``output/landreman_paul_turbulence/landreman_paul_turbulence.png``.
 """
 
 from __future__ import annotations

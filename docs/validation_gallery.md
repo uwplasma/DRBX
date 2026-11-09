@@ -173,6 +173,50 @@ python scripts/fetch_example_artifacts.py
 Asset names for the per-campaign figures are listed in
 [Stellarator FCI Validation](stellarator_fci_validation.md).
 
+## Comparison with other edge and SOL codes
+
+✅ supported, 🟡 partial or reduced, ❌ not supported, ❔ not verified from a public source.
+For DRBX, ✅ means the feature is on `main` and covered by tests.
+
+| Feature | DRBX | BOUT++ / Hermes-3 | GRILLIX | GBS | SOLPS-ITER | EMC3-EIRENE | SOLEDGE3X |
+|---|---|---|---|---|---|---|---|
+| 3D turbulence | ✅ | ✅ [1b] | ✅ [3] | ✅ [5] | ❌ [7] | ❌ [8] | ✅ [9] |
+| Stellarator / non-axisymmetric geometry | ✅ | 🟡 [2] | 🟡 [3] | ✅ [6] | ❌ [7] | ✅ [8] | ❔ |
+| FCI | ✅ | 🟡 [2] | ✅ [3] | ❔ | ❌ [7] | ❌ [8] | ❔ |
+| Open + closed field lines | ✅ | ✅ [1] | ✅ [3] | ✅ [5] | ✅ [7] | ✅ [8] | ✅ [9] |
+| Fluid neutrals | 🟡 [a] | ✅ [1] | ✅ [4] | ❔ | ❔ | ❌ [8] | ❔ |
+| Kinetic neutrals (EIRENE) | ❌ | ❔ | ❔ | 🟡 [5] | ✅ [7] | ✅ [8] | ✅ [9] |
+| Sheath boundary conditions | 🟡 [b] | ✅ [1] | ✅ [3] | ✅ [5] | ✅ [7] | ✅ [8] | ✅ [9] |
+| Implicit time integration | 🟡 [c] | ✅ [1] | ✅ [10] | ❔ | ❔ | ❔ | ❔ |
+| GPU support | 🟡 [d] | ❔ | ❌ [10] | 🟡 [5] | ❔ | ❔ | ❔ |
+| Automatic differentiation / gradients | ✅ | ❔ | ❔ | ❔ | ❔ | ❔ | ❔ |
+| Python / TOML interface | ✅ | 🟡 [1] | ❔ | ❔ | ❔ | ❔ | ❔ |
+| Open source | ✅ | ✅ [1] | ❔ | ❔ | ❔ | ❔ | ❔ |
+
+<details>
+<summary>Notes and evidence</summary>
+
+DRBX notes:
+- [a] Fluid neutral models (3D FCI: density, parallel velocity, temperature; 1D SOL: diffusive) with AMJUEL rates (`tests/test_native_recycling_sol.py`, `tests/test_fci_neutrals_3d.py`, `tests/test_neutral_energy_conservation.py`); no kinetic neutrals.
+- [b] Bohm-type reduced sheath closures on targets and limiters (`tests/test_open_field_line_sol.py`).
+- [c] Implicit Spitzer conduction in the 1D detachment model (`tests/test_native_detachment_sol.py`); the 3D turbulence steps are explicit.
+- [d] Runs on GPU through JAX and was measured by hand on an A4000; GPU is not exercised in CI.
+
+Other codes (❔ means no public source was checked for that cell; it is not a claim that the feature is absent):
+1. Hermes-3: Dudson et al., Comput. Phys. Commun. 296, 108991 (2024), [arXiv:2303.12131](https://arxiv.org/abs/2303.12131): CVODE, backward-Euler (PETSc) and IMEX-BDF2 time integration (sec. 2.1); fluid deuterium atoms coupled by reactions; Bohm–Chodura sheath boundaries; BOUT++ input files with Python post-processing; GPL-3 at [github.com/boutproject/hermes-3](https://github.com/boutproject/hermes-3). Kinetic neutrals, FCI and GPU are not discussed in that paper.
+   1b. 3D turbulence: Dudson et al., TCV-X21 validation, [arXiv:2506.12180](https://arxiv.org/abs/2506.12180) (neutrals omitted there).
+2. FCI and stellarator turbulence have been run in BOUT++ (BSTING: Shanahan, Dudson & Hill, PPCF 61, 025007 (2019), rotating ellipse and W7-X grids, no sheath boundaries in those runs); not established for Hermes-3 itself.
+3. GRILLIX: Stegmeir et al., [GRILLIX: a 3D turbulence code based on the FCI approach](https://pure.mpg.de/rest/items/item_2537240_5/component/file_2570380/content), and [advanced divertor configurations](https://arxiv.org/abs/1908.05398); FCI is described as compatible with stellarator geometry, published applications are tokamaks.
+4. GRILLIX fluid neutrals: [Self-consistent plasma-neutrals fluid modeling, PPCF (2025)](https://iopscience.iop.org/article/10.1088/1361-6587/add8ba).
+5. GBS: Giacomin et al., J. Comput. Phys. (2022), [arXiv:2112.03573](https://arxiv.org/abs/2112.03573); self-consistent kinetic neutral model (GBS's own, not EIRENE); GPU port stated as planned.
+6. GBS stellarators: [Global fluid simulation of plasma turbulence in stellarators with GBS, Nucl. Fusion (2024)](https://iopscience.iop.org/article/10.1088/1741-4326/ad4ef5); [TJ-K validation](https://arxiv.org/abs/2304.00758).
+7. SOLPS-ITER: Wiesen et al., J. Nucl. Mater. 463, 480 (2015); [Bonnin et al., Plasma Fusion Res. 11, 1403102 (2016)](https://www.jstage.jst.go.jp/article/pfr/11/0/11_1403102/_article): B2.5 2D axisymmetric fluid transport coupled to EIRENE.
+8. EMC3-EIRENE: [FusionWiki](https://wiki.fusion.ciemat.es/wiki/EMC3-EIRENE), [W7-X modelling, arXiv:2201.06341](https://arxiv.org/abs/2201.06341): 3D Monte Carlo fluid transport with anomalous diffusion and kinetic EIRENE neutrals; HSX application: Boeyaert et al., Nucl. Mater. Energy 42, 101874 (2025).
+10. GRILLIX numerics: Zholobenko et al., Contrib. Plasma Phys. 59 (2019) with its 2020 corrigendum (semi-implicit time stepping with GMRES); Zholobenko, PhD thesis (TU München), GPU support listed as future work.
+9. SOLEDGE3X: Bufferand et al., [Nucl. Fusion 61, 116052 (2021)](https://iopscience.iop.org/article/10.1088/1741-4326/ac2873): 2D transport or 3D turbulence, coupled to EIRENE, up to the first wall.
+
+</details>
+
 ## Regeneration
 
 The current inline gallery is regenerated entirely by committed example

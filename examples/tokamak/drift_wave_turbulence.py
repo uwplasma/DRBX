@@ -1,5 +1,8 @@
 """Tokamak closed-field-line flagship: Hasegawa-Wakatani drift-wave turbulence.
 
+README movie: the defaults below (96x96 modes, BLOCKS = 100 so t = 400, movie from block 30 in
+steps of 3, i.e. the saturated state only). BLOCKS = 40 is a 1 minute preset.
+
 Physics. The two-field Hasegawa-Wakatani model (Hasegawa & Wakatani, Phys. Rev.
 Lett. 50, 682 (1983)) evolves vorticity ``zeta = lap phi`` and density ``n`` in
 the plane perpendicular to the magnetic field:
@@ -63,9 +66,10 @@ HYPERVISCOSITY = 1.0e-2      # nu: grid-scale lap^2 damping (keeps the cascade r
 FRICTION = 3.0e-2            # mu: large-scale drag absorbing the inverse cascade
 DT = 5.0e-3                  # time step (limited by the stiff alpha/k_min^2 response)
 STEPS_PER_BLOCK = 800        # steps between diagnostics/movie frames (4 time units)
-BLOCKS = 40                  # number of blocks: total time = BLOCKS * STEPS_PER_BLOCK * DT
+BLOCKS = 100                 # number of blocks: total time = BLOCKS * STEPS_PER_BLOCK * DT (README movie: 100, t = 400)
 SEED = 0                     # RNG seed of the initial noise (reproducibility)
 SEED_AMPLITUDE = 5.0e-2      # rms of the initial real-space noise field
+MOVIE_START, MOVIE_STRIDE = 30, 3  # movie shows blocks MOVIE_START, MOVIE_START + 3, ... (developed turbulence)
 SAVE_MOVIE = True            # write the animated vorticity GIF
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "output" / "drift_wave_turbulence"
 
@@ -120,22 +124,38 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 print(f"wrote {OUTPUT_DIR / 'drift_wave_turbulence.json'}")
 
 
-def _write_vorticity_gif(frame_list, path, *, upscale=4, fps=12):
-    """Encode the vorticity frames as a compact RdBu_r animated GIF."""
+def _write_vorticity_gif(frame_list, path, *, fps=8):
+    """Render vorticity (with axes and colorbar) next to the energy history as an animated GIF."""
+
+    import io
 
     from PIL import Image
 
     scale = max(abs(float(np.min(frame_list[-1]))), abs(float(np.max(frame_list[-1]))), 1e-30)
+    fig = plt.figure(figsize=(7.8, 3.6))
+    ax_f = fig.add_axes([0.07, 0.15, 0.36, 0.72])
+    ax_e = fig.add_axes([0.62, 0.15, 0.35, 0.72])
+    im = ax_f.imshow(frame_list[0], cmap="RdBu_r", origin="lower", extent=(0, LENGTH, 0, LENGTH), vmin=-scale, vmax=scale)
+    fig.colorbar(im, ax=ax_f, fraction=0.046, pad=0.03, label=r"vorticity $\zeta$")
+    ax_f.set_xlabel(r"$x\ [\rho_s]$")
+    ax_f.set_ylabel(r"$y\ [\rho_s]$")
+    ax_e.semilogy(times, energies, "-", color="#1f77b4")
+    (dot,) = ax_e.plot([times[0]], [energies[0]], "o", color="#d62728")
+    ax_e.set_xlabel(r"time (normalized)")
+    ax_e.set_ylabel("fluctuation energy")
+    ax_e.grid(alpha=0.3)
+    title = fig.suptitle("")
     images = []
-    for frame in frame_list:
-        norm = np.clip((frame / scale + 1.0) / 2.0, 0.0, 1.0)
-        rgba = (plt.get_cmap("RdBu_r")(norm) * 255).astype(np.uint8)
-        image = Image.fromarray(rgba, mode="RGBA").convert("P", palette=Image.ADAPTIVE)
-        image = image.resize((image.width * upscale, image.height * upscale), Image.NEAREST)
-        images.append(image)
-    images[0].save(
-        path, save_all=True, append_images=images[1:], duration=int(1000 / fps), loop=0
-    )
+    for k in range(MOVIE_START, len(frame_list), MOVIE_STRIDE):   # developed turbulence, GIF under 1 MB
+        frame = frame_list[k]
+        im.set_data(frame)
+        dot.set_data([times[k]], [energies[k]])
+        title.set_text(rf"Hasegawa-Wakatani drift-wave turbulence ($\alpha$ = {ADIABATICITY:g}),  t = {times[k]:.0f}")
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=72)
+        images.append(Image.open(buf).convert("RGB").quantize(96, dither=Image.Dither.NONE))
+    plt.close(fig)
+    images[0].save(path, save_all=True, append_images=images[1:], duration=int(1000 / fps), loop=0, optimize=True)
 
 
 if SAVE_MOVIE:

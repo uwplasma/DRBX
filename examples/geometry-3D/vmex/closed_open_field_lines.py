@@ -1,41 +1,17 @@
-"""Closed and open field lines: VMEC LCFS from VMEX over the coil field.
+"""Closed and open field lines: the VMEC last closed surface from VMEX over the ESSOS coil field.
 
-A VMEC wout file only describes the plasma inside the last closed flux
-surface (LCFS): outside it the equilibrium field simply does not exist, so an
-honest closed-plus-open picture needs the field of the actual coils.  The
-Landreman-Paul 2021 precise QA configuration gives us both ingredients: the
-ESSOS checkout carries a Biot-Savart coil set optimized for it, and the
-matching (reactor-scale) VMEC wout.  This example combines them:
+A wout file describes only the plasma inside the LCFS, so the outside needs the coils.
+The Landreman-Paul precise-QA wout is rescaled to the coil set by matching the phi = 0
+magnetic-axis radius; field lines seeded inside and outside the LCFS are traced through the
+Biot-Savart field and classified closed or open. The Poincare section at phi = 0 shows the
+LCFS, the closed vacuum surfaces just beyond it (gray) and the open island/stochastic
+layer (red). No field is extrapolated from the wout.
 
-1. load the wout with VMEX and print the equilibrium summary;
-2. locate the vacuum magnetic axis of the coil field at phi = 0 by tracing a
-   probe line and taking the center of its Poincare crossings;
-3. rescale the reactor-scale wout LCFS to the coil-set size by matching the
-   phi = 0 magnetic-axis major radii (the wout and the coils describe the
-   same configuration at different scales);
-4. seed field lines on the outboard midplane inside the LCFS and well
-   outside it, trace them all through the ESSOS Biot-Savart field, and
-   classify each as closed (stays confined) or open (escapes toward the
-   wall);
-5. draw the Poincare section at phi = 0 with the LCFS overlaid: the closed
-   lines fill the VMEC-confined region enclosed by the LCFS, the open lines
-   are the scrape-off-layer field lines that leave the device.
+Needs ESSOS and VMEX: set ``WOUT_PATH`` below or ``DRBX_ESSOS_ROOT=/path/to/ESSOS``.
 
-A vacuum field keeps closed surfaces slightly outside the design LCFS before
-they break up into a thin island/stochastic layer -- the island-divertor
-scrape-off layer.  The edge seeds scan that whole transition densely: the
-innermost land on closed vacuum surfaces just beyond the LCFS (gray), and the
-open lines beyond the last closed surface are drawn through their Poincare
-crossings *before* they escape, so the red band IS the finite-connection-length
-island/stochastic layer, not far-field wandering.  No field is extrapolated
-from the wout.
+    PYTHONPATH=src python examples/geometry-3D/vmex/closed_open_field_lines.py
 
-Requires ESSOS and VMEX checkouts:
-
-    DRBX_ESSOS_ROOT=/path/to/ESSOS \
-        PYTHONPATH=src python examples/geometry-3D/vmex/closed_open_field_lines.py
-
-writes ``output/closed_open_field_lines/closed_open_field_lines.png``.
+Writes ``output/closed_open_field_lines/closed_open_field_lines.png``.
 """
 
 from __future__ import annotations

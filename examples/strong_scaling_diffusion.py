@@ -62,7 +62,7 @@ import json, sys, time
 import jax, jax.numpy as jnp, numpy as np
 from jax import jit, pmap, value_and_grad, vmap
 from drbx.validation.autodiff_diffusion import build_diffusion_autodiff_setup, objective_for_physical_parameters
-r = json.loads(sys.argv[1]); n = r["device_count"]; total = r["total_batch"]
+r = json.loads(REQUEST); n = r["device_count"]; total = r["total_batch"]
 assert jax.local_device_count() == n, f"expected {n} devices, found {jax.local_device_count()}"
 setup = build_diffusion_autodiff_setup(nx=r["nx"], ny=r["ny"], timestep=r["timestep"], steps=r["steps"])
 batch = jnp.stack([jnp.linspace(a, b, total, dtype=jnp.float64) for a, b in
@@ -90,6 +90,10 @@ def request(backend, device_count, total_batch):
                        "nx": NX, "ny": NY, "timestep": TIMESTEP, "steps": STEPS, "repeats": REPEATS})
 
 
+def worker_source(backend, device_count, total_batch):
+    return f"REQUEST = {request(backend, device_count, total_batch)!r}\n" + WORKER_CODE
+
+
 def child_env(xla_flags):
     return {**os.environ, **THREAD_ENV, "PYTHONPATH": str(REPO_ROOT / "src"), "XLA_FLAGS": xla_flags}
 
@@ -112,7 +116,7 @@ print(f"strong scaling: batch {TOTAL_BATCH}, grid {NX}x{NY}, {STEPS} steps, {REP
 print("CPU process-group sweep...")
 cpu_results = []
 for n in CPU_DEVICE_COUNTS:
-    procs = [subprocess.Popen([sys.executable, "-c", WORKER_CODE, request("cpu", 1, TOTAL_BATCH // n)],
+    procs = [subprocess.Popen([sys.executable, "-c", worker_source("cpu", 1, TOTAL_BATCH // n)],
                               cwd=REPO_ROOT, env=child_env(SINGLE_THREAD_XLA), text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(n)]
     workers = [last_json(*p.communicate(timeout=300), p.returncode, f"cpu worker ({n})") for p in procs]
@@ -127,7 +131,7 @@ print("CPU host-pmap sweep...")
 pmap_results = []
 for n in CPU_DEVICE_COUNTS:
     env = child_env(f"--xla_force_host_platform_device_count={n} {SINGLE_THREAD_XLA}")
-    done = subprocess.run([sys.executable, "-c", WORKER_CODE, request("cpu", n, TOTAL_BATCH)], cwd=REPO_ROOT,
+    done = subprocess.run([sys.executable, "-c", worker_source("cpu", n, TOTAL_BATCH)], cwd=REPO_ROOT,
                           env={**env, "DRBX_HOST_DEVICE_COUNT": str(n)}, capture_output=True, text=True, timeout=300)
     pmap_results.append({**last_json(done.stdout, done.stderr, done.returncode, f"host pmap ({n})"),
                          "parallel_kind": "host_pmap"})
@@ -145,7 +149,7 @@ if RUN_REMOTE_GPU:
         last_json("{}", stage.stderr, stage.returncode, "remote staging")
         for n in GPU_DEVICE_COUNTS:
             cmd = (f"cd {remote} && CUDA_VISIBLE_DEVICES={','.join(map(str, range(n)))} PYTHONPATH={remote}/src "
-                   f"python3 -c {shlex.quote(WORKER_CODE)} {shlex.quote(request('gpu', n, TOTAL_BATCH))}")
+                   f"python3 -c {shlex.quote(worker_source('gpu', n, TOTAL_BATCH))}")
             done = subprocess.run(["ssh", "-o", "BatchMode=yes", REMOTE_HOST, cmd],
                                   capture_output=True, text=True, timeout=300)
             gpu_results.append(last_json(done.stdout, done.stderr, done.returncode, f"gpu worker ({n})"))

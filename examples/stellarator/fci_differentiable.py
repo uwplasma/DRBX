@@ -1,51 +1,16 @@
-"""Stellarator flagship: an end-to-end differentiable drift-reduced FCI model.
+"""Differentiable drift-reduced FCI model on a non-axisymmetric (shifted-torus) flux tube.
 
-This is the Phase 6 non-axisymmetric flux-coordinate-independent (FCI) flagship.
-It demonstrates the paper's two core claims on a *non-axisymmetric* flux-tube
-geometry:
-
-1. The reduced drift-reduced two-field FCI model (``compute_2field_rhs``) runs on
-   a shifted-torus metric with genuine off-diagonal (``g12`` / ``g_12``) cross
-   terms and helical field lines, staying finite over a short bounded evolution.
-2. The whole rollout is end-to-end differentiable: we take ``jax.grad`` of a
-   scalar diagnostic of the *evolved* state (the total density variance) with
-   respect to a scalar knob (the initial perturbation amplitude), and verify it
-   against a central finite difference. The gradient flows through every RK4
-   stage and every FCI operator (Poisson bracket, curvature, parallel gradient).
-
-What this is NOT: a claim of saturated stellarator turbulence. The run is a
-short, bounded, seeded free evolution (no manufactured-solution source terms, no
-exact-state boundary conditions). Its purpose is to show a differentiable DRB
-model on non-axisymmetric FCI geometry, with honest numbers.
-
-Differentiation path used: MULTI-STEP FREE ROLLOUT. The seeded free run stays
-finite and its gradient matches the finite difference to ~1e-10 relative error,
-so we differentiate through the full RK4 rollout rather than falling back to a
-single-RHS evaluation. The single-RHS gradient check is still exercised as a
-secondary, cheaper witness.
-
-Geometry note (honest scope): the shifted-torus metric depends on ``(x, theta)``
-and the field lines are helical (rotational transform ``iota``); a nonzero
-poloidal shear ``sigma`` activates the off-diagonal metric terms. This is a
-stellarator-relevant non-orthogonal flux tube, not a full 3D equilibrium. As in
-the verified MMS scaffold, the field-following FCI maps are placeholders
-(``construct_fci_maps=False``): the Poisson-bracket and curvature operators use
-the full non-orthogonal metric (including ``g12`` / ``g_12``), and the parallel
-gradient is the direct ``b^i partial_i`` operator built from the helical
-contravariant field. So the differentiability shown here is of the FCI operator
-stack on non-orthogonal helical geometry, not of a field-line interpolation map.
-
-The reusable machinery (context builder, seeded state, RHS, differentiable
-rollout, gradient reports) lives in ``drbx.native.fci_differentiable_case``
-and is gated by ``tests/test_fci_differentiable.py``.
-
-Run:
+The two-field FCI model runs a short bounded evolution on a metric with off-diagonal
+g12 terms and helical field lines. ``jax.grad`` of the evolved density variance with
+respect to the initial perturbation amplitude flows through every RK4 stage and FCI
+operator, and is checked against a central finite difference. This shows differentiability
+of the operator stack on non-orthogonal helical geometry (the field-following maps are
+placeholders here); it is not saturated stellarator turbulence. The machinery lives in
+``drbx.native.fci_differentiable_case`` (tests: ``tests/test_fci_differentiable.py``).
 
     PYTHONPATH=src python examples/stellarator/fci_differentiable.py
 
-writes ``output/fci_differentiable/`` with a PNG (density slice + grad-vs-FD) and
-a JSON summary. Edit the constants below to change resolution, drive, shear, or
-run length.
+Writes ``output/fci_differentiable/`` with a PNG (density slice, gradient vs finite difference) and a JSON summary.
 """
 
 from __future__ import annotations

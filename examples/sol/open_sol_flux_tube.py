@@ -135,7 +135,8 @@ n = np.asarray(density)[0, 0, :]
 mach = (np.asarray(momentum)[0, 0, :] / n) / SOUND_SPEED
 upstream = n[len(n) // 2]
 print("== Two-point steady state reached ==")
-print(f"   Bohm criterion: Mach at targets = {mach[0]:+.4f}, {mach[-1]:+.4f} (expect -1, +1)")
+print(f"   last-cell-centre Mach = {mach[0]:+.4f}, {mach[-1]:+.4f}; the Bohm condition acts on the target face, "
+      f"where |v| = max(|v_cell|, c_s) = {max(abs(mach[0]), 1.0):.4f} c_s")
 print(f"   n_target / n_upstream = {n[-1] / upstream:.4f} (two-point prediction: 0.5)")
 
 # ----------------------------------------------------------------------------
@@ -161,7 +162,8 @@ print(f"   current balance residual    = {float(sheath.current_balance_residual)
 # ----------------------------------------------------------------------------
 summary = {
     "parallel_length": PARALLEL_LENGTH,
-    "mach_at_targets": [float(mach[0]), float(mach[-1])],
+    "mach_last_cell_at_targets": [float(mach[0]), float(mach[-1])],
+    "mach_sheath_face": [-max(abs(float(mach[0])), 1.0), max(abs(float(mach[-1])), 1.0)],
     "n_target_over_upstream": float(n[-1] / upstream),
     "total_target_ion_loss": float(sheath.total_ion_particle_loss),
     "total_recycled_source": float(sheath.total_recycled_particle_source),
@@ -175,12 +177,12 @@ print(f"wrote {OUTPUT_DIR / 'summary.json'}")
 fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.8))
 ax = axes[0]
 ax.plot(z, n / upstream, color="#1f77b4", lw=2, label="density  n / n_upstream")
-ax.plot(z, mach, color="#d62728", lw=2, label="Mach  v / c_s")
+ax.plot(z, mach, color="#d62728", lw=2, label="Mach  v / c_s (cell centres)")
 ax.axhline(0.5, color="#1f77b4", ls=":", alpha=0.6)
 ax.axhline(1.0, color="#d62728", ls=":", alpha=0.6)
 ax.axhline(-1.0, color="#d62728", ls=":", alpha=0.6)
 ax.set_xlabel("parallel coordinate z (connection length)")
-ax.set_title("SOL two-point profile: stagnation -> Mach 1 at the targets")
+ax.set_title("SOL two-point profile: stagnation -> near Mach 1 at the targets")
 ax.legend(loc="center left", fontsize=8)
 ax.grid(True, ls=":", alpha=0.4)
 
