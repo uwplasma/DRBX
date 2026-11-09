@@ -1,35 +1,16 @@
 """Closed field lines of a VMEC equilibrium traced through VMEX.
 
-A converged VMEC equilibrium is, by construction, a set of nested closed flux
-surfaces: the magnetic field has no component across a surface (B . grad s =
-0), so every field line stays on the surface it starts on forever.  In VMEC
-coordinates the line obeys
+Field lines of a converged VMEC equilibrium stay on their flux surface, and the average
+slope d theta / d phi over many transits is the rotational transform iota(s) of the wout.
+For the Landreman-Paul precise-QA stellarator: one JAX RK4 line per selected surface, traced
+in (s, theta, phi) from the Nyquist Fourier tables; the traced iota must match the wout profile
+(asserted to 1e-2 relative). The Poincare section at phi = 0 is drawn next to the iota comparison.
 
-    d theta / d phi = B^theta(s, theta, phi) / B^phi(s, theta, phi),
-
-and although that pitch oscillates within a toroidal transit (the VMEC
-poloidal angle is not a straight-field-line angle), its average slope over
-many transits is the rotational transform iota(s) stored in the wout file.
-This example makes that concrete for the Landreman-Paul 2021 precise
-quasi-axisymmetric stellarator (reactor scale):
-
-1. load the wout NetCDF with VMEX's `read_wout` and print the
-   equilibrium summary (nfp, aspect ratio, iota range, B0);
-2. trace one field line per selected flux surface with a JAX RK4 integrator
-   in (s, theta, phi), using the contravariant field from the wout Nyquist
-   Fourier tables;
-3. verify the physics: the traced average d(theta)/d(phi) of every line must
-   reproduce the wout iota profile (asserted to 1e-2 relative);
-4. draw the Poincare section at phi = 0 -- each line's crossings trace out
-   the closed surface it lives on -- with the LCFS and axis overlaid, next to
-   the traced-vs-wout iota profile.
-
-Requires a VMEX checkout (env var DRBX_VMEX_ROOT, default
-a local checkout) and a wout file (not committed to this repo):
+Needs a VMEX checkout (``DRBX_VMEX_ROOT``) and a wout (``WOUT_PATH`` or ``DRBX_ESSOS_ROOT``).
 
     PYTHONPATH=src python examples/geometry-3D/vmex/closed_field_lines.py
 
-writes ``output/closed_field_lines/closed_field_lines.png``.
+Writes ``output/closed_field_lines/closed_field_lines.png``.
 """
 
 from __future__ import annotations

@@ -95,7 +95,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 print(f"wrote {OUTPUT_DIR / 'linear_dispersion.json'}")
 
 # --- two-panel benchmark figure ---------------------------------------------------
-fig, (ax_a, ax_d) = plt.subplots(1, 2, figsize=(11.0, 4.4))
+plt.rcParams.update({"font.size": 10})
+fig, (ax_a, ax_d) = plt.subplots(1, 2, figsize=(9.0, 3.6))
 ax_a.plot(K_PERP_SCAN * ELECTRON_SKIN_DEPTH, np.array(alfven_analytic) / 1e6, "k-", label="analytic")
 ax_a.plot(K_PERP_SCAN * ELECTRON_SKIN_DEPTH, np.array(alfven_numeric) / 1e6, "o", ms=3, label="linear solver")
 ax_a.set_xlabel(r"$k_\perp d_e$")
@@ -114,7 +115,7 @@ ax_d.legend()
 ax_d.grid(alpha=0.3)
 
 fig.tight_layout()
-fig.savefig(OUTPUT_DIR / "linear_dispersion.png", dpi=200)
+fig.savefig(OUTPUT_DIR / "linear_dispersion.png", dpi=100)
 plt.close(fig)
 print(f"wrote {OUTPUT_DIR / 'linear_dispersion.png'}")
 print(f"total wall time: {time.perf_counter() - wall_start:.1f} s")

@@ -1,50 +1,18 @@
-"""Source-driven profile evolution across an internal island chain (tokamak).
+"""Source-driven profile evolution across an internal (m, n) = (2, 1) island chain in a tokamak.
 
-A tokamak-like configuration: the rotational transform decreases from
-``iota = 0.56`` on the inner boundary to ``0.44`` on the outer one, crossing
-the rational ``iota = 1/2`` in the middle of the domain. A single ``(m, n) =
-(2, 1)`` resonant perturbation opens an internal island chain there -- the
-reduced analytic field of :class:`drbx.geometry.IslandDivertorField` with one
-resonance and ``n_field_periods = 1``. All field lines stay confined (the
-open-field-line mask comes out empty); this is an *internal* island, not a
-divertor.
+Four-field drift-reduced model on the reduced analytic island field (iota 0.56 -> 0.44,
+all field lines confined), driven by a particle source shell and a wall-buffer sink with
+no Dirichlet clamping. The RK4 step, source, sink and hyperviscosity compile as one XLA
+program. Profile flattening across the chain appears only in the turbulent regime
+(S0 = 24, D = 0.005, HYPER = 0.3); the default weak drive stays laminar.
 
-The four-field drift-reduced Braginskii model then evolves the profiles
-flux-driven:
-
-* a Gaussian-in-radius particle **source shell** near the inner boundary is
-  the only drive (its amplitude sets the throughput),
-* a smooth **wall buffer** in the outermost few percent of the radius is the
-  sink (a limiter/wall proxy),
-* no Dirichlet clamping anywhere -- the density profile is emergent and
-  reaches a steady source -> wall balance at production resolution
-  (48x96x32, fp32, ~1 h on a 16 GB GPU).
-
-The classic island observable -- mean-profile flattening across the chain
--- appears once cross-island transport is turbulence-dominated: at the
-default weak drive the state is laminar and the profile does NOT flatten
-(gradient ratio inside/outside ~1.3), while ``S0 = 24, D = 0.005,
-HYPER = 0.3`` gives a turbulent state (fluctuation energy ~2) whose profile
-flattens across the separatrix (ratio ~0.8). The parallel-flow friction
-``mu`` (``FRICTION_MU``) stays at 8 in both regimes; lowering it far
-(0.5) under-damps the drift-acoustic channel and the run goes unstable.
-
-The whole step -- the RK4 advance of ``four_field_rk4_step`` plus source,
-wall sink, and hyperviscosity -- is compiled as ONE XLA program, which is
-what makes long profile-evolution runs practical (the same pattern as
-:func:`drbx.native.stellarator_turbulence.run_stellarator_turbulence`; a raw
-Python composition costs ~50x more in dispatch overhead).
-
-Run it (the default is a quick laptop preset, ~1 minute, NOT the converged
-case; production used SHAPE=(48, 96, 32), DT=2.5e-4, N_STEPS=24000, EPS=0.03,
-SRC_S0=24, DENS_DIFF=0.005, NU_HYPER=0.3 in fp32 via DRBX_PRECISION=float32
-on a GPU):
+The default is a ~1 min laptop preset, not the converged case (production: SHAPE=(48, 96, 32),
+DT=2.5e-4, N_STEPS=24000, EPS=0.03, SRC_S0=24, DENS_DIFF=0.005, NU_HYPER=0.3, fp32 on a GPU, ~1 h).
 
     PYTHONPATH=src python examples/island_tokamak_profiles.py
 
-Writes ``output/island_tokamak/island_tokamak.npz`` (profile history, flux
-profiles, 2-D snapshots, particle-balance trace) and prints the balance
-table; ``examples/island_tokamak_figure.py`` renders the summary figure.
+Writes ``output/island_tokamak/island_tokamak.npz`` and prints the particle-balance table;
+``island_tokamak_figure.py`` renders the figures.
 """
 
 from __future__ import annotations
@@ -56,6 +24,19 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 import numpy as np
+
+from drbx.geometry import (
+    ConservativeStencilBuilder, IslandDivertorField, LocalStencilBuilder,
+    build_conservative_stencil_from_field, build_curvature_coefficients,
+    build_island_divertor_geometry, build_local_stencil_from_field)
+from drbx.native import build_perp_laplacian_face_projectors
+from drbx.native.fci_4_field_rhs import (
+    Fci4FieldBlobParameters, Fci4FieldState)
+from drbx.native.fci_sheath_recycling import compute_fci_sheath_recycling
+from drbx.native.stellarator_turbulence import (
+    TEMPERATURE, build_four_field_phi_solver,
+    build_free_decay_boundary_conditions, four_field_rk4_step)
+
 
 # ---- PARAMETERS ----------------------------------------------------------------------
 SHAPE = (16, 32, 12)     # (radial, poloidal, toroidal)
@@ -91,18 +72,6 @@ LABEL = "island_tokamak"
 OUT = Path("output/island_tokamak")
 OUT.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
-
-from drbx.geometry import (  # noqa: E402
-    ConservativeStencilBuilder, IslandDivertorField, LocalStencilBuilder,
-    build_conservative_stencil_from_field, build_curvature_coefficients,
-    build_island_divertor_geometry, build_local_stencil_from_field)
-from drbx.native import build_perp_laplacian_face_projectors  # noqa: E402
-from drbx.native.fci_4_field_rhs import (  # noqa: E402
-    Fci4FieldBlobParameters, Fci4FieldState)
-from drbx.native.fci_sheath_recycling import compute_fci_sheath_recycling  # noqa: E402
-from drbx.native.stellarator_turbulence import (  # noqa: E402
-    TEMPERATURE, build_four_field_phi_solver,
-    build_free_decay_boundary_conditions, four_field_rk4_step)
 
 field = IslandDivertorField(iota_axis=IOTA_AXIS, iota_edge=IOTA_EDGE,
                             resonances=((RESONANCE_M, RESONANCE_N, EPS),))
