@@ -683,6 +683,8 @@ Equivalence: wall-ledger lines (10 digits) of a 4-step run agree with main; the 
 absolute-value action; the tree solve matches a dense solve to 1e-12; flat GMRES matches the custom-product path in iteration
 count and to 1e-8 in the solution (the solver tolerance).
 
+Re-measurement 2026-11-09 on main dfc5eeb1 (macOS CPU, HSX 16^3 artifact, default deck, 30 steps, first excluded, one process under a lock, A/B/A/B x 2, mean step): main 0.310 / 0.310 s; #84 0.280 / 0.279 s (-10%); #85 0.324 / 0.312 s (+2.6%, within spread: its gain is the GPU micro-benchmark, not re-measured); #86 0.265 / 0.261 s (-15%). With fluid neutrals and recycling: main 0.310 / 0.309 s, #82 0.311 / 0.310 s, #87 0.310 / 0.306 s (parity). GMRES iterations per step (avg4) 37.5 in every variant. The rotation-matrix patch is now SOLVAX draft PR #185: on top of #84, 0.316 / 0.328 s (SOLVAX main) against 0.286 / 0.299 s (patch), mean -9%.
+
 ### Tried and not adopted
 - Pallas/Triton single-kernel radial-tree solve (one program per eta plane, in-register sweeps, 64-bit): exact (1e-16) but 0.36 ms
   per application on the A4000 against 0.08 ms for the fused XLA form above; layout conversions between the 32-wide vectors
