@@ -1,7 +1,7 @@
 """Coupled 1D recycling SOL: neutrals, ionization/recombination, and the onset
 of detachment.
 
-Runs the reduced recycling SOL model (plasma + diffusive neutral, hermes-3 AMJUEL
+Runs the reduced recycling SOL model (plasma + SD1D-style diffusive neutral, hermes-3 AMJUEL
 atomic rates) on a flux tube with a prescribed hot-upstream / cold-target
 temperature profile. Along z (stagnation midplane at z = 0, target at z = L)
 the model evolves the ion density, ion parallel momentum, and neutral density:

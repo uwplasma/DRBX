@@ -63,6 +63,8 @@ tests. Details: [Fluid 1D MMS Convergence](fluid_1d_mms_convergence.md).
 
 ![B6 SD1D scan](media/b6_detachment.png)
 
+The 1D model is also compared with Hermes-3 on five grids at three operating points (grid-converged, pinned versions, swap tests of the sheath closure): [`benchmarks/hermes3_1d/README.md`](../benchmarks/hermes3_1d/README.md). The remaining difference is +3.4% in `n_up` and +5% in `T_t` at equal recycled-neutral energy and is not yet attributed to a process.
+
 ![Detachment control](media/detachment_control.png)
 
 The open-slab two-point steady state, the coupled recycling SOL with the

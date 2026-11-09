@@ -1495,8 +1495,8 @@ def run_full_eb(
 ) -> FciDrbEBState:
     """Advance the global EB state.
 
-    With ``neutrals`` a diffusive neutral density is advanced after every
-    IMEX step (operator split, ``native/fci_neutrals.py``) and its reaction
+    With ``neutrals`` the fluid neutrals (n_n, u_n, T_n) are advanced after every
+    IMEX step (operator split, ``native/fci_neutral_fluid.py``) and its reaction
     sources are applied to (n, Vi, Te, Ti) through the volumetric source hook.
     """
 
