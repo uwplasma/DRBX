@@ -61,6 +61,11 @@ metric-Jacobian-weighted volume, and that on the **open** slab the Bohm-sheath
 recycling turns the target ion flux into a neutral source matching the recycled
 accounting (residuals ~1e-16), landing only on the two open target planes.
 
+The default 3D neutral model is the fluid model of the last section (`neutrals = true`): AMJUEL 2020 rates
+(`drbx.native.neutrals.atomic_rates`, one module for both paths). The SD1D fits (Willett ionisation, CX at 10 eV, 13.6 eV
+per ionisation) are kept only for the SD1D parity path below. The diffusive neutral of the 1D recycling SOL and the SD1D
+model is the SD1D closure, not the 3D one.
+
 ## SD1D-matched detachment model (B6)
 
 [`detachment_sol_model`](../src/drbx/native/neutrals/detachment_sol_model.py)
@@ -148,13 +153,14 @@ SD1D comparison, and the particle/power ledger closures.
 ```bash
 PYTHONPATH=src python examples/sol/recycling_sol.py
 PYTHONPATH=src python examples/benchmarks/b6_detachment_sd1d.py
+PYTHONPATH=src python examples/neutrals/fluid_neutral_slab.py   # fluid neutral penetration length
 pytest -q tests/test_native_atomic_rates.py tests/test_native_reactions.py \
           tests/test_native_recycling_sol.py tests/test_fci_neutrals_3d.py \
           tests/test_native_detachment_sol.py
 pytest -q -m slow tests/test_native_detachment_sol.py   # SD1D scan, profiles, grid convergence
 ```
 
-## Fluid neutrals (`neutral_model = "fluid"`)
+## Fluid neutrals (FCI)
 
 [`fci_neutral_fluid.py`](../src/drbx/fci_braginskii/native/fci_neutral_fluid.py) evolves the neutral density `n_n`, the
 velocity `u_n` along `b` and the temperature `T_n` on the FCI grid (advanced fluid neutral closure of Horsten et al. 2017
@@ -166,9 +172,20 @@ absorption `neutral_wall_absorption` and energy reflection `neutral_wall_energy_
 Franck-Condon or wall energy as thermal energy. History files carry `neutral_density`, `neutral_velocity` and
 `neutral_temperature`, and `restart_from` restores them.
 
+Deck keys: `neutrals`, `neutral_temperature_ev` (initial `T_n`, evolved afterwards), `neutral_wall_absorption` (default 0),
+`neutral_wall_energy_reflection` (default 1), `neutral_initial_density`, `neutral_initial_decay_length`,
+`neutral_reaction_substeps`; the rates use the single `reference_density_m3` (default 1e19 m^-3). With `recycling = true`
+the ion wall flux is returned as atoms (`recycling_coefficient`, `recycling_energy`). Example:
+[`examples/inputs/hsx_fci_neutrals.toml`](../examples/inputs/hsx_fci_neutrals.toml); the slab check below is
+[`examples/neutrals/fluid_neutral_slab.py`](../examples/neutrals/fluid_neutral_slab.py).
+
+Conservation: each step prints `[neutrals]` (nuclei and energy split identities) and, with the sheath on, `[wall-step]` and
+`[wall-run]`, the independent check of the wall rows (what each implicit stage did to the inventory against the wall-face
+fluxes). A 1% injected neutral leak fails the check.
+
 Validity: the closure needs the Knudsen number `lambda / L <~ 0.1-0.3`; every run prints the fractions of cells in each
 range and saves `neutral_knudsen_gradient`. Verified: the steady penetration length of neutrals into a uniform plasma
 slab equals `lambda_mfp / sqrt(nu_iz / nu)` to 0.2 %; nuclei, momentum and energy balances close to round-off in the
 reaction step and the run ledgers close to 1e-5 on HSX. At HSX edge parameters (`n0 = 5e18 m^-3`, mean free path ~6 cm)
 almost all cells have `Kn >= 1`: the fluid model is then limiter-bound (the particle limiter drops to 1-3 % in the most limited
-cells) and should be read as an upper-density-regime model; a kinetic or hybrid neutral treatment is needed there.
+cells) and should be read as an upper-density-regime model; a kinetic or hybrid neutral treatment (plan N6) is the open gap there.

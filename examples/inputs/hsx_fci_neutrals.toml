@@ -1,0 +1,40 @@
+# HSX seven-field drift-reduced Braginskii with fluid neutrals and wall recycling.
+# Same geometry as hsx_fci_blob.toml (built once from the shipped coils, cached under cache_dir).
+#   drbx run examples/inputs/hsx_fci_neutrals.toml
+#   drbx run examples/inputs/hsx_fci_neutrals.toml --set fci_braginskii.recycling_coefficient=0.9
+#
+# Neutrals are the fluid model n_n, u_n, T_n (advanced fluid closure, AMJUEL-2020 rates, flux limiter).
+# The closure is valid for Kn = lambda_mfp / L <~ 0.3; the run prints the fraction of cells in each
+# Knudsen range (the "[neutrals] Knudsen" line, including the fluid-valid<0.3 fraction). At HSX edge densities most cells are Kn >= 1, so read the
+# neutral fields as the fluid-closure answer, not a kinetic one.
+# With the sheath on (default wall_closure = "bohm") each step prints [wall], [wall-step] and [wall-run]:
+# the wall-flux check compares what each implicit stage did to the inventory with the wall-face fluxes.
+
+[model]
+backend = "fci_braginskii"
+
+[geometry]
+resolution = [16, 16, 16]
+metric_mesh_shape = [16, 16, 16]
+metric_poloidal_modes = 6
+metric_toroidal_modes = 3
+toroidal_modes = 3
+cache_dir = "../../output/hsx_geometry"  # shared with hsx_fci_blob.toml
+
+[fci_braginskii]
+final_time = 0.003
+num_steps = 4
+save_every = 1
+density_amplitude = 0.05
+rho_star = 5.0e-4
+reference_density_m3 = 5.0e18        # n0: sets Spitzer conductivity and the neutral reaction rates
+neutrals = true
+neutral_temperature_ev = 3.0         # initial T_n (evolved afterwards)
+neutral_initial_density = 0.01       # N at the wall at t = 0, units of n0
+neutral_initial_decay_length = 0.1   # initial profile N0 exp(-(1-u)/L); 0 = uniform
+neutral_wall_absorption = 0.0        # probability that an incident atom sticks to the wall
+neutral_wall_energy_reflection = 1.0 # energy fraction kept by a reflected atom
+recycling = true                     # return the ion wall flux as neutrals (needs neutrals and bohm)
+recycling_coefficient = 0.99
+recycling_energy = "franck-condon"   # or "wall" (then recycling_wall_temperature_ev)
+output = "../../output/hsx_fci_neutrals/hsx"  # history .npz carries neutral_density, neutral_velocity, neutral_temperature

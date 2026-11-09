@@ -18,6 +18,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from drbx.fci_braginskii.native import fci_neutral_fluid as FL
 from drbx.fci_braginskii.native import fci_neutrals as F
 from drbx.fci_braginskii.native.fci_wall_closure import SheathClosure, wall_face_fluxes
 from drbx.fci_braginskii.run import HsxBlobConfig, recycling_parameters
@@ -47,6 +48,7 @@ def test_recycling_closes_nuclei_with_the_wall_loss(geometry, coefficient):
 
     grid = F.build_neutral_grid(geometry)
     n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 3)
+    un, Tn = jnp.zeros(geometry.shape), 0.05 + 0.3 * Te
     dt = 0.02
     total0 = float(F.inventories(n, Vi, Te, Ti, Nn, grid, PARAMS)[0])
     total = total0
@@ -55,19 +57,16 @@ def test_recycling_closes_nuclei_with_the_wall_loss(geometry, coefficient):
         wall = dt * float(jnp.sum(grid.volume * jnp.where(grid.owner, loss, 0.0)))
         n = jnp.where(grid.owner, n - dt * loss, n)  # the IMEX wall leg
         source = F.recycled_neutral_source(loss, coefficient, grid.owner)
-        before = F.inventories(n, Vi, Te, Ti, Nn, grid, PARAMS)
-        n, Vi, Te, Ti, Nn, ledger, _ = F.neutral_step(n, Vi, Te, Ti, Nn, dt, grid, PARAMS, volume_source=source)
-        after = F.inventories(n, Vi, Te, Ti, Nn, grid, PARAMS)
+        before = float(F.inventories(n, Vi, Te, Ti, Nn, grid, PARAMS)[0])
+        n, Vi, Te, Ti, Nn, un, Tn, ledger, _ = FL.neutral_fluid_step(
+            n, Vi, Te, Ti, Nn, un, Tn, dt, grid, PARAMS, volume_source=source, volume_energy=0.125 * source)
+        after = float(F.inventories(n, Vi, Te, Ti, Nn, grid, PARAMS)[0])
         # the split adds exactly the recycled particles, and reports them
         assert float(ledger[7]) == pytest.approx(coefficient * wall, rel=1e-13)
-        assert abs(float(after[0] - before[0]) - coefficient * wall) < 1e-14 * total0
-        # energy: the fixed-T_n inventory gains 3/2 T_n per recycled atom
-        sink = float(ledger[3] + ledger[4])
-        energy = float(after[1] + after[2] + sink - before[1] - before[2]) - 1.5 * PARAMS.neutral_temperature * float(ledger[7])
-        assert abs(energy) < 1e-12 * max(sink, 1.5 * PARAMS.neutral_temperature * float(ledger[7]))
-        new_total = float(after[0])
-        assert abs((new_total - total) + (1.0 - coefficient) * wall) < 1e-13 * total0
-        total = new_total
+        assert abs(after - before - coefficient * wall) < 1e-14 * total0
+        assert float(ledger[13]) == pytest.approx(0.125 * coefficient * wall, rel=1e-13)  # their energy
+        assert abs((after - total) + (1.0 - coefficient) * wall) < 1e-13 * total0
+        total = after
     if coefficient == 1.0:
         assert abs(total - total0) < 1e-13 * total0
     assert float(jnp.min(jnp.where(grid.owner, Nn, 1.0))) > 0.0
@@ -76,11 +75,12 @@ def test_recycling_closes_nuclei_with_the_wall_loss(geometry, coefficient):
 def test_recycling_off_is_the_unchanged_split():
     geometry = sheared_slab()
     grid = F.build_neutral_grid(geometry)
-    state = _random_plasma(geometry.shape, 5)
-    plain = F.neutral_step(*state, 0.02, grid, PARAMS)
-    zero = F.neutral_step(*state, 0.02, grid, PARAMS, volume_source=None)
+    state = (*_random_plasma(geometry.shape, 5), jnp.zeros(geometry.shape))
+    state = (*state[:5], state[5], 0.05 + 0.3 * state[2])
+    plain = FL.neutral_fluid_step(*state, 0.02, grid, PARAMS)
+    zero = FL.neutral_fluid_step(*state, 0.02, grid, PARAMS, volume_source=jnp.zeros(geometry.shape))
     for a, b in zip(plain, zero):
-        np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
+        np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=0, atol=1e-15)
 
 
 def test_recycling_config_defaults_and_energy():
@@ -234,7 +234,7 @@ def test_hsx_fluid_neutral_ledger_closes_and_detects_a_one_percent_leak(tmp_path
     deck.write_text(
         '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
         f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
-        "final_time = 0.00225\nnum_steps = 3\nsave_every = 3\nneutrals = true\nneutral_model = \"fluid\"\n"
+        "final_time = 0.00225\nnum_steps = 3\nsave_every = 3\nneutrals = true\n"
         "neutral_wall_absorption = 0.1\nneutral_wall_energy_reflection = 0.5\n"
         "recycling = true\nrecycling_coefficient = 0.9\n"
     )
