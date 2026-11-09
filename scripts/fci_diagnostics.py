@@ -25,11 +25,6 @@ import scipy.linalg as sla
 from jax.sharding import PartitionSpec as P
 
 from drbx import deck
-from drbx.fci_braginskii.native.fci_operators import (
-    local_grad_parallel_op_fci_compatible_from_q,
-    local_parallel_div_b_fci_from_q_op,
-    local_parallel_q_flux_div_fci_op,
-)
 from drbx.fci_braginskii.native.fci_parallel_conduction import conductivity
 from drbx.fci_braginskii.geometry.fci_geometry import FCI_DEP_PHYSICAL_BOUNDARY, build_local_fci_stencil_from_field
 
@@ -39,7 +34,10 @@ DECK = "examples/inputs/hsx_fci_blob.toml"  # [geometry] table: shipped coils an
 GEOMETRY_CACHE = "output/hsx_geometry"
 STATE = "output/phaseA/hsx_snapshot_0.075.npz"  # state to linearise around (None: the initial blob)
 DT = 7.5e-4  # default step of the 200-step run
+FINAL_TIME, STEPS = 0.15, 200  # of the captured run: only the step (FINAL_TIME - restart time) / STEPS = DT matters
 EIGS = 6  # eigenvalues kept per block
+WALL_LAYER = None  # radial index r: spectra of the block restricted to the cells r >= WALL_LAYER (a 32^3 restart STATE), no dense operators
+BLOCKS = ("Ve-Te", "Ve-phi-omega")  # the spectra to take
 SHEATH_CHANGES = {"with sheath rows": {"wall_closure": "bohm"}, "without sheath rows": {"wall_closure": "zero-flow"}}
 
 
@@ -50,8 +48,9 @@ class Captured(Exception):
 def capture(**changes):
     """Run the deck until the first shard_map of ``run_full_eb`` and keep that frame's locals."""
     name, cfg = deck.load_deck(DECK)
-    cfg["geometry"] = dataclasses.replace(cfg["geometry"], cache_dir=Path(GEOMETRY_CACHE))
-    cfg["fci_braginskii"] = dataclasses.replace(cfg["fci_braginskii"], restart_from=STATE, final_time=0.15, num_steps=200, **changes)
+    if cfg.get("geometry") is not None:
+        cfg["geometry"] = dataclasses.replace(cfg["geometry"], cache_dir=Path(GEOMETRY_CACHE))
+    cfg["fci_braginskii"] = dataclasses.replace(cfg["fci_braginskii"], restart_from=STATE, final_time=FINAL_TIME, num_steps=STEPS, **changes)
     real = jax.shard_map
 
     def stop(fun, **kwargs):
@@ -89,6 +88,11 @@ def dense(op, shape):
 
 def homogeneous_halo_ops(model, face_bc):
     """Legacy mapped q-flux divergence and compatible gradient with homogeneous wall data (linear parts)."""
+    from drbx.fci_braginskii.native.fci_operators import (
+        local_grad_parallel_op_fci_compatible_from_q,
+        local_parallel_div_b_fci_from_q_op,
+        local_parallel_q_flux_div_fci_op,
+    )
     ctx = model._stencil_builder_context()
     phi_bc = face_bc.phi
     zero_bc = dataclasses.replace(phi_bc, value_x=0 * phi_bc.value_x, value_y=0 * phi_bc.value_y, value_z=0 * phi_bc.value_z)
@@ -169,24 +173,39 @@ def adjoint_report(name, g, d, v):
 cap = capture()
 state0 = cap["state"]
 shape = tuple(int(n) for n in state0.density.shape)
-mats = jax.tree.map(np.asarray, on(cap, operator_matrices)(state0))
-act = np.flatnonzero(mats["active"].ravel())
-sub = lambda m: m[np.ix_(act, act)]
-vol = mats["volume"].ravel()[act]
-core = mats["core"].ravel()[act].astype(float)
-Gs, Ds, Gp, Dp, Gl, Dl = (sub(mats[k]) for k in ("Gs", "Ds", "Gp", "Dp", "Gl", "Dl"))
-Gc, Dc = Gs + (1 - core)[:, None] * Gl, Ds + (1 - core)[:, None] * Dl  # support core + legacy closure rows
-print(f"[A1] {len(act)} active cells of {np.prod(shape)}; support-core rows {int(core.sum())}")
-print("[A1] adjointness of the parallel operator pairs (homogeneous wall data):")
-adjoint_report("support pair (sheath, conduction)", Gs, Ds, vol)
-adjoint_report("support core + legacy wall rows", Gc, Dc, vol)
-adjoint_report("legacy mapped (G_compat, D_flux)", Gl, Dl, vol)
-adjoint_report("current/phi pair", Gp, Dp, vol)
-vd = vol[:, None] * (Ds @ Gs)  # conduction operator D(kappa G .) with kappa = 1; kappa > 0 keeps the structure
-print(
-    f"  conduction D G (kappa=1): |V(DG)-(V DG)^T|/|V DG| = {np.linalg.norm(vd - vd.T) / np.linalg.norm(vd):.3e}, "
-    f"max eig sym(V D G) = {np.max(sla.eigvalsh(0.5 * (vd + vd.T))):.3e} (<= 0 for a dissipative operator)"
-)
+
+
+def layer_masks(model, state):
+    """Active cells with r >= WALL_LAYER, their volumes and the wall-leg flag (no dense operators)."""
+    maps = model.geometry.maps
+    radius = jnp.arange(shape[0])[:, None, None] * jnp.ones(shape, dtype=int)
+    return {"active": model.geometry.active_cell_mask_owned & (radius >= WALL_LAYER), "volume": model._fci_pair_cell_mass(),
+            "wall": (maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY) | (maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)}
+
+
+if WALL_LAYER is not None:
+    mats = jax.tree.map(np.asarray, on(cap, layer_masks)(state0))
+    act = np.flatnonzero(mats["active"].ravel())
+    vol = mats["volume"].ravel()[act]
+else:
+    mats = jax.tree.map(np.asarray, on(cap, operator_matrices)(state0))
+    act = np.flatnonzero(mats["active"].ravel())
+    sub = lambda m: m[np.ix_(act, act)]
+    vol = mats["volume"].ravel()[act]
+    core = mats["core"].ravel()[act].astype(float)
+    Gs, Ds, Gp, Dp, Gl, Dl = (sub(mats[k]) for k in ("Gs", "Ds", "Gp", "Dp", "Gl", "Dl"))
+    Gc, Dc = Gs + (1 - core)[:, None] * Gl, Ds + (1 - core)[:, None] * Dl  # support core + legacy closure rows
+    print(f"[A1] {len(act)} active cells of {np.prod(shape)}; support-core rows {int(core.sum())}")
+    print("[A1] adjointness of the parallel operator pairs (homogeneous wall data):")
+    adjoint_report("support pair (sheath, conduction)", Gs, Ds, vol)
+    adjoint_report("support core + legacy wall rows", Gc, Dc, vol)
+    adjoint_report("legacy mapped (G_compat, D_flux)", Gl, Dl, vol)
+    adjoint_report("current/phi pair", Gp, Dp, vol)
+    vd = vol[:, None] * (Ds @ Gs)  # conduction operator D(kappa G .) with kappa = 1; kappa > 0 keeps the structure
+    print(
+        f"  conduction D G (kappa=1): |V(DG)-(V DG)^T|/|V DG| = {np.linalg.norm(vd - vd.T) / np.linalg.norm(vd):.3e}, "
+        f"max eig sym(V D G) = {np.max(sla.eigvalsh(0.5 * (vd + vd.T))):.3e} (<= 0 for a dissipative operator)"
+    )
 
 # A1: spectra of the linearised blocks
 def total_rate(model, x):
@@ -194,8 +213,11 @@ def total_rate(model, x):
     rate = model.evaluate_stage(x, phi_owned=x.phi, short_leg_selection_dt=DT)
     info = model.apply_short_leg_implicit_material_step(x, DT, phi_owned=x.phi, return_increment=True)[2]
     wall = info["selected_complete_residual_owner"]
+    # the friction is implicit in the current/phi solve, so it is not in the explicit rate
+    friction = model.implicit_current_phi_pair * float(model.parameters.mi_over_me) * model._electron_friction(x.Te) * x.density * (x.Vi - x.Ve)
     return rate.replace(density=rate.density + wall[..., 0], Te=rate.Te + wall[..., 1], Ti=rate.Ti + wall[..., 2],
-                        Vi=rate.Vi + wall[..., 3], Ve=rate.Ve + wall[..., 4])
+                        Vi=rate.Vi + wall[..., 3],
+                        Ve=rate.Ve + wall[..., 4] + friction)
 
 
 def conduction_rate(model, base, temperature):
@@ -267,6 +289,8 @@ for label, changes in SHEATH_CHANGES.items():
     cap_b = cap if label.startswith("with ") else capture(**changes)
     base = cap_b["state"]
     for block, names in (("Ve-Te", ("Te", "Ve")), ("Ve-phi-omega", ("Ve", "omega"))):
+        if block not in BLOCKS:
+            continue
         values, vectors, abscissa, unstable = eigen_block(cap_b, base, block)
         plus = on(cap_b, lambda model, state, f: forward_values(model, model._face_bcs(state), f)[1])
         n = len(act)
@@ -280,6 +304,9 @@ for label, changes in SHEATH_CHANGES.items():
             print(f"     lambda = {lam.real:+.3e}{lam.imag:+.3e}i  |lam| dt = {abs(lam) * DT:.2f}  "
                   f"energy share {names[0]}/{names[1]} = {share[0]:.2f}/{share[1]:.2f}  "
                   f"along-b correlation {rho[0]:+.2f}/{rho[1]:+.2f} (-1: period 2)  wall-cell share {near_wall[0]:.2f}/{near_wall[1]:.2f}")
+
+if WALL_LAYER is not None:
+    sys.exit()
 
 # A2: time and host synchronisations of one step
 def callback_count(jaxpr):

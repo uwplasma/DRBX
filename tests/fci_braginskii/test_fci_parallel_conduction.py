@@ -182,3 +182,18 @@ def test_hsx_conduction_is_energy_neutral_and_finite(tmp_path, monkeypatch):
         assert abs(values[0]) <= 1e-9 * max(values[2], 1e-300) + 1e-14
         assert abs(values[1]) <= 1e-9 * max(abs(values[0]), 1.0) + 1e-14
         assert values[3] > 0.0 and not np.any(failed)
+
+
+def test_electron_friction_is_spitzer_consistent_with_the_conduction():
+    from types import SimpleNamespace
+
+    def friction(nu, kappa0, te):
+        model = SimpleNamespace(parameters=SimpleNamespace(Ve_nu=nu, electron_conduction_kappa0=kappa0))
+        return np.asarray(LocalFciDrbEBRhs._electron_friction(model, jnp.asarray(te)))
+
+    te = np.array([0.1, 1.0, 4.0])
+    # 0.51 * (3.16 mu n / (kappa0 Te^1.5)) with kappa0 = kappa/(n0 c_s0 L): nu = 1.612/(kappa0 Te^1.5)
+    np.testing.assert_allclose(friction(0.0, 75.0, te), 1.612 / (75.0 * te**1.5), rtol=1e-12)
+    np.testing.assert_allclose(friction(0.3, 75.0, te), 0.3)
+    np.testing.assert_allclose(friction(-1.0, 75.0, te), 0.0)
+    np.testing.assert_allclose(friction(0.0, 0.0, te), 0.0)

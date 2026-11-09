@@ -88,7 +88,7 @@ RHS_TERM_NAMES = (
         "poisson_bracket",
         "parallel_advection",
         "curvature",
-        "parallel_compression",
+        "ohmic_heating",
         "perpendicular_diffusion",
         "parallel_diffusion",
         "characteristic_leg_upwind",
@@ -1313,23 +1313,8 @@ class LocalFciDrbEBRhs:
         )
         return self._fci_prepare_q(1.0 / B_owned, trace, context)
 
-    def _fci_pair_target_mask(
-        self,
-        *,
-        include_physical_wall: bool,
-        exclude_radial_ghost: bool | None = None,
-    ) -> jnp.ndarray:
-        """Return rows admissible for a cell-centred FCI support pair.
-
-        Ordinary support-core pairs admit only field-interior endpoints.  A
-        boundary-aware pair may additionally admit physical-wall endpoints.
-        Its divergence explicitly constructs the linear Neumann radial-halo
-        closure before the transpose is built, so those storage dependencies
-        must remain inside that complete operator.  Excluding them and then
-        restoring independent legacy rows would break the very adjoint pair
-        the boundary closure is intended to provide.  The ordinary support
-        core, which has no such boundary closure, continues to exclude them.
-        """
+    def _fci_radial_ghost_rows(self) -> jnp.ndarray:
+        """Rows whose mapped legs read a radial ghost cell (no complete parallel stencil)."""
 
         layout = self.domain.layout
         radial_lo = layout.halo_width
@@ -1369,37 +1354,78 @@ class LocalFciDrbEBRhs:
             return remote_flat.reshape(self.geometry.owned_shape).astype(bool)
 
         maps = self.geometry.maps
-        admitted_endpoint_kinds = (
-            (maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR)
-            & (maps.backward.endpoint_kind == FCI_DEP_FIELD_INTERIOR)
+        return (
+            has_local_radial_ghost(maps.forward)
+            | has_local_radial_ghost(maps.backward)
+            | has_remote_radial_ghost(maps.forward)
+            | has_remote_radial_ghost(maps.backward)
         )
-        if include_physical_wall:
-            admitted_endpoint_kinds = (
-                (
-                    (maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR)
-                    | (maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
-                )
-                & (
-                    (maps.backward.endpoint_kind == FCI_DEP_FIELD_INTERIOR)
-                    | (maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
-                )
-            )
+
+    def _fci_pair_target_mask(self) -> jnp.ndarray:
+        """Return the rows of the parallel pairs: cells with a complete field-line stencil.
+
+        A row admits field-interior and physical-wall endpoints (a wall row
+        closes the wall leg with the owner value; the wall flux enters through
+        the wall legs).  Cells outside the pairs are those not in
+        :meth:`_fci_pair_active_mask`.
+        """
+
+        maps = self.geometry.maps
         admitted = (
-            admitted_endpoint_kinds
+            (
+                (maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR)
+                | (maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+            )
+            & (
+                (maps.backward.endpoint_kind == FCI_DEP_FIELD_INTERIOR)
+                | (maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+            )
             & maps.forward.target_valid
             & maps.backward.target_valid
         )
-        admitted = admitted & self.geometry.active_cell_mask_owned
-        if exclude_radial_ghost is None:
-            exclude_radial_ghost = not include_physical_wall
-        if not exclude_radial_ghost:
-            return admitted
+        return admitted & self._fci_pair_active_mask()
+
+    def _electron_friction(self, Te):
+        """Electron-ion friction coefficient ``nu`` of ``dVe = mu nu n (Vi - Ve)``.
+
+        Spitzer: ``nu = 1.612/(kappa0 Te^1.5)`` (0.51 times the electron collision
+        rate ``3.16 mu n/(kappa0 Te^1.5)`` of the conduction ``kappa = kappa0 Te^2.5``),
+        so friction and conduction share ``ln Lambda`` and the reference state.
+        ``Ve_nu > 0`` overrides it with a constant, ``Ve_nu < 0`` switches it off.
+        """
+
+        nu, kappa0 = float(self.parameters.Ve_nu), float(self.parameters.electron_conduction_kappa0)
+        if nu > 0.0:
+            return jnp.full_like(Te, nu)
+        if nu < 0.0 or kappa0 == 0.0:
+            return jnp.zeros_like(Te)
+        return 1.612 / (kappa0 * jnp.maximum(Te, 1.0e-4) ** 1.5)
+
+    def _fci_both_wall_mask(self) -> jnp.ndarray:
+        """Cells whose two field-line legs both end on a physical wall."""
+
+        maps = self.geometry.maps
         return (
-            admitted
-            & ~has_local_radial_ghost(maps.forward)
-            & ~has_local_radial_ghost(maps.backward)
-            & ~has_remote_radial_ghost(maps.forward)
-            & ~has_remote_radial_ghost(maps.backward)
+            (maps.backward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+            & (maps.forward.endpoint_kind == FCI_DEP_PHYSICAL_BOUNDARY)
+        )
+
+    def _fci_pair_active_mask(self) -> jnp.ndarray:
+        """Cells of the parallel pairs: active cells with a complete parallel stencil.
+
+        A both-legs-wall cell or a cell whose legs read a radial ghost has no
+        stencil of its own; the pair would give it only the scatter of a core
+        row over a long one-sided leg (a one-signed diagonal that makes the
+        Ve-Te block grow, and a pressure gradient the potential does not
+        balance).  Such a cell is outside the pairs (``G = D = 0``), the leg of
+        a core row that ends in it is dropped (zero flux, constants stay
+        exact) and the cell is closed by its own sheath wall legs alone.
+        """
+
+        return (
+            self.geometry.active_cell_mask_owned
+            & ~self._fci_both_wall_mask()
+            & ~self._fci_radial_ghost_rows()
         )
 
     def _fci_support_core_target_mask(self) -> jnp.ndarray:
@@ -1410,7 +1436,7 @@ class LocalFciDrbEBRhs:
         zero wall flux; the wall flux enters through the wall legs.
         """
 
-        return self._fci_pair_target_mask(include_physical_wall=True, exclude_radial_ghost=True)
+        return self._fci_pair_target_mask()
 
     def _fci_pair_cell_mass(self) -> jnp.ndarray:
         """Return the fine-cell measure preserved by the downstream RLP map."""
@@ -1463,8 +1489,8 @@ class LocalFciDrbEBRhs:
         the present ``phi_wall=0`` closure.
         """
 
-        target = self._fci_pair_target_mask(include_physical_wall=True)
-        active = self.geometry.active_cell_mask_owned
+        target = self._fci_pair_target_mask()
+        active = self._fci_pair_active_mask()
         b_floor = 1.0e-30
         bmag_owned = jnp.maximum(
             jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
@@ -1555,7 +1581,16 @@ class LocalFciDrbEBRhs:
                 divergence = jnp.asarray(bmag_owned) * local_grad_parallel_op_fci(
                     q_stencil, self.geometry
                 )
-                return jnp.where(target, divergence, 0.0)
+                # A cell outside the pair keeps the divergence of its own wall-leg currents
+                # (zero for the homogeneous pair), never that of the bulk current.
+                endpoints = replace(
+                    q_stencil,
+                    center=jnp.zeros_like(q_stencil.center),
+                    minus=jnp.where(backward_wall, endpoint_backward * inverse_b_stencil.minus, 0.0),
+                    plus=jnp.where(forward_wall, endpoint_forward * inverse_b_stencil.plus, 0.0),
+                )
+                wall_only = jnp.asarray(bmag_owned) * local_grad_parallel_op_fci(endpoints, self.geometry)
+                return jnp.where(target, divergence, jnp.where(backward_wall | forward_wall, wall_only, 0.0))
             divergence = local_parallel_q_flux_div_fci_op(
                 q_halo,
                 self.geometry,
@@ -1600,7 +1635,7 @@ class LocalFciDrbEBRhs:
         """
 
         core_target = self._fci_support_core_target_mask()
-        active = self.geometry.active_cell_mask_owned
+        active = self._fci_pair_active_mask()
         bmag_owned = jnp.maximum(
             jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
             1.0e-30,
@@ -1691,7 +1726,7 @@ class LocalFciDrbEBRhs:
 
         mass = self._fci_pair_cell_mass()
         divergence = build_weighted_negative_adjoint(
-            gradient, mass, mass, primal_active=self.geometry.active_cell_mask_owned, dual_active=leg
+            gradient, mass, mass, primal_active=self._fci_pair_active_mask(), dual_active=leg
         )
         length = jnp.abs(stencil(jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)).dx_plus)
         return gradient, divergence, length
@@ -1822,7 +1857,7 @@ class LocalFciDrbEBRhs:
         # Rows outside the pair's target (no admissible map) keep the mapped
         # divergence as their only closure.
         closure = jnp.where(
-            current_target, 0.0,
+            current_target | self._fci_both_wall_mask() | self._fci_radial_ghost_rows(), 0.0,
             local_parallel_q_flux_div_fci_op(
                 q_halo, self.geometry, context=context,
                 forward_remote_q_values=forward, backward_remote_q_values=backward,
@@ -2607,7 +2642,13 @@ class LocalFciDrbEBRhs:
         Ve_b = jnp.asarray(state_owned.Ve, dtype=jnp.float64)
 
         # omega_pred = omega_b + h * Pvort(kappa * D_h(n * (Vi_b - Ve_b)))
-        homogeneous_current_dense = density_dense * (Vi_dense - Ve_dense)
+        # Spitzer friction, implicit in the same solve: Ve = c (Ve_b + h a Vi + h mu G phi)
+        # with a = mu nu n, c = 1/(1 + h a); the current weight n becomes n c.
+        friction = mu * self._electron_friction(jnp.asarray(state_halo.Te[owned], dtype=jnp.float64)) * density_dense
+        damping = 1.0 / (1.0 + h * friction)
+        Ve_eff_dense = damping * (Ve_dense + h * friction * Vi_dense)
+        density_dense_g = density_dense * damping
+        homogeneous_current_dense = density_dense * (Vi_dense - Ve_eff_dense)
         homogeneous_div_dense = current_phi_divergence(homogeneous_current_dense)
         omega_pred = omega_b + h * self._project_fine_cell_term(
             kappa_dense * homogeneous_div_dense
@@ -2685,7 +2726,7 @@ class LocalFciDrbEBRhs:
 
         def extra_operator(field_owned: jnp.ndarray) -> jnp.ndarray:
             g_dense = self._owner_current_gradient(field_owned, current_phi_gradient)
-            divergence_dense = current_phi_divergence(density_dense * g_dense)
+            divergence_dense = current_phi_divergence(density_dense_g * g_dense)
             result = -coefficient * self._project_fine_cell_term(
                 kappa_dense * divergence_dense
             )
@@ -2734,8 +2775,8 @@ class LocalFciDrbEBRhs:
         # g = G(phi*); Ve* = Ve_b + h*mu*PVe(g);
         # omega* = omega_pred - h**2*mu*Pvort(kappa*D_h(n*g))
         g_dense = self._owner_current_gradient(phi_owned, current_phi_gradient)
-        Ve_star = Ve_b + h * mu * self._project_fine_cell_term(g_dense)
-        coupled_divergence_dense = current_phi_divergence(density_dense * g_dense)
+        Ve_star = Ve_b + self._project_fine_cell_term(Ve_eff_dense - Ve_dense + h * mu * damping * g_dense)
+        coupled_divergence_dense = current_phi_divergence(density_dense_g * g_dense)
         omega_star = omega_pred - h ** 2 * mu * self._project_fine_cell_term(
             kappa_dense * coupled_divergence_dense
         )
@@ -2916,7 +2957,7 @@ class LocalFciDrbEBRhs:
         rho_star = jnp.asarray(self.parameters.rho_star, dtype=jnp.float64)
         tau = jnp.asarray(self.parameters.tau, dtype=jnp.float64)
         mi_over_me = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
-        Ve_nu = jnp.asarray(self.parameters.Ve_nu, dtype=jnp.float64)
+        nu_ei = self._electron_friction(Te)
         density_diff = self._field_perp_diffusion(
             state_halo.density,
             face_bc.density,
@@ -3012,7 +3053,12 @@ class LocalFciDrbEBRhs:
         production_material_residual = stage_parallel_terms["conservative_rates"]
         current_parallel_value = density * (Vi - Ve)
         vorticity_parallel_advection = -Vi * grad_parallel_vorticity
-        Ve_collision_term = mi_over_me * Ve_nu * current_parallel_value
+        # Friction on Ve is part of the implicit current/phi solve when that is active.
+        Ve_collision_term = (
+            jnp.zeros_like(density) if self.implicit_current_phi_pair
+            else mi_over_me * nu_ei * current_parallel_value
+        )
+        ohmic_heating = nu_ei * density * (Vi - Ve) ** 2 / 1.5
         # This force term moves into the coupled potential solve when that
         # path is active; keeping it here too would double-count it.
         Ve_phi_force_term = (
@@ -3061,6 +3107,7 @@ class LocalFciDrbEBRhs:
             -(poisson_Te * rho_star)
             + production_material_residual[..., 1]
             + curvature_Te_contribution
+            + ohmic_heating
             + Te_diff
             + Te_parallel_diff
         )
@@ -3142,7 +3189,7 @@ class LocalFciDrbEBRhs:
                     -(poisson_Te * rho_star),
                     Te_parallel_material_term,
                     curvature_Te_contribution,
-                    zero_term,
+                    ohmic_heating,
                     Te_diff,
                     Te_parallel_diff,
                     zero_term,

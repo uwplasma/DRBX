@@ -678,6 +678,13 @@ def _third_order_scalar_face_states_from_halo(
             if positivity_floor is not None:
                 left_ok = left_ok & (left > positivity_floor)
                 right_ok = right_ok & (right > positivity_floor)
+                # A positive scalar's minimum must not be lowered by its own
+                # advection: an upwind face value above the minimum cell
+                # (qL - q0 = (2(q1-q0) - (qm-q0))/6 > 0) makes the
+                # advective-form bracket a sink of any size on that cell
+                # (-0.71 on n = 0.014 at 32^3, t = 0.45).  First order there.
+                left_ok = left_ok & ~((q0 < qm) & (q0 < q1))
+                right_ok = right_ok & ~((q1 < qp) & (q1 < q0))
         else:
             left = q0
             right = q1
@@ -1888,7 +1895,11 @@ def _curvature_bc_characteristic_wall_states(
         | (~solve_valid)
         | (~residual_info["thermodynamic_admissible"])
     )
-    return exterior, boundary_trace, fallback
+    # The face state is the floored one the basis was built at.  A wall trace
+    # <= 0 (n_w = -3.6e-4 at the r=31 wall cell under a 0.88 neighbour, 32^3
+    # HSX step 405) would be floored by 1e-12 in the fluctuation matrix, whose
+    # 1/n entries (norm 1e30) select the sigma-I fallback: a flux of 1e9.
+    return exterior, matrix_state, fallback
 
 
 def local_curvature_production_path_op(

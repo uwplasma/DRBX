@@ -170,3 +170,37 @@ def test_reconstruction_orders_and_positivity_fallback_metadata():
     _left, _right, bad_meta = reconstruct_third_order_face_states(bad, q0, q1, q1)
     assert np.any(np.asarray(bad_meta.used_fallback))
     assert np.all(np.asarray(_left)[..., :3] > 0.0)
+
+
+def test_wall_face_state_is_floored_when_the_trace_undershoots():
+    from drbx.fci_braginskii.native.fci_operators import _curvature_bc_characteristic_wall_states
+
+    interior = jnp.asarray((0.097, 0.27, 0.81, -0.03))[None]
+    trace = jnp.asarray((-3.6e-4, 0.187, 0.787, 0.0))[None]
+    _exterior, face, _fallback = _curvature_bc_characteristic_wall_states(
+        interior, trace, jnp.ones(1), 1.0, jnp.ones(1), interior_on_right=False
+    )
+    np.testing.assert_allclose(np.asarray(face)[0, 0], 0.0097)
+    plus, minus, spectral = curvature_face_linearized_fluctuations(
+        interior, interior * 1.01, face, jnp.ones(1), 1.0, return_fallback=True
+    )
+    assert not bool(spectral[0]) and float(jnp.abs(plus).max() + jnp.abs(minus).max()) < 1e3
+
+
+def test_third_order_bracket_face_is_first_order_at_a_minimum(monkeypatch):
+    from types import SimpleNamespace
+
+    from drbx.fci_braginskii.native import fci_operators as ops
+
+    # samples around one face: the minimum cell q0 = 0.014 has larger neighbours
+    def samples(_halo, _geometry, axis):
+        shape = tuple(2 if a == axis else 1 for a in range(3))
+        return tuple(jnp.full(shape, v) for v in (0.4, 0.014, 0.8, 0.9))
+
+    monkeypatch.setattr(ops, "_axis_face_samples_from_halo", samples)
+    geometry = SimpleNamespace(layout=SimpleNamespace(halo_width=2))
+    left, right, fallback = ops._third_order_scalar_face_states_from_halo(
+        None, geometry, boundary_trace=None, axis_regular_axes=(False,) * 3, positivity_floor=1e-12
+    )
+    np.testing.assert_allclose(left.x, 0.014)  # (-qm + 5 q0 + 2 q1)/6 = 0.2 would sink q0 under advection
+    np.testing.assert_allclose(right.x, (2 * 0.014 + 5 * 0.8 - 0.9) / 6)
