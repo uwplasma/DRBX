@@ -193,6 +193,60 @@ C3. Implicit Ve–φ–ω block with linearised sheath rows and a
     preconditioner may use first-order upwind fluxes. Lagged conductivities;
     Spitzer–Härm with the q = 2.5, α = 0.8 limiter as a documented option.
 
+C3a. Record: the default 32³ HSX deck fails at t = 0.264 (measured 2026-11-08, main 8420e34a, deck: 800 steps to
+t = 0.6, dt = 7.5e-4, `sheath_potential = "ambipolar"`, ε = `parallel_dissipation` = 0.1). Numbers only; the cause is
+not established. It belongs with C2/C3 (#60) and the Phase A wall rows above.
+1. **Failure.** `invalid imex-ssp222 stage after step 352` (351 clean steps; Te < 0 at step 352). A restart from the
+   step-300 checkpoint at the same dt fails at the same step. Failing cell (r, θ, k) = (31, 27, 17), and the 4
+   field-period images k = 1, 9, 17, 25. Te there: 0.0785 (t = 0.2265), 0.0501 (0.252), 0.0381 (0.258), 0.0167
+   (0.2625), −0.113 (0.264); |Ve|: 5.3, 6.2, 10.2, 37, 1157. n stays ≈ 0.23, |Vi| ≈ 0.43; interior |Ve| (r ≤ 29) ≈ 2.2.
+   Growth of |Ve| per 0.0015 time units: ×1.13, 1.15, 1.20, 1.27, 1.43, 2.0.
+2. **Geometry.** The cell has both field-line legs on the wall (forward 0.097, backward 0.035; wall endpoints at
+   r = 31.5, θ ≈ 26.8 and 27.1). 544 of the 1024 r = 31 cells have both legs on a wall (232 of the r = 30 cells);
+   θ = 24…28 on plane 17 are all such cells. It is not a support-core row.
+3. **Force breakdown at the cell (step-350 state).** Ve rate from the electron pressure and thermal force
+   `−μ(G pe + 0.71 n G Te)/n` = +980 (μ = 1836; Ve self-advection through D is −3e-14). The support-pair gradient
+   at that cell has two non-zero entries: `G f_c = 0.1503 (f_c − f_s)`, a one-sided leg of length 6.65 to the core
+   cell s = (31, 29, 16) (n = 0.9545, Te = 0.7314; the cell itself has pe = 0.0038). The current/phi pair row of
+   the same cell has self weight −18.13 (a 0.055 leg to a φ = 0 wall) and −0.150 on s; φ_c = −1.46 and the
+   explicit-form μ G_p(φ) = +4.9e4 (the force is in the implicit pair in production, so the net rate was not
+   measured).
+4. **Wall-layer energy balance, Te rate at the cell, t = 0.225 (Te = 0.0798, Ve = 1.2).**
+
+   | term | dTe/dt |
+   |---|---|
+   | sheath wall closure (implicit) | −0.81 |
+   | perpendicular diffusion | +0.51 |
+   | parallel advection `Ve ∂Te` | −0.37 |
+   | E×B bracket | +0.10 |
+   | curvature | −0.04 |
+   | parallel conduction | +0.005 |
+
+   Mean over the r = 31 cells: wall loss −1.69, perpendicular diffusion +0.20. At t = 0.2625 (Te = 0.0166) the
+   parallel advection is −12, then −22, −49, −275 as Ve = 34, 61, 136, 748.
+5. **dt.** Restarts from step 350: dt/4 (1.875e-4) has Te ≤ 0 at t ≈ 0.26325; dt/2 (3.75e-4) at ≈ 0.2633 (NaN in a
+   LinAlg call); dt = 7.5e-4 between 0.2627 and 0.264. The failure time does not move with dt.
+6. **ε = `parallel_dissipation`** (restart from step 300, dt = 7.5e-4):
+
+   | ε | 0.1 | 0.5 | 1 | 2 | 4 |
+   |---|---|---|---|---|---|
+   | first invalid step | 352 | 355 | 360 | 372 | 410 |
+   | t | 0.264 | 0.2663 | 0.270 | 0.279 | 0.3075 |
+
+   Same cell every time. max|Vi| at t = 0.27: 0.43 (ε 0.1), 0.31 (2), 0.24 (4).
+7. **PR #74** (conservative perpendicular diffusion, 24dee28a), restart from step 350: fails at step 352, Te = −0.074,
+   |Ve| = 758 (main: −0.113, 1157).
+8. **Failed variant A: `sheath_potential = "current"`** from the step-300 ambipolar checkpoint: `LinAlgError: Array
+   must not contain infs or NaNs` in the phi solve on the first step.
+9. **Failed variant B: ambipolar with `_sheath_insulating_pair` applied** (condition `self._sheath_current_mode` →
+   `self.sheath is not None` at the pair in `solve_implicit_current_phi_pair`): fails at step 335 (t = 0.2513) with a
+   NaN; max|Ve| 8.5 / 12.8 / 18.3 / 20.9 at steps 310 / 320 / 330 / 335, interior |Ve| 6.5 → 12.5, 188 cells above 20% of
+   the maximum, mostly r = 29…31, at many θ.
+10. **Open candidates (untested).** (a) A stable sheath-current mode (C2/C3): a current-mode Ve row with the
+    insulating pair. (b) The long one-sided support-pair stencil that a both-legs-wall cell receives from the
+    scatter of a core row (item 3). (c) The implicit current/phi pair solve itself at both-legs-wall cells (the net
+    Ve rate it produces from item 3 was not measured).
+
 ### Phase D: performance (each with A/B/A/B timings and a gate)
 
 D1. Replace the host 5×5 `eig` callbacks with an in-JAX eigensolve (Rusanov
