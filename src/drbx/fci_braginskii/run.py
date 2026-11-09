@@ -2784,7 +2784,6 @@ def run_full_eb(
             if neutral_initial_decay_length > 0.0
             else np.ones_like(x_label)
         )
-        fluid = neutrals.model == "fluid"
         owner_mask = np.asarray(neutral_grid.owner)
         neutral_initial = (
             neutral_restart
@@ -2811,18 +2810,11 @@ def run_full_eb(
                     wall_loss_rate, recycling.coefficient, neutral_grid.owner
                 )
             )
-            if fluid:
-                energy = None if source is None else recycled_energy_per_atom * source
-                n, vi, te, ti, nn_new, un_new, tn_new, ledger, ionisation = fci_neutral_fluid.neutral_fluid_step(
-                    current.density, current.Vi, current.Te, current.Ti, nn, un, tn, dt, neutral_grid, neutrals,
-                    volume_source=source, volume_energy=energy,
-                )
-            else:
-                n, vi, te, ti, nn_new, ledger, ionisation = fci_neutrals.neutral_step(
-                    current.density, current.Vi, current.Te, current.Ti, nn, dt, neutral_grid, neutrals,
-                    volume_source=source,
-                )
-                un_new, tn_new = un, tn
+            energy = None if source is None else recycled_energy_per_atom * source
+            n, vi, te, ti, nn_new, un_new, tn_new, ledger, ionisation = fci_neutral_fluid.neutral_fluid_step(
+                current.density, current.Vi, current.Te, current.Ti, nn, un, tn, dt, neutral_grid, neutrals,
+                volume_source=source, volume_energy=energy,
+            )
             after = inventories(current.replace(density=n, Vi=vi, Te=te, Ti=ti), nn_new, un_new, tn_new)
             return (
                 current.replace(density=n, Vi=vi, Te=te, Ti=ti),
@@ -2836,7 +2828,7 @@ def run_full_eb(
         neutral_history = [[np.asarray(materialized_owner_array(f), dtype=history_numpy_dtype)] for f in (
             neutral_density, neutral_velocity, neutral_temperature)]
         ionisation_field = jnp.zeros_like(neutral_density)
-        cumulative_sinks = np.zeros(2)  # electron energy loss, neutral reservoir energy
+        cumulative_sinks = np.zeros(2)  # electron energy loss, wall energy loss
         inventory0 = None
         recycling_rows: list[list[float]] = []
         recycled_energy_per_atom = (
@@ -2845,9 +2837,9 @@ def run_full_eb(
         nuclei_previous = float(np.asarray(jax.jit(
             lambda c, nn: fci_neutrals.inventories(c.density, c.Vi, c.Te, c.Ti, nn, neutral_grid, neutrals)[0]
         )(state, neutral_density)))
-        ledger_columns = fci_neutral_fluid.FLUID_LEDGER_COLUMNS if fluid else fci_neutrals.NEUTRAL_LEDGER_COLUMNS
+        ledger_columns = fci_neutral_fluid.FLUID_LEDGER_COLUMNS
         print(
-            f"[neutrals] {neutrals.model} neutrals on ("
+            "[neutrals] fluid neutrals (n_n, u_n, T_n) on ("
             + (
                 f"{'reflecting' if neutrals.wall_absorption == 0.0 else f'absorbing p={neutrals.wall_absorption:.3g}'} wall, no recycling); "
                 if recycling is None
@@ -2856,7 +2848,7 @@ def run_full_eb(
             )
             + 
             f"Te0={neutrals.reference_temperature_ev:.3f} eV, n0={neutrals.reference_density_m3:.3e} m^-3, "
-            f"T_n={neutrals.neutral_temperature_ev:.3f} eV, mfp_max={neutrals.mfp_max:.3e} m, "
+            f"initial T_n={neutrals.neutral_temperature_ev:.3f} eV, "
             f"time unit={fci_neutrals.time_unit_s(neutrals.reference_temperature_ev):.3e} s",
             flush=True,
         )
@@ -2923,8 +2915,8 @@ def run_full_eb(
                 inventory0 = neutral_inventory[:3]
             nuclei_b, plasma_b, neutral_b, nuclei_a, plasma_a, neutral_a = neutral_inventory
             recycled = float(neutral_ledger[7]) if recycling is not None else 0.0
-            absorbed = float(neutral_ledger[14]) if fluid else 0.0  # nuclei the wall takes from the neutrals
-            recycled_thermal = float(neutral_ledger[13]) if fluid else 1.5 * neutrals.neutral_temperature * recycled
+            absorbed = float(neutral_ledger[14])  # nuclei the wall takes from the neutrals
+            recycled_thermal = float(neutral_ledger[13])
             particle_error = (nuclei_a - nuclei_b - recycled + absorbed) / max(abs(nuclei_b), 1.0e-300)
             energy_error = (
                 (plasma_a + neutral_a + neutral_ledger[3] + neutral_ledger[4]) - (plasma_b + neutral_b)
@@ -2955,7 +2947,7 @@ def run_full_eb(
                 *(split_change[8:11] if split_change is not None else (np.nan,) * 3),
             ])
             print(
-                "[neutrals] t={:.6e} iz={:.4e} rec={:.4e} cx={:.4e} E_loss_e={:.4e} E_sink2={:.4e} "
+                "[neutrals] t={:.6e} iz={:.4e} rec={:.4e} cx={:.4e} E_loss_e={:.4e} E_wall={:.4e} "
                 "W_n={:.6e} nuclei={:.9e} split: dN/N={:.2e} dE/sinks={:.2e} diff_relres={:.1e} "
                 "max_dt_nu={:.2e} out_of_range(Te,ne,Tcx)=({:.0f},{:.0f},{:.0f})".format(
                     current_time, *neutral_ledger[:5], neutral_a,
@@ -3133,8 +3125,7 @@ def run_full_eb(
 
     def neutral_output() -> dict[str, np.ndarray]:
         mfp, kn_cell, kn_grad = jax.jit(
-            lambda n, te, ti, nn, tn: fci_neutrals.knudsen_map(
-                n, te, ti, nn, neutral_grid, neutrals, tn if fluid else None)
+            lambda n, te, ti, nn, tn: fci_neutrals.knudsen_map(n, te, ti, nn, neutral_grid, neutrals, tn)
         )(state.density, state.Te, state.Ti, neutral_density, neutral_temperature)
         kn_grad = np.asarray(kn_grad)
         fractions = [float(np.mean(kn_grad < 0.1)), float(np.mean((kn_grad >= 0.1) & (kn_grad < 1.0))), float(np.mean(kn_grad >= 1.0))]
@@ -3144,17 +3135,13 @@ def run_full_eb(
             f"fluid-valid<0.3={float(np.mean(kn_grad < 0.3)):.3f}; "
             f"mfp in [{float(np.min(mfp)):.3e}, {float(np.max(mfp)):.3e}] m; "
             f"mfp/cell in [{float(np.min(kn_cell)):.2e}, {float(np.max(kn_cell)):.2e}]; "
-            f"cumulative electron energy loss={cumulative_sinks[0]:.6e}, reservoir={cumulative_sinks[1]:.6e}",
+            f"cumulative electron energy loss={cumulative_sinks[0]:.6e}, wall={cumulative_sinks[1]:.6e}",
             flush=True,
         )
         return {
             "neutral_density": np.stack(neutral_history[0], axis=0),
-            **(
-                {"neutral_velocity": np.stack(neutral_history[1], axis=0),
-                 "neutral_temperature": np.stack(neutral_history[2], axis=0)}
-                if fluid
-                else {}
-            ),
+            "neutral_velocity": np.stack(neutral_history[1], axis=0),
+            "neutral_temperature": np.stack(neutral_history[2], axis=0),
             "neutral_ionisation_rate": np.asarray(materialized_owner_array(ionisation_field), dtype=np.float64),
             "neutral_mean_free_path": np.asarray(mfp, dtype=np.float64),
             "neutral_knudsen_cell": np.asarray(kn_cell, dtype=np.float64),
@@ -3373,17 +3360,11 @@ def neutral_parameters(config) -> fci_neutrals.NeutralParameters | None:
         return None
     checks = (
         (config.neutral_temperature_ev > 0.0, "neutral_temperature_ev must be positive"),
-        (config.neutral_mfp_max > 0.0, "neutral_mfp_max must be positive"),
         (config.neutral_initial_density >= 0.0, "neutral_initial_density must be nonnegative"),
         (config.neutral_initial_decay_length >= 0.0, "neutral_initial_decay_length must be nonnegative"),
         (config.neutral_reaction_substeps >= 1, "neutral_reaction_substeps must be positive"),
-        (config.neutral_model in ("diffusive", "fluid"), "neutral_model must be 'diffusive' or 'fluid'"),
-        (config.restart_from is None or config.neutral_model == "fluid",
-         "only the fluid neutral model supports restart (the diffusive one has no neutral checkpoint)"),
         (0.0 <= config.neutral_wall_absorption <= 1.0, "neutral_wall_absorption must lie in [0, 1]"),
         (0.0 <= config.neutral_wall_energy_reflection <= 1.0, "neutral_wall_energy_reflection must lie in [0, 1]"),
-        (config.neutral_model == "fluid" or config.neutral_wall_absorption == 0.0,
-         "neutral_wall_absorption needs neutral_model = 'fluid'"),
     )
     for ok, message in checks:
         if not ok:
@@ -3393,10 +3374,8 @@ def neutral_parameters(config) -> fci_neutrals.NeutralParameters | None:
         reference_density_m3=float(config.reference_density_m3),
         reference_temperature_ev=reference_temperature,
         neutral_temperature_ev=float(config.neutral_temperature_ev),
-        mfp_max=float(config.neutral_mfp_max),
         tau=float(config.tau),
         reaction_substeps=int(config.neutral_reaction_substeps),
-        model=str(config.neutral_model),
         wall_absorption=float(config.neutral_wall_absorption),
         wall_energy_reflection=float(config.neutral_wall_energy_reflection),
     )
@@ -3478,11 +3457,9 @@ class HsxBlobConfig:
     secondary_electron_emission: float = 0.0
     neutrals: bool = False
     neutral_temperature_ev: float = 3.0
-    neutral_mfp_max: float = 0.05
     neutral_initial_density: float = 0.01
     neutral_initial_decay_length: float = 0.1
     neutral_reaction_substeps: int = 1
-    neutral_model: str = "diffusive"  # "fluid": evolved n_n, u_n, T_n (docs/neutrals_recycling.md)
     neutral_wall_absorption: float = 0.0
     neutral_wall_energy_reflection: float = 1.0
     sheath_potential: str = "ambipolar"
@@ -4045,15 +4022,10 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             **(
                 {
                     "neutrals": True,
-                    "neutral_model": (
-                        "fluid n_n, u_n, T_n (AFN pressure diffusion, flux limiter), AMJUEL-2020, split after IMEX"
-                        if neutral_params.model == "fluid"
-                        else "diffusive, prescribed T_n, AMJUEL-2020 iz/rec/cx, operator split after IMEX"
-                    ),
+                    "neutral_model": "fluid n_n, u_n, T_n (AFN pressure diffusion, flux limiter), AMJUEL-2020, split after IMEX",
                     "reference_density_m3": float(args.reference_density_m3),
                     "neutral_reference_temperature_ev": neutral_params.reference_temperature_ev,
                     "neutral_temperature_ev": float(args.neutral_temperature_ev),
-                    "neutral_mfp_max": float(args.neutral_mfp_max),
                     "neutral_initial_density": float(args.neutral_initial_density),
                     "neutral_initial_decay_length": float(args.neutral_initial_decay_length),
                     "neutral_reaction_substeps": int(args.neutral_reaction_substeps),

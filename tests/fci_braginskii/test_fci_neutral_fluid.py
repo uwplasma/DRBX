@@ -50,7 +50,8 @@ def test_transport_reduces_to_pressure_diffusion_when_the_inertial_response_equa
     _, _, _, _, Nn = _random_plasma(geometry.shape, 1)
     dt, tn = 0.05, jnp.full(geometry.shape, 0.4)
     n_new, _, _, rel = _transport(grid, Nn, tn, jnp.full(geometry.shape, dt), 0.0 * Nn, dt)
-    reference, _ = F.implicit_diffusion(Nn, 0.4 * dt * jnp.ones(geometry.shape), dt, grid, PARAMS)
+    diffusion = jax.jacfwd(lambda v: F.neutral_diffusion_rate(v.reshape(geometry.shape), 0.4 * dt * jnp.ones(geometry.shape), grid).ravel())
+    reference = jnp.linalg.solve(jnp.eye(Nn.size) - dt * diffusion(Nn.ravel()), Nn.ravel()).reshape(geometry.shape)
     np.testing.assert_allclose(np.asarray(n_new), np.asarray(reference), rtol=1e-7)
     assert float(jnp.max(rel)) < 1e-9
 
