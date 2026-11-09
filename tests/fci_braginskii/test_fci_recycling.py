@@ -18,6 +18,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from drbx.fci_braginskii.native import fci_neutral_fluid as FL
 from drbx.fci_braginskii.native import fci_neutrals as F
 from drbx.fci_braginskii.native.fci_wall_closure import SheathClosure, wall_face_fluxes
 from drbx.fci_braginskii.run import HsxBlobConfig, recycling_parameters
@@ -47,6 +48,7 @@ def test_recycling_closes_nuclei_with_the_wall_loss(geometry, coefficient):
 
     grid = F.build_neutral_grid(geometry)
     n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 3)
+    un, Tn = jnp.zeros(geometry.shape), 0.05 + 0.3 * Te
     dt = 0.02
     total0 = float(F.inventories(n, Vi, Te, Ti, Nn, grid, PARAMS)[0])
     total = total0
@@ -55,19 +57,16 @@ def test_recycling_closes_nuclei_with_the_wall_loss(geometry, coefficient):
         wall = dt * float(jnp.sum(grid.volume * jnp.where(grid.owner, loss, 0.0)))
         n = jnp.where(grid.owner, n - dt * loss, n)  # the IMEX wall leg
         source = F.recycled_neutral_source(loss, coefficient, grid.owner)
-        before = F.inventories(n, Vi, Te, Ti, Nn, grid, PARAMS)
-        n, Vi, Te, Ti, Nn, ledger, _ = F.neutral_step(n, Vi, Te, Ti, Nn, dt, grid, PARAMS, volume_source=source)
-        after = F.inventories(n, Vi, Te, Ti, Nn, grid, PARAMS)
+        before = float(F.inventories(n, Vi, Te, Ti, Nn, grid, PARAMS)[0])
+        n, Vi, Te, Ti, Nn, un, Tn, ledger, _ = FL.neutral_fluid_step(
+            n, Vi, Te, Ti, Nn, un, Tn, dt, grid, PARAMS, volume_source=source, volume_energy=0.125 * source)
+        after = float(F.inventories(n, Vi, Te, Ti, Nn, grid, PARAMS)[0])
         # the split adds exactly the recycled particles, and reports them
         assert float(ledger[7]) == pytest.approx(coefficient * wall, rel=1e-13)
-        assert abs(float(after[0] - before[0]) - coefficient * wall) < 1e-14 * total0
-        # energy: the fixed-T_n inventory gains 3/2 T_n per recycled atom
-        sink = float(ledger[3] + ledger[4])
-        energy = float(after[1] + after[2] + sink - before[1] - before[2]) - 1.5 * PARAMS.neutral_temperature * float(ledger[7])
-        assert abs(energy) < 1e-12 * max(sink, 1.5 * PARAMS.neutral_temperature * float(ledger[7]))
-        new_total = float(after[0])
-        assert abs((new_total - total) + (1.0 - coefficient) * wall) < 1e-13 * total0
-        total = new_total
+        assert abs(after - before - coefficient * wall) < 1e-14 * total0
+        assert float(ledger[13]) == pytest.approx(0.125 * coefficient * wall, rel=1e-13)  # their energy
+        assert abs((after - total) + (1.0 - coefficient) * wall) < 1e-13 * total0
+        total = after
     if coefficient == 1.0:
         assert abs(total - total0) < 1e-13 * total0
     assert float(jnp.min(jnp.where(grid.owner, Nn, 1.0))) > 0.0
@@ -76,11 +75,12 @@ def test_recycling_closes_nuclei_with_the_wall_loss(geometry, coefficient):
 def test_recycling_off_is_the_unchanged_split():
     geometry = sheared_slab()
     grid = F.build_neutral_grid(geometry)
-    state = _random_plasma(geometry.shape, 5)
-    plain = F.neutral_step(*state, 0.02, grid, PARAMS)
-    zero = F.neutral_step(*state, 0.02, grid, PARAMS, volume_source=None)
+    state = (*_random_plasma(geometry.shape, 5), jnp.zeros(geometry.shape))
+    state = (*state[:5], state[5], 0.05 + 0.3 * state[2])
+    plain = FL.neutral_fluid_step(*state, 0.02, grid, PARAMS)
+    zero = FL.neutral_fluid_step(*state, 0.02, grid, PARAMS, volume_source=jnp.zeros(geometry.shape))
     for a, b in zip(plain, zero):
-        np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
+        np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=0, atol=1e-15)
 
 
 def test_recycling_config_defaults_and_energy():
@@ -188,7 +188,7 @@ def test_flux_tube_particle_balance_converges():
 
 @pytest.mark.slow
 def test_hsx_recycling_ledger_closes(tmp_path):
-    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): d(nuclei) = other - (1 - R) wall per step."""
+    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): d(nuclei) = explicit sum - (1 - R) face wall loss per step."""
 
     bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
     if bundle is None:
@@ -209,7 +209,40 @@ def test_hsx_recycling_ledger_closes(tmp_path):
         rec = {name: data["recycling_ledger"][:, k] for k, name in enumerate(data["recycling_ledger_columns"])}
         wall = rec["wall_ion_loss"]
         assert np.all(wall > 0.0)
-        np.testing.assert_allclose(rec["recycled_particles"], coefficient * wall, rtol=1e-12)
-        np.testing.assert_allclose(rec["nuclei_change"], rec["nuclei_change_expected"], rtol=0, atol=1e-9 * wall.max())
+        # the deposit is R times the applied implicit loss; the wall loss is the face flux of the stage states
+        np.testing.assert_allclose(rec["recycled_particles"], coefficient * wall, rtol=5e-3)
+        np.testing.assert_allclose(rec["nuclei_change"], rec["nuclei_change_expected"], rtol=0, atol=5e-3 * wall.max())
         neutral = {name: data["neutral_ledger"][:, k] for k, name in enumerate(data["neutral_ledger_columns"])}
         np.testing.assert_allclose(neutral["wall_influx"], rec["recycled_particles"], rtol=1e-12)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("leak", [0.0, 0.01])
+def test_hsx_fluid_neutral_ledger_closes_and_detects_a_one_percent_leak(tmp_path, monkeypatch, leak):
+    """Real HSX: the recycling ledger (wall loss from the stage states, independent of the neutral update) closes to
+    1e-3 of the wall loss with the fluid neutrals and absorbing wall, and fails when 1% of the deposit is dropped."""
+
+    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
+    if bundle is None:
+        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX recycling ledger")
+    from drbx.cli import main
+    from drbx.fci_braginskii.native import fci_neutrals
+
+    original = fci_neutrals.recycled_neutral_source
+    monkeypatch.setattr(fci_neutrals, "recycled_neutral_source", lambda *a: (1.0 - leak) * original(*a))
+    deck = tmp_path / "hsx.toml"
+    deck.write_text(
+        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
+        f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
+        "final_time = 0.00225\nnum_steps = 3\nsave_every = 3\nneutrals = true\n"
+        "neutral_wall_absorption = 0.1\nneutral_wall_energy_reflection = 0.5\n"
+        "recycling = true\nrecycling_coefficient = 0.9\n"
+    )
+    assert main(["run", str(deck)]) in (0, None)
+    data = np.load(tmp_path / "out" / "hsx.npz")
+    rec = {name: data["recycling_ledger"][:, k] for k, name in enumerate(data["recycling_ledger_columns"])}
+    closure = np.max(np.abs(rec["nuclei_change"] - rec["nuclei_change_expected"])) / rec["wall_ion_loss"].max()
+    assert (closure < 1e-3) if leak == 0.0 else (closure > 5e-3), closure
+    assert data["neutral_velocity"].shape == data["neutral_temperature"].shape == data["neutral_density"].shape
+    neutral = {name: data["neutral_ledger"][:, k] for k, name in enumerate(data["neutral_ledger_columns"])}
+    assert np.all(neutral["wall_absorbed"] > 0.0) and np.all(np.isfinite(data["neutral_knudsen_gradient"]))
