@@ -37,6 +37,7 @@ DT = 7.5e-4  # default step of the 200-step run
 FINAL_TIME, STEPS = 0.15, 200  # of the captured run: only the step (FINAL_TIME - restart time) / STEPS = DT matters
 EIGS = 6  # eigenvalues kept per block
 WALL_LAYER = None  # radial index r: spectra of the block restricted to the cells r >= WALL_LAYER (a 32^3 restart STATE), no dense operators
+BLOCKS = ("Ve-Te", "Ve-phi-omega")  # the spectra to take
 SHEATH_CHANGES = {"with sheath rows": {"wall_closure": "bohm"}, "without sheath rows": {"wall_closure": "zero-flow"}}
 
 
@@ -288,6 +289,8 @@ for label, changes in SHEATH_CHANGES.items():
     cap_b = cap if label.startswith("with ") else capture(**changes)
     base = cap_b["state"]
     for block, names in (("Ve-Te", ("Te", "Ve")), ("Ve-phi-omega", ("Ve", "omega"))):
+        if block not in BLOCKS:
+            continue
         values, vectors, abscissa, unstable = eigen_block(cap_b, base, block)
         plus = on(cap_b, lambda model, state, f: forward_values(model, model._face_bcs(state), f)[1])
         n = len(act)

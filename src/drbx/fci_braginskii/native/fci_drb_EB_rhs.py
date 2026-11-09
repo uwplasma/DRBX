@@ -1581,9 +1581,16 @@ class LocalFciDrbEBRhs:
                 divergence = jnp.asarray(bmag_owned) * local_grad_parallel_op_fci(
                     q_stencil, self.geometry
                 )
-                # A both-legs-wall cell is outside the pair but carries the divergence
-                # of its own two wall-leg currents (zero for the homogeneous pair).
-                return jnp.where(target | self._fci_both_wall_mask(), divergence, 0.0)
+                # A cell outside the pair keeps the divergence of its own wall-leg currents
+                # (zero for the homogeneous pair), never that of the bulk current.
+                endpoints = replace(
+                    q_stencil,
+                    center=jnp.zeros_like(q_stencil.center),
+                    minus=jnp.where(backward_wall, endpoint_backward * inverse_b_stencil.minus, 0.0),
+                    plus=jnp.where(forward_wall, endpoint_forward * inverse_b_stencil.plus, 0.0),
+                )
+                wall_only = jnp.asarray(bmag_owned) * local_grad_parallel_op_fci(endpoints, self.geometry)
+                return jnp.where(target, divergence, jnp.where(backward_wall | forward_wall, wall_only, 0.0))
             divergence = local_parallel_q_flux_div_fci_op(
                 q_halo,
                 self.geometry,

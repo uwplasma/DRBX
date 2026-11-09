@@ -305,6 +305,29 @@ not established. It belongs with C2/C3 (#60) and the Phase A wall rows above.
 16. **Not done:** the skew (central) pair for `Ve G(pe)`, the thermal force and `Ve grad Te`. With friction the real
     (Te, Ve) modes are +1.1 and the failure is the two sectors of item 15, so the skew pair would not move it.
 
+17. **Interior Ve–φ–ω mode of the run from t = 0** (ambipolar, E + friction, state of step 400, `WALL_LAYER = 29`,
+    the (Ve, ω) block with the potential from the Poisson solve; the stepper is not a callable, so there is no
+    production-path Jacobian). Abscissa +14.9, 154 of 6144 eigenvalues with Re > 0, real, Ve share 1.00, ω share 0.00,
+    wall-cell share 0.00, along-b correlation 0 (one cell). The diagonal ∂(rate Ve)/∂Ve is negative at 150 sampled
+    r = 29…31 cells without wall legs. For the exact adjoint pair the loop `δVe' = −(mu/rho*²) D^T P D n δVe`
+    (`P = (−L)^-1 B²/n`, similar to a positive matrix) is stable, so these modes are not the physical loop; they are
+    most likely the derivative of the Poisson/GMRES solve (acceptance 5e-5) read through `jax.jvp` (untested). The
+    failure itself is a radial column at (θ, k) = (27, 18), r = 28…31: |Ve| 90 → 185 with alternating sign in 42 steps
+    (rate ≈ 140), Te ≈ 1.1, n ≈ 1.1, φ ≈ −4, no wall leg, `G(pe)` and `G_p(phi)` both from the same pair rows.
+18. **Cell-local sheath current at the cells outside the pairs.** `current_divergence` returned zero for the rows
+    outside the pair, which dropped the sheath current of 872 of the 1024 r = 31 wall cells (their rows read the radial
+    ghost): `sheath_potential = "current"` from t = 0 failed at step 22 (density 1 → 0.35 at r = 26 wall cells while φ/Te
+    went to −1…−2). Those rows now keep the divergence of their own wall-leg currents (endpoint data only, never the
+    bulk current). Result from t = 0: φ/Te at the wall cells 2.3 (Λ ≈ 3), wall current 2e-3 (−2.3 at t = 0), max |Ve| ≤ 1.7,
+    no mode at (27, 18), 404 steps (t = 0.303). The ambipolar run fails at t = 0.33.
+19. **Failure of the current mode at step 405 (t = 0.304).** Deterministic. Stage 1 is finite; the explicit rate of
+    stage 1 at the r = 31 cell (6, 14) (n = 0.097 between 0.71 and 0.48, Te = 0.27, Ti = 0.81) is, per term: density
+    curvature 5.1e6, Te curvature 4.8e7, Ti curvature −6.2e8, ω curvature 4.4e7 (all other terms O(1)). The stage-2 base
+    then has Ti = −4.7e5 and the stage-2 short-wall solve and the curvature eigensolve (4×4, 80 faces) receive NaN. The
+    sheath-current wall removes particles faster than the layer is refilled, leaving density holes; the production
+    curvature flux (frozen principal matrix, `max_condition` 1e8, `sigma I` fallback) is singular on them. Next: the
+    curvature flux at low n (or a floor-free positivity-preserving wall particle sink), then the full run.
+
 ### Phase D: performance (each with A/B/A/B timings and a gate)
 
 D1. Replace the host 5×5 `eig` callbacks with an in-JAX eigensolve (Rusanov
