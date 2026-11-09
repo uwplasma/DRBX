@@ -321,11 +321,46 @@ def run_short() -> dict:
     return errors
 
 
+def periodic_laplacian_case(n_eta=16):
+    """N16 testbed with four distinct first-period planes and exact periodic metric arrays."""
+    from drbx.geometry.nodal_families import build_family_a_layout
+    from drbx.geometry.sbp_laplacian import build_laplacian_plan, nodal_laplacian_metric_from_callable
+    lay = build_family_a_layout(16, n_eta=n_eta)
+    def metric(points):
+        a, j, g = tb.flat_geometry(points)
+        eta = points[:, 2]
+        scale = 1 + 0.12 * np.sin(4 * eta) + 0.07 * np.cos(4 * eta)
+        return a * scale[:, None, None], j, g
+    return lay, build_laplacian_plan(lay, nodal_laplacian_metric_from_callable(lay, metric))
+
+
+def run_period_cg():
+    """Compressed banks under real shard_map: whole, partial and misaligned periods."""
+    out = {"cases": []}
+    for E, nfp, counts in ((16, 4, (1, 2, 4)), (16, 2, (4,))):
+        lay, lp = periodic_laplacian_case(E)
+        full = build_dirichlet_preconditioner(lp, factor_dtype="float32")
+        bank = build_dirichlet_preconditioner(lp, factor_dtype="float32", period_nfp=nfp)
+        rhs = np.random.default_rng(43).standard_normal((E, lay.P))
+        ref, ri = jax.jit(lambda p: solve_dirichlet(lp, rhs, None, p, rtol=1e-11))(full)
+        for sh in counts:
+            mesh = make_plane_mesh(sh)
+            plan = shard_laplacian_plan(lp, sh, mesh)
+            pr = shard_core_schur_preconditioner(bank, sh, mesh)
+            x, info = jax.jit(lambda p: sharded_solve_dirichlet(plan, rhs, None, p, mesh, rtol=1e-11))(pr)
+            out["cases"].append(dict(E=E, nfp=nfp, shards=sh, active=bank.info["period_reuse"]["active"],
+                                     logical_bytes=pr.nbytes, full_bytes=full.nbytes,
+                                     iterations=int(info["iterations"]), reference_iterations=int(ri["iterations"]),
+                                     converged=bool(info["converged"]),
+                                     relative_difference=float(np.linalg.norm(np.asarray(x-ref))/np.linalg.norm(np.asarray(ref)))))
+    return out
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     modes = {"agree": run_agree, "short": run_short, "family_a": run_family_a, "curvature": run_curvature,
              "laplacian": run_laplacian, "cg": run_cg, "laplacian_short": run_laplacian_short,
-             "nodal_rhs": run_nodal_rhs}
+             "nodal_rhs": run_nodal_rhs, "period_cg": run_period_cg}
     parser.add_argument("mode", choices=tuple(modes))
     args = parser.parse_args(argv)
     result = modes[args.mode]()

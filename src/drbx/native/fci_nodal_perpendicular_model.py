@@ -61,7 +61,8 @@ class NodalPerpendicularDefaults:
     the curvature selector (centred split form, no jump dissipation, no core damping: ``curvature_jump_dissipation = False``,
     ``curvature_c_kappa = 0``); ``bracket_c_kappa = 1`` is the bracket's upwinding / dissipation weight; ``tau`` the ion
     temperature ratio of ``psi = phi + tau p_i`` (a parameter, not an option); ``phi_rtol`` / ``phi_maxit`` the budget of the
-    polarization CG; ``preconditioner_*`` the preconditioner of the geometry bundle (``core_schur``, float32 factors).
+    polarization CG; ``preconditioner_*`` the preconditioner of the geometry bundle (``core_schur``, float32 factors, checked four-period reuse with full-storage fallback).
+    Set ``preconditioner_period_nfp=1`` to retain full per-plane storage.
     Run-dependent entries (``diffusion_kinds`` per boundary pattern, ``phi_mode``, ``rho_star``, ``D``) are not defaults.
     """
 
@@ -81,11 +82,13 @@ class NodalPerpendicularDefaults:
     phi_maxit: int = 50
     preconditioner_method: str = "core_schur"
     preconditioner_factor_dtype: str = "float32"
+    preconditioner_period_nfp: int = 4
 
     @property
     def preconditioner(self) -> dict:
         """The keyword arguments of the polarization preconditioner (``build_dirichlet_preconditioner``)."""
-        return {"method": self.preconditioner_method, "factor_dtype": self.preconditioner_factor_dtype}
+        return {"method": self.preconditioner_method, "factor_dtype": self.preconditioner_factor_dtype,
+                "period_nfp": self.preconditioner_period_nfp}
 
     def options(self, *, diffusion_kinds=(), phi_mode: str = "solve", **override) -> NodalPerpendicularOptions:
         """The :class:`NodalPerpendicularOptions` of these defaults for a boundary pattern ``diffusion_kinds`` (one kind per

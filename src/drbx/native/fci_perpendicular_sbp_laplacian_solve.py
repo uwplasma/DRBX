@@ -48,7 +48,8 @@ def apply_preconditioner(prec, r):
 
 def build_dirichlet_preconditioner(lp: LaplacianPlan, coeff=None, c_kappa: float = 1.0, *, factor_dtype: str = "float64",
                                    max_block: int | None = None, assembly: LaplacianAssembly | None = None,
-                                   method: str = "core_schur", rings_per_block: int | str = "auto", group_planes: int | None = None
+                                   method: str = "core_schur", rings_per_block: int | str = "auto", group_planes: int | None = None,
+                                   period_nfp: int = 1
                                    ) -> PlanePreconditioner | CoreSchurPreconditioner:
     """Plane-block preconditioner of the Dirichlet matrix (host; ``coeff (E, P)`` and ``c_kappa`` as in the apply).
 
@@ -58,7 +59,9 @@ def build_dirichlet_preconditioner(lp: LaplacianPlan, coeff=None, c_kappa: float
     (:func:`~drbx.native.fci_perpendicular_plane_preconditioner.build_core_schur_preconditioner`); the in-plane matrix is
     assembled ``group_planes`` planes at a time (default: about 12e6 stored entries per group, see
     :func:`~drbx.geometry.sbp_laplacian_assembly.plane_group_size`), so the host memory does not grow with the number of
-    planes. ``method="core_super_ring"``: the P07 banded block-LDU of the full in-plane matrix with the core as the first
+    planes. ``period_nfp>1`` checks all plane matrices and stores one period only when they repeat; otherwise it
+    falls back to full storage (see ``prec.info["period_reuse"]``). The default 1 disables reuse.
+    ``method="core_super_ring"``: the P07 banded block-LDU of the full in-plane matrix with the core as the first
     super-ring (``max_block`` as in :func:`~drbx.native.fci_perpendicular_plane_preconditioner.build_plane_preconditioner`).
     A given ``assembly`` supplies its in-plane matrix instead of the windowed assembly. ``prec.info`` records the layout.
     """
@@ -66,6 +69,8 @@ def build_dirichlet_preconditioner(lp: LaplacianPlan, coeff=None, c_kappa: float
         raise ValueError(f"method must be one of {_METHODS}, got {method!r}")
     st = lp.structure
     if method == "core_super_ring":
+        if period_nfp != 1:
+            raise ValueError("period_nfp applies only to core_schur")
         asm = LaplacianAssembly(lp, coeff, c_kappa) if assembly is None else assembly
         ring, plane, theta = plane_keys(st)
         return build_plane_preconditioner(asm.matrix("dirichlet", inplane=True), ring, plane, theta,
@@ -73,13 +78,13 @@ def build_dirichlet_preconditioner(lp: LaplacianPlan, coeff=None, c_kappa: float
     if max_block is not None:
         raise ValueError("max_block applies to method='core_super_ring'")
     if assembly is None:
-        blocks = iter_inplane_blocks(lp, coeff, c_kappa, group_planes=group_planes)
+        blocks = lambda: iter_inplane_blocks(lp, coeff, c_kappa, group_planes=group_planes)
     else:
         mat = assembly.matrix("dirichlet", inplane=True).tocsr()
-        blocks = ((k0, k1, mat[k0 * st.P:k1 * st.P, k0 * st.P:k1 * st.P])
+        blocks = lambda: ((k0, k1, mat[k0 * st.P:k1 * st.P, k0 * st.P:k1 * st.P])
                   for k0, k1 in _groups(st.n_eta, group_planes))
     return build_core_schur_preconditioner(blocks, n_planes=st.n_eta, n_core=st.Nc, n_rings=st.m, ring_size=st.N,
-                                           factor_dtype=factor_dtype, rings_per_block=rings_per_block)
+                                           factor_dtype=factor_dtype, rings_per_block=rings_per_block, period_nfp=period_nfp)
 
 
 def _groups(n: int, size: int | None):

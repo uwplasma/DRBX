@@ -28,7 +28,7 @@
   "bracket_c_kappa": 1.0,
   "curvature": {"variant": "centred", "jump_dissipation": false, "c_kappa": 0.0, "absolute_method": "closed_form"},
   "laplacian_c_kappa": 1.0,
-  "solve": {"rtol": 1e-11, "maxit": 50, "preconditioner": "core_schur", "factor_dtype": "float32"},
+  "solve": {"rtol": 1e-11, "maxit": 50, "preconditioner": "core_schur", "factor_dtype": "float32", "period_nfp": 1},
   "roots": {
     "nodal_metric": {"raw": "work/p09_m3_campaign_20261004", "filtered": "work/p09_m3_filtered_20261004"},
     "laplacian_metric": "work/p09_m5_laplacian_20261004"

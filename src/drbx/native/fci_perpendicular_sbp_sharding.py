@@ -281,16 +281,24 @@ def sharded_laplacian_action(sharded: ShardedLaplacianPlan, f, bcd, mesh: Mesh, 
 # Preconditioner shard and CG
 # ---------------------------------------------------------------------------
 def core_schur_specs(prec: CoreSchurPreconditioner) -> CoreSchurPreconditioner:
-    """``PartitionSpec`` pytree of the core-Schur factors: ``lo (S, E, ...)`` and ``dinv (S, E, ...)`` split on axis 1, ``z`` and ``sinv`` on axis 0."""
+    """Partition ordinary factors over eta (lo/dinv axis 1, z/sinv axis 0); replicate a checked periodic bank."""
+    if prec.meta.period_nfp > 1:
+        return CoreSchurPreconditioner(P(), P(), P(), P(), prec.meta)
     return CoreSchurPreconditioner(P(None, AXIS), P(None, AXIS), P(AXIS), P(AXIS), prec.meta)
 
 
 def shard_core_schur_preconditioner(prec: CoreSchurPreconditioner, n_shards: int, mesh: Mesh | None = None
                                     ) -> CoreSchurPreconditioner:
-    """Validate the plane split of ``prec`` and, given ``mesh``, place its leaves on it (the apply is plane-local, no halo)."""
+    """Validate the logical plane split and place factors on the mesh (no preconditioner halo).
+
+    Ordinary factors are partitioned over eta. A verified periodic bank is replicated on each device, never expanded
+    to E planes; each shard applies it with its global plane offset. Thus logical storage stays 1/nfp, while aggregate
+    physical factor storage is n_shards/nfp of an unsharded full bank. Arbitrary shard/period alignments are supported.
+    """
     if not isinstance(prec, CoreSchurPreconditioner):
         raise TypeError("the eta-sharded solve needs a CoreSchurPreconditioner (method='core_schur')")
-    _check_shards(prec.z.shape[0], n_shards, 1, "preconditioner")
+    planes = prec.meta.E if prec.meta.period_nfp > 1 else prec.z.shape[0]
+    _check_shards(planes, n_shards, 1, "preconditioner")
     if mesh is None:
         return prec
     if int(mesh.shape[AXIS]) != int(n_shards):
@@ -314,8 +322,9 @@ def sharded_solve_dirichlet(sharded: ShardedLaplacianPlan, s, bcd, prec: CoreSch
     _check_mesh(mesh, n_shards)
     if not isinstance(prec, CoreSchurPreconditioner):
         raise TypeError("the eta-sharded solve needs a CoreSchurPreconditioner (method='core_schur')")
-    if prec.z.shape[0] != lp.structure.n_eta:
-        raise ValueError(f"the preconditioner has {prec.z.shape[0]} planes, the plan {lp.structure.n_eta}")
+    planes = prec.meta.E if prec.meta.period_nfp > 1 else prec.z.shape[0]
+    if planes != lp.structure.n_eta:
+        raise ValueError(f"the preconditioner has {planes} planes, the plan {lp.structure.n_eta}")
     s = jnp.asarray(s)
     x0 = jnp.zeros_like(s) if x0 is None else jnp.asarray(x0)
     plane = jax.tree_util.tree_map(lambda _: P(AXIS), bcd)
@@ -341,7 +350,8 @@ def sharded_solve_dirichlet(sharded: ShardedLaplacianPlan, s, bcd, prec: CoreSch
             return laplacian_form_ext(lp_l, exchange_plane_halo(v, F_HALO, AXIS, n_shards), None, "dirichlet", ck)
 
         def precond(r):
-            return apply_core_schur_preconditioner(prec_l, r.reshape(-1)).reshape(r.shape)
+            return apply_core_schur_preconditioner(
+                prec_l, r.reshape(-1), plane_offset=lax.axis_index(AXIS) * p_own).reshape(r.shape)
 
         zero_ext = jnp.zeros((p_own + 2 * F_HALO,) + s_l.shape[1:], s_l.dtype)
         rhs = -laplacian_form_ext(lp_l, zero_ext, _wall_halo(bc_l, n_shards), "dirichlet", ck) - H * s_l

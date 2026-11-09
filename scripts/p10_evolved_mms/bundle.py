@@ -59,7 +59,8 @@ CONFIG = json.loads((HERE / "configuration.json").read_text())
 ARMS = tuple(CONFIG["arms"])
 #: identity entries excluded from ``bundle_sha256`` (they do not change the geometry)
 _VOLATILE = pkg.VOLATILE_IDENTITY_KEYS
-PRECONDITIONER = dict(method="core_schur", factor_dtype="float32")
+PRECONDITIONER = dict(method=CONFIG["solve"]["preconditioner"], factor_dtype=CONFIG["solve"]["factor_dtype"],
+                      period_nfp=CONFIG["solve"].get("period_nfp", 1))
 RefArrays = pkg.NodalReferenceArrays
 _Static = pkg.NodalBundleStatic
 Bundle = pkg.NodalGeometryBundle
