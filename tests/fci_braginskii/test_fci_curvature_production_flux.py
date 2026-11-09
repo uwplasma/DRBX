@@ -185,3 +185,22 @@ def test_wall_face_state_is_floored_when_the_trace_undershoots():
         interior, interior * 1.01, face, jnp.ones(1), 1.0, return_fallback=True
     )
     assert not bool(spectral[0]) and float(jnp.abs(plus).max() + jnp.abs(minus).max()) < 1e3
+
+
+def test_third_order_bracket_face_is_first_order_at_a_minimum(monkeypatch):
+    from types import SimpleNamespace
+
+    from drbx.fci_braginskii.native import fci_operators as ops
+
+    # samples around one face: the minimum cell q0 = 0.014 has larger neighbours
+    def samples(_halo, _geometry, axis):
+        shape = tuple(2 if a == axis else 1 for a in range(3))
+        return tuple(jnp.full(shape, v) for v in (0.4, 0.014, 0.8, 0.9))
+
+    monkeypatch.setattr(ops, "_axis_face_samples_from_halo", samples)
+    geometry = SimpleNamespace(layout=SimpleNamespace(halo_width=2))
+    left, right, fallback = ops._third_order_scalar_face_states_from_halo(
+        None, geometry, boundary_trace=None, axis_regular_axes=(False,) * 3, positivity_floor=1e-12
+    )
+    np.testing.assert_allclose(left.x, 0.014)  # (-qm + 5 q0 + 2 q1)/6 = 0.2 would sink q0 under advection
+    np.testing.assert_allclose(right.x, (2 * 0.014 + 5 * 0.8 - 0.9) / 6)
