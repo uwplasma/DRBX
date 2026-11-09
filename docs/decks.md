@@ -414,7 +414,7 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.reference_density_m3` | `float` | `1e+19` | Reference density n0 of the density normalisation: Spitzer conductivity and neutral reaction rates. (m^-3) |
 | `fci_braginskii.coulomb_logarithm` | `float` | `15.0` | Coulomb logarithm of the Spitzer conductivity. |
 | `fci_braginskii.heat_flux_limiter` | `float` | `0.0` | Free-streaming flux limiter alpha, q_fs = alpha n T v_th; 0 disables. |
-| `fci_braginskii.electron_collision_frequency` | `float` | `0.0` | Electron collision frequency. (normalized) |
+| `fci_braginskii.electron_collision_frequency` | `float` | `0.0` | Electron-ion friction `dVe = mu nu n (Vi - Ve)` (with the matching Ohmic heating `nu n (Vi - Ve)^2` in Te). `0`: Spitzer `nu = 1.612/(kappa0 Te^1.5)` from the conduction's `kappa0`; `> 0`: constant override; `< 0`: off. (normalized) |
 | `fci_braginskii.implicit_current_phi_pair` | `bool` | `True` | Treat `mu grad_par(phi)` and the parallel current divergence implicitly through a coupled potential solve (default). |
 | `fci_braginskii.wall_closure` | `str` | `'bohm'` | Parallel wall closure: `bohm` (sheath outflow at the Bohm speed, default) or `zero-flow` (no particle or heat outflow). |
 | `fci_braginskii.electron_heat_transmission` | `float` | `0.0` | Electron sheath heat transmission coefficient; 0 derives it from the sheath potential and `secondary_electron_emission`. |
