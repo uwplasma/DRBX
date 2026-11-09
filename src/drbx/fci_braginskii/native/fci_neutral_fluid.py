@@ -57,7 +57,7 @@ __all__ = [
     "transport_coefficients",
 ]
 
-FLUID_LEDGER_COLUMNS = (  # the first thirteen sit at the positions of ``fci_neutrals.NEUTRAL_LEDGER_COLUMNS``
+FLUID_LEDGER_COLUMNS = (
     "ionisation",  # sum V I dt
     "recombination",
     "charge_exchange",

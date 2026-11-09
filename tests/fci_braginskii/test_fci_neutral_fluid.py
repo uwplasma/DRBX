@@ -11,7 +11,7 @@ import pytest
 
 from drbx.fci_braginskii.native import fci_neutral_fluid as FL
 from drbx.fci_braginskii.native import fci_neutrals as F
-from tests.fci_braginskii.test_fci_neutrals import PARAMS, _random_plasma, annulus, sheared_slab
+from tests.fci_braginskii.test_fci_neutrals import PARAMS, _geometry, _random_plasma, annulus, sheared_slab
 
 jax.config.update("jax_enable_x64", True)
 GEOMETRIES = [sheared_slab(), annulus()]
@@ -50,7 +50,8 @@ def test_transport_reduces_to_pressure_diffusion_when_the_inertial_response_equa
     _, _, _, _, Nn = _random_plasma(geometry.shape, 1)
     dt, tn = 0.05, jnp.full(geometry.shape, 0.4)
     n_new, _, _, rel = _transport(grid, Nn, tn, jnp.full(geometry.shape, dt), 0.0 * Nn, dt)
-    reference, _ = F.implicit_diffusion(Nn, 0.4 * dt * jnp.ones(geometry.shape), dt, grid, PARAMS)
+    diffusion = jax.jacfwd(lambda v: F.neutral_diffusion_rate(v.reshape(geometry.shape), 0.4 * dt * jnp.ones(geometry.shape), grid).ravel())
+    reference = jnp.linalg.solve(jnp.eye(Nn.size) - dt * diffusion(Nn.ravel()), Nn.ravel()).reshape(geometry.shape)
     np.testing.assert_allclose(np.asarray(n_new), np.asarray(reference), rtol=1e-7)
     assert float(jnp.max(rel)) < 1e-9
 
@@ -230,3 +231,54 @@ def test_fluid_step_is_differentiable():
     eps = 1e-5
     fd = (float(functional(1.0 + eps)) - float(functional(1.0 - eps))) / (2 * eps)
     assert np.isfinite(g) and g == pytest.approx(fd, rel=1e-4)
+
+
+def _penetration(tau_scale=1.0, steps=121):
+    """Neutrals entering a slab of frozen uniform plasma: ``(lambda_fit / lambda_pen, mean |dn/dt| / (nu_iz n), sink / source)``.
+
+    In the diffusive limit ``D = T_n / nu`` and the steady profile decays as ``exp(-x/lambda_pen)`` with
+    ``lambda_pen = sqrt(T_n / (nu_iz nu)) = lambda_mfp / sqrt(nu_iz / nu)``; the run starts on it.
+    """
+
+    shape = (96, 4, 4)
+
+    def cov(U, V, W):
+        e = np.zeros(U.shape + (3, 3))
+        e[..., 0, 0] = e[..., 1, 1] = e[..., 2, 2] = 1.0
+        return e
+
+    n, Te, Ti, Tn = (jnp.full(shape, v) for v in (1.0, 0.12, 0.15, 0.15))
+    nu_cx, nu_iz = (float(x[0, 0, 0]) for x in F.collision_frequencies(n, Te, Ti, PARAMS, Tn))
+    lam = float(np.sqrt(0.15 / (nu_iz * (nu_cx + nu_iz))))
+    length = 8.0 * lam
+    geometry = _geometry(cov, shape, (length, 1.0, 1.0))
+    grid, x = F.build_neutral_grid(geometry), np.asarray(geometry.grid.x.centers)
+    dt, wall_density = 0.03 / (nu_cx + nu_iz), 0.3  # nu dt = 0.03: the explicit friction's splitting error is 3%
+    flux = wall_density * nu_iz * lam
+    source = jnp.zeros(shape).at[-1].set(flux / (length / shape[0]))
+    profile = wall_density * np.exp(-(length - x) / lam)[:, None, None] * np.ones(shape)
+    original = FL.transport_coefficients
+    FL.transport_coefficients = lambda *a: tuple(tau_scale * c for c in original(*a))
+    try:
+        step = jax.jit(lambda nn, un, tn: FL.neutral_fluid_step(
+            n, jnp.zeros(shape), Te, Ti, nn, un, tn, dt, grid, PARAMS, volume_source=source))
+        nn, un, tn = jnp.asarray(profile), jnp.zeros(shape), Tn
+        for _ in range(steps):
+            previous = nn
+            out = step(nn, un, tn)
+            nn, un, tn = out[4:7]
+    finally:
+        FL.transport_coefficients = original
+    window = (x > length - 4 * lam) & (x < length - 0.5 * lam)
+    line = np.asarray(nn[:, 0, 0])
+    slope = np.polyfit(x[window], np.log(line[window]), 1)[0]
+    drift = np.asarray((nn - previous)[:, 0, 0] / previous[:, 0, 0])[window] / dt / nu_iz
+    sink = nu_iz * float(jnp.sum(nn[:, 0, 0])) * length / shape[0]
+    return 1.0 / slope / lam, float(np.mean(np.abs(drift))), sink / flux
+
+
+def test_slab_penetration_length_matches_the_mean_free_path_scaling():
+    ratio, drift, balance = _penetration()
+    assert ratio == pytest.approx(1.0, abs=0.03) and drift < 0.1 and balance == pytest.approx(1.0, abs=0.02)
+    # the check has teeth: a 25% error in the diffusion coefficient fails the steadiness measure
+    assert _penetration(tau_scale=1.25)[1] > 0.15
