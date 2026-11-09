@@ -363,7 +363,7 @@ not established. It belongs with C2/C3 (#60) and the Phase A wall rows above.
     mismatch (a linearisation error, not round-off) has the same maxima as with the curvature fix alone (n 1.6e-4, W_e 6.3e-4,
     W_i 1.9e-4, P 9e-6), `[wall-run]` closure 9.3e-5 of the wall loss; t = 0.6 wall particle flux 6.85e-2, N 0.6644, W_e 0.9383,
     max|Ve| 2.4 (item 15: 6.73e-2, 0.6648, 0.9388, 2.3). 16³ step 0.298 s (final) against 0.314/0.367 (parent, two runs) and
-    0.335/0.339 (curvature fix) in A/B/A/B of 30 steps. Not done: GPU profile (both A4000 busy with other jobs at 80–100 % for the whole session); a positivity-preserving *wall
+    0.335/0.339 (curvature fix) in A/B/A/B of 30 steps. GPU (office A4000, idle card, `nice`, no preallocation): 16³, 40 steps A/B/A/B, parent 0.650/0.533 s, final 0.539/0.559 s per step (warm-up included, parity); 32³ restart from step 404, final code, 1.25 s per step (operators 0.38 s, GMRES 0.86 s; the pre-fix run on a shared card measured 1.96 s). Not done: a positivity-preserving *wall
     sink* (item 21 shows the wall sink is not what empties the cell).
 
 ### Phase D: performance (each with A/B/A/B timings and a gate)
