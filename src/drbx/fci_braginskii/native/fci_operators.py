@@ -678,6 +678,13 @@ def _third_order_scalar_face_states_from_halo(
             if positivity_floor is not None:
                 left_ok = left_ok & (left > positivity_floor)
                 right_ok = right_ok & (right > positivity_floor)
+                # A positive scalar's minimum must not be lowered by its own
+                # advection: an upwind face value above the minimum cell
+                # (qL - q0 = (2(q1-q0) - (qm-q0))/6 > 0) makes the
+                # advective-form bracket a sink of any size on that cell
+                # (-0.71 on n = 0.014 at 32^3, t = 0.45).  First order there.
+                left_ok = left_ok & ~((q0 < qm) & (q0 < q1))
+                right_ok = right_ok & ~((q1 < qp) & (q1 < q0))
         else:
             left = q0
             right = q1
