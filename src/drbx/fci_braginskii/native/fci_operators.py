@@ -1888,7 +1888,11 @@ def _curvature_bc_characteristic_wall_states(
         | (~solve_valid)
         | (~residual_info["thermodynamic_admissible"])
     )
-    return exterior, boundary_trace, fallback
+    # The face state is the floored one the basis was built at.  A wall trace
+    # <= 0 (n_w = -3.6e-4 at the r=31 wall cell under a 0.88 neighbour, 32^3
+    # HSX step 405) would be floored by 1e-12 in the fluctuation matrix, whose
+    # 1/n entries (norm 1e30) select the sigma-I fallback: a flux of 1e9.
+    return exterior, matrix_state, fallback
 
 
 def local_curvature_production_path_op(
