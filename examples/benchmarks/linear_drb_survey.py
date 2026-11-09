@@ -1,38 +1,15 @@
-"""Survey of the linearized drift-reduced Braginskii solver.
+"""Survey of the linearized drift-reduced Braginskii solver (``drbx.linear``).
 
-``drbx.linear`` answers one question: *given any model and an equilibrium,
-which perturbations grow, and how fast?* It has two entry points, both used
-below:
-
-- the **analytic dispersion operators** (`resistive_drift_wave_operator`,
-  `shear_alfven_operator`, `interchange_operator`), small complex matrices
-  assembled from the linearized model equations for a single Fourier mode; and
-- the **general engine** (`jacobian_operator` + `eigenmodes`), which linearizes
-  *any* right-hand side about *any* equilibrium with `jax.jacfwd` and
-  diagonalizes the result — no hand derivation.
-
-The script walks through three physical regimes, printing what is being solved
-and checking each against its literature limit, then demonstrates the general
-engine reproducing an analytic operator from a nonlinear right-hand side. It
-ends with a four-panel summary figure.
-
-Regimes surveyed (references in ``docs/linear_dispersion_benchmark.md``):
-
-1. Resistive drift wave (Hasegawa-Wakatani): the adiabaticity ``alpha`` spans
-   the hydrodynamic (``alpha << 1``) to adiabatic (``alpha >> 1``) regimes; in
-   the adiabatic limit the frequency approaches the drift frequency
-   ``omega* = kappa k_y / (1 + kperp^2)`` (Dudson et al., CPC 180, 1467, 2009).
-2. Shear Alfven wave: electron inertia reduces the phase velocity,
-   ``omega = k_par vA / sqrt(1 + kperp^2 de^2)`` (Stegmeir et al., PoP 26,
-   052517, 2019).
-3. Interchange / Rayleigh-Taylor: unstable only when the effective gravity and
-   the density gradient push the same way, ``gamma = sqrt(g kappa) k_y / kperp``.
-
-Run:
+Three regimes, each checked against its literature limit (references in
+``docs/linear_dispersion_benchmark.md``): the resistive drift wave (hydrodynamic to adiabatic,
+omega* = kappa k_y / (1 + kperp^2)), the shear Alfven wave with electron inertia, and the
+interchange mode gamma = sqrt(g kappa) k_y / kperp. The general engine
+(``jacobian_operator`` + ``eigenmodes``, via ``jax.jacfwd``) then reproduces an analytic
+operator from a nonlinear right-hand side.
 
     PYTHONPATH=src python examples/benchmarks/linear_drb_survey.py
 
-It writes ``output/linear_drb_survey/linear_drb_survey.png`` (cwd-relative).
+Writes ``output/linear_drb_survey/linear_drb_survey.png`` (four panels).
 """
 
 from __future__ import annotations
