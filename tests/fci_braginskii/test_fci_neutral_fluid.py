@@ -20,8 +20,9 @@ IDS = ["sheared", "annulus"]
 
 def test_flux_limiter_is_smooth_bounded_and_saturates_at_the_limit():
     gamma_c = jnp.array([1e-6, 0.1, 1.0, 3.0, 1e3])
-    f = FL.flux_limiter(gamma_c, 1.0)
+    f = FL.flux_limiter(gamma_c, 1.0, 1.0, 2.0)
     np.testing.assert_allclose(np.asarray(f), (1.0 + np.asarray(gamma_c) ** 2) ** -0.5, rtol=1e-14)
+    np.testing.assert_allclose(np.asarray(FL.flux_limiter(gamma_c, 1.0)), (1.0 + (np.asarray(gamma_c) / 3.0) ** 4) ** -0.25, rtol=1e-14)
     assert float(f[0]) == pytest.approx(1.0, abs=1e-11) and float(f[-1] * gamma_c[-1]) == pytest.approx(1.0, rel=1e-6)
     assert np.all(np.diff(np.asarray(f * gamma_c)) > 0.0)  # limited flux still monotone in Gamma_c
     assert np.isfinite(float(jax.grad(lambda g: FL.flux_limiter(g, 1.0))(0.0)))
@@ -32,7 +33,8 @@ def test_transport_coefficients_follow_the_afn_closure():
     Tn = 0.05 + 0.1 * Te
     nu_cx, nu_iz = F.collision_frequencies(n, Te, Ti, PARAMS, Tn)
     dp, kappa, eta = FL.transport_coefficients(n, Te, Ti, Nn, Tn, PARAMS)
-    np.testing.assert_allclose(np.asarray(dp), 1.0 / np.asarray(nu_cx + nu_iz), rtol=1e-13)  # tau_n / m
+    nu = np.asarray(nu_cx + nu_iz)
+    np.testing.assert_allclose(np.asarray(dp), (1.0 + 0.8 * np.asarray(nu_iz) / nu) / nu, rtol=1e-13)  # tau_n / m (N6 factor)
     np.testing.assert_allclose(np.asarray(eta), np.asarray(Nn * Tn * dp), rtol=1e-13)  # p_n tau_n
     np.testing.assert_allclose(np.asarray(kappa), 2.5 * np.asarray(eta), rtol=1e-13)  # 5 p_n tau_n / (2 m)
 
@@ -214,7 +216,7 @@ def test_limiter_engages_on_steep_gradients_and_caps_the_particle_flux():
     dp, _, fp, _ = FL.limited_coefficients(1e-3 * n, Te, Ti, ramp, Tn, grid, PARAMS)  # long mfp
     assert float(jnp.min(fp)) < 0.5
     gamma = dp * F.grad_norm(F._fine(ramp * Tn, grid), grid)
-    assert np.all(np.asarray(gamma) <= np.asarray(ramp * jnp.sqrt(Tn / (2 * jnp.pi))) * (1 + 1e-12))
+    assert np.all(np.asarray(gamma) <= 3.0 * np.asarray(ramp * jnp.sqrt(Tn / (2 * jnp.pi))) * (1 + 1e-12))
 
 
 def test_fluid_step_is_differentiable():
@@ -282,3 +284,123 @@ def test_slab_penetration_length_matches_the_mean_free_path_scaling():
     assert ratio == pytest.approx(1.0, abs=0.03) and drift < 0.1 and balance == pytest.approx(1.0, abs=0.02)
     # the check has teeth: a 25% error in the diffusion coefficient fails the steadiness measure
     assert _penetration(tau_scale=1.25)[1] > 0.15
+
+
+def _kinetic_slab(nu_cx, nu_iz, T, length, thick, cells=80, nv=60, vmax=7.0, profile=None):
+    """Deterministic oracle: steady 1D atoms of temperature T, charge exchange re-emits a Maxwellian, ionisation sinks, unit
+    flux emitted by the wall.  Exact cell-wise streaming along ``nv`` speeds, scattering source solved as a dense linear
+    system.  ``thick``: reflecting wall (mirror = plane source on the unfolded line) and plasma to depth ``length``; else a
+    layer of that thickness between the absorbing wall and a mirror.  Returns ``(depth, n)`` per cell, wall first."""
+
+    N, h = 2 * cells, length / cells
+    j = np.arange(N)
+    f = np.ones(N) if profile is None else profile((np.abs(j + 0.5 - cells) if thick else np.minimum(j + 0.5, N - j - 0.5)) * h)
+    nu_cx, nu = nu_cx * f, (nu_cx + nu_iz) * f
+    xg, wg = np.polynomial.legendre.leggauss(nv)
+    v = 0.5 * vmax * np.sqrt(T) * (xg + 1)
+    W = 0.5 * vmax * np.sqrt(T) * wg * np.exp(-(v**2) / (2 * T)) / np.sqrt(2 * np.pi * T)  # weights of g = f / Maxwellian
+    a = nu[:, None] * h / v
+    e = np.exp(-a)
+    inject = {1: cells if thick else 0, -1: cells - 1 if thick else N - 1}  # cell where the wall flux enters
+    q = np.zeros((N, N + 1))
+    q[j, j] = nu_cx  # unit scattering source in one cell per column
+    n = np.zeros((N, N + 1))
+    for sign in (1, -1):
+        g = np.zeros((N + 1, nv))
+        for c in range(N) if sign > 0 else range(N - 1, -1, -1):
+            g[N] += np.sqrt(2 * np.pi / T) * (c == inject[sign])  # last column: the wall emission (unit flux)
+            eq = q[c][:, None] / nu[c]
+            n[c] += (W * (eq + (g - eq) * ((1 - e[c]) / a[c]))).sum(1)
+            g = g * e[c] + eq * (1 - e[c])
+    nn = np.linalg.solve(np.eye(N) - n[:, :N], n[:, N])[cells:]
+    return (np.arange(cells) + 0.5) * h, nn if thick else nn[::-1]
+
+
+def _rates(Te, params=PARAMS):
+    one = jnp.ones((1, 1, 1))
+    return tuple(float(x[0, 0, 0]) for x in F.collision_frequencies(one, Te * one, 0.15 * one, params, 0.15 * one))
+
+
+def _fluid_slab(Te, length, thick, nx, steps, profile=None):
+    """The fluid model on the same problem (unit wall flux as a volume source in the wall cell): ``(depth, n, nu_cx, nu_iz, T_n)``."""
+
+    params = dataclasses.replace(PARAMS, wall_absorption=0.0 if thick else 1.0)
+    shape = (nx, 4, 4)
+
+    def cov(U, V, W):
+        e = np.zeros(U.shape + (3, 3))
+        e[..., 0, 0] = e[..., 1, 1] = e[..., 2, 2] = 1.0
+        return e
+
+    depth = (np.arange(nx)[::-1] + 0.5) * length / nx  # wall is the last x cell
+    n = jnp.ones(shape) * jnp.asarray(np.ones(nx) if profile is None else profile(depth))[:, None, None]
+    Ti = jnp.full(shape, 0.15)
+    nu_cx, nu_iz = _rates(Te, params)
+    grid, h = F.build_neutral_grid(_geometry(cov, shape, (length, 1.0, 1.0))), length / nx
+    source = jnp.zeros(shape).at[-1].set(1.0 / h)
+    dt = 0.1 / (nu_cx + nu_iz)
+    lam_pen = np.sqrt(0.15 / (nu_iz * (nu_cx + nu_iz)))
+    start = np.exp(-(np.arange(nx)[::-1] + 0.5) * h / lam_pen) / (nu_iz * lam_pen) if thick else np.full(nx, 0.1)
+    # injected atoms carry the wall's flux-weighted energy 2 T_n, which the absorbing wall also takes away
+    energy = (1.5 if thick else 2.0) * 0.15 * source
+    step = jax.jit(lambda nn, un, tn: FL.neutral_fluid_step(
+        n, jnp.zeros(shape), Te * jnp.ones(shape), Ti, nn, un, tn, dt, grid, params, volume_source=source, volume_energy=energy))
+    carry = (jnp.asarray(start)[:, None, None] * jnp.ones(shape), jnp.zeros(shape), Ti)
+    carry, _ = jax.lax.scan(lambda c, _: (step(*c)[4:7], None), carry, None, length=steps)
+    return (np.arange(nx) + 0.5) * h, np.asarray(carry[0][::-1, 0, 0]), nu_cx, nu_iz, np.asarray(carry[2][::-1, 0, 0])
+
+
+def _moments(depth, n, nu_iz):
+    """(ionised fraction of the wall flux, mean ionisation depth)."""
+
+    return nu_iz * n.sum() * (depth[1] - depth[0]), (depth * n).sum() / n.sum()
+
+
+@pytest.mark.parametrize("Te, tolerance", [(0.12, 0.03), (0.5, 0.05), (2.0, 0.05)])
+def test_slab_penetration_matches_the_kinetic_oracle_up_to_kn_grad_0p8(Te, tolerance):
+    """Kn_grad = lambda_mfp / lambda_pen = sqrt(nu_iz / nu) = 0.09, 0.60, 0.80: mean ionisation depth within the tolerance.
+
+    Without the N6 limiter and kinetic factor the depth is 0.99, 0.65 and 0.53 of the oracle's."""
+
+    nu_cx, nu_iz = _rates(Te)
+    length = 6.0 * np.sqrt(0.15 / (nu_iz * (nu_cx + nu_iz)))
+    s_f, n_f = _fluid_slab(Te, length, True, 40, 200)[:2]
+    s_k, n_k = _kinetic_slab(nu_cx, nu_iz, 0.15, length, True)
+    assert _moments(s_f, n_f, nu_iz)[1] / _moments(s_k, n_k, nu_iz)[1] == pytest.approx(1.0, abs=tolerance)
+
+
+@pytest.mark.parametrize("Kn, nx", [(0.3, 48), (1.0, 32), (3.0, 24), (10.0, 16)])
+def test_thin_layer_ionisation_matches_the_kinetic_oracle(Kn, nx):
+    """A layer of thickness lambda_mfp / Kn between the absorbing wall and a mirror: ionised fraction of the wall flux.
+
+    Without the Knudsen-layer wall albedo the ratio is 0.66 and 0.85 at Kn = 0.3 and 1."""
+
+    nu_cx, nu_iz = _rates(0.5)
+    length = np.sqrt(0.15) / (nu_cx + nu_iz) / Kn
+    s_f, n_f = _fluid_slab(0.5, length, False, nx, 150)[:2]
+    s_k, n_k = _kinetic_slab(nu_cx, nu_iz, 0.15, length, False)
+    assert _moments(s_f, n_f, nu_iz)[0] / _moments(s_k, n_k, nu_iz)[0] == pytest.approx(1.0, abs=0.05)
+
+
+def test_ballistic_vacuum_gap_ionisation_matches_the_kinetic_oracle():
+    """Absorbing wall, a gap of 3 mean free paths at 1e-3 of the plasma density, then the plasma: ionised fraction within 5%.
+
+    (The neutral density in the gap is 20% low: the limiter flux 3 Gamma_lim exceeds the pure-beam flux 2 Gamma_lim.)"""
+
+    nu_cx, nu_iz = _rates(0.5)
+    gap = 3.0 * np.sqrt(0.15) / (nu_cx + nu_iz)
+    profile = lambda depth: np.where(depth < gap, 1.0e-3, 1.0)
+    s_f, n_f = _fluid_slab(0.5, 3.0 * gap, False, 48, 150, profile)[:2]
+    s_k, n_k = _kinetic_slab(nu_cx, nu_iz, 0.15, 3.0 * gap, False, profile=profile)
+    ionised = lambda s, n: nu_iz * (profile(s) * n).sum() * (s[1] - s[0])
+    assert ionised(s_f, n_f) / ionised(s_k, n_k) == pytest.approx(1.0, abs=0.05)
+
+
+def test_fine_cells_with_a_strong_wall_source_keep_the_temperature_positive_and_finite():
+    """96 cells over 0.1 mean free paths and a wall source that triples the density per step used to lose the Krylov
+    convergence (relative residual 1e-2 to 1) and then T_n < 0, NaN."""
+
+    nu_cx, nu_iz = _rates(0.5)
+    length = 0.1 * np.sqrt(0.15) / (nu_cx + nu_iz)
+    _, n, _, _, tn = _fluid_slab(0.5, length, False, 96, 40)
+    assert np.all(np.isfinite(n)) and n.min() > 0.0 and tn.min() > 0.0
