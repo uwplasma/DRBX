@@ -1,5 +1,7 @@
 """Landreman-Paul coils in vacuum: closed and open field lines side by side.
 
+README figure: the defaults below (30 closed + 30 open lines, MAXTIME = 4000, 16000 samples each).
+
 The Landreman-Paul quasi-axisymmetric configuration is produced by real coils;
 their vacuum Biot-Savart field has nested closed flux surfaces in the core and
 open, wandering field lines outside the confinement region. This example
@@ -26,11 +28,13 @@ install it and exits.
 
 from __future__ import annotations
 
+import io
 import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image
 
 from drbx.geometry import (
     essos_runtime_available,
@@ -39,10 +43,11 @@ from drbx.geometry import (
 )
 
 # --- PARAMETERS -----------------------------------------------------------------
-N_CLOSED = 6            # seeds inside the confinement region
-N_OPEN = 6              # seeds outside it
-MAXTIME = 1500.0        # integration time per line (ESSOS units)
-TIMES_TO_TRACE = 6000   # trajectory samples per line
+N_CLOSED = 30           # seeds inside the confinement region
+N_OPEN = 30             # seeds outside it
+MAXTIME = 4000.0        # integration time per line (ESSOS units)
+TIMES_TO_TRACE = 16000   # trajectory samples per line
+SHOW_POINTS = 900       # samples per line drawn in the 3D view
 RHO_WALL = 0.45         # escape radius around the axis [m]: beyond this = open
 OUTPUT_DIR = Path("output/closed_open_vacuum_poincare")   # artifact directory (cwd-relative)
 
@@ -128,21 +133,42 @@ print(f"result: {len(labels) - n_open} closed lines, {n_open} open lines")
 assert not any(labels[:N_CLOSED]), "a core-seeded line escaped: move RHO_WALL or seeds"
 assert any(labels[N_CLOSED:]), "no edge-seeded line escaped: extend MAXTIME"
 
-fig, ax = plt.subplots(figsize=(7.0, 6.0))
-for crossings, is_open in zip(sections, labels):
-    if len(crossings) == 0:
-        continue
-    color, size = ("#d62728", 3.0) if is_open else ("#1f77b4", 1.2)
-    ax.scatter(crossings[:, 0], crossings[:, 1], s=size, color=color, linewidths=0)
-ax.scatter([axis_r], [axis_z], marker="+", s=80, color="k", label="magnetic axis")
-ax.scatter([], [], s=8, color="#1f77b4", label="closed field lines")
-ax.scatter([], [], s=8, color="#d62728", label="open field lines")
+# 3D view (PyVista, offscreen): coils, a few closed lines (blue) and open lines (red)
+import jax.numpy as jnp  # noqa: E402
+
+from drbx.geometry import EssosCoilField, resolve_essos_landreman_qa_json  # noqa: E402
+from drbx.viz import add_tubes, image, scene  # noqa: E402
+
+coils = np.asarray(EssosCoilField.from_json(resolve_essos_landreman_qa_json()).coils.gamma)
+plotter = scene((1000, 720))
+add_tubes(plotter, coils, radius=0.012, color="#c9a27a")
+for index in range(0, N_CLOSED, 3):
+    line = trajectories[index][np.isfinite(trajectories[index]).all(axis=1)][:SHOW_POINTS]
+    add_tubes(plotter, [line], radius=0.004, color="#1f77b4", closed=False)
+for index in range(N_CLOSED, N_CLOSED + N_OPEN, 4):
+    line = trajectories[index][np.isfinite(trajectories[index]).all(axis=1)]
+    line = line[np.hypot(np.hypot(line[:, 0], line[:, 1]) - axis_r, line[:, 2] - axis_z) < 0.9][:SHOW_POINTS // 2]
+    if labels[index] and len(line) > 10:
+        add_tubes(plotter, [line], radius=0.004, color="#d62728", closed=False)
+plotter.camera_position = [(4.1, -4.1, 3.1), (0.0, 0.0, 0.0), (0, 0, 1)]
+picture = image(plotter)
+
+plt.rcParams.update({"font.size": 10})
+fig = plt.figure(figsize=(9.0, 4.2))
+ax3 = fig.add_axes([0.0, 0.0, 0.62, 0.9])
+ax3.imshow(picture); ax3.set_axis_off()
+ax3.text(0.02, 0.02, "coils (tan), closed (blue) and open (red) field lines", transform=ax3.transAxes, fontsize=9, color="0.3")
+ax = fig.add_axes([0.70, 0.13, 0.28, 0.72])
+for crossings, is_open in sorted(zip(sections, labels), key=lambda t: t[1]):
+    if len(crossings):
+        ax.scatter(crossings[:, 0], crossings[:, 1], s=2.5 if is_open else 1.0, color="#d62728" if is_open else "#1f77b4", linewidths=0)
+ax.scatter([axis_r], [axis_z], marker="+", s=80, color="k")
 ax.set_xlabel("R [m]"), ax.set_ylabel("Z [m]")
 ax.set_aspect("equal")
-ax.legend(loc="upper right", fontsize=9)
-ax.set_title("Landreman-Paul coils in vacuum: Poincare section at phi = 0\n"
-             "nested closed surfaces (blue), open edge field lines (red)")
-fig.tight_layout()
-fig.savefig(OUTPUT_DIR / "closed_open_vacuum_poincare.png", dpi=170)
+ax.set_title(f"Poincare section, phi = 0 ({N_CLOSED + N_OPEN} lines)", fontsize=10)
+fig.suptitle("Landreman-Paul coils in vacuum: closed surfaces and open edge lines", fontsize=11, y=0.99)
+buffer = io.BytesIO()
+fig.savefig(buffer, format="png", dpi=100)
 plt.close(fig)
+Image.open(buffer).convert("RGB").quantize(256, dither=Image.Dither.NONE).save(OUTPUT_DIR / "closed_open_vacuum_poincare.png", optimize=True)
 print(f"wrote {OUTPUT_DIR / 'closed_open_vacuum_poincare.png'}")

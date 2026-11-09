@@ -36,6 +36,7 @@ Every deck in `examples/inputs/` is commented key by key (what to change, units,
 | [`stellarator_turbulence.toml`](../examples/inputs/stellarator_turbulence.toml) | Four-field FCI, rotating-ellipse stellarator with limiter SOL | 20 s | frames, particle content, sheath ion loss |
 | [`island_divertor.toml`](../examples/inputs/island_divertor.toml) | Four-field FCI, island divertor edge | 12 s | frames, particle content; open lines drain through the sheath |
 | [`hsx_fci_blob.toml`](../examples/inputs/hsx_fci_blob.toml) | HSX from the shipped coils, density filament | 4 min | geometry built and cached, then a seven-field history `.npz` |
+| [`hsx_fci_neutrals.toml`](../examples/inputs/hsx_fci_neutrals.toml) | The HSX deck with fluid neutrals and wall recycling | 4 min | seven-field history with `neutral_density`, `neutral_velocity`, `neutral_temperature`, Knudsen map, `[wall-step]` and `[neutrals]` ledgers |
 | [`sol_flux_tube.toml`](../examples/inputs/sol_flux_tube.toml) | Open SOL flux tube with Bohm sheath | 2 s | Mach profile (about 0.9 at the targets after 6000 steps), n_target/n_up about 0.49, sheath and recycling totals |
 | [`sol_recycling.toml`](../examples/inputs/sol_recycling.toml) | Recycling SOL with neutrals, detachment-onset scan | 2 s | target Mach 1.45 at n_up = 4, falling to 0.61 at n_up = 8 |
 | [`detachment_sd1d.toml`](../examples/inputs/detachment_sd1d.toml) | SD1D detachment, density scan | 30 s | target temperature 15.5 eV at 2e19 m^-3, 7.2 eV at 3e19 m^-3 |
@@ -179,7 +180,7 @@ Isothermal Euler system with Bohm sheaths at both targets plus the FCI sheath/re
 
 `[model] backend = "sol_recycling"`
 
-Plasma plus diffusive neutral with AMJUEL rates and a prescribed temperature profile (`sol_recycling_run`; `examples/sol/recycling_sol.py`). The reference run uses `upstream_density`; each `[scan]` value is a fresh run.
+Plasma plus a diffusive neutral (the SD1D closure) with AMJUEL rates and a prescribed temperature profile (`sol_recycling_run`; `examples/sol/recycling_sol.py`). The reference run uses `upstream_density`; each `[scan]` value is a fresh run.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -413,21 +414,19 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.reference_density_m3` | `float` | `1e+19` | Reference density n0 of the density normalisation: Spitzer conductivity and neutral reaction rates. (m^-3) |
 | `fci_braginskii.coulomb_logarithm` | `float` | `15.0` | Coulomb logarithm of the Spitzer conductivity. |
 | `fci_braginskii.heat_flux_limiter` | `float` | `0.0` | Free-streaming flux limiter alpha, q_fs = alpha n T v_th; 0 disables. |
-| `fci_braginskii.electron_collision_frequency` | `float` | `0.0` | Electron collision frequency. (normalized) |
+| `fci_braginskii.electron_collision_frequency` | `float` | `0.0` | Electron-ion friction `dVe = mu nu n (Vi - Ve)` (with the matching Ohmic heating `nu n (Vi - Ve)^2` in Te). `0`: Spitzer `nu = 1.612/(kappa0 Te^1.5)` from the conduction's `kappa0`; `> 0`: constant override; `< 0`: off. (normalized) |
 | `fci_braginskii.implicit_current_phi_pair` | `bool` | `True` | Treat `mu grad_par(phi)` and the parallel current divergence implicitly through a coupled potential solve (default). |
 | `fci_braginskii.wall_closure` | `str` | `'bohm'` | Parallel wall closure: `bohm` (sheath outflow at the Bohm speed, default) or `zero-flow` (no particle or heat outflow). |
 | `fci_braginskii.electron_heat_transmission` | `float` | `0.0` | Electron sheath heat transmission coefficient; 0 derives it from the sheath potential and `secondary_electron_emission`. |
 | `fci_braginskii.ion_heat_transmission` | `float` | `2.5` | Ion sheath heat transmission coefficient. |
 | `fci_braginskii.secondary_electron_emission` | `float` | `0.0` | Secondary electron emission coefficient of the wall. |
-| `fci_braginskii.neutrals` | `bool` | `False` | Evolve a diffusive neutral density with ionization, charge exchange and recombination sources. |
-| `fci_braginskii.neutral_temperature_ev` | `float` | `3.0` | Neutral temperature. (eV) |
-| `fci_braginskii.neutral_mfp_max` | `float` | `0.05` | Upper cap of the neutral mean free path. (normalized length) |
+| `fci_braginskii.neutrals` | `bool` | `False` | Evolve fluid neutrals (density, parallel velocity, temperature) with ionization, charge exchange and recombination sources. |
+| `fci_braginskii.neutral_temperature_ev` | `float` | `3.0` | Initial neutral temperature. (eV) |
 | `fci_braginskii.neutral_initial_density` | `float` | `0.01` | Neutral density at the wall at t = 0. (normalized) |
 | `fci_braginskii.neutral_initial_decay_length` | `float` | `0.1` | Decay length of the initial neutral profile from the wall; 0 gives a uniform profile. (normalized length) |
 | `fci_braginskii.neutral_reaction_substeps` | `int` | `1` | Substeps of the stiff neutral reaction update per time step. (substeps) |
-| `fci_braginskii.neutral_model` | `str` | `'diffusive'` | `diffusive` (fixed `T_n`) or `fluid`: evolved `n_n`, parallel `u_n` and `T_n` with the advanced-fluid-neutral closure and flux limiters; `fluid` supports restart. |
-| `fci_braginskii.neutral_wall_absorption` | `float` | `0.0` | Fluid model: probability that a wall-incident atom is absorbed, in [0, 1]. |
-| `fci_braginskii.neutral_wall_energy_reflection` | `float` | `1.0` | Fluid model: energy fraction kept by an atom reflected at the wall, in [0, 1]. |
+| `fci_braginskii.neutral_wall_absorption` | `float` | `0.0` | Probability that a wall-incident atom is absorbed, in [0, 1]. |
+| `fci_braginskii.neutral_wall_energy_reflection` | `float` | `1.0` | Energy fraction kept by an atom reflected at the wall, in [0, 1]. |
 | `fci_braginskii.sheath_potential` | `str` | `'ambipolar'` | Sheath potential model used by the Bohm closure (`ambipolar` by default). |
 | `fci_braginskii.recycling` | `bool` | `False` | Return ion wall flux as neutrals; requires `neutrals = true` and `wall_closure = "bohm"`. |
 | `fci_braginskii.recycling_coefficient` | `float` | `0.99` | Fraction of the ion wall flux recycled as neutrals, in [0, 1]. |

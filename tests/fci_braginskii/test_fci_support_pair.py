@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from drbx.fci_braginskii.native.fci_support_pair import build_weighted_negative_adjoint
+from drbx.fci_braginskii.native.fci_support_pair import build_support_pair, build_weighted_negative_adjoint
 
 
 def _gradient(matrix: jnp.ndarray):
@@ -128,3 +128,29 @@ def test_builder_rejects_bad_mass_shapes_dtypes_and_active_masses():
         build_weighted_negative_adjoint(
             gradient, jnp.array([1.0, 0.0]), jnp.ones(2)
         )
+
+
+def _chain_pair(n, wall_cell):
+    """Support pair of a 1D chain whose cell ``wall_cell`` has both legs on a wall."""
+
+    mass = jnp.linspace(1.0, 2.0, n)
+    active = jnp.arange(n) != wall_cell
+    core = active & (jnp.arange(n) > 0) & (jnp.arange(n) < n - 1)
+
+    def core_divergence(q):
+        return jnp.zeros(n).at[1:-1].set((q[2:] - q[:-2]) / 2.0)
+
+    return mass, build_support_pair(core_divergence, mass, active=active, core=core)
+
+
+def test_both_legs_wall_cell_is_outside_the_pair():
+    n, c = 9, 4
+    mass, (gradient, divergence) = _chain_pair(n, c)
+    f = jnp.sin(jnp.arange(n) + 0.3)
+    g = np.asarray(gradient(f))
+    assert g[c] == 0.0 and float(divergence(f)[c]) == 0.0
+    np.testing.assert_allclose(np.asarray(gradient(jnp.ones(n))), 0.0, atol=1e-13)
+    np.testing.assert_allclose(float(jnp.sum(mass * divergence(f))), 0.0, atol=1e-12)
+    # the legs into the wall cell are dropped: its neighbours do not see its value
+    bumped = np.asarray(gradient(f.at[c].add(10.0)))
+    np.testing.assert_allclose(bumped, g, atol=1e-13)
