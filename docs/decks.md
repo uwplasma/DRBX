@@ -36,6 +36,7 @@ Every deck in `examples/inputs/` is commented key by key (what to change, units,
 | [`stellarator_turbulence.toml`](../examples/inputs/stellarator_turbulence.toml) | Four-field FCI, rotating-ellipse stellarator with limiter SOL | 20 s | frames, particle content, sheath ion loss |
 | [`island_divertor.toml`](../examples/inputs/island_divertor.toml) | Four-field FCI, island divertor edge | 12 s | frames, particle content; open lines drain through the sheath |
 | [`hsx_fci_blob.toml`](../examples/inputs/hsx_fci_blob.toml) | HSX from the shipped coils, density filament | 4 min | geometry built and cached, then a seven-field history `.npz` |
+| [`hsx_fci_neutrals.toml`](../examples/inputs/hsx_fci_neutrals.toml) | The HSX deck with fluid neutrals and wall recycling | 4 min | seven-field history with `neutral_density`, `neutral_velocity`, `neutral_temperature`, Knudsen map, `[wall-step]` and `[neutrals]` ledgers |
 | [`sol_flux_tube.toml`](../examples/inputs/sol_flux_tube.toml) | Open SOL flux tube with Bohm sheath | 2 s | Mach profile (about 0.9 at the targets after 6000 steps), n_target/n_up about 0.49, sheath and recycling totals |
 | [`sol_recycling.toml`](../examples/inputs/sol_recycling.toml) | Recycling SOL with neutrals, detachment-onset scan | 2 s | target Mach 1.45 at n_up = 4, falling to 0.61 at n_up = 8 |
 | [`detachment_sd1d.toml`](../examples/inputs/detachment_sd1d.toml) | SD1D detachment, density scan | 30 s | target temperature 15.5 eV at 2e19 m^-3, 7.2 eV at 3e19 m^-3 |
@@ -179,7 +180,7 @@ Isothermal Euler system with Bohm sheaths at both targets plus the FCI sheath/re
 
 `[model] backend = "sol_recycling"`
 
-Plasma plus diffusive neutral with AMJUEL rates and a prescribed temperature profile (`sol_recycling_run`; `examples/sol/recycling_sol.py`). The reference run uses `upstream_density`; each `[scan]` value is a fresh run.
+Plasma plus a diffusive neutral (the SD1D closure) with AMJUEL rates and a prescribed temperature profile (`sol_recycling_run`; `examples/sol/recycling_sol.py`). The reference run uses `upstream_density`; each `[scan]` value is a fresh run.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
