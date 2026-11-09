@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import itertools
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import jax
@@ -312,6 +312,7 @@ class _SchurMeta:
     N: int
     rings_per_block: int
     dtype: str
+    period_nfp: int = 1
 
 
 @jax.tree_util.register_pytree_node_class
@@ -325,7 +326,7 @@ class CoreSchurPreconditioner:
     ``Y = L^-1 M_rc`` and ``Z = D^-1 Y`` the core Schur complement is ``S_c = M_cc - Y^T Z`` and
     ``M_k^-1 [r_c; r_r] = [z_c; L^-T (d - Z z_c)]`` with ``y = L^-1 r_r``, ``d = D^-1 y`` and ``z_c = S_c^-1 (r_c - Z^T y)``.
 
-    Array leaves (``E`` planes): ``lo (S, E, B, w, B)`` with ``lo[s, k, :, e, :]`` = block ``(s, s - 1 - e)`` of ``L``;
+    Array leaves (``E`` stored planes; metadata ``E`` remains the logical plane count with period reuse): ``lo (S, E, B, w, B)`` with ``lo[s, k, :, e, :]`` = block ``(s, s - 1 - e)`` of ``L``;
     ``dinv (S, E, B, B)`` (``D_s^-1``); ``z (E, S B, Nc)``; ``sinv (E, Nc, Nc)`` (``S_c^-1``).  ``info`` is a host dict that
     is not part of the pytree.
     """
@@ -357,12 +358,30 @@ class CoreSchurPreconditioner:
         return int(sum(x.nbytes for x in (self.lo, self.dinv, self.z, self.sinv)))
 
 
-def apply_core_schur_preconditioner(prec: CoreSchurPreconditioner, r: jnp.ndarray) -> jnp.ndarray:
-    """``z = M^-1 r`` plane by plane; jittable with ``prec`` as an argument.  ``r`` is the flat ``(E P,)`` vector (plane-major).
+def apply_core_schur_preconditioner(prec: CoreSchurPreconditioner, r: jnp.ndarray, *, plane_offset=0) -> jnp.ndarray:
+    """Apply the plane factors, optionally reusing a checked field-period bank.
 
-    The plane count is read from the leaves (``prec.z.shape[0]``), not from ``meta.E``, so an eta shard of the factors
-    (``(S, p, ...)`` / ``(p, ...)`` leaves) applies to its local ``p P`` vector; the full preconditioner is unchanged.
+    ``meta.E`` is the global logical plane count; a periodic bank stores ``E / period_nfp`` planes. RHS periods are
+    batched with ``vmap`` without expanding the stored factors. ``plane_offset`` is the global index of the first RHS
+    plane (used inside eta ``shard_map``); partial periods are padded and discarded after the solve. Nonperiodic factors
+    retain the original plane-local apply, including the existing ability to apply a sliced factor shard.
     """
+    if prec.meta.period_nfp == 1:
+        return _apply_core_schur_bank(prec, r)
+    ep = prec.z.shape[0]
+    plane_size = prec.meta.Nc + prec.meta.m * prec.meta.N
+    if r.ndim != 1 or r.size % plane_size:
+        raise ValueError("the RHS must contain whole planes in a flat vector")
+    planes = r.size // plane_size
+    groups = (planes + ep - 1) // ep
+    index = (jnp.arange(ep) + plane_offset) % ep
+    bank = CoreSchurPreconditioner(prec.lo[:, index], prec.dinv[:, index], prec.z[index], prec.sinv[index], prec.meta)
+    rhs = jnp.pad(r, (0, groups * ep * plane_size - r.size)).reshape(groups, ep * plane_size)
+    return jax.vmap(lambda v: _apply_core_schur_bank(bank, v))(rhs).reshape(-1)[:r.size]
+
+
+def _apply_core_schur_bank(prec: CoreSchurPreconditioner, r: jnp.ndarray) -> jnp.ndarray:
+    """Original plane-local scan kernel; plane count is read from the leaves for legacy factor shards."""
     meta = prec.meta
     n_s, big_b, w, n_e, n_c = meta.S, meta.B, meta.w, prec.z.shape[0], meta.Nc
     n_ring = meta.m * meta.N
@@ -429,7 +448,7 @@ def _choose_rings_per_block(mat: sp.csr_matrix, n_core: int, n_rings: int, ring_
     return best
 
 
-def build_core_schur_preconditioner(blocks, *, n_planes: int, n_core: int, n_rings: int, ring_size: int,
+def _build_core_schur_factors(blocks, *, n_planes: int, n_core: int, n_rings: int, ring_size: int,
                                     factor_dtype: str = "float32", rings_per_block: int | str = "auto", cond_max: float = 1e12
                                     ) -> CoreSchurPreconditioner:
     """Factorise the in-plane blocks of a symmetric positive definite matrix, group of planes by group of planes.
@@ -574,3 +593,98 @@ def build_core_schur_preconditioner(blocks, *, n_planes: int, n_core: int, n_rin
         setup_seconds=time.perf_counter() - t_start, setup_breakdown_s=t,
         params={"rings_per_block": rings_per_block, "cond_max": cond_max, "factor_dtype": factor_dtype})
     return prec
+
+
+_PERIOD_REUSE_RTOL = 1e-12
+
+
+def _check_period_matrices(blocks, n_planes: int, plane_size: int, period: int) -> float:
+    """Check all full CSR plane matrices, retaining only the first period; return the largest relative max norm."""
+    first, next_plane, largest = [], 0, 0.0
+    for k0, k1, group in blocks:
+        if k0 != next_plane or not k0 < k1 <= n_planes:
+            raise ValueError("the plane groups must be consecutive and cover the requested planes")
+        group = sp.csr_matrix(group, copy=True)
+        if group.shape != ((k1 - k0) * plane_size,) * 2:
+            raise ValueError("plane group has an incompatible shape")
+        group.sum_duplicates()
+        if not np.all(np.isfinite(group.data)):
+            raise ValueError("plane matrices must be finite")
+        for k in range(k0, k1):
+            j = k - k0
+            rows = group[j * plane_size:(j + 1) * plane_size]
+            if rows.indices.size and (rows.indices.min() < j * plane_size or rows.indices.max() >= (j + 1) * plane_size):
+                raise ValueError("the matrix couples different planes: pass the in-plane blocks")
+            matrix = rows[:, j * plane_size:(j + 1) * plane_size]
+            if k < period:
+                first.append(matrix)
+            else:
+                reference = first[k % period]
+                difference = matrix - reference
+                norm = float(np.max(np.abs(reference.data), initial=0.0))
+                error = float(np.max(np.abs(difference.data), initial=0.0)) / max(norm, 1e-12)
+                largest = max(largest, error)
+        next_plane = k1
+    if next_plane != n_planes:
+        raise ValueError(f"the plane groups cover {next_plane} planes, expected {n_planes}")
+    return largest
+
+
+def build_core_schur_preconditioner(blocks, *, n_planes: int, n_core: int, n_rings: int, ring_size: int,
+                                    factor_dtype: str = "float32", rings_per_block: int | str = "auto", cond_max: float = 1e12,
+                                    period_nfp: int = 1) -> CoreSchurPreconditioner:
+    """Build core-Schur factors, optionally checking and reusing one field period.
+
+    ``period_nfp=1`` (default) preserves the original build and storage. An integer > 1 requests reuse only if E is
+    divisible by nfp and EVERY later plane matrix matches its first-period counterpart with relative max-entry norm
+    <= 1e-12 (reference norm floored at 1e-12). Otherwise all original plane matrices are factorized, without reuse.
+    ``info["period_reuse"]`` records the request, check, outcome and stored/logical plane counts; ``meta.period_nfp``
+    records the effective factor-bank interpretation through JIT/pytree transformations.
+
+    For reuse, ``blocks`` must be a deterministic, replayable zero-argument factory or re-iterable collection of
+    ``(k0, k1, CSR)`` groups. One-shot iterators are rejected: silently caching the whole operator or synthesizing
+    unverified fallback matrices would defeat bounded-memory setup or exact fallback. The check retains only the first
+    period's CSR matrices. A second assembly pass factors only the first period on success, or all planes on fallback.
+    Both passes must describe the same frozen operator; mutating inputs during a build is unsupported.
+    """
+    if isinstance(period_nfp, (bool, np.bool_)) or not isinstance(period_nfp, (int, np.integer)) or period_nfp < 1:
+        raise ValueError("period_nfp must be a positive integer")
+    period_nfp = int(period_nfp)
+    start = time.perf_counter()
+    reusable = period_nfp > 1 and n_planes % period_nfp == 0
+    error = None
+    reason = "disabled" if period_nfp == 1 else "plane_count_not_divisible"
+    factory = blocks if callable(blocks) else lambda: iter(blocks)
+    if reusable:
+        if not callable(blocks) and iter(blocks) is blocks:
+            raise ValueError("period reuse needs a replayable blocks factory or collection")
+        error = _check_period_matrices(factory(), n_planes, n_core + n_rings * ring_size, n_planes // period_nfp)
+        reusable = error <= _PERIOD_REUSE_RTOL
+        reason = "verified" if reusable else "matrix_mismatch"
+    check_seconds = time.perf_counter() - start
+    stored = n_planes // period_nfp if reusable else n_planes
+
+    def selected():
+        for k0, k1, matrix in factory():
+            if k0 >= stored:
+                break
+            stop = min(k1, stored)
+            size = (stop - k0) * (n_core + n_rings * ring_size)
+            yield k0, stop, matrix if stop == k1 else matrix[:size, :size]
+            if stop == stored:
+                break
+
+    # When disabled or falling back, do not truncate: preserve the original builder's validation and arithmetic.
+    factors = _build_core_schur_factors(selected() if reusable else factory(), n_planes=stored, n_core=n_core,
+                                       n_rings=n_rings, ring_size=ring_size, factor_dtype=factor_dtype,
+                                       rings_per_block=rings_per_block, cond_max=cond_max)
+    factors.meta = replace(factors.meta, E=int(n_planes), period_nfp=period_nfp if reusable else 1)
+    factors.info["n_owners"] = factors.n_owners
+    factors.info["n_planes"] = int(n_planes)
+    factors.info["period_reuse"] = dict(requested_nfp=period_nfp, active=reusable, reason=reason,
+                                      logical_planes=int(n_planes), stored_planes=int(stored),
+                                      matrix_rtol=_PERIOD_REUSE_RTOL, max_relative_difference=error,
+                                      check_seconds=check_seconds)
+    factors.info["params"]["period_nfp"] = period_nfp
+    factors.info["setup_seconds"] = time.perf_counter() - start
+    return factors

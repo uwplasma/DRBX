@@ -97,7 +97,7 @@ def test_defaults_are_frozen_and_hashable():
         DEFAULTS.tau = 2.0                                                          # type: ignore[misc]
     assert DEFAULTS.layout_family == "A" and DEFAULTS.psi == "phi_plus_tau_pi" and DEFAULTS.neumann_mode == "physical"
     assert DEFAULTS.curvature_variant == "centred" and not DEFAULTS.curvature_jump_dissipation and DEFAULTS.curvature_c_kappa == 0.0
-    assert DEFAULTS.preconditioner == {"method": "core_schur", "factor_dtype": "float32"}
+    assert DEFAULTS.preconditioner == {"method": "core_schur", "factor_dtype": "float32", "period_nfp": 4}
 
 
 @pytest.mark.parametrize("phi_mode", ["prescribed", "solve"])
@@ -122,13 +122,15 @@ def test_defaults_equal_the_harness_configuration():
     assert cfg["solve"]["preconditioner"] == DEFAULTS.preconditioner_method
     assert cfg["solve"]["factor_dtype"] == DEFAULTS.preconditioner_factor_dtype
     assert tuple(cfg["fields"]) == DEFAULTS.fields == NM.NODAL_STATE_FIELDS
-    assert P10B.PRECONDITIONER == DEFAULTS.preconditioner                              # the harness bundle's preconditioner
+    # P10 keeps the accepted full-storage factors; only the production defaults reuse one checked field period
+    assert cfg["solve"]["period_nfp"] == 1 and DEFAULTS.preconditioner_period_nfp == 4
+    assert P10B.PRECONDITIONER == {**DEFAULTS.preconditioner, "period_nfp": 1}        # the harness bundle's preconditioner
     assert DEFAULTS.options(diffusion_kinds=KINDS, terms=("diffusion",)).terms == ("diffusion",)         # an override replaces
 
 
 def test_the_bundle_records_the_default_preconditioner(bundle):
     rec = bundle.identity["preconditioner"]
-    assert {k: rec[k] for k in ("method", "factor_dtype")} == DEFAULTS.preconditioner
+    assert {k: rec[k] for k in ("method", "factor_dtype", "period_nfp")} == P10B.PRECONDITIONER
 
 
 # ----------------------------------------------------------------------------------------------------- the stage factory

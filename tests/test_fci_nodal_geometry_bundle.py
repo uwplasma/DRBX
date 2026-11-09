@@ -78,8 +78,10 @@ def test_package_identity_and_pytree(b):
 def test_default_preconditioner_is_the_accepted_one_and_is_recorded():
     bundle = syn.synthetic_bundle()                                                 # prec built through the harness layer
     info = bundle.identity["preconditioner"]
-    assert {k: info[k] for k in ("method", "factor_dtype")} == DEFAULTS.preconditioner == \
-        {"method": "core_schur", "factor_dtype": "float32"}
+    # the P10 harness keeps the accepted full-storage factors; the production defaults reuse one checked field period
+    assert {k: info[k] for k in ("method", "factor_dtype", "period_nfp")} == \
+        {"method": "core_schur", "factor_dtype": "float32", "period_nfp": 1}
+    assert DEFAULTS.preconditioner == {"method": "core_schur", "factor_dtype": "float32", "period_nfp": 4}
     assert info["info"]["factor_dtype"] == "float32"
     arm, layout, nodal, nodal_meta, lap, lap_meta, prov = _inputs("raw")
     pkg = GB.assemble_nodal_bundle(arm, layout, nodal, nodal_meta, lap, lap_meta, prov)       # package defaults, prec built
