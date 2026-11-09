@@ -193,6 +193,179 @@ C3. Implicit Ve–φ–ω block with linearised sheath rows and a
     preconditioner may use first-order upwind fluxes. Lagged conductivities;
     Spitzer–Härm with the q = 2.5, α = 0.8 limiter as a documented option.
 
+C3a. Record: the default 32³ HSX deck fails at t = 0.264 (measured 2026-11-08, main 8420e34a, deck: 800 steps to
+t = 0.6, dt = 7.5e-4, `sheath_potential = "ambipolar"`, ε = `parallel_dissipation` = 0.1). Numbers only; the cause is
+not established. It belongs with C2/C3 (#60) and the Phase A wall rows above.
+1. **Failure.** `invalid imex-ssp222 stage after step 352` (351 clean steps; Te < 0 at step 352). A restart from the
+   step-300 checkpoint at the same dt fails at the same step. Failing cell (r, θ, k) = (31, 27, 17), and the 4
+   field-period images k = 1, 9, 17, 25. Te there: 0.0785 (t = 0.2265), 0.0501 (0.252), 0.0381 (0.258), 0.0167
+   (0.2625), −0.113 (0.264); |Ve|: 5.3, 6.2, 10.2, 37, 1157. n stays ≈ 0.23, |Vi| ≈ 0.43; interior |Ve| (r ≤ 29) ≈ 2.2.
+   Growth of |Ve| per 0.0015 time units: ×1.13, 1.15, 1.20, 1.27, 1.43, 2.0.
+2. **Geometry.** The cell has both field-line legs on the wall (forward 0.097, backward 0.035; wall endpoints at
+   r = 31.5, θ ≈ 26.8 and 27.1). 544 of the 1024 r = 31 cells have both legs on a wall (232 of the r = 30 cells);
+   θ = 24…28 on plane 17 are all such cells. It is not a support-core row.
+3. **Force breakdown at the cell (step-350 state).** Ve rate from the electron pressure and thermal force
+   `−μ(G pe + 0.71 n G Te)/n` = +980 (μ = 1836; Ve self-advection through D is −3e-14). The support-pair gradient
+   at that cell has two non-zero entries: `G f_c = 0.1503 (f_c − f_s)`, a one-sided leg of length 6.65 to the core
+   cell s = (31, 29, 16) (n = 0.9545, Te = 0.7314; the cell itself has pe = 0.0038). The current/phi pair row of
+   the same cell has self weight −18.13 (a 0.055 leg to a φ = 0 wall) and −0.150 on s; φ_c = −1.46 and the
+   explicit-form μ G_p(φ) = +4.9e4 (the force is in the implicit pair in production, so the net rate was not
+   measured).
+4. **Wall-layer energy balance, Te rate at the cell, t = 0.225 (Te = 0.0798, Ve = 1.2).**
+
+   | term | dTe/dt |
+   |---|---|
+   | sheath wall closure (implicit) | −0.81 |
+   | perpendicular diffusion | +0.51 |
+   | parallel advection `Ve ∂Te` | −0.37 |
+   | E×B bracket | +0.10 |
+   | curvature | −0.04 |
+   | parallel conduction | +0.005 |
+
+   Mean over the r = 31 cells: wall loss −1.69, perpendicular diffusion +0.20. At t = 0.2625 (Te = 0.0166) the
+   parallel advection is −12, then −22, −49, −275 as Ve = 34, 61, 136, 748.
+5. **dt.** Restarts from step 350: dt/4 (1.875e-4) has Te ≤ 0 at t ≈ 0.26325; dt/2 (3.75e-4) at ≈ 0.2633 (NaN in a
+   LinAlg call); dt = 7.5e-4 between 0.2627 and 0.264. The failure time does not move with dt.
+6. **ε = `parallel_dissipation`** (restart from step 300, dt = 7.5e-4):
+
+   | ε | 0.1 | 0.5 | 1 | 2 | 4 |
+   |---|---|---|---|---|---|
+   | first invalid step | 352 | 355 | 360 | 372 | 410 |
+   | t | 0.264 | 0.2663 | 0.270 | 0.279 | 0.3075 |
+
+   Same cell every time. max|Vi| at t = 0.27: 0.43 (ε 0.1), 0.31 (2), 0.24 (4).
+7. **PR #74** (conservative perpendicular diffusion, 24dee28a), restart from step 350: fails at step 352, Te = −0.074,
+   |Ve| = 758 (main: −0.113, 1157).
+8. **Failed variant A: `sheath_potential = "current"`** from the step-300 ambipolar checkpoint: `LinAlgError: Array
+   must not contain infs or NaNs` in the phi solve on the first step.
+9. **Failed variant B: ambipolar with `_sheath_insulating_pair` applied** (condition `self._sheath_current_mode` →
+   `self.sheath is not None` at the pair in `solve_implicit_current_phi_pair`): fails at step 335 (t = 0.2513) with a
+   NaN; max|Ve| 8.5 / 12.8 / 18.3 / 20.9 at steps 310 / 320 / 330 / 335, interior |Ve| 6.5 → 12.5, 188 cells above 20% of
+   the maximum, mostly r = 29…31, at many θ.
+10. **Open candidates (untested).** (a) A stable sheath-current mode (C2/C3): a current-mode Ve row with the
+    insulating pair. (b) The long one-sided support-pair stencil that a both-legs-wall cell receives from the
+    scatter of a core row (item 3). (c) The implicit current/phi pair solve itself at both-legs-wall cells (the net
+    Ve rate it produces from item 3 was not measured).
+
+    **Measurements of 2026-11-08 (branch `fix/sheath-wall-closure`, restarts from the step-300 checkpoint, dt = 7.5e-4,
+    ε = 0.1, GPU).** Correction to item 2: 544 of the 1024 r = 31 cells have a *forward* wall leg and 544 a *backward*
+    one; **216** have both (r = 30: 56). Every r = 31 cell has both legs shorter than 1 (0.016 to 0.3). The upstream
+    request to Aiken on #41 had no reply at this date; his `2D_fci` branch is a different (nodal) code base, and its
+    `docs/characteristic_wall_boundary_design.md` does not treat cells with two wall legs, so nothing was ported.
+11. **Spectrum of the r = 31 layer** (`scripts/fci_diagnostics.py` with `WALL_LAYER = 31`: the Jacobian of the
+    (Te, Ve) block restricted to the 1024 cells of the layer, state of step 350, 2048 columns). Main: spectral
+    abscissa +18.5, **216 of 2048 eigenvalues with Re > 0**, all real, eigenvectors on one cell (Ve share 1.00,
+    along-b correlation 0, wall-cell share ≥ 0.96), in four degenerate field-period images (+18.5 and +15.9). The
+    (Ve, ω) block is stable (−0.35). The diagonal ∂(rate Ve)/∂Ve of every probed r = 31 cell (40 of each wall class)
+    is negative (−0.6 … −26), so the growth is the Ve–Te loop through one cell: `G` of a row that is only the scatter
+    of a core row has a diagonal of one sign, `δTe' = (G pe)_c/(3/2 n) δVe` and `δVe' = −μ(1.71)(G δTe)_c` multiply
+    to a positive number (one-sided differences in both equations of a wave pair give a real exponent, a central
+    pair an imaginary one).
+12. **Variants** (first invalid step after the restart at step 300; main fails at 52, t = 0.264):
+
+    | variant | change | first invalid step | t |
+    |---|---|---|---|
+    | A | cells with two wall legs outside the pairs (`G = D = 0`, legs into them dropped from both pairs, zero closure) | 200 | 0.375 |
+    | A + B | A, and the insulating pair `G − wG(1)` also in ambipolar mode | 191 | 0.369 |
+    | A + ν | A with `electron_collision_frequency = 0.1` (main with it: 52, Ve = 1019 at the same cell) | 284 | 0.438 |
+    | C | A, current/φ pair rows = support-pair rows (radial-ghost rows dropped) | 98 | 0.299 |
+    | D | A, support pair rows extended to the radial-ghost rows with the Neumann q closure of the current pair | 95 | 0.296 |
+    | E | A, and cells whose legs read a radial ghost outside both pairs (r = 31 has no pair row) | 162 | 0.347 |
+    | `sheath_potential = "current"` | A, restart from the ambipolar state: NaN in the host 5×5 eigensolve after step 1 (initial wall current −1.08); from t = 0: Ve ≈ 50 at t = 0.04, invalid at step 84 (t = 0.063) | 84 from t = 0 | 0.063 |
+
+    A moves the failure from the two-wall cells to one-wall and interior r = 29…31 cells: at step 450 the
+    largest Ve is 216 at (31, 29, k) (backward wall leg 0.275, forward leg 0.295, `G(pe) = 0` because r = 31 rows
+    touch the radial ghost and are outside the support pair, `μ G_p(φ) = +1.3e4`, φ = −36 on a two-cell patch).
+    E removes that site and fails with Te = −4.7e-3 at an r = 30 cell with |Ve| = 26. A on the main state: 152
+    unstable (Te, Ve) modes of the layer, abscissa +10.7 (main: 216, +18.5). The cause is therefore not the
+    two-wall cells alone but every cell whose parallel gradient is a one-sided scatter.
+13. **Open (next).** The Ve–Te block needs a gradient/divergence pair in which the work term `Ve G(pe)` and the
+    thermal force have no one-signed diagonal, or a physical parallel friction in the Ve row (Spitzer, same `κ0` as
+    the conduction; the constant `electron_collision_frequency` already delays the failure by 0.063 on A). The
+    sheath-current mode needs the Schur-parabolised solve of C3 before it can be a closure.
+14. **Spitzer friction and Ohmic heating** (default; `electron_collision_frequency` `0` = Spitzer, `> 0` constant
+    override, `< 0` off). `dVe = mu nu n (Vi - Ve)`, `nu = 1.612/(kappa0 Te^1.5)` (0.51 times the collision rate that
+    gives `kappa = kappa0 Te^2.5`, so `ln Lambda` and the reference state are those of the conduction), implicit in the
+    current/phi solve (`Ve = c (Ve_b + h a Vi + h mu G phi)`, `a = mu nu n`, `c = 1/(1 + h a)`, current weight `n c`,
+    the adjoint pair unchanged), and `dTe = nu n (Vi - Ve)^2/1.5` (Ohmic, the slot `ohmic_heating`). Wall-layer
+    spectrum on the main state of step 350: abscissa +10.7 (A) to +1.2, but four modes at +4018 on the cells with
+    Te = 0.017 (`d nu/d Te ~ Te^-2.5` makes the Ohmic feedback of a large `Ve - Vi` positive; present only on the
+    state main has already lost). On the state of step 700 of the E run below: (Te, Ve) +1.1 (Te share 0.82), 32 of 2048
+    modes, all real and 1000 times below the stiffness.
+15. **Runs with friction** (restart at step 300, `ε = 0.1`): A + friction fails at step 564 (t = 0.423, a hot one-wall cell
+    at r = 31 with `G(pe) = 0` and `mu G_p(phi) = 1e4`, Ve = 59); **E + friction** (cells without a complete stencil
+    outside both pairs, `G = D = 0`) reaches step 723 (**t = 0.5415**, Te < 0 on an r = 31 cell after phi falls to −43 on
+    a two-cell patch while n goes 0.245 → 0.107 in 20 steps; Ve ≈ 0 there). The same code from t = 0 fails at step 442
+    (t = 0.3315) with |Ve| = 185 on hot (Te = 1.4) cells without wall legs at r = 29…31, phi = −158 on an r = 31 cell.
+    Two sectors remain: the ambipolar layer cells (no parallel current can discharge `omega`: `j_w = 0` per leg) and a
+    Ve–phi–omega mode on interior layer cells (+6.8 ± 3.2i in the pair-off block).
+    Ledger identity of the wall step (#72) ≤ 8e-12 over the 16³ run (main 5e-10); 16³ at t = 0.6: wall particle flux
+    6.73e-2 (main 6.06e-2), N 0.6648 (0.6629), W_e 0.9388 (0.9244), max|Ve| 2.3 (1.9): the friction heats and slows the
+    16³ layer, it does not degrade the closure.
+16. **Not done:** the skew (central) pair for `Ve G(pe)`, the thermal force and `Ve grad Te`. With friction the real
+    (Te, Ve) modes are +1.1 and the failure is the two sectors of item 15, so the skew pair would not move it.
+
+17. **Interior Ve–φ–ω mode of the run from t = 0** (ambipolar, E + friction, state of step 400, `WALL_LAYER = 29`,
+    the (Ve, ω) block with the potential from the Poisson solve; the stepper is not a callable, so there is no
+    production-path Jacobian). Abscissa +14.9, 154 of 6144 eigenvalues with Re > 0, real, Ve share 1.00, ω share 0.00,
+    wall-cell share 0.00, along-b correlation 0 (one cell). The diagonal ∂(rate Ve)/∂Ve is negative at 150 sampled
+    r = 29…31 cells without wall legs. For the exact adjoint pair the loop `δVe' = −(mu/rho*²) D^T P D n δVe`
+    (`P = (−L)^-1 B²/n`, similar to a positive matrix) is stable, so these modes are not the physical loop; they are
+    most likely the derivative of the Poisson/GMRES solve (acceptance 5e-5) read through `jax.jvp` (untested). The
+    failure itself is a radial column at (θ, k) = (27, 18), r = 28…31: |Ve| 90 → 185 with alternating sign in 42 steps
+    (rate ≈ 140), Te ≈ 1.1, n ≈ 1.1, φ ≈ −4, no wall leg, `G(pe)` and `G_p(phi)` both from the same pair rows.
+18. **Cell-local sheath current at the cells outside the pairs.** `current_divergence` returned zero for the rows
+    outside the pair, which dropped the sheath current of 872 of the 1024 r = 31 wall cells (their rows read the radial
+    ghost): `sheath_potential = "current"` from t = 0 failed at step 22 (density 1 → 0.35 at r = 26 wall cells while φ/Te
+    went to −1…−2). Those rows now keep the divergence of their own wall-leg currents (endpoint data only, never the
+    bulk current). Result from t = 0: φ/Te at the wall cells 2.3 (Λ ≈ 3), wall current 2e-3 (−2.3 at t = 0), max |Ve| ≤ 1.7,
+    no mode at (27, 18), 404 steps (t = 0.303). The ambipolar run fails at t = 0.33.
+19. **Failure of the current mode at step 405 (t = 0.304).** Deterministic. Stage 1 is finite; the explicit rate of
+    stage 1 at the r = 31 cell (6, 14) (n = 0.097 between 0.71 and 0.48, Te = 0.27, Ti = 0.81) is, per term: density
+    curvature 5.1e6, Te curvature 4.8e7, Ti curvature −6.2e8, ω curvature 4.4e7 (all other terms O(1)). The stage-2 base
+    then has Ti = −4.7e5 and the stage-2 short-wall solve and the curvature eigensolve (4×4, 80 faces) receive NaN. The
+    sheath-current wall removes particles faster than the layer is refilled, leaving density holes; the production
+    curvature flux (frozen principal matrix, `max_condition` 1e8, `sigma I` fallback) is singular on them. Next: the
+    curvature flux at low n (or a floor-free positivity-preserving wall particle sink), then the full run.
+
+20. **Cause of the step-405 failure of item 19 (measured, 32³ HSX, `sheath_potential = "current"`, restart from the step-404 state).**
+    The state is ordinary at stage 1 (n = 0.0972, Te = 0.27, Ti = 0.81, neighbours n = 0.71 and 0.48); the curvature
+    terms jump from O(0.06) at step 400 to 5e6/5e7/−6e8 on the same state, so the density hole is the trigger, not
+    the cause. Instrumenting `curvature_face_linearized_fluctuations`: the three offenders are the upper-wall faces
+    (axis 0, face 32) at (6, 14) and its two field-period images (6, 6), (6, 30), with `spectral_fallback = True`, face
+    density **−3.6e-4** (owner 0.097, left/right jump states 0.0972/0.0973, radial profile 0.88 → 0.097 over the last
+    cell), flux 1.8e9, Frobenius norm of the principal matrix 1.4e30. Mechanism: the face state of a wall face was the raw
+    wall trace (`_curvature_bc_characteristic_wall_states` returned `boundary_trace`), whose density undershoots to
+    ≤ 0; the fluctuation matrix floors it at 1e-12, the `4 Te²/(3 n)` entries reach 1e12, the condition test sends it to
+    the `sigma I` fallback with `sigma = ||A||_F = 1e30`, and the flux is `sigma` times the jump. The basis of the same
+    function was already built at `max(trace, 0.1 owner)` (the Te = 7.6e-5 case of the comment there); the returned face
+    state was not. Fix: return that floored state (+1/−1 source lines). Max curvature flux on the same state afterwards:
+    1.4, no spectral fallback (was 1.8e9 at 3 faces).
+21. **Second failure, after the curvature fix: negative density at an r = 31 cell at t = 0.4855 (step 647 from t = 0).**
+    The run from the step-404 state reaches t = 0.4845 and then fails (`invalid imex-ssp222 stage after step 243`); the
+    minimum density falls at a constant ≈ 0.4 per unit time (not ∝ n): 0.0898 (t = 0.318) → 0.0143 (0.45) → 2.3e-4
+    (0.4845). Density terms at the minimum cell (31, 24, 17) of the t = 0.45 state (n = 0.0143, φ = 0.94 against 0.48, −0.02,
+    0.36, 0.34 around it): **E×B bracket −0.712**, curvature −0.019, perpendicular diffusion +0.444, sheath wall sink
+    −0.126; the sum −0.41 is the observed rate. The sink is not the wall (it is ∝ n, 9 n); at the step-404 state the wall
+    sink was −1.04 against +0.54 of perpendicular diffusion. The bracket is the advective form
+    `D(U q_face) − q_centre D(U)` with the third-order upwind face value `qL = q0 + (δ⁻ + 2 δ⁺)/6`
+    (δ⁻ = q0 − q−1, δ⁺ = q1 − q0): at a minimum of a positive scalar the outflow face value exceeds the cell value, so
+    the advection lowers the minimum by an amount independent of n. Fix in `_third_order_scalar_face_states_from_halo`
+    (positive scalars n, Te, Ti only, i.e. `positivity_floor` set): first-order face value at the minimum along the
+    axis (`q0 < q−1 & q0 < q1` for the left state, `q1 < q2 & q1 < q0` for the right). The same density term of the same
+    state: −0.712 → **+0.055**.
+22. **Result, 32³ HSX, `sheath_potential = "current"`, from t = 0:** 800 steps to **t = 0.6**, no invalid stage, all fields
+    finite at the end (n 0.0210…1.39, Te 0.0156…4.42, Ti 0.175…6.13, Ve −4.1…2.0, Vi −0.22…0.31, φ −8.2…18.6). The minimum
+    density falls from 0.097 (t = 0.30) to 0.021 and stays near 0.02 from t = 0.5 on. CPU step cost, local, idle: 2.89 s (mean
+    of 800 steps; operators 0.50 s, GMRES 2.38 s, 59.8 iterations per step); the curvature-only fix measured 3.03 s
+    (median, with a test suite running alongside), the unfixed code 2.9–3.0 s before it stopped. Ledger, 16³ default deck to t = 0.6 (ambipolar), final code: operator-level wall balance
+    (`test_wall_balance_is_independent...`, the ≈ 8e-12 figure) passes at < 1e-11; the run-level `[wall-step]` applied-versus-face
+    mismatch (a linearisation error, not round-off) has the same maxima as with the curvature fix alone (n 1.6e-4, W_e 6.3e-4,
+    W_i 1.9e-4, P 9e-6), `[wall-run]` closure 9.3e-5 of the wall loss; t = 0.6 wall particle flux 6.85e-2, N 0.6644, W_e 0.9383,
+    max|Ve| 2.4 (item 15: 6.73e-2, 0.6648, 0.9388, 2.3). 16³ step 0.298 s (final) against 0.314/0.367 (parent, two runs) and
+    0.335/0.339 (curvature fix) in A/B/A/B of 30 steps. GPU (office A4000, idle card, `nice`, no preallocation): 16³, 40 steps A/B/A/B, parent 0.650/0.533 s, final 0.539/0.559 s per step (warm-up included, parity); 32³ restart from step 404, final code, 1.25 s per step (operators 0.38 s, GMRES 0.86 s; the pre-fix run on a shared card measured 1.96 s). Not done: a positivity-preserving *wall
+    sink* (item 21 shows the wall sink is not what empties the cell).
+
 ### Phase D: performance (each with A/B/A/B timings and a gate)
 
 D1. Replace the host 5×5 `eig` callbacks with an in-JAX eigensolve (Rusanov
@@ -248,6 +421,8 @@ default AMJUEL in 3D).
   the cells have Kn_grad >= 1 (mfp 6 cm at n0 = 5e18 m^-3), so at these plasma parameters neither neutral model is in its
   validity range and the fluid particle limiter reaches 0.01-0.03 in its most limited cells.
 - N5: fluid becomes the default; the diffusive model is deleted (fewest lines).
+  Done in the N5 PR: `neutrals = true` runs the fluid model; `neutral_step`, `implicit_diffusion`, `neutral_diffusivity`, the
+  mean-free-path cap (`neutral_mfp_max`) and the `neutral_model` key are deleted (the SD1D path keeps its own fits).
 - N6: molecules / hybrid (kinetic or ballistic) for Kn > 0.3 regions, only if N4 shows the fluid model is outside its range.
 
 ### Phase F: verification and validation (#42)
@@ -532,3 +707,4 @@ sharded runs, jit the SD1D residual/Jacobian trace.
 | 2026-11-02 | #68 | B2 merged (Aiken approved). Ledger correction: the wall-step ledger was by construction; independent `wall_step_check` replaces it, figures above retracted (see "Ledger correction 2026-11-01") |
 | 2026-11-02 | physics/conservative-perp-diffusion (stacked on #72) | Perpendicular T diffusion in flux form of n T (energy rate D lap(nT), sum-free); one `reference_density_m3` (neutrals now 1e19, was 5e18). Unit test added. Measured on the default 16^3 HSX deck (dt 7.5e-4, 800 steps to t = 0.6), before -> after: dW_e - int face -2.852e-3 -> -7.648e-4 (3.7x smaller), dW_i - int face -1.735e-3 -> -3.301e-4 (5.3x), total W_e+W_i+K_i minus integrated faces -3.98e-3 -> -4.87e-4 (8.2x); particles closed to 9.5e-5 of the wall loss (was 9.4e-5). Remaining bulk residual: -0.5% of the electron wall energy loss, not yet attributed term by term. Neutral rates change for decks that relied on the old 5e18 reference |
 | 2026-11-08 | perf lane | #84-#87 (open); ranked bottleneck table and results in section 4b |
+| 2026-11-08 | docs/examples-current (stacked on #78, merges #74) | Docs and examples brought current: fluid neutrals as the default 3D model (validity Kn <~ 0.3; HSX 99.8% Kn >= 1, so N6 kinetic correction is the open gap), independent wall check output, conservative perpendicular energy diffusion, single reference density. New: `examples/neutrals/fluid_neutral_slab.py`, `examples/inputs/hsx_fci_neutrals.toml`. Retracted-figure and removed-key wording removed from docs/fci_braginskii_hsx_backend.md |
