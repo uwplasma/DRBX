@@ -1,36 +1,20 @@
-"""Diffusive neutral atoms for the HSX FCI Braginskii backend (exhaust PR 2).
+"""Shared pieces of the FCI neutral gas: grid operators, reaction hook, recycling, Knudsen map.
 
-Model (one atomic species, hydrogen, ``m_n = m_i``):
+The transport model is ``fci_neutral_fluid.py`` (advanced fluid neutrals, hydrogen, ``m_n = m_i``).  This module holds
+what the fluid model and the run share:
 
-- One evolved field, the neutral density ``N`` on the plasma owner cells.
-  The neutral temperature ``T_n`` is prescribed (uniform, ``neutral_temperature_ev``)
-  and the neutral flow is the diffusive drift only.  A neutral energy equation
-  would add a field without a closure to set it at HSX densities; the energy
-  the reactions hand to the neutrals beyond ``3/2 T_n`` per atom (and the
-  CX momentum) goes to a neutral reservoir that the ledger reports
-  (``thermostat``), so total energy is still closed.
-- Isotropic diffusion with the full metric (neutrals are not magnetized):
-  ``dN/dt = (1/J) d_i (J D g^ij d_j N)`` on the fine logical grid, summed to
-  the owner aggregates.  ``D = v_th^2 / (nu_cx + nu_iz)`` with
-  ``v_th^2 = T_n / m_i`` and ``nu = n <sigma v>``, capped by a mean free path
-  ``lambda <= mfp_max`` (``D <= v_th mfp_max``).  Wall (``u = 1``) and axis
-  faces carry no flux (reflecting) unless a wall influx is supplied
-  (recycling, PR 3).
-- Ionisation, recombination and charge exchange from
-  ``drbx.native.neutrals.compute_hydrogen_reaction_sources`` (AMJUEL 2020
-  pinned fits, receiver mixing heat, CX frictional heat, electron energy loss
-  with the 13.6 eV recombination add-back).  They enter the plasma rows
-  through one volumetric source hook, ``apply_volumetric_source``, which
-  updates the conserved variables (n, n Vi, 3/2 n Te, 3/2 tau n Ti + n Vi^2/2)
-  so particle and energy transfers are exact to round-off.
+- ``NeutralGrid``: full-metric face coefficients of the isotropic operators (nine-point cross terms), the owner map and
+  the field direction ``b``; neutrals are not magnetized, so the pressure-diffusion fluxes use ``g^ij``.
+- ``reaction_source`` / ``apply_volumetric_source``: ionisation, recombination and charge exchange from
+  ``drbx.native.neutrals.compute_hydrogen_reaction_sources`` (AMJUEL 2020 pinned fits) as one plasma source hook that
+  updates the conserved variables ``(n, n Vi, 3/2 n Te, 3/2 tau n Ti + n Vi^2/2)``, so transfers are exact to round-off.
+- ``recycled_neutral_source`` and ``RecyclingParameters``: ``R`` times the applied sheath ion wall loss, deposited in the
+  wall owner cells with the Franck-Condon or wall energy.
+- ``knudsen_map``: ``lambda / L`` per cell; the fluid closure needs ``Kn <~ 0.1-0.3``.
 
-Units are the backend's: lengths in metres, n in ``n0`` (``reference_density_m3``),
-temperatures in ``Te0`` (from rho*), velocities in ``c_s0 = sqrt(Te0/m_i)``,
-time in ``1 m / c_s0``.  The ion temperature field is ``Ti / tau`` of the
-physical one (the ion energy is ``3/2 tau n Ti``).
-
-The coupling is an operator split (Lie) after each IMEX step; see
-``docs/fci_braginskii_hsx_backend.md`` (Neutrals).
+Units are the backend's: lengths in metres, n in ``n0`` (``reference_density_m3``), temperatures in ``Te0`` (from
+rho*), velocities in ``c_s0 = sqrt(Te0/m_i)``, time in ``1 m / c_s0``.  The ion temperature field is ``Ti / tau`` of the
+physical one (the ion energy is ``3/2 tau n Ti``).  The coupling is an operator split (Lie) after each IMEX step.
 """
 
 from __future__ import annotations
@@ -48,7 +32,6 @@ from ...native.neutrals.atomic_rates import (
 )
 
 __all__ = [
-    "NEUTRAL_LEDGER_COLUMNS",
     "NeutralGrid",
     "NeutralParameters",
     "VolumetricSource",
@@ -57,8 +40,6 @@ __all__ = [
     "inventories",
     "knudsen_map",
     "neutral_diffusion_rate",
-    "neutral_diffusivity",
-    "neutral_step",
     "RECYCLING_LEDGER_COLUMNS",
     "RecyclingParameters",
     "recycled_neutral_source",
@@ -73,22 +54,6 @@ _MP = 1.67262192369e-27
 # AMJUEL fit validity (atomic_rates clamps to these; we count what falls outside).
 _T_RANGE_EV = (0.1, 1.0e4)
 _N_RANGE_M3 = (1.0e14, 1.0e22)
-
-NEUTRAL_LEDGER_COLUMNS = (
-    "ionisation",  # sum V I dt (events)
-    "recombination",  # sum V R dt
-    "charge_exchange",  # sum V C dt
-    "electron_energy_loss",  # -sum V S_Ee dt (radiation + ionisation potential, net of 13.6 eV add-back)
-    "neutral_reservoir_energy",  # sum V (Q_n - 3/2 T_n S_n) dt: energy the fixed-T_n neutrals give away
-    "neutral_reservoir_momentum",  # sum V S_Mn dt
-    "diffusion_particle_change",  # sum V dN over the diffusion substep (0 up to round-off)
-    "wall_influx",  # sum of the supplied wall influx dt (0 until recycling)
-    "diffusion_relres",  # backward-Euler residual / rhs (2-norm)
-    "max_dt_nu",  # max dt * (ionisation + CX + recombination) frequency per particle
-    "out_of_range_Te",
-    "out_of_range_ne",
-    "out_of_range_Tcx",
-)
 
 
 def reference_temperature_ev(rho_star: float, ion_mass_amu: float = 1.0) -> float:
@@ -107,14 +72,12 @@ def time_unit_s(reference_temperature: float, ion_mass_amu: float = 1.0) -> floa
 class NeutralParameters:
     reference_density_m3: float
     reference_temperature_ev: float
-    neutral_temperature_ev: float = 3.0
-    mfp_max: float = 0.05  # metres
+    neutral_temperature_ev: float = 3.0  # initial T_n
     tau: float = 1.0
     reaction_substeps: int = 1
     gmres_tolerance: float = 1.0e-10
     gmres_restart: int = 60
     gmres_maxiter: int = 20
-    model: str = "diffusive"  # "diffusive" (fixed T_n) or "fluid" (evolved n_n, u_n, T_n; native/fci_neutral_fluid.py)
     wall_absorption: float = 0.0  # fluid model: probability that a wall-incident atom is absorbed
     wall_energy_reflection: float = 1.0  # fluid model: energy fraction kept by a reflected atom
 
@@ -364,48 +327,6 @@ def _diffusion_diagonal(diffusivity, grid: NeutralGrid):
     return jnp.where(grid.owner, total / jnp.where(grid.owner, grid.volume, 1.0), 0.0)
 
 
-def implicit_diffusion(
-    neutral_density, diffusivity, dt, grid: NeutralGrid, params: NeutralParameters, wall_influx=None,
-    volume_source=None,
-):
-    """Backward Euler for the diffusion, then the conservative update.
-
-    ``N* = (I - dt L)^-1 (N + dt S)`` by preconditioned GMRES, then
-    ``N_new = N + dt (L N* + S)`` so the owner sum changes by exactly
-    ``dt sum V S`` regardless of the GMRES residual.  ``S`` is the radial
-    wall influx (per fine wall face) plus ``volume_source`` (owner density
-    per unit time, e.g. the recycled flux deposited in the wall cells).
-    """
-
-    source = (
-        jnp.zeros_like(neutral_density)
-        if wall_influx is None
-        else neutral_diffusion_rate(jnp.zeros_like(neutral_density), diffusivity, grid, wall_influx)
-    )
-    if volume_source is not None:
-        source = source + jnp.where(grid.owner, volume_source, 0.0)
-    rhs = neutral_density + dt * source
-    diag = 1.0 + dt * _diffusion_diagonal(diffusivity, grid)
-
-    def operator(v):
-        return v - dt * neutral_diffusion_rate(v, diffusivity, grid)
-
-    solution, _ = jax.scipy.sparse.linalg.gmres(
-        operator,
-        rhs,
-        x0=rhs,
-        tol=params.gmres_tolerance,
-        atol=0.0,
-        restart=params.gmres_restart,
-        maxiter=params.gmres_maxiter,
-        M=lambda v: v / diag,
-        solve_method="batched",
-    )
-    relres = jnp.linalg.norm(operator(solution) - rhs) / jnp.maximum(jnp.linalg.norm(rhs), 1.0e-300)
-    new = neutral_density + dt * (neutral_diffusion_rate(solution, diffusivity, grid) + source)
-    return jnp.where(grid.owner, new, 0.0), relres
-
-
 # ------------------------------------------------------------------ reactions
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
@@ -506,15 +427,6 @@ def collision_frequencies(density, Te, Ti, params: NeutralParameters, neutral_te
     return nu_cx, nu_iz
 
 
-def neutral_diffusivity(density, Te, Ti, params: NeutralParameters):
-    """``D = v_th min(v_th / nu, mfp_max)``, ``v_th^2 = T_n / m_i``; also returns the mfp."""
-
-    nu_cx, nu_iz = collision_frequencies(density, Te, Ti, params)
-    vth = jnp.sqrt(params.neutral_temperature)
-    mfp = vth / jnp.maximum(nu_cx + nu_iz, 1.0e-300)
-    return vth * jnp.minimum(mfp, params.mfp_max), mfp
-
-
 def inventories(density, Vi, Te, Ti, neutral_density, grid: NeutralGrid, params: NeutralParameters, neutral_temperature=None,
                 neutral_velocity=0.0):
     """(nuclei, plasma thermal+kinetic energy, neutral thermal+kinetic energy) on the owner measure."""
@@ -525,69 +437,6 @@ def inventories(density, Vi, Te, Ti, neutral_density, grid: NeutralGrid, params:
     tn = params.neutral_temperature if neutral_temperature is None else neutral_temperature
     neutral = jnp.sum(v * (1.5 * tn + 0.5 * neutral_velocity**2) * neutral_density)
     return nuclei, plasma, neutral
-
-
-def neutral_step(
-    density, Vi, Te, Ti, neutral_density, dt, grid: NeutralGrid, params: NeutralParameters, wall_influx=None,
-    volume_source=None,
-):
-    """One split neutral step: reactions (explicit, conserved form), then implicit diffusion.
-
-    ``volume_source`` (owner neutral density per unit time) enters the
-    implicit diffusion as a source; its integral ``dt sum V S`` is added to
-    the ``wall_influx`` ledger column (recycling, ``recycled_neutral_source``).
-
-    Returns ``(density, Vi, Te, Ti, neutral_density, ledger, ionisation_rate)``
-    with ``ledger`` ordered as ``NEUTRAL_LEDGER_COLUMNS``.
-    """
-
-    owner = grid.owner
-    v = grid.volume
-    sub = int(params.reaction_substeps)
-    h = dt / sub
-    Tn = params.neutral_temperature
-    zero = jnp.zeros((), dtype=jnp.float64)
-
-    def body(_, carry):
-        n, vi, te, ti, nn, acc, max_nu = carry
-        plasma, out = reaction_source(n, vi, te, ti, nn, params, owner)
-        n2, vi2, te2, ti2 = apply_volumetric_source(n, vi, te, ti, plasma, h, tau=params.tau, owner=owner)
-        nn2 = jnp.where(owner, nn + h * out.neutral_density, 0.0)
-        increments = jnp.stack((
-            jnp.sum(v * out.ionization_rate),
-            jnp.sum(v * out.recombination_rate),
-            jnp.sum(v * out.charge_exchange_rate),
-            -jnp.sum(v * out.electron_energy),
-            jnp.sum(v * (out.neutral_energy - 1.5 * Tn * out.neutral_density)),
-            jnp.sum(v * out.neutral_momentum),
-        )) * h
-        safe_n = jnp.where(owner & (n > 0), n, 1.0)
-        safe_nn = jnp.where(owner & (nn > 0), nn, 1.0)
-        per_particle = jnp.maximum(
-            (out.ionization_rate + out.charge_exchange_rate) / safe_nn,
-            (out.recombination_rate + out.charge_exchange_rate) / safe_n,
-        )
-        max_nu = jnp.maximum(max_nu, h * jnp.max(jnp.where(owner, per_particle, 0.0)))
-        return n2, vi2, te2, ti2, nn2, acc + increments, max_nu
-
-    n, vi, te, ti, nn, acc, max_nu = jax.lax.fori_loop(
-        0, sub, body, (density, Vi, Te, Ti, neutral_density, jnp.zeros(6), zero)
-    )
-    _, out = reaction_source(density, Vi, Te, Ti, neutral_density, params, owner)
-    D, _ = neutral_diffusivity(n, te, ti, params)
-    D = jnp.where(owner, D, 0.0)
-    before = jnp.sum(v * nn)
-    nn_new, relres = implicit_diffusion(nn, D, dt, grid, params, wall_influx, volume_source)
-    influx = zero if wall_influx is None else jnp.sum(wall_influx) * dt
-    if volume_source is not None:
-        influx = influx + dt * jnp.sum(v * jnp.where(owner, volume_source, 0.0))
-    counts = rate_validity_counts(n, te, ti, params, owner)
-    ledger = jnp.concatenate((
-        acc,
-        jnp.stack((jnp.sum(v * nn_new) - before, influx, relres, max_nu)),
-        jnp.stack(counts),
-    ))
-    return n, vi, te, ti, nn_new, ledger, out.ionization_rate
 
 
 # ------------------------------------------------------------------ recycling

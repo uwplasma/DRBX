@@ -154,7 +154,7 @@ pytest -q tests/test_native_atomic_rates.py tests/test_native_reactions.py \
 pytest -q -m slow tests/test_native_detachment_sol.py   # SD1D scan, profiles, grid convergence
 ```
 
-## Fluid neutrals (`neutral_model = "fluid"`)
+## Fluid neutrals (FCI)
 
 [`fci_neutral_fluid.py`](../src/drbx/fci_braginskii/native/fci_neutral_fluid.py) evolves the neutral density `n_n`, the
 velocity `u_n` along `b` and the temperature `T_n` on the FCI grid (advanced fluid neutral closure of Horsten et al. 2017

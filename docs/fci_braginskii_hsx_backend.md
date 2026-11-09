@@ -50,7 +50,7 @@ backend.
 - Potential solve: SOLVAX FGMRES with the line-u preconditioner, or on the single-shard RLP geometry the parallel-current-aware product form (`gmres_preconditioner = "auto"`, the default).
 
 The wall closure is a Bohm sheath entrance (see Wall closure below). An
-optional diffusive neutral model (off by default) is described under Neutrals
+optional fluid neutral model (off by default) is described under Neutrals
 below. No presheath model is included; recycling is optional (see Recycling below).
 
 ## Normalization
@@ -593,34 +593,23 @@ SAVE_EVERY = 10. Set `RUN_SIMULATION = False` to re-render an existing history.
 ## Neutrals
 
 `neutrals = true` (deck key, `--neutrals`) adds one evolved field, the
-atomic neutral density `N`, on the plasma owner cells. Code:
+atomic neutral fields on the plasma owner cells. Code:
 `native/fci_neutrals.py`; with `neutrals = false` (default) no neutral code
 runs and the advance is bitwise unchanged (`scripts/fci_gate.py`).
 
-Model choices:
+Model choices (`native/fci_neutral_fluid.py`, advanced fluid neutrals of Horsten 2017 and Van Uytven 2022):
 
-- **Diffusive, prescribed temperature.** At HSX parameters a fluid neutral
-  momentum equation adds stiff fields and a sound-speed limit without a
-  closure that the diffusive model lacks. The neutral temperature is fixed,
-  `T_n = neutral_temperature_ev` (default 3 eV, Franck-Condon atoms), and the
-  neutral flow is the diffusive drift. The energy and momentum that the
-  reactions hand to the neutrals beyond `3/2 T_n` per atom go to a neutral
-  reservoir that is reported (`neutral_reservoir_energy`,
-  `neutral_reservoir_momentum`), so the energy budget stays closed.
-- **Isotropic diffusion with the full metric.** Neutrals are not magnetized:
-  `dN/dt = (1/J) d_i (J D g^ij d_j N)`, a finite-volume flux on every fine
-  logical face (two-point normal term plus averaged cross derivatives,
-  face metric from the artifact), summed over the angular aggregates and
-  divided by the owner volume. No FCI map is used. Faces inside an aggregate
-  cancel, so `sum V dN/dt` is zero to round-off. The axis and the vessel
-  (`u = 1`) faces carry no flux (reflecting wall) until recycling supplies a
-  wall influx (PR 3; `wall_influx` argument).
-- **Diffusivity.** `D = v_th^2 / (nu_cx + nu_iz)`, `v_th^2 = T_n/m_i`,
-  `nu_cx = n <sigma v>_cx(T_i + T_n)`, `nu_iz = n <sigma v>_iz(T_e, n_e)`, with
-  the mean free path `lambda = v_th/nu` capped at `neutral_mfp_max` (default
-  5 cm): `D = v_th min(lambda, lambda_max)`. The cap is a flux limiter for
-  the low-density regions where `lambda` exceeds the device; where it is
-  active the diffusive closure is not valid (see the Knudsen map).
+- **Evolved fields.** `n_n`, the velocity `u_n` along `b` and `T_n`. Perpendicular pressure diffusion
+  `Gamma = -(tau_n/m) grad_perp p_n` with `tau_n^-1 = n_i K_cx + n_e K_i`; the parallel flow carries its own momentum
+  equation (pressure gradient, upwind advection, viscosity `p_n tau_n`, friction with the ions through the reaction
+  exchange); the `T_n` equation has the enthalpy flux, the conductivity `5 p_n tau_n/(2m)`, the parallel pressure work
+  and the viscous heating. The conductive fluxes carry the limiter `[1 + (|Gamma|/Gamma_lim)^2]^(-1/2)`.
+- **Isotropic operators with the full metric.** Neutrals are not magnetized: the pressure-diffusion fluxes use
+  `J g^ij` on every fine logical face (two-point normal term plus averaged cross derivatives, face metric from the
+  artifact), summed over the angular aggregates and divided by the owner volume; the parallel flow uses `J b^i`. Faces
+  inside an aggregate cancel, so nuclei change only by fluxes and sources. The axis faces are closed; the vessel
+  (`u = 1`) is reflecting with absorption `neutral_wall_absorption` and energy reflection
+  `neutral_wall_energy_reflection`.
 - **Reactions.** `drbx.native.neutrals.compute_hydrogen_reaction_sources`
   (AMJUEL H.4/H.10 2.1.5 and 2.1.8, H.2 3.1.8; January 2020 report, the
   same code and data as the 1D model): ionisation, recombination and charge
@@ -641,22 +630,20 @@ Model choices:
   the vorticity are not changed (electron momentum transfer is O(m_e/m_i)).
   Recycling and any external source can use the same hook.
 
-Time stepping: Lie operator split after each IMEX-SSP222 step: the reaction
-sources are advanced explicitly (`neutral_reaction_substeps`, default 1;
-the step prints `max dt nu`, which was 4.5e-3 on HSX), then the diffusion
-is backward Euler (preconditioned GMRES, Jacobi), followed by the
-conservative update `N_new = N + dt L N*`, so the neutral inventory is exact
-regardless of the GMRES residual. The split is first order in dt, like the
-wall ledger. It does not touch `evaluate_stage` or the implicit current/phi
-solve. The potential is not re-solved after the split: the next step's
-stage potentials are reconstructed from the updated state.
+Time stepping: Lie operator split after each IMEX-SSP222 step: the reaction sources are advanced explicitly in
+conserved variables (`neutral_reaction_substeps`, default 1; the step prints `max dt nu`, 4.5e-3 on HSX; friction with
+the ions is this exchange, so it must stay below ~0.5), then `(n_n, n_n u_n)` are advanced together implicitly, `u_n` by
+an implicit upwind advection and viscosity solve and `T_n` implicitly (preconditioned GMRES), each followed by the
+conservative flux-form update, so the neutral inventory is exact regardless of the GMRES residual. The split is first
+order in dt, like the wall ledger. It does not touch `evaluate_stage` or the implicit current/phi solve. The potential
+is not re-solved after the split: the next step's stage potentials are reconstructed from the updated state.
 
 Ledger: each step prints `[neutrals]` (event counts `sum V I dt`, `R`, `C`,
-the electron energy loss, the reservoir energy, the neutral inventory, the
+the electron energy loss, the wall energy loss, the neutral inventory, the
 nuclei inventory `sum V (n + N)`, and the split identities: relative change
 of the nuclei and `(dE_plasma + dE_neutral + sinks)/sinks` over the split).
 With the sheath, the `[wall-step]` imbalance removes the split's inventory
-change. The history stores `neutral_density` (per saved frame),
+change. The history stores `neutral_density`, `neutral_velocity` and `neutral_temperature` (per saved frame; `restart_from` restores them),
 `neutral_ionisation_rate` (last step), `neutral_ledger` and its column
 names, and the Knudsen fields below.
 
@@ -664,14 +651,18 @@ Knudsen map: `Kn_cell = lambda / h` (`h` the smallest physical cell size,
 `sqrt(g_ii) d xi_i`) and `Kn_grad = lambda / min(L_N, L_n)` with
 `L_X = X / |grad X|` (full metric), stored as `neutral_knudsen_cell`,
 `neutral_knudsen_gradient`, `neutral_mean_free_path`. The diffusive closure
-is valid where `Kn_grad << 1`. The run prints the fractions of cells below
+is valid where `Kn_grad << 1` (fluid closure: `Kn <~ 0.1-0.3`). The run prints the fractions of cells below
 0.1, between 0.1 and 1, and above 1.
 
 Deck keys (and `--` options): `neutrals`,
-`neutral_temperature_ev`, `neutral_mfp_max`, `neutral_initial_density`
+`neutral_temperature_ev` (initial `T_n`), `neutral_wall_absorption`, `neutral_wall_energy_reflection`, `neutral_initial_density`
 (at the wall, units of n0), `neutral_initial_decay_length` (initial profile
 `N0 exp(-(1-u)/L)` in the radial label, 0 = uniform),
 `neutral_reaction_substeps`.
+
+Note: the checks and HSX measurements below that mention the reservoir, `neutral_step` or the mean-free-path cap were
+made with the diffusive model that the fluid model replaced; the fluid model's checks and numbers are in
+`tests/fci_braginskii/test_fci_neutral_fluid.py` and `docs/neutrals_recycling.md`.
 
 Checks (`tests/fci_braginskii/test_fci_neutrals.py`, on a sheared slab with a
 constant non-orthogonal metric and an annulus with a varying metric and a
