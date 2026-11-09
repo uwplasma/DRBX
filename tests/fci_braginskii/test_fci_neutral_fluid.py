@@ -404,3 +404,19 @@ def test_fine_cells_with_a_strong_wall_source_keep_the_temperature_positive_and_
     length = 0.1 * np.sqrt(0.15) / (nu_cx + nu_iz)
     _, n, _, _, tn = _fluid_slab(0.5, length, False, 96, 40)
     assert np.all(np.isfinite(n)) and n.min() > 0.0 and tn.min() > 0.0
+
+
+def test_fine_cell_solves_converge_to_1e6_with_a_short_restart(monkeypatch):
+    """The banded x-line preconditioner keeps every implicit solve below 1e-6 with restart 30 (point Jacobi needed 200)."""
+
+    residuals, solve = [], FL._gmres
+
+    def recording(*args, **kwargs):
+        x, relres = solve(*args, **kwargs)
+        jax.debug.callback(lambda r: residuals.append(float(r)), relres)
+        return x, relres
+
+    monkeypatch.setattr(FL, "_gmres", recording)
+    nu_cx, nu_iz = _rates(0.5)
+    _fluid_slab(0.5, 0.1 * np.sqrt(0.15) / (nu_cx + nu_iz), False, 96, 40)
+    assert PARAMS.gmres_restart <= 60 and len(residuals) == 120 and max(residuals) < 1.0e-6
