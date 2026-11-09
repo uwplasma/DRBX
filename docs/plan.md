@@ -279,6 +279,10 @@ not established. It belongs with C2/C3 (#60) and the Phase A wall rows above.
     E removes that site and fails with Te = −4.7e-3 at an r = 30 cell with |Ve| = 26. A on the main state: 152
     unstable (Te, Ve) modes of the layer, abscissa +10.7 (main: 216, +18.5). The cause is therefore not the
     two-wall cells alone but every cell whose parallel gradient is a one-sided scatter.
+13. **Open (next).** The Ve–Te block needs a gradient/divergence pair in which the work term `Ve G(pe)` and the
+    thermal force have no one-signed diagonal, or a physical parallel friction in the Ve row (Spitzer, same `κ0` as
+    the conduction; the constant `electron_collision_frequency` already delays the failure by 0.063 on A). The
+    sheath-current mode needs the Schur-parabolised solve of C3 before it can be a closure.
 14. **Spitzer friction and Ohmic heating** (default; `electron_collision_frequency` `0` = Spitzer, `> 0` constant
     override, `< 0` off). `dVe = mu nu n (Vi - Ve)`, `nu = 1.612/(kappa0 Te^1.5)` (0.51 times the collision rate that
     gives `kappa = kappa0 Te^2.5`, so `ln Lambda` and the reference state are those of the conduction), implicit in the
@@ -300,10 +304,6 @@ not established. It belongs with C2/C3 (#60) and the Phase A wall rows above.
     16³ layer, it does not degrade the closure.
 16. **Not done:** the skew (central) pair for `Ve G(pe)`, the thermal force and `Ve grad Te`. With friction the real
     (Te, Ve) modes are +1.1 and the failure is the two sectors of item 15, so the skew pair would not move it.
-13. **Open (next).** The Ve–Te block needs a gradient/divergence pair in which the work term `Ve G(pe)` and the
-    thermal force have no one-signed diagonal, or a physical parallel friction in the Ve row (Spitzer, same `κ0` as
-    the conduction; the constant `electron_collision_frequency` already delays the failure by 0.063 on A). The
-    sheath-current mode needs the Schur-parabolised solve of C3 before it can be a closure.
 
 ### Phase D: performance (each with A/B/A/B timings and a gate)
 
