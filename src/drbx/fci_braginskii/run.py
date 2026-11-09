@@ -3678,8 +3678,9 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
     )
     control_volume_field_count = RLP_PACKED_FIELD_COUNT
     owner_host_geometry = simulation_geometry.polar_angular_geometry
+    # None when the topology stage checkpoint was reused (the ratio is not stored)
     angular_profile_safety_ratio = float(
-        geometry_metadata["angular_profile_safety_ratio"]
+        geometry_metadata["angular_profile_safety_ratio"] or float("nan")
     )
     print(
         f"[angular-rlp-host] profile={owner_host_geometry.angular_group_size.tolist()} "
