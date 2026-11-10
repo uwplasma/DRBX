@@ -738,6 +738,24 @@ Re-measurement 2026-11-09 on main dfc5eeb1 (macOS CPU, HSX 16^3 artifact, defaul
   contended HSX step it was within noise (0.89 s vs 0.66 s best-of). Kept as a SOLVAX patch (branch only, no PR opened).
 - `restart` below 100 would also shorten the rotation loop but costs extra cycles on the solves that need ~90 iterations.
 
+### Merge wave (2026-11-10, additive)
+#84, #86, #85, #82 and #87 merged in that order, each rebuilt on the then-current main and green in CI before merging.
+HSX 16^3 default deck, 30 IMEX steps, local macOS CPU, one process at a time, A/B/A/B x 2, median step: main before the wave 0.31 s,
+after #84 0.28 s, after #86 0.23 s (-26% in total; #85 and #82/#87 are parity on this deck). Fields of the last step equal to
+main in float32 history storage except phi (1.8e-9 relative, the solver tolerance) and the wall ledger (1e-19); GMRES iterations per
+step (avg4) 37.5 in every variant. Office A4000 (idle at start, cold then warm cache, pre-#84 main 0.44 / 0.43 s): #84 alone 0.50 / 0.47 s
+(+10%: the flat path still runs the 100-trip rotation loop and the chunked orthogonalisation on the GPU), #85 0.40 / 0.40 s (-8%),
+#86 0.29 / 0.28 s (-35%).
+Review findings fixed before merging: the closed-form 4x4 eigendecomposition (#86) returned NaN vectors for the zero matrix (a
+face with `q = 0`) and for a scalar block, overflowed beyond |A| ~ 1e100, and could return a plausible but wrong basis for a defective
+spectrum; it now scales the matrix, takes the axes for a rank <= 1 block, and checks its own residual (a failing case is reported
+non-real so the callers fall back). Edge-case tests were added for every PR (flat FGMRES: restart 1/2, zero rhs, first-iteration
+breakdown, NaN; tree solver: ratios 1/2/3, single ring, ny = 1, nothing active, invalid profiles; N6 closure at zero gradient and
+near-zero rates; line solver on lines shorter than the colour pattern). Stiff neutral tests: slab penetration 9.0 -> 3.1 s each with #87.
+Found, not fixed: a plasma with zero density everywhere gives a NaN `jax.grad` of the neutral fluid step (on main before N6 too).
+SOLVAX #185 (accumulated rotation matrix) is reviewed against the pytree rotation loop (restart 1/2/m, breakdown, complex, float32,
+fixed work); its DRBX GPU measurement is recorded in that PR.
+
 ### Still open
 Relax the 1e-8 inner target (acceptance is 5e-5; ~25% fewer iterations, changes results), reuse the previous step's Krylov
 information, lower the 2.8 GB lowering peak (split the implicit+phi kernel), idle-GPU timings, SOLVAX pytree-path rotation fix for
@@ -753,4 +771,5 @@ sharded runs, jit the SD1D residual/Jacobian trace.
 | 2026-11-02 | #68 | B2 merged (Aiken approved). Ledger correction: the wall-step ledger was by construction; independent `wall_step_check` replaces it, figures above retracted (see "Ledger correction 2026-11-01") |
 | 2026-11-02 | physics/conservative-perp-diffusion (stacked on #72) | Perpendicular T diffusion in flux form of n T (energy rate D lap(nT), sum-free); one `reference_density_m3` (neutrals now 1e19, was 5e18). Unit test added. Measured on the default 16^3 HSX deck (dt 7.5e-4, 800 steps to t = 0.6), before -> after: dW_e - int face -2.852e-3 -> -7.648e-4 (3.7x smaller), dW_i - int face -1.735e-3 -> -3.301e-4 (5.3x), total W_e+W_i+K_i minus integrated faces -3.98e-3 -> -4.87e-4 (8.2x); particles closed to 9.5e-5 of the wall loss (was 9.4e-5). Remaining bulk residual: -0.5% of the electron wall energy loss, not yet attributed term by term. Neutral rates change for decks that relied on the old 5e18 reference |
 | 2026-11-08 | perf lane | #84-#87 (open); ranked bottleneck table and results in section 4b |
+| 2026-11-10 | #84, #86, #85, #82, #87 | perf lane merge wave: CPU step 0.31 -> 0.23 s on the 16^3 default deck; review fixes and edge-case tests; details in section 4b |
 | 2026-11-08 | docs/examples-current (stacked on #78, merges #74) | Docs and examples brought current: fluid neutrals as the default 3D model (validity Kn <~ 0.3; HSX 99.8% Kn >= 1, so N6 kinetic correction is the open gap), independent wall check output, conservative perpendicular energy diffusion, single reference density. New: `examples/neutrals/fluid_neutral_slab.py`, `examples/inputs/hsx_fci_neutrals.toml`. Retracted-figure and removed-key wording removed from docs/fci_braginskii_hsx_backend.md |
