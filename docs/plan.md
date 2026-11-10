@@ -424,6 +424,50 @@ default AMJUEL in 3D).
   Done in the N5 PR: `neutrals = true` runs the fluid model; `neutral_step`, `implicit_diffusion`, `neutral_diffusivity`, the
   mean-free-path cap (`neutral_mfp_max`) and the `neutral_model` key are deleted (the SD1D path keeps its own fits).
 - N6: molecules / hybrid (kinetic or ballistic) for Kn > 0.3 regions, only if N4 shows the fluid model is outside its range.
+  N6 (revision 2026-11-08, additive): N4 showed the fluid model outside its range (99.8% of the HSX 32^3 cells have Kn_grad >= 1,
+  mean free path 6 cm). Options weighed from the AFN assessment (Van Uytven 2022, Horsten 2017) and Borodin 2022:
+  (a) calibrated Kn-dependent flux limiter and diffusion factor, (b) free-streaming/ballistic correction, (c) few-direction
+  discrete-ordinates atom field on the FCI grid (a new field set, an angular operator and its own boundary conditions),
+  (d) fluid-kinetic hybrid with an MC solver (Borodin's CFD-EIRENE/APMC: stochastic, not differentiable, excluded by the
+  brief). Chosen: (a), because it adds no state and no solver, keeps the exact flux-form conservation (the limiter and the
+  factor only scale transport coefficients) and `jax.grad`, and costs 0 new source lines (three constants). (b) is contained
+  in it (the limiter caps the flux at alpha Gamma_lim). (c) is the next step only if (a) is not enough: its cost is a new field set and solver,
+  worth it only if the residual error is not grid-scale gradients.
+  Oracle: a deterministic 1D BGK/charge-exchange atom transport solution (exact cell-wise streaming on 60-100 Gauss
+  speeds, dense scattering solve, ~25 lines in `tests/fci_braginskii/test_fci_neutral_fluid.py`). Calibration (alpha, gamma, c)
+  on the mean ionisation depth of a uniform slab, Kn_grad = lambda_mfp/lambda_pen = sqrt(nu_iz/nu) = 0.09...0.8, then
+  checked on a thin layer (thickness lambda_mfp/Kn, Kn = 0.3...10, absorbing wall + mirror) for the ionised fraction.
+  Result: limiter alpha = 3, gamma = 4 (was 1, 2: it cut the penetration depth to 0.65 of the oracle at Kn_grad 0.6) and
+  tau_n = (1 + 0.8 nu_iz/nu)/nu give depth/oracle = 0.995, 1.014, 1.018, 1.004, 0.987 at Kn_grad = 0.09, 0.42, 0.60, 0.74, 0.80
+  (old: 0.993, 0.79, 0.65, 0.56, 0.53). Thin-layer ionised fraction / oracle: 0.79, 0.87, 0.95, 1.00 at Kn = 0.3, 1, 3, 10
+  (old 0.66, 0.85, 0.95, 1.00); the Kn = 3 and 10 results were already within 5% (ballistic transit is carried by the limiter) and are
+  kept as regression tests. Open: the 13-21% undershoot of the ionised fraction at Kn = 0.3-1 in the thin layer is a wall
+  Knudsen-layer error of the Maxwellian wall sink (the injected beam is counted in the cell density that the sink
+  acts on); a kinetic wall albedo is the follow-up. alpha = 3 exceeds the pure-beam flux bound alpha = 2 (n vbar/2), so
+  ballistic fluxes in a vacuum-like gap can be overestimated by up to 1.5x; that regime is not covered by the oracle yet.
+  N6 follow-up (2026-11-08): (1) Robustness. The NaN seen at 64-128 cells over 0.1 lambda with a strong wall source was not the
+  pressure work or any T_n sink (switching the pressure-work and viscous-heating source off, or writing the energy equation in
+  a positivity-preserving advective form, left it unchanged); it was the implicit solves losing convergence: the acoustic
+  coupling is stiff for cells much smaller than the mean free path and GMRES(60) stagnated at relative residuals 1e-2 to 1,
+  after which T_n < 0. `gmres_restart` 60 -> 200 restores 1e-6 residuals (96 and 128 cells, 40 steps stay positive; 140 is the
+  smallest restart tried that passes 128). The residual is in the ledger (`max_relres`); a line preconditioner is the next step
+  if finer cells are needed. (2) Wall albedo `a/(1 + 2 Kn_w^2)` (Knudsen-layer correction, one constant fitted to the oracle):
+  thin-layer ionised fraction / oracle 0.996, 1.009, 0.988, 1.002 at Kn = 0.3, 1, 3, 10 (was 0.79, 0.87, 0.95, 1.00); the slab
+  table is unchanged (the albedo only acts at an absorbing wall). (3) Vacuum gap (3 mean free paths at 1e-3 plasma density, then
+  plasma, absorbing wall): ionised fraction / oracle 0.983 for alpha = 3, gamma = 4 (1.05 for the old 1, 2). The neutral
+  density inside the gap is 21% low for alpha = 3 (0.79) and 20% low for 2-2.5 at gamma = 4, 9% low for (2, 2), 41% high for
+  (1, 2): it is not controlled by alpha above 2, and the constants that fix the gap inventory ((2, 2), (1, 2)) break the
+  slab depth (0.95-0.79 of the oracle at Kn_grad 0.42-0.8). Trade-off kept: slab depth and ionisation first, gap inventory -21%.
+  HSX 32^3 re-run with the follow-up (same deck, CPU): ionisation summed 1.696e-4 (+2.8% vs 1.651e-4), last step 8.441e-6 (+5.4%),
+  neutral inventory 5.029e-3 (+1.3%), wall-absorbed nuclei 2.5e-5 (was 9.4e-5: the Knudsen-layer albedo, capped at a third of
+  the sink, applies at Kn_w >= 1 where the HSX wall cells are, outside the fitted range 0.04-0.9), peak n_n 0.106, ionisation
+  depth 2.16 cells, wall slab 27% of the ionisation, min particle limiter 0.032, Kn_grad >= 1 in 97.2% of the cells, implicit
+  residual 5e-15. The wall-loss change is the least validated number of this PR; the first (pre-albedo) comparison follows.
+  HSX 32^3, 30 steps of 7.5e-4 (recycling R = 0.9, absorption 0.1, energy reflection 0.5; CPU), old vs N6 limiter/factor:
+  ionisation summed over the run 1.651e-4 vs 1.687e-4 (+2.2%; +4.5% at the last step), neutral inventory 4.965e-3 vs 4.984e-3
+  (+0.4%), wall-absorbed nuclei 9.4e-5 vs 7.1e-5, peak n_n 0.149 vs 0.105, ionisation-weighted depth from the wall 1.49 vs 2.17
+  cells (wall slab holds 40% vs 26% of the ionisation), minimum particle limiter factor 0.007 vs 0.032, Kn_grad >= 1 in 98.1% vs
+  97.1% of the cells (mean free path 7.2 cm). Ledgers close as before (transport residual 5e-20, implicit residual 2e-12).
 
 ### Phase F: verification and validation (#42)
 

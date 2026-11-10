@@ -76,7 +76,7 @@ class NeutralParameters:
     tau: float = 1.0
     reaction_substeps: int = 1
     gmres_tolerance: float = 1.0e-10
-    gmres_restart: int = 60
+    gmres_restart: int = 200  # acoustic coupling is stiff on cells much smaller than the mean free path
     gmres_maxiter: int = 20
     wall_absorption: float = 0.0  # fluid model: probability that a wall-incident atom is absorbed
     wall_energy_reflection: float = 1.0  # fluid model: energy fraction kept by a reflected atom

@@ -166,7 +166,7 @@ pytest -q -m slow tests/test_native_detachment_sol.py   # SD1D scan, profiles, g
 velocity `u_n` along `b` and the temperature `T_n` on the FCI grid (advanced fluid neutral closure of Horsten et al. 2017
 and Van Uytven et al. 2022): perpendicular pressure diffusion `Gamma = -(tau_n/m) grad_perp p_n` with
 `tau_n^-1 = n_i K_cx + n_e K_i`, parallel flow with its own momentum equation, viscosity `p_n tau_n`, conductivity
-`5 p_n tau_n / (2m)`, and the flux limiter `[1 + (|Gamma|/Gamma_lim)^2]^(-1/2)` on the conductive fluxes. Reactions
+`5 p_n tau_n / (2m)`, and the flux limiter `[1 + (|Gamma|/(3 Gamma_lim))^4]^(-1/4)` on the conductive fluxes (N6: `tau_n` carries the factor `1 + 0.8 nu_iz/nu`; both are fitted to a deterministic 1D kinetic oracle, mean ionisation depth within 2% of it for `Kn_grad` up to 0.8). Reactions
 exchange nuclei, momentum and energy with the plasma exactly (the electron loss is the only sink). Wall: reflecting with
 absorption `neutral_wall_absorption` and energy reflection `neutral_wall_energy_reflection`; recycled atoms carry the
 Franck-Condon or wall energy as thermal energy. History files carry `neutral_density`, `neutral_velocity` and
