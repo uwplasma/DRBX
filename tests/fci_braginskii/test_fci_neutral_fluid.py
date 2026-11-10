@@ -235,6 +235,25 @@ def test_fluid_step_is_differentiable():
     assert np.isfinite(g) and g == pytest.approx(fd, rel=1e-4)
 
 
+@pytest.mark.parametrize("plasma", ["uniform neutrals", "cold plasma"])
+def test_n6_closure_is_finite_and_differentiable_at_zero_gradient_and_zero_rates(plasma):
+    """The wall albedo (Kn_w from |grad n_n|) and tau_n = (1 + 0.8 nu_iz/nu)/nu stay finite where the gradient or nu vanishes."""
+
+    params = dataclasses.replace(PARAMS, wall_absorption=0.7)
+    geometry = sheared_slab(shape=(6, 4, 3))
+    grid = F.build_neutral_grid(geometry)
+    n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 11)
+    Nn = jnp.full(geometry.shape, 0.3) if plasma == "uniform neutrals" else Nn
+    Te = 1.0e-8 * Te if plasma == "cold plasma" else Te
+    Tn = jnp.full(geometry.shape, 0.1)
+
+    def functional(scale):
+        out = FL.neutral_fluid_step(n, Vi, Te, Ti, scale * Nn, 0.0 * Vi, Tn, 0.02, grid, params)
+        return jnp.sum(grid.volume * (out[4] + out[6]))
+
+    assert np.isfinite(float(jax.grad(functional)(1.0))) and np.isfinite(float(functional(1.0)))
+
+
 def _penetration(tau_scale=1.0, steps=121):
     """Neutrals entering a slab of frozen uniform plasma: ``(lambda_fit / lambda_pen, mean |dn/dt| / (nu_iz n), sink / source)``.
 
