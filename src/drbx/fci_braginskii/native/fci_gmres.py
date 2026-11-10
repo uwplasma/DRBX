@@ -541,39 +541,64 @@ def solvax_gmres_solve(
                 active_mask,
             )
 
+    # Single shard: the weighted product is the Euclidean product of
+    # y = sqrt(w) x, so SOLVAX's flat-array FGMRES (orthogonalises against the
+    # filled Krylov rows only, one basis for a fixed preconditioner) gives the
+    # same iterates as the pytree path with the custom product.
+    single_shard = tuple(int(v) for v in domain.shard_spec.shard_counts) == (1, 1, 1)
+    if single_shard:
+        weights = jnp.ones(geometry.owned_shape) if volume_weights is None else volume_weights
+        if active_mask is not None:
+            weights = jnp.where(active_mask, weights, 0.0)
+        scale = jnp.where(weights > 0.0, jnp.sqrt(weights), 1.0)
+        shape = geometry.owned_shape
+
     def budgeted_gmres(
         target: jnp.ndarray, x0: jnp.ndarray
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         # Full GMRES(restart) cycles, then one shorter cycle for the remainder
         # of the iteration budget; the second call returns immediately when
         # the first one has already converged.
+        if single_shard:
+            kwargs = dict(
+                matvec=lambda y: (scale * masked_apply_A(y.reshape(shape) / scale)).ravel(),
+                precond=None
+                if effective_preconditioner is None
+                else lambda y: (scale * effective_preconditioner(y.reshape(shape) / scale)).ravel(),
+                fixed_precond=True,
+            )
+            target, x0 = (scale * target).ravel(), (scale * x0).ravel()
+        else:
+            kwargs = dict(
+                matvec=masked_apply_A,
+                precond=effective_preconditioner,
+                inner_product=global_inner_product,
+            )
         result = solvax_gmres(
-            masked_apply_A,
-            target,
+            b=target,
             x0=x0,
-            precond=effective_preconditioner,
-            inner_product=global_inner_product,
             restart=restart,
             rtol=float(config.tol),
             atol=float(config.atol),
             max_restarts=max_restarts,
+            **kwargs,
         )
         x = result.x
         iterations = jnp.asarray(result.iterations, dtype=jnp.int32)
         if tail_restart:
             tail = solvax_gmres(
-                masked_apply_A,
-                target,
+                b=target,
                 x0=x,
-                precond=effective_preconditioner,
-                inner_product=global_inner_product,
                 restart=tail_restart,
                 rtol=float(config.tol),
                 atol=float(config.atol),
                 max_restarts=1,
+                **kwargs,
             )
             x = tail.x
             iterations = iterations + jnp.asarray(tail.iterations, dtype=jnp.int32)
+        if single_shard:
+            x = x.reshape(shape) / scale
         return x, iterations
 
     result_x, result_iterations = budgeted_gmres(rhs, guess)
