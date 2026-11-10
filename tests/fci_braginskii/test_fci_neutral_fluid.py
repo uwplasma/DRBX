@@ -420,3 +420,34 @@ def test_fine_cell_solves_converge_to_1e6_with_a_short_restart(monkeypatch):
     nu_cx, nu_iz = _rates(0.5)
     _fluid_slab(0.5, 0.1 * np.sqrt(0.15) / (nu_cx + nu_iz), False, 96, 40)
     assert PARAMS.gmres_restart <= 60 and len(residuals) == 120 and max(residuals) < 1.0e-6
+
+
+@pytest.mark.parametrize("nx", [1, 2, 3, 4, 5, 9])
+def test_line_solver_inverts_an_x_pentadiagonal_operator_on_short_lines(nx):
+    """The measured bands are exact for an x-banded operator, also when the line is shorter than the 5-colour pattern."""
+
+    shape = (nx, 4, 2)
+    rng = np.random.default_rng(nx)
+    coef = {d: jnp.asarray(0.2 * rng.standard_normal(shape)) for d in range(-2, 3)}
+    coef[0] = coef[0] + 2.0
+
+    def operator(u):
+        out = 0.0
+        for d, c in coef.items():
+            shifted = jnp.roll(u, -d, axis=0)
+            valid = (jnp.arange(nx) + d >= 0) & (jnp.arange(nx) + d < nx)
+            out = out + c * jnp.where(valid[:, None, None], shifted, 0.0)
+        return out
+
+    owner = jnp.ones(shape, bool)
+    solve = jax.jit(FL._line_solver(operator, owner, jnp.full(shape, 2.0)))
+    v = jnp.asarray(rng.standard_normal(shape))
+    np.testing.assert_allclose(np.asarray(operator(solve(v))), np.asarray(v), atol=1e-10)
+    assert np.all(np.isfinite(np.asarray(solve(jnp.zeros(shape)))))
+
+
+@pytest.mark.parametrize("nx", [2, 3, 4])
+def test_fluid_step_on_very_short_x_lines_stays_finite(nx):
+    nu_cx, nu_iz = _rates(0.5)
+    _, n, _, _, tn = _fluid_slab(0.5, np.sqrt(0.15) / (nu_cx + nu_iz), False, nx, 10)
+    assert np.all(np.isfinite(n)) and n.min() > 0.0 and tn.min() > 0.0
