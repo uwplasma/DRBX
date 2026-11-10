@@ -38,6 +38,8 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+from solvax.banded import lu_factor_banded, lu_solve_banded
 
 from .fci_neutrals import (
     NeutralGrid,
@@ -122,10 +124,40 @@ def _own(fine, grid: NeutralGrid):
     return jnp.where(grid.owner, fine, 0.0)
 
 
-def _gmres(operator, rhs, x0, diag, params: NeutralParameters):
+def _line_solver(operator, owner, diag, half_band=2):
+    """Banded LU along x of the x-couplings of ``operator``, measured by 5 x 3 x 3 colored probes.
+
+    The acoustic coupling is stiff along x on cells much smaller than the mean free path, which a point (Jacobi)
+    preconditioner cannot resolve.  The face-averaged parallel gradient of the (n, M) flux gives a pentadiagonal row
+    (``half_band = 2``).  Probe ``(i mod 5, j mod 3, k mod 3)`` isolates the entry coupling row ``i`` to ``i + d`` from
+    the y and z couplings; non-owner rows keep ``diag``.
+    """
+
+    index = jnp.indices(owner.shape)
+    width = 2 * half_band + 1
+    offsets = range(-half_band, half_band + 1)
+    coef = {d: jnp.zeros(owner.shape) for d in offsets}
+    for c in np.ndindex(width, 3, 3):
+        color = jnp.all(jnp.stack([index[a] % m == c[a] for a, m in enumerate((width, 3, 3))]), axis=0)
+        response = operator(jnp.where(color & owner, 1.0, 0.0))
+        for d in offsets:
+            coef[d] = jnp.where(jnp.roll(color, -d, axis=0), response, coef[d])  # rows whose column i + d is probed
+    coef[0] = jnp.where(owner & (coef[0] != 0.0), coef[0], diag)
+    lines = lambda v: jnp.moveaxis(jnp.where(owner, v, 0.0), 0, -1).reshape(-1, owner.shape[0])
+    bands = jnp.stack([jnp.roll(lines(coef[d]), d, axis=-1) for d in reversed(offsets)], axis=1)  # (lines, 2h+1, n)
+    factors = jax.vmap(lambda b: lu_factor_banded(b, half_band, half_band))(bands)
+
+    def solve(v):
+        x = jax.vmap(lu_solve_banded)(factors, lines(v))
+        return jnp.moveaxis(x.reshape(owner.shape[1:] + owner.shape[:1]), -1, 0)
+
+    return solve
+
+
+def _gmres(operator, rhs, x0, diag, params: NeutralParameters, owner):
     solution, _ = jax.scipy.sparse.linalg.gmres(
         operator, rhs, x0=x0, tol=params.gmres_tolerance, atol=0.0, restart=params.gmres_restart,
-        maxiter=params.gmres_maxiter, M=lambda v: v / diag, solve_method="batched",
+        maxiter=params.gmres_maxiter, M=_line_solver(operator, owner, diag), solve_method="batched",
     )
     relres = jnp.linalg.norm(operator(solution) - rhs) / jnp.maximum(jnp.linalg.norm(rhs), 1.0e-300)
     return solution, relres
@@ -198,7 +230,7 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
     base = _parallel_flux(_fine(m0, grid), grid)
     rhs = neutral_density + dt * (sn + owner_inflow(*base, grid))
     p_star, rel_n = _gmres(lambda p: (1.0 + dt * rate_n) * p / tl - dt * owner_inflow(*particle_flux(p), grid), rhs,
-                           rhs * tl, (1.0 + dt * rate_n) / tl + dt * _diffusion_diagonal(dp, grid), params)
+                           rhs * tl, (1.0 + dt * rate_n) / tl + dt * _diffusion_diagonal(dp, grid), params, owner)
     gp = _par_grad(p_star, grid)
     fx, fy, fz = [a + b for a, b in zip(particle_flux(p_star), base)]
     absorbed = rate_n * p_star / tl
@@ -221,7 +253,7 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
         return n_safe * u - dt * owner_inflow(*momentum_flux(u), grid)
 
     diag = n_safe + dt * _diffusion_diagonal(eta_l, grid)
-    u_star, rel_u = _gmres(momentum_operator, m_a, u_a, diag, params)
+    u_star, rel_u = _gmres(momentum_operator, m_a, u_a, diag, params, owner)
     m_new = m_a + dt * owner_inflow(*momentum_flux(u_star), grid)
     u_new = sel(m_new / n_safe)
 
@@ -239,7 +271,7 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
     w_old = 1.5 * neutral_density * neutral_temperature
     rhs_e = w_old + dt * se
     diag = (1.5 + dt * rate_e) * n_safe + dt * _diffusion_diagonal(kappa, grid)
-    t_star, rel_e = _gmres(energy_operator, rhs_e, sel(neutral_temperature), diag, params)
+    t_star, rel_e = _gmres(energy_operator, rhs_e, sel(neutral_temperature), diag, params, owner)
     wall_energy = rate_e * n_safe * t_star
     w_new = rhs_e + dt * (owner_inflow(*energy_flux(t_star), grid) - wall_energy)
     t_new = sel(w_new / (1.5 * n_safe))
