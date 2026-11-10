@@ -4608,7 +4608,8 @@ def _build_angular_agglomeration_line_u_preconditioner(
         parent_i, parent_j, parent_k, active,
     )
     tree_solve = _angular_tree_solver(
-        diagonal, child_edge, parent_j, active, geometry.owned_shape
+        diagonal, child_edge,
+        tuple(int(v) for v in control_volume_geometry.angular_group_sizes), active,
     )
 
     def solve(residual: jnp.ndarray) -> jnp.ndarray:
@@ -4623,46 +4624,47 @@ def _build_angular_agglomeration_line_u_preconditioner(
 def _angular_tree_solver(
     diagonal: jnp.ndarray,
     child_edge: jnp.ndarray,
-    parent_j: jnp.ndarray,
+    profile: tuple[int, ...],
     active: jnp.ndarray,
-    owned_shape: tuple[int, int, int],
 ) -> Callable[[jnp.ndarray], jnp.ndarray]:
     """Exact nested radial-tree solve of ``(diagonal - child_edge graph) x = rhs``.
 
-    ``rhs`` is already in the conductance (volume-weighted) scale.
+    ``rhs`` is already in the conductance (volume-weighted) scale.  Ring ``i``
+    keeps its ``ny // profile[i]`` owners (every ``profile[i]``-th theta index),
+    packed ring after ring by one static gather; the owners of a ring are the
+    contiguous children of the owners of the ring inside it, so child-to-parent
+    sums and parent-to-child copies are reshapes.  The pivots do not depend on
+    the right-hand side and are eliminated once, leaving fused elementwise
+    sweeps (one launch instead of one per ring and sweep on a GPU).
     """
-    nx, ny, nz = owned_shape
-    eta_index = jnp.broadcast_to(jnp.arange(nz, dtype=jnp.int32)[None, :], (ny, nz))
+    nx, ny, nz = diagonal.shape
+    if profile[0] != ny or any(a % b for a, b in zip(profile[:-1], profile[1:])):
+        raise ValueError("angular tree needs a single axis owner and nested rings")
+    start = np.concatenate([[0], np.cumsum([ny // p for p in profile])])
+    owners = np.concatenate([i * ny + np.arange(0, ny, p) for i, p in enumerate(profile)])
+    unpack = np.full(nx * ny, start[-1])
+    unpack[owners] = np.arange(start[-1])
+    pack = lambda a: a.reshape(nx * ny, nz)[owners]
+    rings = lambda a: [a[start[i] : start[i + 1]] for i in range(nx)]
+    ratio = [1] + [profile[i - 1] // profile[i] for i in range(1, nx)]
+    to_parent = lambda v, i: v if ratio[i] == 1 else v.reshape(-1, ratio[i], nz).sum(axis=1)
+    mask = rings(pack(active))
+    edge = rings(jnp.where(pack(active), pack(child_edge), 0.0))
+    pivot = rings(pack(diagonal))
+    for i in range(nx - 1, 0, -1):
+        pivot[i - 1] = pivot[i - 1] - to_parent(edge[i] ** 2 / jnp.where(mask[i], pivot[i], 1.0), i)
+    inverse = [jnp.where(m, 1.0 / jnp.where(m, p, 1.0), 0.0) for m, p in zip(mask, pivot)]
 
     def solve(rhs: jnp.ndarray) -> jnp.ndarray:
-        pivots = jnp.asarray(diagonal, dtype=jnp.float64)
-
-        def eliminate(level, state):
-            current_pivots, current_rhs = state
-            i = nx - 1 - level
-            mask = active[i]
-            edge = jnp.where(mask, child_edge[i], 0.0)
-            pivot = current_pivots[i]
-            p_j = jnp.maximum(parent_j[i], 0)
-            schur = jnp.where(mask, -(edge * edge) / pivot, 0.0)
-            rhs_update = jnp.where(mask, edge * current_rhs[i] / pivot, 0.0)
-            current_pivots = current_pivots.at[i - 1, p_j, eta_index].add(schur)
-            current_rhs = current_rhs.at[i - 1, p_j, eta_index].add(rhs_update)
-            return current_pivots, current_rhs
-
-        pivots, rhs = jax.lax.fori_loop(0, nx - 1, eliminate, (pivots, rhs))
-        solution = jnp.zeros_like(rhs).at[0, 0, :].set(rhs[0, 0, :] / pivots[0, 0, :])
-
-        def substitute(level, current_solution):
-            i = level + 1
-            mask = active[i]
-            p_j = jnp.maximum(parent_j[i], 0)
-            parent_value = current_solution[i - 1, p_j, eta_index]
-            value = (rhs[i] + child_edge[i] * parent_value) / pivots[i]
-            return current_solution.at[i].set(jnp.where(mask, value, 0.0))
-
-        solution = jax.lax.fori_loop(0, nx - 1, substitute, solution)
-        return jnp.where(active, solution, 0.0)
+        r = rings(pack(rhs))
+        for i in range(nx - 1, 0, -1):
+            r[i - 1] = r[i - 1] + to_parent(edge[i] * inverse[i] * r[i], i)
+        x = [r[0] * inverse[0]]
+        for i in range(1, nx):
+            parent = jnp.repeat(x[i - 1], ratio[i], axis=0) if ratio[i] > 1 else x[i - 1]
+            x.append((r[i] + edge[i] * parent) * inverse[i])
+        full = jnp.concatenate(x + [jnp.zeros((1, nz), rhs.dtype)])[unpack]
+        return full.reshape(nx, ny, nz)
 
     return solve
 
@@ -4720,7 +4722,8 @@ def _build_angular_agglomeration_line_pardiag_preconditioner(
             extra_diag = jnp.where(k_index % 4 == c, response, extra_diag)
         diagonal = diagonal + jnp.maximum(extra_diag, 0.0)
     tree_solve = _angular_tree_solver(
-        diagonal, child_edge, parent_j, active, geometry.owned_shape
+        diagonal, child_edge,
+        tuple(int(v) for v in control_volume_geometry.angular_group_sizes), active,
     )
     safe_diag = jnp.where(active, diagonal, 1.0)
 

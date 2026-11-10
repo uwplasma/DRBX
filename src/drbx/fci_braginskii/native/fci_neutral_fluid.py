@@ -7,8 +7,16 @@ Van Uytven et al. (Nucl. Fusion 62, 086023, 2022), hydrogen, ``m_n = m_i`` (back
   ``Gamma = -(tau_n/m) grad p_n``, viscosity ``eta = p_n tau_n`` and conductivity
   ``kappa = 5 p_n tau_n / (2 m)`` (``transport_coefficients``; ``eta`` is for the N2 momentum equation).
 - Flux limiter on the conductive parts, ``Gamma_fl = Gamma_c [1 + (|Gamma_c| / (alpha Gamma_lim))^gamma]^(-1/gamma)``
-  with ``alpha = 1, gamma = 2``; ``Gamma_lim = n_n sqrt(T_n/(2 pi m))`` (particles, ``(1/4) n_n sqrt(8 T_n/(pi m))``)
+  with ``alpha = 3, gamma = 4`` (N6; Horsten's ``alpha = 1, gamma = 2`` halves the penetration length at ``Kn_grad ~ 0.6``);
+  ``Gamma_lim = n_n sqrt(T_n/(2 pi m))`` (particles, ``(1/4) n_n sqrt(8 T_n/(pi m))``)
   and ``p_n sqrt(2 T_n/(pi m))`` (heat).  The limiter is a smooth cell factor that scales the coefficient.
+- Kinetic factor (N6): ``tau_n = (1 + c nu_iz / nu) / nu``, ``nu = nu_cx + nu_iz``, ``c = 0.8``.  Ionisation removes atoms
+  without randomising the momentum of the survivors, so the diffusion coefficient of an ionising population is larger than
+  ``T_n / nu``.  ``alpha, gamma, c`` are fitted to a deterministic 1D BGK/charge-exchange transport solution (the oracle in
+  ``tests/fci_braginskii/test_fci_neutral_fluid.py``): with them the mean ionisation depth is within 2 % of it for
+  ``0.1 <= Kn_grad = lambda_mfp / lambda_pen <= 0.8``.
+- Wall albedo (N6): the Maxwellian wall sink uses ``a / (1 + 2 Kn_w^2)``, ``Kn_w = lambda |grad n| / n`` at the wall cell
+  (Knudsen-layer correction fitted to the same oracle, ``Kn_w`` capped at 1; ``neutral_transport``).
 - Conservative face-flux form on the full metric of ``fci_neutrals.NeutralGrid`` (nine-point cross terms kept):
   ``d_t n = div(D grad p)``; ``d_t (3/2 p) = -div(5/2 T Gamma - kappa grad T) + S_E`` (kinetic energy of the
   pressure-diffusive drift neglected; parallel momentum is N2).  ``n`` is advanced by backward Euler in ``p``
@@ -30,6 +38,8 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+from solvax.banded import lu_factor_banded, lu_solve_banded
 
 from .fci_neutrals import (
     NeutralGrid,
@@ -79,17 +89,18 @@ FLUID_LEDGER_COLUMNS = (
 )
 
 
-def flux_limiter(gamma_c, gamma_lim, alpha=1.0, power=2.0):
+def flux_limiter(gamma_c, gamma_lim, alpha=3.0, power=4.0):
     """``Gamma_fl / Gamma_c = [1 + (|Gamma_c| / (alpha Gamma_lim))^power]^(-1/power)`` (smooth, in (0, 1])."""
 
     return (1.0 + (jnp.abs(gamma_c) / jnp.maximum(alpha * gamma_lim, 1.0e-300)) ** power) ** (-1.0 / power)
 
 
 def transport_coefficients(density, Te, Ti, neutral_density, neutral_temperature, params: NeutralParameters):
-    """``(D_p, kappa, eta)``: ``tau_n/m``, ``5 p_n tau_n/(2m)``, ``p_n tau_n`` with ``tau_n = 1/(nu_cx + nu_iz)``."""
+    """``(D_p, kappa, eta)``: ``tau_n/m``, ``5 p_n tau_n/(2m)``, ``p_n tau_n`` with ``tau_n = (1 + 0.8 nu_iz/nu)/nu``."""
 
     nu_cx, nu_iz = collision_frequencies(density, Te, Ti, params, neutral_temperature)
-    tau = 1.0 / jnp.maximum(nu_cx + nu_iz, 1.0e-300)
+    nu = jnp.maximum(nu_cx + nu_iz, 1.0e-300)
+    tau = (1.0 + 0.8 * nu_iz / nu) / nu
     p = neutral_density * neutral_temperature
     return tau, 2.5 * p * tau, p * tau
 
@@ -113,10 +124,40 @@ def _own(fine, grid: NeutralGrid):
     return jnp.where(grid.owner, fine, 0.0)
 
 
-def _gmres(operator, rhs, x0, diag, params: NeutralParameters):
+def _line_solver(operator, owner, diag, half_band=2):
+    """Banded LU along x of the x-couplings of ``operator``, measured by 5 x 3 x 3 colored probes.
+
+    The acoustic coupling is stiff along x on cells much smaller than the mean free path, which a point (Jacobi)
+    preconditioner cannot resolve.  The face-averaged parallel gradient of the (n, M) flux gives a pentadiagonal row
+    (``half_band = 2``).  Probe ``(i mod 5, j mod 3, k mod 3)`` isolates the entry coupling row ``i`` to ``i + d`` from
+    the y and z couplings; non-owner rows keep ``diag``.
+    """
+
+    index = jnp.indices(owner.shape)
+    width = 2 * half_band + 1
+    offsets = range(-half_band, half_band + 1)
+    coef = {d: jnp.zeros(owner.shape) for d in offsets}
+    for c in np.ndindex(width, 3, 3):
+        color = jnp.all(jnp.stack([index[a] % m == c[a] for a, m in enumerate((width, 3, 3))]), axis=0)
+        response = operator(jnp.where(color & owner, 1.0, 0.0))
+        for d in offsets:
+            coef[d] = jnp.where(jnp.roll(color, -d, axis=0), response, coef[d])  # rows whose column i + d is probed
+    coef[0] = jnp.where(owner & (coef[0] != 0.0), coef[0], diag)
+    lines = lambda v: jnp.moveaxis(jnp.where(owner, v, 0.0), 0, -1).reshape(-1, owner.shape[0])
+    bands = jnp.stack([jnp.roll(lines(coef[d]), d, axis=-1) for d in reversed(offsets)], axis=1)  # (lines, 2h+1, n)
+    factors = jax.vmap(lambda b: lu_factor_banded(b, half_band, half_band))(bands)
+
+    def solve(v):
+        x = jax.vmap(lu_solve_banded)(factors, lines(v))
+        return jnp.moveaxis(x.reshape(owner.shape[1:] + owner.shape[:1]), -1, 0)
+
+    return solve
+
+
+def _gmres(operator, rhs, x0, diag, params: NeutralParameters, owner):
     solution, _ = jax.scipy.sparse.linalg.gmres(
         operator, rhs, x0=x0, tol=params.gmres_tolerance, atol=0.0, restart=params.gmres_restart,
-        maxiter=params.gmres_maxiter, M=lambda v: v / diag, solve_method="batched",
+        maxiter=params.gmres_maxiter, M=_line_solver(operator, owner, diag), solve_method="batched",
     )
     relres = jnp.linalg.norm(operator(solution) - rhs) / jnp.maximum(jnp.linalg.norm(rhs), 1.0e-300)
     return solution, relres
@@ -167,7 +208,13 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
     tl = jnp.maximum(neutral_temperature, tn_floor)
     m0 = neutral_density * neutral_velocity
     sel = lambda x: jnp.where(owner, x, 0.0)
-    a, r_e = params.wall_absorption, params.wall_energy_reflection
+    # Knudsen-layer albedo (N6): the Maxwellian wall sink acts on a cell density that contains the atoms just injected, so it
+    # overestimates the loss when the density varies over a mean free path; a -> a / (1 + 2 Kn_w^2), Kn_w = lambda |grad n| / n
+    # (lambda = sqrt(T_n) tau_n), fitted to the 1D kinetic oracle (thin layer, Kn_w = 0.04-0.9) and capped at Kn_w = 1, so
+    # the sink never drops below a third (outside the fitted range it is not calibrated).
+    kn_w = jnp.sqrt(tl) * eta / jnp.maximum(neutral_density * tl, 1.0e-300) * grad_norm(_fine(neutral_density, grid), grid) \
+        / jnp.maximum(neutral_density, 1.0e-300)
+    a, r_e = params.wall_absorption / (1.0 + 2.0 * jnp.minimum(sel(kn_w), 1.0) ** 2), params.wall_energy_reflection
     area = jnp.zeros(grid.shape).at[-1].set(grid.wall_area)
     geom = sel(_owner_sum(area, grid) / jnp.where(owner, grid.volume, 1.0))  # wall area per owner volume
     vbar = jnp.sqrt(8.0 * tl / jnp.pi)
@@ -183,7 +230,7 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
     base = _parallel_flux(_fine(m0, grid), grid)
     rhs = neutral_density + dt * (sn + owner_inflow(*base, grid))
     p_star, rel_n = _gmres(lambda p: (1.0 + dt * rate_n) * p / tl - dt * owner_inflow(*particle_flux(p), grid), rhs,
-                           rhs * tl, (1.0 + dt * rate_n) / tl + dt * _diffusion_diagonal(dp, grid), params)
+                           rhs * tl, (1.0 + dt * rate_n) / tl + dt * _diffusion_diagonal(dp, grid), params, owner)
     gp = _par_grad(p_star, grid)
     fx, fy, fz = [a + b for a, b in zip(particle_flux(p_star), base)]
     absorbed = rate_n * p_star / tl
@@ -206,7 +253,7 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
         return n_safe * u - dt * owner_inflow(*momentum_flux(u), grid)
 
     diag = n_safe + dt * _diffusion_diagonal(eta_l, grid)
-    u_star, rel_u = _gmres(momentum_operator, m_a, u_a, diag, params)
+    u_star, rel_u = _gmres(momentum_operator, m_a, u_a, diag, params, owner)
     m_new = m_a + dt * owner_inflow(*momentum_flux(u_star), grid)
     u_new = sel(m_new / n_safe)
 
@@ -224,7 +271,7 @@ def neutral_transport(neutral_density, neutral_temperature, neutral_velocity, dp
     w_old = 1.5 * neutral_density * neutral_temperature
     rhs_e = w_old + dt * se
     diag = (1.5 + dt * rate_e) * n_safe + dt * _diffusion_diagonal(kappa, grid)
-    t_star, rel_e = _gmres(energy_operator, rhs_e, sel(neutral_temperature), diag, params)
+    t_star, rel_e = _gmres(energy_operator, rhs_e, sel(neutral_temperature), diag, params, owner)
     wall_energy = rate_e * n_safe * t_star
     w_new = rhs_e + dt * (owner_inflow(*energy_flux(t_star), grid) - wall_energy)
     t_new = sel(w_new / (1.5 * n_safe))
