@@ -144,3 +144,61 @@ def test_pardiag_preconditioner_kinds_are_accepted_and_unknown_rejected():
         assert SolvaxGmresConfig(preconditioner=kind).preconditioner == kind
     with pytest.raises(ValueError, match="preconditioner"):
         SolvaxGmresConfig(preconditioner="line-uz")
+
+
+def _flat_vs_reference(restart, maxiter, case, weights_on=True):
+    from solvax import gmres as solvax_gmres
+
+    geometry, domain = _single_device_slab()
+    shape = geometry.owned_shape
+    rng = np.random.default_rng(3)
+    apply_A = lambda v: v if case == "identity" else _convection_dominated_operator(shape)(v)
+    rhs = jnp.asarray(rng.standard_normal(shape)) * (0.0 if case == "zero" else 1.0)
+    weights = jnp.asarray(rng.uniform(0.5, 2.0, shape)) if weights_on else None
+    active = jnp.asarray(rng.uniform(size=shape) > 0.1)
+    inverse_diagonal = 1.0 / (6.0 * 0.05 + 1.0)
+    precond = lambda v: inverse_diagonal * v
+    config = SolvaxGmresConfig(tol=1.0e-9, atol=1.0e-14, restart=restart, maxiter=maxiter)
+
+    phi, info = jax.jit(
+        lambda b: solvax_gmres_solve(
+            apply_A, b, jnp.zeros_like(b), geometry, domain, config,
+            active_cell_mask=active, preconditioner=precond, volume_weights=weights,
+        )
+    )(rhs)
+
+    w = 1.0 if weights is None else weights
+    dot = lambda u, v: jnp.sum(jnp.where(active, w * u * v, 0.0))
+    masked = lambda v: jnp.where(active, v, 0.0)
+    reference = solvax_gmres(
+        lambda v: masked(apply_A(masked(v))), masked(rhs), precond=lambda v: masked(precond(masked(v))),
+        inner_product=dot, restart=restart, rtol=1.0e-9, atol=1.0e-14, max_restarts=maxiter // restart,
+    )
+    assert int(info.num_steps) == int(reference.iterations)
+    assert np.all(np.isfinite(np.asarray(phi)))
+    np.testing.assert_allclose(np.asarray(phi), np.asarray(masked(reference.x)), rtol=1e-8, atol=1e-10)
+
+
+@pytest.mark.parametrize(
+    ("restart", "maxiter", "case", "weights_on"),
+    [(40, 40, "generic", True), (1, 1, "generic", True), (2, 4, "generic", True), (5, 5, "generic", False),
+     (40, 40, "zero", True), (40, 40, "identity", True)],
+)
+def test_single_shard_flat_path_matches_weighted_pytree_path(restart, maxiter, case, weights_on):
+    """sqrt(w)-scaled flat FGMRES takes the same Krylov steps as the custom-product path
+    (also restart 1, zero right-hand side, breakdown at the first iteration, no weights)."""
+    _flat_vs_reference(restart, maxiter, case, weights_on)
+
+
+def test_single_shard_flat_path_propagates_nan_without_hanging():
+    geometry, domain = _single_device_slab()
+    shape = geometry.owned_shape
+    rhs = jnp.ones(shape).at[1, 1, 1].set(jnp.nan)
+    config = SolvaxGmresConfig(tol=1.0e-9, atol=1.0e-14, restart=5, maxiter=5)
+    phi, info = jax.jit(
+        lambda b: solvax_gmres_solve(
+            _convection_dominated_operator(shape), b, jnp.zeros_like(b), geometry, domain, config,
+            volume_weights=jnp.full(shape, 2.0),
+        )
+    )(rhs)
+    assert not bool(info.converged) and int(info.num_steps) <= 5
