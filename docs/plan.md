@@ -690,6 +690,77 @@ phases; they sharpen B2, C1, C2, C3 and add the TJ-K rung F3a.
 Still wanted: tabulated HSX edge data (probes, Thomson, H-alpha, neutral
 pressure, target fluxes) from the HSX group.
 
+## 4b. Performance lane (2026-11-08)
+
+Profiling of the HSX 32^3 default deck (IMEX-SSP222, Bohm wall), 10-20 steps after compile, on an Apple-silicon Mac (CPU),
+an office 36-core node (CPU) and an RTX A4000 (both shared with other jobs: spreads are wide, GPU rows are best-of).
+
+### Ranked bottlenecks (before the lane)
+
+| # | Item | Share of a step / cost | Evidence |
+|---|---|---|---|
+| 1 | FGMRES solves (4 per step, ~63 iterations each at 1e-8) | CPU 80% of the step (3.7 s of 4.7 s); GPU 75% (1.2 s of 1.6 s) | phase timers |
+| 1a | Arnoldi orthogonalisation against the zero-padded 101-row basis (pytree path, custom inner product) | about half of an iteration on CPU | HLO ops `solvax.gmres.arnoldi_reductions` |
+| 1b | Sequential Givens-rotation loop (static 100 trips per Arnoldi step) in SOLVAX | 64% of all GPU kernel launches (~410 of ~640 events per iteration); device busy only 35% of the step: launch bound | profiler trace |
+| 1c | Radial-tree line preconditioner: two `fori_loop`s with dynamic scatters, pivots re-eliminated every application | 1.07 ms/apply on the A4000 (~430 launches), 0.37 ms on CPU | micro-benchmark |
+| 2 | Host `pure_callback` 4x4 eig in the curvature fluxes | CPU 0.75 s of 4.7 s (16%); GPU 0.4 s of 1.6 s (25%) | profiler, phase timers |
+| 3 | Compile: lowering 42 s + compile 77 s (CPU, cold); GPU cold 343-687 s; initial phi 87-116 s cold | one-time | log |
+| 4 | Peak host RSS 5.3 GB: 1.4 GB after geometry and initial state, +2.8 GB lowering and compiling the implicit+phi kernel, +1.1 GB stepping | not the Krylov basis (2 x 26 MB) | RSS sampled per stage |
+| 5 | Per-step host work: `_assert_owner_sparse` (7 fields to host), 6 `block_until_ready`, ordered phase-timing callbacks | small (<2%) | not changed |
+| 6 | SD1D 1-D detachment case (100 cells, 2 scan points): 6.3 s in-process, of which 4.3 s tracing, 1.7 s lowering/compile, < 1 s run | trace-bound | cProfile; not changed |
+
+No recompiles per step and no hidden host syncs were found (6 `block_until_ready` per step at the stage boundaries).
+
+### Changes (each its own PR, tests identical to the unchanged path)
+
+| PR | Change | CPU Mac step (3 runs, median) | GPU A4000 |
+|---|---|---|---|
+| #84 | flat-array SOLVAX FGMRES on a single shard | 2.79 -> 2.30 s (-18%) | fewer basis passes |
+| #85 | radial tree: pivots once, fused sweeps | 2.59 -> 2.44 s (-6%); cold compile 99 -> 73 s | 1.07 -> 0.08 ms per application (13x) |
+| #86 | closed-form 4x4 eig, no host callback | 2.59 -> 2.14 s (-17%) | operator phase 0.40 -> 0.04-0.08 s |
+| #84+#85+#86 | combined | 2.59 -> 1.78 s (-31%); cold compile 99 -> 69 s | step 1.05 -> 0.66 s best-of (1.6x); cold compile 687 -> 340 s; initial phi 87 -> 41 s |
+| #87 | neutral implicit solves: banded x-line preconditioner, restart 200 -> 30 (stacked on #82) | stiff slab test 20-22 -> 10.6 s | not measured |
+
+Office 36-core CPU (load average 34, one A/B pair only, so indicative): step 26.4 -> 20.0 s (-24%), cold compile 238 -> 195 s, peak RSS 6.9 -> 5.0 GB.
+Peak RSS on the Mac is unchanged within the run-to-run spread (5.2-5.4 GB warm). GPU peak memory 0.47 GB (1.5 GB during the initial cold phi).
+Equivalence: wall-ledger lines (10 digits) of a 4-step run agree with main; the eig matches LAPACK to 2.5e-13 relative in the
+absolute-value action; the tree solve matches a dense solve to 1e-12; flat GMRES matches the custom-product path in iteration
+count and to 1e-8 in the solution (the solver tolerance).
+
+Re-measurement 2026-11-09 on main dfc5eeb1 (macOS CPU, HSX 16^3 artifact, default deck, 30 steps, first excluded, one process under a lock, A/B/A/B x 2, mean step): main 0.310 / 0.310 s; #84 0.280 / 0.279 s (-10%); #85 0.324 / 0.312 s (+2.6%, within spread: its gain is the GPU micro-benchmark, not re-measured); #86 0.265 / 0.261 s (-15%). With fluid neutrals and recycling: main 0.310 / 0.309 s, #82 0.311 / 0.310 s, #87 0.310 / 0.306 s (parity). GMRES iterations per step (avg4) 37.5 in every variant. The rotation-matrix patch is now SOLVAX draft PR #185: on top of #84, 0.316 / 0.328 s (SOLVAX main) against 0.286 / 0.299 s (patch), mean -9%.
+
+### Tried and not adopted
+- Pallas/Triton single-kernel radial-tree solve (one program per eta plane, in-register sweeps, 64-bit): exact (1e-16) but 0.36 ms
+  per application on the A4000 against 0.08 ms for the fused XLA form above; layout conversions between the 32-wide vectors
+  dominate. Dropped (needed >= 1.3x end to end).
+- Replacing the 100-trip rotation loop by an accumulated rotation matrix in SOLVAX (matvec instead of a sequential loop): same
+  iterates (5e-17), 4x per iteration on a matrix-free 32^3 FGMRES(100) on a shared A4000 (0.47 vs 1.8 ms), but end to end inside the
+  contended HSX step it was within noise (0.89 s vs 0.66 s best-of). Kept as a SOLVAX patch (branch only, no PR opened).
+- `restart` below 100 would also shorten the rotation loop but costs extra cycles on the solves that need ~90 iterations.
+
+### Merge wave (2026-11-10, additive)
+#84, #86, #85, #82 and #87 merged in that order, each rebuilt on the then-current main and green in CI before merging.
+HSX 16^3 default deck, 30 IMEX steps, local macOS CPU, one process at a time, A/B/A/B x 2, median step: main before the wave 0.31 s,
+after #84 0.28 s, after #86 0.23 s (-26% in total; #85 and #82/#87 are parity on this deck). Fields of the last step equal to
+main in float32 history storage except phi (1.8e-9 relative, the solver tolerance) and the wall ledger (1e-19); GMRES iterations per
+step (avg4) 37.5 in every variant. Office A4000 (idle at start, cold then warm cache, pre-#84 main 0.44 / 0.43 s): #84 alone 0.50 / 0.47 s
+(+10%: the flat path still runs the 100-trip rotation loop and the chunked orthogonalisation on the GPU), #85 0.40 / 0.40 s (-8%),
+#86 0.29 / 0.28 s (-35%).
+Review findings fixed before merging: the closed-form 4x4 eigendecomposition (#86) returned NaN vectors for the zero matrix (a
+face with `q = 0`) and for a scalar block, overflowed beyond |A| ~ 1e100, and could return a plausible but wrong basis for a defective
+spectrum; it now scales the matrix, takes the axes for a rank <= 1 block, and checks its own residual (a failing case is reported
+non-real so the callers fall back). Edge-case tests were added for every PR (flat FGMRES: restart 1/2, zero rhs, first-iteration
+breakdown, NaN; tree solver: ratios 1/2/3, single ring, ny = 1, nothing active, invalid profiles; N6 closure at zero gradient and
+near-zero rates; line solver on lines shorter than the colour pattern). Stiff neutral tests: slab penetration 9.0 -> 3.1 s each with #87.
+Found, not fixed: a plasma with zero density everywhere gives a NaN `jax.grad` of the neutral fluid step (on main before N6 too).
+SOLVAX #185 (accumulated rotation matrix) is reviewed against the pytree rotation loop (restart 1/2/m, breakdown, complex, float32,
+fixed work); its DRBX GPU measurement is recorded in that PR.
+
+### Still open
+Relax the 1e-8 inner target (acceptance is 5e-5; ~25% fewer iterations, changes results), reuse the previous step's Krylov
+information, lower the 2.8 GB lowering peak (split the implicit+phi kernel), idle-GPU timings, SOLVAX pytree-path rotation fix for
+sharded runs, jit the SD1D residual/Jacobian trace.
+
 ## 5. Status log
 
 | Date | Merged | Notes |
@@ -699,4 +770,6 @@ pressure, target fluxes) from the HSX group.
 | 2026-10-21 | — | literature and code review (24 papers, Hermes-3/BOUT++/FELTOR source); this plan |
 | 2026-11-02 | #68 | B2 merged (Aiken approved). Ledger correction: the wall-step ledger was by construction; independent `wall_step_check` replaces it, figures above retracted (see "Ledger correction 2026-11-01") |
 | 2026-11-02 | physics/conservative-perp-diffusion (stacked on #72) | Perpendicular T diffusion in flux form of n T (energy rate D lap(nT), sum-free); one `reference_density_m3` (neutrals now 1e19, was 5e18). Unit test added. Measured on the default 16^3 HSX deck (dt 7.5e-4, 800 steps to t = 0.6), before -> after: dW_e - int face -2.852e-3 -> -7.648e-4 (3.7x smaller), dW_i - int face -1.735e-3 -> -3.301e-4 (5.3x), total W_e+W_i+K_i minus integrated faces -3.98e-3 -> -4.87e-4 (8.2x); particles closed to 9.5e-5 of the wall loss (was 9.4e-5). Remaining bulk residual: -0.5% of the electron wall energy loss, not yet attributed term by term. Neutral rates change for decks that relied on the old 5e18 reference |
+| 2026-11-08 | perf lane | #84-#87 (open); ranked bottleneck table and results in section 4b |
+| 2026-11-10 | #84, #86, #85, #82, #87 | perf lane merge wave: CPU step 0.31 -> 0.23 s on the 16^3 default deck; review fixes and edge-case tests; details in section 4b |
 | 2026-11-08 | docs/examples-current (stacked on #78, merges #74) | Docs and examples brought current: fluid neutrals as the default 3D model (validity Kn <~ 0.3; HSX 99.8% Kn >= 1, so N6 kinetic correction is the open gap), independent wall check output, conservative perpendicular energy diffusion, single reference density. New: `examples/neutrals/fluid_neutral_slab.py`, `examples/inputs/hsx_fci_neutrals.toml`. Retracted-figure and removed-key wording removed from docs/fci_braginskii_hsx_backend.md |
