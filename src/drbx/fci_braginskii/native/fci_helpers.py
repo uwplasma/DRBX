@@ -34,12 +34,20 @@ def small_batched_eig(matrix: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
 
     The input must already be stopped-gradient.  Returns complex eigenvalues
     and real eigenvectors.  When the roots of ``M`` are not real (the cubic's
-    discriminant is negative), the eigenvalues get a unit imaginary part and
-    the vectors are the identity; callers reject that case through their
-    spectrum-validity test exactly as for a complex LAPACK spectrum.
+    discriminant is negative) or the residual ``|A V - V L|`` of the result
+    exceeds 1e-8 of the largest entry (non-finite input, a repeated root with
+    a two-dimensional eigenspace), the eigenvalues get a unit imaginary part
+    and the vectors are the identity; callers reject that case through their
+    spectrum-validity test exactly as for a complex LAPACK spectrum.  The
+    matrix is scaled by its largest entry first, so any magnitude works; the
+    zero matrix gives the identity.
     """
 
     a = jnp.asarray(matrix, dtype=jnp.float64)
+    scale = jnp.max(jnp.abs(a), axis=(-2, -1), keepdims=True)  # eigenvectors do not depend on it
+    scale = jnp.where(jnp.isfinite(scale) & (scale > 0.0), scale, 1.0)
+    a = a / scale
+    original = a
     m, r = a[..., :3, :3], a[..., 3, :3]
     eye = jnp.eye(3, dtype=a.dtype)
     shift = (m[..., 0, 0] + m[..., 1, 1] + m[..., 2, 2]) / 3.0
@@ -68,12 +76,17 @@ def small_batched_eig(matrix: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     best = jnp.argmax(jnp.linalg.norm(crosses, axis=-1), axis=0)
     pick = best[None] == jnp.arange(3).reshape((3,) + (1,) * best.ndim)
     u = jnp.sum(jnp.where(pick[..., None], crosses, 0.0), axis=0)
-    u = u / jnp.maximum(jnp.linalg.norm(u, axis=-1, keepdims=True), 1.0e-300)
+    norm_u = jnp.linalg.norm(u, axis=-1, keepdims=True)
+    # M - lambda I of rank <= 1 (zero or scalar M): the axes are eigenvectors.
+    u = jnp.where(norm_u > 1.0e-14, u / jnp.where(norm_u > 1.0e-14, norm_u, 1.0), eye)
     tail = jnp.sum(r[..., None, :] * u, axis=-1) / jnp.where(lam != 0.0, lam, 1.0)
     v = jnp.concatenate([u, tail[..., None]], axis=-1)
     v = v / jnp.linalg.norm(v, axis=-1, keepdims=True)
     e3 = jnp.broadcast_to(jnp.asarray((0.0, 0.0, 0.0, 1.0)), v[..., :1, :].shape)
     vectors = jnp.swapaxes(jnp.concatenate([v, e3], axis=-2), -1, -2)
-    vectors = jnp.where(complex_roots[..., None, None], jnp.eye(4), vectors)
-    values = jnp.concatenate([lam, jnp.zeros_like(lam[..., :1])], axis=-1) + 1.0j * complex_roots[..., None]
-    return values, vectors
+    values = jnp.concatenate([lam, jnp.zeros_like(lam[..., :1])], axis=-1)
+    # Self-check: a degenerate spectrum the formulas cannot resolve is reported as non-real.
+    residual = jnp.max(jnp.abs(original @ vectors - vectors * values[..., None, :]), axis=(-2, -1))
+    invalid = complex_roots | ~(residual <= 1.0e-8)
+    vectors = jnp.where(invalid[..., None, None], jnp.eye(4), vectors)
+    return (values * scale[..., 0]) + 1.0j * invalid[..., None], vectors
