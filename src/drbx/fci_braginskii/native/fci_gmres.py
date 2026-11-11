@@ -510,14 +510,6 @@ def solvax_gmres_solve(
         jnp.asarray(config.acceptance_tol, dtype=dtype) * rhs_l2,
     )
 
-    initial_residual = _spmd_norm(
-        rhs - masked_apply_A(guess),
-        geometry,
-        domain,
-        active_mask,
-        volume_weights,
-    )
-
     def global_inner_product(
         left: jnp.ndarray,
         right: jnp.ndarray,
@@ -553,12 +545,11 @@ def solvax_gmres_solve(
         scale = jnp.where(weights > 0.0, jnp.sqrt(weights), 1.0)
         shape = geometry.owned_shape
 
-    def budgeted_gmres(
-        target: jnp.ndarray, x0: jnp.ndarray
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def budgeted_gmres(target: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
         # Full GMRES(restart) cycles, then one shorter cycle for the remainder
-        # of the iteration budget; the second call returns immediately when
-        # the first one has already converged.
+        # of the iteration budget (it returns immediately when the first call
+        # has already converged).  Solves ``A x = target`` from zero down to
+        # the absolute ``threshold``.
         if single_shard:
             kwargs = dict(
                 matvec=lambda y: (scale * masked_apply_A(y.reshape(shape) / scale)).ravel(),
@@ -567,7 +558,7 @@ def solvax_gmres_solve(
                 else lambda y: (scale * effective_preconditioner(y.reshape(shape) / scale)).ravel(),
                 fixed_precond=True,
             )
-            target, x0 = (scale * target).ravel(), (scale * x0).ravel()
+            target = (scale * target).ravel()
         else:
             kwargs = dict(
                 matvec=masked_apply_A,
@@ -576,10 +567,9 @@ def solvax_gmres_solve(
             )
         result = solvax_gmres(
             b=target,
-            x0=x0,
             restart=restart,
-            rtol=float(config.tol),
-            atol=float(config.atol),
+            rtol=0.0,
+            atol=threshold,
             max_restarts=max_restarts,
             **kwargs,
         )
@@ -590,8 +580,8 @@ def solvax_gmres_solve(
                 b=target,
                 x0=x,
                 restart=tail_restart,
-                rtol=float(config.tol),
-                atol=float(config.atol),
+                rtol=0.0,
+                atol=threshold,
                 max_restarts=1,
                 **kwargs,
             )
@@ -601,95 +591,51 @@ def solvax_gmres_solve(
             x = x.reshape(shape) / scale
         return x, iterations
 
-    result_x, result_iterations = budgeted_gmres(rhs, guess)
-    phi = _mask_inactive_owned(result_x, active_mask)
-    if config.project_mean_zero:
-        phi = _spmd_remove_weighted_mean(
-            phi, geometry, domain, active_mask, volume_weights
-        )
-    final_residual = _spmd_norm(
-        rhs - masked_apply_A(phi),
-        geometry,
-        domain,
-        active_mask,
-        volume_weights,
-    )
-    total_iterations = result_iterations
+    def residual(candidate: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+        r = rhs - masked_apply_A(candidate)
+        return r, _spmd_norm(r, geometry, domain, active_mask, volume_weights)
 
-    # A long flexible Arnoldi cycle can report a small projected residual
-    # while the independently recomputed physical residual remains above the
-    # configured acceptance floor.  Only in that otherwise-rejected case,
-    # solve the true residual equation from zero and add the correction.  This
-    # is reliable residual replacement/iterative refinement: it changes the
-    # linear solver trajectory, not the polarization operator or its target.
-    for _ in range(int(config.residual_correction_steps)):
-        needs_correction = (
-            jnp.isfinite(final_residual)
+    # Residual form: each pass solves A d = r from zero and adds d.  A long
+    # flexible Arnoldi cycle can report a small projected residual while the
+    # independently recomputed physical residual stays above the acceptance
+    # floor; only then does a further pass (residual replacement, at most
+    # ``residual_correction_steps``) run, kept only if it lowers the residual.
+    # One traced solve serves every pass.
+    steps = int(config.residual_correction_steps)
+    residual0, initial_residual = residual(guess)
+
+    def attempt(carry):
+        phi, r, norm, iterations, k = carry
+        x, count = budgeted_gmres(r)
+        candidate = _mask_inactive_owned(phi + x, active_mask)
+        if config.project_mean_zero:
+            candidate = _spmd_remove_weighted_mean(
+                candidate, geometry, domain, active_mask, volume_weights
+            )
+        r_new, norm_new = residual(candidate)
+        better = (k == 0) | (jnp.isfinite(norm_new) & (norm_new < norm))
+        return (
+            jnp.where(better, candidate, phi),
+            jnp.where(better, r_new, r),
+            jnp.where(better, norm_new, norm),
+            iterations + count,
+            jnp.where(better, k + 1, steps + 1),
+        )
+
+    def again(carry):
+        _, _, norm, _, k = carry
+        return (k == 0) | (
+            (k <= steps)
+            & jnp.isfinite(norm)
             & rhs_is_finite
             & guess_is_finite
             & volume_weights_valid
-            & (final_residual > acceptance_threshold)
+            & (norm > acceptance_threshold)
         )
 
-        def correct(
-            operand: tuple[jnp.ndarray, jnp.ndarray],
-        ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-            current_phi, current_residual_norm = operand
-            correction_rhs = rhs - masked_apply_A(current_phi)
-            correction_x, correction_iterations = budgeted_gmres(
-                correction_rhs, jnp.zeros_like(current_phi)
-            )
-            candidate = _mask_inactive_owned(
-                current_phi + correction_x,
-                active_mask,
-            )
-            if config.project_mean_zero:
-                candidate = _spmd_remove_weighted_mean(
-                    candidate,
-                    geometry,
-                    domain,
-                    active_mask,
-                    volume_weights,
-                )
-            candidate_residual = _spmd_norm(
-                rhs - masked_apply_A(candidate),
-                geometry,
-                domain,
-                active_mask,
-                volume_weights,
-            )
-            improved = jnp.isfinite(candidate_residual) & (
-                candidate_residual < current_residual_norm
-            )
-            accepted_phi = jnp.where(improved, candidate, current_phi)
-            accepted_residual = jnp.where(
-                improved,
-                candidate_residual,
-                current_residual_norm,
-            )
-            return (
-                accepted_phi,
-                accepted_residual,
-                correction_iterations,
-            )
-
-        def skip(
-            operand: tuple[jnp.ndarray, jnp.ndarray],
-        ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-            current_phi, current_residual_norm = operand
-            return (
-                current_phi,
-                current_residual_norm,
-                jnp.asarray(0, dtype=jnp.int32),
-            )
-
-        phi, final_residual, correction_iterations = lax.cond(
-            needs_correction,
-            correct,
-            skip,
-            (phi, final_residual),
-        )
-        total_iterations = total_iterations + correction_iterations
+    phi, _, final_residual, total_iterations, _ = lax.while_loop(
+        again, attempt, (guess, residual0, initial_residual, jnp.int32(0), jnp.int32(0))
+    )
     phi_is_finite = _spmd_all_finite(phi, domain, active_mask)
     finite_failed = (
         (~jnp.isfinite(initial_residual))

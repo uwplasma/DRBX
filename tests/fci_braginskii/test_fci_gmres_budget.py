@@ -202,3 +202,26 @@ def test_single_shard_flat_path_propagates_nan_without_hanging():
         )
     )(rhs)
     assert not bool(info.converged) and int(info.num_steps) <= 5
+
+
+def test_residual_correction_passes_restart_from_the_best_iterate_with_a_nonzero_guess():
+    geometry, domain = _single_device_slab()
+    shape = geometry.owned_shape
+    apply_A = _convection_dominated_operator(shape)
+    rng = np.random.default_rng(5)
+    rhs, guess = (jnp.asarray(rng.standard_normal(shape)) for _ in range(2))
+
+    def solve(steps):
+        config = SolvaxGmresConfig(
+            tol=1.0e-12, atol=0.0, restart=10, maxiter=10, acceptance_tol=1.0e-11,
+            residual_correction_steps=steps,
+        )
+        return jax.jit(lambda b, g: solvax_gmres_solve(apply_A, b, g, geometry, domain, config))(rhs, guess)
+
+    (_, base), (phi, more) = solve(0), solve(3)
+    assert int(base.num_steps) <= 10 < int(more.num_steps) <= 40
+    assert float(more.initial_residual_l2) == pytest.approx(float(_spmd_norm(rhs - apply_A(guess), geometry, domain)))
+    assert float(more.final_residual_l2) < 0.1 * float(base.final_residual_l2)
+    assert float(more.final_residual_l2) == pytest.approx(
+        float(_spmd_norm(rhs - apply_A(phi), geometry, domain)), rel=1e-6
+    )
