@@ -761,6 +761,12 @@ Relax the 1e-8 inner target (acceptance is 5e-5; ~25% fewer iterations, changes 
 information, lower the 2.8 GB lowering peak (split the implicit+phi kernel), idle-GPU timings, SOLVAX pytree-path rotation fix for
 sharded runs, jit the SD1D residual/Jacobian trace.
 
+### Solver lane item 4: inner tolerance tied to the time step (2026-11-11, additive)
+`gmres_target_tolerance = 0` (new default) resolves to `max(1e-8, min(0.2 * acceptance, 10 dt^2))`: 5.6e-6 at dt = 7.5e-4; a positive value is used as given (`1e-8` restores the old behaviour). Rationale: a residual `r` in a potential solve enters a step as `dt r`, the SSP222 local error is `dt^3`.
+Measured on the HSX 16^3 default deck, 30 steps (dt 7.5e-4, t = 0.0225), macOS CPU, GMRES iterations per solve (pair1, plain2, pair2, plain-next), mean of the last 29 steps: target 1e-8 `[42.3, 33.0, 42.5, 32.6]` mean 37.6; 1e-7 32.8; 1e-6 27.2; 1e-5 22.9; auto (5.6e-6) `[26.0, 21.5, 26.1, 20.3]` mean 23.5 (-37.5%). Neutrals + recycling deck: 37.6 -> 23.4. 32^3 (10 steps): 64.9 -> 40.4.
+Field change against the time-truncation error (last frame, relative L2; truncation = same deck at dt/2): phi 8.1e-6 vs 1.1e-1, Ve 2.7e-6 vs 1.3e-1, vorticity 2.5e-7 vs 1.7e-2, Vi 5.8e-9 vs 1.4e-4, density 2.6e-9 vs 1.2e-6; Te, Ti unchanged in float32 storage (truncation 6.3e-6, 1.1e-6). The solver-induced change is 1e-4 to 1e-5 of the truncation change in every field. 32^3, 10 steps: phi 2.5e-4, Ve 1.4e-5, vorticity 1.6e-6, Vi 1.8e-8 (truncation at dt/2 in the PR body).
+Not changed: the conduction PCG (1e-12) and the strict `1e-8` remains the value to give the adjoint solve of the implicit-VJP lane.
+
 ## 5. Status log
 
 | Date | Merged | Notes |
@@ -776,3 +782,4 @@ sharded runs, jit the SD1D residual/Jacobian trace.
 | 2026-11-10 | solvax pin (open PR) | `solvax>=0.36.1` (FGMRES flat path with the accumulated Givens rotation matrix, SOLVAX #185). 16^3 default and neutrals decks, 4 steps, against solvax 0.36.0: every field array bitwise identical; only `phi` (at most 4.5e-9 of its maximum, the GMRES solve) and the wall ledger differ, at rounding level. |
 | 2026-11-10 | zero-density NaN (open PR) | `jax.grad` of the neutral fluid step with n = 0 everywhere was NaN (the step value was NaN too). Two causes: `apply_volumetric_source` divided 0/0 for the momentum and temperatures of an empty cell (it now keeps the old Vi, Te, Ti there), and `transport_coefficients` floored nu at 1e-300, so tau_n = 1/nu and its derivative 1/nu^2 overflowed to inf * 0 (floor now 1e-100). Nonzero-density results bitwise unchanged; 16^3 default and neutrals decks bitwise identical to main over 4 steps. |
 | 2026-11-11 | slim lane: stray scripts (open PR) | Removed `w/` (4 scratch scripts) and `dev/fci_analysis/` (15 post-processing scripts for old shifted-torus runs); no references in src, tests, docs, CI or pyproject, not packaged, no `drbx` code touched (-6814 lines, 19 files). Supersedes the dev/ half of B4. |
+| 2026-11-11 | solver lane item 4 (open PR) | Inner potential-solve tolerance tied to dt: iterations -37.5% on the 16^3 default and neutrals decks, -38% on 32^3; field changes 1e-4 to 1e-5 of the time-truncation change |
