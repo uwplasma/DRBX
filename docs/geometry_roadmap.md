@@ -62,9 +62,6 @@ in tree:
 - [src/drbx/native/fci_drb_rhs.py](../src/drbx/native/fci_drb_rhs.py)
 - [src/drbx/validation/stellarator_fci_geometry_campaign.py](../src/drbx/validation/stellarator_fci_geometry_campaign.py)
 - [src/drbx/validation/stellarator_fci_operator_campaign.py](../src/drbx/validation/stellarator_fci_operator_campaign.py)
-- [src/drbx/validation/stellarator_sheath_recycling_campaign.py](../src/drbx/validation/stellarator_sheath_recycling_campaign.py)
-- [src/drbx/validation/stellarator_neutral_physics_campaign.py](../src/drbx/validation/stellarator_neutral_physics_campaign.py)
-- [src/drbx/validation/stellarator_vorticity_campaign.py](../src/drbx/validation/stellarator_vorticity_campaign.py)
 - [src/drbx/validation/stellarator_sol_showcase.py](../src/drbx/validation/stellarator_sol_showcase.py)
 - [docs/stellarator_fci_validation.md](stellarator_fci_validation.md)
 
