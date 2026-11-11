@@ -435,18 +435,6 @@ class JaxMetricEvaluator:
         ).real
         return tuple(x.reshape(shape + (3,)) for x in (values, du, dtheta, deta))
 
-    def channel_values_and_derivatives(self, logical_points: Any):
-        """Return ``(R, Z, delta_phi)`` and its ``u, theta, eta`` derivatives.
-
-        Each returned array has shape ``(..., 3)``.  This is useful to callers
-        that need the fitted cylindrical channels without forming Cartesian
-        metrics.
-        """
-        q = jnp.asarray(logical_points, dtype=jnp.float64)
-        if q.ndim == 0 or q.shape[-1] != 3:
-            raise ValueError("logical_points must have shape (..., 3)")
-        return self._values_and_derivatives(q)
-
     def position_and_jacobian(self, logical_points: Any):
         """Return position and logical Jacobian with one spectral evaluation.
 
