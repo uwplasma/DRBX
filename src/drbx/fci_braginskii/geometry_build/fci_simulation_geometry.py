@@ -13,7 +13,7 @@ contains only ordinary NumPy arrays and JSON metadata.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -328,9 +328,6 @@ class FciSimulationGeometry3D:
     @property
     def owner_overlap_geometry(self) -> GlobalRlpParallelOverlapGeometry | None:
         return self.owner_overlap
-
-    def with_producer_validation_report(self, report: Mapping[str, Any]) -> "FciSimulationGeometry3D":
-        return replace(self, producer_validation_report=dict(report))
 
     def write(self, path: str | Path) -> Path:
         return write_fci_simulation_geometry(self, path)

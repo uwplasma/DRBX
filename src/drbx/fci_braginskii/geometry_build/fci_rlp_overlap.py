@@ -478,15 +478,6 @@ class GlobalRlpParallelOverlapGeometry:
     def link_owner_b_slot(self) -> np.ndarray:
         return self.link_owner_b
 
-    def metadata_dict(self) -> dict[str, Any]:
-        result = dict(self.metadata)
-        result.setdefault("raw_shape", list(self.raw_shape))
-        result.setdefault("owner_count", self.n_owner)
-        result.setdefault("link_count", self.n_link)
-        result["diagnostics"] = dict(self.diagnostics)
-        return result
-
-
 def write_rlp_parallel_overlap_geometry(
     path: str | Path,
     geometry: GlobalRlpParallelOverlapGeometry,

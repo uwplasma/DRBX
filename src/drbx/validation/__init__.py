@@ -51,20 +51,6 @@ from .vmec_extender_sol_smoke_campaign import (
     save_vmec_extender_sol_smoke_plot,
     simulate_vmec_extender_scalar_sol_smoke,
 )
-from .geometry_lineouts import (
-    LineoutSpec,
-    build_lineout_report,
-    save_lineout_summary_plot,
-    write_lineout_arrays_npz,
-)
-from .geometry_slices import (
-    SliceSpec,
-    build_slice_report,
-    save_slice_gif,
-    save_slice_summary_plot,
-    write_slice_arrays_npz,
-    write_slice_report_json,
-)
 from .stellarator_fci_geometry_campaign import (
     StellaratorFciGeometryCampaignArtifacts,
     build_stellarator_fci_geometry_report,
@@ -202,16 +188,6 @@ __all__ = [
     "create_vmec_extender_sol_smoke_package",
     "save_vmec_extender_sol_smoke_plot",
     "simulate_vmec_extender_scalar_sol_smoke",
-    "LineoutSpec",
-    "SliceSpec",
-    "build_lineout_report",
-    "build_slice_report",
-    "save_slice_gif",
-    "save_slice_summary_plot",
-    "save_lineout_summary_plot",
-    "write_lineout_arrays_npz",
-    "write_slice_arrays_npz",
-    "write_slice_report_json",
     "StellaratorFciGeometryCampaignArtifacts",
     "build_stellarator_fci_geometry_report",
     "create_stellarator_fci_geometry_campaign_package",
