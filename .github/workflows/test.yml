@@ -34,7 +34,7 @@ jobs:
         run: pytest -q tests/test_gpu_smoke.py tests/test_normalization.py tests/test_cli_command_surface.py
 
   pytest:
-    runs-on: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && matrix.python-version == '3.12')) && fromJSON('["self-hosted","macOS","uwplasma-cpu"]') || 'ubuntu-latest' }}
+    runs-on: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && matrix.python-version == '3.12')) && fromJSON('["self-hosted","uwplasma-cpu"]') || 'ubuntu-latest' }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
