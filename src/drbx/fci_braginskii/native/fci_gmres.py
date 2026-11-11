@@ -439,7 +439,7 @@ def minimum_residual_guess(
     projection onto earlier solutions; the time-extrapolation is the least
     squares fit, so it needs no time levels).  ``c = 0`` is admissible, so the
     start is never worse than ``guess``; it costs one operator application per
-    basis vector.  The result is a start only: it carries no gradient.
+    nonzero step.  The result is a start only: it carries no gradient.
     """
 
     if not basis:
@@ -447,7 +447,10 @@ def minimum_residual_guess(
     dot = lambda x, y: _spmd_dot(x, y, geometry, domain, active_cell_mask, volume_weights)
     residual = rhs - apply_A(guess)
     steps = [jnp.asarray(b, dtype=guess.dtype) - guess for b in basis]
-    images = [apply_A(step) for step in steps]
+    # A step that is exactly zero (a padded slot) costs no operator application.
+    images = [
+        lax.cond(dot(step, step) > 0.0, apply_A, jnp.zeros_like, step) for step in steps
+    ]
     gram = jnp.stack([jnp.stack([dot(a, b) for b in images]) for a in images])
     moment = jnp.stack([dot(a, residual) for a in images])
     values, vectors = jnp.linalg.eigh(gram)

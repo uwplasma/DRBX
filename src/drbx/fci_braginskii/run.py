@@ -2123,7 +2123,7 @@ def run_full_eb(
         # The staged path compiles each reusable kernel once, then runs the
         # same SSP222 algebra with device-side array operations between
         # kernel calls.
-        def with_model(kernel):
+        def with_model(kernel, basis_count):
             def wrapped(
                 local_state,
                 cell_fields_owned,
@@ -2136,26 +2136,33 @@ def run_full_eb(
                     map_fields_owned,
                     control_volume_fields_owned,
                 )
+                if basis_count:
+                    # The last argument carries the earlier potentials of the step.
+                    return kernel(local_state, model, *scalars[:-1], basis=scalars[-1])
                 return kernel(local_state, model, *scalars)
 
             return wrapped
 
-        def staged_kernel(kernel, scalar_count, out_specs):
+        def staged_kernel(kernel, scalar_count, out_specs, basis_count=0):
             return jax.shard_map(
-                with_model(kernel),
+                with_model(kernel, basis_count),
                 mesh=mesh,
                 in_specs=(state_spec,) + (geometry_spec,) * 3
-                + (replicated_spec,) * scalar_count,
+                + (replicated_spec,) * scalar_count
+                + (((spatial_spec,) * basis_count,) if basis_count else ()),
                 out_specs=out_specs,
                 check_vma=False,
             )
 
+        # Fixed basis sizes per kernel (padded with the stage potential, a zero
+        # step that costs no operator application).
+        implicit_basis, phi_basis = 2, 3
         staged_implicit_sharded = staged_kernel(
-            implicit_solve, 2, (state_spec, state_spec, replicated_spec)
+            implicit_solve, 2, (state_spec, state_spec, replicated_spec), implicit_basis
         )
         staged_explicit_sharded = staged_kernel(evaluate_operators, 1, state_spec)
         staged_phi_sharded = staged_kernel(
-            reconstruct_stage_phi, 0, (spatial_spec, replicated_spec)
+            reconstruct_stage_phi, 0, (spatial_spec, replicated_spec), phi_basis
         )
         staged_finalize_sharded = jax.shard_map(
             lambda states, rates, infos, *fields: finalize_advance(
@@ -2199,6 +2206,7 @@ def run_full_eb(
                 IMEX_SSP222_GAMMA * float(timestep), dtype=jnp.float64
             ),
             jnp.asarray(float(timestep), dtype=jnp.float64),
+            (state.phi,) * implicit_basis,
         )
         staged_explicit = compile_staged_kernel(
             "explicit-rhs",
@@ -2212,6 +2220,7 @@ def run_full_eb(
             staged_phi_sharded,
             state,
             *geometry_args,
+            (state.phi,) * phi_basis,
         )
         zero_info = jnp.zeros((7,), dtype=jnp.float64)
         staged_finalize = compile_staged_kernel(
@@ -2229,6 +2238,9 @@ def run_full_eb(
             flush=True,
         )
 
+        def padded(basis, count, state):
+            return tuple(basis) + (state.phi,) * (count - len(basis))
+
         def staged_execute_advance(current, *advance_args):
             fields = advance_args[:3]
             dt_dynamic = jnp.asarray(float(timestep), dtype=jnp.float64)
@@ -2236,10 +2248,13 @@ def run_full_eb(
                 *ssp222_stages(
                     current,
                     lambda base, gamma_dt, basis: staged_implicit(
-                        base, *fields, gamma_dt, dt_dynamic
+                        base, *fields, gamma_dt, dt_dynamic,
+                        padded(basis, implicit_basis, base),
                     ),
                     lambda stage: staged_explicit(stage, *fields, dt_dynamic),
-                    lambda state, basis: staged_phi(state, *fields),
+                    lambda state, basis: staged_phi(
+                        state, *fields, padded(basis, phi_basis, state)
+                    ),
                     dt_dynamic,
                 ),
                 *fields,
