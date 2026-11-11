@@ -364,7 +364,8 @@ def apply_volumetric_source(density, Vi, Te, Ti, source: VolumetricSource, dt, *
 
     n = density
     n_new = n + dt * source.particle
-    safe = jnp.where(owner, n_new, 1.0)
+    live = owner & (n_new != 0.0)  # an empty cell (0/0) keeps its old Vi, Te, Ti
+    safe = jnp.where(live, n_new, 1.0)
     mom = n * Vi + dt * source.momentum
     Vi_new = mom / safe
     ion_total = 1.5 * tau * n * Ti + 0.5 * n * Vi**2
@@ -372,8 +373,8 @@ def apply_volumetric_source(density, Vi, Te, Ti, source: VolumetricSource, dt, *
     Ti_new = (ion_total - 0.5 * n_new * Vi_new**2) / (1.5 * tau * safe)
     We = 1.5 * n * Te + dt * source.electron_energy
     Te_new = We / (1.5 * safe)
-    keep = lambda new, old: jnp.where(owner, new, old)
-    return keep(n_new, n), keep(Vi_new, Vi), keep(Te_new, Te), keep(Ti_new, Ti)
+    keep = lambda new, old: jnp.where(live, new, old)
+    return jnp.where(owner, n_new, n), keep(Vi_new, Vi), keep(Te_new, Te), keep(Ti_new, Ti)
 
 
 def reaction_source(density, Vi, Te, Ti, neutral_density, params: NeutralParameters, owner, neutral_temperature=None,

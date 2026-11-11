@@ -99,7 +99,7 @@ def transport_coefficients(density, Te, Ti, neutral_density, neutral_temperature
     """``(D_p, kappa, eta)``: ``tau_n/m``, ``5 p_n tau_n/(2m)``, ``p_n tau_n`` with ``tau_n = (1 + 0.8 nu_iz/nu)/nu``."""
 
     nu_cx, nu_iz = collision_frequencies(density, Te, Ti, params, neutral_temperature)
-    nu = jnp.maximum(nu_cx + nu_iz, 1.0e-300)
+    nu = jnp.maximum(nu_cx + nu_iz, 1.0e-100)
     tau = (1.0 + 0.8 * nu_iz / nu) / nu
     p = neutral_density * neutral_temperature
     return tau, 2.5 * p * tau, p * tau
