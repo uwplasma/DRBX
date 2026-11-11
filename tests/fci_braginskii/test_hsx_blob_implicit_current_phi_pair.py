@@ -82,10 +82,10 @@ def test_run_full_eb_both_implicit_stage_paths_dispatch_on_the_flag():
         assert segment is not None
         assert "if model.implicit_current_phi_pair:" in segment
         assert "model.solve_implicit_current_phi_pair(" in segment
-        assert "reconstruct_stage_phi(updated, model)" in segment
+        assert "reconstruct_stage_phi(updated, model, basis)" in segment
         # The guard must precede the fallback in source order.
         assert segment.index("if model.implicit_current_phi_pair:") < segment.index(
-            "reconstruct_stage_phi(updated, model)"
+            "reconstruct_stage_phi(updated, model, basis)"
         )
 
 
