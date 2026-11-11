@@ -24,8 +24,8 @@ def _package_name(requirement: str) -> str:
 
 
 # solvax carries the extracted structured-solver machinery and is the one runtime
-# dependency allowed a lower-bound version floor (0.28.2: the FGMRES Givens loop
-# with a static bound, which removes per-rotation host round trips on GPU).
+# dependency allowed a lower-bound version floor (0.36.1: the FGMRES Givens rotations
+# accumulated in one matrix, a matvec instead of an m-trip loop).
 _VERSION_FLOOR_EXCEPTIONS = {"solvax"}
 
 
