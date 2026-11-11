@@ -75,7 +75,8 @@ def test_singular_gauge_fixed_periodic_laplacian_gradient():
 def test_float32_gradient_is_finite_and_close_to_finite_difference():
     geometry, domain = _single_device_slab()  # built in float64, solved in float32
     shape = geometry.owned_shape
-    with jax.enable_x64(False):
+    enable_x64 = getattr(jax, "enable_x64", None) or __import__("jax.experimental", fromlist=["enable_x64"]).enable_x64
+    with enable_x64(False):
         rhs = jnp.asarray(np.random.default_rng(1).standard_normal(shape), dtype=jnp.float32)
         config = SolvaxGmresConfig(tol=1.0e-6, atol=1.0e-7, restart=50, maxiter=200)
         loss = lambda p: _loss(p, rhs, geometry, domain, config=config)
