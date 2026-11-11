@@ -761,6 +761,45 @@ Relax the 1e-8 inner target (acceptance is 5e-5; ~25% fewer iterations, changes 
 information, lower the 2.8 GB lowering peak (split the implicit+phi kernel), idle-GPU timings, SOLVAX pytree-path rotation fix for
 sharded runs, jit the SD1D residual/Jacobian trace.
 
+### 4d. Electromagnetic (A_par) wiring (2026-11-11)
+
+Audit. `native/electromagnetic.py` (numpy, tests only) is a Hermes-3 slab port: hard-coded Alfven-wave MMS coefficients, a
+single-radial-cell Neumann A_par solve, no connection to any stepper or deck. `native/fci_drb_EB_rhs.py` and the `fci_braginskii`
+HSX backend are electrostatic Boussinesq (the "EB" is electrostatic Boussinesq; docs/physics_models.md called it electromagnetic).
+`linear/dispersion.py` carries the analytic shear-Alfven operator only as a hand-assembled matrix. The four-field FCI model
+(`fci_4_field_rhs.py`, deck backend `stellarator_turbulence`) already evolves `v_electron_parallel` with the electron parallel
+force balance, so it is the smallest host.
+
+Wiring. `EmPhysics` is the `[physics]` deck table (`electromagnetic = false` default). With it on, `v_electron_parallel` is the
+canonical momentum `w = v_e - (mi/me) A`; `FciEmClosure.solve_apar` solves `(-lap_perp + beta (mi/me) n_ref) A = beta n (v_i - w)
+- beta (mi/me) (n - n_ref) A` by defect correction (the fixed-coefficient Helmholtz operator is the existing
+`PerpLaplacianInverseSolver` with `regularization_epsilon`, so the solver code is untouched); `compute_4field_rhs` then feeds
+`v_e = w + (mi/me) A` to the unchanged assembly and adds the flutter term `{A, f} / (rho_star B)` to the four parallel gradients
+(density, phi, v_i, v_e). The electrostatic path is the same code with `electromagnetic=None`: 3 steps of the rotating-ellipse
+case are bitwise identical to main (sha256 of density and omega frames). Reverse mode through the GMRES potential solve is
+unavailable in the electrostatic model as well (`lax.while_loop`); forward mode through the electromagnetic step matches finite
+differences.
+
+Evidence (`tests/test_electromagnetic_fci.py`, 8 tests, about 50 s with `-n 2`; slab with Dirichlet radial walls, modes
+`sin(kx x) exp(i(ky y + kz z))`): shear-Alfven `omega = kz vA / sqrt(1 + k_perp^2 d_e^2)` at 12x3x16 cells: beta 0.5
+(k_perp d_e = 0.14) measured/analytic - 1 = -2.5%; beta 0.005 (k_perp d_e = 1.4, factor 1/sqrt 3) -1.7%. Drift-Alfven, Ln = 10,
+beta 0.03, kz 0.1: 0.7309 against the 4x4 local dispersion root 0.7292 (+0.24%, 12x16x16 cells); the electrostatic limit of the
+same parameters is 1.206, so the flutter term `b1.grad n0` (the omega_* A_par entry of the matrix) is resolved. Energy
+(ExB + magnetic + electron kinetic) over one wave period: drift 0.55% at amplitude 1e-3 and 2.7% at 0.05 while the ExB and magnetic
+energies swing by 100% and 74%. beta -> 0: `max|RHS_em - RHS_es| / max|RHS_es|` is 8.5e-7 at beta 1e-6 and 8.5e-9 at 1e-8 (linear in
+beta). MMS (A(x,z), phi(x,z), n(x,y), v_i given, w from Ampere): error of A and of dw/dt at N = 8/16/24: 3.0e-4/9.6e-5/4.2e-5 and
+0.349/0.079/0.034, observed order 2.1 for both.
+
+Found, not fixed: the conservative perpendicular Laplacian has a wide (2h) stencil and an O(1) inconsistency at the periodic
+seam cells in y (ratio of `L cos(y)` to `cos(y)` -0.74 against -0.95 at the first cell, independent of resolution); the
+slab tests therefore put the perpendicular structure in x (Dirichlet walls) and keep y smooth. A fully periodic box with even
+`nx` or `ny` also has a null space of checkerboard modes.
+
+Open: A_par in the `fci_braginskii` HSX backend (`_Ve_rhs` of `fci_drb_EB_rhs.py` has the same `mi_over_me * grad_par(phi)` form,
+so the same closure applies to its Ve equation; its phi solve and BC bundle differ); A_par for the 1D SOL flux tube (no
+perpendicular structure to invert) and the 2D Hasegawa-Wakatani box (no parallel direction; an electromagnetic HW needs a
+fixed-k_par closure).
+
 ## 5. Status log
 
 | Date | Merged | Notes |
@@ -776,3 +815,4 @@ sharded runs, jit the SD1D residual/Jacobian trace.
 | 2026-11-10 | solvax pin (open PR) | `solvax>=0.36.1` (FGMRES flat path with the accumulated Givens rotation matrix, SOLVAX #185). 16^3 default and neutrals decks, 4 steps, against solvax 0.36.0: every field array bitwise identical; only `phi` (at most 4.5e-9 of its maximum, the GMRES solve) and the wall ledger differ, at rounding level. |
 | 2026-11-10 | zero-density NaN (open PR) | `jax.grad` of the neutral fluid step with n = 0 everywhere was NaN (the step value was NaN too). Two causes: `apply_volumetric_source` divided 0/0 for the momentum and temperatures of an empty cell (it now keeps the old Vi, Te, Ti there), and `transport_coefficients` floored nu at 1e-300, so tau_n = 1/nu and its derivative 1/nu^2 overflowed to inf * 0 (floor now 1e-100). Nonzero-density results bitwise unchanged; 16^3 default and neutrals decks bitwise identical to main over 4 steps. |
 | 2026-11-11 | slim lane: stray scripts (open PR) | Removed `w/` (4 scratch scripts) and `dev/fci_analysis/` (15 post-processing scripts for old shifted-torus runs); no references in src, tests, docs, CI or pyproject, not packaged, no `drbx` code touched (-6814 lines, 19 files). Supersedes the dev/ half of B4. |
+| 2026-11-11 | electromagnetic PR 1 (open) | `[physics] electromagnetic` for the four-field FCI model: A_par, flutter, electron inertia; analytic dispersion, beta -> 0, energy and MMS tests; section 4d |
