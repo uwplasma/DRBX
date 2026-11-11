@@ -1661,6 +1661,10 @@ def run_full_eb(
         )
 
     shard_count = int(np.prod(sharded_geometry.shard_counts))
+    try:
+        jax.devices("cpu")
+    except RuntimeError:  # JAX_PLATFORMS=cuda: the ordered host markers need a CPU device
+        phase_timing = False
     if phase_timing and advance_execution == "eager":
         print(
             "[simulation] operator/GMRES host-callback timing disabled for "
