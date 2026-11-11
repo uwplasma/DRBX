@@ -51,20 +51,6 @@ from .vmec_extender_sol_smoke_campaign import (
     save_vmec_extender_sol_smoke_plot,
     simulate_vmec_extender_scalar_sol_smoke,
 )
-from .geometry_lineouts import (
-    LineoutSpec,
-    build_lineout_report,
-    save_lineout_summary_plot,
-    write_lineout_arrays_npz,
-)
-from .geometry_slices import (
-    SliceSpec,
-    build_slice_report,
-    save_slice_gif,
-    save_slice_summary_plot,
-    write_slice_arrays_npz,
-    write_slice_report_json,
-)
 from .stellarator_fci_geometry_campaign import (
     StellaratorFciGeometryCampaignArtifacts,
     build_stellarator_fci_geometry_report,
@@ -76,36 +62,6 @@ from .stellarator_fci_operator_campaign import (
     build_stellarator_fci_operator_campaign,
     create_stellarator_fci_operator_campaign_package,
     save_stellarator_fci_operator_plot,
-)
-from .stellarator_metric_mms_campaign import (
-    StellaratorMetricMmsCampaignArtifacts,
-    build_stellarator_metric_mms_campaign,
-    create_stellarator_metric_mms_campaign_package,
-    save_stellarator_metric_mms_plot,
-)
-from .stellarator_fci_suite_campaign import (
-    StellaratorFciSuiteCampaignArtifacts,
-    build_stellarator_fci_suite_campaign,
-    create_stellarator_fci_suite_campaign_package,
-    save_stellarator_fci_suite_plot,
-)
-from .stellarator_sheath_recycling_campaign import (
-    StellaratorSheathRecyclingCampaignArtifacts,
-    build_stellarator_sheath_recycling_campaign,
-    create_stellarator_sheath_recycling_campaign_package,
-    save_stellarator_sheath_recycling_plot,
-)
-from .stellarator_neutral_physics_campaign import (
-    StellaratorNeutralPhysicsCampaignArtifacts,
-    build_stellarator_neutral_physics_campaign,
-    create_stellarator_neutral_physics_campaign_package,
-    save_stellarator_neutral_physics_plot,
-)
-from .stellarator_vorticity_campaign import (
-    StellaratorVorticityCampaignArtifacts,
-    build_stellarator_vorticity_campaign,
-    create_stellarator_vorticity_campaign_package,
-    save_stellarator_vorticity_plot,
 )
 from .stellarator_drb_pytree_campaign import (
     StellaratorDrbPytreeCampaignArtifacts,
@@ -232,16 +188,6 @@ __all__ = [
     "create_vmec_extender_sol_smoke_package",
     "save_vmec_extender_sol_smoke_plot",
     "simulate_vmec_extender_scalar_sol_smoke",
-    "LineoutSpec",
-    "SliceSpec",
-    "build_lineout_report",
-    "build_slice_report",
-    "save_slice_gif",
-    "save_slice_summary_plot",
-    "save_lineout_summary_plot",
-    "write_lineout_arrays_npz",
-    "write_slice_arrays_npz",
-    "write_slice_report_json",
     "StellaratorFciGeometryCampaignArtifacts",
     "build_stellarator_fci_geometry_report",
     "create_stellarator_fci_geometry_campaign_package",
@@ -250,26 +196,6 @@ __all__ = [
     "build_stellarator_fci_operator_campaign",
     "create_stellarator_fci_operator_campaign_package",
     "save_stellarator_fci_operator_plot",
-    "StellaratorMetricMmsCampaignArtifacts",
-    "build_stellarator_metric_mms_campaign",
-    "create_stellarator_metric_mms_campaign_package",
-    "save_stellarator_metric_mms_plot",
-    "StellaratorFciSuiteCampaignArtifacts",
-    "build_stellarator_fci_suite_campaign",
-    "create_stellarator_fci_suite_campaign_package",
-    "save_stellarator_fci_suite_plot",
-    "StellaratorSheathRecyclingCampaignArtifacts",
-    "build_stellarator_sheath_recycling_campaign",
-    "create_stellarator_sheath_recycling_campaign_package",
-    "save_stellarator_sheath_recycling_plot",
-    "StellaratorNeutralPhysicsCampaignArtifacts",
-    "build_stellarator_neutral_physics_campaign",
-    "create_stellarator_neutral_physics_campaign_package",
-    "save_stellarator_neutral_physics_plot",
-    "StellaratorVorticityCampaignArtifacts",
-    "build_stellarator_vorticity_campaign",
-    "create_stellarator_vorticity_campaign_package",
-    "save_stellarator_vorticity_plot",
     "StellaratorDrbPytreeCampaignArtifacts",
     "build_stellarator_drb_pytree_campaign",
     "create_stellarator_drb_pytree_campaign_package",

@@ -1548,32 +1548,6 @@ class LocalDomain3D(_DataclassPyTreeMixin):
             self.shard_spec.lower_side_kind(axis) == SIDE_AXIS_REGULAR
         )
 
-    def runtime_has_axis_regular_upper(self, axis: int) -> bool | jnp.ndarray:
-        axis = int(axis)
-        return self.runtime_touches_upper(axis) & (
-            self.shard_spec.upper_side_kind(axis) == SIDE_AXIS_REGULAR
-        )
-
-    def runtime_has_side_kind_lower(
-        self,
-        axis: int,
-        side_kind: int,
-    ) -> bool | jnp.ndarray:
-        axis = int(axis)
-        return self.runtime_touches_lower(axis) & (
-            self.shard_spec.lower_side_kind(axis) == int(side_kind)
-        )
-
-    def runtime_has_side_kind_upper(
-        self,
-        axis: int,
-        side_kind: int,
-    ) -> bool | jnp.ndarray:
-        axis = int(axis)
-        return self.runtime_touches_upper(axis) & (
-            self.shard_spec.upper_side_kind(axis) == int(side_kind)
-        )
-
     def tree_flatten(self):
         return (), (
             self.shard_spec,
