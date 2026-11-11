@@ -761,6 +761,20 @@ Relax the 1e-8 inner target (acceptance is 5e-5; ~25% fewer iterations, changes 
 information, lower the 2.8 GB lowering peak (split the implicit+phi kernel), idle-GPU timings, SOLVAX pytree-path rotation fix for
 sharded runs, jit the SD1D residual/Jacobian trace.
 
+### Solver lane items 7 and 8 (2026-11-11, additive; plan section 4c of PR #92)
+Item 7 (stage-2 base potential solve): `ssp222_stages` no longer calls `solve_phi(stage_2_base)` unless the sheath-current wall is
+on (`_solves_stage_2_phi`); implicit(stage_2_base) re-solves phi from the same right-hand side and nothing else reads the base
+potential. Equivalence on HSX, default deck, against main: 16^3 (6 steps) and 32^3 (4 steps) `density`, `Te`, `Ti` bitwise
+identical; `phi`/`Ve`/`vorticity`/`Vi` differ by at most 3.4e-8 / 7.2e-8 / 1.7e-8 / 5.6e-11 (16^3) and 8.5e-8 / 8.7e-8 / 4.0e-8 /
+1.0e-8 (32^3) of their maxima, i.e. the 1e-8 solver target; wall ledger within 2e-14. Four solves per step become three (the
+`avg4` log label now means the mean over the step's solves). Timings and profile are in the PR body.
+Item 8 (fewer synchronisation points per Krylov iteration) is not adopted. Convergence tested every 4 Arnoldi steps (inner
+masked block, results bitwise identical to the per-step test) was implemented in SOLVAX and measured on the office A4000: an
+Arnoldi-plus-stencil micro-benchmark gives 105 / 105 us per iteration (4096 unknowns) and 281 / 300 us (32768) for check_every 1 / 4,
+and the DRBX 16^3 step does not speed up (the traced step has the same ~34k device kernels, device busy 28.5% against 22.5%). The
+launches are in the matvec and the radial-tree preconditioner (about 220 kernels per iteration), not in the Arnoldi
+bookkeeping or the loop predicate, so the lever is fusing those, not the Krylov wrapper. No SOLVAX PR was opened.
+
 ## 5. Status log
 
 | Date | Merged | Notes |
@@ -776,3 +790,4 @@ sharded runs, jit the SD1D residual/Jacobian trace.
 | 2026-11-10 | solvax pin (open PR) | `solvax>=0.36.1` (FGMRES flat path with the accumulated Givens rotation matrix, SOLVAX #185). 16^3 default and neutrals decks, 4 steps, against solvax 0.36.0: every field array bitwise identical; only `phi` (at most 4.5e-9 of its maximum, the GMRES solve) and the wall ledger differ, at rounding level. |
 | 2026-11-10 | zero-density NaN (open PR) | `jax.grad` of the neutral fluid step with n = 0 everywhere was NaN (the step value was NaN too). Two causes: `apply_volumetric_source` divided 0/0 for the momentum and temperatures of an empty cell (it now keeps the old Vi, Te, Ti there), and `transport_coefficients` floored nu at 1e-300, so tau_n = 1/nu and its derivative 1/nu^2 overflowed to inf * 0 (floor now 1e-100). Nonzero-density results bitwise unchanged; 16^3 default and neutrals decks bitwise identical to main over 4 steps. |
 | 2026-11-11 | slim lane: stray scripts (open PR) | Removed `w/` (4 scratch scripts) and `dev/fci_analysis/` (15 post-processing scripts for old shifted-torus runs); no references in src, tests, docs, CI or pyproject, not packaged, no `drbx` code touched (-6814 lines, 19 files). Supersedes the dev/ half of B4. |
+| 2026-11-11 | solver lane item 7 (open PR) | Stage-2 base phi solve skipped unless the sheath-current wall is on: 4 -> 3 phi solves per step, fields equal main to the solver tolerance; item 8 measured and not adopted (section 4c lane note) |

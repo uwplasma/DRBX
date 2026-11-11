@@ -1447,6 +1447,17 @@ def _format_snapshot_time(value: float) -> str:
     return f"{value:.12e}".replace("+", "p").replace("-", "m").replace(".", "d")
 
 
+
+def _solves_stage_2_phi(sheath: SheathClosure | None) -> bool:
+    """Whether IMEX stage 2 solves phi for its base before the implicit stage.
+
+    Only the sheath-current wall linearises about that potential; for every
+    other wall implicit(stage_2_base) re-solves phi from the same right-hand
+    side, and nothing else reads the base potential, so the solve is skipped.
+    """
+    return sheath is not None and sheath.potential == "current"
+
+
 def run_full_eb(
     initial_state: FciDrbEBState,
     *,
@@ -1793,9 +1804,12 @@ def run_full_eb(
         flush=True,
     )
 
+    solve_stage_2_phi = _solves_stage_2_phi(sheath)
+    phi_solve_count = 3 + solve_stage_2_phi
+
     phase_timer = (
         _JittedPhaseTimer(
-            expected_markers=6,
+            expected_markers=phi_solve_count + 2,
             label=time_integrator,
         )
         if phase_timing
@@ -1928,8 +1942,11 @@ def run_full_eb(
             implicit_1,
             scale=(1.0 - 2.0 * IMEX_SSP222_GAMMA) * step_dt,
         )
-        stage_2_base_phi, gmres_info_2_base = solve_phi(stage_2_base)
-        stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
+        base_infos = ()
+        if solve_stage_2_phi:
+            stage_2_base_phi, gmres_info_2_base = solve_phi(stage_2_base)
+            stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
+            base_infos = (gmres_info_2_base,)
         stage_2, increment_2, gmres_info_2 = implicit(stage_2_base, gamma_dt)
         implicit_2 = increment_2.map_fields(lambda value: value / gamma_dt)
         explicit_2 = explicit(stage_2)
@@ -1942,7 +1959,7 @@ def run_full_eb(
         return (
             (current, stage_1, stage_2_base, stage_2, next_state),
             (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
-            (gmres_info_1, gmres_info_2_base, gmres_info_2, gmres_info_next),
+            (gmres_info_1, *base_infos, gmres_info_2, gmres_info_next),
         )
 
     def finalize_advance(
@@ -2042,7 +2059,7 @@ def run_full_eb(
         )
     stage_description = (
         "2 explicit operator stages, 2 complete short-wall solves, "
-        "4 SOLVAX FGMRES solves"
+        f"{phi_solve_count} SOLVAX FGMRES solves"
     )
     advance_action = (
         "lowering shard-local geometry and compiling one complete"
@@ -2153,7 +2170,7 @@ def run_full_eb(
             in_specs=(
                 (state_spec,) * 5,
                 (state_spec,) * 5,
-                (replicated_spec,) * 4,
+                (replicated_spec,) * phi_solve_count,
             ) + (geometry_spec,) * 3,
             out_specs=advance_out_specs,
             check_vma=False,
@@ -2207,7 +2224,7 @@ def run_full_eb(
             staged_finalize_sharded,
             (state,) * 5,
             (state,) * 5,
-            (zero_info,) * 4,
+            (zero_info,) * phi_solve_count,
             *geometry_args,
         )
         print(
@@ -3293,7 +3310,7 @@ def run_full_eb(
     print(
         f"[simulation] average {time_integrator} GMRES iterations: "
         f"{accumulated_gmres_iterations / num_steps:.2f} "
-        "(four solves per timestep)",
+        f"({phi_solve_count} solves per timestep)",
         flush=True,
     )
     print(
