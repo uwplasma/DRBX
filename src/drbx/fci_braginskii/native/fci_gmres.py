@@ -8,6 +8,7 @@ from typing import Callable
 import jax
 import jax.numpy as jnp
 from jax import lax
+from solvax.implicit import linear_solve as solvax_linear_solve
 from solvax.krylov import gmres as solvax_gmres
 
 from ..geometry.fci_geometry import (
@@ -553,15 +554,15 @@ def solvax_gmres_solve(
         scale = jnp.where(weights > 0.0, jnp.sqrt(weights), 1.0)
         shape = geometry.owned_shape
 
-    def budgeted_gmres(
-        target: jnp.ndarray, x0: jnp.ndarray
+    def raw_gmres(
+        apply: Callable[[jnp.ndarray], jnp.ndarray], target: jnp.ndarray, x0: jnp.ndarray
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         # Full GMRES(restart) cycles, then one shorter cycle for the remainder
         # of the iteration budget; the second call returns immediately when
         # the first one has already converged.
         if single_shard:
             kwargs = dict(
-                matvec=lambda y: (scale * masked_apply_A(y.reshape(shape) / scale)).ravel(),
+                matvec=lambda y: (scale * apply(y.reshape(shape) / scale)).ravel(),
                 precond=None
                 if effective_preconditioner is None
                 else lambda y: (scale * effective_preconditioner(y.reshape(shape) / scale)).ravel(),
@@ -570,7 +571,7 @@ def solvax_gmres_solve(
             target, x0 = (scale * target).ravel(), (scale * x0).ravel()
         else:
             kwargs = dict(
-                matvec=masked_apply_A,
+                matvec=apply,
                 precond=effective_preconditioner,
                 inner_product=global_inner_product,
             )
@@ -600,6 +601,20 @@ def solvax_gmres_solve(
         if single_shard:
             x = x.reshape(shape) / scale
         return x, iterations
+
+    def budgeted_gmres(
+        target: jnp.ndarray, x0: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        # Implicit-function VJP: reverse mode costs one transposed Krylov solve
+        # (same preconditioner) instead of differentiating the while_loop.
+        x0 = lax.stop_gradient(x0)
+        return solvax_linear_solve(
+            masked_apply_A,
+            target,
+            lambda apply, b: raw_gmres(apply, b, x0),
+            transpose_solver=lambda apply_t, b: raw_gmres(apply_t, b, jnp.zeros_like(b)),
+            has_aux=True,
+        )
 
     result_x, result_iterations = budgeted_gmres(rhs, guess)
     phi = _mask_inactive_owned(result_x, active_mask)
