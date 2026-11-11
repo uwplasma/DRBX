@@ -66,13 +66,11 @@ The native solver families are:
 The `linear/` package holds the general Jacobian/eigenmode engine (`eigen.py`)
 and the three reduced dispersion operators (`dispersion.py`).
 
-The validation layer contains four kinds of modules, although they are not yet
+The validation layer contains three kinds of modules, although they are not yet
 split cleanly on disk:
 
 - campaign builders (FCI operator/geometry/suite, ESSOS- and VMEC-imported
   geometry, stellarator SOL, autodiff diffusion)
-- geometry adapters and diagnostics (`geometry_lineouts.py`,
-  `geometry_slices.py`)
 - plotting/report helpers
 - publication-facing summary packages (`publication_plotting.py`)
 
