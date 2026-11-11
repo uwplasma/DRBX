@@ -3713,39 +3713,6 @@ def build_fci_maps_from_b_contravariant(
         k4 = _rhs(points + h_points * k3)
         return points + (h_points / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 
-    def _advance_batch_with_axis_event(points: jnp.ndarray, h: jnp.ndarray) -> jnp.ndarray:
-        """Advance one substep, splitting once at a lower-axis crossing."""
-
-        initial_rhs = _rhs(points)
-        trial = _rk4_batch(points, h)
-        if not axis_regular_axes[0]:
-            return trial
-
-        finite_trial = jnp.all(jnp.isfinite(trial), axis=-1)
-        h_points = jnp.asarray(h, dtype=jnp.float64)
-        if h_points.ndim == 0:
-            h_points = jnp.broadcast_to(h_points, (points.shape[0],))
-        euler_trial = points + h_points[:, None] * initial_rhs
-        euler_crossed = euler_trial[:, 0] < grid.x.faces[0]
-        rk_crossed = finite_trial & (trial[:, 0] < grid.x.faces[0])
-        crossed = euler_crossed | rk_crossed
-        event_trial = jnp.where(euler_crossed[:, None], euler_trial, trial)
-        denominator = jnp.where(
-            jnp.abs(event_trial[:, 0] - points[:, 0]) < 1.0e-300,
-            1.0,
-            event_trial[:, 0] - points[:, 0],
-        )
-        fraction = jnp.clip((grid.x.faces[0] - points[:, 0]) / denominator, 0.0, 1.0)
-        axis_state = points + fraction[:, None] * (event_trial - points)
-        axis_state = axis_state.at[:, 0].set(grid.x.faces[0])
-        # The remaining part of this substep is on the reflected polar
-        # branch. Apply the topology identification once at the event; the
-        # subsequent RK stages then see the correct theta branch.
-        axis_state = axis_state.at[:, 1].add(jnp.where(crossed, jnp.pi, 0.0))
-        axis_state = _axis_regularize_points(axis_state)
-        remaining_trial = _rk4_batch(axis_state, h * (1.0 - fraction))
-        return jnp.where(crossed[:, None], remaining_trial, trial)
-
     def _speed(sampled_b: jnp.ndarray, sampled_bmag: jnp.ndarray) -> jnp.ndarray:
         bz = _safe_bz(sampled_b[..., 2])
         return sampled_bmag / jnp.maximum(jnp.abs(bz), 1.0e-30)

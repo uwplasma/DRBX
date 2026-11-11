@@ -39,7 +39,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import numpy as np
-from solvax.banded import lu_factor_banded, lu_solve_banded
+from solvax import banded, implicit, krylov
 
 from .fci_neutrals import (
     NeutralGrid,
@@ -145,22 +145,21 @@ def _line_solver(operator, owner, diag, half_band=2):
     coef[0] = jnp.where(owner & (coef[0] != 0.0), coef[0], diag)
     lines = lambda v: jnp.moveaxis(jnp.where(owner, v, 0.0), 0, -1).reshape(-1, owner.shape[0])
     bands = jnp.stack([jnp.roll(lines(coef[d]), d, axis=-1) for d in reversed(offsets)], axis=1)  # (lines, 2h+1, n)
-    factors = jax.vmap(lambda b: lu_factor_banded(b, half_band, half_band))(bands)
+    factors = jax.vmap(lambda b: banded.lu_factor_banded(b, half_band, half_band))(bands)
 
     def solve(v):
-        x = jax.vmap(lu_solve_banded)(factors, lines(v))
-        return jnp.moveaxis(x.reshape(owner.shape[1:] + owner.shape[:1]), -1, 0)
+        x = jax.vmap(banded.lu_solve_banded)(factors, lines(v))
+        return jnp.where(owner, jnp.moveaxis(x.reshape(owner.shape[1:] + owner.shape[:1]), -1, 0), 0.0)
 
     return solve
 
 
 def _gmres(operator, rhs, x0, diag, params: NeutralParameters, owner):
-    solution, _ = jax.scipy.sparse.linalg.gmres(
-        operator, rhs, x0=x0, tol=params.gmres_tolerance, atol=0.0, restart=params.gmres_restart,
-        maxiter=params.gmres_maxiter, M=_line_solver(operator, owner, diag), solve_method="batched",
-    )
-    relres = jnp.linalg.norm(operator(solution) - rhs) / jnp.maximum(jnp.linalg.norm(rhs), 1.0e-300)
-    return solution, relres
+    flat, line = lambda f: lambda v: f(v.reshape(rhs.shape)).ravel(), _line_solver(operator, owner, diag)
+    solve = lambda matvec, b: krylov.gmres(matvec, b, x0=x0.ravel(), precond=flat(line), restart=params.gmres_restart,
+                                           rtol=params.gmres_tolerance, max_restarts=params.gmres_maxiter).x
+    solution = implicit.linear_solve(flat(operator), rhs.ravel(), solve).reshape(rhs.shape)  # one transposed solve in the VJP
+    return solution, jnp.linalg.norm(operator(solution) - rhs) / jnp.maximum(jnp.linalg.norm(rhs), 1.0e-300)
 
 
 def _upwind(field, fluxes, grid: NeutralGrid):
