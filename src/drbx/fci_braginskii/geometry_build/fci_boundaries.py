@@ -3049,14 +3049,6 @@ class LocalControlVolumePolynomial3D(_DataclassPyTreeMixin):
     def shape(self) -> tuple[int, int, int]:
         return tuple(int(value) for value in self.gradient.shape[:-1])
 
-    def as_cell_gradient(self) -> LocalCellGradient3D:
-        return LocalCellGradient3D(
-            gradient=self.gradient,
-            valid=self.valid,
-            reconstruction_mask=self.polynomial_order > 0,
-        )
-
-
 @_pytree_base
 @dataclass(frozen=True)
 class LocalRegularBoundaryMomentClosure3D(_DataclassPyTreeMixin):

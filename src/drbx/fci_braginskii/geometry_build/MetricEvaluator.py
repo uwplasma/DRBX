@@ -2081,15 +2081,6 @@ class MetricEvaluator:
         Bcov = np.einsum("...ji,...j->...i", metrics.jacobian_matrix, B)
         return MagneticFieldEvaluation(B, Bcontra, Bcov, np.linalg.norm(B, axis=-1))
 
-    def transform_magnetic_field(self, logical_points: Any, bfield_evaluator: Any, *, reject_nonpositive_J: bool = True) -> MagneticFieldEvaluation:
-        """Alias for :meth:`evaluate_magnetic_field`."""
-        return self.evaluate_magnetic_field(
-            logical_points,
-            bfield_evaluator,
-            reject_nonpositive_J=reject_nonpositive_J,
-        )
-
-
 def _validate_mesh_shape(mesh_shape: Any) -> tuple[int, int, int]:
     try:
         shape = tuple(int(value) for value in mesh_shape)

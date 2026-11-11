@@ -317,17 +317,6 @@ class ChebyshevFourierScalarPotentialEvaluator(ScalarPotentialEvaluator):
             cylindrical, wrapped=wrapped
         ).reshape(leading_shape)
 
-    def evaluate_phase_cartesian(
-        self, points_xyz: Any, *, wrapped: bool = False
-    ) -> np.ndarray:
-        """Alias for normalized eta; wrapping must be requested explicitly."""
-
-        points, leading_shape = _points(points_xyz, "points_xyz")
-        cylindrical, _ = _cartesian_to_cylindrical(points)
-        return self.evaluate_phase_cylindrical(
-            cylindrical, wrapped=wrapped
-        ).reshape(leading_shape)
-
     def gradient_cartesian(self, points_xyz: Any) -> np.ndarray:
         points, leading_shape = _points(points_xyz, "points_xyz")
         cylindrical, phi = _cartesian_to_cylindrical(points)
@@ -426,11 +415,6 @@ class ChebyshevFourierScalarPotentialEvaluator(ScalarPotentialEvaluator):
         result[:, 1] = field[:, 0] * sine + field[:, 1] * cosine
         result[:, 2] = field[:, 2]
         return result.reshape(leading_shape + (3,))
-
-    def reconstructed_field_cylindrical(self, points_rphiz: Any) -> np.ndarray:
-        """Backward-compatible alias for the fitted magnetic field."""
-
-        return self.magnetic_field_cylindrical(points_rphiz)
 
     def _theta_reference_terms(
         self, points: np.ndarray

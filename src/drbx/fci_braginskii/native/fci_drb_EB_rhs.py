@@ -133,55 +133,6 @@ RHS_TERM_NAMES = (
 RHS_TERM_SLOT_COUNT = max(len(names) for names in RHS_TERM_NAMES)
 
 
-def parallel_characteristic_matrix(
-    density: jnp.ndarray,
-    Te: jnp.ndarray,
-    Ti: jnp.ndarray,
-    Vi: jnp.ndarray,
-    Ve: jnp.ndarray,
-    tau: float | jnp.ndarray,
-    mu: float | jnp.ndarray,
-) -> jnp.ndarray:
-    """Return the analytic five-field parallel principal matrix.
-
-    The state order is ``(density, Te, Ti, Vi, Ve)``.  This deliberately
-    excludes both vorticity and the diagnostic electrostatic potential: the
-    former has a defective repeated-speed coupling in the full matrix and the
-    latter is supplied by a nonlocal polarization solve.
-    """
-
-    density = jnp.asarray(density, dtype=jnp.float64)
-    Te = jnp.asarray(Te, dtype=jnp.float64)
-    Ti = jnp.asarray(Ti, dtype=jnp.float64)
-    Vi = jnp.asarray(Vi, dtype=jnp.float64)
-    Ve = jnp.asarray(Ve, dtype=jnp.float64)
-    tau = jnp.asarray(tau, dtype=jnp.float64)
-    mu = jnp.asarray(mu, dtype=jnp.float64)
-    dV = Vi - Ve
-    n_safe = jnp.maximum(density, 1.0e-30)
-    shape = jnp.broadcast_shapes(
-        density.shape, Te.shape, Ti.shape, Vi.shape, Ve.shape
-    )
-    matrix = jnp.zeros(shape + (5, 5), dtype=jnp.float64)
-    matrix = matrix.at[..., 0, 0].set(Ve)
-    matrix = matrix.at[..., 0, 4].set(density)
-    matrix = matrix.at[..., 1, 0].set(-1.42 * Te * dV / (3.0 * n_safe))
-    matrix = matrix.at[..., 1, 1].set(Ve)
-    matrix = matrix.at[..., 1, 3].set(-1.42 * Te / 3.0)
-    matrix = matrix.at[..., 1, 4].set(3.42 * Te / 3.0)
-    matrix = matrix.at[..., 2, 0].set(-2.0 * Ti * dV / (3.0 * n_safe))
-    matrix = matrix.at[..., 2, 2].set(Vi)
-    matrix = matrix.at[..., 2, 4].set(2.0 * Ti / 3.0)
-    matrix = matrix.at[..., 3, 0].set((Te + tau * Ti) / n_safe)
-    matrix = matrix.at[..., 3, 1].set(1.0)
-    matrix = matrix.at[..., 3, 2].set(tau)
-    matrix = matrix.at[..., 3, 3].set(Vi)
-    matrix = matrix.at[..., 4, 0].set(mu * Te / n_safe)
-    matrix = matrix.at[..., 4, 1].set(1.71 * mu)
-    matrix = matrix.at[..., 4, 4].set(Ve)
-    return matrix
-
-
 def _dirichlet_face_bc_from_values(
     values: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
     layout,
