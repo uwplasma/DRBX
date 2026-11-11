@@ -136,7 +136,8 @@ def test_full_imex_step_gradient_matches_finite_difference_on_hsx_16_cubed(tmp_p
     )
     with pytest.raises(_Captured):
         main(["run", str(deck), "--quiet"])
-    monkeypatch.undo()
+    monkeypatch.setattr(jax, "jit", real_jit)
+    monkeypatch.setattr(jax, "shard_map", real_shard_map)
 
     advance = cap["advance"]
     state, cell_fields, map_fields, control_volume_fields, time = cap["args"]
