@@ -69,7 +69,7 @@ and the three reduced dispersion operators (`dispersion.py`).
 The validation layer contains three kinds of modules, although they are not yet
 split cleanly on disk:
 
-- campaign builders (FCI operator/geometry/suite, ESSOS- and VMEC-imported
+- campaign builders (FCI operator/geometry, ESSOS- and VMEC-imported
   geometry, stellarator SOL, autodiff diffusion)
 - plotting/report helpers
 - publication-facing summary packages (`publication_plotting.py`)

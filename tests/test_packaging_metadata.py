@@ -53,7 +53,7 @@ def test_core_runtime_dependencies_are_installed_by_default() -> None:
     payload = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     project_dependencies = payload["project"]["dependencies"]
 
-    for requirement in ("jax", "scipy", "matplotlib", "netCDF4", "pillow", "rich", "solvax"):
+    for requirement in ("jax", "scipy", "matplotlib", "netCDF4", "rich", "solvax"):
         assert any(_package_name(item) == requirement for item in project_dependencies)
 
     # Declared-but-unimported packages were removed in the v2 plan's Phase 0;

@@ -25,7 +25,6 @@ operator, plotting, and artifact APIs used by the regression campaigns.
 | [`vorticity_bracket.py`](https://github.com/uwplasma/drbx/blob/main/examples/geometry-3D/stellarator-fci/vorticity_bracket.py) | Compose the JAX-native DRB RHS with a vorticity/potential solve and a tested logical \(E\times B\) bracket. | [`compute_fci_drb_rhs`](https://github.com/uwplasma/drbx/blob/main/src/drbx/native/fci_drb_rhs.py), [`logical_exb_bracket_xz`](https://github.com/uwplasma/drbx/blob/main/src/drbx/native/fci.py), [`save_stellarator_sol_diagnostics_panel`](https://github.com/uwplasma/drbx/blob/main/src/drbx/validation/stellarator_sol_showcase.py) |
 | [`nonlinear_turbulence.py`](https://github.com/uwplasma/drbx/blob/main/examples/geometry-3D/stellarator-fci/nonlinear_turbulence.py) | Run the compact nonlinear reduced SOL benchmark and write snapshot, diagnostic, 3D poster, and GIF movie artifacts. | [`simulate_reduced_stellarator_sol_dynamics`](https://github.com/uwplasma/drbx/blob/main/src/drbx/validation/stellarator_sol_showcase.py), [`build_stellarator_sol_showcase_report`](https://github.com/uwplasma/drbx/blob/main/src/drbx/validation/stellarator_sol_showcase.py), [`save_stellarator_sol_3d_movie`](https://github.com/uwplasma/drbx/blob/main/src/drbx/validation/stellarator_sol_showcase.py) |
 | [`turbulent_profile_analysis.py`](https://github.com/uwplasma/drbx/blob/main/examples/geometry-3D/stellarator-fci/turbulent_profile_analysis.py) | Analyze the nonlinear SOL history with radial fluctuation profiles, RMS intensity, transport-proxy profiles, connection-length weighting, and nonlinear energy traces. | [`build_synthetic_stellarator_geometry`](https://github.com/uwplasma/drbx/blob/main/src/drbx/geometry/stellarator.py), NumPy/Matplotlib postprocessing of the NPZ history written by `nonlinear_turbulence.py` |
-| [`validation_campaign.py`](https://github.com/uwplasma/drbx/blob/main/examples/geometry-3D/stellarator-fci/validation_campaign.py) | Regenerate the full promoted stellarator validation package. | Campaign builders in [`drbx.validation`](https://github.com/uwplasma/drbx/blob/main/src/drbx/validation/__init__.py) |
 
 Run an example with:
 
@@ -243,6 +242,5 @@ Change these constants first in the examples:
 Use the validation campaign before interpreting new geometry as physics:
 
 ```bash
-PYTHONPATH=src python examples/geometry-3D/stellarator-fci/validation_campaign.py
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=src python -m pytest -q tests/test_validation_stellarator_fci_campaigns.py
 ```
