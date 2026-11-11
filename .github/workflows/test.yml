@@ -10,29 +10,70 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  pytest:
+  smoke:
+    # Cheap hosted check; the only test job that runs for fork PRs.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install package and test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+      - name: Smoke tests
+        env:
+          DRBX_USE_FIXTURE_REFERENCE_ROOT: "1"
+        run: pytest -q tests/test_gpu_smoke.py tests/test_normalization.py tests/test_cli_command_surface.py
+
+  pytest:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, uwplasma-cpu]
     timeout-minutes: 120
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-      GH_TOKEN: ${{ github.token }}
-      GITHUB_TOKEN: ${{ github.token }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: false
       - name: Install package and test tools
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e . pytest pytest-cov
+          uv venv
+          uv pip install -e . pytest pytest-xdist
       - name: Run full fast test suite
         env:
           DRBX_USE_FIXTURE_REFERENCE_ROOT: "1"
+        run: uv run pytest -q -n 2 -m "not slow"
+
+  gpu:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, uwplasma-gpu]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: false
+      - name: Install package with CUDA JAX
         run: |
-          pytest -q -m "not slow"
+          uv venv
+          uv pip install -e . pytest 'jax[cuda12]'
+      - name: Check GPU backend
+        run: uv run python -c "import jax; assert jax.default_backend()=='gpu', jax.devices()"
+      - name: GPU tests
+        timeout-minutes: 1
+        env:
+          DRBX_USE_FIXTURE_REFERENCE_ROOT: "1"
+        run: uv run pytest -m gpu -q -x
