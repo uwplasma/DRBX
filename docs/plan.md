@@ -756,6 +756,35 @@ Found, not fixed: a plasma with zero density everywhere gives a NaN `jax.grad` o
 SOLVAX #185 (accumulated rotation matrix) is reviewed against the pytree rotation loop (restart 1/2/m, breakdown, complex, float32,
 fixed work); its DRBX GPU measurement is recorded in that PR.
 
+### Profile 2026-11-11 (main 053019e2, SOLVAX 0.36.1; additive)
+Tools: `jax.profiler.trace(create_perfetto_trace=True)` over 4 steps, per-thunk (CPU) and per-kernel (GPU) events joined to the XLA
+after-optimisation HLO dump (`op_name` metadata) by `hlo_module`/`hlo_op`; `Lowered.compile().cost_analysis()/memory_analysis()` per staged
+kernel; `/usr/bin/time -l` peak footprint on the Mac. Machine caveat: both A4000s and the Mac were shared with other jobs the whole time
+(GPU util 71-100% from foreign processes, Mac load 10-120), so absolute step times are inflated; comparisons are within a pair.
+
+| # | Item | Share | Evidence |
+|---|---|---|---|
+| 1 | FGMRES matvec (-L_perp plus the current/phi pair G, D built by nested `linear_transpose`) | CPU: 42% of leaf-thunk time of the implicit+phi kernel (175k thunks in 4 steps: pads of transposed shifts 12.6%, transposed scatters 6.8%, scatter-add 5.4%) | thunk trace joined to HLO scopes |
+| 2 | Preconditioner (radial tree) and Arnoldi orthogonalisation | 0.7% and 2.4% of thunk time on CPU | same |
+| 3 | Residual-correction `lax.cond` branch: a second full copy of matvec+preconditioner+solve | 70k of 320k HLO instructions; the implicit+phi kernel is 56 MB of HLO text | HLO scope count |
+| 4 | GPU host round trips: XLA copies each `while` predicate to the host | 6300 stalls >= 100 us per 4 steps (~1550/step, ~10 per iteration, mostly SOLVAX's four chunked-CGS loops); device busy ~2% of the step | gaps in the device stream |
+| 5 | GPU kernel mix after the stalls are removed | ~25k kernels/step, 3 us average; `loop_add_fusion` 23%, `input_reduce_fusion` 12% of device time | trace |
+| 6 | CPU: ~1700 thunks per Krylov iteration (~1 us each), dispatch bound | 16^3 step 0.23-0.25 s unloaded, GMRES 85% | trace |
+| 7 | Per-solve matvecs: 42 (37 iterations + boundary source + diagnostic initial residual + SOLVAX r0 + SOLVAX end residual + final residual) | 5% duplicates | code |
+| 8 | Peak memory: host RSS 4.5-5.3 GB (lowering/compiling the implicit kernel); device 0.26 GB (16^3), 0.51 GB (32^3); per-kernel XLA temp 33 MB (16^3 CPU), 136 MB (32^3 GPU) | not the Krylov basis | `ru_maxrss`, `peak_bytes_in_use`, memory_analysis |
+| 9 | Phase-timing markers (`debug.callback(ordered=True)`) | no measurable cost (paired runs 0.30/0.30 s); but they abort runs with `JAX_PLATFORMS=cuda` | A/B, GPU run |
+
+32^3 GPU (default flags, contended): step 7 s, kernels per step ~4x the 16^3 count, same stall structure.
+
+PRs: #95 device-side while/conditional on GPU (stalls 6301 -> 822, trace span 19.5 s -> 1.9 s, step 2.1-4.9 s -> 0.31-0.47 s on the contended card);
+#96 single traced FGMRES solve in residual form (-31 lines, matvecs 42 -> 40, halves the traced solver code); #97 no ordered markers without a CPU device.
+Restart 63 (no chunked CGS loops, default XLA flags) gave stalls 6155 -> 1038 and step 0.4-0.58 s: an alternative that changes the Krylov
+trajectory of any solve above 63 iterations, not adopted (the XLA flag is general and keeps the 100-restart behaviour).
+
+Tried and not adopted this round: XLA CPU classic runtime (`xla_cpu_use_thunk_runtime=false`), single-threaded Eigen and the concurrency
+scheduler: paired concurrent runs 0.30 vs 0.30 s and 0.28 vs 0.28 s (differences seen in sequential runs were load noise). Pallas: not retried
+(no profile row points at a stencil kernel; the cost is launch count, and command buffers remove the launch stalls).
+
 ### Still open
 Relax the 1e-8 inner target (acceptance is 5e-5; ~25% fewer iterations, changes results), reuse the previous step's Krylov
 information, lower the 2.8 GB lowering peak (split the implicit+phi kernel), idle-GPU timings, SOLVAX pytree-path rotation fix for
