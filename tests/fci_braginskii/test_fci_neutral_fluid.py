@@ -254,6 +254,32 @@ def test_n6_closure_is_finite_and_differentiable_at_zero_gradient_and_zero_rates
     assert np.isfinite(float(jax.grad(functional)(1.0))) and np.isfinite(float(functional(1.0)))
 
 
+def test_fluid_step_gradient_is_finite_at_zero_plasma_density_and_unchanged_elsewhere():
+    """n = 0 everywhere: 0/0 in the conserved-to-primitive recovery and 1/nu^2 beyond double range in tau_n gave NaN."""
+
+    geometry = sheared_slab(shape=(6, 4, 3))
+    grid = F.build_neutral_grid(geometry)
+    n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 11)
+    Tn = 0.05 + 0.3 * Te
+
+    def functional(eps):
+        out = FL.neutral_fluid_step(eps * jnp.ones_like(n), Vi, Te, Ti, Nn, 0.1 * Vi, Tn, 0.02, grid, PARAMS)
+        return jnp.sum(grid.volume * (out[4] + out[6] + out[5] ** 2 + out[2]))
+
+    assert np.isfinite(float(functional(0.0))) and np.isfinite(float(jax.grad(functional)(0.0)))
+    # nonzero density: the original expressions, bit for bit
+    nu_cx, nu_iz = F.collision_frequencies(n, Te, Ti, PARAMS, Tn)
+    nu = jnp.maximum(nu_cx + nu_iz, 1.0e-300)
+    np.testing.assert_array_equal(np.asarray(FL.transport_coefficients(n, Te, Ti, Nn, Tn, PARAMS)[0]),
+                                  np.asarray((1.0 + 0.8 * nu_iz / nu) / nu))
+    source = F.reaction_source(n, Vi, Te, Ti, Nn, PARAMS, grid.owner, Tn)[0]
+    new = F.apply_volumetric_source(n, Vi, Te, Ti, source, 0.02, tau=PARAMS.tau, owner=grid.owner)
+    safe = n + 0.02 * source.particle
+    Vi_old = (n * Vi + 0.02 * source.momentum) / safe
+    np.testing.assert_array_equal(np.asarray(new[1]), np.asarray(Vi_old))
+    np.testing.assert_array_equal(np.asarray(new[2]), np.asarray((1.5 * n * Te + 0.02 * source.electron_energy) / (1.5 * safe)))
+
+
 def _penetration(tau_scale=1.0, steps=121):
     """Neutrals entering a slab of frozen uniform plasma: ``(lambda_fit / lambda_pen, mean |dn/dt| / (nu_iz n), sink / source)``.
 
