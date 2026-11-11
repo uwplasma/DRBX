@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace as dataclass_replace
-from typing import Callable, Literal
+from typing import Callable, Literal, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -56,6 +56,7 @@ from .fci_gmres import (
     SolvaxGmresConfig,
     SolvaxGmresInfo,
     _spmd_remove_weighted_mean,
+    minimum_residual_guess,
     solvax_gmres_solve,
 )
 from .fci_model import (
@@ -5216,6 +5217,7 @@ class LocalPerpLaplacianInverseSolver:
         phi_guess_owned: jnp.ndarray | None = None,
         phi_lift_owned: jnp.ndarray | None = None,
         lift_owned: jnp.ndarray | None = None,
+        guess_basis: Sequence[jnp.ndarray] = (),
         return_diagnostics: bool = False,
     ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
         """Solve on the ordinary owned grid.
@@ -5234,6 +5236,7 @@ class LocalPerpLaplacianInverseSolver:
             phi_guess_owned=phi_guess_owned,
             phi_lift_owned=phi_lift_owned,
             lift_owned=lift_owned,
+            guess_basis=guess_basis,
             return_diagnostics=return_diagnostics,
             solve_mode="full-grid",
         )
@@ -5246,6 +5249,7 @@ class LocalPerpLaplacianInverseSolver:
         phi_guess_owned: jnp.ndarray | None = None,
         phi_lift_owned: jnp.ndarray | None = None,
         lift_owned: jnp.ndarray | None = None,
+        guess_basis: Sequence[jnp.ndarray] = (),
         return_diagnostics: bool = False,
     ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
         """Solve a projected-owner-space system explicitly.
@@ -5276,6 +5280,7 @@ class LocalPerpLaplacianInverseSolver:
             phi_guess_owned=phi_guess_owned,
             phi_lift_owned=phi_lift_owned,
             lift_owned=lift_owned,
+            guess_basis=guess_basis,
             return_diagnostics=return_diagnostics,
             solve_mode="rlp-owner",
         )
@@ -5308,6 +5313,7 @@ class LocalPerpLaplacianInverseSolver:
         phi_guess_owned: jnp.ndarray | None = None,
         phi_lift_owned: jnp.ndarray | None = None,
         lift_owned: jnp.ndarray | None = None,
+        guess_basis: Sequence[jnp.ndarray] = (),
         return_diagnostics: bool = False,
         solve_mode: Literal["full-grid", "rlp-owner"],
     ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
@@ -5463,6 +5469,32 @@ class LocalPerpLaplacianInverseSolver:
                 face_bc=homogeneous_face_bc,
                 control_volume_boundary_bc=homogeneous_control_volume_boundary_bc,
                 project_mean_zero=project_mean_zero,
+            )
+
+        if guess_basis:
+            # Earlier solutions of the same step, prepared like the guess.
+            def prepared(values: jnp.ndarray) -> jnp.ndarray:
+                values = jnp.asarray(values, dtype=jnp.float64)
+                values = _mask_inactive_owned(
+                    values if lift is None else values - lift,
+                    self.geometry,
+                    active_mask=active_mask,
+                )
+                if project_mean_zero:
+                    values = _spmd_remove_weighted_mean(
+                        values, self.geometry, self.domain, active_mask, volume_weights
+                    )
+                return values
+
+            initial_guess = minimum_residual_guess(
+                apply_A,
+                linear_rhs,
+                initial_guess,
+                [prepared(values) for values in guess_basis],
+                self.geometry,
+                self.domain,
+                active_mask,
+                volume_weights,
             )
 
         preconditioner_projectors = self.face_projectors

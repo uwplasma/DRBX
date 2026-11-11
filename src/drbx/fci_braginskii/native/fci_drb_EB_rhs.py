@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import math
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -1931,6 +1931,7 @@ class LocalFciDrbEBRhs:
         face_bc: LocalFciDrbEBFaceBCBundle,
         *,
         return_diagnostics: bool = False,
+        phi_basis: Sequence[jnp.ndarray] = (),
     ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
         context = self._stencil_builder_context()
         ti_conservative = build_local_conservative_stencil_from_field(
@@ -1979,6 +1980,7 @@ class LocalFciDrbEBRhs:
                 phi_rhs,
                 guess_owned=state_owned.phi,
                 phi_lift_owned=phi_lift,
+                guess_basis=phi_basis,
                 return_diagnostics=return_diagnostics,
             )
         else:
@@ -1986,6 +1988,7 @@ class LocalFciDrbEBRhs:
                 phi_rhs,
                 guess_owned=state_owned.phi,
                 phi_lift_owned=phi_lift,
+                guess_basis=phi_basis,
                 return_diagnostics=return_diagnostics,
             )
         if return_diagnostics:
@@ -1998,6 +2001,7 @@ class LocalFciDrbEBRhs:
         state_owned: FciDrbEBState,
         *,
         return_diagnostics: bool = False,
+        phi_basis: Sequence[jnp.ndarray] = (),
     ) -> jnp.ndarray | tuple[jnp.ndarray, SolvaxGmresInfo]:
         face_bc = self._face_bcs(state_owned)
         state_halo = self._prepare_state_halo(state_owned, face_bc)
@@ -2006,6 +2010,7 @@ class LocalFciDrbEBRhs:
             state_halo,
             face_bc,
             return_diagnostics=return_diagnostics,
+            phi_basis=phi_basis,
         )
 
     def polarization_residual(
@@ -2574,6 +2579,7 @@ class LocalFciDrbEBRhs:
         *,
         solve_dt: Any,
         return_residuals: bool = False,
+        phi_basis: Sequence[jnp.ndarray] = (),
     ) -> tuple[FciDrbEBState, FciDrbEBState, SolvaxGmresInfo]:
         """Linearized backward-Euler current/phi coupled potential solve.
 
@@ -2759,6 +2765,7 @@ class LocalFciDrbEBRhs:
                 phi_rhs,
                 guess_owned=state_owned.phi,
                 phi_lift_owned=phi_lift,
+                guess_basis=phi_basis,
                 return_diagnostics=True,
             )
         else:
@@ -2766,6 +2773,7 @@ class LocalFciDrbEBRhs:
                 phi_rhs,
                 guess_owned=state_owned.phi,
                 phi_lift_owned=phi_lift,
+                guess_basis=phi_basis,
                 return_diagnostics=True,
             )
         phi_owned = self._owner_field(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -423,6 +423,42 @@ def gmres_cycle_budget(restart: int, maxiter: int) -> tuple[int, int, int]:
     return restart, full_cycles, tail_restart
 
 
+def minimum_residual_guess(
+    apply_A: Callable[[jnp.ndarray], jnp.ndarray],
+    rhs: jnp.ndarray,
+    guess: jnp.ndarray,
+    basis: Sequence[jnp.ndarray],
+    geometry: LocalFciGeometry3D,
+    domain: LocalDomain3D,
+    active_cell_mask: jnp.ndarray | None = None,
+    volume_weights: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Start from ``guess + sum_i c_i (basis_i - guess)`` with the minimum residual.
+
+    ``c`` minimises ``||rhs - A x||`` in the volume product (Fischer's
+    projection onto earlier solutions; the time-extrapolation is the least
+    squares fit, so it needs no time levels).  ``c = 0`` is admissible, so the
+    start is never worse than ``guess``; it costs one operator application per
+    basis vector.  The result is a start only: it carries no gradient.
+    """
+
+    if not basis:
+        return guess
+    dot = lambda x, y: _spmd_dot(x, y, geometry, domain, active_cell_mask, volume_weights)
+    residual = rhs - apply_A(guess)
+    steps = [jnp.asarray(b, dtype=guess.dtype) - guess for b in basis]
+    images = [apply_A(step) for step in steps]
+    gram = jnp.stack([jnp.stack([dot(a, b) for b in images]) for a in images])
+    moment = jnp.stack([dot(a, residual) for a in images])
+    values, vectors = jnp.linalg.eigh(gram)
+    keep = values > 1.0e-12 * jnp.max(values)
+    coefficients = vectors @ (jnp.where(keep, (vectors.T @ moment) / jnp.where(keep, values, 1.0), 0.0))
+    start = guess
+    for c, step in zip(coefficients, steps):
+        start = start + c * step
+    return lax.stop_gradient(start)
+
+
 def solvax_gmres_solve(
     apply_A: Callable[[jnp.ndarray], jnp.ndarray],
     rhs_owned: jnp.ndarray,
@@ -725,6 +761,7 @@ def solvax_gmres_solve(
 __all__ = [
     "SolvaxGmresConfig",
     "SolvaxGmresInfo",
+    "minimum_residual_guess",
     "_local_cell_volume_weights",
     "_mesh_axis_names",
     "_spmd_dot",

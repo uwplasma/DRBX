@@ -1816,11 +1816,13 @@ def run_full_eb(
     def reconstruct_stage_phi(
         stage_state: FciDrbEBState,
         model: LocalFciDrbEBRhs,
+        basis: tuple[jax.Array, ...] = (),
     ) -> tuple[jax.Array, jax.Array]:
         with jax.named_scope("gmres"):
             phi, info = model.reconstruct_phi(
                 stage_state,
                 return_diagnostics=True,
+                phi_basis=basis,
             )
         if gmres_marker is not None:
             jax.debug.callback(
@@ -1868,8 +1870,12 @@ def run_full_eb(
         model: LocalFciDrbEBRhs,
         solve_dt: jax.Array,
         selection_dt: jax.Array,
+        basis: tuple[jax.Array, ...] = (),
     ):
         """One complete short-wall implicit stage plus its phi (or pair) solve.
+
+        ``basis`` holds earlier potentials of the step; the solve starts from
+        the combination of them that minimises its initial residual.
 
         Returns the stage state, its implicit increment and the packed phi
         solver diagnostics.
@@ -1895,14 +1901,16 @@ def run_full_eb(
         if model.implicit_current_phi_pair:
             with jax.named_scope("gmres"):
                 stage, pair_increment, pair_solver_info = (
-                    model.solve_implicit_current_phi_pair(updated, solve_dt=solve_dt)
+                    model.solve_implicit_current_phi_pair(
+                        updated, solve_dt=solve_dt, phi_basis=basis
+                    )
                 )
             mark_pair_solve_phi(stage.phi)
             phi_info = _format_phi_solver_diagnostics(pair_solver_info)
             return stage, increment.axpy(pair_increment, scale=1.0), _fold_conduction_diagnostics(
                 phi_info, conduction_infos
             )
-        stage_phi, phi_info = reconstruct_stage_phi(updated, model)
+        stage_phi, phi_info = reconstruct_stage_phi(updated, model, basis)
         return updated.replace(phi=stage_phi), increment, _fold_conduction_diagnostics(
             phi_info, conduction_infos
         )
@@ -1910,8 +1918,8 @@ def run_full_eb(
     def ssp222_stages(current, implicit, explicit, solve_phi, step_dt):
         """IMEX-SSP222 stage algebra shared by every advance_execution mode.
 
-        ``implicit(base, gamma_dt)``, ``explicit(stage)`` and
-        ``solve_phi(state)`` are either in-kernel model calls (compiled and
+        ``implicit(base, gamma_dt, basis)``, ``explicit(stage)`` and
+        ``solve_phi(state, basis)`` are either in-kernel model calls (compiled and
         eager) or separately compiled shard_map kernels (staged-compiled).
         Returns the stage states, stage rates and phi diagnostics consumed by
         ``finalize_advance``.
@@ -1921,23 +1929,27 @@ def run_full_eb(
         # The persisted current state already carries its consistent algebraic
         # potential.  Solve the complete selected-wall residual before the
         # first explicit evaluation, not after a finished timestep.
-        stage_1, increment_1, gmres_info_1 = implicit(current, gamma_dt)
+        stage_1, increment_1, gmres_info_1 = implicit(current, gamma_dt, ())
         implicit_1 = increment_1.map_fields(lambda value: value / gamma_dt)
         explicit_1 = explicit(stage_1)
         stage_2_base = current.axpy(explicit_1, scale=step_dt).axpy(
             implicit_1,
             scale=(1.0 - 2.0 * IMEX_SSP222_GAMMA) * step_dt,
         )
-        stage_2_base_phi, gmres_info_2_base = solve_phi(stage_2_base)
+        stage_2_base_phi, gmres_info_2_base = solve_phi(stage_2_base, (stage_1.phi,))
         stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
-        stage_2, increment_2, gmres_info_2 = implicit(stage_2_base, gamma_dt)
+        stage_2, increment_2, gmres_info_2 = implicit(
+            stage_2_base, gamma_dt, (current.phi, stage_1.phi)
+        )
         implicit_2 = increment_2.map_fields(lambda value: value / gamma_dt)
         explicit_2 = explicit(stage_2)
         weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
             implicit_1, scale=1.0
         ).axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value)
         next_state = current.axpy(weighted_rate, scale=step_dt)
-        next_phi, gmres_info_next = solve_phi(next_state)
+        next_phi, gmres_info_next = solve_phi(
+            next_state, (stage_2.phi, stage_2_base_phi, stage_1.phi)
+        )
         next_state = next_state.replace(phi=next_phi)
         return (
             (current, stage_1, stage_2_base, stage_2, next_state),
@@ -2030,13 +2042,13 @@ def run_full_eb(
             model,
             *ssp222_stages(
                 current,
-                lambda base, gamma_dt: implicit_solve(
-                    base, model, solve_dt=gamma_dt, selection_dt=dt
+                lambda base, gamma_dt, basis: implicit_solve(
+                    base, model, solve_dt=gamma_dt, selection_dt=dt, basis=basis
                 ),
                 lambda stage: evaluate_operators(
                     stage, model, short_leg_selection_dt=dt
                 ),
-                lambda state: reconstruct_stage_phi(state, model),
+                lambda state, basis: reconstruct_stage_phi(state, model, basis),
                 dt,
             ),
         )
@@ -2223,11 +2235,11 @@ def run_full_eb(
             return staged_finalize(
                 *ssp222_stages(
                     current,
-                    lambda base, gamma_dt: staged_implicit(
+                    lambda base, gamma_dt, basis: staged_implicit(
                         base, *fields, gamma_dt, dt_dynamic
                     ),
                     lambda stage: staged_explicit(stage, *fields, dt_dynamic),
-                    lambda state: staged_phi(state, *fields),
+                    lambda state, basis: staged_phi(state, *fields),
                     dt_dynamic,
                 ),
                 *fields,
