@@ -48,6 +48,7 @@ where = ["src"]
 testpaths = ["tests"]
 markers = [
     "slow: longer-running solver or history tests that are excluded from the default fast research gate",
+    "gpu: small jitted solves run on the GPU CI lane (pass on CPU too)",
 ]
 
 [tool.coverage.run]
