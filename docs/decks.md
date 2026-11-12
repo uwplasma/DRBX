@@ -435,7 +435,7 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `fci_braginskii.recycling_wall_temperature_ev` | `float` | `0.025` | Wall temperature for `recycling_energy = "wall"`. (eV) |
 | `fci_braginskii.advance_execution` | `str` | `'staged-compiled'` | `compiled` (one fused executable), `staged-compiled` (reusable kernels) or `eager`. |
 | `fci_braginskii.gmres_acceptance_tolerance` | `float` | `5e-05` | Residual accepted after GMRES stops. |
-| `fci_braginskii.gmres_target_tolerance` | `float` | `1e-08` | Residual target that stops GMRES. |
+| `fci_braginskii.gmres_target_tolerance` | `float` | `0.0` | Residual target that stops GMRES; `0` ties it to the time step: `10 dt^2`, at most a fifth of the acceptance tolerance, at least `1e-8`. |
 | `fci_braginskii.gmres_max_iterations` | `int` | `500` | Maximum GMRES iterations. |
 | `fci_braginskii.gmres_restart` | `int` | `100` | GMRES restart length (capped at `gmres_max_iterations`). |
 | `fci_braginskii.gmres_residual_correction_steps` | `int` | `1` | True-residual correction solves tried when GMRES would be rejected. |
