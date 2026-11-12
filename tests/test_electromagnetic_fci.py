@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import gc
 
+import dataclasses
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -148,21 +150,24 @@ def test_ampere_and_flutter_converge_to_manufactured_solution():
     assert np.all(errors[0] / errors[1] > 3.0), errors
 
 
-def test_forward_mode_derivative_through_the_electromagnetic_step_matches_finite_differences():
-    """Forward mode (reverse mode through the GMRES potential solve is not available in the electrostatic model either)."""
+def test_reverse_mode_gradient_through_the_electromagnetic_step_matches_finite_differences():
+    """jax.grad through RK4 including the potential and Ampere solves (implicit-function VJP), physics and geometry parameter."""
     shape, lengths = (8, 6, 8), (np.pi, 2 * np.pi, 8.0)
-    _, kw, *_ = slab(shape, lengths, beta=0.05, mu=100.0, te=1.0)
+    g, kw, *_ = slab(shape, lengths, beta=0.05, mu=100.0, te=1.0)
     base = smooth_state(shape, lengths, amp=1e-2, n_amp=1e-2)
 
-    def objective(scale):
-        state = Fci4FieldState(*[getattr(base, f) * scale if f != "density" else 1 + (base.density - 1) * scale
-                                 for f in ("density", "omega", "v_ion_parallel", "v_electron_parallel")])
-        out = rk4(state, kw, 0.05)
+    def objective(te, b_scale):
+        bfield = dataclasses.replace(g.cell_bfield, Bmag=g.cell_bfield.Bmag * b_scale)
+        kw2 = dict(kw, geometry=dataclasses.replace(g, cell_bfield=bfield),
+                   parameters=dataclasses.replace(kw["parameters"], Te=te))
+        out = rk4(base, kw2, 0.05)
         return jnp.sum(out.v_electron_parallel**2) + jnp.sum(out.omega**2)
 
-    gradient, h = float(jax.jvp(objective, (1.0,), (1.0,))[1]), 1e-4
-    finite = float(objective(1.0 + h) - objective(1.0 - h)) / (2 * h)
-    assert gradient == pytest.approx(finite, rel=1e-5)
+    grads = jax.grad(objective, argnums=(0, 1))(1.0, 1.0)
+    h = 1e-4
+    finite = ((objective(1.0 + h, 1.0) - objective(1.0 - h, 1.0)) / (2 * h), (objective(1.0, 1.0 + h) - objective(1.0, 1.0 - h)) / (2 * h))
+    for exact, approx in zip(grads, finite):
+        assert float(exact) == pytest.approx(float(approx), rel=1e-6)
 
 
 def test_deck_physics_table_switches_the_electromagnetic_model_on(tmp_path):
