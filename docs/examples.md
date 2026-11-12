@@ -103,7 +103,6 @@ mode against release-backed arrays.
 | [`stellarator-fci/vorticity_bracket.py`](../examples/geometry-3D/stellarator-fci/vorticity_bracket.py) | Nonlinear coupling through the vorticity/potential solve and the logical E x B bracket. |
 | [`stellarator-fci/nonlinear_turbulence.py`](../examples/geometry-3D/stellarator-fci/nonlinear_turbulence.py) | Compact nonlinear reduced SOL history, diagnostics, 3D poster, GIF movie. |
 | [`stellarator-fci/turbulent_profile_analysis.py`](../examples/geometry-3D/stellarator-fci/turbulent_profile_analysis.py) | Radial fluctuation, RMS, transport-proxy, and energy-trace analysis. |
-| [`stellarator-fci/validation_campaign.py`](../examples/geometry-3D/stellarator-fci/validation_campaign.py) | Full promoted synthetic stellarator FCI validation bundle. |
 | [`essos-field-lines/closed_open_vacuum_poincare.py`](../examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) | Closed vs open vacuum field lines from ESSOS coils: Poincare sections and connection lengths. |
 | [`essos-field-lines/landreman_paul_qa_import.py`](../examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | Landreman-Paul QA coils through the installed ESSOS: field lines, Poincare section, FCI maps ([page](essos_fieldline_import.md)). |
 | [`vmex/closed_field_lines.py`](../examples/geometry-3D/vmex/closed_field_lines.py) | VMEX equilibrium import: surface fields, JAX field-line tracing, traced iota matching the wout `iotaf` profile to ~1e-6. |
