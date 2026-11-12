@@ -104,7 +104,7 @@ def _effective_kz(kz):
     return np.sin(kz * DZ) / DZ
 
 
-@pytest.mark.parametrize("beta", [1.0e-3, 1.0e-2, 1.0e-1])
+@pytest.mark.parametrize("beta", [1.0e-3, 1.0e-2, 1.0e-1, 4.0e3])  # 4e3: beta = 1e-3 / rho_star^2 at rho_star = 5e-4
 @pytest.mark.parametrize("mode", [(1.0, 1.0), (2.0, 1.0), (1.0, 2.0)])
 def test_shear_alfven_dispersion_matches_the_analytic_frequency(beta, mode):
     kx, kz = mode
@@ -241,18 +241,24 @@ def test_hsx_ampere_round_trip_and_flutter_pair_are_exact(tmp_path):
         state = state.replace(Vi=0.05 * bump / jnp.max(jnp.abs(bump)), Ve=-0.02 * bump / jnp.max(jnp.abs(bump)))
         physical, em = model.em_physical(state)
         back = em.em_canonical(physical)
+        tight = dataclasses.replace(model, gmres_config=dataclasses.replace(
+            model.gmres_config, tol=1e-12, atol=1e-30, acceptance_tol=1e-9, acceptance_atol=1e-30, maxiter=2000, restart=200))
+        physical_t, em_t = tight.em_physical(state)
+        back_t = em_t.em_canonical(physical_t)
         face_bc, context = em._face_bcs(state), em._stencil_builder_context()
         support = em._em_wrap_pair(*em._fci_support_core_pair(face_bc=face_bc, context=context)[:2], em._fci_pair_active_mask(), face_bc, context)
         n = int(np.prod(shape))
         eye = jnp.eye(n).reshape((n,) + shape)
         dense = lambda op: jax.lax.map(lambda e: op(e).reshape(-1), eye, batch_size=64).T  # noqa: E731
         plain = em._fci_support_core_pair(face_bc=face_bc, context=context)[:2]
-        return (jnp.max(jnp.abs(back.Ve - state.Ve)) / jnp.max(jnp.abs(state.Ve)), jnp.max(jnp.abs(em.apar)),
+        return (jnp.max(jnp.abs(back.Ve - state.Ve)) / jnp.max(jnp.abs(state.Ve)), jnp.max(jnp.abs(back_t.Ve - state.Ve)) / jnp.max(jnp.abs(state.Ve)), jnp.max(jnp.abs(em.apar)),
                 dense(support[0]), dense(support[1]), dense(plain[0]), em._fci_pair_cell_mass(), em.geometry.active_cell_mask_owned,
                 jnp.max(jnp.abs(physical.Ve - state.Ve)))
 
-    mismatch, apar_max, gradient, divergence, plain_gradient, volume, active, ve_shift = jax.tree.map(np.asarray, _on_model(cap, probe))
-    assert mismatch < 1e-2 and apar_max > 0.0  # 2.0e-3 measured: two Krylov solves at the potential-solver tolerance, -L_perp unshifted
+    mismatch, mismatch_tight, apar_max, gradient, divergence, plain_gradient, volume, active, ve_shift = jax.tree.map(np.asarray, _on_model(cap, probe))
+    # production solver tolerance: 2.0e-3 measured (the Helmholtz residual, amplified by the conditioning of the unshifted
+    # -L_perp solve); the same round trip with tol 1e-12 closes to 5e-14, so the maps are exact
+    assert mismatch < 4e-3 and mismatch_tight < 1e-10 and apar_max > 0.0
     act = np.flatnonzero(active.ravel())
     v = volume.ravel()[act]
     G, D, G0 = (m[np.ix_(act, act)] for m in (gradient, divergence, plain_gradient))
