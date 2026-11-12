@@ -269,7 +269,7 @@ Plasma-neutral leg solved to steady state by pseudo-transient Newton continuatio
 
 `[model] backend = "stellarator_turbulence"`
 
-Density, vorticity and parallel velocities with a GMRES potential inversion on an FCI geometry (`run_stellarator_turbulence`; `examples/stellarator/stellarator_turbulence.py`). Exactly one geometry table: `[rotating_ellipse]` (stellarator, optional limiter SOL), `[shifted_torus]` (tokamak-like), `[island_divertor]` or `[essos]` (coil field lines).
+Density, vorticity and parallel velocities with a GMRES potential inversion on an FCI geometry (`run_stellarator_turbulence`; `examples/stellarator/stellarator_turbulence.py`). Exactly one geometry table: `[rotating_ellipse]` (stellarator, optional limiter SOL), `[shifted_torus]` (tokamak-like), `[island_divertor]` or `[essos]` (coil field lines). `[physics] electromagnetic = true` adds A_par, magnetic flutter and electron inertia and then also writes the arrays `apar_frames` (A_par per frame) and `energies` (E x B, magnetic, electron and ion kinetic energy per frame) and the `results` key `final_energy_components`.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -316,6 +316,12 @@ Density, vorticity and parallel velocities with a GMRES potential inversion on a
 | `essos.times_to_trace` | `int` | `768` | Samples per traced line. (samples) |
 | `essos.trace_tolerance` | `float` | `1e-08` | Integrator tolerance. |
 | `essos.limiter_rho` | `float | None` | `None` | Opens every surface beyond this rho into a sheath-drained SOL; omit for all closed. |
+| `physics.electromagnetic` | `bool` | `False` | Add A_par, magnetic flutter and electron inertia; `v_electron_parallel` then evolves the canonical momentum `v_e - (mi/me) A_par`. Off: the electrostatic model, unchanged. |
+| `physics.beta` | `float` | `0.001` | `mu0 n T / B^2` in the model's normalization; Alfven speed `B / sqrt(beta n)`. Positive when `electromagnetic`. |
+| `physics.mi_over_me` | `float` | `1836.0` | Ion-to-electron mass ratio (sets the electron skin depth `d_e^2 = 1 / (beta mi/me n)`). |
+| `physics.reference_density` | `float` | `1.0` | `n_ref` of the fixed-coefficient Ampere (Helmholtz) operator; density variations about it are iterated. |
+| `physics.ampere_iterations` | `int` | `2` | Defect-correction passes for the density variation (one pass is exact for uniform density). |
+| `physics.ampere_tol` | `float` | `1e-08` | Relative residual of each Ampere solve. |
 | `run.steps` | `int` | `required` | Number of RK4 steps (required). (steps) |
 | `run.dt` | `float` | `required` | RK4 time step (required). (time) |
 | `run.amplitude` | `float` | `0.08` | Peak relative density perturbation of the seeded multi-mode state. |

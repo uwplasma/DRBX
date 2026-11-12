@@ -403,14 +403,16 @@ def _turbulence(cfg: dict, say: Callable[[str], None]):
         geometry = g.essos_imported_geometry_to_fci(g.build_essos_imported_fci_geometry(**options), limiter_rho=limiter_rho)
     else:
         geometry = getattr(g, f"build_{kind}_geometry")(**vars_of(cfg[kind]))
-    run = run_stellarator_turbulence(geometry, **vars_of(cfg["run"]))
+    run = run_stellarator_turbulence(geometry, **vars_of(cfg["run"]), **({"physics": cfg["physics"]} if "physics" in cfg else {}))
     say(f"{kind} {tuple(geometry.shape)}: {len(run.times)} frames")
     summary = {"geometry": kind, "shape": list(geometry.shape), "n_frames": len(run.times),
                "initial_particle_content": float(run.particle_content[0]),
                "final_particle_content": float(run.particle_content[-1]),
                "total_target_flux": float(np.sum(run.target_flux)),
                "finite": bool(np.all(np.isfinite(run.density_frames)))}
-    return summary, run._asdict()
+    if run.energies is not None:
+        summary["final_energy_components"] = dict(zip(("exb", "magnetic", "electron", "ion"), map(float, run.energies[-1])))
+    return summary, {k: v for k, v in run._asdict().items() if v is not None}
 
 
 def _fci_differentiable(cfg: dict, say: Callable[[str], None]):
@@ -475,7 +477,8 @@ def _turbulence_tables() -> dict[str, type]:
     from .native.stellarator_turbulence import run_stellarator_turbulence
 
     return {**{k: _sig(k) for k in ("rotating_ellipse", "shifted_torus", "island_divertor", "essos")},
-            "run": from_signature("TurbulenceRun", run_stellarator_turbulence, exclude=("geometry",))}
+            "physics": _lazy(".native.electromagnetic", "EmPhysics"),
+            "run": from_signature("TurbulenceRun", run_stellarator_turbulence, exclude=("geometry", "physics"))}
 
 
 def _detachment_tables() -> dict[str, type]:

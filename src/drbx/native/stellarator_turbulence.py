@@ -56,6 +56,7 @@ from .fci_boundaries import (
     FourFieldBoundaryConditions,
 )
 from .fci_operators import PerpLaplacianInverseSolver, build_perp_laplacian_face_projectors
+from .electromagnetic import EmPhysics, FciEmClosure, build_fci_em_closure, em_energies
 from .fci_sheath_recycling import compute_fci_sheath_recycling
 
 TEMPERATURE = 1.0  # normalized Te = Ti for the sheath sound speed
@@ -171,6 +172,7 @@ def four_field_rk4_step(
     phi_face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None,
     phi_inverse_solver: PerpLaplacianInverseSolver,
     phi_guess: jnp.ndarray | None = None,
+    electromagnetic: FciEmClosure | None = None,
 ) -> tuple[Fci4FieldState, jnp.ndarray]:
     """One classic RK4 step of the four-field blob RHS.
 
@@ -190,6 +192,7 @@ def four_field_rk4_step(
         phi_inverse_solver=phi_inverse_solver,
         gmres_debug=False,
         return_phi=True,
+        electromagnetic=electromagnetic,
     )
 
     rhs_1, _timings, phi_1 = compute_4field_blob_rhs(state, phi_guess=phi_guess, **common_kwargs)
@@ -281,14 +284,21 @@ class TurbulenceRun(NamedTuple):
     times: np.ndarray
     particle_content: np.ndarray    # Jacobian-weighted total density per frame
     target_flux: np.ndarray         # total sheath ion loss per frame (0 when closed)
+    apar_frames: np.ndarray | None = None      # electromagnetic runs: A_par per frame
+    energies: np.ndarray | None = None         # electromagnetic runs: (ExB, magnetic, electron, ion) per frame
 
 
 def run_stellarator_turbulence(geometry: FciGeometry3D, *, steps: int, dt: float,
                                amplitude: float = 0.08, seed: int = 0,
-                               sheath_sink: bool = False, frame_stride: int = 1) -> TurbulenceRun:
-    """Advance the seeded four-field state; optionally drain open endpoints."""
+                               sheath_sink: bool = False, frame_stride: int = 1,
+                               physics: EmPhysics = EmPhysics()) -> TurbulenceRun:
+    """Advance the seeded four-field state; optionally drain open endpoints.
 
-    parameters = Fci4FieldBlobParameters(rho_star=1.0, phi_inversion_tol=5.0e-5,
+    ``physics.electromagnetic`` adds A_par, magnetic flutter and electron inertia (the evolved
+    ``v_electron_parallel`` is then the canonical momentum); the default leaves the electrostatic run unchanged.
+    """
+
+    parameters = Fci4FieldBlobParameters(rho_star=1.0, mi_over_me=physics.mi_over_me, phi_inversion_tol=5.0e-5,
                                          phi_inversion_maxiter=100, phi_inversion_restart=200)
     stencil_builder = LocalStencilBuilder(build_local_stencil_from_field.build_fn)
     conservative_builder = ConservativeStencilBuilder(build_conservative_stencil_from_field.build_fn)
@@ -300,6 +310,8 @@ def run_stellarator_turbulence(geometry: FciGeometry3D, *, steps: int, dt: float
         conservative_stencil_builder=conservative_builder, face_projectors=projectors,
     )
 
+    closure = build_fci_em_closure(geometry, physics, conservative_stencil_builder=conservative_builder,
+                                   face_projectors=projectors)
     temperature = jnp.full(geometry.shape, TEMPERATURE)
     jacobian = np.asarray(geometry.cell_metric.J)
     state = multi_mode_state(geometry, amplitude=amplitude, seed=seed)
@@ -315,9 +327,10 @@ def run_stellarator_turbulence(geometry: FciGeometry3D, *, steps: int, dt: float
             curvature_coefficients=curvature, stencil_builder=stencil_builder,
             conservative_stencil_builder=conservative_builder,
             boundary_conditions=boundary_conditions, phi_face_projectors=projectors,
-            phi_inverse_solver=phi_solver, phi_guess=guess,
+            phi_inverse_solver=phi_solver, phi_guess=guess, electromagnetic=closure,
         )
     )
+    apar_frames, energies = [], []
 
     def record(step_index, current):
         density = np.asarray(current.density, dtype=np.float32)
@@ -330,6 +343,12 @@ def run_stellarator_turbulence(geometry: FciGeometry3D, *, steps: int, dt: float
             flux.append(float(sheath.total_ion_particle_loss))
         else:
             flux.append(0.0)
+        if closure is not None:
+            apar = closure.solve_apar(current.density, current.v_ion_parallel, current.v_electron_parallel,
+                                      face_bc=boundary_conditions.v_electron_parallel_face_bc)
+            phi = phi_solver(-current.omega, face_bc=boundary_conditions.phi_face_bc)
+            apar_frames.append(np.asarray(apar, dtype=np.float32))
+            energies.append([float(e) for e in em_energies(closure, current, phi, apar, jacobian)])
 
     record(0, state)
     for step_index in range(1, steps + 1):
@@ -340,4 +359,6 @@ def run_stellarator_turbulence(geometry: FciGeometry3D, *, steps: int, dt: float
             record(step_index, state)
 
     return TurbulenceRun(np.stack(density_frames), np.stack(omega_frames),
-                         np.asarray(times), np.asarray(content), np.asarray(flux))
+                         np.asarray(times), np.asarray(content), np.asarray(flux),
+                         np.stack(apar_frames) if closure is not None else None,
+                         np.asarray(energies) if closure is not None else None)

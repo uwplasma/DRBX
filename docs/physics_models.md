@@ -363,27 +363,22 @@ These share the structured mesh and metric handling in
 [native/metrics.py](../src/drbx/native/metrics.py) and are dispatched by
 [native/deck_runner.py](../src/drbx/native/deck_runner.py).
 
-## Electromagnetic Reduced Surfaces
+## Electromagnetic Four-Field Model
 
-Where electron-parallel dynamics is retained explicitly, the compact
-electromagnetic operators in
-[native/electromagnetic.py](../src/drbx/native/electromagnetic.py) evolve the
-parallel current variable
-
-```text
-Ajpar = Σ_s Z_s n_s V_{∥,s}
-```
-
-together with the reduced parallel-force balance
-
-```text
-0 = -e n_e E_∥ - ∇∥ p_e - η_∥ J_∥
-```
-
-The electron-inertia shear-Alfven branch of this system is verified analytically
-by the `shear_alfven_operator` in the linear dispersion solver, and the full
-electromagnetic drift-reduced Braginskii RHS is provided by
-[native/fci_drb_EB_rhs.py](../src/drbx/native/fci_drb_EB_rhs.py).
+`[physics] electromagnetic = true` adds the parallel vector potential A_par to
+the four-field FCI model (`stellarator_turbulence` deck backend,
+[native/electromagnetic.py](../src/drbx/native/electromagnetic.py)). The evolved
+`v_electron_parallel` becomes the canonical momentum `w = v_e - (mi/me) A_par`;
+Ampere's law `-lap_perp A = beta n (v_i - v_e)` is solved every right-hand-side
+evaluation, and every parallel gradient gains the flutter term
+`grad_par f -> grad_par f + {A_par, f} / (rho_star B)`. Electron inertia enters
+through `v_e = w + (mi/me) A_par`. With the switch off the electrostatic code
+path is unchanged bit for bit. The linear waves are the shear-Alfven wave
+`omega = k_par v_A / sqrt(1 + k_perp^2 d_e^2)` and, with a density gradient, the
+drift-Alfven wave; `tests/test_electromagnetic_fci.py` checks both against their
+analytic dispersion relations. The `fci_braginskii` (HSX) backend and
+`native/fci_drb_EB_rhs.py` are electrostatic Boussinesq models and do not yet
+carry A_par.
 
 ## Differentiable Analysis Surface
 

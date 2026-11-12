@@ -14,6 +14,7 @@ from ..geometry import (
     build_conservative_stencil_from_field,
     build_local_stencil_from_field,
 )
+from .electromagnetic import FciEmClosure
 from .fci_model import FciModelState
 from .fci_boundaries import (
     BoundaryFaceBC3D,
@@ -169,6 +170,7 @@ def _assemble_4field_non_diffusive_rhs(
     phi_stencil: object,
     v_ion_parallel_stencil: object,
     v_electron_parallel_stencil: object,
+    apar_stencil: object | None = None,
 ) -> tuple[Fci4FieldState, Fci4FieldState, Fci4FieldState]:
     poisson_density = poisson_bracket_op(phi_stencil, density_stencil, geometry)
     poisson_omega = poisson_bracket_op(phi_stencil, omega_stencil, geometry)
@@ -181,6 +183,12 @@ def _assemble_4field_non_diffusive_rhs(
     grad_parallel_phi = grad_parallel_op_direct(phi_stencil, geometry)
     grad_parallel_v_ion = grad_parallel_op_direct(v_ion_parallel_stencil, geometry)
     grad_parallel_v_electron = grad_parallel_op_direct(v_electron_parallel_stencil, geometry)
+    if apar_stencil is not None:  # magnetic flutter: grad_par f += {A_par, f} / (rho_star B)
+        flutter = lambda stencil: poisson_bracket_op(apar_stencil, stencil, geometry) / (rho_star * bmag)  # noqa: E731
+        grad_parallel_density = grad_parallel_density + flutter(density_stencil)
+        grad_parallel_phi = grad_parallel_phi + flutter(phi_stencil)
+        grad_parallel_v_ion = grad_parallel_v_ion + flutter(v_ion_parallel_stencil)
+        grad_parallel_v_electron = grad_parallel_v_electron + flutter(v_electron_parallel_stencil)
 
     poisson_rhs = Fci4FieldState(
         density=-(poisson_density / (rho_star * bmag)),
@@ -423,6 +431,7 @@ def compute_4field_rhs(
     gmres_debug: bool = False,
     return_phi: bool = False,
     with_diagnostics: bool = False,
+    electromagnetic: FciEmClosure | None = None,
 ) -> tuple[Fci4FieldRhsResult, jnp.ndarray | None] | tuple[Fci4FieldRhsResult, jnp.ndarray | None, jnp.ndarray]:
     """Assemble the normalized four-field RHS using the new stencil pipeline.
 
@@ -493,6 +502,22 @@ def compute_4field_rhs(
             cut_wall_bc=bcs.phi_cut_wall_bc,
         )
 
+    apar_stencil = None
+    if electromagnetic is not None:
+        # v_electron_parallel is the canonical momentum w = v_e - (mi/me) A_par; v_e = w + (mi/me) A_par.
+        apar = electromagnetic.solve_apar(
+            density, v_ion_parallel, v_electron_parallel, face_bc=bcs.v_electron_parallel_face_bc
+        )
+        v_electron_parallel = v_electron_parallel + electromagnetic.mi_over_me * apar
+        apar_stencil = stencil_builder(
+            apar,
+            geometry,
+            periodic_axes=periodic_axes,
+            face_bc=bcs.v_electron_parallel_face_bc,
+            cut_wall_geometry=bcs.v_electron_parallel_cut_wall_geometry,
+            cut_wall_bc=bcs.v_electron_parallel_cut_wall_bc,
+        )
+
     stencil_start = time_module.perf_counter() if with_diagnostics else 0.0
     density_stencil = stencil_builder(
         density,
@@ -560,6 +585,7 @@ def compute_4field_rhs(
         phi_stencil=phi_stencil,
         v_ion_parallel_stencil=v_ion_parallel_stencil,
         v_electron_parallel_stencil=v_electron_parallel_stencil,
+        apar_stencil=apar_stencil,
     )
 
     rhs_density = jnp.asarray(
@@ -647,6 +673,7 @@ def compute_4field_free_decay_rhs(
     gmres_debug: bool = False,
     return_phi: bool = False,
     with_diagnostics: bool = False,
+    electromagnetic: FciEmClosure | None = None,
 ) -> tuple[Fci4FieldRhsResult, jnp.ndarray] | tuple[Fci4FieldRhsResult, jnp.ndarray, jnp.ndarray]:
     bcs = _resolve_four_field_bcs(
         boundary_conditions,
@@ -684,6 +711,7 @@ def compute_4field_free_decay_rhs(
         gmres_debug=gmres_debug,
         return_phi=True,
         with_diagnostics=with_diagnostics,
+        electromagnetic=electromagnetic,
     )
 
     diffusion_rhs = _assemble_4field_diffusion_rhs(
@@ -749,6 +777,7 @@ def compute_4field_blob_rhs(
     gmres_debug: bool = False,
     return_phi: bool = False,
     with_diagnostics: bool = False,
+    electromagnetic: FciEmClosure | None = None,
 ) -> tuple[Fci4FieldRhsResult, jnp.ndarray] | tuple[Fci4FieldRhsResult, jnp.ndarray, jnp.ndarray]:
     """Assemble the four-field blob RHS.
 
@@ -791,6 +820,7 @@ def compute_4field_blob_rhs(
         gmres_debug=gmres_debug,
         return_phi=return_phi,
         with_diagnostics=with_diagnostics,
+        electromagnetic=electromagnetic,
     )
 
 
