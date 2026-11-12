@@ -183,8 +183,8 @@ def _assemble_4field_non_diffusive_rhs(
     grad_parallel_phi = grad_parallel_op_direct(phi_stencil, geometry)
     grad_parallel_v_ion = grad_parallel_op_direct(v_ion_parallel_stencil, geometry)
     grad_parallel_v_electron = grad_parallel_op_direct(v_electron_parallel_stencil, geometry)
-    if apar_stencil is not None:  # magnetic flutter: grad_par f += {A_par, f} / (rho_star B)
-        flutter = lambda stencil: poisson_bracket_op(apar_stencil, stencil, geometry) / (rho_star * bmag)  # noqa: E731
+    if apar_stencil is not None:  # magnetic flutter: grad_par f += b1.grad f = -{A_par, f} / (rho_star B)  (b1 = grad A x b / B)
+        flutter = lambda stencil: -poisson_bracket_op(apar_stencil, stencil, geometry) / (rho_star * bmag)  # noqa: E731
         grad_parallel_density = grad_parallel_density + flutter(density_stencil)
         grad_parallel_phi = grad_parallel_phi + flutter(phi_stencil)
         grad_parallel_v_ion = grad_parallel_v_ion + flutter(v_ion_parallel_stencil)

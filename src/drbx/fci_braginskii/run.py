@@ -2831,7 +2831,7 @@ def run_full_eb(
         if wall_ledger is None:
             return
         totals = wall_totals(state)
-        step = np.full(10, np.nan)
+        step = np.zeros(10)  # the initial row: no step has been applied
         if step_ledger is not None:
             c = np.asarray(step_ledger, dtype=np.float64)
             half = 0.5 * float(timestep)

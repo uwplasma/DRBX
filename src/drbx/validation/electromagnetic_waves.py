@@ -95,13 +95,13 @@ def dispersion_matrix(kx, ky, kz, beta, mu, te, ln):
     """``d/dt (phi, n1/n0, v_i, w) = M (...)`` at ``n0 = 1`` for ``exp(i (ky y + kz z))``; ``ln=None``: no gradient."""
     k2, de2, ws = kx**2 + ky**2, 1.0 / (beta * mu), (ky / ln if ln else 0.0)
     a, b = k2 * de2 / (1 + k2 * de2), 1 / (1 + k2 * de2)  # v_e = a w + b v_i
-    c = ws / (mu * (1 + k2 * de2))  # A_par = (v_i - w) / (mu (1 + k2 de2)); flutter of n0: grad_par ln n -> i (kz nu + ws A)
+    c = ws / (mu * (1 + k2 * de2))  # A_par = (v_i - w) / (mu (1 + k2 de2)); flutter of n0: grad_par ln n -> i (kz nu - ws A)
     i = 1j * kz
     m = np.zeros((4, 4), complex)
     m[0, 2], m[0, 3] = -i * (1 - b) / k2, i * a / k2
     m[1, 0], m[1, 2], m[1, 3] = -1j * ws, -i * b, -i * a
-    m[2, 1], m[2, 2], m[2, 3] = -te * i, -1j * te * c, 1j * te * c
-    m[3, 0], m[3, 1], m[3, 2], m[3, 3] = mu * i, -mu * te * i, -1j * mu * te * c, 1j * mu * te * c
+    m[2, 1], m[2, 2], m[2, 3] = -te * i, 1j * te * c, -1j * te * c
+    m[3, 0], m[3, 1], m[3, 2], m[3, 3] = mu * i, -mu * te * i, 1j * mu * te * c, -1j * mu * te * c
     return m
 
 
