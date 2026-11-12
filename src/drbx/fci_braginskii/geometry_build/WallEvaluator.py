@@ -2,7 +2,7 @@
 from __future__ import annotations
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, TextIO
+from typing import Any
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
 from scipy.optimize import minimize
@@ -90,13 +90,6 @@ class WallEvaluator:
     def from_file(cls, path: str | Path, *, nfp: int | None = None):
         return cls(path, nfp=nfp)
 
-    @classmethod
-    def from_stream(cls, stream: TextIO, *, nfp: int | None = None):
-        return cls(stream, nfp=nfp)
-
-    @classmethod
-    def from_kisslinger(cls, source: Any, *, nfp: int | None = None):
-        return cls(source, nfp=nfp)
     @property
     def phi(self): return self._phi.copy()
     @property
