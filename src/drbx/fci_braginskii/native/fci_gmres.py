@@ -8,6 +8,7 @@ from typing import Callable
 import jax
 import jax.numpy as jnp
 from jax import lax
+from solvax.implicit import linear_solve as solvax_linear_solve
 from solvax.krylov import gmres as solvax_gmres
 
 from ..geometry.fci_geometry import (
@@ -545,14 +546,16 @@ def solvax_gmres_solve(
         scale = jnp.where(weights > 0.0, jnp.sqrt(weights), 1.0)
         shape = geometry.owned_shape
 
-    def budgeted_gmres(target: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def raw_gmres(
+        apply: Callable[[jnp.ndarray], jnp.ndarray], target: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         # Full GMRES(restart) cycles, then one shorter cycle for the remainder
         # of the iteration budget (it returns immediately when the first call
         # has already converged).  Solves ``A x = target`` from zero down to
         # the absolute ``threshold``.
         if single_shard:
             kwargs = dict(
-                matvec=lambda y: (scale * masked_apply_A(y.reshape(shape) / scale)).ravel(),
+                matvec=lambda y: (scale * apply(y.reshape(shape) / scale)).ravel(),
                 precond=None
                 if effective_preconditioner is None
                 else lambda y: (scale * effective_preconditioner(y.reshape(shape) / scale)).ravel(),
@@ -561,7 +564,7 @@ def solvax_gmres_solve(
             target = (scale * target).ravel()
         else:
             kwargs = dict(
-                matvec=masked_apply_A,
+                matvec=apply,
                 precond=effective_preconditioner,
                 inner_product=global_inner_product,
             )
@@ -591,10 +594,6 @@ def solvax_gmres_solve(
             x = x.reshape(shape) / scale
         return x, iterations
 
-    def residual(candidate: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-        r = rhs - masked_apply_A(candidate)
-        return r, _spmd_norm(r, geometry, domain, active_mask, volume_weights)
-
     # Residual form: each pass solves A d = r from zero and adds d.  A long
     # flexible Arnoldi cycle can report a small projected residual while the
     # independently recomputed physical residual stays above the acceptance
@@ -602,39 +601,60 @@ def solvax_gmres_solve(
     # ``residual_correction_steps``) run, kept only if it lowers the residual.
     # One traced solve serves every pass.
     steps = int(config.residual_correction_steps)
-    residual0, initial_residual = residual(guess)
 
-    def attempt(carry):
-        phi, r, norm, iterations, k = carry
-        x, count = budgeted_gmres(r)
-        candidate = _mask_inactive_owned(phi + x, active_mask)
-        if config.project_mean_zero:
-            candidate = _spmd_remove_weighted_mean(
-                candidate, geometry, domain, active_mask, volume_weights
+    def residual_passes(apply, target, start):
+        def residual(candidate):
+            r = target - apply(candidate)
+            return r, _spmd_norm(r, geometry, domain, active_mask, volume_weights)
+
+        def attempt(carry):
+            phi, r, norm, iterations, k = carry
+            x, count = raw_gmres(apply, r)
+            candidate = _mask_inactive_owned(phi + x, active_mask)
+            r_new, norm_new = residual(candidate)
+            better = (k == 0) | (jnp.isfinite(norm_new) & (norm_new < norm))
+            return (
+                jnp.where(better, candidate, phi),
+                jnp.where(better, r_new, r),
+                jnp.where(better, norm_new, norm),
+                iterations + count,
+                jnp.where(better, k + 1, steps + 1),
             )
-        r_new, norm_new = residual(candidate)
-        better = (k == 0) | (jnp.isfinite(norm_new) & (norm_new < norm))
-        return (
-            jnp.where(better, candidate, phi),
-            jnp.where(better, r_new, r),
-            jnp.where(better, norm_new, norm),
-            iterations + count,
-            jnp.where(better, k + 1, steps + 1),
-        )
 
-    def again(carry):
-        _, _, norm, _, k = carry
-        return (k == 0) | (
-            (k <= steps)
-            & jnp.isfinite(norm)
-            & rhs_is_finite
-            & guess_is_finite
-            & volume_weights_valid
-            & (norm > acceptance_threshold)
-        )
+        def again(carry):
+            _, _, norm, _, k = carry
+            return (k == 0) | (
+                (k <= steps)
+                & jnp.isfinite(norm)
+                & rhs_is_finite
+                & guess_is_finite
+                & volume_weights_valid
+                & (norm > acceptance_threshold)
+            )
 
-    phi, _, final_residual, total_iterations, _ = lax.while_loop(
-        again, attempt, (guess, residual0, initial_residual, jnp.int32(0), jnp.int32(0))
+        r0, norm0 = residual(start)
+        phi, _, _, iterations, _ = lax.while_loop(
+            again, attempt, (start, r0, norm0, jnp.int32(0), jnp.int32(0))
+        )
+        return phi, iterations
+
+    # Implicit-function VJP: reverse mode costs one transposed solve (same
+    # preconditioner) instead of differentiating the while_loops.
+    guess = lax.stop_gradient(guess)
+    phi, total_iterations = solvax_linear_solve(
+        masked_apply_A,
+        rhs,
+        lambda apply, b: residual_passes(apply, b, guess),
+        transpose_solver=lambda apply_t, b: residual_passes(apply_t, b, jnp.zeros_like(b)),
+        has_aux=True,
+    )
+    if config.project_mean_zero:  # the gauge is outside the black box, so the adjoint sees it
+        phi = _spmd_remove_weighted_mean(phi, geometry, domain, active_mask, volume_weights)
+    initial_residual = _spmd_norm(
+        rhs - masked_apply_A(guess), geometry, domain, active_mask, volume_weights
+    )
+    final_residual = _spmd_norm(
+        rhs - masked_apply_A(phi), geometry, domain, active_mask, volume_weights
     )
     phi_is_finite = _spmd_all_finite(phi, domain, active_mask)
     finite_failed = (
