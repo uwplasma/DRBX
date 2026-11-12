@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import shutil
 import subprocess
 
@@ -24,6 +25,21 @@ def _reset_default_jax_runtime_precision() -> None:
     configure_jax_runtime(precision="float64")
     yield
     configure_jax_runtime(precision="float64")
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _release_compiled_programs():
+    """Drop the compiled programs of a finished test module.
+
+    The fast suite compiles hundreds of programs in one process; on Python 3.10 (jax 0.6.2) it reached 11 GB and was
+    killed on a hosted runner.  Clearing between modules keeps the process near the memory of its largest module.
+    """
+
+    yield
+    import jax
+
+    jax.clear_caches()
+    gc.collect()
 
 
 @pytest.fixture

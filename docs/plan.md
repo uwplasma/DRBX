@@ -756,11 +756,109 @@ Found, not fixed: a plasma with zero density everywhere gives a NaN `jax.grad` o
 SOLVAX #185 (accumulated rotation matrix) is reviewed against the pytree rotation loop (restart 1/2/m, breakdown, complex, float32,
 fixed work); its DRBX GPU measurement is recorded in that PR.
 
+### Profile 2026-11-11 (main 053019e2, SOLVAX 0.36.1; additive)
+Tools: `jax.profiler.trace(create_perfetto_trace=True)` over 4 steps, per-thunk (CPU) and per-kernel (GPU) events joined to the XLA
+after-optimisation HLO dump (`op_name` metadata) by `hlo_module`/`hlo_op`; `Lowered.compile().cost_analysis()/memory_analysis()` per staged
+kernel; `/usr/bin/time -l` peak footprint on the Mac. Machine caveat: both A4000s and the Mac were shared with other jobs the whole time
+(GPU util 71-100% from foreign processes, Mac load 10-120), so absolute step times are inflated; comparisons are within a pair.
+
+| # | Item | Share | Evidence |
+|---|---|---|---|
+| 1 | FGMRES matvec (-L_perp plus the current/phi pair G, D built by nested `linear_transpose`) | CPU: 42% of leaf-thunk time of the implicit+phi kernel (175k thunks in 4 steps: pads of transposed shifts 12.6%, transposed scatters 6.8%, scatter-add 5.4%) | thunk trace joined to HLO scopes |
+| 2 | Preconditioner (radial tree) and Arnoldi orthogonalisation | 0.7% and 2.4% of thunk time on CPU | same |
+| 3 | Residual-correction `lax.cond` branch: a second full copy of matvec+preconditioner+solve | 70k of 320k HLO instructions; the implicit+phi kernel is 56 MB of HLO text | HLO scope count |
+| 4 | GPU host round trips: XLA copies each `while` predicate to the host | 6300 stalls >= 100 us per 4 steps (~1550/step, ~10 per iteration, mostly SOLVAX's four chunked-CGS loops); device busy ~2% of the step | gaps in the device stream |
+| 5 | GPU kernel mix after the stalls are removed | ~25k kernels/step, 3 us average; `loop_add_fusion` 23%, `input_reduce_fusion` 12% of device time | trace |
+| 6 | CPU: ~1700 thunks per Krylov iteration (~1 us each), dispatch bound | 16^3 step 0.23-0.25 s unloaded, GMRES 85% | trace |
+| 7 | Per-solve matvecs: 42 (37 iterations + boundary source + diagnostic initial residual + SOLVAX r0 + SOLVAX end residual + final residual) | 5% duplicates | code |
+| 8 | Peak memory: host RSS 4.5-5.3 GB (lowering/compiling the implicit kernel); device 0.26 GB (16^3), 0.51 GB (32^3); per-kernel XLA temp 33 MB (16^3 CPU), 136 MB (32^3 GPU) | not the Krylov basis | `ru_maxrss`, `peak_bytes_in_use`, memory_analysis |
+| 9 | Phase-timing markers (`debug.callback(ordered=True)`) | no measurable cost (paired runs 0.30/0.30 s); but they abort runs with `JAX_PLATFORMS=cuda` | A/B, GPU run |
+
+32^3 GPU (default flags, contended): step 7 s, kernels per step ~4x the 16^3 count, same stall structure.
+
+PRs: #95 device-side while/conditional on GPU (stalls 6301 -> 822, trace span 19.5 s -> 1.9 s, step 2.1-4.9 s -> 0.31-0.47 s on the contended card);
+#96 single traced FGMRES solve in residual form (-31 lines, matvecs 42 -> 40, halves the traced solver code); #97 no ordered markers without a CPU device.
+Restart 63 (no chunked CGS loops, default XLA flags) gave stalls 6155 -> 1038 and step 0.4-0.58 s: an alternative that changes the Krylov
+trajectory of any solve above 63 iterations, not adopted (the XLA flag is general and keeps the 100-restart behaviour).
+
+Tried and not adopted this round: XLA CPU classic runtime (`xla_cpu_use_thunk_runtime=false`), single-threaded Eigen and the concurrency
+scheduler: paired concurrent runs 0.30 vs 0.30 s and 0.28 vs 0.28 s (differences seen in sequential runs were load noise). Pallas: not retried
+(no profile row points at a stencil kernel; the cost is launch count, and command buffers remove the launch stalls).
+
+#### Controlled timings of #95, #96 and #97 (2026-11-12, additive)
+A = main 8cb45c30 (pinned, clean worktree). B = A plus #97, #95 and #96 (the stack, PR heads merged, 118c7d69). HSX default deck, SOLVAX 0.36.1, step time = the driver's "average compiled-step timing", one run at a time under the heavy-run lock, alternating A and B (the order flips between pairs). Iterations per step are identical in A and B (23.98 at 16^3, 38.67 at 32^3, three solves per step).
+
+CPU (Mac, `JAX_PLATFORMS=cpu`; #95 and #97 are inactive there, so this is #96):
+
+| grid | runs | A step (s), median / mean | B step (s), median / mean | A -> B staged compile (s) | A -> B peak RSS (GB) |
+|---|---|---|---|---|---|
+| 16^3 | 9 pairs | 0.201 / 0.203 | 0.210 / 0.222 | 109 -> 91 | 5.2 -> 4.1 |
+| 32^3 | 5 pairs | 1.277 / 1.336 | 1.258 / 1.310 | 114 -> 94 | 6.3 -> 6.2 |
+
+Step time does not change within the noise (4 of the 9 B runs at 16^3 were 15-30% slower, A showed no such outliers; the other 5 equal A at 0.198-0.210 s). Compile is 17% shorter at both sizes and the 16^3 footprint is 21% smaller.
+
+GPU (office A4000, `JAX_PLATFORMS=cuda,cpu`, HSX 16^3, 10 steps, `nice -n 10`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`, GPU 0). The host stayed at load average 95-130 (54-56 of 62 GB in use, GPU 1 busy) the whole time, and the first runs hit heavy contention that later cleared, so the runs are listed in the order they were made. Step time (s), staged compile in brackets:
+
+| variant | runs in time order |
+|---|---|
+| pre-wave main 7fd669f9 | 0.300 (280 s), 0.348 (313 s) |
+| main 8cb45c30 (A) | 1.798 (1316 s), 1.252 (381 s), 1.142 (349 s), 0.371 (376 s), 0.321 (337 s), 0.410 (349 s) |
+| A + #97 + #95 | 0.655 (964 s), 0.289 (385 s), 0.335 (359 s), 0.316 (400 s) |
+| A + #97 + #95 + #96 | 0.286 (902 s), 0.341 (300 s) |
+
+The first three main runs (1.1-1.8 s) and the first #95 run (0.655 s) coincide with foreign load on the card and host and are not comparable. In the interleaved pairs after the contention cleared (A 0.321 / 0.410 against #95 0.335 / 0.316; A 0.371 against #95 0.289) the step is 0.29-0.41 s with and without #95, i.e. no measurable gain from command buffers on a quiet card; the stall reduction (6301 -> 822 per 4 steps) is real but only costs time when the host or GPU is contended. #96 adds nothing measurable on the GPU step (0.29-0.34 s with it) and shortens the compile by 5-22%. The merged wave (items 1, 4, 7) does not show a GPU gain either: pre-wave 0.300 / 0.348 against 0.321-0.410 after it, because the 16^3 GPU step is launch-count bound (about 25k kernels) rather than solver-iteration bound. #97 is needed for any `JAX_PLATFORMS=cuda`-only run (without it the first step aborts) and costs nothing elsewhere.
+
+
 ### Still open
 Relax the 1e-8 inner target (acceptance is 5e-5; ~25% fewer iterations, changes results), reuse the previous step's Krylov
 information, lower the 2.8 GB lowering peak (split the implicit+phi kernel), idle-GPU timings, SOLVAX pytree-path rotation fix for
 sharded runs, jit the SD1D residual/Jacobian trace.
 
+### 4d. Electromagnetic (A_par) wiring (2026-11-11)
+
+Audit. `native/electromagnetic.py` (numpy, tests only) is a Hermes-3 slab port: hard-coded Alfven-wave MMS coefficients, a
+single-radial-cell Neumann A_par solve, no connection to any stepper or deck. `native/fci_drb_EB_rhs.py` and the `fci_braginskii`
+HSX backend are electrostatic Boussinesq (the "EB" is electrostatic Boussinesq; docs/physics_models.md called it electromagnetic).
+`linear/dispersion.py` carries the analytic shear-Alfven operator only as a hand-assembled matrix. The four-field FCI model
+(`fci_4_field_rhs.py`, deck backend `stellarator_turbulence`) already evolves `v_electron_parallel` with the electron parallel
+force balance, so it is the smallest host.
+
+Wiring. `EmPhysics` is the `[physics]` deck table (`electromagnetic = false` default). With it on, `v_electron_parallel` is the
+canonical momentum `w = v_e - (mi/me) A`; `FciEmClosure.solve_apar` solves `(-lap_perp + beta (mi/me) n_ref) A = beta n (v_i - w)
+- beta (mi/me) (n - n_ref) A` by defect correction (the fixed-coefficient Helmholtz operator is the existing
+`PerpLaplacianInverseSolver` with `regularization_epsilon`, so the solver code is untouched); `compute_4field_rhs` then feeds
+`v_e = w + (mi/me) A` to the unchanged assembly and adds the flutter term `{A, f} / (rho_star B)` to the four parallel gradients
+(density, phi, v_i, v_e). The electrostatic path is the same code with `electromagnetic=None`: 3 steps of the rotating-ellipse
+case are bitwise identical to main (sha256 of density and omega frames). Reverse mode through the GMRES potential solve is
+unavailable in the electrostatic model as well (`lax.while_loop`); forward mode through the electromagnetic step matches finite
+differences.
+
+Evidence (`tests/test_electromagnetic_fci.py`, 8 tests, about 50 s with `-n 2`; slab with Dirichlet radial walls, modes
+`sin(kx x) exp(i(ky y + kz z))`): shear-Alfven `omega = kz vA / sqrt(1 + k_perp^2 d_e^2)` at 12x3x16 cells: beta 0.5
+(k_perp d_e = 0.14) measured/analytic - 1 = -2.5%; beta 0.005 (k_perp d_e = 1.4, factor 1/sqrt 3) -1.7%. Drift-Alfven, Ln = 10,
+beta 0.03, kz 0.1: 0.7309 against the 4x4 local dispersion root 0.7292 (+0.24%, 12x16x16 cells); the electrostatic limit of the
+same parameters is 1.206, so the flutter term `b1.grad n0` (the omega_* A_par entry of the matrix) is resolved. Energy
+(ExB + magnetic + electron kinetic) over one wave period: drift 0.55% at amplitude 1e-3 and 2.7% at 0.05 while the ExB and magnetic
+energies swing by 100% and 74%. beta -> 0: `max|RHS_em - RHS_es| / max|RHS_es|` is 8.5e-7 at beta 1e-6 and 8.5e-9 at 1e-8 (linear in
+beta). MMS (A(x,z), phi(x,z), n(x,y), v_i given, w from Ampere): error of A and of dw/dt at N = 8/16/24: 3.0e-4/9.6e-5/4.2e-5 and
+0.349/0.079/0.034, observed order 2.1 for both.
+
+Found, not fixed: the conservative perpendicular Laplacian has a wide (2h) stencil and an O(1) inconsistency at the periodic
+seam cells in y (ratio of `L cos(y)` to `cos(y)` -0.74 against -0.95 at the first cell, independent of resolution); the
+slab tests therefore put the perpendicular structure in x (Dirichlet walls) and keep y smooth. A fully periodic box with even
+`nx` or `ny` also has a null space of checkerboard modes.
+
+Open: A_par in the `fci_braginskii` HSX backend (`_Ve_rhs` of `fci_drb_EB_rhs.py` has the same `mi_over_me * grad_par(phi)` form,
+so the same closure applies to its Ve equation; its phi solve and BC bundle differ); A_par for the 1D SOL flux tube (no
+perpendicular structure to invert) and the 2D Hasegawa-Wakatani box (no parallel direction; an electromagnetic HW needs a
+fixed-k_par closure).
+### Solver lane item 2: PCG on the potential solves, symmetry probe (2026-11-11, additive; not adopted)
+Probe on the HSX 16^3 default and neutrals decks (2 IMEX steps, the real stage operators, owner space with 3216 owners): `|<Ax,y> - <x,Ay>|_V / (|Ax||y|)` for the polarization operator and the current/phi pair operator (with `extra_operator`), volume-weighted product, same preconditioner (`auto`): random vectors 4.1e-4 and 4.2e-4, smooth low-mode vectors 2.3e-6 and 2.6e-4, mixed 1.4e-3 and 1.5e-3; the preconditioner itself 1.8e-4 to 3.8e-4. The Euclidean product gives the same 3.4e-4, so the weights are not the cause. Rayleigh quotients are positive (4e3 to 3e4), so the operators are positive but not symmetric to the 1e-10 the plan required.
+Consequence, measured on the stage systems with SOLVAX `pcg_linear_solve` in the `sqrt(V)` scaling (the symmetrised form the conduction solve uses), target 1e-8, 300 iterations allowed: with the DRBX preconditioner PCG never converged (all 300 iterations used) and stalled at true relative residuals between 7.6e-8 and 8.3e-5 depending on the solve; unpreconditioned PCG converged in 4 of 20 solves (244 and 287 iterations) and otherwise stalled between 2e-8 and 2e-6, against 29 to 43 iterations for FGMRES on the same systems. The asymmetry sits in the fine-grid operator and the preconditioner, not in the owner restriction, so the Galerkin product `P^T A P` (which only removes the restriction/expansion mismatch) would not restore it; symmetrising `(A + A*)/2` would change the discretisation and double the operator cost. FGMRES stays; item 2 stops here. SOLVAX PCG remains used for the symmetric conduction solves.
+
+### Solver lane item 3: minimum-residual starting guess (2026-11-11, additive)
+Each potential solve of a step now starts from `x0 + sum_i c_i (phi_i - x0)` where `phi_i` are the earlier potentials of the same step and `c` minimises the initial residual in the volume product (Fischer projection; the least squares fit is the time extrapolation, so no time levels are needed; `c = 0` is admissible so the start is never worse; a zero step costs no operator application). Solve 2 uses stage 1, solve 3 uses the current and stage-1 potentials, solve 4 uses stage 2, stage-2-base and stage 1. Solve 1 has no earlier potential in the step and is unchanged. The start carries no gradient. GCROT recycling across the solves was not built: the operator and preconditioner change between the four solves and the projection already removes the smooth part of the error (see numbers).
+Measured, HSX 16^3 default deck, 30 steps, GMRES iterations per solve (pair1, plain2, pair2, plain-next): main `[42.3, 33.0, 42.5, 32.6]` mean 37.6; here `[42.3, 32.7, 42.8, 22.1]` mean 34.9 (-7%). Neutrals deck 37.6 -> 35.9. 32^3 (10 steps) 64.9 -> 61.0. Only the last solve gains much (-32%): the plain solve at the new time starts almost on the stage-2 potential; the stage-2-base and pair solves differ from their predecessors by more than the span of the stored potentials can represent. CPU step 16^3 (A/B/A/B, mean of 28 steps after the first two): main 0.230 s (0.301 s in the first, contended run), here 0.236 / 0.233 s, i.e. parity within noise. Fields equal to main to the solver tolerance (phi 3.7e-8, Ve 1.4e-8, vorticity 2.9e-9, others 0 in float32 storage).
 ### Solver lane items 7 and 8 (2026-11-11, additive; plan section 4c of PR #92)
 Item 7 (stage-2 base potential solve): `ssp222_stages` no longer calls `solve_phi(stage_2_base)` unless the sheath-current wall is
 on (`_solves_stage_2_phi`); implicit(stage_2_base) re-solves phi from the same right-hand side and nothing else reads the base
@@ -843,6 +941,19 @@ on the forward gather): needs the sharding builder's row layout as an invariant,
 kernel any more (the matvec is a gather and a row sum), and the earlier attempt was 4.5x slower, not retried; (5) the tree preconditioner as
 fewer batched ops: it is 0.7% of the CPU thunk time, left alone. Limits: assembly scales with colours x cells (16384 colours at 32^3
 for `-L_perp`, whose polar agglomeration couples distant angular cells), so a 64^3 grid needs a smarter colouring; one shard only.
+### Solver lane: items 5, 6 and 8 rejected; effect of the merged items 1, 4 and 7 (2026-11-11, additive; plan section 4c of PR #92)
+Item 6 (lag the preconditioner build across stages and steps) is not adopted: the build is 3.7% of the step on the HSX 16^3 default deck, so even a free build gains at most 4%, and the stage-by-stage cache with its invalidation rules would cost about 100-120 lines.
+Item 5 (coarse-grid correction for the smooth global modes) is not adopted. The two-level model on the 16^3 stage operator (3216 owner unknowns, tree preconditioner alone 42 iterations at 1e-8) only helps when the coarse grid is not refined in z: with z unrefined (x2 y4 z1: 27 additive / 21 multiplicative, x1 y4 z1: 24 / 15 iterations) the best case is 42 to 15 iterations, which is 1.4-1.7x on the solve after the coarse solve and the extra operator applications are charged; every grid that coarsens z by 2 or more stays at 45-49 additive / 35-44 multiplicative (no gain over 42). The Galerkin build costs more than one step, and it must be rebuilt whenever the coefficient fields change.
+Item 8 (convergence tested every k iterations, fused CGS2) gains nothing on the 16^3 step (already recorded above: same ~34k device kernels, device busy 28.5%).
+
+Combined effect of items 1 (#104), 4 (#101) and 7 (#108) on main, measured A/B/A/B (alternating runs, same machine, one at a time under the heavy-run lock), HSX default deck, macOS CPU, `JAX_PLATFORMS=cpu`, SOLVAX 0.36.1. A = main before the wave (7fd669f9), B = main after it (8cb45c30). Step time is the driver's "average compiled-step timing" (16^3: 20 steps of dt 7.5e-4; 32^3: 8 steps):
+
+| grid | A, run 1 / run 2 (s) | B, run 1 / run 2 (s) | mean A -> mean B | speed-up |
+|---|---|---|---|---|
+| 16^3 | 0.275 / 0.242 | 0.187 / 0.204 | 0.259 -> 0.196 s | 1.32x |
+| 32^3 | 1.696 / 1.654 | 1.054 / 1.037 | 1.675 -> 1.046 s | 1.60x |
+
+At 32^3 the GMRES iterations per step go from 64.3 (four solves) to 38.7 (three solves). Peak resident memory 10.63 -> 10.07 GB (32^3) and 5.77/5.25 -> 5.49/5.44 GB (16^3); staged-kernel compile 82/76 s -> 91/89 s at 16^3 (the wrapped solves add about 10 s of compile). Forward results are unchanged except at the 1e-8 solver target (items 4 and 7 equivalence in their own sections above).
 
 ## 5. Status log
 
@@ -861,9 +972,15 @@ for `-L_perp`, whose polar agglomeration couples distant angular cells), so a 64
 | 2026-11-11 | gmres implicit VJP (open PR) | Section 4c item 1: `solvax_gmres_solve` now runs inside `solvax.implicit.linear_solve` (one transposed Krylov solve per backward solve, same preconditioner), so `jax.grad` passes through the potential, current/phi and sharded conduction solves; neutral solves (`jax.scipy` gmres) and single-shard conduction (`pcg_linear_solve`) were already differentiable. Forward fields bitwise identical to main on the 16^3 default and neutrals decks (4 steps). Gradient of a scalar of one 16^3 IMEX step against central differences: relative difference 2.7e-5 (eps 1e-3). Cost and memory in the PR body. The driver's diagnostic `pmin`/`pmax` have no JVP rule and need `stop_gradient` for end-to-end step gradients (done in the test, not in the driver). |
 | 2026-11-11 | slim lane: dead source (open PR) | Removed unreferenced code, each symbol with a repo-wide reference count of 1 (its definition): `validation/geometry_lineouts.py`, `validation/geometry_slices.py`, `native/array_backend.py` (+ its test), and 14 methods/functions in `geometry_build/*`, `native/fci_drb_EB_rhs.py` and `geometry/fci_geometry.py` (-594 lines, 16 files). `detachment_sol_model.steady_jvp` stays: it is registered through `@steady.defjvp`, which a static unreferenced-symbol scan misses. Default 16^3 blob and neutrals decks, 4 steps: every history array bitwise identical to main; 552 focused tests pass. Open candidates left to the owner: `native/electromagnetic.py` (test-only, documented feature) and the five `validation/stellarator_*_campaign.py` modules (one test + one example). |
 | 2026-11-11 | slim lane: stray scripts (open PR) | Removed `w/` (4 scratch scripts) and `dev/fci_analysis/` (15 post-processing scripts for old shifted-torus runs); no references in src, tests, docs, CI or pyproject, not packaged, no `drbx` code touched (-6814 lines, 19 files). Supersedes the dev/ half of B4. |
+| 2026-11-11 | electromagnetic PR 1 (open) | `[physics] electromagnetic` for the four-field FCI model: A_par, flutter, electron inertia; analytic dispersion, beta -> 0, energy and MMS tests; section 4d |
+| 2026-11-11 | solver lane item 2 (open PR, docs only) | PCG for the potential solves rejected by the symmetry probe: operator asymmetry 4e-4 (random) / 2e-6 to 3e-4 (smooth), PCG never converges (stalls at 8e-8 to 8e-5 true residual); FGMRES kept |
+| 2026-11-11 | solver lane item 3 (open PR) | Minimum-residual start from earlier potentials of the step: iterations -7% (only the last solve gains), step time parity; kept small and measured, GCROT recycling not built |
 | 2026-11-11 | solver lane item 7 (open PR) | Stage-2 base phi solve skipped unless the sheath-current wall is on: 4 -> 3 phi solves per step, fields equal main to the solver tolerance; item 8 measured and not adopted (section 4c lane note) |
 | 2026-11-11 | solver lane item 4 (open PR) | Inner potential-solve tolerance tied to dt: iterations -37.5% on the 16^3 default and neutrals decks, -38% on 32^3; field changes 1e-4 to 1e-5 of the time-truncation change |
 | 2026-11-11 | slim lane: pillow and stellarator campaigns (open PR) | `pillow` is no longer a base dependency (it stays in the `viz` extra; every `PIL` import is covered because `matplotlib`, which stays in the base set, requires pillow itself). Removed the five `validation/stellarator_{fci_suite,metric_mms,neutral_physics,sheath_recycling,vorticity}_campaign.py` modules, their tests in `tests/test_validation_stellarator_fci_campaigns.py`, the `stellarator-fci/validation_campaign.py` example and the docs and `drbx.validation` exports that referenced them. Owner-approved removals. |
 | 2026-11-11 | neutral solves on SOLVAX FGMRES (open PR) | Plan 4c item 10: `_gmres` in `fci_neutral_fluid.py` is `solvax.krylov.gmres` (flat path, right-applied banded line preconditioner, flexible because the preconditioner is zero on inactive cells) inside `solvax.implicit.linear_solve`, so reverse mode costs one transposed solve; the old `jax.scipy` GMRES, its `M` and the recomputed arguments are gone (net -1 line). Neutrals deck (16^3, 4 steps) against main: neutral density within 8e-11 (relative), T_n within 1.3e-6, ionisation rate 3e-11, ledger 5e-11. `neutral_fluid_step` on a 96x16x16 slab with a wall source, A4000 (idle, nice): 0.153 -> 0.099 s (-35%, three A/B pairs). Slab-penetration, thin-layer and vacuum-gap oracle tests pass. Item 9 (uncollided-flight correction) prototyped on the 1D oracle cases and not built: adding a ray-integrated first flight (flux-weighted Maxwellian emission, cell-averaged `exp(-tau/(v mu))`, charge-exchange births as the fluid source) raises the vacuum-gap density from 0.76 to 1.05 of the oracle and the gap ionised fraction from 0.94 to 1.05, but moves the thin-layer ionised fraction (Kn = 0.3, 1, 3, 10) from 0.995, 1.009, 0.988, 1.002 to 1.094, 1.134, 1.105, 1.030, because the limiter and the Knudsen-layer albedo were fitted to the full-flux model and already carry part of the first flight; a micro-macro split needs those refitted first. |
 | 2026-11-11 | perf lane: sparse-row pairs (open PR #110) | Current/phi, support-core and leg pairs `(G, D)` as padded sparse rows assembled once by coloured probing (single shard; matrix-free fallback), applied as one gather and a row sum in the Krylov matvec, the RHS and the conduction PCG. 16^3 default step 0.24 -> 0.12 s (0.17 -> 0.08 s on current main), 32^3 1.98 -> 1.23 s; implicit+phi thunks per Krylov iteration 585 -> 203; cold compile 83 -> 41 s (+22 s assembly); peak footprint 3.0 -> 2.1 GB. Fields equal main to round-off or the solver tolerance; gradient through the implicit solve equal to 2e-15. Details in section 4b |
 | 2026-11-11 | perf lane: sparse-row -L_perp (open PR #111, stacked on #110) | The potential solver's own `-L_perp` (Dirichlet-lift mode) as seventh set of rows; one potential-solver constructor. 16^3 default step 0.12 -> 0.10 s (0.08 -> 0.07 s on current main), 32^3 1.23 -> 1.07 s; implicit+phi thunks per Krylov iteration 203 -> 95; the assembly of this operator takes 25-50 s once (polar agglomeration needs 16384 colours at 32^3) |
+| 2026-11-11 | solver lane: items 5, 6, 8 rejected, wave measured (open PR) | Section 4c items 5 (coarse-grid correction, best 1.4-1.7x net, only with z unrefined, Galerkin build costs more than a step), 6 (preconditioner build is 3.7% of the step, about 100-120 lines for at most 4%) and 8 (no gain) are recorded as not adopted. Items 1, 4 and 7 together: CPU step 0.259 -> 0.196 s at 16^3 (1.32x) and 1.675 -> 1.046 s at 32^3 (1.60x), A/B/A/B against the pre-wave main. |
+| 2026-11-11 | end-to-end gradient through the driver (open PR) | The diagnostic `pmin`/`pmax` reductions in `finalize_advance` have no JVP rule; they are now wrapped in `stop_gradient`, so `jax.grad` runs through the production sharded advance without patching `jax.lax`. `slow`-marked driver test (HSX 16^3 deck, three steps under `lax.scan` of the advance the driver lowers, reverse mode through the four SOLVAX FGMRES solves per step): gradient with respect to a Te scale 6418.00816, central difference (eps 1e-3) 6418.00942, relative difference 2e-7 (compile of the grad program about 1.7 h on the laptop CPU, which is why it is not in CI). Neutral solves (#103, SOLVAX flat FGMRES under `implicit.linear_solve`) are reverse-differentiable: new fast test, three coupled `neutral_fluid_step` calls on the sheared slab, reverse gradient 1.175603903 against central difference 1.175603903 (rel 1e-5 gate). |
+| 2026-11-11 | electromagnetic PR 2 (open, stacked on PR 1) | Examples (`examples/electromagnetic/`: Alfven dispersion figure, electromagnetic turbulence with movie, step time), deck `electromagnetic_turbulence.toml`, docs page and README section. Step time, electromagnetic over electrostatic: 2.6 and 2.7 on a laptop CPU (8x12x6 and 16x24x12 cells), 2.3 and 2.5 on an RTX A4000 (minimum of 16 steps; the hosts were shared, medians noisier) |
