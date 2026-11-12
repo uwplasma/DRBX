@@ -7,6 +7,7 @@ Alfven branch.
 
 from __future__ import annotations
 
+import gc
 
 import jax
 import jax.numpy as jnp
@@ -24,6 +25,15 @@ from drbx.validation.electromagnetic_waves import (
     rk4,
     slab,
 )
+
+
+@pytest.fixture(autouse=True)
+def _release_compiled_programs():
+    """Each test compiles its own RK4 programs; free them so the long fast suite stays inside a small runner's memory."""
+
+    yield
+    jax.clear_caches()
+    gc.collect()
 
 
 @pytest.mark.parametrize("beta, expected_inertia", [(0.5, 0.02), (0.005, 2.0)])
