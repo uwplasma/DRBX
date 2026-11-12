@@ -94,7 +94,7 @@ Each panel compares a component with an analytic or published reference.
 | FCI parallel gradient, parallel and perpendicular Laplacian | manufactured solution, 16^3 to 64^3 | exact derivatives | order 1.98, 1.98, 1.90 |
 | Parallel-operator pair `(G, D)` | exact adjoint on a sheared FCI map | `D = -M^-1 G^T M` | residual 1e-16 |
 | Shear-Alfven wave, electron inertia | frequency of the evolved RHS | `omega = k_par v_A / sqrt(1 + k_perp^2 d_e^2)` | within 2.5% |
-| Drift-Alfven wave | frequency of the evolved RHS | eigenvalue of the linear system | within 0.3% |
+| Drift-Alfven wave | frequency of the evolved RHS | eigenvalue of the linear system | within 0.5% |
 | 1D plasma-neutral leg (AMJUEL) | target temperature, six densities | SD1D 13.6 eV scan (Dudson et al. 2019) | within 0.4% |
 | HSX 16^3 with sheath and neutrals | wall-face ledger at t = 0.6 | integrated wall fluxes | particles 9e-5, energy 8e-4 of the wall loss |
 | Reverse-mode gradient | 8 directional derivatives through an FGMRES solve | central differences | 2e-10 relative |
