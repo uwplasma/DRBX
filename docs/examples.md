@@ -27,6 +27,15 @@ inputs, outputs, source modules, tests, and documentation page, see
 
 ![Drift-wave turbulence](media/drift_wave_turbulence.gif)
 
+## Electromagnetic
+
+| Example | What it teaches |
+| --- | --- |
+| [`examples/electromagnetic/alfven_dispersion.py`](../examples/electromagnetic/alfven_dispersion.py) | Shear-Alfven wave with electron inertia and drift-Alfven wave against the analytic dispersion; figure. About 1.5 min. [Electromagnetic model](electromagnetic.md). |
+| [`examples/electromagnetic/electromagnetic_verification.py`](../examples/electromagnetic/electromagnetic_verification.py) | beta -> 0 limit, energy over an Alfven period, manufactured-solution convergence; figure. About 2 min. |
+| [`examples/electromagnetic/electromagnetic_turbulence.py`](../examples/electromagnetic/electromagnetic_turbulence.py) | Four-field torus run with and without A_par: energies, A_par, vorticity and density spread; movie. About 2 min. |
+| [`examples/electromagnetic/step_time.py`](../examples/electromagnetic/step_time.py) | Time per RK4 step, electrostatic and electromagnetic. |
+
 ## Open-field-line SOL and neutrals
 
 | Example | What it teaches |
