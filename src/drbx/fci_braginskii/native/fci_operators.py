@@ -45,6 +45,7 @@ from ..geometry.fci_geometry import (
     _lift_cell_field_to_faces,
 )
 from .fci_helpers import small_batched_eig
+from .fci_support_pair import sparse_rows_apply
 from .fci_halo import (
     HaloExchange3D,
     accumulate_halo_contributions_to_owned,
@@ -4965,6 +4966,9 @@ class LocalPerpLaplacianInverseSolver:
     # GMRES action, the zero-field boundary source, and the Dirichlet-lift
     # correction.  ``None`` (the default) keeps this solver unchanged.
     extra_operator: Callable[[jnp.ndarray], jnp.ndarray] | None = None
+    # Padded sparse rows ``(cols, vals)`` of the fixed linear ``-L_perp`` of the Dirichlet-lift
+    # solve (see :meth:`lift_operator`); the GMRES action then replaces its stencil by a gather.
+    base_rows: tuple | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.geometry, LocalFciGeometry3D):
@@ -5076,6 +5080,7 @@ class LocalPerpLaplacianInverseSolver:
         face_bc: LocalBoundaryFaceBC3D,
         control_volume_boundary_bc: LocalControlVolumeBoundaryBC3D | None,
         project_mean_zero: bool,
+        rows: bool = False,
     ) -> jnp.ndarray:
         active_mask = _solver_active_mask(
             self.geometry,
@@ -5098,6 +5103,53 @@ class LocalPerpLaplacianInverseSolver:
                 active_mask,
                 volume_weights,
             )
+
+        if rows and self.base_rows is not None:
+            result = sparse_rows_apply(*self.base_rows, values)
+        else:
+            result = self._stencil_operator(values, face_bc)
+        if self.extra_operator is not None:
+            # ``values`` is the same masked (and, if applicable, mean-removed)
+            # owned-shape representation of the unknown that the base -L_perp
+            # action above was built from.  Adding the extra term here means
+            # every ``_apply_A`` call site -- the GMRES action, the
+            # zero-field boundary source, and the Dirichlet-lift correction
+            # ``A(lift)`` -- picks it up automatically and consistently.
+            result = result + self.extra_operator(values)
+        if self.config.regularization_epsilon != 0.0:
+            result = result + self.config.regularization_epsilon * values
+        if project_mean_zero:
+            result = _spmd_remove_weighted_mean(
+                result,
+                self.geometry,
+                self.domain,
+                active_mask,
+                volume_weights,
+            )
+        return _mask_inactive_owned(
+            result,
+            self.geometry,
+            active_mask=active_mask,
+        )
+
+    def lift_operator(self) -> Callable[[jnp.ndarray], jnp.ndarray]:
+        """The GMRES action of the Dirichlet-lift solve without ``extra_operator`` (to probe for ``base_rows``)."""
+
+        face_bc = _dirichlet_lift_correction_local_face_bc(
+            self.face_bc or LocalBoundaryFaceBC3D.empty(self.domain.layout)
+        )
+        cv_bc = self._default_control_volume_boundary_bc()
+        plain = dataclass_replace(
+            self, extra_operator=None, base_rows=None,
+            config=dataclass_replace(self.config, regularization_epsilon=0.0),
+        )
+        return lambda x: plain._apply_A(
+            x, face_bc=face_bc, project_mean_zero=False,
+            control_volume_boundary_bc=None if cv_bc is None else _dirichlet_lift_correction_local_control_volume_boundary_bc(cv_bc),
+        )
+
+    def _stencil_operator(self, values: jnp.ndarray, face_bc: LocalBoundaryFaceBC3D) -> jnp.ndarray:
+        """``-L_perp`` of the masked unknown on the stencils (the matrix-free base operator)."""
 
         storage_values = values
         if self.control_volume_geometry is not None:
@@ -5184,29 +5236,7 @@ class LocalPerpLaplacianInverseSolver:
                 b_floor=self.b_floor,
                 jacobian_floor=self.jacobian_floor,
             )
-        if self.extra_operator is not None:
-            # ``values`` is the same masked (and, if applicable, mean-removed)
-            # owned-shape representation of the unknown that the base -L_perp
-            # action above was built from.  Adding the extra term here means
-            # every ``_apply_A`` call site -- the GMRES action, the
-            # zero-field boundary source, and the Dirichlet-lift correction
-            # ``A(lift)`` -- picks it up automatically and consistently.
-            result = result + self.extra_operator(values)
-        if self.config.regularization_epsilon != 0.0:
-            result = result + self.config.regularization_epsilon * values
-        if project_mean_zero:
-            result = _spmd_remove_weighted_mean(
-                result,
-                self.geometry,
-                self.domain,
-                active_mask,
-                volume_weights,
-            )
-        return _mask_inactive_owned(
-            result,
-            self.geometry,
-            active_mask=active_mask,
-        )
+        return result
 
     def solve_full_grid(
         self,
@@ -5463,6 +5493,7 @@ class LocalPerpLaplacianInverseSolver:
                 face_bc=homogeneous_face_bc,
                 control_volume_boundary_bc=homogeneous_control_volume_boundary_bc,
                 project_mean_zero=project_mean_zero,
+                rows=lift is not None and not project_mean_zero,
             )
 
         preconditioner_projectors = self.face_projectors
@@ -5539,6 +5570,7 @@ class LocalPerpLaplacianInverseSolver:
             self.face_bc,
             self.config,
             self.extra_operator,
+            self.base_rows,
         )
         aux_data = (
             self.axis_regular_axes,
@@ -5564,6 +5596,7 @@ class LocalPerpLaplacianInverseSolver:
             face_bc,
             config,
             extra_operator,
+            base_rows,
         ) = children
         (
             axis_regular_axes,
@@ -5589,4 +5622,5 @@ class LocalPerpLaplacianInverseSolver:
             jacobian_floor=jacobian_floor,
             config=config,
             extra_operator=extra_operator,
+            base_rows=base_rows,
         )
