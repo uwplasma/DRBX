@@ -797,15 +797,16 @@ CPU (Mac, `JAX_PLATFORMS=cpu`; #95 and #97 are inactive there, so this is #96):
 
 Step time does not change within the noise (4 of the 9 B runs at 16^3 were 15-30% slower, A showed no such outliers; the other 5 equal A at 0.198-0.210 s). Compile is 17% shorter at both sizes and the 16^3 footprint is 21% smaller.
 
-GPU (office A4000, `JAX_PLATFORMS=cuda,cpu`, 16^3, 10 steps, `nice -n 10`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`; the host was at load average 95-125 with 54-56 of 62 GB in use and GPU 1 busy, so absolute times are inflated and compile times especially so):
+GPU (office A4000, `JAX_PLATFORMS=cuda,cpu`, HSX 16^3, 10 steps, `nice -n 10`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`, GPU 0). The host stayed at load average 95-130 (54-56 of 62 GB in use, GPU 1 busy) the whole time, and the first runs hit heavy contention that later cleared, so the runs are listed in the order they were made. Step time (s), staged compile in brackets:
 
-| variant | step (s), run 1 / run 2 | staged compile (s), run 1 / run 2 |
-|---|---|---|
-| A (main) | 1.798 / 1.252 | 1316 / 381 |
-| A + #97 + #95 | 0.655 / 0.289 | 964 / 385 |
-| A + #97 + #95 + #96 | 0.286 / 0.341 | 902 / 300 |
+| variant | runs in time order |
+|---|---|
+| pre-wave main 7fd669f9 | 0.300 (280 s), 0.348 (313 s) |
+| main 8cb45c30 (A) | 1.798 (1316 s), 1.252 (381 s), 1.142 (349 s), 0.371 (376 s), 0.321 (337 s), 0.410 (349 s) |
+| A + #97 + #95 | 0.655 (964 s), 0.289 (385 s), 0.335 (359 s), 0.316 (400 s) |
+| A + #97 + #95 + #96 | 0.286 (902 s), 0.341 (300 s) |
 
-#95 takes the GPU step from 1.25-1.80 s to 0.29-0.66 s (4.3x best pair, 2.7x worst, same card and code otherwise). #96 adds nothing measurable to the GPU step (0.29-0.34 s with and without it) and shortens the compile by 5-22%. #97 is needed for any `JAX_PLATFORMS=cuda`-only run (without it the first step aborts) and costs nothing elsewhere.
+The first three main runs (1.1-1.8 s) and the first #95 run (0.655 s) coincide with foreign load on the card and host and are not comparable. In the interleaved pairs after the contention cleared (A 0.321 / 0.410 against #95 0.335 / 0.316; A 0.371 against #95 0.289) the step is 0.29-0.41 s with and without #95, i.e. no measurable gain from command buffers on a quiet card; the stall reduction (6301 -> 822 per 4 steps) is real but only costs time when the host or GPU is contended. #96 adds nothing measurable on the GPU step (0.29-0.34 s with it) and shortens the compile by 5-22%. The merged wave (items 1, 4, 7) does not show a GPU gain either: pre-wave 0.300 / 0.348 against 0.321-0.410 after it, because the 16^3 GPU step is launch-count bound (about 25k kernels) rather than solver-iteration bound. #97 is needed for any `JAX_PLATFORMS=cuda`-only run (without it the first step aborts) and costs nothing elsewhere.
 
 
 ### Still open
