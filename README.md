@@ -83,6 +83,24 @@ Examples are flat scripts: parameters at the top, then run and plot, writing
 to `output/`. [`examples/model_selection_guide.py`](examples/model_selection_guide.py)
 helps choose a model family, dimension and boundary conditions.
 
+## Validation
+
+<img src="docs/media/validation_overview.png" width="800" alt="Validation overview">
+
+Each panel compares a component with an analytic or published reference.
+
+| Component | Check | Reference | Result |
+|---|---|---|---|
+| FCI parallel gradient, parallel and perpendicular Laplacian | manufactured solution, 16^3 to 64^3 | exact derivatives | order 1.98, 1.98, 1.90 |
+| Parallel-operator pair `(G, D)` | exact adjoint on a sheared FCI map | `D = -M^-1 G^T M` | residual 1e-16 |
+| Shear-Alfven wave, electron inertia | frequency of the evolved RHS | `omega = k_par v_A / sqrt(1 + k_perp^2 d_e^2)` | within 2.5% |
+| Drift-Alfven wave | frequency of the evolved RHS | eigenvalue of the linear system | within 0.3% |
+| 1D plasma-neutral leg (AMJUEL) | target temperature, six densities | SD1D 13.6 eV scan (Dudson et al. 2019) | within 0.4% |
+| HSX 16^3 with sheath and neutrals | wall-face ledger at t = 0.6 | integrated wall fluxes | particles 9e-5, energy 8e-4 of the wall loss |
+| Reverse-mode gradient | 8 directional derivatives through an FGMRES solve | central differences | 2e-10 relative |
+
+The gradient through three steps of the HSX 16^3 driver agrees with central differences to 2e-7 (`slow` test, not part of the figure). `PYTHONPATH=src:. python examples/validation_overview.py` regenerates the figure; the first run builds the HSX geometry (about 8 min) and the script takes about 6 min after that.
+
 ## Drift-wave turbulence
 
 The Hasegawa-Wakatani model on a doubly periodic plane: density-gradient-driven
