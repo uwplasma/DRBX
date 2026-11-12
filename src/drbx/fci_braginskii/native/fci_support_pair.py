@@ -178,9 +178,87 @@ def build_support_pair(
     return gradient, divergence
 
 
+def assemble_sparse_rows(operator: Callable[[Array], Array], shape: tuple[int, ...]):
+    """Padded sparse rows ``(cols, vals)`` of a fixed linear map on ``shape``, by coloured probing.
+
+    Cells a multiple of ``sep`` apart (``sep`` the smallest divisor of the extent not below the
+    request, requests ``(6, 6, 3)`` then wider) share a probe; two probes per colour, ``1`` and
+    ``1 + flat index`` on the colour, give a row's value and, from the ratio, its column.  Probes
+    run in chunks, so memory stays at a few chunks of the grid.  Returns ``None`` unless a random
+    vector is then reproduced to round-off and a row has at most 64 entries, so the caller keeps
+    the matrix-free operator.
+    """
+
+    n = int(np.prod(shape))
+    grid = np.indices(shape).reshape(len(shape), n)
+    probe = jax.jit(lambda x: jax.lax.map(lambda v: operator(v.reshape(shape)).reshape(-1), x))
+    x = np.random.default_rng(0).normal(size=shape)
+    want = np.asarray(jax.jit(operator)(jnp.asarray(x))).reshape(-1)
+    tag = np.arange(n) + 1.0
+    for request in ((6, 6, 3), (10, 10, 5), (18, 18, 9)):
+        steps = [min(d for d in range(min(b, m), m + 1) if m % d == 0) for m, b in zip(shape, request[-len(shape):])]
+        colour = np.ravel_multi_index(tuple(g % b for g, b in zip(grid, steps)), steps)
+        found, scale = [], 0.0
+        for start in range(0, int(np.prod(steps)), 128):
+            onehot = (colour[None, :] == np.arange(start, min(start + 128, int(np.prod(steps))))[:, None]) * 1.0
+            unit, tagged = (np.asarray(probe(jnp.asarray(v))) for v in (onehot, onehot * tag))
+            scale = max(scale, np.abs(unit).max())
+            row = np.nonzero(np.abs(unit) > 1.0e-14 * np.abs(unit).max())  # (colour in chunk, row)
+            found.append((row[1], unit[row], tagged[row]))
+        row, unit, tagged = (np.concatenate(a) for a in zip(*found))
+        biggest = np.zeros(n)
+        np.maximum.at(biggest, row, np.abs(unit))
+        keep = (np.abs(unit) > 1.0e-13 * biggest[row]) & (np.abs(unit) > 1.0e-14 * scale)  # drops round-off
+        row, unit, ratio = row[keep], unit[keep], tagged[keep] / unit[keep]
+        column = np.rint(ratio) - 1.0
+        if np.any((np.abs(ratio - np.rint(ratio)) > 1.0e-9 * np.maximum(ratio, 1.0)) | (ratio < 0.5)):
+            continue  # two probed cells met in one row: separate the colours further
+        count = np.bincount(row, minlength=n)
+        width = int(count.max())
+        if width > 64:  # not a sparse map
+            return None
+        order = np.argsort(row, kind="stable")
+        row, unit, column = row[order], unit[order], column[order]
+        slot = np.arange(row.size) - (np.cumsum(count) - count)[row]
+        cols, vals = np.zeros((n, width), np.int32), np.zeros((n, width))
+        cols[row, slot], vals[row, slot] = column, unit
+        if np.max(np.abs((vals * x.reshape(-1)[cols]).sum(-1) - want)) <= 1.0e-12 * max(np.max(np.abs(want)), 1.0e-300):
+            return cols, vals
+    return None
+
+
+def adjoint_sparse_rows(cols, vals, primal_mass, dual_mass, primal_active, dual_active):
+    """Rows of ``G = -M^-1 D^T W`` from the rows of ``D`` (the weighted negative adjoint of
+    :func:`build_weighted_negative_adjoint`), exact by construction."""
+
+    n, width = cols.shape
+    row_scale = -np.asarray(primal_active, float).reshape(-1) / np.where(primal_active, primal_mass, 1.0).reshape(-1)
+    col_scale = (np.asarray(dual_mass) * np.asarray(dual_active)).reshape(-1)
+    src, dst, val = np.repeat(np.arange(n), width), cols.reshape(-1), vals.reshape(-1)
+    keep = val != 0.0
+    src, dst, val = src[keep], dst[keep], val[keep]
+    order = np.argsort(dst, kind="stable")
+    src, dst, val = src[order], dst[order], val[order]
+    count = np.bincount(dst, minlength=n)
+    slot = np.arange(dst.size) - (np.cumsum(count) - count)[dst]
+    out_cols = np.zeros((n, max(int(count.max()), 1)), np.int32)
+    out_vals = np.zeros(out_cols.shape)
+    out_cols[dst, slot], out_vals[dst, slot] = src, row_scale[dst] * val * col_scale[src]
+    return out_cols, out_vals
+
+
+def sparse_rows_apply(cols: Array, vals: Array, x: Array) -> Array:
+    """``y = A x`` for the padded rows of :func:`assemble_sparse_rows` (one gather and a row sum)."""
+
+    return (vals * x.reshape(-1, cols.shape[0])[:, cols]).sum(-1).reshape(x.shape)
+
+
 __all__ = [
     "Gradient",
     "Divergence",
+    "adjoint_sparse_rows",
+    "assemble_sparse_rows",
     "build_support_pair",
     "build_weighted_negative_adjoint",
+    "sparse_rows_apply",
 ]
