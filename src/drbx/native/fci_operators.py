@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from solvax import gmres as solvax_gmres
+from solvax.implicit import linear_solve as solvax_linear_solve
 from ..fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
     _take_stencil_finite_difference,
     _axis_slice_nd,
@@ -3401,20 +3402,32 @@ class PerpLaplacianInverseSolver:
         budget = max(1, int(self.maxiter)) * max(1, int(self.restart))
         cycle = max(1, min(int(self.restart), 64))
         max_restarts = max(1, -(-budget // cycle))
-        solution = solvax_gmres(
+        def krylov(apply, target, x0):
+            solution = solvax_gmres(
+                apply,
+                target,
+                x0=x0,
+                precond=precond,
+                restart=cycle,
+                # Pure relative stopping on the true residual: the diagnostic
+                # residual gate is relative, and an absolute atol=tol floor would
+                # stop early whenever ||rhs|| < 1 (small-amplitude stages).
+                rtol=self.tol,
+                atol=0.0,
+                max_restarts=max_restarts,
+            )
+            return solution.x, jnp.asarray(solution.iterations, dtype=jnp.int32)
+
+        # Implicit-function VJP: reverse mode costs one transposed Krylov solve
+        # (same preconditioner) instead of differentiating the while_loop.
+        x, steps = solvax_linear_solve(
             matvec,
             jnp.ravel(rhs),
-            x0=jnp.ravel(guess),
-            precond=precond,
-            restart=cycle,
-            # Pure relative stopping on the true residual: the diagnostic
-            # residual gate is relative, and an absolute atol=tol floor would
-            # stop early whenever ||rhs|| < 1 (small-amplitude stages).
-            rtol=self.tol,
-            atol=0.0,
-            max_restarts=max_restarts,
+            lambda apply, b: krylov(apply, b, jax.lax.stop_gradient(jnp.ravel(guess))),
+            transpose_solver=lambda apply_t, b: krylov(apply_t, b, jnp.zeros_like(b)),
+            has_aux=True,
         )
-        return jnp.reshape(solution.x, shape), jnp.asarray(solution.iterations, dtype=jnp.int32)
+        return jnp.reshape(x, shape), steps
 
     def _solve_fast_impl(
         self,
