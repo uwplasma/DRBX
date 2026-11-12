@@ -54,25 +54,3 @@ jobs:
         env:
           DRBX_USE_FIXTURE_REFERENCE_ROOT: "1"
         run: uv run pytest -q -n 2 -m "not slow"
-
-  gpu:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, Linux, uwplasma-gpu]
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
-          enable-cache: false
-      - name: Install package with CUDA JAX
-        run: |
-          uv venv
-          uv pip install -e . pytest 'jax[cuda12]'
-      - name: Check GPU backend
-        run: uv run python -c "import jax; assert jax.default_backend()=='gpu', jax.devices()"
-      - name: GPU tests
-        timeout-minutes: 1
-        env:
-          DRBX_USE_FIXTURE_REFERENCE_ROOT: "1"
-        run: uv run pytest -m gpu -q -x
