@@ -780,6 +780,70 @@ Measured on the HSX 16^3 default deck, 30 steps (dt 7.5e-4, t = 0.0225), macOS C
 Field change against the time-truncation error (last frame, relative L2; truncation = same deck at dt/2): phi 8.1e-6 vs 1.1e-1, Ve 2.7e-6 vs 1.3e-1, vorticity 2.5e-7 vs 1.7e-2, Vi 5.8e-9 vs 1.4e-4, density 2.6e-9 vs 1.2e-6; Te, Ti unchanged in float32 storage (truncation 6.3e-6, 1.1e-6). The solver-induced change is 1e-4 to 1e-5 of the truncation change in every field. 32^3, 10 steps: phi 2.5e-4 vs 2.0e-1, Ve 1.4e-5 vs 1.8e-1, vorticity 1.6e-6 vs 3.9e-2, Vi 1.8e-8 vs 5.4e-4 (ratio 1e-3 at worst, in phi).
 Not changed: the conduction PCG (1e-12) and the strict `1e-8` remains the value to give the adjoint solve of the implicit-VJP lane.
 
+### Sparse-row operator pairs (2026-11-11, additive; PR #110, stacked PR #111)
+Why: after #95-#97 the Krylov iteration is launch bound, and the profile above puts the nested `linear_transpose` of the current/phi
+pair `G`, its mapped gathers and the radial-ordered stencils of `-L_perp` at about half of the leaf-thunk time of the implicit+phi
+kernel. The pairs `(G, D)` (current/phi, support-core, forward-leg) and the potential solver's own `-L_perp` are linear maps fixed
+by the geometry and the boundary kinds, so on one shard they are assembled once per run as padded sparse rows `(cols, vals)` and
+applied as one gather and a row sum (`assemble_sparse_rows`, `adjoint_sparse_rows`, `sparse_rows_apply` in `fci_support_pair.py`).
+- Assembly: coloured probing. Cells a multiple of `sep` apart (smallest divisor of the extent not below the request, requests
+  `(6,6,3)`, `(10,10,5)`, `(18,18,9)`) share a probe; two probes per colour (the colour indicator, and the indicator times
+  `1 + flat index`) give a row's value and, from the ratio, its column. Round-off at structural zeros is dropped (relative 1e-13 of the
+  row maximum, absolute 1e-14 of the operator scale); a non-integer ratio means two probed cells met in one row and the next, wider
+  request is used. The rows are accepted only if a random vector is reproduced to 1e-12 and no row has more than 64 entries
+  (a global coupling is refused). Probes run in chunks of 128 colours (memory O(chunk), the first version built full colour
+  arrays and peaked at 21 GB at 32^3) and on the CPU device when the platform has one: on a GPU the probe sees round-off noise.
+- The other member of each pair is the exact weighted adjoint of the probed rows (`G = -M^-1 D^T W` with the masks of
+  `build_weighted_negative_adjoint`), so adjointness holds to round-off by construction; the support pair is built from its probed
+  core divergence `D0` (`H = adjoint(D0)`, `G = H - diag(H(1))`, `D = adjoint(G)`; probing the nested `G` itself needs a colour
+  separation of 16384 colours at 32^3 and took 110 s).
+- `-L_perp` (#111): `LocalPerpLaplacianInverseSolver.base_rows` replaces the stencil block of the GMRES action in the
+  Dirichlet-lift mode without mean projection; the boundary source, the lift source and the preconditioner keep the matrix-free
+  operator. The rows are refused (matrix-free kept) if the lift operator is affine (non-zero Neumann data). More than one shard, a
+  non-sparse pair or a failed check also keep the matrix-free path.
+Measured on main 7fd669f9 (HSX, macOS CPU, one process at a time under the heavy lock, fresh compile caches, median step):
+| deck, steps | main | #110 | #111 |
+|---|---|---|---|
+| 16^3 default, 20 | 0.24 / 0.24 s | 0.12 / 0.13 s | 0.10 / 0.10 s |
+| 16^3 neutrals + recycling, 20 | 0.24 s | 0.12 s | 0.10 s |
+| 32^3 default, 12 | 1.98 s | 1.23 s | 1.07 s |
+Re-measured after rebasing onto main 8cb45c30 (#101, #104, #108 merged; three phi solves per step, looser inner tolerance), same
+protocol: median step 16^3 default 0.17 / 0.17 s (two rounds) -> 0.08 / 0.09 s (#110) -> 0.07 / 0.07 s (#111); 16^3 neutrals 0.17 -> 0.08 ->
+0.07 s; 32^3 1.16 -> 0.63 -> 0.57 s. Peak footprint 3.15 -> 2.23 -> 1.90 GB (16^3), 4.09 -> 3.26 -> 3.03 GB (32^3); cold compile of the staged
+kernels 93 -> 45 (+22 s assembly) -> 28 (+26 s) at 16^3 and 87 -> 45 (+20 s) -> 29 (+48 s) at 32^3. History arrays against that main: `density`,
+`phi`, `Te`, `Ti` bitwise on all three decks (the looser tolerance makes the iteration count insensitive to round-off), `Ve` bitwise or 6e-11
+(32^3), `vorticity` 9e-14 (16^3) / 1.6e-10 (32^3), `Vi` 4e-12 / 2e-12 / 2.7e-11.
+GMRES iterations per step unchanged (37.4 avg4 on the older main). Profile of the 16^3 default deck, four traced steps (CPU thunk events joined to the
+after-optimisation HLO): leaf thunks 463,566 -> 227,049 -> 110,420; implicit+phi kernel 349,654 -> 121,633 -> 56,940, i.e. about 585 ->
+203 -> 95 thunks per Krylov iteration (16 solves x 37.4 iterations); implicit+phi run span 1238 -> 338 -> 246 ms; summed leaf-thunk
+time 1803 -> 641 -> 476 ms. `matvec/transpose()/scatter-add` (424 ms, 106k thunks) is gone, the conduction PCG goes 112 -> 11 ms; the explicit
+RHS (176 ms, 15k thunks) is now the largest block and is untouched. Cold compile of the four staged kernels 83 s -> 41 s -> 28 s, plus
+the one-time assembly (22 s, 25 s at 16^3; 23 s, 52 s at 32^3 where main compiles in 88 s and #110 in 46 s); peak footprint 3.01 ->
+2.08 -> 1.88 GB (16^3), 3.69 -> 3.16 -> 2.99 GB (32^3).
+Equivalence (history arrays, last frame, against main): `density`, `Te`, `Ti`, `Ve`, `vorticity` bitwise (16^3 default, neutrals) or
+at 1e-13 relative (`vorticity`, 16^3), `phi` 3e-10 to 6e-10 of its maximum (4.8e-9 for #110 on neutrals; solver target 1e-8),
+`Vi` 1e-13 to 1.3e-11; 32^3 `phi` 4.6e-9 / 5.8e-10, `vorticity` 8e-11. Reverse mode: `jax.grad` of a scalar of
+`solve_implicit_current_phi_pair` with respect to a density and a Vi scale, with and without the rows: value identical to 16 digits,
+gradient equal to 6e-16 and 2e-15 relative, central finite differences agree to 3e-8 and 1.7e-6; compile plus run of the gradient 144 s -> 12 s.
+Tests: `tests/fci_braginskii/test_sparse_rows.py` (rows reproduce the matrix-free pair and batches; weighted adjointness 1e-13;
+reverse mode through the rows equals the matrix-free one to 1e-12; a global coupling is refused).
+GPU (office RTX A4000 chosen idle at the start, no compile cache, 16^3 default, 20 steps, trees at 316aa708 / 30cd4793 whose kernels equal these
+heads; main 7fd669f9): median-of-run step, default XLA flags, A/B/A/B-style two rounds with a run flagged when another compute process
+appeared on the card: main 0.41 / 0.46 s, #110 0.46* / 0.46 s, #111 0.68* / 0.35 s (* contended runs). Trace of four steps (Perfetto, device
+events): kernels 133,982 -> 82,751 -> 62,769 (about 225 -> 139 -> 105 per Krylov iteration), device-busy time 461 -> 247 -> 198 ms (9.0% ->
+6.3% -> 7.0% of a span of 5.1 -> 3.9 -> 2.8 s), mean kernel 3.4 / 3.0 / 3.2 us. The GPU step is stall bound at default flags (every `while`
+predicate is copied to the host, plan 4b profile row 4, #95), so the kernel cut buys 0 to 24% of wall time there and 40-57% of device-busy
+time; the attempt to measure with #95's command-buffer flag was lost to the shared card and an out-of-memory kill on the loaded host (one
+contended run only: 0.30 s median). GPU `phi` against main 2.4e-9 of its maximum (#111), bitwise (#110); GPU
+compile times are not comparable (host load 100-160, 5-10 minutes per variant). The GPU runs are not yet a clean A/B.
+Tried and not adopted: (1) a flat 1-D index in the mapped gathers so the transpose is a 1-D scatter-add: 20-40% on the transposed
+op alone in a micro-benchmark on the real tables (3-D scatter 156 us vs 1-D 63 us on random indices), subsumed by the rows; (2) `segment_sum`
+over sorted keys (argsort first): 3-5x slower than the plain 1-D scatter on CPU; (3) `reshape(n, 8).sum` for the eight table rows per target (3x
+on the forward gather): needs the sharding builder's row layout as an invariant, subsumed; (4) Pallas: no profile row is a single stencil
+kernel any more (the matvec is a gather and a row sum), and the earlier attempt was 4.5x slower, not retried; (5) the tree preconditioner as
+fewer batched ops: it is 0.7% of the CPU thunk time, left alone. Limits: assembly scales with colours x cells (16384 colours at 32^3
+for `-L_perp`, whose polar agglomeration couples distant angular cells), so a 64^3 grid needs a smarter colouring; one shard only.
+
 ## 5. Status log
 
 | Date | Merged | Notes |
@@ -801,3 +865,5 @@ Not changed: the conduction PCG (1e-12) and the strict `1e-8` remains the value 
 | 2026-11-11 | solver lane item 4 (open PR) | Inner potential-solve tolerance tied to dt: iterations -37.5% on the 16^3 default and neutrals decks, -38% on 32^3; field changes 1e-4 to 1e-5 of the time-truncation change |
 | 2026-11-11 | slim lane: pillow and stellarator campaigns (open PR) | `pillow` is no longer a base dependency (it stays in the `viz` extra; every `PIL` import is covered because `matplotlib`, which stays in the base set, requires pillow itself). Removed the five `validation/stellarator_{fci_suite,metric_mms,neutral_physics,sheath_recycling,vorticity}_campaign.py` modules, their tests in `tests/test_validation_stellarator_fci_campaigns.py`, the `stellarator-fci/validation_campaign.py` example and the docs and `drbx.validation` exports that referenced them. Owner-approved removals. |
 | 2026-11-11 | neutral solves on SOLVAX FGMRES (open PR) | Plan 4c item 10: `_gmres` in `fci_neutral_fluid.py` is `solvax.krylov.gmres` (flat path, right-applied banded line preconditioner, flexible because the preconditioner is zero on inactive cells) inside `solvax.implicit.linear_solve`, so reverse mode costs one transposed solve; the old `jax.scipy` GMRES, its `M` and the recomputed arguments are gone (net -1 line). Neutrals deck (16^3, 4 steps) against main: neutral density within 8e-11 (relative), T_n within 1.3e-6, ionisation rate 3e-11, ledger 5e-11. `neutral_fluid_step` on a 96x16x16 slab with a wall source, A4000 (idle, nice): 0.153 -> 0.099 s (-35%, three A/B pairs). Slab-penetration, thin-layer and vacuum-gap oracle tests pass. Item 9 (uncollided-flight correction) prototyped on the 1D oracle cases and not built: adding a ray-integrated first flight (flux-weighted Maxwellian emission, cell-averaged `exp(-tau/(v mu))`, charge-exchange births as the fluid source) raises the vacuum-gap density from 0.76 to 1.05 of the oracle and the gap ionised fraction from 0.94 to 1.05, but moves the thin-layer ionised fraction (Kn = 0.3, 1, 3, 10) from 0.995, 1.009, 0.988, 1.002 to 1.094, 1.134, 1.105, 1.030, because the limiter and the Knudsen-layer albedo were fitted to the full-flux model and already carry part of the first flight; a micro-macro split needs those refitted first. |
+| 2026-11-11 | perf lane: sparse-row pairs (open PR #110) | Current/phi, support-core and leg pairs `(G, D)` as padded sparse rows assembled once by coloured probing (single shard; matrix-free fallback), applied as one gather and a row sum in the Krylov matvec, the RHS and the conduction PCG. 16^3 default step 0.24 -> 0.12 s (0.17 -> 0.08 s on current main), 32^3 1.98 -> 1.23 s; implicit+phi thunks per Krylov iteration 585 -> 203; cold compile 83 -> 41 s (+22 s assembly); peak footprint 3.0 -> 2.1 GB. Fields equal main to round-off or the solver tolerance; gradient through the implicit solve equal to 2e-15. Details in section 4b |
+| 2026-11-11 | perf lane: sparse-row -L_perp (open PR #111, stacked on #110) | The potential solver's own `-L_perp` (Dirichlet-lift mode) as seventh set of rows; one potential-solver constructor. 16^3 default step 0.12 -> 0.10 s (0.08 -> 0.07 s on current main), 32^3 1.23 -> 1.07 s; implicit+phi thunks per Krylov iteration 203 -> 95; the assembly of this operator takes 25-50 s once (polar agglomeration needs 16384 colours at 32^3) |

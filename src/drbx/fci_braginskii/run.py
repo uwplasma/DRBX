@@ -917,6 +917,7 @@ def build_local_eb_model(
     curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
     implicit_current_phi_pair: bool = False,
     sheath: SheathClosure | None = None,
+    pair_rows=None,
 ) -> LocalFciDrbEBRhs:
     if gmres_restart < 1:
         raise ValueError("gmres_restart must be positive")
@@ -1027,6 +1028,7 @@ def build_local_eb_model(
         control_volume_boundary_bc=control_volume_boundary_bc,
         implicit_current_phi_pair=bool(implicit_current_phi_pair),
         sheath=sheath,
+        pair_rows=pair_rows,
     )
     model = LocalFciDrbEBRhs(
         **rhs_kwargs,
@@ -1649,6 +1651,40 @@ def run_full_eb(
         f"{time.perf_counter() - curvature_precompute_start:.3f} s",
         flush=True,
     )
+    pair_rows_widths = None
+    if implicit_current_phi_pair and int(np.prod(sharded_geometry.shard_counts)) == 1:
+        pair_start = time.perf_counter()
+        host_model = build_local_eb_model(
+            host_local_geometry, host_domain, parameters,
+            gmres_target_tolerance=float(gmres_target_tolerance),
+            gmres_acceptance_tolerance=float(gmres_acceptance_tolerance),
+            gmres_max_iterations=int(gmres_max_iterations), gmres_restart=int(gmres_restart),
+            gmres_residual_correction_steps=int(gmres_residual_correction_steps),
+            gmres_preconditioner=gmres_preconditioner,
+            control_volume_geometry=(
+                None if control_volume_descriptor is None else control_volume_assembler(
+                    control_volume_descriptor, jnp.asarray(control_volume_fields_host), host_local_geometry
+                )
+            ),
+            control_volume_boundary_bc=control_volume_boundary_bc,
+            curvature_face_coefficients_override=host_curvature_faces,
+            implicit_current_phi_pair=True, sheath=sheath,
+        )
+        try:  # the probing is a one-off and sees round-off noise on a GPU: use the CPU when there is one
+            probe_device = jax.devices("cpu")[0]
+        except RuntimeError:
+            probe_device = jax.devices()[0]
+        with jax.default_device(probe_device):
+            packed = host_model.assemble_pair_rows(initial_state)
+        if packed is not None:
+            cell_fields_host = np.concatenate((cell_fields_host, packed[0]), axis=-1)
+            pair_rows_widths = packed[1]
+        print(
+            "[simulation] parallel pairs as sparse rows: "
+            + (f"widths {pair_rows_widths}" if packed is not None else "not representable, matrix-free")
+            + f" in {time.perf_counter() - pair_start:.3f} s",
+            flush=True,
+        )
     cell_fields = jax.device_put(cell_fields_host, geometry_sharding)
     map_fields_host = (
         np.asarray(sharded_geometry.map_fields, dtype=np.float64)
@@ -1732,6 +1768,17 @@ def run_full_eb(
                 local_geometry.layout,
             )
         )
+        pair_rows = None
+        if pair_rows_widths is not None:
+            channels = cell_fields_owned[..., geometry_field_count + curvature_face_field_count :]
+            matrices, start = [], 0
+            for width in pair_rows_widths:
+                matrices.append((
+                    channels[..., start : start + width].reshape(-1, width).astype(jnp.int32),
+                    channels[..., start + width : start + 2 * width].reshape(-1, width),
+                ))
+                start += 2 * width
+            pair_rows = tuple(zip(matrices[::2], matrices[1::2]))
         local_control_volume_geometry = (
             None
             if control_volume_descriptor is None
@@ -1760,6 +1807,7 @@ def run_full_eb(
             ),
             implicit_current_phi_pair=implicit_current_phi_pair,
             sheath=sheath,
+            pair_rows=pair_rows,
         )
 
     phi_start = time.perf_counter()
