@@ -48,6 +48,7 @@ nav:
       - Models And Equations: models_and_equations.md
       - Solvers And Design: solvers_and_design.md
       - Physics Models: physics_models.md
+      - Electromagnetic Model: electromagnetic.md
       - Equation To Code Map: equation_to_code_map.md
       - Tokamak Island Chain: island_tokamak.md
       - Code Structure: code_structure.md

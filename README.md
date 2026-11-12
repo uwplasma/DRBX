@@ -12,7 +12,7 @@ and open field lines in tokamak and non-axisymmetric stellarator geometry.
 Every solver is written in JAX: steps are `jit`-compiled, and outputs can be
 differentiated with respect to physical and geometric inputs.
 
-- **Models:** Hasegawa-Wakatani, two- and four-field drift-reduced turbulence, electromagnetic terms, fluid neutrals with AMJUEL rates, a 1D divertor-leg model.
+- **Models:** Hasegawa-Wakatani, two- and four-field drift-reduced turbulence, optional electromagnetic terms (A_par, flutter, electron inertia), fluid neutrals with AMJUEL rates, a 1D divertor-leg model.
 - **Geometry:** rotating-ellipse and shifted-torus stellarators, island divertors, and imported ESSOS coil fields and VMEC (VMEX) equilibria.
 - **Gradients:** forward, reverse and checkpointed reverse mode, used for sensitivity, inverse design and control.
 - **Runtime:** TOML-deck CLI, small Python API, restartable runs, multi-device `shard_map` stepping.
@@ -112,6 +112,28 @@ geometry. About 7 min on a laptop CPU.
 
 ```bash
 python examples/stellarator/stellarator_3d_render.py
+```
+
+## Electromagnetic four-field model
+
+`[physics] electromagnetic = true` adds the parallel vector potential A_par to the
+four-field model: Ampere's law is solved every right-hand-side evaluation, every
+parallel gradient carries the magnetic flutter term `{A_par, f}/(rho_star B)`, and
+the evolved electron velocity is the canonical momentum, which brings in electron
+inertia. The default (`false`) is the electrostatic model, unchanged bit for bit.
+The shear-Alfven wave follows `omega = k_par v_A / sqrt(1 + k_perp^2 d_e^2)` to
+2.5% on a 12x3x16 slab, and the drift-Alfven wave in a density gradient to 0.24%
+(left: measured against theory). The step costs about 2.5 times the electrostatic one (laptop CPU and RTX A4000). Also verified: the beta -> 0 limit (RHS difference 8.5e-9 at beta 1e-8, linear in beta), energy conservation over a wave period (0.55%) and a manufactured solution (order 2.1); the citations, numbers and figures are on the page [Electromagnetic model](docs/electromagnetic.md).
+
+<img src="docs/media/electromagnetic_verification.png" width="700" alt="Electromagnetic verification">
+
+<img src="docs/media/alfven_dispersion.png" width="700" alt="Alfven wave dispersion">
+
+```bash
+drbx run examples/inputs/electromagnetic_turbulence.toml
+python examples/electromagnetic/alfven_dispersion.py
+python examples/electromagnetic/electromagnetic_verification.py
+python examples/electromagnetic/electromagnetic_turbulence.py
 ```
 
 ## FCI parallel gradient on the rotating ellipse
