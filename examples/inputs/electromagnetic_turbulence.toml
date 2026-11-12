@@ -1,0 +1,26 @@
+# Electromagnetic four-field FCI turbulence on a tokamak-like torus (about 20 s).
+#   drbx run examples/inputs/electromagnetic_turbulence.toml
+# The four_field_tokamak deck with [physics] electromagnetic = true: A_par from Ampere's law, magnetic flutter of
+# every parallel gradient, electron inertia.  Also writes apar_frames and energies.  examples/electromagnetic/
+# electromagnetic_turbulence.py runs it larger and compares with the electrostatic model.
+
+[model]
+backend = "stellarator_turbulence"
+
+[shifted_torus]
+shape = [6, 8, 4]       # [radial, poloidal, toroidal] cells
+alpha_value = 0.25
+iota = 1.1
+
+[physics]
+electromagnetic = true
+beta = 0.1              # mu0 n T / B^2; Alfven speed 1 / sqrt(beta) in units of the sound speed
+mi_over_me = 1836.0     # electron skin depth d_e^2 = 1 / (beta mi/me)
+
+[run]
+steps = 4
+dt = 1.0e-3
+amplitude = 0.08
+
+[output]
+directory = "../../output/electromagnetic_turbulence"

@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from solvax import pcg_linear_solve
 
 from ..geometry.fci_geometry import (
@@ -60,7 +61,13 @@ from .fci_gmres import (
     solvax_gmres_solve,
 )
 from .fci_parallel_conduction import ConductionInfo, backward_euler_conduction, conductivity
-from .fci_support_pair import build_support_pair, build_weighted_negative_adjoint
+from .fci_support_pair import (
+    adjoint_sparse_rows,
+    assemble_sparse_rows,
+    build_support_pair,
+    build_weighted_negative_adjoint,
+    sparse_rows_apply,
+)
 from .fci_wall_closure import (
     SheathClosure,
     bohm_wall_state,
@@ -131,55 +138,6 @@ RHS_TERM_NAMES = (
     ),
 )
 RHS_TERM_SLOT_COUNT = max(len(names) for names in RHS_TERM_NAMES)
-
-
-def parallel_characteristic_matrix(
-    density: jnp.ndarray,
-    Te: jnp.ndarray,
-    Ti: jnp.ndarray,
-    Vi: jnp.ndarray,
-    Ve: jnp.ndarray,
-    tau: float | jnp.ndarray,
-    mu: float | jnp.ndarray,
-) -> jnp.ndarray:
-    """Return the analytic five-field parallel principal matrix.
-
-    The state order is ``(density, Te, Ti, Vi, Ve)``.  This deliberately
-    excludes both vorticity and the diagnostic electrostatic potential: the
-    former has a defective repeated-speed coupling in the full matrix and the
-    latter is supplied by a nonlocal polarization solve.
-    """
-
-    density = jnp.asarray(density, dtype=jnp.float64)
-    Te = jnp.asarray(Te, dtype=jnp.float64)
-    Ti = jnp.asarray(Ti, dtype=jnp.float64)
-    Vi = jnp.asarray(Vi, dtype=jnp.float64)
-    Ve = jnp.asarray(Ve, dtype=jnp.float64)
-    tau = jnp.asarray(tau, dtype=jnp.float64)
-    mu = jnp.asarray(mu, dtype=jnp.float64)
-    dV = Vi - Ve
-    n_safe = jnp.maximum(density, 1.0e-30)
-    shape = jnp.broadcast_shapes(
-        density.shape, Te.shape, Ti.shape, Vi.shape, Ve.shape
-    )
-    matrix = jnp.zeros(shape + (5, 5), dtype=jnp.float64)
-    matrix = matrix.at[..., 0, 0].set(Ve)
-    matrix = matrix.at[..., 0, 4].set(density)
-    matrix = matrix.at[..., 1, 0].set(-1.42 * Te * dV / (3.0 * n_safe))
-    matrix = matrix.at[..., 1, 1].set(Ve)
-    matrix = matrix.at[..., 1, 3].set(-1.42 * Te / 3.0)
-    matrix = matrix.at[..., 1, 4].set(3.42 * Te / 3.0)
-    matrix = matrix.at[..., 2, 0].set(-2.0 * Ti * dV / (3.0 * n_safe))
-    matrix = matrix.at[..., 2, 2].set(Vi)
-    matrix = matrix.at[..., 2, 4].set(2.0 * Ti / 3.0)
-    matrix = matrix.at[..., 3, 0].set((Te + tau * Ti) / n_safe)
-    matrix = matrix.at[..., 3, 1].set(1.0)
-    matrix = matrix.at[..., 3, 2].set(tau)
-    matrix = matrix.at[..., 3, 3].set(Vi)
-    matrix = matrix.at[..., 4, 0].set(mu * Te / n_safe)
-    matrix = matrix.at[..., 4, 1].set(1.71 * mu)
-    matrix = matrix.at[..., 4, 4].set(Ve)
-    return matrix
 
 
 def _dirichlet_face_bc_from_values(
@@ -543,6 +501,10 @@ class LocalFciDrbEBRhs:
     # a ``SheathClosure`` uses the Bohm wall state and the conservative
     # sheath wall-leg fluxes in the selected-wall block.
     sheath: SheathClosure | None = None
+    # Padded sparse rows ``(cols, vals)`` of G and D of the current/phi, support-core and leg pairs
+    # and of the phi solve's ``-L_perp`` (:meth:`assemble_rows`); ``None`` keeps the
+    # matrix-free operators.
+    sparse_rows: tuple | None = None
 
     def _parallel_wall_states(self, center, minus, plus, backward_wall, forward_wall):
         """Wall states consumed by the characteristic wall legs."""
@@ -1600,6 +1562,8 @@ class LocalFciDrbEBRhs:
             )
             return jnp.where(target, divergence, 0.0)
 
+        if build_adjoint and self.sparse_rows is not None:
+            return (*self._sparse_pair(0), target)
         cell_mass = self._fci_pair_cell_mass()
         if build_adjoint:
             phi_gradient = build_weighted_negative_adjoint(
@@ -1612,6 +1576,91 @@ class LocalFciDrbEBRhs:
         else:
             phi_gradient = lambda values: jnp.zeros_like(values)
         return phi_gradient, current_divergence, target
+
+    def _phi_solver(self, face_bc, context, extra_operator=None) -> LocalPerpLaplacianInverseSolver:
+        """The potential solver (SOLVAX FGMRES on ``-L_perp`` plus ``extra_operator``)."""
+
+        return LocalPerpLaplacianInverseSolver(
+            geometry=self.geometry,
+            domain=self.domain,
+            control_volume_geometry=self.control_volume_geometry,
+            control_volume_boundary_bc=self.control_volume_boundary_bc,
+            stencil_builder=build_local_conservative_stencil_from_field,
+            stencil_builder_context=context,
+            halo_exchange=self.halo_exchange,
+            topology_filler=self.topology_filler,
+            physical_ghost_filler=self.physical_ghost_filler,
+            face_projectors=self.face_projectors,
+            face_bc=face_bc.phi,
+            axis_regular_axes=self.axis_regular_axes,
+            neumann_normal_scheme=self.neumann_normal_scheme,
+            config=self.gmres_config,
+            extra_operator=extra_operator,
+            base_rows=None if self.sparse_rows is None else self.sparse_rows[6],
+        )
+
+    def _sparse_pair(self, index: int):
+        (gc, gv), (dc, dv) = self.sparse_rows[2 * index : 2 * index + 2]
+        return (
+            lambda values: sparse_rows_apply(gc, gv, values),
+            lambda values: sparse_rows_apply(dc, dv, values),
+        )
+
+    def assemble_rows(self, state_owned: FciDrbEBState):
+        """Packed channels of the current/phi, support-core and leg pairs and of ``-L_perp`` as padded sparse rows.
+
+        Each pair is linear and fixed by the geometry and the boundary kinds.  One coloured probing
+        of its simpler member replaces the mapped gathers, and the nested transposes, in every
+        Krylov iteration and RHS evaluation by a gather and a row sum; the other member is the
+        exact weighted adjoint of those rows.  Returns ``(channels, widths)`` (cols as floats,
+        then vals, for G and D of the three pairs and ``-L_perp``), or ``None`` if one is not sparse.
+        """
+
+        shape = self.geometry.owned_shape
+        zero = jnp.zeros(shape, dtype=jnp.float64)
+        face_bc, context = self._face_bcs(self._owner_state(state_owned)), self._stencil_builder_context()
+        mass, active = np.asarray(self._fci_pair_cell_mass()), np.asarray(self._fci_pair_active_mask())
+        current_g, current_d, current_target = self._fci_current_phi_boundary_pair(
+            face_bc=face_bc, context=context, wall_endpoint_current_values=(zero, zero)
+        )
+        support_g, support_d, core = self._fci_support_core_pair(face_bc=face_bc, context=context)
+        leg_g, leg_d, _ = self._fci_leg_pair(face_bc=face_bc, context=context)
+        x = np.random.default_rng(1).normal(size=shape)
+        def matches(rows, op) -> bool:
+            want = np.asarray(op(jnp.asarray(x)))
+            got = (rows[1] * x.reshape(-1)[rows[0]]).sum(-1).reshape(shape)
+            return bool(np.max(np.abs(got - want)) <= 1.0e-12 * np.max(np.abs(want)))
+
+        # Current pair: probe D, G is its adjoint.  Support pair: probe the core divergence D0,
+        # H = adjoint(D0), G = H - diag(H(1)) on active columns, D = adjoint(G).  Leg pair: probe G.
+        d = assemble_sparse_rows(current_d, shape)
+        d0 = assemble_sparse_rows(self._fci_support_core_divergence(face_bc=face_bc, context=context), shape)
+        lg = assemble_sparse_rows(leg_g, shape)
+        if d is None or d0 is None or lg is None:
+            return None
+        g = adjoint_sparse_rows(*d, mass, mass, active, np.asarray(current_target))
+        h = adjoint_sparse_rows(*d0, mass, mass, active, np.asarray(core))
+        n = h[0].shape[0]
+        keep = active.reshape(-1)
+        sg = (
+            np.concatenate((h[0], np.arange(n, dtype=np.int32)[:, None]), axis=1),
+            np.concatenate((h[1] * keep[h[0]], -(h[1].sum(1) * keep)[:, None]), axis=1),
+        )
+        sd = adjoint_sparse_rows(*sg, mass, mass, active, active)
+        ld = adjoint_sparse_rows(*lg, mass, mass, active, np.asarray(self._fci_leg_mask()))
+        pairs = [(g, d), (sg, sd), (lg, ld)]
+        operators = ((current_g, current_d), (support_g, support_d), (leg_g, leg_d))
+        if not all(matches(r, op) for rows, ops in zip(pairs, operators) for r, op in zip(rows, ops)):
+            return None
+        matrices = [m for g, d in pairs for m in (g, d)]
+        perp = assemble_sparse_rows(self._phi_solver(face_bc, context).lift_operator(), shape)
+        if perp is None:
+            return None
+        matrices.append(perp)
+        channels = np.concatenate(
+            [a.reshape(shape + (-1,)) for c, v in matrices for a in (c.astype(np.float64), v)], axis=-1
+        )
+        return channels, tuple(c.shape[1] for c, _ in matrices)
 
     def _fci_support_core_pair(
         self,
@@ -1635,7 +1684,25 @@ class LocalFciDrbEBRhs:
         """
 
         core_target = self._fci_support_core_target_mask()
-        active = self._fci_pair_active_mask()
+        if self.sparse_rows is not None:
+            return (*self._sparse_pair(1), core_target)
+        support_gradient, support_divergence = build_support_pair(
+            self._fci_support_core_divergence(face_bc=face_bc, context=context),
+            self._fci_pair_cell_mass(),
+            active=self._fci_pair_active_mask(),
+            core=core_target,
+        )
+        return support_gradient, support_divergence, core_target
+
+    def _fci_support_core_divergence(
+        self,
+        *,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+        context: StencilBuilderContext,
+    ) -> Callable[[jnp.ndarray], jnp.ndarray]:
+        """The legacy homogeneous core-row divergence ``D0`` of :meth:`_fci_support_core_pair`."""
+
+        core_target = self._fci_support_core_target_mask()
         bmag_owned = jnp.maximum(
             jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
             1.0e-30,
@@ -1669,14 +1736,7 @@ class LocalFciDrbEBRhs:
             )
             divergence = jnp.where(backward_wall | forward_wall, one_sided, divergence)
             return jnp.where(core_target, divergence, 0.0)
-
-        support_gradient, support_divergence = build_support_pair(
-            legacy_homogeneous_core_divergence,
-            self._fci_pair_cell_mass(),
-            active=active,
-            core=core_target,
-        )
-        return support_gradient, support_divergence, core_target
+        return legacy_homogeneous_core_divergence
 
     @staticmethod
     def _homogeneous_halo_bc(face_bc: LocalFciDrbEBFaceBCBundle):
@@ -1703,6 +1763,13 @@ class LocalFciDrbEBRhs:
 
         return stencil
 
+    def _fci_leg_mask(self) -> jnp.ndarray:
+        """Rows of the forward-leg pair: core rows whose forward leg ends in the field."""
+
+        return self._fci_support_core_target_mask() & (
+            self.geometry.maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR
+        )
+
     def _fci_leg_pair(self, *, face_bc: LocalFciDrbEBFaceBCBundle, context: StencilBuilderContext):
         """Compact forward-leg pair ``(G+, D+, dx)``.
 
@@ -1715,20 +1782,20 @@ class LocalFciDrbEBRhs:
         neighbouring cells, so it damps the odd-even mode along b.
         """
 
-        leg = self._fci_support_core_target_mask() & (
-            self.geometry.maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR
-        )
+        leg = self._fci_leg_mask()
         stencil = self._fci_leg_stencil(face_bc=face_bc, context=context)
 
         def gradient(values):
             st = stencil(values)
             return jnp.where(leg, (st.plus - st.center) / jnp.maximum(jnp.abs(st.dx_plus), 1.0e-30), 0.0)
 
+        length = jnp.abs(stencil(jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)).dx_plus)
+        if self.sparse_rows is not None:
+            return (*self._sparse_pair(2), length)
         mass = self._fci_pair_cell_mass()
         divergence = build_weighted_negative_adjoint(
             gradient, mass, mass, primal_active=self._fci_pair_active_mask(), dual_active=leg
         )
-        length = jnp.abs(stencil(jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)).dx_plus)
         return gradient, divergence, length
 
     def _fci_leg_laplacian(self, *, face_bc: LocalFciDrbEBFaceBCBundle, context: StencilBuilderContext):
@@ -1955,22 +2022,7 @@ class LocalFciDrbEBRhs:
             / jnp.asarray(self.parameters.rho_star, dtype=jnp.float64) ** 2
         )
         phi_lift = jnp.asarray(state_owned.phi, dtype=jnp.float64)
-        solver = LocalPerpLaplacianInverseSolver(
-            geometry=self.geometry,
-            domain=self.domain,
-            control_volume_geometry=self.control_volume_geometry,
-            control_volume_boundary_bc=self.control_volume_boundary_bc,
-            stencil_builder=build_local_conservative_stencil_from_field,
-            stencil_builder_context=context,
-            halo_exchange=self.halo_exchange,
-            topology_filler=self.topology_filler,
-            physical_ghost_filler=self.physical_ghost_filler,
-            face_projectors=self.face_projectors,
-            face_bc=face_bc.phi,
-            axis_regular_axes=self.axis_regular_axes,
-            neumann_normal_scheme=self.neumann_normal_scheme,
-            config=self.gmres_config,
-        )
+        solver = self._phi_solver(face_bc, context)
         if self.control_volume_geometry is not None:
             # Pole-CV has a distinct owner-space unknown topology.  Keep this
             # route explicit so it cannot accidentally fall through the
@@ -2736,23 +2788,7 @@ class LocalFciDrbEBRhs:
                 result = result + (h / rho_star ** 2) * sheath_wall[0](field_owned)
             return result
 
-        solver = LocalPerpLaplacianInverseSolver(
-            geometry=self.geometry,
-            domain=self.domain,
-            control_volume_geometry=self.control_volume_geometry,
-            control_volume_boundary_bc=self.control_volume_boundary_bc,
-            stencil_builder=build_local_conservative_stencil_from_field,
-            stencil_builder_context=context,
-            halo_exchange=self.halo_exchange,
-            topology_filler=self.topology_filler,
-            physical_ghost_filler=self.physical_ghost_filler,
-            face_projectors=self.face_projectors,
-            face_bc=face_bc.phi,
-            axis_regular_axes=self.axis_regular_axes,
-            neumann_normal_scheme=self.neumann_normal_scheme,
-            config=self.gmres_config,
-            extra_operator=extra_operator,
-        )
+        solver = self._phi_solver(face_bc, context, extra_operator=extra_operator)
         phi_lift = jnp.asarray(state_owned.phi, dtype=jnp.float64)
         if self.control_volume_geometry is not None:
             phi_solution, info = solver.solve_rlp_owner(

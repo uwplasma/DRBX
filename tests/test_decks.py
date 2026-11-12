@@ -37,6 +37,9 @@ def test_example_deck_runs_and_writes_the_documented_outputs(example, tmp_path):
     summary = json.loads((tmp_path / f"{case}_summary.json").read_text())
     assert summary["backend"] == backend and summary["case_name"] == case
     arrays_documented, results_documented = documented_outputs(backend)
+    electromagnetic = summary["config"].get("physics", {}).get("electromagnetic", False)  # adds A_par arrays and energies
+    arrays_documented |= {"apar_frames", "energies"} if electromagnetic else set()
+    results_documented |= {"final_energy_components"} if electromagnetic else set()
     with np.load(tmp_path / f"{case}_arrays.npz") as data:
         assert set(data.files) == arrays_documented
         assert all(np.all(np.isfinite(data[name])) for name in data.files if data[name].dtype.kind == "f")

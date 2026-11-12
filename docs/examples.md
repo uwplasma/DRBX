@@ -27,6 +27,15 @@ inputs, outputs, source modules, tests, and documentation page, see
 
 ![Drift-wave turbulence](media/drift_wave_turbulence.gif)
 
+## Electromagnetic
+
+| Example | What it teaches |
+| --- | --- |
+| [`examples/electromagnetic/alfven_dispersion.py`](../examples/electromagnetic/alfven_dispersion.py) | Shear-Alfven wave with electron inertia and drift-Alfven wave against the analytic dispersion; figure. About 1.5 min. [Electromagnetic model](electromagnetic.md). |
+| [`examples/electromagnetic/electromagnetic_verification.py`](../examples/electromagnetic/electromagnetic_verification.py) | beta -> 0 limit, energy over an Alfven period, manufactured-solution convergence; figure. About 2 min. |
+| [`examples/electromagnetic/electromagnetic_turbulence.py`](../examples/electromagnetic/electromagnetic_turbulence.py) | Four-field torus run with and without A_par: energies, A_par, vorticity and density spread; movie. About 2 min. |
+| [`examples/electromagnetic/step_time.py`](../examples/electromagnetic/step_time.py) | Time per RK4 step, electrostatic and electromagnetic. |
+
 ## Open-field-line SOL and neutrals
 
 | Example | What it teaches |
@@ -103,7 +112,6 @@ mode against release-backed arrays.
 | [`stellarator-fci/vorticity_bracket.py`](../examples/geometry-3D/stellarator-fci/vorticity_bracket.py) | Nonlinear coupling through the vorticity/potential solve and the logical E x B bracket. |
 | [`stellarator-fci/nonlinear_turbulence.py`](../examples/geometry-3D/stellarator-fci/nonlinear_turbulence.py) | Compact nonlinear reduced SOL history, diagnostics, 3D poster, GIF movie. |
 | [`stellarator-fci/turbulent_profile_analysis.py`](../examples/geometry-3D/stellarator-fci/turbulent_profile_analysis.py) | Radial fluctuation, RMS, transport-proxy, and energy-trace analysis. |
-| [`stellarator-fci/validation_campaign.py`](../examples/geometry-3D/stellarator-fci/validation_campaign.py) | Full promoted synthetic stellarator FCI validation bundle. |
 | [`essos-field-lines/closed_open_vacuum_poincare.py`](../examples/geometry-3D/essos-field-lines/closed_open_vacuum_poincare.py) | Closed vs open vacuum field lines from ESSOS coils: Poincare sections and connection lengths. |
 | [`essos-field-lines/landreman_paul_qa_import.py`](../examples/geometry-3D/essos-field-lines/landreman_paul_qa_import.py) | Landreman-Paul QA coils through the installed ESSOS: field lines, Poincare section, FCI maps ([page](essos_fieldline_import.md)). |
 | [`vmex/closed_field_lines.py`](../examples/geometry-3D/vmex/closed_field_lines.py) | VMEX equilibrium import: surface fields, JAX field-line tracing, traced iota matching the wout `iotaf` profile to ~1e-6. |

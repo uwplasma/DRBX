@@ -21,7 +21,6 @@ dependencies = [
     "matplotlib",
     "netCDF4",
     "rich",
-    "pillow",
     "solvax>=0.36.1",
     "tomli; python_version < '3.11'",
 ]
