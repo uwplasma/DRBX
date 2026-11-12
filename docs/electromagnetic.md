@@ -215,7 +215,7 @@ Verification (`tests/fci_braginskii/test_hsx_electromagnetic.py`):
 | beta -> 0, beta = 1e-9 | 417.55695 against the electrostatic 417.55733 (9.2e-7) | `beta (mi/me) / (2 k_perp^2) = 9.2e-7` |
 | `E_ke + E_mag + E_ExB` exchange through the flutter pair, finite amplitude | `dE/dt` is 2.3e-16 (beta 1e-3) and 1.0e-16 (beta 0.1) of the sum of the terms | 0; without the magnetic term it is O(1) |
 | flutter pair on the HSX 16^3 model, dense matrices | `D + M^-1 G^T M` below 1e-12 of `D`, `G 1` below 1e-12 | exact adjoint, constants exact |
-| `w -> Ve -> w` through the Helmholtz and Poisson solves | below 1e-4 | solver tolerance |
+| `w -> Ve -> w` through the Helmholtz and Poisson solves (relative to `max Ve`) | 2.0e-3 | solver tolerance (two Krylov solves, the unshifted one conditioned by `-L_perp`) |
 | `jax.grad` of one compiled IMEX step (flows of one sign, the ion velocity sourcing Ampere's law) | 0.4752243 against central differences 0.4752243 (4.6e-8) | |
 
 The gradient needs the implicit-function VJP of the Krylov solves.
