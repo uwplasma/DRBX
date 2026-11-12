@@ -35,7 +35,7 @@ and adds the flutter term to the parallel gradients of the density, the
 potential and both parallel velocities,
 
 ```text
-grad_par f  ->  grad_par f + {A_par, f} / (rho_star B)
+grad_par f  ->  grad_par f - {A_par, f} / (rho_star B)
 ```
 
 so the electron parallel force balance is
@@ -69,8 +69,8 @@ phase of phi.
 | --- | --- | --- | --- |
 | shear-Alfven, beta 0.5 (k_perp d_e 0.14), 12x3x16 cells | 0.3412 | 0.3501 | -2.5% |
 | shear-Alfven, beta 0.005 (k_perp d_e 1.4), 12x3x16 | 2.006 | 2.041 | -1.7% |
-| drift-Alfven, L_n 10, beta 0.03, k_par 0.1, 12x16x16 | 0.7310 | 0.7292 | +0.24% |
-| electrostatic limit of the same drift-Alfven case | | 1.206 | resolved: 40% lower with A_par |
+| drift-Alfven, L_n 10, beta 0.03, k_par 0.1, 12x16x16 | 0.7934 | 0.7904 | +0.38% |
+| electrostatic limit of the same drift-Alfven case | | 1.206 | resolved: 35% lower with A_par |
 | beta -> 0: max RHS difference to electrostatic / max RHS | 8.5e-7 (beta 1e-6), 8.5e-9 (1e-8) | linear in beta | |
 | energy ExB + magnetic + electron kinetic over one period | drift 0.55% (amplitude 1e-3), 2.7% (0.05) | conserved | ExB and magnetic swing 100% and 74% |
 | manufactured solution, N = 8, 16, 24 | A: 3.0e-4, 9.6e-5, 4.2e-5; dw/dt: 0.349, 0.079, 0.034 | order 2 | observed 2.1 |

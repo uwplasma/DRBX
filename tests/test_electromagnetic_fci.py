@@ -53,11 +53,11 @@ def test_shear_alfven_wave_with_electron_inertia(beta, expected_inertia):
 
 
 def test_drift_alfven_wave_with_flutter_of_the_background_gradient():
-    """beta = 0.03, Ln = 10: the Alfven branch is 0.729 (electrostatic limit 1.207); the flutter b1.grad n0 matters."""
+    """beta = 0.03, Ln = 10: the Alfven branch is 0.790 (electrostatic limit 1.207); the flutter b1.grad n0 matters."""
     args = (1.0, 1.0, 0.1, 0.03, 100.0, 1.0, 10.0)
     omega, measured = measured_frequency(*args, (12, 16, 16))
     electrostatic = (1j * np.linalg.eigvals(dispersion_matrix(*args[:3], 1e-8, *args[4:]))).real.max()
-    assert omega == pytest.approx(0.7292, abs=2e-4)
+    assert omega == pytest.approx(0.7904, abs=2e-4)
     assert measured == pytest.approx(omega, rel=0.03)
     assert abs(measured - electrostatic) > 0.3 * electrostatic
 
@@ -137,9 +137,9 @@ def test_ampere_and_flutter_converge_to_manufactured_solution():
         ve_f = lambda x, y, z: w_f(x, y, z) + mu * a_f(x, y, z)  # noqa: E731
         field = lambda f: jax.vmap(jax.vmap(jax.vmap(f, (None, None, 0)), (None, 0, None)), (0, None, None))(x[:, 0, 0], y[0, :, 0], z[0, 0, :])  # noqa: E731
         d = lambda f, i: (lambda x, y, z: jax.grad(f, i)(x, y, z))  # noqa: E731
-        # exact dw/dt = -{phi, ve} + mu (grad_par phi - Te grad_par n / n), grad_par f = f_z + {A, f},  {a, b} = a_x b_y - a_y b_x
+        # exact dw/dt = -{phi, ve} + mu (grad_par phi - Te grad_par n / n), grad_par f = f_z - {A, f},  {a, b} = a_x b_y - a_y b_x
         bracket = lambda f, g_: (lambda x, y, z: d(f, 0)(x, y, z) * d(g_, 1)(x, y, z) - d(f, 1)(x, y, z) * d(g_, 0)(x, y, z))  # noqa: E731
-        gpar = lambda f: (lambda x, y, z: d(f, 2)(x, y, z) + bracket(a_f, f)(x, y, z))  # noqa: E731
+        gpar = lambda f: (lambda x, y, z: d(f, 2)(x, y, z) - bracket(a_f, f)(x, y, z))  # noqa: E731
         dw = lambda x, y, z: -bracket(phi_f, ve_f)(x, y, z) + mu * (gpar(phi_f)(x, y, z) - te * gpar(n_f)(x, y, z) / n_f(x, y, z))  # noqa: E731
         state = Fci4FieldState(density=field(n_f), omega=field(lambda x, y, z: jax.grad(jax.grad(phi_f, 0), 0)(x, y, z)),
                                v_ion_parallel=field(vi_f), v_electron_parallel=field(w_f))
@@ -185,3 +185,40 @@ def test_deck_physics_table_switches_the_electromagnetic_model_on(tmp_path):
         assert np.allclose(a["density_frames"], b["density_frames"], atol=2e-3)  # small beta: close to electrostatic
         assert not np.array_equal(a["omega_frames"], b["omega_frames"])
     assert on["results"]["final_energy_components"]["magnetic"] > 0
+
+
+def test_flutter_follows_the_perturbed_field_line():
+    """``A = x`` tilts the field, ``B = curl(A b) = (0, -1, 1)``: ``f(y + z)`` is constant along it.
+
+    The parallel gradient plus flutter of ``f`` must vanish for the production assembly.  The sign is fixed by Maxwell
+    alone (``b1 = grad A x b / B``) and not by the model's own convention: with the opposite sign the residual is
+    ``2 cos(y + z)``.
+    """
+    from drbx.native.fci_4_field_rhs import _assemble_4field_non_diffusive_rhs
+    from drbx.native.stellarator_turbulence import radial_dirichlet_face_bc
+
+    shape, lengths = (8, 24, 24), (2.0, 2 * np.pi, 2 * np.pi)
+    g, kw, _, bcs = slab(shape, lengths, beta=0.1, mu=100.0, te=1.0)
+    x, y, z = (np.asarray(a.centers) for a in (g.grid.x, g.grid.y, g.grid.z))
+    xf = np.asarray(g.grid.x.faces)
+    f = jnp.asarray(np.broadcast_to(1.0 + 0.3 * np.sin(y[None, :, None] + z[None, None, :]), shape))
+    a = jnp.asarray(np.broadcast_to(x[:, None, None], shape))
+    wall = radial_dirichlet_face_bc(g)
+    bc = lambda values: dataclasses.replace(wall, value_x=jnp.asarray(values))  # noqa: E731
+    # Dirichlet wall values of the exact fields (A = x is not zero on the walls, f does not depend on x)
+    fw = np.broadcast_to(np.asarray(f[:1]), np.asarray(wall.value_x).shape)
+    aw = np.broadcast_to(xf[:, None, None], np.asarray(wall.value_x).shape)
+    stencil = lambda values, face_bc: kw["stencil_builder"](values, g, periodic_axes=kw["periodic_axes"], face_bc=face_bc)  # noqa: E731
+    zero = jnp.zeros(shape)
+    s_f, s_a, s_0 = stencil(f, bc(fw)), stencil(a, bc(aw)), stencil(zero, wall)
+    out = []
+    for apar in (s_a, None):
+        rhs = _assemble_4field_non_diffusive_rhs(
+            density=f, omega=zero, v_ion_parallel=zero, v_electron_parallel=zero, rho_star=jnp.asarray(1.0),
+            te=jnp.asarray(1.0), mi_over_me=jnp.asarray(100.0), bmag=jnp.ones(shape), density_safe=f, geometry=g,
+            curvature_coefficients=kw["curvature_coefficients"], density_stencil=s_f, omega_stencil=s_0, phi_stencil=s_0,
+            v_ion_parallel_stencil=s_0, v_electron_parallel_stencil=s_0, apar_stencil=apar,
+        )[2]
+        out.append(np.asarray(-rhs.v_ion_parallel * f)[2:-2])  # = Te grad_par f
+    assert np.max(np.abs(out[1])) > 0.2  # the plain parallel gradient alone is O(1)
+    assert np.max(np.abs(out[0])) < 0.1 * np.max(np.abs(out[1]))

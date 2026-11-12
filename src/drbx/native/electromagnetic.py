@@ -226,7 +226,7 @@ def compute_alfven_wave_ddt_vort_core(vorticity: np.ndarray, *, mesh: Structured
 # ``v_e = w + (mi/me) A`` is the Helmholtz problem
 # ``(-lap_perp + beta (mi/me) n) A = beta n (v_i - w)``; the density is split as
 # ``n_ref + (n - n_ref)`` so one fixed-coefficient solve is iterated.  The four
-# parallel gradients then gain the flutter term ``{A, f} / (rho_star B)``.
+# parallel gradients then gain the flutter term ``-{A, f} / (rho_star B)``.
 # With A = 0 the electrostatic right-hand side is recovered; ``beta -> 0`` gives A -> 0.
 # Linear waves: omega = k_par v_A / sqrt(1 + k_perp^2 d_e^2), v_A^2 = B^2 / (beta n),
 # d_e^2 = 1 / (beta (mi/me) n).  Scott, Phys. Plasmas 10, 963 (2003); Stegmeir et al.,
