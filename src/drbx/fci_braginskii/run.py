@@ -122,6 +122,20 @@ GEOMETRY_PRODUCER_METADATA_KEYS = (
 )
 FILAMENT_CACHE_FORMAT_VERSION = 2
 GMRES_TARGET_TOLERANCE = 1.0e-8
+
+
+def resolve_gmres_target_tolerance(target: float, acceptance: float, timestep: float) -> float:
+    """Inner residual target of the potential solves.
+
+    ``target > 0`` is used as given.  ``target = 0`` ties it to the time
+    discretisation: ``10 dt^2`` (the solver error enters a step as dt times the
+    residual, the SSP222 local error is dt^3), at most a fifth of the acceptance
+    floor and never below ``GMRES_TARGET_TOLERANCE``.
+    """
+
+    if target > 0.0:
+        return float(target)
+    return max(GMRES_TARGET_TOLERANCE, min(0.2 * float(acceptance), 10.0 * float(timestep) ** 2))
 # Right preconditioner of the FGMRES phi solves (see SolvaxGmresConfig).  A
 # performance-only selector: every kind solves the same system to the same
 # GMRES tolerance, so it is a deck key (``gmres_preconditioner``) even though
@@ -3487,7 +3501,7 @@ class HsxBlobConfig:
     recycling_wall_temperature_ev: float = 0.025
     advance_execution: str = "staged-compiled"
     gmres_acceptance_tolerance: float = 5.0e-5
-    gmres_target_tolerance: float = GMRES_TARGET_TOLERANCE
+    gmres_target_tolerance: float = 0.0
     gmres_max_iterations: int = 500
     gmres_restart: int = 100
     gmres_residual_correction_steps: int = 1
@@ -3758,6 +3772,11 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             flush=True,
         )
     timestep = (float(args.final_time) - restart_time) / float(args.num_steps)
+    gmres_target = resolve_gmres_target_tolerance(
+        float(args.gmres_target_tolerance),
+        float(args.gmres_acceptance_tolerance),
+        timestep,
+    )
     print(
         f"time integration: final_time={float(args.final_time):.6e}, "
         f"num_steps={int(args.num_steps)}, dt={timestep:.6e}",
@@ -3919,7 +3938,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
     )
     print(
         "[simulation] GMRES settings: "
-        f"target={float(args.gmres_target_tolerance):.3e}, "
+        f"target={gmres_target:.3e}, "
         f"acceptance={float(args.gmres_acceptance_tolerance):.3e}, "
         f"max_iterations={int(args.gmres_max_iterations)}, "
         f"restart={min(int(args.gmres_restart), int(args.gmres_max_iterations))}, "
@@ -3944,7 +3963,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         sharded_geometry=sharded_geometry,
         mesh=mesh,
         parameters=parameters,
-        gmres_target_tolerance=float(args.gmres_target_tolerance),
+        gmres_target_tolerance=gmres_target,
         gmres_acceptance_tolerance=float(args.gmres_acceptance_tolerance),
         gmres_max_iterations=int(args.gmres_max_iterations),
         gmres_restart=int(args.gmres_restart),
@@ -4088,9 +4107,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
             "curvature_operator_source": "fixed production method",
             "parallel_material_scheme": "production-path",
             "parallel_material_scheme_source": "fixed production configuration",
-            "gmres_target_tolerance": float(
-                args.gmres_target_tolerance
-            ),
+            "gmres_target_tolerance": gmres_target,
             "gmres_acceptance_tolerance": float(
                 args.gmres_acceptance_tolerance
             ),
