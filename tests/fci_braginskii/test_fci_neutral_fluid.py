@@ -235,6 +235,25 @@ def test_fluid_step_is_differentiable():
     assert np.isfinite(g) and g == pytest.approx(fd, rel=1e-4)
 
 
+def test_three_coupled_neutral_steps_have_a_reverse_mode_gradient_matching_finite_differences():
+    """Reverse mode through three plasma-neutral steps (every neutral solve is a SOLVAX FGMRES under ``implicit.linear_solve``)."""
+    geometry = sheared_slab(shape=(6, 4, 3))
+    grid = F.build_neutral_grid(geometry)
+    n, Vi, Te, Ti, Nn = _random_plasma(geometry.shape, 11)
+
+    def functional(scale):
+        state = (n, Vi, Te, scale * Ti, Nn, 0.1 * Vi, 0.05 + 0.3 * Te)
+        for _ in range(3):
+            state = FL.neutral_fluid_step(*state, 0.02, grid, PARAMS)[:7]
+        return sum(jnp.sum(grid.volume * f**2) for f in state)
+
+    g = float(jax.grad(functional)(1.0))
+    eps = 1e-5
+    fd = (float(functional(1.0 + eps)) - float(functional(1.0 - eps))) / (2 * eps)
+    print(f"three-step neutral gradient: reverse {g:.10g}, central difference {fd:.10g}")
+    assert np.isfinite(g) and g == pytest.approx(fd, rel=1e-5)
+
+
 @pytest.mark.parametrize("plasma", ["uniform neutrals", "cold plasma"])
 def test_n6_closure_is_finite_and_differentiable_at_zero_gradient_and_zero_rates(plasma):
     """The wall albedo (Kn_w from |grad n_n|) and tau_n = (1 + 0.8 nu_iz/nu)/nu stay finite where the gradient or nu vanishes."""

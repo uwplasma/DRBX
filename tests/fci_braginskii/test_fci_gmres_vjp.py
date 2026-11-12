@@ -90,11 +90,11 @@ def test_float32_gradient_is_finite_and_close_to_finite_difference():
 
 
 @pytest.mark.slow
-def test_full_imex_step_gradient_matches_finite_difference_on_hsx_16_cubed(tmp_path, monkeypatch):
-    """``jax.grad`` of a scalar of one compiled 16^3 IMEX step (four Krylov solves) against central differences.
+def test_driver_gradient_over_steps_matches_finite_difference_on_hsx_16_cubed(tmp_path, monkeypatch):
+    """``jax.grad`` through three steps of the production sharded advance against central differences.
 
-    The driver's sharded advance is captured when the staged kernels are first lowered; the
-    diagnostic ``pmin``/``pmax`` reductions have no JVP rule, so they are cut from the tape.
+    The advance is captured when the driver lowers it for the deck, so the diagnostic reductions of
+    ``finalize_advance`` (``pmin``/``pmax``, cut from the tape with ``stop_gradient``) are on the path.
     """
     from pathlib import Path
 
@@ -127,9 +127,6 @@ def test_full_imex_step_gradient_matches_finite_difference_on_hsx_16_cubed(tmp_p
 
     monkeypatch.setattr(jax, "shard_map", shard_map_spy)
     monkeypatch.setattr(jax, "jit", lambda f, *a, **k: _JitSpy(f) if not (a or k) else real_jit(f, *a, **k))
-    for name in ("pmin", "pmax"):
-        real = getattr(jax.lax, name)
-        monkeypatch.setattr(jax.lax, name, lambda x, ax, real=real: real(jax.lax.stop_gradient(x), ax))
     deck = tmp_path / "hsx.toml"
     deck.write_text(
         '[model]\nbackend = "fci_braginskii"\n'
@@ -147,13 +144,16 @@ def test_full_imex_step_gradient_matches_finite_difference_on_hsx_16_cubed(tmp_p
     state, cell_fields, map_fields, control_volume_fields, time = cap["args"]
 
     def loss(a):
-        out = advance(state.replace(Te=state.Te * (1.0 + a)), cell_fields, map_fields,
-                      control_volume_fields, time)
-        return sum(jnp.sum(v**2) for _, v in out[0].field_items())
+        def step(current, _):
+            return advance(current, cell_fields, map_fields, control_volume_fields, time)[0], None
+
+        final, _ = jax.lax.scan(step, state.replace(Te=state.Te * (1.0 + a)), None, length=3)
+        return sum(jnp.sum(v**2) for _, v in final.field_items())
 
     value, grad = jax.jit(jax.value_and_grad(loss))(jnp.asarray(0.0))
     forward = jax.jit(loss)
     eps = 1.0e-3
     fd = (float(forward(jnp.asarray(eps))) - float(forward(jnp.asarray(-eps)))) / (2.0 * eps)
+    print(f"driver gradient: grad {float(grad):.9g}, central difference {fd:.9g}")
     assert np.isfinite(float(value)) and np.isfinite(float(grad))
-    assert float(grad) == pytest.approx(fd, rel=2.0e-4)
+    assert float(grad) == pytest.approx(fd, rel=1.0e-3)
