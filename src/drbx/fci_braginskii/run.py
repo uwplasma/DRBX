@@ -1991,6 +1991,10 @@ def run_full_eb(
         state_maxs = reduce_fields(diagnostic_states, jnp.max)
         state_abs_maxs = reduce_fields(diagnostic_states, abs_max)
         rhs_abs_maxs = reduce_fields(stage_rates, abs_max)
+        # pmin/pmax have no JVP rule; the diagnostics are not on the gradient tape.
+        state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs = jax.lax.stop_gradient(
+            (state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs)
+        )
         for mesh_axis_name in ("x", "y", "z"):
             state_mins = jax.lax.pmin(state_mins, mesh_axis_name)
             state_maxs = jax.lax.pmax(state_maxs, mesh_axis_name)
