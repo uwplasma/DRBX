@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from solvax import pcg_linear_solve
 
 from ..geometry.fci_geometry import (
@@ -60,7 +61,13 @@ from .fci_gmres import (
     solvax_gmres_solve,
 )
 from .fci_parallel_conduction import ConductionInfo, backward_euler_conduction, conductivity
-from .fci_support_pair import build_support_pair, build_weighted_negative_adjoint
+from .fci_support_pair import (
+    adjoint_sparse_rows,
+    assemble_sparse_rows,
+    build_support_pair,
+    build_weighted_negative_adjoint,
+    sparse_rows_apply,
+)
 from .fci_wall_closure import (
     SheathClosure,
     bohm_wall_state,
@@ -494,6 +501,9 @@ class LocalFciDrbEBRhs:
     # a ``SheathClosure`` uses the Bohm wall state and the conservative
     # sheath wall-leg fluxes in the selected-wall block.
     sheath: SheathClosure | None = None
+    # ``((G rows, D rows),) * 3`` for the current/phi, support-core and leg pairs as padded sparse
+    # rows (:meth:`assemble_pair_rows`); ``None`` keeps the matrix-free pairs.
+    pair_rows: tuple | None = None
 
     def _parallel_wall_states(self, center, minus, plus, backward_wall, forward_wall):
         """Wall states consumed by the characteristic wall legs."""
@@ -1551,6 +1561,8 @@ class LocalFciDrbEBRhs:
             )
             return jnp.where(target, divergence, 0.0)
 
+        if build_adjoint and self.pair_rows is not None:
+            return (*self._sparse_pair(0), target)
         cell_mass = self._fci_pair_cell_mass()
         if build_adjoint:
             phi_gradient = build_weighted_negative_adjoint(
@@ -1563,6 +1575,65 @@ class LocalFciDrbEBRhs:
         else:
             phi_gradient = lambda values: jnp.zeros_like(values)
         return phi_gradient, current_divergence, target
+
+    def _sparse_pair(self, index: int):
+        (gc, gv), (dc, dv) = self.pair_rows[index]
+        return (
+            lambda values: sparse_rows_apply(gc, gv, values),
+            lambda values: sparse_rows_apply(dc, dv, values),
+        )
+
+    def assemble_pair_rows(self, state_owned: FciDrbEBState):
+        """Packed channels of the current/phi, support-core and leg pairs as padded sparse rows.
+
+        Each pair is linear and fixed by the geometry and the boundary kinds.  One coloured probing
+        of its simpler member replaces the mapped gathers, and the nested transposes, in every
+        Krylov iteration and RHS evaluation by a gather and a row sum; the other member is the
+        exact weighted adjoint of those rows.  Returns ``(channels, widths)`` (cols as floats,
+        then vals, for each of G and D of the three pairs), or ``None`` if a pair is not sparse.
+        """
+
+        shape = self.geometry.owned_shape
+        zero = jnp.zeros(shape, dtype=jnp.float64)
+        face_bc, context = self._face_bcs(self._owner_state(state_owned)), self._stencil_builder_context()
+        mass, active = np.asarray(self._fci_pair_cell_mass()), np.asarray(self._fci_pair_active_mask())
+        current_g, current_d, current_target = self._fci_current_phi_boundary_pair(
+            face_bc=face_bc, context=context, wall_endpoint_current_values=(zero, zero)
+        )
+        support_g, support_d, core = self._fci_support_core_pair(face_bc=face_bc, context=context)
+        leg_g, leg_d, _ = self._fci_leg_pair(face_bc=face_bc, context=context)
+        x = np.random.default_rng(1).normal(size=shape)
+        def matches(rows, op) -> bool:
+            want = np.asarray(op(jnp.asarray(x)))
+            got = (rows[1] * x.reshape(-1)[rows[0]]).sum(-1).reshape(shape)
+            return bool(np.max(np.abs(got - want)) <= 1.0e-12 * np.max(np.abs(want)))
+
+        # Current pair: probe D, G is its adjoint.  Support pair: probe the core divergence D0,
+        # H = adjoint(D0), G = H - diag(H(1)) on active columns, D = adjoint(G).  Leg pair: probe G.
+        d = assemble_sparse_rows(current_d, shape)
+        d0 = assemble_sparse_rows(self._fci_support_core_divergence(face_bc=face_bc, context=context), shape)
+        lg = assemble_sparse_rows(leg_g, shape)
+        if d is None or d0 is None or lg is None:
+            return None
+        g = adjoint_sparse_rows(*d, mass, mass, active, np.asarray(current_target))
+        h = adjoint_sparse_rows(*d0, mass, mass, active, np.asarray(core))
+        n = h[0].shape[0]
+        keep = active.reshape(-1)
+        sg = (
+            np.concatenate((h[0], np.arange(n, dtype=np.int32)[:, None]), axis=1),
+            np.concatenate((h[1] * keep[h[0]], -(h[1].sum(1) * keep)[:, None]), axis=1),
+        )
+        sd = adjoint_sparse_rows(*sg, mass, mass, active, active)
+        ld = adjoint_sparse_rows(*lg, mass, mass, active, np.asarray(self._fci_leg_mask()))
+        pairs = [(g, d), (sg, sd), (lg, ld)]
+        operators = ((current_g, current_d), (support_g, support_d), (leg_g, leg_d))
+        if not all(matches(r, op) for rows, ops in zip(pairs, operators) for r, op in zip(rows, ops)):
+            return None
+        matrices = [m for g, d in pairs for m in (g, d)]
+        channels = np.concatenate(
+            [a.reshape(shape + (-1,)) for c, v in matrices for a in (c.astype(np.float64), v)], axis=-1
+        )
+        return channels, tuple(c.shape[1] for c, _ in matrices)
 
     def _fci_support_core_pair(
         self,
@@ -1586,7 +1657,25 @@ class LocalFciDrbEBRhs:
         """
 
         core_target = self._fci_support_core_target_mask()
-        active = self._fci_pair_active_mask()
+        if self.pair_rows is not None:
+            return (*self._sparse_pair(1), core_target)
+        support_gradient, support_divergence = build_support_pair(
+            self._fci_support_core_divergence(face_bc=face_bc, context=context),
+            self._fci_pair_cell_mass(),
+            active=self._fci_pair_active_mask(),
+            core=core_target,
+        )
+        return support_gradient, support_divergence, core_target
+
+    def _fci_support_core_divergence(
+        self,
+        *,
+        face_bc: LocalFciDrbEBFaceBCBundle,
+        context: StencilBuilderContext,
+    ) -> Callable[[jnp.ndarray], jnp.ndarray]:
+        """The legacy homogeneous core-row divergence ``D0`` of :meth:`_fci_support_core_pair`."""
+
+        core_target = self._fci_support_core_target_mask()
         bmag_owned = jnp.maximum(
             jnp.asarray(self.geometry.cell_bfield.Bmag_owned, dtype=jnp.float64),
             1.0e-30,
@@ -1620,14 +1709,7 @@ class LocalFciDrbEBRhs:
             )
             divergence = jnp.where(backward_wall | forward_wall, one_sided, divergence)
             return jnp.where(core_target, divergence, 0.0)
-
-        support_gradient, support_divergence = build_support_pair(
-            legacy_homogeneous_core_divergence,
-            self._fci_pair_cell_mass(),
-            active=active,
-            core=core_target,
-        )
-        return support_gradient, support_divergence, core_target
+        return legacy_homogeneous_core_divergence
 
     @staticmethod
     def _homogeneous_halo_bc(face_bc: LocalFciDrbEBFaceBCBundle):
@@ -1654,6 +1736,13 @@ class LocalFciDrbEBRhs:
 
         return stencil
 
+    def _fci_leg_mask(self) -> jnp.ndarray:
+        """Rows of the forward-leg pair: core rows whose forward leg ends in the field."""
+
+        return self._fci_support_core_target_mask() & (
+            self.geometry.maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR
+        )
+
     def _fci_leg_pair(self, *, face_bc: LocalFciDrbEBFaceBCBundle, context: StencilBuilderContext):
         """Compact forward-leg pair ``(G+, D+, dx)``.
 
@@ -1666,20 +1755,20 @@ class LocalFciDrbEBRhs:
         neighbouring cells, so it damps the odd-even mode along b.
         """
 
-        leg = self._fci_support_core_target_mask() & (
-            self.geometry.maps.forward.endpoint_kind == FCI_DEP_FIELD_INTERIOR
-        )
+        leg = self._fci_leg_mask()
         stencil = self._fci_leg_stencil(face_bc=face_bc, context=context)
 
         def gradient(values):
             st = stencil(values)
             return jnp.where(leg, (st.plus - st.center) / jnp.maximum(jnp.abs(st.dx_plus), 1.0e-30), 0.0)
 
+        length = jnp.abs(stencil(jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)).dx_plus)
+        if self.pair_rows is not None:
+            return (*self._sparse_pair(2), length)
         mass = self._fci_pair_cell_mass()
         divergence = build_weighted_negative_adjoint(
             gradient, mass, mass, primal_active=self._fci_pair_active_mask(), dual_active=leg
         )
-        length = jnp.abs(stencil(jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)).dx_plus)
         return gradient, divergence, length
 
     def _fci_leg_laplacian(self, *, face_bc: LocalFciDrbEBFaceBCBundle, context: StencilBuilderContext):
