@@ -34,6 +34,7 @@ Every deck in `examples/inputs/` is commented key by key (what to change, units,
 | [`hasegawa_wakatani.toml`](../examples/inputs/hasegawa_wakatani.toml) | Drift-wave turbulence, autodiff gradient | 4 s | energy and flux histories, final fields; `d<flux>/d(gradient)` agrees with finite differences to 1e-6 |
 | [`four_field_tokamak.toml`](../examples/inputs/four_field_tokamak.toml) | Four-field FCI, tokamak-like torus | 5 s | 5 density/vorticity frames, particle content |
 | [`stellarator_turbulence.toml`](../examples/inputs/stellarator_turbulence.toml) | Four-field FCI, rotating-ellipse stellarator with limiter SOL | 20 s | frames, particle content, sheath ion loss |
+| [`electromagnetic_turbulence.toml`](../examples/inputs/electromagnetic_turbulence.toml) | Four-field FCI, tokamak-like torus with A_par, flutter and electron inertia | 20 s | frames, `apar_frames`, `energies`, particle content |
 | [`island_divertor.toml`](../examples/inputs/island_divertor.toml) | Four-field FCI, island divertor edge | 12 s | frames, particle content; open lines drain through the sheath |
 | [`hsx_fci_blob.toml`](../examples/inputs/hsx_fci_blob.toml) | HSX from the shipped coils, density filament | 4 min | geometry built and cached, then a seven-field history `.npz` |
 | [`hsx_fci_neutrals.toml`](../examples/inputs/hsx_fci_neutrals.toml) | The HSX deck with fluid neutrals and wall recycling | 4 min | seven-field history with `neutral_density`, `neutral_velocity`, `neutral_temperature`, Knudsen map, `[wall-step]` and `[neutrals]` ledgers |
