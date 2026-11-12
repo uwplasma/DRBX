@@ -814,6 +814,172 @@ Relax the 1e-8 inner target (acceptance is 5e-5; ~25% fewer iterations, changes 
 information, lower the 2.8 GB lowering peak (split the implicit+phi kernel), idle-GPU timings, SOLVAX pytree-path rotation fix for
 sharded runs, jit the SD1D residual/Jacobian trace.
 
+## 4c. Solver and capability review from source (2026-11-11, additive)
+
+No code changed. Sources read as data (shallow clones, nothing built or run): PETSc (`src/ksp`), SuperLU_DIST (`SRC`), FFTW,
+Hermes-3, BOUT++, FELTOR (`inc/dg`), DEGAS2 (`src`), OpenFOAM-dev (`src/OpenFOAM/matrices/lduMatrix`, `src/finiteVolume/cfdTools`),
+lineax, optimistix, diffrax, jax-fem, jax-cfd, jax-md, JAX (`pallas`), and SOLVAX main (0.36.1) next to DRBX main (8dc7bcfc).
+Not readable as source: MUMPS (the public mirror is a build wrapper; judged from SOLVAX's wrapper and PETSc's interface), GRILLIX,
+GBS and SOLEDGE3X (not public; judged from the literature already in this plan). Gains below are estimates unless a number is
+quoted; every item names the measurement that confirms or kills it. Line cost = net DRBX + SOLVAX source lines.
+
+What is already done (so it is not re-proposed): flat-array FGMRES with fixed preconditioner (#84), accumulated rotation matrix
+(SOLVAX #185), fused radial-tree sweeps (#85), closed-form 4x4 eig (#86), banded neutral line solver (#87), persistent
+compilation cache (`runtime/performance.py`), PCG for Spitzer-Harm conduction on a single shard (`solve_implicit_parallel_conduction`).
+
+### Two facts found while reading
+
+1. **Reverse-mode `jax.grad` cannot pass through the potential solves.** `solvax_gmres_solve` (`fci_gmres.py`) calls
+   `solvax.krylov.gmres`, a `lax.while_loop` with no VJP rule (`krylov.py` has no `custom_vjp`/`custom_linear_solve`), and DRBX does
+   not use `fixed_work` or any `solvax.implicit` wrapper. Check on a 64-unknown model: `jax.grad` through `gmres` raises
+   "Reverse-mode differentiation does not work for lax.while_loop"; the same solve inside `solvax.implicit.linear_solve` returns
+   the gradient (-0.187392253 against the analytic value -0.187392253, relative difference 1e-10). The existing gradient gate
+   (`tests/test_fci_differentiable.py`) differentiates the explicit 2-field RHS, not an implicit stage.
+2. **The four solves per step are `implicit(current)`, `solve_phi(stage_2_base)`, `implicit(stage_2_base)`, `solve_phi(next_state)`**
+   (`run.py`, `ssp222_stages`). Each `LocalPerpLaplacianInverseSolver._solve_common` call rebuilds its preconditioner: tree pivots
+   and, for `line-uy-pardiag`, four colored probes of the parallel operator (four extra operator applications, about 10% of a
+   37-iteration solve), then starts from `state.phi` with the 1e-8 target (acceptance 5e-5).
+
+### Ranked recommendations
+
+| # | Technique | Bottleneck / file | Gain (estimate) | Difficulty | Lines | Differentiability |
+|---|---|---|---|---|---|---|
+| 1 | Implicit-function VJP around every Krylov solve (`solvax.implicit.linear_solve` or `recycled_linear_solve`) | no reverse mode through `fci_gmres.py::solvax_gmres_solve` | capability: `jax.grad` of any multi-step objective; memory independent of iteration count (no 101-row basis stored per step) | low | +20 | is the point: one transposed solve; tree preconditioner is symmetric so it serves the adjoint |
+| 2 | Short-recurrence PCG on the potential and current/phi solves (symmetric Galerkin owner operator) | FGMRES is 80% of the CPU step; Arnoldi was half an iteration (1a) and the rotation loop 64% of GPU launches (1b) | model 32^3 operator, 37 vs 38 iterations, 1e-8: FGMRES 1.34 ms/iteration, PCG 0.14 ms/iteration (9x; DRBX's costlier matvec dilutes this, expect 1.5-2x on the solve, 25-40% of the step) | medium | +45 | `pcg_linear_solve` is already a `custom_linear_solve` (SOLVAX `pcg.py`) |
+| 3 | Better starting point: time-extrapolated or projected initial guess, plus GCROT recycling across the four solves | `_solve_common` starts from `state.phi` | 20-35% fewer iterations (plan 4b "reuse previous step's Krylov information") | low-medium | +30 | guess is `stop_gradient`; adjoint independent of it |
+| 4 | Inexact solves: tolerance tied to the time-truncation error | 1e-8 inner target against 5e-5 acceptance (`run.py`, `gmres_target_tolerance`) | about -25% iterations (plan 4b); changes results at the new tolerance | trivial | +6 | tighten the adjoint solve separately so gradients keep 1e-8 |
+| 5 | Coarse-grid correction for the smooth global modes the tree and `pardiag` do not see | `fci_operators.py::build_solvax_perp_laplacian_preconditioner` | iterations 37 -> ~10 would multiply with #2; unproven | high | +150..250 | preconditioner is outside the adjoint |
+| 6 | Lag the preconditioner build across stages and steps | `_build_angular_agglomeration_line_pardiag_preconditioner` (4 probes + pivots per solve) | 5-10% of solver time | low | +15 | none (flexible GMRES, preconditioner does not change the answer) |
+| 7 | Remove or replace `solve_phi(stage_2_base)` when `_sheath_current_mode` is off | `run.py::ssp222_stages` | up to one solve of four; verify first | medium (needs an equivalence test) | about -5 | simplifies the graph |
+| 8 | Fewer synchronisation points per Krylov iteration: test convergence every k iterations, fused CGS2 | GPU device busy 35% of the step (launch bound) | 1.2-1.5x on the GPU solve, unmeasured | medium | +30 in SOLVAX | none |
+| 9 | Deterministic uncollided-flight (optical-depth, track-length) neutral correction | N6 gap: Kn_grad >= 1 in 99.8% of HSX 32^3 cells | accuracy, not speed | high | +200..300 | smooth in the plasma rates, hence differentiable |
+| 10 | Neutral solves on SOLVAX flat FGMRES with the banded line preconditioner, pressure eliminated first | `fci_neutral_fluid.py::_gmres` (`jax.scipy` GMRES, left-preconditioned) | shares #84/#185 gains; neutral stiff test is still 10.6 s | low | -10 | already implicit-differentiable in `jax.scipy`; keep with #1 |
+
+### Evidence per item
+
+**1. Implicit adjoint.** Where: SOLVAX `implicit.py::linear_solve` (`jax.lax.custom_linear_solve`, one extra transposed solve),
+`recycled_linear_solve` (hands the forward Krylov recycle pair to the adjoint, `_recycled_solve_bwd`); jax-fem
+`solver.py::ad_wrapper`/`implicit_vjp` implements the same rule for FEM solves; lineax `linear_solve` differentiates the same way.
+Why here: wrap `apply_A`, `rhs` of `solvax_gmres_solve` and the `extra_operator` closure (all parameters are closed over, so
+gradients reach density, Te, kappa and `h`). The wrapper must keep the residual-correction `lax.cond` outside the black box.
+Cost: a second solve per backward pass. Test: gradient of a 3-step objective against central differences, like
+`test_fci_differentiable.py`. Literature: Blondel et al., NeurIPS 2022; Christianson, Optim. Methods Softw. 3 (1994) 311.
+Alternative `fixed_work=True` (scan) is reverse-compatible but stores every iterate.
+
+**2. PCG.** Where: SOLVAX `pcg.py` (`custom_linear_solve`, line 412 onwards); PETSc `KSPCG`; FELTOR `inc/dg/pcg.h`. Why: the operator
+is `-L_perp + h^2 mu/rho*^2 P kappa D n G` and the code states `E` is symmetric positive (`fci_operators.py`, `pardiag` docstring);
+`D = -V^-1 G^T V` makes the fine-grid operator V-self-adjoint, and the tree is symmetric (the preconditioner `T V` is
+V-self-adjoint). The caveat is documented in `tests/fci_braginskii/test_implicit_current_phi_consistency.py`: `E P - I` is not
+zero on merged owners, so the owner-space operator is not exactly symmetric, and the sheath-current linearisation `J phi` may add
+asymmetry. First step (10 lines): measure `|<Ax,y> - <x,Ay>|_V / (|Ax||y|)` on the HSX 16^3 stage operator. If it is above 1e-10,
+build the owner operator as the Galerkin product `P^T A_fine P` (restriction = transpose of prolongation, SOLVAX
+`galerkin_deflation` states the same symmetry argument) and keep FGMRES only for the sheath-current mode. On a sharded domain
+SOLVAX PCG has no global inner product (comment in `solve_implicit_parallel_conduction`); adding the `inner_product` argument that
+FGMRES already has is a 10-line SOLVAX change that also lifts that FGMRES fallback.
+
+**3. Initial guess and recycling.** Where: PETSc `src/ksp/ksp/guess/impls/fischer/fischer.c` (`KSPGuessFormGuess_Fischer_1/3`,
+projection onto stored solutions, `-ksp_guess_type fischer`); FELTOR `inc/dg/extrapolation.h` (`least_squares`, polynomial
+extrapolation in time of the solution of a Poisson/Helmholtz solve); SOLVAX `krylov.py::gcrot` with a `(C, U)` recycle pair
+(Parks et al. 2006) and `harmonic_recycle`; PETSc `lgmres.c` (augmentation by error approximations) and `dgmres/`. Why: the four
+solves of a step have right-hand sides that differ by O(dt) and the same Krylov limiter modes (smooth, slowly damped); the
+solve starts from `state.phi` (zero-order guess). A 2-3 step linear/quadratic extrapolation of phi in time costs two `axpy`s of
+stored arrays; projection onto the last two to four solutions costs a few dots. Fischer assumes a fixed `A`; here `kappa = B^2/n`
+changes slowly, so measure iterations per solve for: state.phi (now), linear extrapolation, Fischer-3 with 4 vectors, gcrot k=10
+recycle; keep the winner. Literature: Fischer, CMAME 163 (1998) 193; Parks et al., SISC 28 (2006) 1651; Morgan, SISC 24 (2002) 20;
+Baker, Jessup, Manteuffel, SIMAX 26 (2005) 962.
+
+**4. Inexact solves.** Where: BOUT++ `src/invert/laplace/impls/petsc3damg/petsc3damg.cxx` (3D potential solve, GMRES + GAMG,
+default `rtol` 1e-5); OpenFOAM `lduMatrix` solvers stop on separate `tolerance` and `relTol` entries set per case, so inner linear solves run
+to a fraction of the outer residual; diffrax `_root_finder/_with_tols.py::with_stepsize_controller_tols` ties the nonlinear solver tolerance to the step
+controller; BOUT++ `solver/impls/petsc/petsc.cxx` lags Jacobian and preconditioner. DRBX asks 1e-8 inside a second-order
+scheme whose acceptance floor is 5e-5. Measure phi, ledger lines and iteration counts at 1e-6, 1e-7; the plan 4b open item
+estimates 25%. Keep the strict target as the adjoint tolerance. Literature: Eisenstat and Walker, SISC 17 (1996) 16; Knoll and
+Keyes, JCP 193 (2004) 357.
+
+**5. Coarse-grid correction.** Where: PETSc `src/ksp/pc/impls/gamg/agg.c` (smoothed aggregation; the default of BOUT++'s 3D
+Laplacian) and `pc/impls/deflation/`; SOLVAX `precond.py::multigrid`, `semicoarsening_hierarchy` (coarsen only the weakly coupled
+axes; Trottenberg ch. 5), `galerkin_deflation` (symmetric, PCG-ready), `low_rank_corrected`; PETSc `fieldsplit.c` Schur
+`SELFP` (assembled `A11 - A10 diag(A00)^-1 A01`) is what `pardiag` already does with a lumped diagonal. The plan records that
+eta-line corrections "add nothing beyond the diagonal": what remains after tree + diagonal is the smooth global part, the part a
+coarse grid removes. The angular agglomeration already gives nested aggregates (`angular_group_sizes`), so the Galerkin coarse
+operator can be formed by aggregation of the existing tree graph with the tree as the smoother, without a new mesh. Chacon 2008
+(cited in SOLVAX `alfven_block`) and Bassanini (arXiv 2609.33677, plan section 2) both reach for Schur plus AMG. Do after #2, since PCG makes the
+coarse correction cheap to test (`galerkin_deflation` is symmetric).
+
+**6. Lag the preconditioner.** Where: BOUT++ `petsc.cxx` (`SNESSetLagPreconditioner`, `SNESSetLagJacobianPersists`), diffrax
+`_verychord.py` (linear state kept across steps), optimistix `newton_chord.py` (Chord). `_solve_common` rebuilds pivots and four
+probes at every call although `density_dense_g` and `kappa_dense` change by O(dt) between stages. Cache the built closure in the
+stage pytree and rebuild every step (or when `max|dn/n|` exceeds a threshold). A flexible Krylov solver tolerates this.
+
+**7. Redundant stage solve.** `ssp222_stages` solves phi for `stage_2_base` and then `implicit(stage_2_base)` solves the coupled
+current/phi system again. `solve_implicit_current_phi_pair` uses `state.phi` only as the guess, the sheath linearisation point
+(`_sheath_current_mode`) and the face data; with the sheath-current mode off, the first may be replaced by the extrapolated guess
+of #3. Needs a 4-step equivalence test on the HSX 16^3 deck (wall ledger and phi to the solver tolerance) before it is trusted.
+
+**8. Synchronisation.** Where: PETSc `ksp/impls/gmres/pipefgmres/pipefgmres.c` (one fused reduction per iteration, overlapped
+with the preconditioner and matvec; Sanan, Schnepp, May, SISC 38 (2016) C441; Ghysels et al., SISC 35 (2013) C48); SOLVAX
+already has CGS2. On one GPU the cost is launches and host-visible loop predicates, not network latency: the profile shows the
+device busy 35% of the step. Test (a) checking the residual every 4 iterations through an inner `fori_loop`, (b) one fused
+reduction kernel for the two CGS passes. After #185 the profile must be repeated first; if the busy fraction is above 60%,
+drop this item. Pallas (JAX `pallas/ops/gpu`) offers no reduction cheaper than XLA's here: the existing tree-solve trial was 4x
+slower than the fused XLA form.
+
+**9. Neutral kinetic correction without sampling.** Where: DEGAS2 `src/tally.hweb` (track-length estimators), `src/collide.web`
+(weight fractions, Russian roulette), `src/flight.web`; micro-macro closure in Horsten, Samaey and Baelmans (Contrib. Plasma Phys.
+58 (2018) 572). DEGAS2 is Monte Carlo and so excluded by the differentiability brief, but its track-length tally is the line
+integral of the rate along each flight, whose expectation is a deterministic optical-depth integral `exp(-tau)`: the uncollided
+flux from a wall source cell to every cell. Ray marching it on the FCI grid (a fixed set of directions per wall cell, cumulative
+`tau` from the existing AMJUEL rates) gives a positive, smooth, `jax.grad`-compatible first-flight source, and the fluid model
+handles the collided population (the micro-macro split). It addresses the N6 gap (Kn_grad >= 1 in 99.8% of cells) that
+calibration of the limiter only masks. Cost is the new angular set; rank it after the solver items, before neutrals are
+declared validated.
+
+**10. Neutral solves.** `_gmres` (`fci_neutral_fluid.py`) uses `jax.scipy.sparse.linalg.gmres` with a left `M`; SOLVAX's flat FGMRES
+takes a right preconditioner and carries the #84/#185 improvements. Hermes-3 `neutral_mixed.cxx::NeutralMixed::precon` is a
+block-LU: lower Schur step for the pressure with a Laplacian solve, then back-substitution for N and NV. DRBX's segregated solves
+with lagged coefficients already follow that ordering, so only the solver swap is proposed.
+
+### Evaluated, not recommended
+
+- **MUMPS, SuperLU_DIST** (multifrontal/supernodal, block low-rank `ICNTL(35)`, `ReplaceTinyPivot` static pivoting in
+  `superlu_defs.h`, `p?gsrfs.c` refinement). The operator is matrix-free, SPD-like and changes every stage (n, Te in kappa), so a
+  factorisation is rebuilt per stage; 3D fill grows as N^(4/3) and the work as N^2 (32^3: tens of MB, seconds on the host, off the
+  GPU). SOLVAX `sparse_direct.sparse_solve` already wraps both with implicit adjoints and a factor cache; use it only for the
+  transposed/tangent solves that reuse one factorisation, or for a coarse level. Static pivoting is not needed for SPD banded solves.
+- **FFTW real-to-real, planning.** Coefficients vary with the metric, so there is no exact separable solve; cyclic theta rings are
+  already O(n) Thomas (`cyclic_tridiagonal_solve`), cheaper than an FFT; jax-cfd `pressure.py::solve_fast_diag` and SOLVAX
+  `separable.FastDiagonal` stay available for a uniform-box test problem. Planning is mirrored by the persistent compile cache.
+- **Matrix-free finite-difference Jacobians** (PETSc `mffd/ds.c`, `wp.c`): SOLVAX `newton_krylov` uses exact JVPs.
+- **OpenFOAM `bound`** (`finiteVolume/cfdTools/general/bound/bound.C`) clips and averages neighbours, which breaks the exact
+  conservation the ledger checks; DRBX's flux-form limiter already keeps the positivity floor. BOUT++ monotonic Hermite clipping
+  (`hermite_spline_xz.cxx`) is a nonlinear map and would break the adjoint pair (B2).
+- **Hermes-3 `relax_potential`** removes the elliptic solve but makes potential relaxation a stiff ODE with a dt limit.
+- **Mixed precision** (`solvax.precond.mixed_precision`): the tree application is 0.08 ms on the A4000; nothing to save.
+- **ESDIRK/ARK variants** (diffrax `kencarp*`, `kvaerno*`): SSP222 has two implicit stages and no explicit first stage to save.
+- **jax-md, optimistix Newton/LM:** no technique that applies to a linearised IMEX stage; optimistix `ImplicitAdjoint` is the same
+  rule as item 1.
+
+### Order of work
+
+1 (and its gradient test), 4 and 3 first (all small, independent, measured on the 16^3 default deck with A/B/A/B), then 2 behind the
+symmetry probe, then 6 and 7, then 10; 5 and 8 after the 2-3 results are in; 9 when the neutral model is next revisited.
+Every item is its own PR with the line delta, an equivalence test against main, and the profile that justifies it.
+
+### Citations (not previously in section 4)
+
+Blondel et al., Efficient and modular implicit differentiation, NeurIPS 35 (2022); Christianson, Reverse accumulation and
+attractive fixed points, Optim. Methods Softw. 3 (1994) 311; Fischer, Projection techniques for iterative solution of Ax=b with
+successive right-hand sides, CMAME 163 (1998) 193; Parks et al., Recycling Krylov subspaces for sequences of linear systems, SISC 28
+(2006) 1651; Morgan, GMRES with deflated restarting, SISC 24 (2002) 20; Baker, Jessup, Manteuffel, A technique for accelerating the
+convergence of restarted GMRES, SIMAX 26 (2005) 962; Eisenstat and Walker, Choosing the forcing terms in an inexact Newton method,
+SISC 17 (1996) 16; Knoll and Keyes, Jacobian-free Newton-Krylov methods, JCP 193 (2004) 357; Sanan, Schnepp, May, Pipelined, flexible
+Krylov subspace methods, SISC 38 (2016) C441; Ghysels et al., Hiding global communication latency in the GMRES algorithm, SISC 35
+(2013) C48; Vanek, Mandel, Brezina, Algebraic multigrid by smoothed aggregation, Computing 56 (1996) 179; Stueben, A review of
+algebraic multigrid, JCAM 128 (2001) 281; Chacon, Phys. Plasmas 15 (2008) 056103; Horsten, Samaey, Baelmans, Nucl. Fusion 57 (2017)
+116043 and Contrib. Plasma Phys. 58 (2018) 572; Stotler and Karney, Neutral gas transport modeling with DEGAS 2, Contrib. Plasma
+Phys. 34 (1994) 392; Amestoy et al., MUMPS, SIMAX 23 (2001) 15; Li and Demmel, SuperLU_DIST, ACM TOMS 29 (2003) 110; Frigo and
+Johnson, The design and implementation of FFTW3, Proc. IEEE 93 (2005) 216; Carson and Higham, SISC 40 (2018) A817; Bassanini,
+arXiv 2609.33677 (IMEX with physics-based preconditioning for GBS, already in section 2).
 ### 4d. Electromagnetic (A_par) wiring (2026-11-11)
 
 Audit. `native/electromagnetic.py` (numpy, tests only) is a Hermes-3 slab port: hard-coded Alfven-wave MMS coefficients, a
@@ -969,6 +1135,7 @@ At 32^3 the GMRES iterations per step go from 64.3 (four solves) to 38.7 (three 
 | 2026-11-08 | docs/examples-current (stacked on #78, merges #74) | Docs and examples brought current: fluid neutrals as the default 3D model (validity Kn <~ 0.3; HSX 99.8% Kn >= 1, so N6 kinetic correction is the open gap), independent wall check output, conservative perpendicular energy diffusion, single reference density. New: `examples/neutrals/fluid_neutral_slab.py`, `examples/inputs/hsx_fci_neutrals.toml`. Retracted-figure and removed-key wording removed from docs/fci_braginskii_hsx_backend.md |
 | 2026-11-10 | solvax pin (open PR) | `solvax>=0.36.1` (FGMRES flat path with the accumulated Givens rotation matrix, SOLVAX #185). 16^3 default and neutrals decks, 4 steps, against solvax 0.36.0: every field array bitwise identical; only `phi` (at most 4.5e-9 of its maximum, the GMRES solve) and the wall ledger differ, at rounding level. |
 | 2026-11-10 | zero-density NaN (open PR) | `jax.grad` of the neutral fluid step with n = 0 everywhere was NaN (the step value was NaN too). Two causes: `apply_volumetric_source` divided 0/0 for the momentum and temperatures of an empty cell (it now keeps the old Vi, Te, Ti there), and `transport_coefficients` floored nu at 1e-300, so tau_n = 1/nu and its derivative 1/nu^2 overflowed to inf * 0 (floor now 1e-100). Nonzero-density results bitwise unchanged; 16^3 default and neutrals decks bitwise identical to main over 4 steps. |
+| 2026-11-11 | solver source review (docs PR) | Section 4c: ten ranked solver/capability techniques from PETSc, FELTOR, Hermes-3, BOUT++, SOLVAX, diffrax, DEGAS2 and others; reverse-mode gap in the potential solves found; no code changes |
 | 2026-11-11 | gmres implicit VJP (open PR) | Section 4c item 1: `solvax_gmres_solve` now runs inside `solvax.implicit.linear_solve` (one transposed Krylov solve per backward solve, same preconditioner), so `jax.grad` passes through the potential, current/phi and sharded conduction solves; neutral solves (`jax.scipy` gmres) and single-shard conduction (`pcg_linear_solve`) were already differentiable. Forward fields bitwise identical to main on the 16^3 default and neutrals decks (4 steps). Gradient of a scalar of one 16^3 IMEX step against central differences: relative difference 2.7e-5 (eps 1e-3). Cost and memory in the PR body. The driver's diagnostic `pmin`/`pmax` have no JVP rule and need `stop_gradient` for end-to-end step gradients (done in the test, not in the driver). |
 | 2026-11-11 | slim lane: dead source (open PR) | Removed unreferenced code, each symbol with a repo-wide reference count of 1 (its definition): `validation/geometry_lineouts.py`, `validation/geometry_slices.py`, `native/array_backend.py` (+ its test), and 14 methods/functions in `geometry_build/*`, `native/fci_drb_EB_rhs.py` and `geometry/fci_geometry.py` (-594 lines, 16 files). `detachment_sol_model.steady_jvp` stays: it is registered through `@steady.defjvp`, which a static unreferenced-symbol scan misses. Default 16^3 blob and neutrals decks, 4 steps: every history array bitwise identical to main; 552 focused tests pass. Open candidates left to the owner: `native/electromagnetic.py` (test-only, documented feature) and the five `validation/stellarator_*_campaign.py` modules (one test + one example). |
 | 2026-11-11 | slim lane: stray scripts (open PR) | Removed `w/` (4 scratch scripts) and `dev/fci_analysis/` (15 post-processing scripts for old shifted-torus runs); no references in src, tests, docs, CI or pyproject, not packaged, no `drbx` code touched (-6814 lines, 19 files). Supersedes the dev/ half of B4. |
@@ -976,6 +1143,7 @@ At 32^3 the GMRES iterations per step go from 64.3 (four solves) to 38.7 (three 
 | 2026-11-12 | four-field flutter sign | `B = curl(A b)` gives `b1 = grad A x b / B`; `v_E = b x grad phi / B`; so `b1.grad f` is minus the E x B advection operator with `phi -> A`. The four-field E x B is `{phi, f}/(rho_star B)`, hence flutter `-{A, f}/(rho_star B)` (main had `+`; the dispersion matrix of the tests was built with the same sign, so they could not see it). `test_flutter_follows_the_perturbed_field_line`: `A = x`, `f(y+z)` is constant along `B = (0,-1,1)`; the old sign leaves `2 grad_par f` (0.593 against 0.297). Drift-Alfven root 0.7292 -> 0.7904, measured 0.7934. The energy ledger and the weighted-adjoint pair are blind to the sign (any `F` keeps `D_F = -M^-1 F^T M` exact) |
 | 2026-11-11 | solver lane item 2 (open PR, docs only) | PCG for the potential solves rejected by the symmetry probe: operator asymmetry 4e-4 (random) / 2e-6 to 3e-4 (smooth), PCG never converges (stalls at 8e-8 to 8e-5 true residual); FGMRES kept |
 | 2026-11-11 | solver lane item 3 (open PR) | Minimum-residual start from earlier potentials of the step: iterations -7% (only the last solve gains), step time parity; kept small and measured, GCROT recycling not built |
+| 2026-11-12 | wall ledger finite | The `wall_ledger` history held NaN in the ten `step_*` columns of its first row (no step applied, filled with `np.nan`); it is `0` now, so means and plots of the ledger are finite. Rows after the first were already finite (4-step 16^3 HSX run). Slow test `test_hsx_wall_ledger_is_finite` |
 | 2026-11-11 | solver lane item 7 (open PR) | Stage-2 base phi solve skipped unless the sheath-current wall is on: 4 -> 3 phi solves per step, fields equal main to the solver tolerance; item 8 measured and not adopted (section 4c lane note) |
 | 2026-11-11 | solver lane item 4 (open PR) | Inner potential-solve tolerance tied to dt: iterations -37.5% on the 16^3 default and neutrals decks, -38% on 32^3; field changes 1e-4 to 1e-5 of the time-truncation change |
 | 2026-11-11 | slim lane: pillow and stellarator campaigns (open PR) | `pillow` is no longer a base dependency (it stays in the `viz` extra; every `PIL` import is covered because `matplotlib`, which stays in the base set, requires pillow itself). Removed the five `validation/stellarator_{fci_suite,metric_mms,neutral_physics,sheath_recycling,vorticity}_campaign.py` modules, their tests in `tests/test_validation_stellarator_fci_campaigns.py`, the `stellarator-fci/validation_campaign.py` example and the docs and `drbx.validation` exports that referenced them. Owner-approved removals. |
