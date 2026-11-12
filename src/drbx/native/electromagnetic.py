@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+import jax.numpy as jnp
 import numpy as np
 
+from .fci_operators import PerpLaplacianInverseSolver
 from .mesh import StructuredMesh, apply_neumann_x_guards
 from .metrics import StructuredMetrics
 
@@ -214,3 +216,83 @@ def compute_alfven_wave_ddt_vort_core(vorticity: np.ndarray, *, mesh: Structured
         ddz = 0.5 * (np.roll(core, -1, axis=1) - np.roll(core, 1, axis=1))
         full[x_index, y_slice, :] = ddy_coef * ddy + ddz_coef * ddz
     return full
+
+
+# ---------------------------------------------------------------------------
+# Differentiable FCI closure for the four-field model (``[physics] electromagnetic = true``).
+#
+# The evolved ``v_electron_parallel`` becomes the canonical momentum
+# ``w = v_e - (mi/me) A``.  Ampere's law ``-lap_perp A = beta n (v_i - v_e)`` with
+# ``v_e = w + (mi/me) A`` is the Helmholtz problem
+# ``(-lap_perp + beta (mi/me) n) A = beta n (v_i - w)``; the density is split as
+# ``n_ref + (n - n_ref)`` so one fixed-coefficient solve is iterated.  The four
+# parallel gradients then gain the flutter term ``{A, f} / (rho_star B)``.
+# With A = 0 the electrostatic right-hand side is recovered; ``beta -> 0`` gives A -> 0.
+# Linear waves: omega = k_par v_A / sqrt(1 + k_perp^2 d_e^2), v_A^2 = B^2 / (beta n),
+# d_e^2 = 1 / (beta (mi/me) n).  Scott, Phys. Plasmas 10, 963 (2003); Stegmeir et al.,
+# Phys. Plasmas 26, 052517 (2019).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EmPhysics:
+    """The ``[physics]`` deck table."""
+
+    electromagnetic: bool = False
+    beta: float = 1.0e-3  # mu0 n T / B^2 in the model's normalization
+    mi_over_me: float = 1836.0
+    reference_density: float = 1.0  # n_ref of the fixed-coefficient Helmholtz operator
+    ampere_iterations: int = 2  # defect-correction passes for the density variation
+    ampere_tol: float = 1.0e-8
+
+
+@dataclass(frozen=True)
+class FciEmClosure:
+    beta: float
+    mi_over_me: float
+    reference_density: float
+    iterations: int
+    solver: PerpLaplacianInverseSolver
+
+    def solve_apar(self, density, v_ion_parallel, w, *, face_bc, cut_wall_bc=None):
+        """A_par from the canonical electron momentum ``w`` (differentiable; ``n_ref`` exact for uniform n)."""
+
+        beta_mu = self.beta * self.mi_over_me
+        source = self.beta * density * (v_ion_parallel - w)
+        apar = jnp.zeros_like(density)
+        for _ in range(self.iterations):
+            rhs = source - beta_mu * (density - self.reference_density) * apar
+            apar = self.solver(rhs, phi_guess=apar, face_bc=face_bc, cut_wall_bc=cut_wall_bc)
+        return apar
+
+
+def build_fci_em_closure(geometry, physics: EmPhysics, *, conservative_stencil_builder, face_projectors=None,
+                         periodic_axes=(False, True, True), maxiter: int = 100, restart: int = 200):
+    """The closure for ``physics`` (``None`` when ``physics.electromagnetic`` is false)."""
+
+    if not physics.electromagnetic:
+        return None
+    if physics.beta <= 0.0 or physics.reference_density <= 0.0 or physics.ampere_iterations < 1:
+        raise ValueError("electromagnetic needs beta > 0, reference_density > 0 and ampere_iterations >= 1")
+    solver = PerpLaplacianInverseSolver(
+        geometry, conservative_stencil_builder, tol=physics.ampere_tol, maxiter=maxiter, restart=restart,
+        face_projectors=face_projectors, periodic_axes=periodic_axes,
+        regularization_epsilon=physics.beta * physics.mi_over_me * physics.reference_density,
+        check_residual=False,
+    )
+    return FciEmClosure(physics.beta, physics.mi_over_me, physics.reference_density,
+                        physics.ampere_iterations, solver)
+
+
+def em_energies(closure: FciEmClosure, state, phi, apar, jacobian):
+    """Cell-volume integrals ``(ExB, magnetic, electron kinetic, ion kinetic)`` of the cold model.
+
+    ``ExB = -1/2 <phi omega>``, ``magnetic = 1/2 <A j>`` with ``j = n (v_i - v_e)``
+    (equal to ``|grad_perp A|^2 / 2 beta``), electron ``<n v_e^2> / 2 (mi/me)``, ion ``<n v_i^2> / 2``.
+    """
+
+    n, v_i = state.density, state.v_ion_parallel
+    v_e = state.v_electron_parallel + closure.mi_over_me * apar
+    total = lambda q: jnp.sum(q * jacobian)  # noqa: E731
+    return (-0.5 * total(phi * state.omega), 0.5 * total(apar * n * (v_i - v_e)),
+            0.5 * total(n * v_e**2) / closure.mi_over_me, 0.5 * total(n * v_i**2))

@@ -761,6 +761,44 @@ Relax the 1e-8 inner target (acceptance is 5e-5; ~25% fewer iterations, changes 
 information, lower the 2.8 GB lowering peak (split the implicit+phi kernel), idle-GPU timings, SOLVAX pytree-path rotation fix for
 sharded runs, jit the SD1D residual/Jacobian trace.
 
+### 4d. Electromagnetic (A_par) wiring (2026-11-11)
+
+Audit. `native/electromagnetic.py` (numpy, tests only) is a Hermes-3 slab port: hard-coded Alfven-wave MMS coefficients, a
+single-radial-cell Neumann A_par solve, no connection to any stepper or deck. `native/fci_drb_EB_rhs.py` and the `fci_braginskii`
+HSX backend are electrostatic Boussinesq (the "EB" is electrostatic Boussinesq; docs/physics_models.md called it electromagnetic).
+`linear/dispersion.py` carries the analytic shear-Alfven operator only as a hand-assembled matrix. The four-field FCI model
+(`fci_4_field_rhs.py`, deck backend `stellarator_turbulence`) already evolves `v_electron_parallel` with the electron parallel
+force balance, so it is the smallest host.
+
+Wiring. `EmPhysics` is the `[physics]` deck table (`electromagnetic = false` default). With it on, `v_electron_parallel` is the
+canonical momentum `w = v_e - (mi/me) A`; `FciEmClosure.solve_apar` solves `(-lap_perp + beta (mi/me) n_ref) A = beta n (v_i - w)
+- beta (mi/me) (n - n_ref) A` by defect correction (the fixed-coefficient Helmholtz operator is the existing
+`PerpLaplacianInverseSolver` with `regularization_epsilon`, so the solver code is untouched); `compute_4field_rhs` then feeds
+`v_e = w + (mi/me) A` to the unchanged assembly and adds the flutter term `{A, f} / (rho_star B)` to the four parallel gradients
+(density, phi, v_i, v_e). The electrostatic path is the same code with `electromagnetic=None`: 3 steps of the rotating-ellipse
+case are bitwise identical to main (sha256 of density and omega frames). Reverse mode through the GMRES potential solve is
+unavailable in the electrostatic model as well (`lax.while_loop`); forward mode through the electromagnetic step matches finite
+differences.
+
+Evidence (`tests/test_electromagnetic_fci.py`, 8 tests, about 50 s with `-n 2`; slab with Dirichlet radial walls, modes
+`sin(kx x) exp(i(ky y + kz z))`): shear-Alfven `omega = kz vA / sqrt(1 + k_perp^2 d_e^2)` at 12x3x16 cells: beta 0.5
+(k_perp d_e = 0.14) measured/analytic - 1 = -2.5%; beta 0.005 (k_perp d_e = 1.4, factor 1/sqrt 3) -1.7%. Drift-Alfven, Ln = 10,
+beta 0.03, kz 0.1: 0.7309 against the 4x4 local dispersion root 0.7292 (+0.24%, 12x16x16 cells); the electrostatic limit of the
+same parameters is 1.206, so the flutter term `b1.grad n0` (the omega_* A_par entry of the matrix) is resolved. Energy
+(ExB + magnetic + electron kinetic) over one wave period: drift 0.55% at amplitude 1e-3 and 2.7% at 0.05 while the ExB and magnetic
+energies swing by 100% and 74%. beta -> 0: `max|RHS_em - RHS_es| / max|RHS_es|` is 8.5e-7 at beta 1e-6 and 8.5e-9 at 1e-8 (linear in
+beta). MMS (A(x,z), phi(x,z), n(x,y), v_i given, w from Ampere): error of A and of dw/dt at N = 8/16/24: 3.0e-4/9.6e-5/4.2e-5 and
+0.349/0.079/0.034, observed order 2.1 for both.
+
+Found, not fixed: the conservative perpendicular Laplacian has a wide (2h) stencil and an O(1) inconsistency at the periodic
+seam cells in y (ratio of `L cos(y)` to `cos(y)` -0.74 against -0.95 at the first cell, independent of resolution); the
+slab tests therefore put the perpendicular structure in x (Dirichlet walls) and keep y smooth. A fully periodic box with even
+`nx` or `ny` also has a null space of checkerboard modes.
+
+Open: A_par in the `fci_braginskii` HSX backend (`_Ve_rhs` of `fci_drb_EB_rhs.py` has the same `mi_over_me * grad_par(phi)` form,
+so the same closure applies to its Ve equation; its phi solve and BC bundle differ); A_par for the 1D SOL flux tube (no
+perpendicular structure to invert) and the 2D Hasegawa-Wakatani box (no parallel direction; an electromagnetic HW needs a
+fixed-k_par closure).
 ### Solver lane item 2: PCG on the potential solves, symmetry probe (2026-11-11, additive; not adopted)
 Probe on the HSX 16^3 default and neutrals decks (2 IMEX steps, the real stage operators, owner space with 3216 owners): `|<Ax,y> - <x,Ay>|_V / (|Ax||y|)` for the polarization operator and the current/phi pair operator (with `extra_operator`), volume-weighted product, same preconditioner (`auto`): random vectors 4.1e-4 and 4.2e-4, smooth low-mode vectors 2.3e-6 and 2.6e-4, mixed 1.4e-3 and 1.5e-3; the preconditioner itself 1.8e-4 to 3.8e-4. The Euclidean product gives the same 3.4e-4, so the weights are not the cause. Rayleigh quotients are positive (4e3 to 3e4), so the operators are positive but not symmetric to the 1e-10 the plan required.
 Consequence, measured on the stage systems with SOLVAX `pcg_linear_solve` in the `sqrt(V)` scaling (the symmetrised form the conduction solve uses), target 1e-8, 300 iterations allowed: with the DRBX preconditioner PCG never converged (all 300 iterations used) and stalled at true relative residuals between 7.6e-8 and 8.3e-5 depending on the solve; unpreconditioned PCG converged in 4 of 20 solves (244 and 287 iterations) and otherwise stalled between 2e-8 and 2e-6, against 29 to 43 iterations for FGMRES on the same systems. The asymmetry sits in the fine-grid operator and the preconditioner, not in the owner restriction, so the Galerkin product `P^T A P` (which only removes the restriction/expansion mismatch) would not restore it; symmetrising `(A + A*)/2` would change the discretisation and double the operator cost. FGMRES stays; item 2 stops here. SOLVAX PCG remains used for the symmetric conduction solves.
@@ -818,6 +856,7 @@ At 32^3 the GMRES iterations per step go from 64.3 (four solves) to 38.7 (three 
 | 2026-11-11 | gmres implicit VJP (open PR) | Section 4c item 1: `solvax_gmres_solve` now runs inside `solvax.implicit.linear_solve` (one transposed Krylov solve per backward solve, same preconditioner), so `jax.grad` passes through the potential, current/phi and sharded conduction solves; neutral solves (`jax.scipy` gmres) and single-shard conduction (`pcg_linear_solve`) were already differentiable. Forward fields bitwise identical to main on the 16^3 default and neutrals decks (4 steps). Gradient of a scalar of one 16^3 IMEX step against central differences: relative difference 2.7e-5 (eps 1e-3). Cost and memory in the PR body. The driver's diagnostic `pmin`/`pmax` have no JVP rule and need `stop_gradient` for end-to-end step gradients (done in the test, not in the driver). |
 | 2026-11-11 | slim lane: dead source (open PR) | Removed unreferenced code, each symbol with a repo-wide reference count of 1 (its definition): `validation/geometry_lineouts.py`, `validation/geometry_slices.py`, `native/array_backend.py` (+ its test), and 14 methods/functions in `geometry_build/*`, `native/fci_drb_EB_rhs.py` and `geometry/fci_geometry.py` (-594 lines, 16 files). `detachment_sol_model.steady_jvp` stays: it is registered through `@steady.defjvp`, which a static unreferenced-symbol scan misses. Default 16^3 blob and neutrals decks, 4 steps: every history array bitwise identical to main; 552 focused tests pass. Open candidates left to the owner: `native/electromagnetic.py` (test-only, documented feature) and the five `validation/stellarator_*_campaign.py` modules (one test + one example). |
 | 2026-11-11 | slim lane: stray scripts (open PR) | Removed `w/` (4 scratch scripts) and `dev/fci_analysis/` (15 post-processing scripts for old shifted-torus runs); no references in src, tests, docs, CI or pyproject, not packaged, no `drbx` code touched (-6814 lines, 19 files). Supersedes the dev/ half of B4. |
+| 2026-11-11 | electromagnetic PR 1 (open) | `[physics] electromagnetic` for the four-field FCI model: A_par, flutter, electron inertia; analytic dispersion, beta -> 0, energy and MMS tests; section 4d |
 | 2026-11-11 | solver lane item 2 (open PR, docs only) | PCG for the potential solves rejected by the symmetry probe: operator asymmetry 4e-4 (random) / 2e-6 to 3e-4 (smooth), PCG never converges (stalls at 8e-8 to 8e-5 true residual); FGMRES kept |
 | 2026-11-11 | solver lane item 3 (open PR) | Minimum-residual start from earlier potentials of the step: iterations -7% (only the last solve gains), step time parity; kept small and measured, GCROT recycling not built |
 | 2026-11-11 | solver lane item 7 (open PR) | Stage-2 base phi solve skipped unless the sheath-current wall is on: 4 -> 3 phi solves per step, fields equal main to the solver tolerance; item 8 measured and not adopted (section 4c lane note) |
