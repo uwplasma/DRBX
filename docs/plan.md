@@ -785,6 +785,29 @@ Tried and not adopted this round: XLA CPU classic runtime (`xla_cpu_use_thunk_ru
 scheduler: paired concurrent runs 0.30 vs 0.30 s and 0.28 vs 0.28 s (differences seen in sequential runs were load noise). Pallas: not retried
 (no profile row points at a stencil kernel; the cost is launch count, and command buffers remove the launch stalls).
 
+#### Controlled timings of #95, #96 and #97 (2026-11-12, additive)
+A = main 8cb45c30 (pinned, clean worktree). B = A plus #97, #95 and #96 (the stack, PR heads merged, 118c7d69). HSX default deck, SOLVAX 0.36.1, step time = the driver's "average compiled-step timing", one run at a time under the heavy-run lock, alternating A and B (the order flips between pairs). Iterations per step are identical in A and B (23.98 at 16^3, 38.67 at 32^3, three solves per step).
+
+CPU (Mac, `JAX_PLATFORMS=cpu`; #95 and #97 are inactive there, so this is #96):
+
+| grid | runs | A step (s), median / mean | B step (s), median / mean | A -> B staged compile (s) | A -> B peak RSS (GB) |
+|---|---|---|---|---|---|
+| 16^3 | 9 pairs | 0.201 / 0.203 | 0.210 / 0.222 | 109 -> 91 | 5.2 -> 4.1 |
+| 32^3 | 5 pairs | 1.277 / 1.336 | 1.258 / 1.310 | 114 -> 94 | 6.3 -> 6.2 |
+
+Step time does not change within the noise (4 of the 9 B runs at 16^3 were 15-30% slower, A showed no such outliers; the other 5 equal A at 0.198-0.210 s). Compile is 17% shorter at both sizes and the 16^3 footprint is 21% smaller.
+
+GPU (office A4000, `JAX_PLATFORMS=cuda,cpu`, 16^3, 10 steps, `nice -n 10`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`; the host was at load average 95-125 with 54-56 of 62 GB in use and GPU 1 busy, so absolute times are inflated and compile times especially so):
+
+| variant | step (s), run 1 / run 2 | staged compile (s), run 1 / run 2 |
+|---|---|---|
+| A (main) | 1.798 / 1.252 | 1316 / 381 |
+| A + #97 + #95 | 0.655 / 0.289 | 964 / 385 |
+| A + #97 + #95 + #96 | 0.286 / 0.341 | 902 / 300 |
+
+#95 takes the GPU step from 1.25-1.80 s to 0.29-0.66 s (4.3x best pair, 2.7x worst, same card and code otherwise). #96 adds nothing measurable to the GPU step (0.29-0.34 s with and without it) and shortens the compile by 5-22%. #97 is needed for any `JAX_PLATFORMS=cuda`-only run (without it the first step aborts) and costs nothing elsewhere.
+
+
 ### Still open
 Relax the 1e-8 inner target (acceptance is 5e-5; ~25% fewer iterations, changes results), reuse the previous step's Krylov
 information, lower the 2.8 GB lowering peak (split the implicit+phi kernel), idle-GPU timings, SOLVAX pytree-path rotation fix for
