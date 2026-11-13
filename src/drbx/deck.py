@@ -447,7 +447,7 @@ def _hsx(cfg: dict, say: Callable[[str], None]):
             say(f"building HSX geometry in {artifact} (several minutes at 16^3)")
             build_hsx_simulation_geometry(HsxSimulationGeometryConfig(**table, output=artifact))
         config = replace(config, geometry=artifact)
-    run(config)
+    run(config, physics=cfg.get("physics", _lazy(".fci_braginskii.run", "HsxPhysics")()))
 
 
 @dataclass(frozen=True)
@@ -470,7 +470,8 @@ def _sig(table: str) -> type:
 
 
 def _hsx_tables() -> dict[str, type]:
-    return {"fci_braginskii": _lazy(".fci_braginskii.run", "HsxBlobConfig"), "geometry": _hsx_geometry_table()}
+    return {"fci_braginskii": _lazy(".fci_braginskii.run", "HsxBlobConfig"), "geometry": _hsx_geometry_table(),
+            "physics": _lazy(".fci_braginskii.run", "HsxPhysics")}
 
 
 def _turbulence_tables() -> dict[str, type]:
