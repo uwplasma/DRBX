@@ -294,6 +294,18 @@ def _materialize_owner_array(array: np.ndarray, host_geometry) -> np.ndarray:
     owner_index = np.asarray(host_geometry.topology.owner_index, dtype=np.int32)
     return value[(slice(None),) + tuple(np.moveaxis(owner_index, -1, 0))]
 
+def _jit(fn):
+    """``jax.jit`` with while loops and conditionals run on the GPU.
+
+    XLA otherwise copies the predicate of every ``while`` trip (several per Krylov
+    iteration, about 1500 per HSX step) to the host; CUDA-graph conditional nodes
+    keep them on the device.
+    """
+    return jax.jit(fn, compiler_options=(
+        {"xla_gpu_enable_command_buffer": "FUSION,CUBLAS,CUBLASLT,CUSTOM_CALL,CONDITIONAL,WHILE"}
+        if jax.default_backend() == "gpu" else None))
+
+
 def _assert_owner_sparse(state: FciDrbEBState, host_geometry) -> None:
     cell_mask = ~np.asarray(host_geometry.topology.is_active_owner, dtype=bool)
     maximum = max(
@@ -1860,7 +1872,7 @@ def run_full_eb(
         out_specs=(spatial_spec, replicated_spec),
         check_vma=False,
     )
-    reconstruct_phi = jax.jit(reconstruct_phi_sharded)
+    reconstruct_phi = _jit(reconstruct_phi_sharded)
     if reconstruct_initial_phi:
         initial_phi, initial_phi_iterations = reconstruct_phi(
             state,
@@ -2219,7 +2231,7 @@ def run_full_eb(
         check_vma=False,
     )
     if advance_execution == "compiled":
-        compiled_advance = jax.jit(sharded_advance).lower(
+        compiled_advance = _jit(sharded_advance).lower(
             state,
             cell_fields,
             map_fields,
@@ -2294,7 +2306,7 @@ def run_full_eb(
             """Compile one staged kernel and report lowering/cache separately."""
 
             lower_start = time.perf_counter()
-            lowered = jax.jit(sharded_kernel).lower(*example_args)
+            lowered = _jit(sharded_kernel).lower(*example_args)
             lower_seconds = time.perf_counter() - lower_start
             compile_start = time.perf_counter()
             executable = lowered.compile()
@@ -2971,7 +2983,7 @@ def run_full_eb(
                 ionisation,
             )
 
-        neutral_split = jax.jit(neutral_split_kernel)
+        neutral_split = _jit(neutral_split_kernel)
         neutral_history = [[np.asarray(materialized_owner_array(f), dtype=history_numpy_dtype)] for f in (
             neutral_density, neutral_velocity, neutral_temperature)]
         ionisation_field = jnp.zeros_like(neutral_density)
