@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import jax
 import jax.numpy as jnp
 
-from drbx.fci_braginskii.native.fci_helpers import small_batched_eig
+from drbx.fci_braginskii.native.fci_helpers import small_batched_eig, small_batched_inv
 
 
 Array = jax.Array
@@ -131,7 +131,7 @@ def _safe_spectral_data(
     # These are small square characteristic bases.  A direct inverse avoids
     # the SVD used by ``pinv``; defective/ill-conditioned bases are rejected
     # below and use the finite Rusanov fallback instead.
-    inverse = jnp.linalg.inv(vectors)
+    inverse = small_batched_inv(vectors)
     eigenvalues = jnp.nan_to_num(eigenvalues, nan=0.0, posinf=0.0, neginf=0.0)
     vectors = jnp.nan_to_num(vectors, nan=0.0, posinf=0.0, neginf=0.0)
     inverse = jnp.nan_to_num(inverse, nan=0.0, posinf=0.0, neginf=0.0)
