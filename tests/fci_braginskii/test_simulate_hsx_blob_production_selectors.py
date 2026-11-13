@@ -94,7 +94,7 @@ def test_time_advance_exposes_true_eager_mode_and_staged_compiled_default():
 def test_eager_advance_keeps_cell_centered_setup_kernels_compiled():
     source = DRIVER_SOURCE.read_text(encoding="utf-8")
     assert "curvature_face_setup = jax.jit(" in source
-    assert "reconstruct_phi = jax.jit(" in source
+    assert "reconstruct_phi = _jit(" in source
     assert "jax.device_put(\n            np.asarray(value" in source
 
 
