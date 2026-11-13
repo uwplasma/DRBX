@@ -20,6 +20,23 @@ from ...native.fci_helpers import (  # noqa: F401
 from ...native.fci_helpers import _local_side_mask, local_physical_side_active  # noqa: F401
 
 
+def small_batched_inv(vectors: jnp.ndarray) -> jnp.ndarray:
+    """Inverse of the eigenvector matrices of :func:`small_batched_eig`, ``[[U, 0], [s, 1]]``.
+
+    ``U^-1`` is the cross-product (adjugate) formula and the last row is ``-s U^-1``: plain
+    fused array arithmetic instead of a batched LAPACK ``getrf`` plus triangular solves.
+    """
+
+    c = jnp.moveaxis(vectors[..., :3, :3], -1, 0)  # the three columns of U
+    adjugate = jnp.stack([jnp.cross(c[1], c[2]), jnp.cross(c[2], c[0]), jnp.cross(c[0], c[1])], axis=-2)
+    inverse_u = adjugate / jnp.sum(c[0] * adjugate[..., 0, :], axis=-1)[..., None, None]
+    last_row = -jnp.einsum("...j,...ji->...i", vectors[..., 3, :3], inverse_u)
+    zero = jnp.zeros_like(last_row[..., None])
+    return jnp.concatenate(
+        [jnp.concatenate([inverse_u, zero], axis=-1),
+         jnp.concatenate([last_row, jnp.ones_like(zero[..., 0, :])], axis=-1)[..., None, :]], axis=-2)
+
+
 def small_batched_eig(matrix: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Eigen-decomposition of batches of real 4x4 matrices with a zero last column.
 

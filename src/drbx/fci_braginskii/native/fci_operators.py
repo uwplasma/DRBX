@@ -44,7 +44,7 @@ from ..geometry.fci_geometry import (
     _first_derivative_3d,
     _lift_cell_field_to_faces,
 )
-from .fci_helpers import small_batched_eig
+from .fci_helpers import small_batched_eig, small_batched_inv
 from .fci_support_pair import sparse_rows_apply
 from .fci_halo import (
     HaloExchange3D,
@@ -1838,7 +1838,7 @@ def _curvature_bc_characteristic_wall_states(
     normal_matrix = jnp.asarray(normal, dtype=jnp.float64)[..., None, None] * matrix
     frozen = jax.lax.stop_gradient(normal_matrix)
     eigenvalues, eigenvectors = small_batched_eig(frozen)
-    inverse = jnp.linalg.inv(eigenvectors)
+    inverse = small_batched_inv(eigenvectors)
     real_values = jnp.real(eigenvalues)
     imaginary = jnp.abs(jnp.imag(eigenvalues))
     tolerance = jnp.asarray(eigenvalue_tolerance, dtype=jnp.float64)

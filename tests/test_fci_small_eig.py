@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 jax.config.update("jax_enable_x64", True)
 
 from drbx.fci_braginskii.native.fci_curvature_production_flux import curvature_principal_matrix  # noqa: E402
-from drbx.fci_braginskii.native.fci_helpers import small_batched_eig  # noqa: E402
+from drbx.fci_braginskii.native.fci_helpers import small_batched_eig, small_batched_inv  # noqa: E402
 
 
 def _abs_action(values, vectors, x):
@@ -59,3 +60,26 @@ def test_degenerate_scaled_and_nonfinite_matrices():
         matrix[0, 0] = bad
         values, vectors = (np.asarray(v) for v in jax.jit(small_batched_eig)(matrix))
         assert np.all(values.imag != 0.0) and np.array_equal(vectors, np.eye(4))
+
+
+def test_inverse_matches_lapack_on_eigenvector_matrices():
+    rng = np.random.default_rng(2)
+    n = 20000
+    u = lambda lo, hi: rng.uniform(lo, hi, n)
+    matrix = np.asarray(curvature_principal_matrix(u(0.05, 3), u(0.01, 3), u(0.01, 3), u(0.5, 2), u(0.3, 2)))
+    vectors = np.asarray(jax.jit(small_batched_eig)(matrix)[1])
+    got, want = np.asarray(jax.jit(small_batched_inv)(vectors)), np.linalg.inv(vectors)
+    assert np.max(np.abs(got - want)) < 1e-11 * np.abs(want).max()
+    np.testing.assert_array_equal(np.asarray(small_batched_inv(np.eye(4))), np.eye(4))
+
+
+def test_absolute_action_gradient_matches_finite_differences():
+    from drbx.fci_braginskii.native.fci_curvature_production_flux import curvature_characteristic_absolute_action
+
+    matrix = curvature_principal_matrix(1.0, 0.4, 0.3, 1.2, 0.8)
+    x = np.asarray((0.3, -0.2, 0.5, 0.1))
+    f = lambda v: jnp.sum(curvature_characteristic_absolute_action(matrix, v) ** 2)
+    grad = np.asarray(jax.grad(f)(jnp.asarray(x)))
+    step = 1.0e-6
+    fd = [(f(x + step * e) - f(x - step * e)) / (2 * step) for e in np.eye(4)]
+    np.testing.assert_allclose(grad, fd, rtol=1e-7)
