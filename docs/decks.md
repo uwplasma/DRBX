@@ -381,7 +381,7 @@ Two-field shifted-torus rollout: reverse-mode gradient in the initial amplitude 
 
 `[model] backend = "fci_braginskii"`
 
-Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IMEX-SSP222 with an FGMRES potential solve (`HsxBlobConfig`; [HSX backend](fci_braginskii_hsx_backend.md)). With a `[geometry]` table the geometry is built from the shipped HSX coils and vessel (`build_hsx_simulation_geometry`) and cached.
+Seven-field Boussinesq model (electrostatic; `[physics] electromagnetic = true` adds A_par) on the HSX toroidal FCI geometry, IMEX-SSP222 with an FGMRES potential solve (`HsxBlobConfig`; [HSX backend](fci_braginskii_hsx_backend.md)). With a `[geometry]` table the geometry is built from the shipped HSX coils and vessel (`build_hsx_simulation_geometry`) and cached.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -477,6 +477,8 @@ Seven-field electrostatic Boussinesq model on the HSX toroidal FCI geometry, IME
 | `geometry.coils_path` | `Path | None` | `<repo>/coils.hsx` | MAKEGRID coils file (B from the coil filaments). Default: the HSX coils shipped in `examples/inputs/hsx`. |
 | `geometry.coil_table_shape` | `tuple[int, int, int] | None` | `[96, 144, 96]` | In-memory coil field table `[nr, nphi, nz]` per field period. (points) |
 | `geometry.cache_dir` | `Path` | `<repo>/hsx_geometry` | The built artifact is stored (and reused when the table is unchanged) under `cache_dir/hsx_<res>_<hash>`. |
+| `physics.electromagnetic` | `bool` | `False` | Add A_par, magnetic flutter of every parallel gradient and electron inertia ([electromagnetic model](electromagnetic.md)); the evolved `Ve` is then the canonical momentum `Ve - (mi/me) A_par`, and histories hold the physical `Ve`. Off: the electrostatic model, bitwise unchanged. |
+| `physics.beta` | `float` | `0.001` | Ampere coefficient `mu0 n0 Te0 / (rho_star^2 B0^2)` of the metre-normalized variables; Alfven speed `B / (rho_star sqrt(beta n))`, so the physical beta is `rho_star^2 beta`. Positive when `electromagnetic`. |
 
 **Outputs**
 
@@ -494,6 +496,7 @@ Written to `[fci_braginskii] output` (the `.npz` suffix is added; shapes below a
 | `nfp`, `simulated_field_periods`, `toroidal_extent`, `metric_radial_degree`, `metric_poloidal_modes`, `metric_toroidal_modes`, `eta_projection_iterations`, `fci_trace_substeps` | `()` | Geometry bookkeeping. |
 | `topology`, `coordinate_names_json`, `parallel_operator_scheme`, `history_dtype` | `()` string | Geometry and storage labels. |
 | `run_metadata_json` | `()` string | JSON of the resolved run, including all solver settings. |
+| `apar`, `em_energy`, `em_energy_columns` | `(n_saved, 16, 16, 16)`, `(n_rows, 6)`, `(6,)` | With `[physics] electromagnetic`: A_par per saved frame, and the rows `(time, magnetic, exb, electron_kinetic, ion_kinetic, thermal)` of volume integrals (`<A j>/2`, `-<phi omega>/2`, `<n Ve^2>/2mu`, `<n Vi^2>/2`, `3<n (Te + tau Ti)>/2`) at every saved frame. |
 
 Snapshot and checkpoint files (`<stem>.snapshot_t<time>.npz`, `<stem>.checkpoint_step<step>.npz`, `<stem>.failure_step<step>.npz`) hold one frame: the seven fields without the time axis, `time`, `requested_snapshot_time`, `step`, the `metric_*` arrays, `jacobian`, `Bmag`, `B_contravariant`, parallel-coefficient diagnostics, `wall_ghost_states`, `polarization_residual`, `grid_scale_diagnostics` and `run_metadata_json`. Any of them, or a history file, is valid for `restart_from`.
 

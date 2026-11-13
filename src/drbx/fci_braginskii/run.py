@@ -73,6 +73,7 @@ from drbx.fci_braginskii.native.fci_sharding import (  # noqa: E402
     make_shard_mesh,
 )
 from drbx.fci_braginskii.native.fci_gmres import SolvaxGmresConfig  # noqa: E402
+from drbx.fci_braginskii.native.fci_electromagnetic import FciEm  # noqa: E402
 from drbx.fci_braginskii.native.fci_parallel_conduction import spitzer_prefactors  # noqa: E402
 from drbx.fci_braginskii.native.fci_wall_closure import (  # noqa: E402
     SHEATH_POTENTIALS, WALL_CLOSURES, SheathClosure, balance_mismatch,
@@ -918,6 +919,7 @@ def build_local_eb_model(
     implicit_current_phi_pair: bool = False,
     sheath: SheathClosure | None = None,
     sparse_rows=None,
+    electromagnetic: FciEm | None = None,
 ) -> LocalFciDrbEBRhs:
     if gmres_restart < 1:
         raise ValueError("gmres_restart must be positive")
@@ -1029,6 +1031,7 @@ def build_local_eb_model(
         implicit_current_phi_pair=bool(implicit_current_phi_pair),
         sheath=sheath,
         sparse_rows=sparse_rows,
+        em=electromagnetic,
     )
     model = LocalFciDrbEBRhs(
         **rhs_kwargs,
@@ -1519,8 +1522,13 @@ def run_full_eb(
     neutral_initial_decay_length: float = 0.0,
     neutral_restart: tuple | None = None,
     recycling: fci_neutrals.RecyclingParameters | None = None,
+    electromagnetic: FciEm | None = None,
 ) -> FciDrbEBState:
     """Advance the global EB state.
+
+    With ``electromagnetic`` the ``Ve`` slot of the advanced state is the canonical electron momentum
+    ``Ve - (mi/me) A`` (``LocalFciDrbEBRhs.em_physical``); histories, snapshots and the return value hold the
+    physical ``Ve`` and ``apar``.
 
     With ``neutrals`` the fluid neutrals (n_n, u_n, T_n) are advanced after every
     IMEX step (operator split, ``native/fci_neutral_fluid.py``) and its reaction
@@ -1585,7 +1593,11 @@ def run_full_eb(
         )
     )
 
+    em_view: list = []  # [kernel] once the electromagnetic kernels exist: canonical -> physical state
+
     def materialized_state(current_state: FciDrbEBState) -> FciDrbEBState:
+        if em_view:
+            current_state = em_view[0](current_state)[0]
         if owner_host_geometry is None:
             return current_state
         return _materialize_owner_state(current_state, owner_host_geometry)
@@ -1812,6 +1824,7 @@ def run_full_eb(
             implicit_current_phi_pair=implicit_current_phi_pair,
             sheath=sheath,
             sparse_rows=sparse_rows,
+            electromagnetic=electromagnetic,
         )
 
     phi_start = time.perf_counter()
@@ -1863,6 +1876,27 @@ def run_full_eb(
     else:
         jax.block_until_ready(state)
         initial_phi_iteration_text = "GMRES reconstruction skipped"
+    if electromagnetic is not None:
+        def em_kernel(function, out_specs):
+            def kernel(local_state, cell_fields_owned, map_fields_owned, control_volume_fields_owned):
+                model = build_local_model(cell_fields_owned, map_fields_owned, control_volume_fields_owned)
+                return function(model, local_state)
+
+            mapped = jax.jit(jax.shard_map(
+                kernel, mesh=mesh, in_specs=(state_spec,) + (geometry_spec,) * 3,
+                out_specs=out_specs, check_vma=False,
+            ))
+            return lambda local_state: mapped(local_state, cell_fields, map_fields, control_volume_fields)
+
+        def physical_view(model, local_state):
+            physical, with_apar = model.em_physical(local_state)
+            energies = with_apar.em_energies(physical)
+            for axis_name in ("x", "y", "z"):
+                energies = jax.lax.psum(energies, axis_name)
+            return physical, with_apar.apar, energies
+
+        state = em_kernel(lambda model, local_state: model.em_canonical(local_state), state_spec)(state)
+        em_view.append(em_kernel(physical_view, (state_spec, spatial_spec, replicated_spec)))
     print(
         f"[simulation] initial sharded phi ready in "
         f"{time.perf_counter() - phi_start:.3f} s; "
@@ -1933,6 +1967,8 @@ def run_full_eb(
         model: LocalFciDrbEBRhs,
         short_leg_selection_dt: jax.Array,
     ) -> FciDrbEBState:
+        if model.em is not None:
+            stage_state, model = model.em_physical(stage_state)
         with jax.named_scope("operators"):
             rhs = model.evaluate_stage(
                 stage_state,
@@ -1954,6 +1990,13 @@ def run_full_eb(
         Returns the stage state, its implicit increment and the packed phi
         solver diagnostics.
         """
+
+        canonical_ve = base.Ve
+        if model.em is not None:
+            base, model = model.em_physical(base)
+
+        def canonical(stage, increment):
+            return stage if model.em is None else stage.replace(Ve=canonical_ve + increment.Ve)
 
         # Conduction first, from the stage-start state (kappa frozen there): the
         # wall legs then remove the energy that conduction has delivered.
@@ -1979,11 +2022,12 @@ def run_full_eb(
                 )
             mark_pair_solve_phi(stage.phi)
             phi_info = _format_phi_solver_diagnostics(pair_solver_info)
-            return stage, increment.axpy(pair_increment, scale=1.0), _fold_conduction_diagnostics(
+            increment = increment.axpy(pair_increment, scale=1.0)
+            return canonical(stage, increment), increment, _fold_conduction_diagnostics(
                 phi_info, conduction_infos
             )
         stage_phi, phi_info = reconstruct_stage_phi(updated, model)
-        return updated.replace(phi=stage_phi), increment, _fold_conduction_diagnostics(
+        return canonical(updated.replace(phi=stage_phi), increment), increment, _fold_conduction_diagnostics(
             phi_info, conduction_infos
         )
 
@@ -2767,6 +2811,22 @@ def run_full_eb(
         name: [np.asarray(value, dtype=history_numpy_dtype)]
         for name, value in initial_output_state.field_items()
     }
+    em_rows: list[list[float]] = []
+
+    def record_em(time_value: float, *, frames: bool) -> None:
+        """Energies (magnetic, ExB, electron and ion kinetic, thermal) of the canonical state; ``apar`` frames."""
+
+        _, apar, energies = em_view[0](state)
+        em_rows.append([float(time_value), *(float(v) for v in np.asarray(energies))])
+        print("[em] t={:.6e} magnetic={:.6e} ExB={:.6e} electron_kinetic={:.6e} ion_kinetic={:.6e} "
+              "thermal={:.9e}".format(*em_rows[-1]), flush=True)
+        if frames:
+            history.setdefault("apar", []).append(
+                np.asarray(materialized_owner_array(apar), dtype=history_numpy_dtype)
+            )
+
+    if em_view:
+        record_em(float(start_time), frames=True)
     saved_times = [float(start_time)]
     next_snapshot = 0
     while next_snapshot < len(snapshot_schedule) and snapshot_schedule[next_snapshot] <= start_time + 1.0e-14:
@@ -3052,6 +3112,8 @@ def run_full_eb(
                 history[name].append(
                     np.asarray(value, dtype=history_numpy_dtype)
                 )
+            if em_view:
+                record_em(current_time, frames=True)
             if neutrals is not None:
                 for frames, field in zip(neutral_history, (neutral_density, neutral_velocity, neutral_temperature)):
                     frames.append(np.asarray(materialized_owner_array(field), dtype=history_numpy_dtype))
@@ -3358,6 +3420,16 @@ def run_full_eb(
             for name, values in history.items()
         },
         **(neutral_output() if neutrals is not None else {}),
+        **(
+            {
+                "em_energy": np.asarray(em_rows, dtype=np.float64),
+                "em_energy_columns": np.asarray(
+                    ("time", "magnetic", "exb", "electron_kinetic", "ion_kinetic", "thermal")
+                ),
+            }
+            if em_rows
+            else {}
+        ),
         run_metadata_json=np.asarray(json.dumps(metadata, sort_keys=True)),
     )
     print(
@@ -3493,6 +3565,18 @@ def recycling_parameters(config) -> fci_neutrals.RecyclingParameters | None:
 
 
 @dataclass(frozen=True)
+class HsxPhysics:
+    """The ``[physics]`` table: ``electromagnetic`` adds A_par, magnetic flutter and electron inertia."""
+
+    electromagnetic: bool = False
+    beta: float = 1.0e-3  # Ampere coefficient mu0 n0 Te0 / (rho_star^2 B0^2)
+
+    def __post_init__(self) -> None:
+        if self.electromagnetic and not self.beta > 0.0:
+            raise ValueError("[physics] beta must be positive when electromagnetic")
+
+
+@dataclass(frozen=True)
 class HsxBlobConfig:
     """One HSX FCI blob run.
 
@@ -3608,7 +3692,9 @@ def _deck_error(message: str) -> None:
     raise SystemExit(f"error: {message}")
 
 
-def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> None:
+def run(
+    args: HsxBlobConfig, *, physics: HsxPhysics = HsxPhysics(), fail: Callable[[str], object] = _deck_error
+) -> None:
     """Load geometry, build the initial state and advance one configured run."""
 
     geometry_start = time.perf_counter()
@@ -4041,6 +4127,7 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
         snapshot_times=tuple(float(value) for value in args.snapshot_times),
         snapshot_dir=args.snapshot_dir,
         implicit_current_phi_pair=bool(args.implicit_current_phi_pair),
+        electromagnetic=FciEm(float(physics.beta)) if physics.electromagnetic else None,
         sheath=sheath_closure(args),
         neutrals=neutral_params,
         neutral_initial_density=float(args.neutral_initial_density),
@@ -4105,6 +4192,8 @@ def run(args: HsxBlobConfig, *, fail: Callable[[str], object] = _deck_error) -> 
                 args.electron_collision_frequency
             ),
             "implicit_current_phi_pair": bool(args.implicit_current_phi_pair),
+            "electromagnetic": bool(physics.electromagnetic),
+            "beta": float(physics.beta),
             "wall_closure": str(args.wall_closure),
             "sheath_heat_transmission_convention": (
                 "total gamma at M=1; gamma - 5/2 applied as sink, advected enthalpy carried by the wall leg"
