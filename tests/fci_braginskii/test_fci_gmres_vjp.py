@@ -90,8 +90,10 @@ def test_float32_gradient_is_finite_and_close_to_finite_difference():
 
 
 @pytest.mark.slow
-def test_driver_gradient_over_steps_matches_finite_difference_on_hsx_16_cubed(tmp_path, monkeypatch):
-    """``jax.grad`` through three steps of the production sharded advance against central differences.
+@pytest.mark.parametrize("neutrals", [False, True])
+def test_driver_gradient_over_steps_matches_finite_difference_on_hsx_16_cubed(neutrals, tmp_path, monkeypatch):
+    """``jax.grad`` through three steps of the production sharded advance against central differences,
+    with and without the fluid neutrals (ionisation, charge exchange and the neutral solves on the tape).
 
     The advance is captured when the driver lowers it for the deck, so the diagnostic reductions of
     ``finalize_advance`` (``pmin``/``pmax``, cut from the tape with ``stop_gradient``) are on the path.
@@ -119,14 +121,21 @@ def test_driver_gradient_over_steps_matches_finite_difference_on_hsx_16_cubed(tm
         def lower(self, *args):
             if "advance" in cap and len(args) >= 4 and hasattr(args[0], "Te"):
                 cap["args"] = args[:4] + (jnp.asarray(0.0),)
-                raise _Captured
+                if not neutrals:
+                    raise _Captured
             return self.f.lower(*args)
 
         def __call__(self, *a, **k):
             return self.f(*a, **k)
 
     monkeypatch.setattr(jax, "shard_map", shard_map_spy)
-    monkeypatch.setattr(jax, "jit", lambda f, *a, **k: _JitSpy(f) if not (a or k) else real_jit(f, *a, **k))
+    def jit_spy(f, *a, **k):
+        if getattr(f, "__name__", "") == "neutral_split_kernel":  # the split substep that follows each advance
+            cap["split"] = f
+            raise _Captured
+        return _JitSpy(f) if not (a or k) else real_jit(f, *a, **k)
+
+    monkeypatch.setattr(jax, "jit", jit_spy)
     deck = tmp_path / "hsx.toml"
     deck.write_text(
         '[model]\nbackend = "fci_braginskii"\n'
@@ -134,6 +143,7 @@ def test_driver_gradient_over_steps_matches_finite_difference_on_hsx_16_cubed(tm
         "metric_poloidal_modes = 6\nmetric_toroidal_modes = 3\ntoroidal_modes = 3\n"
         f'cache_dir = "{Path(__file__).resolve().parents[2] / "output" / "hsx_geometry"}"\n'
         f'[fci_braginskii]\noutput = "{tmp_path / "hsx"}"\nfinal_time = 0.00075\nnum_steps = 1\n'
+        f"neutrals = {str(neutrals).lower()}\n"
     )
     with pytest.raises(_Captured):
         main(["run", str(deck), "--quiet"])
@@ -144,11 +154,17 @@ def test_driver_gradient_over_steps_matches_finite_difference_on_hsx_16_cubed(tm
     state, cell_fields, map_fields, control_volume_fields, time = cap["args"]
 
     def loss(a):
-        def step(current, _):
-            return advance(current, cell_fields, map_fields, control_volume_fields, time)[0], None
+        def step(carry, _):
+            current = advance(carry[0], cell_fields, map_fields, control_volume_fields, time)[0]
+            if neutrals:
+                current, *carry = cap["split"](current, *carry[1:])[:4]
+                return (current, *carry), None
+            return (current, *carry[1:]), None
 
-        final, _ = jax.lax.scan(step, state.replace(Te=state.Te * (1.0 + a)), None, length=3)
-        return sum(jnp.sum(v**2) for _, v in final.field_items())
+        zero = jnp.zeros_like(state.density)
+        start = (state.replace(Te=state.Te * (1.0 + a)), 0.01 + zero, zero, 1.0 + zero)
+        final, _ = jax.lax.scan(step, start, None, length=3)
+        return sum(jnp.sum(v**2) for v in (*(v for _, v in final[0].field_items()), *final[1:]))
 
     value, grad = jax.jit(jax.value_and_grad(loss))(jnp.asarray(0.0))
     forward = jax.jit(loss)
