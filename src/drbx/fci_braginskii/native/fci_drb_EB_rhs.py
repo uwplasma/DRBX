@@ -53,6 +53,7 @@ from .fci_operators import (
     _solver_active_mask,
     _solver_volume_weights,
 )
+from .fci_electromagnetic import flutter_pair
 from .fci_gmres import (
     SolvaxGmresConfig,
     SolvaxGmresInfo,
@@ -505,6 +506,11 @@ class LocalFciDrbEBRhs:
     # and of the phi solve's ``-L_perp`` (:meth:`assemble_rows`); ``None`` keeps the
     # matrix-free operators.
     sparse_rows: tuple | None = None
+    # Electromagnetic closure (``fci_electromagnetic.FciEm``).  ``None`` is the electrostatic model
+    # and leaves every program below unchanged.  ``apar`` is the Ampere potential of the stage being
+    # evaluated (set by ``em_physical``); the evolved ``Ve`` slot is then the canonical momentum.
+    em: Any = None
+    apar: jnp.ndarray | None = None
 
     def _parallel_wall_states(self, center, minus, plus, backward_wall, forward_wall):
         """Wall states consumed by the characteristic wall legs."""
@@ -1749,6 +1755,115 @@ class LocalFciDrbEBRhs:
             value_z=jnp.zeros_like(face_bc.phi.value_z),
         )
 
+    def _em_helmholtz(self, face_bc, density, shift=True):
+        """The potential solver with the Ampere shift ``beta (mi/me) n`` (``shift=False``: plain ``-L_perp``)."""
+
+        mu = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
+        n = self._owner_field(jnp.maximum(density, 0.0))
+        return LocalPerpLaplacianInverseSolver(
+            geometry=self.geometry, domain=self.domain,
+            control_volume_geometry=self.control_volume_geometry,
+            control_volume_boundary_bc=self.control_volume_boundary_bc,
+            stencil_builder=build_local_conservative_stencil_from_field,
+            stencil_builder_context=self._stencil_builder_context(),
+            halo_exchange=self.halo_exchange, topology_filler=self.topology_filler,
+            physical_ghost_filler=self.physical_ghost_filler, face_projectors=self.face_projectors,
+            face_bc=self._homogeneous_halo_bc(face_bc), axis_regular_axes=self.axis_regular_axes,
+            neumann_normal_scheme=self.neumann_normal_scheme, config=self.gmres_config,
+            extra_operator=(lambda a: self.em.beta * mu * n * a) if shift else None,
+        )
+
+    def _em_solve_apar(self, density, Vi, w, face_bc, guess=None, return_info=False):
+        """``A_par`` from ``(-L_perp + beta mu n) A = beta n (Vi - w)``, ``A = 0`` on the walls.
+
+        ``w = Ve - mu A`` is the canonical electron momentum, so Ampere's law with electron
+        inertia is one positive definite Helmholtz solve with the exact variable density in the
+        shift (the ``extra_operator`` of the potential solver).  ``-L_perp A = beta n (Vi - Ve)``
+        follows, and ``beta -> 0`` gives ``A -> 0``.
+        """
+
+        em = self.em
+        n = self._owner_field(jnp.maximum(density, 0.0))
+        solver = self._em_helmholtz(face_bc, density)
+        rhs = self._owner_field(_mask_inactive_owned(em.beta * n * (Vi - w), self.geometry))
+        zero = jnp.zeros_like(rhs)
+        guess = zero if guess is None else guess
+        solve = solver.solve_rlp_owner if self.control_volume_geometry is not None else solver.solve_full_grid
+        apar, info = solve(rhs, guess_owned=guess, return_diagnostics=True)
+        apar = self._owner_field(_mask_inactive_owned(apar, self.geometry))
+        return (apar, info) if return_info else apar
+
+    def em_physical(self, state_w):
+        """``(state, model)`` with the physical ``Ve = w + mu A`` and this model carrying ``A``."""
+
+        apar = self._em_solve_apar(
+            state_w.density, state_w.Vi, state_w.Ve, self._face_bcs(state_w),
+            guess=(state_w.Vi - state_w.Ve) / jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64),
+        )
+        mu = jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
+        return state_w.replace(Ve=state_w.Ve + mu * apar), replace(self, apar=apar)
+
+    def em_canonical(self, state):
+        """The canonical state ``w = Ve - mu A`` of a physical state, with ``-L_perp A = beta n (Vi - Ve)``."""
+
+        n = self._owner_field(jnp.maximum(state.density, 0.0))
+        solver = self._em_helmholtz(self._face_bcs(state), state.density, shift=False)
+        rhs = self._owner_field(_mask_inactive_owned(self.em.beta * n * (state.Vi - state.Ve), self.geometry))
+        zero = jnp.zeros_like(rhs)
+        solve = solver.solve_rlp_owner if self.control_volume_geometry is not None else solver.solve_full_grid
+        apar = self._owner_field(_mask_inactive_owned(
+            solve(rhs, guess_owned=zero), self.geometry))
+        return state.replace(Ve=state.Ve - jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64) * apar)
+
+    def em_energies(self, state):
+        """Local volume integrals ``(magnetic, ExB, electron kinetic, ion kinetic, thermal)`` of a physical state.
+
+        ``1/2 <A j>`` with ``j = n (Vi - Ve)`` (``= |grad A|^2 / 2 beta``), ``-1/2 <phi omega>``,
+        ``<n Ve^2> / 2 mu``, ``<n Vi^2> / 2`` and ``3/2 <n (Te + tau Ti)>``; callers psum over shards.
+        """
+
+        _, mass = self._ledger_masses()
+        n, mu = state.density, jnp.asarray(self.parameters.mi_over_me, dtype=jnp.float64)
+        total = lambda q: jnp.sum(mass * q)  # noqa: E731
+        return jnp.stack((
+            0.5 * total(self.apar * n * (state.Vi - state.Ve)), -0.5 * total(state.phi * state.vorticity),
+            0.5 * total(n * state.Ve**2) / mu, 0.5 * total(n * state.Vi**2),
+            1.5 * total(n * (state.Te + self.parameters.tau * state.Ti)),
+        ))
+
+    def _em_flutter(self, face_bc, context):
+        """``f -> -rho_star {A, f} / B``: the magnetic-flutter part of ``grad_parallel f``.
+
+        Linear in ``f`` for the frozen ``A`` (centered compatible-flux bracket, homogeneous ghost
+        data) and constant exact.  ``grad_parallel f = b.grad f + b~.grad f`` with ``b~ = grad A x
+        b / B`` and ``v_E.grad f = {phi, f}/B``, hence the sign.
+        """
+
+        rho_star = jnp.asarray(self.parameters.rho_star, dtype=jnp.float64)
+        a_stencil = build_local_conservative_stencil_from_field(
+            self._prepare_scalar_halo(self.apar, self._homogeneous_halo_bc(face_bc)), self.geometry, context
+        )
+        homogeneous = self._homogeneous_halo_bc(face_bc)
+
+        def raw(values):
+            f_stencil = build_local_conservative_stencil_from_field(
+                self._prepare_fine_storage_halo(values, homogeneous), self.geometry, context
+            )
+            return -rho_star * self._poisson_bracket_over_B(a_stencil, f_stencil, equation_family="vorticity")
+
+        one = raw(self._fci_pair_active_mask().astype(jnp.float64))  # constants of the active cells, as the pairs see them
+        return lambda values: raw(values) - one * values
+
+    def _em_wrap_pair(self, gradient, divergence, dual, face_bc, context):
+        """The flutter pair ``(G + F, D + D_F)`` of ``fci_electromagnetic.flutter_pair`` (unchanged without ``A``)."""
+
+        if self.apar is None:
+            return gradient, divergence
+        return flutter_pair(
+            gradient, divergence, self._em_flutter(face_bc, context),
+            self._fci_pair_cell_mass(), self._fci_pair_active_mask(), dual,
+        )
+
     def _fci_leg_stencil(self, *, face_bc: LocalFciDrbEBFaceBCBundle, context: StencilBuilderContext):
         """``stencil(f)``: the mapped field-line stencil of a scalar with homogeneous wall data."""
 
@@ -1911,6 +2026,11 @@ class LocalFciDrbEBRhs:
         phi_gradient, current_divergence, current_target = self._fci_current_phi_boundary_pair(
             face_bc=face_bc, context=context, wall_endpoint_current_values=(zero, zero)
         )
+        gradient, divergence = self._em_wrap_pair(gradient, divergence, self._fci_pair_active_mask(), face_bc, context)
+        plain_phi_gradient, plain_current_divergence = phi_gradient, current_divergence
+        phi_gradient, current_divergence = self._em_wrap_pair(
+            phi_gradient, current_divergence, current_target, face_bc, context
+        )
 
         primitive_names = ("density", "Te", "Ti", "Vi", "Ve")
         # The wall current lift of the former characteristic-SAT closure is zero for the
@@ -1938,6 +2058,13 @@ class LocalFciDrbEBRhs:
         )
         result = {
             "grad_phi": phi_gradient(fields["phi"]),
+            # The flutter parts alone: the implicit current/phi solve keeps the plain pair (a flutter bracket costs
+            # 13 ms per application on the 16^3 model, a GMRES matvec would pay two), so they stay explicit.
+            "grad_phi_flutter": phi_gradient(fields["phi"]) - plain_phi_gradient(fields["phi"]) if self.apar is not None else zero,
+            "current_flutter_div": (
+                current_divergence(fields["current"]) - plain_current_divergence(fields["current"])
+                if self.apar is not None else zero
+            ),
             "grad_vorticity": gradient(fields["vorticity"]),
             "vorticity_current_flux_div": vorticity_current,
             "vorticity_current_affine_flux_div": jnp.zeros_like(zero) if self._sheath_current_mode else closure,
@@ -2279,6 +2406,8 @@ class LocalFciDrbEBRhs:
         rates to the owners.  Callers psum over shards.
         """
 
+        if self.em is not None and self.apar is None:  # the wall states need the physical Ve
+            state_owned, self = self.em_physical(state_owned)
         _, _, info = self.apply_short_leg_implicit_material_step(
             state_owned, 0.0, phi_owned=state_owned.phi, return_increment=True
         )
@@ -3084,6 +3213,10 @@ class LocalFciDrbEBRhs:
             if self.implicit_current_phi_pair
             else "vorticity_current_flux_div"
         ]
+        if self.implicit_current_phi_pair and self.apar is not None:
+            vorticity_current_flux_divergence = (
+                vorticity_current_flux_divergence + stage_parallel_terms["current_flutter_div"]
+            )
         grad_parallel_phi = stage_parallel_terms["grad_phi"]
         grad_parallel_vorticity = stage_parallel_terms["grad_vorticity"]
         production_material_residual = stage_parallel_terms["conservative_rates"]
@@ -3102,6 +3235,8 @@ class LocalFciDrbEBRhs:
             if self.implicit_current_phi_pair
             else mi_over_me * grad_parallel_phi
         )
+        if self.implicit_current_phi_pair and self.apar is not None:  # the flutter part of the force stays explicit
+            Ve_phi_force_term = mi_over_me * stage_parallel_terms["grad_phi_flutter"]
         Ve_electrostatic_term = Ve_phi_force_term
         vorticity_current_term = (
             (bmag * bmag / density_safe) * vorticity_current_flux_divergence
