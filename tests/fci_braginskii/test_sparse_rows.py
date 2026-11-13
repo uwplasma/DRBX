@@ -77,3 +77,17 @@ def test_rows_give_the_reverse_mode_gradient():
 
 def test_a_global_coupling_is_not_sparse():
     assert assemble_sparse_rows(lambda f: f - jnp.mean(f), SHAPE) is None
+
+
+def test_rows_coupled_across_the_probe_colours_are_read_from_the_transpose():
+    """A polar-style row couples every cell of its column of the first axis, so its columns share a probe
+    colour; those rows come from the transposed map and equal the dense matrix."""
+
+    w = jnp.asarray(np.random.default_rng(3).normal(size=SHAPE[0]))
+    pole = lambda f: f + jnp.zeros(SHAPE).at[0].set(jnp.einsum("i,ij->j", w, jnp.roll(f, 1, axis=1)))
+    cols, vals = assemble_sparse_rows(pole, SHAPE)
+    n = int(np.prod(SHAPE))
+    dense = np.zeros((n, n))
+    np.add.at(dense, (np.arange(n)[:, None], cols), vals)
+    want = np.asarray(jax.vmap(lambda e: pole(e.reshape(SHAPE)).reshape(-1))(jnp.eye(n))).T
+    assert cols.shape[1] == SHAPE[0] + 1 and np.max(np.abs(dense - want)) <= 1e-13 * np.max(np.abs(want))

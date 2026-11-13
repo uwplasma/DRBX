@@ -183,36 +183,56 @@ def assemble_sparse_rows(operator: Callable[[Array], Array], shape: tuple[int, .
 
     Cells a multiple of ``sep`` apart (``sep`` the smallest divisor of the extent not below the
     request, requests ``(6, 6, 3)`` then wider) share a probe; two probes per colour, ``1`` and
-    ``1 + flat index`` on the colour, give a row's value and, from the ratio, its column.  Probes
-    run in chunks, so memory stays at a few chunks of the grid.  Returns ``None`` unless a random
-    vector is then reproduced to round-off and a row has at most 64 entries, so the caller keeps
-    the matrix-free operator.
+    ``1 + flat index`` on the colour, give a row's value and, from the ratio, its column.  A row
+    whose columns met in one probe (the angular agglomeration couples distant cells) is read by
+    probing the transpose instead, with those rows coloured by their slice along the last axis and
+    their rank in it, so that the probes stay a few per slice.  Probes run in chunks, so memory
+    stays at a few chunks of the grid.  Returns ``None`` unless a random vector is then reproduced
+    to round-off and a row has at most 64 entries, so the caller keeps the matrix-free operator.
     """
 
     n = int(np.prod(shape))
     grid = np.indices(shape).reshape(len(shape), n)
-    probe = jax.jit(lambda x: jax.lax.map(lambda v: operator(v.reshape(shape)).reshape(-1), x))
+    flat = lambda f: jax.jit(lambda x: jax.lax.map(lambda v: f(v.reshape(shape)).reshape(-1), x))
+    forward = flat(operator)
+    transpose = jax.linear_transpose(operator, jnp.zeros(shape))
+    backward = flat(lambda v: transpose(v)[0])
     x = np.random.default_rng(0).normal(size=shape)
     want = np.asarray(jax.jit(operator)(jnp.asarray(x))).reshape(-1)
     tag = np.arange(n) + 1.0
+
+    def probe(apply, colour):  # (probed cell, output index, value) of every colour; a tag ratio off an integer flags a clash
+        found, scale = [], 0.0
+        for start in range(0, int(colour.max()) + 1, 128):
+            onehot = (colour[None, :] == np.arange(start, min(start + 128, colour.max() + 1))[:, None]) * 1.0
+            unit, tagged = (np.asarray(apply(jnp.asarray(v))) for v in (onehot, onehot * tag))
+            scale = max(scale, np.abs(unit).max())
+            out = np.nonzero(np.abs(unit) > 1.0e-14 * np.abs(unit).max())  # (colour in chunk, output index)
+            found.append((out[1], unit[out], tagged[out] / unit[out]))
+        out, unit, ratio = (np.concatenate(a) for a in zip(*found))
+        return out, unit, np.rint(ratio) - 1.0, (np.abs(ratio - np.rint(ratio)) > 1.0e-9 * np.maximum(ratio, 1.0)) | (ratio < 0.5), scale
+
     for request in ((6, 6, 3), (10, 10, 5), (18, 18, 9)):
         steps = [min(d for d in range(min(b, m), m + 1) if m % d == 0) for m, b in zip(shape, request[-len(shape):])]
-        colour = np.ravel_multi_index(tuple(g % b for g, b in zip(grid, steps)), steps)
-        found, scale = [], 0.0
-        for start in range(0, int(np.prod(steps)), 128):
-            onehot = (colour[None, :] == np.arange(start, min(start + 128, int(np.prod(steps))))[:, None]) * 1.0
-            unit, tagged = (np.asarray(probe(jnp.asarray(v))) for v in (onehot, onehot * tag))
-            scale = max(scale, np.abs(unit).max())
-            row = np.nonzero(np.abs(unit) > 1.0e-14 * np.abs(unit).max())  # (colour in chunk, row)
-            found.append((row[1], unit[row], tagged[row]))
-        row, unit, tagged = (np.concatenate(a) for a in zip(*found))
+        row, unit, column, clash, scale = probe(forward, np.ravel_multi_index(tuple(g % b for g, b in zip(grid, steps)), steps))
+        bad = np.unique(row[clash])
+        if bad.size:  # read those rows from the transpose: its output index is the column, its tag the row
+            slab, order = grid[-1, bad], np.argsort(grid[-1, bad], kind="stable")
+            rank = np.empty(bad.size, int)
+            rank[order] = np.arange(bad.size) - np.searchsorted(slab[order], slab[order])
+            colour = np.full(n, -1)
+            colour[bad] = (slab % steps[-1]) * (rank.max() + 1) + rank
+            column2, unit2, row2, clash2, scale2 = probe(backward, colour)
+            if clash2.any():
+                continue  # two probed rows met in one column: separate the colours further
+            keep = ~np.isin(row, bad)
+            row, unit, column = (np.concatenate(a) for a in ((row[keep], row2), (unit[keep], unit2), (column[keep], column2)))
+            scale = max(scale, scale2)
+        row = row.astype(int)
         biggest = np.zeros(n)
         np.maximum.at(biggest, row, np.abs(unit))
         keep = (np.abs(unit) > 1.0e-13 * biggest[row]) & (np.abs(unit) > 1.0e-14 * scale)  # drops round-off
-        row, unit, ratio = row[keep], unit[keep], tagged[keep] / unit[keep]
-        column = np.rint(ratio) - 1.0
-        if np.any((np.abs(ratio - np.rint(ratio)) > 1.0e-9 * np.maximum(ratio, 1.0)) | (ratio < 0.5)):
-            continue  # two probed cells met in one row: separate the colours further
+        row, unit, column = row[keep], unit[keep], column[keep]
         count = np.bincount(row, minlength=n)
         width = int(count.max())
         if width > 64:  # not a sparse map
