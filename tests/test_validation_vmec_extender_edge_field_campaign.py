@@ -82,7 +82,7 @@ def test_vmec_extender_edge_field_campaign_package_writes_artifacts(tmp_path: Pa
     assert artifacts.plot_png_path.exists()
     payload = json.loads(artifacts.summary_json_path.read_text(encoding="utf-8"))
     assert payload["passed"] is True
-    arrays = np.load(artifacts.arrays_npz_path, allow_pickle=True)
+    arrays = np.load(artifacts.arrays_npz_path, allow_pickle=False)
     assert "metric_values" in arrays
     assert "node_points" in arrays
     assert arrays["node_interpolated_B"].shape == arrays["node_expected_B"].shape
