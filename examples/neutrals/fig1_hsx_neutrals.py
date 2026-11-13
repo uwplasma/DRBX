@@ -39,7 +39,7 @@ import json
 import json, numpy as np
 from matplotlib.colors import LogNorm
 PHI0 = 0.0
-d = np.load(DATA / "hsx_neutrals_run.npz", allow_pickle=True)
+d = np.load(DATA / "hsx_neutrals_run.npz", allow_pickle=False)
 meta = json.loads(d["run_metadata_json"].item()); n0, T0 = 1e19, meta["neutral_reference_temperature_ev"]  # single reference density
 X = d["cartesian"]; R = np.hypot(X[..., 0], X[..., 1]); Z = X[..., 2]
 phi = np.unwrap(np.arctan2(X[..., 1], X[..., 0]), axis=2)
