@@ -78,4 +78,4 @@ def test_publish_pypi_workflow_uses_trusted_publishing() -> None:
     assert "workflow_dispatch:" in workflow
     assert "environment: pypi" in workflow
     assert "id-token: write" in workflow
-    assert "pypa/gh-action-pypi-publish@release/v1" in workflow
+    assert "pypa/gh-action-pypi-publish@" in workflow and "# release/v1" in workflow

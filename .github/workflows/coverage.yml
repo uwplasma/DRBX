@@ -27,8 +27,10 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
       DRBX_USE_FIXTURE_REFERENCE_ROOT: "1"
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           python-version: "3.12"
       - name: Install package and coverage tools
