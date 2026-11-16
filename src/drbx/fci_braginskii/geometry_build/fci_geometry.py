@@ -58,7 +58,6 @@ from ...geometry.fci_geometry import (  # noqa: F401
     _extend_values_z,
     _interpolate_scalar_cell_centered,
     _interpolate_B_contravariant_cell_centered,
-    _rk4_step_cell_centered,
     _bracket_axis,
     _trilinear_sample,
     _logical_coordinate_to_index,
@@ -943,12 +942,6 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
     @property
     def regular_face(self) -> LocalRegularFaceGeometry3D:
         return self.regular_face_geometry
-
-
-@lru_cache(maxsize=1)
-def _local_cell_gradient_type():
-    from ..native.fci_boundaries import LocalCellGradient3D
-    return LocalCellGradient3D
 
 
 @_pytree_base
@@ -2736,47 +2729,6 @@ build_conservative_stencil_from_field = ConservativeStencilBuilder(_build_conser
 
 
 build_local_stencil_from_field = LocalStencilBuilder(_build_local_stencil_from_field)
-
-
-def build_local_cell_gradient_from_field(
-    field_halo: jnp.ndarray,
-    geometry: LocalFciGeometry3D,
-    context: StencilBuilderContext,
-):
-    """Build an owned-cell logical gradient, patching only the axis owner rings."""
-
-    LocalCellGradient3D = _local_cell_gradient_type()
-    if not isinstance(geometry, LocalFciGeometry3D):
-        raise TypeError("geometry must be a LocalFciGeometry3D instance")
-    if not isinstance(context, StencilBuilderContext):
-        raise TypeError("context must be a StencilBuilderContext instance")
-    if context.layout != geometry.layout:
-        raise ValueError("geometry and context must share the same HaloLayout3D")
-    field_halo = jnp.asarray(field_halo, dtype=jnp.float64)
-    if field_halo.shape != geometry.halo_shape:
-        raise ValueError(
-            "field_halo must match geometry.halo_shape; "
-            f"got {field_halo.shape}, expected {geometry.halo_shape}"
-        )
-    direct = build_local_stencil_from_field(field_halo, geometry, context)
-
-    def _ordinary_derivative(axis_stencil):
-        return (
-            axis_stencil.derivative_minus_weight * axis_stencil.minus
-            + axis_stencil.derivative_center_weight * axis_stencil.center
-            + axis_stencil.derivative_plus_weight * axis_stencil.plus
-        )
-
-    gradient = jnp.stack(
-        (_ordinary_derivative(direct.x), _ordinary_derivative(direct.y), _ordinary_derivative(direct.z)),
-        axis=-1,
-    )
-    direct_gradient = LocalCellGradient3D(
-        gradient=gradient,
-        valid=jnp.ones(geometry.owned_shape, dtype=bool),
-        reconstruction_mask=jnp.zeros(geometry.owned_shape, dtype=bool),
-    )
-    return direct_gradient
 
 
 def _build_local_fci_stencil_from_field(

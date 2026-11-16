@@ -140,17 +140,6 @@ def physical_to_theta(
     )
 
 
-def design_field(setup: DiffusionAutodiffSetup, theta: jnp.ndarray) -> jnp.ndarray:
-    physical = theta_to_physical(theta)
-    return design_field_from_physical(
-        setup,
-        anomalous_D=physical["anomalous_D"],
-        amplitude=physical["amplitude"],
-        center=physical["center"],
-        width=physical["width"],
-    )
-
-
 def design_field_from_physical(
     setup: DiffusionAutodiffSetup,
     *,
@@ -164,17 +153,6 @@ def design_field_from_physical(
     profile = jnp.exp(-0.5 * ((x - center) / width) ** 2)
     y_modulation = 1.0 + 0.15 * jnp.cos(2.0 * jnp.pi * y)
     return setup.background_density + amplitude * profile * y_modulation
-
-
-def simulate_density_history(setup: DiffusionAutodiffSetup, theta: jnp.ndarray) -> jnp.ndarray:
-    physical = theta_to_physical(theta)
-    return simulate_density_history_from_physical(
-        setup,
-        anomalous_D=physical["anomalous_D"],
-        amplitude=physical["amplitude"],
-        center=physical["center"],
-        width=physical["width"],
-    )
 
 
 def simulate_density_history_from_physical(
@@ -208,25 +186,6 @@ def simulate_density_history_from_physical(
 
 def active_density_slice(setup: DiffusionAutodiffSetup, field: jnp.ndarray) -> jnp.ndarray:
     return field[setup.mesh.xstart : setup.mesh.xend + 1, setup.mesh.ystart : setup.mesh.yend + 1, 0]
-
-
-def objective_for_parameter_vector(
-    theta: jnp.ndarray,
-    setup: DiffusionAutodiffSetup,
-    *,
-    target_final_density: jnp.ndarray | None = None,
-    objective_kind: str = "target_misfit",
-) -> jnp.ndarray:
-    history = simulate_density_history(setup, theta)
-    final_density = active_density_slice(setup, history[-1])
-    if objective_kind == "variance":
-        centered = final_density - jnp.mean(final_density)
-        return jnp.mean(centered * centered)
-    if target_final_density is None:
-        raise ValueError("target_final_density is required for target_misfit objectives")
-    target = jnp.asarray(target_final_density, dtype=jnp.float64)
-    mismatch = final_density - target
-    return 0.5 * jnp.mean(mismatch * mismatch)
 
 
 def objective_for_physical_parameters(

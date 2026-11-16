@@ -56,15 +56,6 @@ def grad_B(provider: MagneticFieldProvider, xyz: jnp.ndarray) -> jnp.ndarray:
     return jnp.reshape(jac, (*jnp.shape(xyz)[:-1], 3, 3))
 
 
-def B_cylindrical(provider: MagneticFieldProvider, R, phi, Z):
-    """``(B_R, B_phi, B_Z)`` on broadcast cylindrical arrays."""
-
-    R, phi, Z = jnp.broadcast_arrays(jnp.asarray(R), jnp.asarray(phi), jnp.asarray(Z))
-    b = provider.B(jnp.stack((R * jnp.cos(phi), R * jnp.sin(phi), Z), axis=-1))
-    c, s = jnp.cos(phi), jnp.sin(phi)
-    return b[..., 0] * c + b[..., 1] * s, -b[..., 0] * s + b[..., 1] * c, b[..., 2]
-
-
 def _hashable(value: Any) -> Any:
     if isinstance(value, dict):
         return tuple(sorted((str(k), _hashable(v)) for k, v in value.items()))
