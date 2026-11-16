@@ -55,7 +55,11 @@ from .fci_boundaries import (
     CutWallGeometry3D,
     FourFieldBoundaryConditions,
 )
-from .fci_operators import PerpLaplacianInverseSolver, build_perp_laplacian_face_projectors
+from .fci_operators import (
+    PerpLaplacianInverseSolver,
+    build_perp_laplacian_face_projectors,
+    build_plane_block_preconditioner,
+)
 from .electromagnetic import EmPhysics, FciEmClosure, build_fci_em_closure, em_energies
 from .fci_sheath_recycling import compute_fci_sheath_recycling
 
@@ -134,7 +138,7 @@ def build_four_field_phi_solver(
 ) -> PerpLaplacianInverseSolver:
     """GMRES inverter for the perpendicular Laplacian used by the phi inversion."""
 
-    return PerpLaplacianInverseSolver(
+    solver = PerpLaplacianInverseSolver(
         geometry,
         conservative_stencil_builder,
         tol=float(parameters.phi_inversion_tol),
@@ -157,6 +161,12 @@ def build_four_field_phi_solver(
         # check_residual=True.
         check_residual=False,
     )
+    # Plane-block preconditioner: the perpendicular Laplacian is nearly block
+    # diagonal over toroidal planes, so GMRES needs 3-4 iterations at any grid.
+    face_bc = radial_dirichlet_face_bc(geometry)
+    solver.plane_preconditioner = build_plane_block_preconditioner(
+        lambda phi: solver._apply_A(phi, face_bc, CutWallBC3D.empty(), False), geometry.shape)
+    return solver
 
 
 def four_field_rk4_step(
