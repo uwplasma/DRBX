@@ -1,6 +1,27 @@
 # Release Notes
 
-## Unreleased
+## 2.2.0
+
+Since 2.1.0 the HSX FCI Braginskii backend is coupled to the wall, neutrals and
+the magnetic field, differentiable end to end, and faster per step.
+
+- **Sheath wall closure**: cell-by-cell sheath current (`sheath_potential = "current"`)
+  with a wall energy ledger; 32^3 HSX runs from t = 0 to 0.6.
+- **Fluid neutrals** (AMJUEL rates, momentum, kinetic correction) on SOLVAX flat FGMRES;
+  the 1D leg agrees with the SD1D scan within 0.34%.
+- **Electromagnetic four-field closure** (`[physics] electromagnetic`, `beta`): A_par,
+  flutter and electron inertia in the four-field model and the HSX backend. Shear-Alfven
+  and drift-Alfven frequencies match analytic within 2.5% and 0.5%; the energy ledger closes.
+- **Reverse-mode gradients** through the GMRES, potential and Ampere solves
+  (implicit-function VJPs); driver gradients with plasma and neutrals agree with
+  central differences.
+- **Performance**: parallel operator pairs and the potential solver's -L_perp as
+  sparse rows assembled once per run; inner tolerance tied to the step; one fewer
+  potential solve per step; device-side GPU loops. CPU 16^3 step 0.17 -> 0.07 s,
+  32^3 1.16 -> 0.57 s; GPU about -18%.
+- **Leaner package**: pillow dropped from the base dependencies, five stellarator
+  campaign modules removed; requires SOLVAX >= 0.36.1.
+- README validation figure (operators, waves, neutrals, wall ledger, gradients).
 
 **New: every model runs from a TOML deck** (`[model] backend = "<name>"`).
 Hasegawa-Wakatani (with an autodiff gradient), the open-field-line SOL flux tube
