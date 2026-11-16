@@ -255,34 +255,51 @@ def four_field_step_limit(
     stencil_builder: LocalStencilBuilder,
     boundary_conditions: FourFieldBoundaryConditions,
 ) -> StepLimit:
-    """Explicit RK4 step limit from bounds on the spectral radius of each term.
+    """Explicit RK4 step limit from local Fourier bounds on the rate of each term.
 
-    With ``k_i = sum |stencil weights|`` along axis ``i`` (``1/dx_i`` for a
-    central difference) the rates are: parallel electron wave
-    ``sqrt(mi/me Te) sum_i |b^i| k_i``, E x B advection ``sum_i |v_E^i| k_i``
-    and perpendicular diffusion ``4 D_max sum_i g^ii k_i^2``. Waves and
-    advection are imaginary, diffusion real, so
-    ``dt = 1 / ((wave + exb) / 2.83 + diffusion / 2.79)``. The wave bound is
-    the one that limits the usual runs: it scales as ``dz / sqrt(mi/me)``.
+    Parallel electron wave: for every cell and every poloidal/toroidal grid
+    mode, ``|k_par| sqrt(mi/me (Te + B^2/(n k_perp^2)))`` with central-difference
+    wavenumbers and the lowest radial mode ``pi / L_x`` in ``k_perp`` (the
+    second term is the electrostatic shear-Alfven coupling through the
+    vorticity). E x B advection: ``sum_i |v_E^i| / dx_i``. Perpendicular
+    diffusion: ``4 D_max sum_i (g^ii - b^i b^i) / dx_i^2``. Waves and advection
+    are imaginary, diffusion real, so
+    ``dt = 1 / ((wave + exb) / 2.83 + diffusion / 2.79)``.
     """
+
+    metric = geometry.cell_metric
+    spacing = jnp.stack([geometry.spacing.dx, geometry.spacing.dy, geometry.spacing.dz], axis=-1)
+    bmag = jnp.asarray(geometry.cell_bfield.Bmag, dtype=jnp.float64)
+    b_unit = jnp.asarray(geometry.cell_bfield.B_contra, dtype=jnp.float64) / bmag[..., None]
+    g_contra = jnp.stack([metric.g11, metric.g22, metric.g33], axis=-1)
+    nx, ny, nz = geometry.shape
+
+    radial_length = jnp.sum(jnp.sqrt(metric.g_11) * geometry.spacing.dx, axis=0, keepdims=True)
+    k_radial_sq = metric.g11 * (jnp.pi / radial_length) ** 2
+    shear_alfven = bmag**2 / jnp.maximum(state.density, jnp.finfo(jnp.float64).tiny)
+    dy, dz = spacing[..., 1], spacing[..., 2]
+    toroidal = jnp.arange(-(nz // 2), nz // 2 + 1)
+
+    def mode_rate(m):
+        k_y = 2.0 * jnp.pi * m / (ny * dy)
+        k_z = 2.0 * jnp.pi * toroidal[:, None, None, None] / (nz * dz)
+        k_par = b_unit[..., 1] * jnp.sin(k_y * dy) / dy + b_unit[..., 2] * jnp.sin(k_z * dz) / dz
+        k_perp_sq = k_radial_sq + metric.g22 * (2.0 * jnp.sin(0.5 * k_y * dy) / dy) ** 2
+        speed_sq = parameters.mi_over_me * (parameters.Te + shear_alfven / k_perp_sq)
+        return jnp.max(jnp.abs(k_par) * jnp.sqrt(speed_sq))
+
+    wave = jnp.max(jax.lax.map(mode_rate, jnp.arange(ny // 2 + 1)))
 
     stencil = stencil_builder(phi, geometry, periodic_axes=(False, True, True),
                               face_bc=boundary_conditions.phi_face_bc)
-    axes = (stencil.x, stencil.y, stencil.z)
-    k = jnp.stack([jnp.abs(a.derivative_minus_weight) + jnp.abs(a.derivative_center_weight)
-                   + jnp.abs(a.derivative_plus_weight) for a in axes], axis=-1)
-    dphi = jnp.stack([_take_stencil_finite_difference(a) for a in axes], axis=-1)
-    bmag = jnp.asarray(geometry.cell_bfield.Bmag, dtype=jnp.float64)
-    b_unit = jnp.asarray(geometry.cell_bfield.B_contra, dtype=jnp.float64) / bmag[..., None]
-    b_covariant = jnp.einsum("...ij,...j->...i", geometry.cell_metric.g_cov, b_unit)
-    metric = geometry.cell_metric
+    dphi = jnp.stack([_take_stencil_finite_difference(a) for a in (stencil.x, stencil.y, stencil.z)], axis=-1)
+    b_covariant = jnp.einsum("...ij,...j->...i", metric.g_cov, b_unit)
     v_exb = jnp.cross(b_covariant, dphi) / (metric.J * parameters.rho_star * bmag)[..., None]
-    g_contra = jnp.stack([metric.g11, metric.g22, metric.g33], axis=-1)
+    exb = jnp.max(jnp.sum(jnp.abs(v_exb) / spacing, axis=-1))
+
     diffusivity = max(parameters.density_perp_diffusion, parameters.omega_perp_diffusion,
                       parameters.v_ion_parallel_perp_diffusion, parameters.v_electron_parallel_perp_diffusion)
-    wave = jnp.sqrt(parameters.mi_over_me * parameters.Te) * jnp.max(jnp.sum(jnp.abs(b_unit) * k, axis=-1))
-    exb = jnp.max(jnp.sum(jnp.abs(v_exb) * k, axis=-1))
-    diffusion = 4.0 * diffusivity * jnp.max(jnp.sum(g_contra * k * k, axis=-1))
+    diffusion = 4.0 * diffusivity * jnp.max(jnp.sum((g_contra - b_unit**2) / spacing**2, axis=-1))
     tiny = jnp.finfo(jnp.float64).tiny
     return StepLimit(
         dt=1.0 / ((wave + exb) / RK4_IMAGINARY_AXIS + diffusion / RK4_REAL_AXIS),
