@@ -31,6 +31,7 @@ from drbx.geometry import (
 from drbx.native import build_perp_laplacian_face_projectors
 from drbx.native.fci_4_field_rhs import Fci4FieldBlobParameters
 from drbx.native.stellarator_turbulence import (
+    advance_checked,
     build_four_field_phi_solver,
     build_free_decay_boundary_conditions,
     four_field_rk4_step,
@@ -42,6 +43,7 @@ SHAPE = (12, 16, 8)   # (radial x, poloidal theta, toroidal zeta) cells
 ELONGATION = 0.0      # 0 = circular tokamak; try 0.35 for a rotating-ellipse stellarator
 DT = 2.0e-3
 STEPS = 100
+CHUNK = 20            # steps per compiled chunk; progress and a finiteness check between chunks
 OUTPUT = Path("output/tutorial_four_field.png")
 
 geometry = build_rotating_ellipse_geometry(SHAPE, elongation=ELONGATION)
@@ -58,15 +60,17 @@ operators = dict(
     phi_face_projectors=projectors,
     phi_inverse_solver=build_four_field_phi_solver(geometry, parameters, conservative_stencil_builder=conservative,
                                                    face_projectors=projectors))
-step = jax.jit(lambda state, guess: four_field_rk4_step(state, phi_guess=guess, **operators))
+step = lambda state, guess: four_field_rk4_step(state, phi_guess=guess, **operators)  # noqa: E731
+chunk = jax.jit(lambda state, guess, count: advance_checked(step, state, guess, count))
 
 state, phi = multi_mode_state(geometry, seed=1), jnp.zeros(geometry.shape)
 start = time.perf_counter()
-for i in range(1, STEPS + 1):
-    state, phi = step(state, phi)
-    if i % 20 == 0 or i == 1:
-        print(f"step {i:3d}  t={i * DT:.3f}  max|vorticity|={float(jnp.max(jnp.abs(state.omega))):.3e}  "
-              f"({time.perf_counter() - start:.1f}s)")
+for first in range(0, STEPS, CHUNK):
+    state, phi, done = chunk(state, phi, CHUNK)
+    if int(done) < CHUNK:
+        raise FloatingPointError(f"non-finite or negative density at step {first + int(done) + 1}; reduce DT")
+    print(f"step {first + CHUNK:3d}  t={(first + CHUNK) * DT:.3f}  max|vorticity|={float(jnp.max(jnp.abs(state.omega))):.3e}  "
+          f"({time.perf_counter() - start:.1f}s)", flush=True)
 
 mid = SHAPE[2] // 2   # toroidal plane to draw
 OUTPUT.parent.mkdir(parents=True, exist_ok=True)
