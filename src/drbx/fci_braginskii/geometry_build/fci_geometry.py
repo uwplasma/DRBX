@@ -947,7 +947,7 @@ class LocalFciGeometry3D(_DataclassPyTreeMixin):
 
 @lru_cache(maxsize=1)
 def _local_cell_gradient_type():
-    from .fci_boundaries import LocalCellGradient3D
+    from ..native.fci_boundaries import LocalCellGradient3D
     return LocalCellGradient3D
 
 
@@ -2206,7 +2206,7 @@ class LocalControlVolumeCellGeometry3D(_DataclassPyTreeMixin):
 
 @lru_cache(maxsize=1)
 def _stencil_types():
-    from .fci_boundaries import (
+    from ..native.fci_boundaries import (
         FaceGradientStencil3D,
         ConservativeStencil3D,
         LocalStencil1D,
@@ -2218,7 +2218,7 @@ def _stencil_types():
 
 @lru_cache(maxsize=1)
 def _coordinate_face_values_type():
-    from .fci_boundaries import CoordinateFaceValues3D
+    from ..native.fci_boundaries import CoordinateFaceValues3D
 
     return CoordinateFaceValues3D
 
