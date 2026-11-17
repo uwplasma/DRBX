@@ -56,4 +56,29 @@ jobs:
             tests/test_mms_shifted_torus_EB.py \
             tests/test_multigrid_preconditioner.py \
             tests/test_shifted_torus_EB_blob.py
-          uv run coverage report --fail-under=58
+      - name: Fetch the QA wout and coil JSON from ESSOS
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: uwplasma/ESSOS
+          ref: 083f7cacc513810c312d56a220468cb05231a106
+          path: external/ESSOS
+          sparse-checkout: |
+            examples/input_files/wout_LandremanPaul2021_QA_reactorScale_lowres.nc
+            examples/input_files/ESSOS_biot_savart_LandremanPaulQA.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Importer tests with ESSOS and VMEX installed
+        # essos_import.py and vmex_import.py need the optional packages and the
+        # 3 MB Landreman-Paul QA wout.  Installing them after the runs above keeps
+        # every other test on the package-free path; --cov-append adds these to
+        # the same report.
+        env:
+          DRBX_ESSOS_ROOT: ${{ github.workspace }}/external/ESSOS
+        run: |
+          uv pip install "essos==0.22.0" "vmex==0.15.0"
+          uv run pytest -q -m "not slow" --cov=drbx --cov-branch --cov-append \
+            tests/test_essos_coil_field.py \
+            tests/test_vmex_import.py \
+            tests/test_landreman_paul_turbulence.py
+      - name: Coverage report
+        run: uv run coverage report --fail-under=58
