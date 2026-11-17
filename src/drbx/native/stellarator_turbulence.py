@@ -232,22 +232,30 @@ def four_field_rk4_step(
     return state.axpy(increment, scale=timestep), phi_4
 
 
-def jit_with_array_arguments(fn, *example_args):
-    """``jax.jit(fn)`` with every array ``fn`` closes over passed as a runtime argument.
+def jit_with_array_arguments(fn, *example_args, min_size: int = 1024):
+    """``jax.jit(fn)`` with the floating-point arrays ``fn`` closes over passed as runtime arguments.
 
-    Plain ``jax.jit`` compiles the arrays a closure captures (geometry, stencil
-    tables, solver data) into the program as constants: 19 M characters of
-    HLO for the four-field step at 24x32x16. Tracing once with
-    ``example_args`` and evaluating that jaxpr under ``jax.jit`` makes them
-    arguments instead. Returns a ``functools.partial`` of the jitted function
-    over those arrays.
+    Plain ``jax.jit`` compiles the arrays a closure captures (geometry, metric
+    and solver data) into the program as constants: 19 M characters of HLO
+    for the four-field step at 24x32x16. Tracing once with ``example_args``
+    and evaluating that jaxpr under ``jax.jit`` makes the floating-point ones
+    with at least ``min_size`` entries arguments instead. Returns a
+    ``functools.partial`` of the jitted function over those arrays.
     """
 
     closed, out_shape = jax.make_jaxpr(fn, return_shape=True)(*example_args)
     out_tree = jax.tree.structure(out_shape)
-    run = jax.jit(lambda consts, *args: jax.tree.unflatten(
-        out_tree, jax.core.eval_jaxpr(closed.jaxpr, consts, *jax.tree.leaves(args))))
-    return partial(run, closed.consts)
+    # Integer and boolean tables (stencil indices, masks) stay constants:
+    # passing them as arguments made the CPU step 1.6x slower at 24x32x16.
+    hoist = [jnp.issubdtype(jnp.result_type(c), jnp.floating) and jnp.size(c) >= min_size for c in closed.consts]
+    hoisted = [c for c, h in zip(closed.consts, hoist) if h]
+
+    def evaluate(values, *args):
+        values = iter(values)
+        consts = [next(values) if h else c for c, h in zip(closed.consts, hoist)]
+        return jax.tree.unflatten(out_tree, jax.core.eval_jaxpr(closed.jaxpr, consts, *jax.tree.leaves(args)))
+
+    return partial(jax.jit(evaluate), hoisted)
 
 
 def apply_sheath_sink(
