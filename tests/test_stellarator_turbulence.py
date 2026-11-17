@@ -87,3 +87,20 @@ def test_plane_block_preconditioner_cuts_gmres_iterations() -> None:
     assert int(preconditioned.iterations) <= 8 < int(plain.iterations)
     assert np.allclose(preconditioned.x, plain.x, rtol=0.0, atol=1e-6 * float(jnp.max(jnp.abs(plain.x))))
     assert build_plane_block_preconditioner(lambda v: v, (64, 64, 32)) is None
+
+
+def test_jit_with_array_arguments_matches_jit_without_constants() -> None:
+    """Closed-over arrays, also those of a nested jit, become arguments; results match jax.jit."""
+
+    from drbx.native.stellarator_turbulence import jit_with_array_arguments
+
+    table = jax.numpy.asarray(np.linspace(0.0, 1.0, 4096))
+    inner = jax.jit(lambda x: jax.numpy.sin(table) * x)
+    fn = lambda x, y: (inner(x) + table * y, inner(y))  # noqa: E731
+    x, y = jax.numpy.ones(4096), jax.numpy.full(4096, 2.0)
+    hoisted = jit_with_array_arguments(fn, x, y)
+    for got, want in zip(hoisted(x, y), jax.jit(fn)(x, y)):
+        np.testing.assert_array_equal(np.asarray(got), np.asarray(want))
+    plain = jax.jit(fn).lower(x, y).as_text()
+    lowered = hoisted.func.lower(*hoisted.args, x, y).as_text()
+    assert len(lowered) < len(plain) / 10
