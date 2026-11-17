@@ -281,12 +281,6 @@ operator/turbulence/MMS/blob/sharded gates passing:
   silently over-solving every stage for models that asked for a looser
   tolerance. Solvers constructed with the default `tol=1e-6` are unchanged.
 
-Additionally, `build_perp_laplacian_mg_hierarchy` now LU-factorizes the
-coarsest-level dense operator once at build time
-(`jax.scipy.linalg.lu_factor`, coarse systems up to 512 cells), so each
-V-cycle does a triangular solve instead of relying on coarse smoothing
-sweeps (see [Solvers and Design Decisions](solvers_and_design.md)).
-
 ## JAX Ecosystem Usage
 
 - `solvax` carries every structured solve: the FCI perpendicular-Laplacian

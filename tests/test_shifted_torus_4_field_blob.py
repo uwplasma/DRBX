@@ -317,7 +317,6 @@ def simulate_shifted_torus_4field_blob(
         timing_array = np.asarray(timing_history, dtype=np.float64)
         total_time = time_module.perf_counter() - simulation_start
         print(f"shifted_torus_4field_blob curvature coefficient build time: {curvature_build_time:.6e} s")
-        print("shifted_torus_4field_blob multigrid preconditioner: disabled")
         print(
             "shifted_torus_4field_blob mean timings per RK step: "
             f"phi_inverse={float(np.mean(timing_array[:, 0])):.6e} s, "

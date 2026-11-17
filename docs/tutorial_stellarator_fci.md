@@ -195,5 +195,4 @@ PYTHONPATH=src python examples/stellarator/stellarator_turbulence.py
   [ESSOS Coil Fields](essos_fieldline_import.md).
 
 Gates for this tutorial: `tests/test_rotating_ellipse_fci.py`,
-`tests/test_stellarator_turbulence.py`, `tests/test_island_divertor.py`,
-`tests/test_multigrid_preconditioner.py`.
+`tests/test_stellarator_turbulence.py`, `tests/test_island_divertor.py`.

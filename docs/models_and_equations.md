@@ -8,7 +8,7 @@ are transcribed from the module docstrings and RHS assembly code, not from a
 separate derivation — if this page and the code ever disagree, the code wins
 and this page should be fixed.
 
-For the numerical methods used to *solve* these systems (GMRES, multigrid,
+For the numerical methods used to *solve* these systems (GMRES,
 tridiagonal solves, spectral inversion, RK4, sharding), see
 [Solvers and Design Decisions](solvers_and_design.md).
 
@@ -145,8 +145,7 @@ free-decay and blob variants (`Fci4FieldFreeDecayParameters`,
 - **Gates:** `tests/test_mms_shifted_torus_4_field.py`,
   `tests/test_shifted_torus_4_field_free_decay.py`,
   `tests/test_shifted_torus_4_field_blob.py`,
-  `tests/test_stellarator_turbulence.py`,
-  `tests/test_multigrid_preconditioner.py` (phi-inversion preconditioning).
+  `tests/test_stellarator_turbulence.py`.
 - Tutorial: [Stellarator FCI turbulence](tutorial_stellarator_fci.md).
 
 ## Electrostatic/electromagnetic drift-reduced Braginskii RHS

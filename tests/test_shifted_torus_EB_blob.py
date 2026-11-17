@@ -49,7 +49,6 @@ from drbx.native.fci_operators import (
     PerpLaplacianInverseSolver,
     _take_stencil_finite_difference,
     build_perp_laplacian_face_projectors,
-    build_perp_laplacian_solver_mg_hierarchy,
     grad_parallel_op_direct,
     perp_laplacian_conservative_op,
 )
@@ -2443,7 +2442,6 @@ def simulate_shifted_torus_eb_blob(
             project_mean_zero=False,
             target_mean_phi=None,
             regularization_epsilon=0.0,
-            mg_hierarchy=None,
             gmres_debug=False,
         )
     if timesteps is None:
@@ -2780,7 +2778,6 @@ def main() -> None:
         project_mean_zero=False,
         target_mean_phi=None,
         regularization_epsilon=0.0,
-        mg_hierarchy=None,
         gmres_debug=False,
         check_residual=True,
     )

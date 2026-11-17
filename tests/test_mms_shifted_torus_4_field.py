@@ -29,7 +29,6 @@ from drbx.native import (
     Fci4FieldRhsParameters,
     Fci4FieldState,
     curvature_op,
-    build_perp_laplacian_mg_hierarchy,
     build_perp_laplacian_face_projectors,
     compute_4field_rhs,
     poisson_bracket_op,
@@ -672,16 +671,6 @@ def _build_dirichlet_boundary_condition_builder(field_name: str):
     return build
 
 
-def _homogeneous_boundary_face_bc(face_bc: BoundaryFaceBC3D) -> BoundaryFaceBC3D:
-    """Keep regular-face BC kinds/masks, but zero values for correction solves."""
-
-    return face_bc.replace(
-        value_x=jnp.zeros_like(face_bc.value_x, dtype=jnp.float64),
-        value_y=jnp.zeros_like(face_bc.value_y, dtype=jnp.float64),
-        value_z=jnp.zeros_like(face_bc.value_z, dtype=jnp.float64),
-    )
-
-
 def _shifted_torus_exact_state(
     geometry: FciGeometry3D,
     time: float,
@@ -1132,7 +1121,6 @@ def _report_rhs_consistency(
     *,
     time: float,
     rho_star_value: float,
-    use_multigrid_preconditioner: bool = False,
     gmres_debug: bool = False,
 ) -> None:
     """Compare discrete RHS plus MMS source against exact time derivatives."""
@@ -1167,17 +1155,6 @@ def _report_rhs_consistency(
         time,
     )
 
-    mg_hierarchy = None
-    if use_multigrid_preconditioner:
-        mg_hierarchy = build_perp_laplacian_mg_hierarchy(
-            geometry,
-            conservative_stencil_builder,
-            face_bc=_homogeneous_boundary_face_bc(phi_face_bc),
-            regular_face_geometry=RegularFaceGeometry3D.unit(geometry),
-            cut_wall_geometry=empty_cut_wall_geometry,
-            cut_wall_bc=empty_cut_wall_bc,
-            periodic_axes=periodic_axes,
-        )
     _report_phi_inversion_consistency(
         geometry,
         time=time,
@@ -1185,7 +1162,6 @@ def _report_rhs_consistency(
         conservative_stencil_builder=conservative_stencil_builder,
         boundary_builder=boundary_builder,
         face_projectors=face_projectors,
-        mg_hierarchy=mg_hierarchy,
         gmres_debug=gmres_debug,
     )
     phi_inverse_solver = PerpLaplacianInverseSolver(
@@ -1200,7 +1176,6 @@ def _report_rhs_consistency(
         cut_wall_bc=empty_cut_wall_bc,
         periodic_axes=periodic_axes,
         regularization_epsilon=float(parameters.phi_inversion_regularization),
-        mg_hierarchy=mg_hierarchy,
         gmres_debug=gmres_debug,
     )
 
@@ -1227,7 +1202,6 @@ def _report_rhs_consistency(
         v_electron_parallel_cut_wall_geometry=empty_cut_wall_geometry,
         v_electron_parallel_cut_wall_bc=empty_cut_wall_bc,
         phi_face_projectors=face_projectors,
-        phi_mg_hierarchy=mg_hierarchy,
         phi_inverse_solver=phi_inverse_solver,
         gmres_debug=gmres_debug,
     )
@@ -1258,7 +1232,6 @@ def _report_phi_inversion_consistency(
     conservative_stencil_builder: ConservativeStencilBuilder,
     boundary_builder: BoundaryConditionBuilder[tuple[BoundaryFaceBC3D, CutWallBC3D]],
     face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-    mg_hierarchy: object | None = None,
     gmres_debug: bool = False,
 ) -> tuple[float, float, float]:
     empty_cut_wall_geometry = CutWallGeometry3D.empty()
@@ -1279,7 +1252,6 @@ def _report_phi_inversion_consistency(
         cut_wall_bc=empty_cut_wall_bc,
         periodic_axes=periodic_axes,
         regularization_epsilon=float(parameters.phi_inversion_regularization),
-        mg_hierarchy=mg_hierarchy,
         gmres_debug=gmres_debug,
     )
     phi_from_inverse, phi_diagnostics = phi_inverse_solver(
@@ -1429,7 +1401,6 @@ def shifted_torus_4field_rk4(
     conservative_stencil_builder: ConservativeStencilBuilder,
     boundary_builder: BoundaryConditionBuilder[tuple[BoundaryFaceBC3D, CutWallBC3D]],
     face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
-    phi_mg_hierarchy: object | None = None,
     phi_inverse_solver: PerpLaplacianInverseSolver | None = None,
     gmres_debug: bool = False,
     phi_guess: jnp.ndarray | None = None,
@@ -1475,7 +1446,6 @@ def shifted_torus_4field_rk4(
             v_electron_parallel_cut_wall_geometry=empty_cut_wall_geometry,
             v_electron_parallel_cut_wall_bc=empty_cut_wall_bc,
             phi_face_projectors=face_projectors,
-            phi_mg_hierarchy=phi_mg_hierarchy,
             phi_inverse_solver=phi_inverse_solver,
             gmres_debug=gmres_debug,
             return_phi=True,
@@ -1517,8 +1487,6 @@ def simulate_mms_shifted_torus_4field(
     timestep: float | None = None,
     final_time: float = tf,
     rho_star_value: float = rho_star,
-    use_multigrid_preconditioner: bool = False,
-    disable_multigrid_on_failure: bool = True,
     gmres_debug: bool = False,
     show_progress: bool = False,
 ) -> tuple[Fci4FieldState, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
@@ -1556,47 +1524,6 @@ def simulate_mms_shifted_torus_4field(
         v_electron_parallel=initial_v_electron_parallel,
     )
     initial_phi_face_bc, _, _, _, _ = _shifted_torus_exact_x_face_bcs(geometry, 0.0)
-    phi_mg_hierarchy = None
-    mg_build_time = 0.0
-    if use_multigrid_preconditioner:
-        mg_start = time_module.perf_counter()
-        phi_mg_hierarchy = build_perp_laplacian_mg_hierarchy(
-            geometry,
-            conservative_stencil_builder,
-            face_bc=_homogeneous_boundary_face_bc(initial_phi_face_bc),
-            regular_face_geometry=RegularFaceGeometry3D.unit(geometry),
-            cut_wall_geometry=empty_cut_wall_geometry,
-            cut_wall_bc=empty_cut_wall_bc,
-            periodic_axes=(False, True, True),
-        )
-        mg_build_time = time_module.perf_counter() - mg_start
-        try:
-            phi_check_solver = PerpLaplacianInverseSolver(
-                geometry,
-                conservative_stencil_builder,
-                tol=float(parameters.phi_inversion_tol),
-                maxiter=int(parameters.phi_inversion_maxiter),
-                restart=int(parameters.phi_inversion_restart),
-                face_projectors=face_projectors,
-                regular_face_geometry=RegularFaceGeometry3D.unit(geometry),
-                cut_wall_geometry=empty_cut_wall_geometry,
-                cut_wall_bc=empty_cut_wall_bc,
-                periodic_axes=(False, True, True),
-                regularization_epsilon=float(parameters.phi_inversion_regularization),
-                mg_hierarchy=phi_mg_hierarchy,
-                gmres_debug=gmres_debug,
-            )
-            phi_check = phi_check_solver(-initial_omega, face_bc=initial_phi_face_bc)
-            jax.block_until_ready(phi_check)
-        except RuntimeError as error:
-            if not disable_multigrid_on_failure:
-                raise
-            print(
-                "shifted_torus_4field multigrid preconditioner failed initial solve; "
-                f"disabling for this run. Reason: {error}"
-            )
-            phi_mg_hierarchy = None
-
     phi_inverse_solver = PerpLaplacianInverseSolver(
         geometry,
         conservative_stencil_builder,
@@ -1609,7 +1536,6 @@ def simulate_mms_shifted_torus_4field(
         cut_wall_bc=empty_cut_wall_bc,
         periodic_axes=(False, True, True),
         regularization_epsilon=float(parameters.phi_inversion_regularization),
-        mg_hierarchy=phi_mg_hierarchy,
         gmres_debug=gmres_debug,
     )
 
@@ -1643,7 +1569,6 @@ def simulate_mms_shifted_torus_4field(
                 conservative_stencil_builder=conservative_stencil_builder,
                 boundary_builder=boundary_builder,
                 face_projectors=face_projectors,
-                phi_mg_hierarchy=phi_mg_hierarchy,
                 phi_inverse_solver=phi_inverse_solver,
                 gmres_debug=gmres_debug,
                 phi_guess=current_phi_guess,
@@ -1689,18 +1614,6 @@ def simulate_mms_shifted_torus_4field(
     if timing_history:
         timing_array = np.asarray(timing_history, dtype=np.float64)
         print(f"shifted_torus_4field curvature coefficient build time: {curvature_build_time:.6e} s")
-        if use_multigrid_preconditioner and phi_mg_hierarchy is not None:
-            print(
-                "shifted_torus_4field multigrid hierarchy build time: "
-                f"{mg_build_time:.6e} s, levels={len(phi_mg_hierarchy.levels) if phi_mg_hierarchy is not None else 0}"
-            )
-        elif use_multigrid_preconditioner:
-            print(
-                "shifted_torus_4field multigrid preconditioner: "
-                f"disabled after initial solve check, hierarchy_build_time={mg_build_time:.6e} s"
-            )
-        else:
-            print("shifted_torus_4field multigrid preconditioner: disabled")
         print(
             "shifted_torus_4field mean timings per RK step: "
             f"phi_inverse={float(np.mean(timing_array[:, 0])):.6e} s, "
