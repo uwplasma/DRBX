@@ -65,13 +65,12 @@ def test_turbulence_grows_closed_and_drains_open() -> None:
 
 
 def test_jit_with_array_arguments_matches_jit_without_constants() -> None:
-    """Closed-over arrays, also those of a nested jit, become arguments; results match jax.jit."""
+    """Closed-over arrays become arguments of the compiled step; results match jax.jit."""
 
     from drbx.native.stellarator_turbulence import jit_with_array_arguments
 
     table = jax.numpy.asarray(np.linspace(0.0, 1.0, 4096))
-    inner = jax.jit(lambda x: jax.numpy.sin(table) * x)
-    fn = lambda x, y: (inner(x) + table * y, inner(y))  # noqa: E731
+    fn = lambda x, y: (jax.numpy.sin(table) * x + table * y, table * y)  # noqa: E731
     x, y = jax.numpy.ones(4096), jax.numpy.full(4096, 2.0)
     hoisted = jit_with_array_arguments(fn, x, y)
     for got, want in zip(hoisted(x, y), jax.jit(fn)(x, y)):

@@ -34,7 +34,6 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
-from jax.extend.core import Literal
 import numpy as np
 
 from ..geometry import (
@@ -233,62 +232,22 @@ def four_field_rk4_step(
     return state.axpy(increment, scale=timestep), phi_4
 
 
-def _nested_jit_consts(jaxpr, consts) -> list:
-    """Constants of ``jaxpr`` followed by those of its nested ``jit`` calls, in evaluation order."""
-
-    out = list(consts)
-    for eqn in jaxpr.eqns:
-        if eqn.primitive.name == "jit":
-            out += _nested_jit_consts(eqn.params["jaxpr"].jaxpr, eqn.params["jaxpr"].consts)
-    return out
-
-
-def _eval_hoisting_consts(jaxpr, consts, args, cache: dict) -> list:
-    """``jax.core.eval_jaxpr`` that takes the constants of nested ``jit`` calls from ``consts``.
-
-    Each nested ``jit`` is rebuilt once (``cache``) as a jitted function of its
-    constants and arguments, so repeated calls still share one compiled body.
-    """
-
-    env = dict(zip(jaxpr.constvars, [next(consts) for _ in jaxpr.constvars]))
-    env.update(zip(jaxpr.invars, args))
-    read = lambda var: var.val if isinstance(var, Literal) else env[var]  # noqa: E731
-    for eqn in jaxpr.eqns:
-        values = [read(var) for var in eqn.invars]
-        if eqn.primitive.name == "jit":
-            inner = eqn.params["jaxpr"]
-            count = len(_nested_jit_consts(inner.jaxpr, inner.consts))
-            inner_consts = [next(consts) for _ in range(count)]
-            if id(inner) not in cache:
-                cache[id(inner)] = (inner, jax.jit(lambda c, a, inner=inner: _eval_hoisting_consts(
-                    inner.jaxpr, iter(c), a, cache)))
-            outs = cache[id(inner)][1](inner_consts, values)
-        else:
-            params = eqn.primitive.get_bind_params(eqn.params)
-            # Older JAX returns (subfuns, params); JAX >= 0.8 returns params.
-            subfuns, params = params if isinstance(params, tuple) else ((), params)
-            outs = eqn.primitive.bind(*subfuns, *values, **params)
-            outs = outs if eqn.primitive.multiple_results else [outs]
-        env.update(zip(eqn.outvars, outs))
-    return [read(var) for var in jaxpr.outvars]
-
-
 def jit_with_array_arguments(fn, *example_args):
     """``jax.jit(fn)`` with every array ``fn`` closes over passed as a runtime argument.
 
     Plain ``jax.jit`` compiles the arrays a closure captures (geometry, stencil
-    tables, solver data), including those of nested ``jit`` calls such as the
-    phi solver, into the program as constants. This traces ``fn`` once with
-    ``example_args`` and evaluates the result under ``jax.jit`` with all of
-    those arrays as arguments. Returns a
-    ``functools.partial`` of the jitted function over the arrays.
+    tables, solver data) into the program as constants: 19 M characters of
+    HLO for the four-field step at 24x32x16. Tracing once with
+    ``example_args`` and evaluating that jaxpr under ``jax.jit`` makes them
+    arguments instead. Returns a ``functools.partial`` of the jitted function
+    over those arrays.
     """
 
     closed, out_shape = jax.make_jaxpr(fn, return_shape=True)(*example_args)
     out_tree = jax.tree.structure(out_shape)
     run = jax.jit(lambda consts, *args: jax.tree.unflatten(
-        out_tree, _eval_hoisting_consts(closed.jaxpr, iter(consts), jax.tree.leaves(args), {})))
-    return partial(run, _nested_jit_consts(closed.jaxpr, closed.consts))
+        out_tree, jax.core.eval_jaxpr(closed.jaxpr, consts, *jax.tree.leaves(args))))
+    return partial(run, closed.consts)
 
 
 def apply_sheath_sink(

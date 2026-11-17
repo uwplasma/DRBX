@@ -3842,7 +3842,11 @@ class PerpLaplacianInverseSolver:
                 self._mg_validated_bc_ids.add(bc_key)
         if not return_diagnostics and not self.check_residual and not self.gmres_debug:
             # Hot-loop path: phi only, no diagnostic matvecs, no host syncs.
-            # Safe to call from inside jit-compiled code.
+            # Inside an outer jit, trace the body directly: a nested jit of
+            # this bound method would compile the solver's arrays in as
+            # constants instead of letting the caller pass them in.
+            if isinstance(rhs, jax.core.Tracer):
+                return self._solve_fast_impl(rhs, phi_guess, face_bc, cut_wall_bc, throw)
             return self._solve_fast_jit(rhs, phi_guess, face_bc, cut_wall_bc, throw)
         (
             phi,
