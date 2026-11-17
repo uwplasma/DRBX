@@ -3252,7 +3252,7 @@ def build_plane_block_preconditioner(
     apply_operator,
     shape: tuple[int, int, int],
     *,
-    max_plane_size: int = 4096,
+    max_factor_bytes: float = 1.28e8,
 ):
     """Exact solves of the toroidal-plane blocks of a linear operator, as a flat preconditioner.
 
@@ -3261,13 +3261,14 @@ def build_plane_block_preconditioner(
     diagonal of one dense LU per plane is a near inverse: GMRES then needs 3-4
     iterations independent of the grid. The blocks are probed once, colouring
     planes with a stride that divides ``nz`` (at least 3, so only planes
-    k +- 1 can couple). Returns ``None`` when a plane has more than
-    ``max_plane_size`` cells (the dense factors would be too large).
+    k +- 1 can couple). The factors are compiled into the solve as constants,
+    so this returns ``None`` when they would exceed ``max_factor_bytes``
+    (128 MB: 24x32x16 is 75 MB, 32^3 is 268 MB).
     """
 
     nx, ny, nz = (int(v) for v in shape)
     plane = nx * ny
-    if plane > max_plane_size:
+    if 8.0 * nz * plane * plane > max_factor_bytes:
         return None
     stride = next(s for s in range(min(3, nz), nz + 1) if nz % s == 0)
     probe = jax.jit(jax.vmap(apply_operator))
