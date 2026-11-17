@@ -196,7 +196,9 @@ def four_field_rk4_step(
     )
 
     # The four stages run in a fori_loop so the RHS and its GMRES solve are
-    # traced and compiled once instead of four times.
+    # traced once, and on GPU compiled once. XLA:CPU compiles the rolled loop
+    # 4x slower with 4x the memory at 24x32x16 (272 s, 26 GB), so it is
+    # unrolled there.
     stage_offset = jnp.array([0.5, 0.5, 1.0, 0.0])
     stage_weight = jnp.array([1.0, 2.0, 2.0, 1.0]) / 6.0
 
@@ -207,7 +209,8 @@ def four_field_rk4_step(
                 increment.axpy(rhs.rhs, scale=stage_weight[index]), phi)
 
     guess = jnp.zeros_like(state.density) if phi_guess is None else phi_guess
-    _stage, increment, phi = jax.lax.fori_loop(0, 4, stage, (state, state.zeros_like(), guess))
+    unroll = 4 if jax.default_backend() == "cpu" else 1
+    _stage, increment, phi = jax.lax.fori_loop(0, 4, stage, (state, state.zeros_like(), guess), unroll=unroll)
     return state.axpy(increment, scale=timestep), phi
 
 
