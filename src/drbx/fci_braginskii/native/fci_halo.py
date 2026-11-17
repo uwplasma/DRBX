@@ -57,6 +57,7 @@ from ...native.fci_halo import (  # noqa: F401
     GhostFillWeights1D,
     _validate_axis_weights,
     PreparedLocalState3D,
+    TopologyHaloFiller3D,
 )
 from ...fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
     _validate_halo_spatial_prefix,
@@ -958,74 +959,6 @@ class RemoteBoundaryDependencyExchange(_DataclassPyTreeMixin):
         del aux_data
         del children
         return cls()
-
-
-@_pytree_base
-@dataclass(frozen=True)
-class TopologyHaloFiller3D(_DataclassPyTreeMixin):
-    """Apply ordered topology rules to a halo field.
-
-    The first three axes are spatial; any trailing component axes are carried
-    through the rule pipeline unchanged.
-
-    Rules have the callable interface ``rule(field_halo, domain)``. The runner
-    itself performs no communication directly; an individual rule may be
-    local-only or may perform distributed collectives such as ``ppermute`` or
-    ``all_to_all``. Each rule owns its side-kind checks, communication plan,
-    index remaps, and write masks.
-
-    The runner never fills physical ghost cells and does not promise
-    edge/corner values unless an individual rule explicitly provides them.
-    Rules are applied in order, so later rules may intentionally overwrite
-    values written by earlier rules.
-    """
-
-    rules: tuple[object, ...]
-    error_if_no_rules: bool = False
-
-    def __post_init__(self) -> None:
-        rules = tuple(self.rules)
-        if self.error_if_no_rules and not rules:
-            raise ValueError(
-                "TopologyHaloFiller3D.rules must be nonempty when "
-                "error_if_no_rules=True"
-            )
-        for index, rule in enumerate(rules):
-            if not callable(rule):
-                raise TypeError(
-                    f"TopologyHaloFiller3D.rules[{index}] must be callable"
-                )
-        object.__setattr__(self, "rules", rules)
-        object.__setattr__(self, "error_if_no_rules", bool(self.error_if_no_rules))
-
-    def __call__(self, field_halo: jnp.ndarray, domain: LocalDomain3D) -> jnp.ndarray:
-        if not isinstance(domain, LocalDomain3D):
-            raise TypeError("TopologyHaloFiller3D.domain must be a LocalDomain3D instance")
-        field_halo = _validate_halo_spatial_prefix(field_halo, domain)
-        expected_shape = tuple(int(value) for value in domain.layout.cell_halo_shape)
-        expected_trailing_shape = tuple(field_halo.shape[3:])
-        result = field_halo
-        for rule in self.rules:
-            result = rule(result, domain)
-            if (
-                result.ndim < 3
-                or tuple(result.shape[:3]) != expected_shape
-                or tuple(result.shape[3:]) != expected_trailing_shape
-            ):
-                raise ValueError(
-                    "Topology rule returned an invalid field shape; expected "
-                    f"prefix {expected_shape} with trailing shape "
-                    f"{expected_trailing_shape}, got {result.shape}"
-                )
-        return result
-
-    def tree_flatten(self):
-        return (self.rules,), self.error_if_no_rules
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        (rules,) = children
-        return cls(rules=rules, error_if_no_rules=aux_data)
 
 
 @_pytree_base
