@@ -451,8 +451,15 @@ def _trace_atlas(
     trace_batch_size: int = 2048,
     trace_device_count: int | None = None,
     progress: Callable[[Mapping[str, Any]], None] | None = None,
+    field_periods: int = 1,
 ) -> Any:
-    """Trace the complete canonical raw transverse vertex lattice."""
+    """Trace the complete canonical raw transverse vertex lattice.
+
+    ``field_periods`` is the toroidal periodicity ``nfp`` of the field and
+    metric.  When the eta planes span the full torus and divide evenly into
+    periods, only the first period is traced and the other periods are copies
+    rotated by ``k * 2 pi / nfp`` in eta.
+    """
 
     shape = tuple(int(v) for v in geometry.shape)
     nx, ny, nz = shape
@@ -482,6 +489,16 @@ def _trace_atlas(
         if trace_backend == "jax"
         else None
     )
+    nfp = int(field_periods)
+    planes = nz
+    if nfp > 1 and nz % nfp == 0:
+        per = nz // nfp
+        shift = eta_period / nfp
+        if np.isclose(eta_period, 2.0 * np.pi) and all(
+            np.allclose(z_centers[p * per : (p + 1) * per] - z_centers[:per], p * shift)
+            for p in range(1, nfp)
+        ):
+            planes = per
     trace_work = {"seed_rows": 0, "padded_rows": 0, "batches": 0}
     trace_seconds = 0.0
     trace_peak_rss = 0
@@ -490,7 +507,7 @@ def _trace_atlas(
         (1, forward_endpoint, forward_length, forward_boundary),
         (-1, backward_endpoint, backward_length, backward_boundary),
     ):
-        for k in range(nz):
+        for k in range(planes):
             target = (k + direction) % nz
             step = float(z_centers[target] - z_centers[k])
             if direction > 0 and target == 0:
@@ -531,7 +548,17 @@ def _trace_atlas(
             lengths[:, :, k] = np.asarray(result["length"]).reshape(nx + 1, ny)
             boundaries[:, :, k] = np.asarray(result["boundary"]).reshape(nx + 1, ny)
             if progress is not None:
-                progress({"stage": "vertex-trace", "direction": "forward" if direction > 0 else "backward", "completed_planes": k + 1, "total_planes": nz})
+                progress({"stage": "vertex-trace", "direction": "forward" if direction > 0 else "backward", "completed_planes": k + 1, "total_planes": planes})
+        if planes < nz:
+            for p in range(1, nz // planes):
+                block = slice(p * planes, (p + 1) * planes)
+                rotated = endpoint[:, :, :planes, :].copy()
+                rotated[..., 2] = z_faces[0] + np.mod(
+                    rotated[..., 2] + p * shift - z_faces[0], eta_period
+                )
+                endpoint[:, :, block, :] = rotated
+                lengths[:, :, block] = lengths[:, :, :planes]
+                boundaries[:, :, block] = boundaries[:, :, :planes]
     metadata = {
         "format_version": PRODUCER_FORMAT_VERSION,
         "trace_substeps": int(substeps),
@@ -851,6 +878,7 @@ def build_hsx_simulation_geometry(
                 trace_batch_size=config.trace_batch_size,
                 trace_device_count=config.trace_device_count,
                 progress=trace_progress,
+                field_periods=int(nfp),
             )
             _write_stage_checkpoint(
                 atlas_checkpoint,
