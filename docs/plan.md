@@ -374,8 +374,10 @@ D2. Static-routing halo exchange (precomputed send lists, `ppermute`).
 D3. #61 in SOLVAX: batched cyclic PCR or periodic banded LU as a batched
     matmul; move DRBX's SPMD inner products and generic line preconditioners to
     SOLVAX (about −600 lines).
-D4. Remove per-step host conversions; split `run_full_eb`; evaluate
-    mixed-precision preconditioning.
+D4. Remove per-step host conversions; evaluate mixed-precision
+    preconditioning. (`run_full_eb` is split into argument check, cell-field
+    packing, SSP222 stage algebra, step diagnostics, snapshot payload and
+    neutral stage helpers; the function body is 1,056 lines, from 1,985.)
 
 ### Phase E: neutrals
 

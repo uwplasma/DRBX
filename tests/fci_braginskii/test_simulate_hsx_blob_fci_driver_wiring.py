@@ -298,7 +298,6 @@ def test_fci_main_passes_production_scheme_and_metadata_to_run(
     hsx.run(hsx.HsxBlobConfig(geometry=path, num_steps=1, final_time=1e-6, checkpoint_every=17))
     assert calls
     metadata = calls[0]["run_metadata"]
-    assert calls[0]["parallel_operator_scheme"] == "fci"
     assert metadata["parallel_operator_scheme"] == "fci"
     assert metadata["geometry"] == str(path.resolve())
     assert metadata["geometry_manifest_sha256"] == hashlib.sha256(b"{}").hexdigest()

@@ -21,7 +21,7 @@ sample operator-specific ghost/leg fills.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
@@ -60,9 +60,7 @@ from drbx.fci_braginskii.geometry.fci_simulation_geometry import (  # noqa: E402
 from drbx.fci_braginskii.native.fci_halo import (  # noqa: E402
     GhostFillWeights1D,
     HaloExchange3D,
-    LocalPeriodicTopologyRule3D,
     MetricAwarePhysicalGhostCellFiller3D,
-    TopologyHaloFiller3D,
     make_default_topology_halo_filler_3d,
 )
 from drbx.fci_braginskii.native.fci_sharding import (  # noqa: E402
@@ -76,7 +74,7 @@ from drbx.fci_braginskii.native.fci_gmres import SolvaxGmresConfig  # noqa: E402
 from drbx.fci_braginskii.native.fci_electromagnetic import FciEm  # noqa: E402
 from drbx.fci_braginskii.native.fci_parallel_conduction import spitzer_prefactors  # noqa: E402
 from drbx.fci_braginskii.native.fci_wall_closure import (  # noqa: E402
-    SHEATH_POTENTIALS, WALL_CLOSURES, SheathClosure, balance_mismatch,
+    WALL_CLOSURES, SheathClosure, balance_mismatch,
 )
 from drbx.fci_braginskii.native import fci_neutral_fluid, fci_neutrals  # noqa: E402
 from drbx.fci_braginskii.native.fci_angular_agglomeration import (  # noqa: E402
@@ -927,7 +925,7 @@ def build_local_eb_model(
     gmres_preconditioner: str = "line-u",
     control_volume_geometry=None,
     control_volume_boundary_bc=None,
-    curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D | None = None,
+    curvature_face_coefficients_override: LocalCurvatureFaceCoefficients3D,
     implicit_current_phi_pair: bool = False,
     sheath: SheathClosure | None = None,
     sparse_rows=None,
@@ -938,21 +936,11 @@ def build_local_eb_model(
     if gmres_residual_correction_steps < 0:
         raise ValueError("gmres_residual_correction_steps must be non-negative")
     halo_exchange = HaloExchange3D()
-    topology_filler = (
-        make_default_topology_halo_filler_3d(
-            angle_axis_name=domain.mesh_axis_names[1],
-            radial_axis_lower_regular=True,
-            radial_axis_upper_regular=False,
-            fill_periodic_axes=domain.periodic_axes,
-        )
-        if domain.axis_regular_axes[0]
-        else TopologyHaloFiller3D(
-            rules=(
-                LocalPeriodicTopologyRule3D(
-                    fill_axes=domain.periodic_axes,
-                ),
-            )
-        )
+    topology_filler = make_default_topology_halo_filler_3d(
+        angle_axis_name=domain.mesh_axis_names[1],
+        radial_axis_lower_regular=True,
+        radial_axis_upper_regular=False,
+        fill_periodic_axes=domain.periodic_axes,
     )
     halo_width = geometry.layout.halo_width
     def paired_neumann_weights(axis: int, side: str) -> GhostFillWeights1D:
@@ -1004,11 +992,6 @@ def build_local_eb_model(
         **ghost_filler_kwargs,
         geometry=geometry,
     )
-    curvature_face_coefficients = (
-        curvature_face_coefficients_override
-        if curvature_face_coefficients_override is not None
-        else build_local_curvature_face_coefficients(geometry, domain)
-    )
     rhs_kwargs = dict(
         geometry=geometry,
         domain=domain,
@@ -1037,7 +1020,7 @@ def build_local_eb_model(
         ),
         face_bc_builder=build_face_bc_bundle,
         axis_regular_axes=domain.axis_regular_axes,
-        curvature_face_coefficients=curvature_face_coefficients,
+        curvature_face_coefficients=curvature_face_coefficients_override,
         control_volume_geometry=control_volume_geometry,
         control_volume_boundary_bc=control_volume_boundary_bc,
         implicit_current_phi_pair=bool(implicit_current_phi_pair),
@@ -1045,10 +1028,7 @@ def build_local_eb_model(
         sparse_rows=sparse_rows,
         em=electromagnetic,
     )
-    model = LocalFciDrbEBRhs(
-        **rhs_kwargs,
-    )
-    return model
+    return LocalFciDrbEBRhs(**rhs_kwargs)
 
 
 class _JittedPhaseTimer:
@@ -1489,63 +1469,15 @@ def _solves_stage_2_phi(sheath: SheathClosure | None) -> bool:
     return sheath is not None and sheath.potential == "current"
 
 
-def run_full_eb(
-    initial_state: FciDrbEBState,
-    *,
-    global_geometry: FciGeometry3D,
-    cell_positions: np.ndarray,
-    nfp: int,
-    sharded_geometry: ShardedFciGeometry3D,
-    mesh: Mesh,
-    parameters: FciDrbEBRhsParameters,
-    gmres_target_tolerance: float,
-    gmres_acceptance_tolerance: float,
-    gmres_max_iterations: int,
-    gmres_restart: int = 100,
-    gmres_residual_correction_steps: int = 0,
-    gmres_preconditioner: str = "line-u",
-    time_integrator: str = "imex-ssp222",
-    advance_execution: str = "compiled",
-    num_steps: int,
-    timestep: float,
-    start_time: float,
-    output_path: Path,
-    save_every: int,
-    phase_timing: bool = True,
-    diagnostic_every: int = 0,
-    checkpoint_every: int = 0,
-    snapshot_times: tuple[float, ...] = (),
-    snapshot_dir: Path | None = None,
-    run_metadata: dict[str, object] | None = None,
-    reconstruct_initial_phi: bool = True,
-    start_step: int = 0,
-    parallel_operator_scheme: str = "fci",
-    control_volume_descriptor=None,
-    control_volume_fields_host=None,
-    control_volume_boundary_bc=None,
-    control_volume_assembler=None,
-    control_volume_field_count: int = RLP_PACKED_FIELD_COUNT,
-    owner_host_geometry=None,
-    history_dtype: str = "float32",
-    implicit_current_phi_pair: bool = False,
-    sheath: SheathClosure | None = None,
-    neutrals: fci_neutrals.NeutralParameters | None = None,
-    neutral_initial_density: float = 0.0,
-    neutral_initial_decay_length: float = 0.0,
-    neutral_restart: tuple | None = None,
-    recycling: fci_neutrals.RecyclingParameters | None = None,
-    electromagnetic: FciEm | None = None,
-) -> FciDrbEBState:
-    """Advance the global EB state.
 
-    With ``electromagnetic`` the ``Ve`` slot of the advanced state is the canonical electron momentum
-    ``Ve - (mi/me) A`` (``LocalFciDrbEBRhs.em_physical``); histories, snapshots and the return value hold the
-    physical ``Ve`` and ``apar``.
+_TIME_INTEGRATOR = "imex-ssp222"
+_WALL_TERM_COUNT = 4
 
-    With ``neutrals`` the fluid neutrals (n_n, u_n, T_n) are advanced after every
-    IMEX step (operator split, ``native/fci_neutral_fluid.py``) and its reaction
-    sources are applied to (n, Vi, Te, Ti) through the volumetric source hook.
-    """
+
+def _check_run_arguments(
+    sharded_geometry, *, advance_execution, recycling, sheath, neutrals, gmres_restart, checkpoint_every
+) -> None:
+    """Reject argument combinations ``run_full_eb`` does not support."""
 
     shard_counts = tuple(int(value) for value in sharded_geometry.shard_counts)
     if shard_counts[0] != 1 or shard_counts[1] != 1:
@@ -1553,35 +1485,16 @@ def run_full_eb(
             "run_full_eb supports eta-only decomposition; radial and "
             "poloidal shard counts must both be one"
         )
-
-    solver_space = (
-        "owner-grid-RLP" if control_volume_descriptor is not None else "full-grid"
-    )
-    if control_volume_descriptor is not None and control_volume_assembler is None:
-        raise ValueError(
-            "control_volume_assembler is required with a control-volume descriptor"
-        )
-    if int(control_volume_field_count) < 1:
-        raise ValueError("control_volume_field_count must be positive")
-    if time_integrator != "imex-ssp222":
-        raise ValueError("time_integrator must be 'imex-ssp222'")
     if advance_execution not in ("compiled", "staged-compiled", "eager"):
         raise ValueError(
             "advance_execution must be 'compiled', 'staged-compiled', or 'eager'"
         )
     if recycling is not None and (sheath is None or neutrals is None):
         raise ValueError("recycling requires the sheath wall closure and neutrals")
-    if history_dtype not in ("float32", "float64"):
-        raise ValueError("history_dtype must be 'float32' or 'float64'")
-    history_numpy_dtype = (
-        np.float32 if history_dtype == "float32" else np.float64
-    )
     if gmres_restart < 1:
         raise ValueError("gmres_restart must be positive")
     if int(checkpoint_every) < 0:
         raise ValueError("checkpoint_every must be nonnegative")
-    if parallel_operator_scheme != "fci":
-        raise ValueError("parallel_operator_scheme must be 'fci'")
     if not sharded_geometry.domain.axis_regular_axes[0]:
         raise ValueError(
             "the FCI parallel operator requires toroidal topology"
@@ -1591,38 +1504,18 @@ def run_full_eb(
             "the FCI parallel operator requires valid sharded FCI maps"
         )
 
-    domain = sharded_geometry.domain
-    spatial_spec = P("x", "y", "z")
-    geometry_spec = P("x", "y", "z", None)
-    replicated_spec = P()
-    state_spec = initial_state.map_fields(lambda _value: spatial_spec)
-    state_sharding = NamedSharding(mesh, spatial_spec)
-    geometry_sharding = NamedSharding(mesh, geometry_spec)
-    state = initial_state.map_fields(
-        lambda value: jax.device_put(
-            np.asarray(value, dtype=np.float64),
-            state_sharding,
-        )
-    )
 
-    em_view: list = []  # [kernel] once the electromagnetic kernels exist: canonical -> physical state
+def _pack_cell_fields(
+    global_geometry, sharded_geometry, parameters, initial_state, *, solver, descriptor, fields_host,
+    boundary_bc, assembler, implicit_current_phi_pair, sheath,
+):
+    """Host array of per-cell channels the compiled kernels read.
 
-    def materialized_state(current_state: FciDrbEBState) -> FciDrbEBState:
-        if em_view:
-            current_state = em_view[0](current_state)[0]
-        if owner_host_geometry is None:
-            return current_state
-        return _materialize_owner_state(current_state, owner_host_geometry)
+    The channels are the geometry fields, the invariant curvature face coefficients and, with the
+    implicit current/phi pair, the sparse rows of the parallel pairs and ``-L_perp`` when they are
+    representable.  Returns ``(channels, curvature_channel_count, sparse_rows_widths)``.
+    """
 
-    def materialized_owner_array(array) -> np.ndarray:
-        value = np.asarray(array, dtype=np.float64)
-        if owner_host_geometry is None:
-            return value
-        owner_index = np.asarray(owner_host_geometry.topology.owner_index, dtype=np.int32)
-        return value[tuple(np.moveaxis(owner_index, -1, 0))]
-
-    geometry_field_count = int(sharded_geometry.cell_fields.shape[-1])
-    curvature_face_field_count = 0
     cell_fields_host = np.asarray(
         sharded_geometry.cell_fields, dtype=np.float64
     )
@@ -1679,18 +1572,9 @@ def run_full_eb(
     if implicit_current_phi_pair and int(np.prod(sharded_geometry.shard_counts)) == 1:
         pair_start = time.perf_counter()
         host_model = build_local_eb_model(
-            host_local_geometry, host_domain, parameters,
-            gmres_target_tolerance=float(gmres_target_tolerance),
-            gmres_acceptance_tolerance=float(gmres_acceptance_tolerance),
-            gmres_max_iterations=int(gmres_max_iterations), gmres_restart=int(gmres_restart),
-            gmres_residual_correction_steps=int(gmres_residual_correction_steps),
-            gmres_preconditioner=gmres_preconditioner,
-            control_volume_geometry=(
-                None if control_volume_descriptor is None else control_volume_assembler(
-                    control_volume_descriptor, jnp.asarray(control_volume_fields_host), host_local_geometry
-                )
-            ),
-            control_volume_boundary_bc=control_volume_boundary_bc,
+            host_local_geometry, host_domain, parameters, **solver,
+            control_volume_geometry=assembler(descriptor, jnp.asarray(fields_host), host_local_geometry),
+            control_volume_boundary_bc=boundary_bc,
             curvature_face_coefficients_override=host_curvature_faces,
             implicit_current_phi_pair=True, sheath=sheath,
         )
@@ -1709,6 +1593,922 @@ def run_full_eb(
             + f" in {time.perf_counter() - pair_start:.3f} s",
             flush=True,
         )
+    return cell_fields_host, curvature_face_field_count, sparse_rows_widths
+
+
+def _diagnostic_state(current_state: FciDrbEBState, control_volume_geometry) -> FciDrbEBState:
+    """Expand owner-cell values to the fine cells for diagnostics."""
+
+    cells = control_volume_geometry.cells
+    scalar = lambda value: expand_local_control_volume_owner_field(value, cells)
+    return current_state.replace(
+        density=scalar(current_state.density), phi=scalar(current_state.phi),
+        Te=scalar(current_state.Te), Ti=scalar(current_state.Ti),
+        Vi=scalar(current_state.Vi), Ve=scalar(current_state.Ve),
+        vorticity=scalar(current_state.vorticity),
+    )
+
+
+def _owner_values(array, host_geometry) -> np.ndarray:
+    """Prolong an owner-cell array to the fine grid."""
+
+    value = np.asarray(array, dtype=np.float64)
+    owner_index = np.asarray(host_geometry.topology.owner_index, dtype=np.int32)
+    return value[tuple(np.moveaxis(owner_index, -1, 0))]
+
+
+def _ssp222_stages(current, implicit, explicit, solve_phi, step_dt, *, solve_stage_2_phi):
+    """IMEX-SSP222 stage algebra shared by every advance_execution mode.
+
+    ``implicit(base, gamma_dt)``, ``explicit(stage)`` and ``solve_phi(state)`` are either in-kernel
+    model calls (compiled and eager) or separately compiled shard_map kernels (staged-compiled).
+    Returns the stage states, stage rates and phi diagnostics consumed by ``_finalize_advance``.
+    """
+
+    gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * step_dt
+    # The persisted current state already carries its consistent algebraic
+    # potential.  Solve the complete selected-wall residual before the
+    # first explicit evaluation, not after a finished timestep.
+    stage_1, increment_1, gmres_info_1 = implicit(current, gamma_dt)
+    implicit_1 = increment_1.map_fields(lambda value: value / gamma_dt)
+    explicit_1 = explicit(stage_1)
+    stage_2_base = current.axpy(explicit_1, scale=step_dt).axpy(
+        implicit_1,
+        scale=(1.0 - 2.0 * IMEX_SSP222_GAMMA) * step_dt,
+    )
+    base_infos = ()
+    if solve_stage_2_phi:
+        stage_2_base_phi, gmres_info_2_base = solve_phi(stage_2_base)
+        stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
+        base_infos = (gmres_info_2_base,)
+    stage_2, increment_2, gmres_info_2 = implicit(stage_2_base, gamma_dt)
+    implicit_2 = increment_2.map_fields(lambda value: value / gamma_dt)
+    explicit_2 = explicit(stage_2)
+    weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
+        implicit_1, scale=1.0
+    ).axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value)
+    next_state = current.axpy(weighted_rate, scale=step_dt)
+    next_phi, gmres_info_next = solve_phi(next_state)
+    next_state = next_state.replace(phi=next_phi)
+    return (
+        (current, stage_1, stage_2_base, stage_2, next_state),
+        (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
+        (gmres_info_1, *base_infos, gmres_info_2, gmres_info_next),
+    )
+
+
+def _finalize_advance(model, stage_states, stage_rates, gmres_infos, *, dt, recycling):
+    """Build the fixed-shape step diagnostics; the last stage is the new state.
+
+    Each reduction is local to the shard first and then made global over all three shard_map mesh
+    axes.
+    """
+
+    gmres_stage_diagnostics = jnp.stack(gmres_infos, axis=0)
+    gmres_iterations = jnp.mean(gmres_stage_diagnostics[:, 0])
+
+    def reduce_fields(states, reducer):
+        return jnp.stack(tuple(
+            jnp.stack(tuple(reducer(value) for _, value in stage.field_items()))
+            for stage in states
+        ))
+
+    def abs_max(value):
+        return jnp.max(jnp.abs(value))
+
+    diagnostic_states = tuple(
+        _diagnostic_state(stage, model.control_volume_geometry)
+        for stage in stage_states
+    )
+    state_mins = reduce_fields(diagnostic_states, jnp.min)
+    state_maxs = reduce_fields(diagnostic_states, jnp.max)
+    state_abs_maxs = reduce_fields(diagnostic_states, abs_max)
+    rhs_abs_maxs = reduce_fields(stage_rates, abs_max)
+    # pmin/pmax have no JVP rule; the diagnostics are not on the gradient tape.
+    state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs = jax.lax.stop_gradient(
+        (state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs)
+    )
+    for mesh_axis_name in ("x", "y", "z"):
+        state_mins = jax.lax.pmin(state_mins, mesh_axis_name)
+        state_maxs = jax.lax.pmax(state_maxs, mesh_axis_name)
+        state_abs_maxs = jax.lax.pmax(state_abs_maxs, mesh_axis_name)
+        rhs_abs_maxs = jax.lax.pmax(rhs_abs_maxs, mesh_axis_name)
+    stage_diagnostics = jnp.stack(
+        (state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs), axis=-1
+    )
+    # min/max are exact, so the new-state rows equal a separate reduction.
+    diagnostics = jnp.stack(
+        (state_mins[-1], state_maxs[-1], state_abs_maxs[-1]), axis=1
+    )
+    _, explicit_1, _, explicit_2, _ = stage_rates
+    step_ledger = model.wall_step_check(
+        (stage_states[0], stage_states[2]), (stage_states[1], stage_states[3]),
+        (explicit_1, explicit_2), IMEX_SSP222_GAMMA * dt,
+    )
+    for mesh_axis_name in ("x", "y", "z"):
+        step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
+    outputs = (
+        stage_states[-1],
+        diagnostics,
+        gmres_iterations,
+        gmres_stage_diagnostics,
+        stage_diagnostics,
+        step_ledger,
+    )
+    if recycling is not None:
+        # Owner-space applied wall loss rate of this step: the implicit
+        # density row is the wall flux alone.
+        implicit_1, _, implicit_2, _, _ = stage_rates
+        outputs = outputs + (-0.5 * (implicit_1.density + implicit_2.density),)
+    return outputs
+
+
+def _inspect_local(model, local_state, sharded_geometry):
+    """Grid-scale diagnostics, wall ghost states and the polarization residual of one shard."""
+
+    domain = sharded_geometry.domain
+    wall_term_count = _WALL_TERM_COUNT
+    owned_shape = tuple(int(value) for value in domain.layout.owned_shape)
+    global_shape = tuple(int(value) for value in sharded_geometry.global_shape)
+    halo_width = int(domain.layout.halo_width)
+    polarization_residual = model.polarization_residual(
+        local_state,
+        phi_owned=local_state.phi,
+    )
+    diagnostic_local_state = _diagnostic_state(local_state, model.control_volume_geometry)
+    face_bc = model._face_bcs(local_state)
+    state_halo = prepare_local_fci_drb_eb_state(
+        diagnostic_local_state,
+        domain,
+        face_bc=face_bc,
+        halo_exchange=model.halo_exchange,
+        topology_filler=model.topology_filler,
+        physical_ghost_filler=model.physical_ghost_filler,
+    )
+
+    local_ve = jnp.abs(diagnostic_local_state.Ve)
+    local_max = jnp.max(local_ve)
+    local_flat = jnp.argmax(local_ve)
+    local_coords = jnp.unravel_index(local_flat, owned_shape)
+    shard_indices = tuple(
+        jax.lax.axis_index(axis_name) for axis_name in ("x", "y", "z")
+    )
+    global_coords = tuple(
+        local_coords[axis]
+        + shard_indices[axis] * owned_shape[axis]
+        for axis in range(3)
+    )
+    local_linear = (
+        global_coords[0] * global_shape[1] * global_shape[2]
+        + global_coords[1] * global_shape[2]
+        + global_coords[2]
+    )
+    global_max = jax.lax.pmax(local_max, ("x", "y", "z"))
+    candidate = jnp.where(
+        local_max == global_max,
+        local_linear,
+        jnp.asarray(np.prod(global_shape), dtype=jnp.int64),
+    )
+    global_index = jax.lax.pmin(candidate, ("x", "y", "z"))
+
+    global_coordinates = tuple(
+        jnp.arange(owned_shape[axis], dtype=jnp.int64)
+        + shard_indices[axis] * owned_shape[axis]
+        for axis in range(3)
+    )
+    # Mark only cells adjacent to runtime physical sides.  The
+    # runtime predicates are SPMD-safe scalar JAX values: on a
+    # toroidal mesh this selects only the physical outer radial side,
+    # while the axis and periodic theta/eta seams remain bulk.
+    wall_masks = jnp.zeros(owned_shape, dtype=bool)
+    for axis in range(3):
+        coordinate_shape = [1, 1, 1]
+        coordinate_shape[axis] = owned_shape[axis]
+        coordinates = global_coordinates[axis].reshape(coordinate_shape)
+        lower_physical = jnp.asarray(
+            domain.runtime_has_physical_lower(axis),
+            dtype=bool,
+        )
+        upper_physical = jnp.asarray(
+            domain.runtime_has_physical_upper(axis),
+            dtype=bool,
+        )
+        side_mask = (
+            (coordinates < wall_term_count) & lower_physical
+        ) | (
+            (coordinates >= global_shape[axis] - wall_term_count)
+            & upper_physical
+        )
+        wall_masks = wall_masks | side_mask
+    bulk_masks = ~wall_masks
+    high_pass = []
+    for _, field in state_halo.field_items():
+        wall_energy = jnp.asarray(0.0, dtype=jnp.float64)
+        bulk_energy = jnp.asarray(0.0, dtype=jnp.float64)
+        for axis in range(3):
+            center = [slice(halo_width, halo_width + size) for size in owned_shape]
+            lower = list(center)
+            upper = list(center)
+            lower[axis] = slice(halo_width - 1, halo_width - 1 + owned_shape[axis])
+            upper[axis] = slice(halo_width + 1, halo_width + 1 + owned_shape[axis])
+            center_values = field[tuple(center)]
+            second_difference = field[tuple(upper)] - 2.0 * center_values + field[tuple(lower)]
+            wall_energy = wall_energy + jnp.sum(
+                jnp.square(second_difference) * wall_masks
+            )
+            bulk_energy = bulk_energy + jnp.sum(
+                jnp.square(second_difference) * bulk_masks
+            )
+        high_pass.append(jnp.stack((wall_energy, bulk_energy)))
+    high_pass = jnp.stack(high_pass)
+    for axis_name in ("x", "y", "z"):
+        high_pass = jax.lax.psum(high_pass, axis_name)
+
+    wall_ghost_fields = []
+    for _, field in state_halo.field_items():
+        owned = jnp.zeros(owned_shape, dtype=jnp.float64)
+        lower_x = field[halo_width - 1, halo_width:halo_width + owned_shape[1], halo_width:halo_width + owned_shape[2]]
+        upper_x = field[halo_width + owned_shape[0], halo_width:halo_width + owned_shape[1], halo_width:halo_width + owned_shape[2]]
+        lower_y = field[halo_width:halo_width + owned_shape[0], halo_width - 1, halo_width:halo_width + owned_shape[2]]
+        upper_y = field[halo_width:halo_width + owned_shape[0], halo_width + owned_shape[1], halo_width:halo_width + owned_shape[2]]
+        x_lower_values = jnp.zeros_like(owned).at[0, :, :].set(lower_x)
+        x_upper_values = jnp.zeros_like(owned).at[-1, :, :].set(upper_x)
+        y_lower_values = jnp.zeros_like(owned).at[:, 0, :].set(lower_y)
+        y_upper_values = jnp.zeros_like(owned).at[:, -1, :].set(upper_y)
+        nan = jnp.asarray(jnp.nan, dtype=jnp.float64)
+        x_lower_values = jnp.where(jax.lax.axis_index("x") == 0, x_lower_values, nan)
+        x_upper_values = jnp.where(jax.lax.axis_index("x") == sharded_geometry.shard_counts[0] - 1, x_upper_values, nan)
+        y_lower_values = jnp.where(jax.lax.axis_index("y") == 0, y_lower_values, nan)
+        y_upper_values = jnp.where(jax.lax.axis_index("y") == sharded_geometry.shard_counts[1] - 1, y_upper_values, nan)
+        wall_ghost_fields.append(
+            jnp.stack((x_lower_values, x_upper_values, y_lower_values, y_upper_values))
+        )
+    wall_ghost_fields = jnp.stack(wall_ghost_fields)
+    inspection_diagnostics = jnp.concatenate(
+        (jnp.asarray((global_max, global_index), dtype=jnp.float64), high_pass.reshape(-1))
+    )
+    return inspection_diagnostics, wall_ghost_fields, polarization_residual
+
+
+def _wall_step_vector(step_ledger, timestep):
+    """Applied and wall-face increments of one step from the packed per-stage wall ledger."""
+
+    c = np.asarray(step_ledger, dtype=np.float64)
+    half = 0.5 * float(timestep)
+    applied = half * (c[0:4] + c[8:12])
+    face = half * (c[4:8] + c[12:16])
+    step = np.concatenate((np.stack((applied, face), axis=1).ravel(), half * c[16:18].sum(keepdims=True),
+                           half * c[18:20].sum(keepdims=True)))
+    return step, applied, face
+
+
+def _step_failure(step, field_names, diagnostics, rk_stages, gmres_stages, state_text):
+    """``(message, reason, error)`` for the first rejected property of a finished step, or ``None``."""
+
+    density, Te, Ti = (field_names.index(name) for name in ("density", "Te", "Ti"))
+    stage_finite = bool(np.all(np.isfinite(rk_stages[:, :, :3])))
+    stage_n, stage_Te, stage_Ti = (float(np.min(rk_stages[:, i, 0])) for i in (density, Te, Ti))
+    if not stage_finite or min(stage_n, stage_Te, stage_Ti) <= 0.0:
+        return (
+            f"[diagnostics] step={step} invalid {_TIME_INTEGRATOR} stage: "
+            f"finite={stage_finite}, n_min={stage_n:.6e}, Te_min={stage_Te:.6e}, Ti_min={stage_Ti:.6e}",
+            f"invalid-{_TIME_INTEGRATOR}-stage",
+            f"invalid {_TIME_INTEGRATOR} stage after step {step}",
+        )
+    if bool(np.any(gmres_stages[:, 2] > 0.5)):
+        stage_text = ", ".join(
+            f"{name}:iters={int(values[0])},relres={values[1]:.3e},accepted={bool(values[3] > 0.5)}"
+            for name, values in zip(("imex1", "stage2-base", "imex2", "next"), gmres_stages, strict=True)
+        )
+        return (
+            f"[diagnostics] step={step} rejected phi inversion: {stage_text}; state={state_text}",
+            "unaccepted-phi-inversion",
+            f"unaccepted phi inversion after step {step}",
+        )
+    limits = diagnostics[[density, Te, Ti]][:, :2].astype(float)
+    if not np.all(np.isfinite(limits)):
+        return (
+            f"[diagnostics] step={step} nonfinite: {state_text}",
+            "nonfinite-eb-state",
+            f"nonfinite EB state after step {step}",
+        )
+    density_min, temperature_min = limits[0, 0], min(limits[1, 0], limits[2, 0])
+    if density_min <= 0.0 or temperature_min <= 0.0:
+        return (
+            f"[diagnostics] step={step} positivity failure: {state_text}",
+            "nonpositive-eb-state",
+            f"nonpositive density/temperature after step {step}: "
+            f"n_min={density_min:.6e}, T_min={temperature_min:.6e}",
+        )
+    return None
+
+
+def _static_output_payload(global_geometry, cell_positions, nfp, sharded_geometry, run_meta) -> dict:
+    """Geometry and topology arrays written with every snapshot."""
+
+    base_output_payload = {
+        "u": np.asarray(global_geometry.grid.x.centers, dtype=np.float64),
+        "v": np.asarray(global_geometry.grid.y.centers, dtype=np.float64),
+        "theta": np.asarray(global_geometry.grid.y.centers, dtype=np.float64),
+        "eta": np.asarray(global_geometry.grid.z.centers, dtype=np.float64),
+        "cartesian": np.asarray(cell_positions, dtype=np.float64),
+        "nfp": np.asarray(int(nfp), dtype=np.int32),
+        "simulated_field_periods": np.asarray(int(nfp), dtype=np.int32),
+        "toroidal_extent": np.asarray(2.0 * np.pi, dtype=np.float64),
+        "shard_counts": np.asarray(sharded_geometry.shard_counts, dtype=np.int32),
+        "periodic_axes": np.asarray(
+            run_meta.get("periodic_axes", PERIODIC_AXES), dtype=bool
+        ),
+        "axis_regular_axes": np.asarray(
+            run_meta.get("axis_regular_axes", AXIS_REGULAR_AXES),
+            dtype=bool,
+        ),
+        "phi_solver_space": np.asarray("owner-grid-RLP"),
+        "parallel_operator_scheme": np.asarray("fci"),
+        "fci_trace_substeps": np.asarray(
+            int(run_meta.get("fci_trace_substeps", 4)),
+            dtype=np.int64,
+        ),
+        "axis_treatment": np.asarray(
+            str(run_meta.get("axis_treatment", "none"))
+        ),
+        "angular_owner_count": np.asarray(
+            int(
+                -1
+                if run_meta.get("angular_owner_count") is None
+                else run_meta["angular_owner_count"]
+            ),
+            dtype=np.int64,
+        ),
+        "angular_alias_count": np.asarray(
+            int(
+                -1
+                if run_meta.get("angular_alias_count") is None
+                else run_meta["angular_alias_count"]
+            ),
+            dtype=np.int64,
+        ),
+        "angular_owner_profile": np.asarray(
+            str(run_meta.get("angular_owner_profile", "none"))
+        ),
+        "angular_group_sizes": np.asarray(
+            run_meta.get("angular_group_sizes") or (), dtype=np.int32
+        ),
+        "angular_profile_safety_ratio": np.asarray(
+            float(run_meta.get("angular_profile_safety_ratio") or -1.0), dtype=np.float64
+        ),
+    }
+    output_topology = topology_descriptor(
+        str(run_meta.get("topology", "square"))
+    )
+    base_output_payload.update(
+        {
+            "topology": np.asarray(output_topology.name),
+            "coordinate_names_json": np.asarray(
+                json.dumps(output_topology.coordinate_names)
+            ),
+            "logical_extents": np.asarray(
+                output_topology.logical_extents, dtype=np.float64
+            ),
+            "metric_mesh_shape": np.asarray(
+                run_meta.get("metric_mesh_shape") or (-1, -1, -1),
+                dtype=np.int64,
+            ),
+            "metric_radial_degree": np.asarray(
+                int(run_meta.get("metric_radial_degree", -1)),
+                dtype=np.int64,
+            ),
+            "metric_poloidal_modes": np.asarray(
+                int(run_meta.get("metric_poloidal_modes", -1)),
+                dtype=np.int64,
+            ),
+            "metric_toroidal_modes": np.asarray(
+                int(run_meta.get("metric_toroidal_modes", -1)),
+                dtype=np.int64,
+            ),
+            "eta_projection_iterations": np.asarray(
+                int(run_meta.get("eta_projection_iterations", -1)),
+                dtype=np.int64,
+            ),
+        }
+    )
+    base_output_payload.update(_snapshot_metric_payload(global_geometry))
+    return base_output_payload
+
+
+def _run_metadata(run_meta, sharded_geometry, initial_state, checkpoint_every) -> dict:
+    """``run_meta`` plus the fixed description of the solver and its output layout."""
+
+    metadata = dict(run_meta)
+    metadata.update(
+        {
+            "time_integrator": _TIME_INTEGRATOR,
+            "resolution": list(sharded_geometry.global_shape),
+            "shard_counts": list(sharded_geometry.shard_counts),
+            "phi_solver_space": "owner-grid-RLP",
+            "parallel_operator_scheme": "fci",
+            "fci_trace_substeps": int(
+                run_meta.get("fci_trace_substeps", 4)
+            ),
+            "checkpoint_every": int(checkpoint_every),
+            "field_names": list(initial_state.field_names()),
+            "ve_term_names": [
+                "poisson_bracket",
+                "parallel_self_advection",
+                "collision",
+                "electrostatic",
+                "electron_pressure",
+                "thermal_force",
+                "perpendicular_diffusion",
+                "parallel_viscosity",
+                "characteristic_leg_upwind",
+            ],
+            "rhs_term_field_names": list(RHS_TERM_FIELD_NAMES),
+            "rhs_term_names": {
+                field: list(names)
+                for field, names in zip(
+                    RHS_TERM_FIELD_NAMES, RHS_TERM_NAMES, strict=True
+                )
+            },
+            "rhs_term_statistic_names": [
+                "volume_weighted_mean",
+                "volume_weighted_rms",
+                "maximum_absolute",
+                "volume_weighted_radial_moment",
+            ],
+            "parallel_coefficient_names": [
+                "parallel_density_safe",
+                "parallel_inverse_density",
+                "parallel_electron_pressure",
+                "parallel_total_pressure",
+                "parallel_current",
+                "parallel_density_Ve_flux",
+                "parallel_Te_compression_multiplier",
+                "parallel_Ti_compression_multiplier",
+                "parallel_Ve_pressure_multiplier",
+                "parallel_vorticity_current_multiplier",
+            ],
+        }
+    )
+    return metadata
+
+
+def _history_geometry_payload(global_geometry, cell_positions, nfp, sharded_geometry, metadata, owner_host_geometry):
+    """Geometry arrays of the history file."""
+
+    return dict(
+        u=np.asarray(global_geometry.grid.x.centers, dtype=np.float64),
+        v=np.asarray(global_geometry.grid.y.centers, dtype=np.float64),
+        theta=np.asarray(global_geometry.grid.y.centers, dtype=np.float64),
+        eta=np.asarray(global_geometry.grid.z.centers, dtype=np.float64),
+        jacobian=np.asarray(
+            global_geometry.cell_metric.J,
+            dtype=np.float64,
+        ),
+        # Output-only owner measures: they let a login-node analyzer compare final production histories
+        # at fixed resolution without rebuilding geometry.
+        owner_active=np.asarray(owner_host_geometry.topology.is_active_owner, dtype=bool),
+        owner_aggregate_volume=np.asarray(owner_host_geometry.aggregate_chart_volume, dtype=np.float64),
+        Bmag=np.asarray(
+            global_geometry.cell_bfield.Bmag,
+            dtype=np.float64,
+        ),
+        B_contravariant=np.asarray(
+            global_geometry.cell_bfield.B_contra,
+            dtype=np.float64,
+        ),
+        cartesian=np.asarray(cell_positions, dtype=np.float64),
+        nfp=np.asarray(int(nfp), dtype=np.int32),
+        simulated_field_periods=np.asarray(int(nfp), dtype=np.int32),
+        toroidal_extent=np.asarray(2.0 * np.pi, dtype=np.float64),
+        shard_counts=np.asarray(sharded_geometry.shard_counts, dtype=np.int32),
+        periodic_axes=np.asarray(
+            metadata.get("periodic_axes", PERIODIC_AXES), dtype=bool
+        ),
+        axis_regular_axes=np.asarray(
+            metadata.get("axis_regular_axes", AXIS_REGULAR_AXES),
+            dtype=bool,
+        ),
+        topology=np.asarray(str(metadata.get("topology", "square"))),
+        coordinate_names_json=np.asarray(
+            json.dumps(
+                metadata.get(
+                    "coordinate_names", ("u", "v", "eta")
+                )
+            )
+        ),
+        logical_extents=np.asarray(
+            metadata.get(
+                "logical_extents", ((0.0, 1.0), (0.0, 1.0), (0.0, 2.0 * np.pi))
+            ),
+            dtype=np.float64,
+        ),
+        metric_mesh_shape=np.asarray(
+            metadata.get("metric_mesh_shape") or (-1, -1, -1),
+            dtype=np.int64,
+        ),
+        metric_radial_degree=np.asarray(
+            int(metadata.get("metric_radial_degree", -1)),
+            dtype=np.int64,
+        ),
+        metric_poloidal_modes=np.asarray(
+            int(metadata.get("metric_poloidal_modes", -1)),
+            dtype=np.int64,
+        ),
+        metric_toroidal_modes=np.asarray(
+            int(metadata.get("metric_toroidal_modes", -1)),
+            dtype=np.int64,
+        ),
+        eta_projection_iterations=np.asarray(
+            int(metadata.get("eta_projection_iterations", -1)),
+            dtype=np.int64,
+        ),
+        parallel_operator_scheme=np.asarray(str(metadata["parallel_operator_scheme"])),
+        fci_trace_substeps=np.asarray(
+            int(metadata.get("fci_trace_substeps", 4)),
+            dtype=np.int64,
+        ),
+    )
+
+
+class _NeutralStage:
+    """Fluid neutrals (n_n, u_n, T_n) split off the IMEX step, with the optional wall-recycling source."""
+
+    def __init__(
+        self, neutrals, recycling, global_geometry, owner_host_geometry, state, sharding, dt,
+        initial_density, decay_length, restart,
+    ):
+        self.neutrals, self.recycling, self.sharding = neutrals, recycling, sharding
+        self.owner_host_geometry = owner_host_geometry
+        self.grid = neutral_grid = fci_neutrals.build_neutral_grid(global_geometry, owner_host_geometry)
+        x_label = np.asarray(global_geometry.grid.x.centers, dtype=np.float64)[:, None, None]
+        profile = (
+            np.exp(-(1.0 - x_label) / float(decay_length)) if decay_length > 0.0 else np.ones_like(x_label)
+        )
+        owner_mask = np.asarray(neutral_grid.owner)
+        initial = (
+            restart
+            if restart is not None
+            else (
+                float(initial_density) * np.broadcast_to(profile, global_geometry.shape),
+                np.zeros(global_geometry.shape),
+                np.full(global_geometry.shape, neutrals.neutral_temperature),
+            )
+        )
+        self.fields = tuple(
+            jax.device_put(np.where(owner_mask, np.asarray(field, dtype=np.float64), fill), sharding)
+            for field, fill in zip(initial, (0.0, 0.0, neutrals.neutral_temperature))
+        )
+        self.energy_per_atom = (
+            0.0 if recycling is None else recycling.energy_per_atom(neutrals.reference_temperature_ev)
+        )
+        recycled_energy_per_atom = self.energy_per_atom
+
+        def neutral_split_kernel(current, nn, un, tn, wall_loss_rate=None):
+            inventories = lambda c, nn_, un_, tn_: jnp.stack(fci_neutrals.inventories(
+                c.density, c.Vi, c.Te, c.Ti, nn_, neutral_grid, neutrals, tn_, un_))
+            before = inventories(current, nn, un, tn)
+            source = (
+                None
+                if wall_loss_rate is None
+                else fci_neutrals.recycled_neutral_source(
+                    wall_loss_rate, recycling.coefficient, neutral_grid.owner
+                )
+            )
+            energy = None if source is None else recycled_energy_per_atom * source
+            n, vi, te, ti, nn_new, un_new, tn_new, ledger, ionisation = fci_neutral_fluid.neutral_fluid_step(
+                current.density, current.Vi, current.Te, current.Ti, nn, un, tn, dt, neutral_grid, neutrals,
+                volume_source=source, volume_energy=energy,
+            )
+            after = inventories(current.replace(density=n, Vi=vi, Te=te, Ti=ti), nn_new, un_new, tn_new)
+            return (
+                current.replace(density=n, Vi=vi, Te=te, Ti=ti),
+                nn_new, un_new, tn_new,
+                ledger,
+                jnp.concatenate((before, after)),
+                ionisation,
+            )
+
+        self._split = _jit(neutral_split_kernel)
+        self.history = [[np.asarray(_owner_values(f, owner_host_geometry), dtype=np.float32)] for f in self.fields]
+        self.ionisation = jnp.zeros_like(self.fields[0])
+        self.cumulative_sinks = np.zeros(2)  # electron energy loss, wall energy loss
+        self.rows: list[list[float]] = []
+        self.recycling_rows: list[list[float]] = []
+        self.nuclei_previous = float(np.asarray(jax.jit(
+            lambda c, nn: fci_neutrals.inventories(c.density, c.Vi, c.Te, c.Ti, nn, neutral_grid, neutrals)[0]
+        )(state, self.fields[0])))
+        print(
+            "[neutrals] fluid neutrals (n_n, u_n, T_n) on ("
+            + (
+                f"{'reflecting' if neutrals.wall_absorption == 0.0 else f'absorbing p={neutrals.wall_absorption:.3g}'} wall, no recycling); "
+                if recycling is None
+                else f"recycling R={recycling.coefficient:.4g} of the applied ion wall flux into the wall cells, "
+                f"energy {recycling.energy} = {recycled_energy_per_atom * neutrals.reference_temperature_ev:.4g} eV/atom); "
+            )
+            + 
+            f"Te0={neutrals.reference_temperature_ev:.3f} eV, n0={neutrals.reference_density_m3:.3e} m^-3, "
+            f"initial T_n={neutrals.neutral_temperature_ev:.3f} eV, "
+            f"time unit={fci_neutrals.time_unit_s(neutrals.reference_temperature_ev):.3e} s",
+            flush=True,
+        )
+
+    def record(self) -> None:
+        for frames, field in zip(self.history, self.fields):
+            frames.append(np.asarray(_owner_values(field, self.owner_host_geometry), dtype=np.float32))
+
+    def step(self, state, wall_loss, step_ledger, timestep, current_time, wall_totals):
+        """Advance the neutrals one split substep; returns the plasma state and the wall-inventory change."""
+
+        recycling = self.recycling
+        totals_before_split = wall_totals(state)
+        state, *fields, neutral_ledger, neutral_inventory, self.ionisation = self._split(
+            state, *self.fields, *wall_loss
+        )
+        state = state.map_fields(lambda value: jax.device_put(value, self.sharding))
+        self.fields = tuple(jax.device_put(f, self.sharding) for f in fields)
+        split_change = wall_totals(state) - totals_before_split
+        neutral_ledger = np.asarray(neutral_ledger, dtype=np.float64)
+        neutral_inventory = np.asarray(neutral_inventory, dtype=np.float64)
+        self.cumulative_sinks += neutral_ledger[3:5]
+        nuclei_b, plasma_b, neutral_b, nuclei_a, plasma_a, neutral_a = neutral_inventory
+        recycled = float(neutral_ledger[7]) if recycling is not None else 0.0
+        absorbed = float(neutral_ledger[14])  # nuclei the wall takes from the neutrals
+        recycled_thermal = float(neutral_ledger[13])
+        particle_error = (nuclei_a - nuclei_b - recycled + absorbed) / max(abs(nuclei_b), 1.0e-300)
+        energy_error = (
+            (plasma_a + neutral_a + neutral_ledger[3] + neutral_ledger[4]) - (plasma_b + neutral_b)
+            - recycled_thermal
+        ) / max(abs(neutral_ledger[3]) + abs(neutral_ledger[4]), 1.0e-300)
+        if recycling is not None:
+            check = np.asarray(step_ledger)
+            half = 0.5 * float(timestep)
+            wall_loss = -half * (check[4] + check[12])  # from the wall-face states of the stage states
+            recycled_energy = self.energy_per_atom * recycled
+            change = nuclei_a - self.nuclei_previous
+            expected = half * (check[16] + check[17]) - (1.0 - recycling.coefficient) * wall_loss - absorbed
+            self.recycling_rows.append([
+                current_time, wall_loss, recycled, recycled_energy, recycled_thermal,
+                recycled_energy - recycled_thermal, nuclei_a, change, expected,
+            ])
+            print(
+                "[recycling] t={:.6e} wall_ion_loss={:.6e} recycled={:.6e} E_rec={:.4e} "
+                "d(nuclei)={:.6e} expected={:.6e} rel={:.2e}".format(
+                    current_time, wall_loss, recycled, recycled_energy, change, expected,
+                    (change - expected) / max(abs(wall_loss), 1.0e-300),
+                ),
+                flush=True,
+            )
+            self.nuclei_previous = nuclei_a
+        self.rows.append([
+            current_time, *neutral_ledger, *neutral_inventory,
+            *split_change[8:11],
+        ])
+        print(
+            "[neutrals] t={:.6e} iz={:.4e} rec={:.4e} cx={:.4e} E_loss_e={:.4e} E_wall={:.4e} "
+            "W_n={:.6e} nuclei={:.9e} split: dN/N={:.2e} dE/sinks={:.2e} diff_relres={:.1e} "
+            "max_dt_nu={:.2e} out_of_range(Te,ne,Tcx)=({:.0f},{:.0f},{:.0f})".format(
+                current_time, *neutral_ledger[:5], neutral_a,
+                nuclei_a, particle_error, energy_error, neutral_ledger[8], neutral_ledger[9],
+                *neutral_ledger[10:13],
+            ),
+            flush=True,
+        )
+        return state, split_change
+
+    def output(self, state) -> dict[str, np.ndarray]:
+        neutral_grid, neutrals, recycling = self.grid, self.neutrals, self.recycling
+        neutral_density, neutral_velocity, neutral_temperature = self.fields
+        ledger_columns = fci_neutral_fluid.FLUID_LEDGER_COLUMNS
+        cumulative_sinks, neutral_rows, recycling_rows = self.cumulative_sinks, self.rows, self.recycling_rows
+        mfp, kn_cell, kn_grad = jax.jit(
+            lambda n, te, ti, nn, tn: fci_neutrals.knudsen_map(n, te, ti, nn, neutral_grid, neutrals, tn)
+        )(state.density, state.Te, state.Ti, neutral_density, neutral_temperature)
+        kn_grad = np.asarray(kn_grad)
+        fractions = [float(np.mean(kn_grad < 0.1)), float(np.mean((kn_grad >= 0.1) & (kn_grad < 1.0))), float(np.mean(kn_grad >= 1.0))]
+        print(
+            "[neutrals] Knudsen (mfp / min(L_N, L_n)) fractions of cells: "
+            f"diffusive<0.1={fractions[0]:.3f}, transitional={fractions[1]:.3f}, kinetic>=1={fractions[2]:.3f}, "
+            f"fluid-valid<0.3={float(np.mean(kn_grad < 0.3)):.3f}; "
+            f"mfp in [{float(np.min(mfp)):.3e}, {float(np.max(mfp)):.3e}] m; "
+            f"mfp/cell in [{float(np.min(kn_cell)):.2e}, {float(np.max(kn_cell)):.2e}]; "
+            f"cumulative electron energy loss={cumulative_sinks[0]:.6e}, wall={cumulative_sinks[1]:.6e}",
+            flush=True,
+        )
+        return {
+            "neutral_density": np.stack(self.history[0], axis=0),
+            "neutral_velocity": np.stack(self.history[1], axis=0),
+            "neutral_temperature": np.stack(self.history[2], axis=0),
+            "neutral_ionisation_rate": np.asarray(_owner_values(self.ionisation, self.owner_host_geometry), dtype=np.float64),
+            "neutral_mean_free_path": np.asarray(mfp, dtype=np.float64),
+            "neutral_knudsen_cell": np.asarray(kn_cell, dtype=np.float64),
+            "neutral_knudsen_gradient": kn_grad,
+            "neutral_ledger": np.asarray(neutral_rows, dtype=np.float64).reshape(-1, 1 + len(ledger_columns) + 9),
+            "neutral_ledger_columns": np.asarray(
+                ("time", *ledger_columns, "nuclei_before", "plasma_energy_before",
+                 "neutral_energy_before", "nuclei_after", "plasma_energy_after", "neutral_energy_after",
+                 # the split's change of the wall ledger's (N, W_e, W_i) inventories (nan without sheath)
+                 "split_wall_particle_inventory", "split_wall_electron_energy_inventory",
+                 "split_wall_ion_energy_inventory")
+            ),
+            **(
+                {
+                    "recycling_ledger": np.asarray(recycling_rows, dtype=np.float64).reshape(
+                        -1, len(fci_neutrals.RECYCLING_LEDGER_COLUMNS)
+                    ),
+                    "recycling_ledger_columns": np.asarray(fci_neutrals.RECYCLING_LEDGER_COLUMNS),
+                }
+                if recycling is not None
+                else {}
+            ),
+        }
+
+
+def _snapshot_payload(
+    base_payload, snapshot_state, inspected, metadata, *, parameters, field_names, owner_host_geometry,
+    requested_time, actual_time, step, failure_reason,
+) -> dict:
+    """Arrays and metadata of one snapshot, checkpoint or failure dump."""
+
+    payload = dict(base_payload)
+    payload.update(
+        {
+            name: np.asarray(value, dtype=np.float64)
+            for name, value in snapshot_state.field_items()
+        }
+    )
+    payload.update(
+        _snapshot_parallel_coefficient_payload(
+            payload,
+            Bmag=payload["Bmag"],
+            tau=float(parameters.tau),
+            mi_over_me=float(parameters.mi_over_me),
+        )
+    )
+    payload["time"] = np.asarray(actual_time, dtype=np.float64)
+    payload["requested_snapshot_time"] = np.asarray(requested_time, dtype=np.float64)
+    payload["step"] = np.asarray(step, dtype=np.int64)
+    snapshot_metadata = dict(metadata)
+    snapshot_metadata.update(
+        {
+            "actual_time": actual_time,
+            "requested_time": requested_time,
+            "step": step,
+            "failure_reason": failure_reason,
+            "diagnostic_definition": (
+                "sum of squared three-point second differences; wall is "
+                f"within {_WALL_TERM_COUNT} cells of runtime physical sides"
+            ),
+        }
+    )
+    if inspected is not None:
+        (
+            diagnostic_values,
+            wall_ghost_fields,
+            polarization_residual,
+        ) = inspected
+        payload["wall_ghost_states"] = wall_ghost_fields.astype(np.float64)
+        payload["polarization_residual"] = _materialize_owner_array(
+            np.asarray(polarization_residual, dtype=np.float64)[None, ...],
+            owner_host_geometry,
+        )[0]
+        payload["grid_scale_diagnostics"] = diagnostic_values.astype(np.float64)
+        high_pass_values = diagnostic_values[2:].reshape(7, 2)
+        snapshot_metadata["grid_scale_diagnostics"] = {
+            "max_abs_Ve": float(diagnostic_values[0]),
+            "max_abs_Ve_global_linear_index": int(diagnostic_values[1]),
+            "high_pass_wall_bulk_sum_sq": {
+                name: [float(values[0]), float(values[1])]
+                for name, values in zip(
+                    field_names, high_pass_values, strict=True
+                )
+            },
+        }
+        snapshot_metadata["polarization_residual"] = {
+            "maximum_absolute": float(
+                np.max(np.abs(payload["polarization_residual"]))
+            ),
+            "root_mean_square": float(
+                np.sqrt(np.mean(np.square(payload["polarization_residual"])))
+            ),
+        }
+        print(
+            _grid_scale_line(
+                "snapshot", field_names, diagnostic_values
+            ),
+            flush=True,
+        )
+    payload["run_metadata_json"] = np.asarray(json.dumps(snapshot_metadata, sort_keys=True))
+    return payload
+
+
+def _snapshot_path(output_path, snapshot_root, *, step, requested_time, failure, periodic) -> Path:
+    """Failure dumps sit beside the history, periodic checkpoints and timed snapshots in ``snapshot_root``."""
+
+    if failure:
+        return output_path.with_name(f"{output_path.stem}.failure_step{int(step):06d}.npz")
+    if periodic:
+        return snapshot_root / f"{output_path.stem}.checkpoint_step{int(step):06d}.npz"
+    return snapshot_root / f"{output_path.stem}.snapshot_t{_format_snapshot_time(requested_time)}.npz"
+
+
+def run_full_eb(
+    initial_state: FciDrbEBState,
+    *,
+    global_geometry: FciGeometry3D,
+    cell_positions: np.ndarray,
+    nfp: int,
+    sharded_geometry: ShardedFciGeometry3D,
+    mesh: Mesh,
+    parameters: FciDrbEBRhsParameters,
+    gmres_target_tolerance: float,
+    gmres_acceptance_tolerance: float,
+    gmres_max_iterations: int,
+    gmres_restart: int = 100,
+    gmres_residual_correction_steps: int = 0,
+    gmres_preconditioner: str = "line-u",
+    advance_execution: str = "compiled",
+    num_steps: int,
+    timestep: float,
+    start_time: float,
+    output_path: Path,
+    save_every: int,
+    phase_timing: bool = True,
+    diagnostic_every: int = 0,
+    checkpoint_every: int = 0,
+    snapshot_times: tuple[float, ...] = (),
+    snapshot_dir: Path | None = None,
+    run_metadata: dict[str, object] | None = None,
+    reconstruct_initial_phi: bool = True,
+    start_step: int = 0,
+    control_volume_descriptor,
+    control_volume_fields_host,
+    control_volume_boundary_bc,
+    control_volume_assembler,
+    owner_host_geometry,
+    implicit_current_phi_pair: bool = False,
+    sheath: SheathClosure | None = None,
+    neutrals: fci_neutrals.NeutralParameters | None = None,
+    neutral_initial_density: float = 0.0,
+    neutral_initial_decay_length: float = 0.0,
+    neutral_restart: tuple | None = None,
+    recycling: fci_neutrals.RecyclingParameters | None = None,
+    electromagnetic: FciEm | None = None,
+) -> FciDrbEBState:
+    """Advance the global EB state with IMEX-SSP222 on the owner-grid (RLP) control volumes.
+
+    With ``electromagnetic`` the ``Ve`` slot of the advanced state is the canonical electron momentum
+    ``Ve - (mi/me) A`` (``LocalFciDrbEBRhs.em_physical``); histories, snapshots and the return value hold the
+    physical ``Ve`` and ``apar``.
+
+    With ``neutrals`` the fluid neutrals (n_n, u_n, T_n) are advanced after every
+    IMEX step (operator split, ``native/fci_neutral_fluid.py``) and its reaction
+    sources are applied to (n, Vi, Te, Ti) through the volumetric source hook.
+
+    Stages: argument check, per-cell channel packing (``_pack_cell_fields``), the compiled advance
+    (``_ssp222_stages``, ``_finalize_advance``), the time loop and the history file.
+    """
+
+    _check_run_arguments(
+        sharded_geometry, advance_execution=advance_execution, recycling=recycling, sheath=sheath,
+        neutrals=neutrals, gmres_restart=gmres_restart, checkpoint_every=checkpoint_every,
+    )
+    domain = sharded_geometry.domain
+    spatial_spec = P("x", "y", "z")
+    geometry_spec = P("x", "y", "z", None)
+    replicated_spec = P()
+    state_spec = initial_state.map_fields(lambda _value: spatial_spec)
+    state_sharding = NamedSharding(mesh, spatial_spec)
+    geometry_sharding = NamedSharding(mesh, geometry_spec)
+    state = initial_state.map_fields(
+        lambda value: jax.device_put(
+            np.asarray(value, dtype=np.float64),
+            state_sharding,
+        )
+    )
+
+    em_view: list = []  # [kernel] once the electromagnetic kernels exist: canonical -> physical state
+
+    def materialized_state(current_state: FciDrbEBState) -> FciDrbEBState:
+        if em_view:
+            current_state = em_view[0](current_state)[0]
+        return _materialize_owner_state(current_state, owner_host_geometry)
+
+    geometry_field_count = int(sharded_geometry.cell_fields.shape[-1])
+    solver = dict(
+        gmres_target_tolerance=float(gmres_target_tolerance),
+        gmres_acceptance_tolerance=float(gmres_acceptance_tolerance),
+        gmres_max_iterations=int(gmres_max_iterations),
+        gmres_restart=int(gmres_restart),
+        gmres_residual_correction_steps=int(gmres_residual_correction_steps),
+        gmres_preconditioner=gmres_preconditioner,
+    )
+    cell_fields_host, curvature_face_field_count, sparse_rows_widths = _pack_cell_fields(
+        global_geometry, sharded_geometry, parameters, initial_state, solver=solver,
+        descriptor=control_volume_descriptor, fields_host=control_volume_fields_host,
+        boundary_bc=control_volume_boundary_bc, assembler=control_volume_assembler,
+        implicit_current_phi_pair=implicit_current_phi_pair, sheath=sheath,
+    )
     cell_fields = jax.device_put(cell_fields_host, geometry_sharding)
     map_fields_host = (
         np.asarray(sharded_geometry.map_fields, dtype=np.float64)
@@ -1719,51 +2519,26 @@ def run_full_eb(
         )
     )
     map_fields = jax.device_put(map_fields_host, geometry_sharding)
-    if control_volume_descriptor is None:
-        control_volume_fields_host = np.zeros(
-            sharded_geometry.global_shape + (int(control_volume_field_count),),
-            dtype=np.float64,
-        )
-    elif control_volume_fields_host is None:
-        raise ValueError(
-            "control_volume_fields_host is required with an RLP descriptor"
-        )
     control_volume_fields = jax.device_put(
         np.asarray(control_volume_fields_host, dtype=np.float64),
         geometry_sharding,
     )
 
-    def diagnostic_state(current_state: FciDrbEBState, local_control_volume_geometry) -> FciDrbEBState:
-        if local_control_volume_geometry is None:
-            return current_state
-        cells = local_control_volume_geometry.cells
-        scalar = lambda value: expand_local_control_volume_owner_field(value, cells)
-        return current_state.replace(
-            density=scalar(current_state.density), phi=scalar(current_state.phi),
-            Te=scalar(current_state.Te), Ti=scalar(current_state.Ti),
-            Vi=scalar(current_state.Vi), Ve=scalar(current_state.Ve),
-            vorticity=scalar(current_state.vorticity),
-        )
-
-    shard_count = int(np.prod(sharded_geometry.shard_counts))
     try:
         jax.devices("cpu")
     except RuntimeError:  # JAX_PLATFORMS=cuda: the ordered host markers need a CPU device
         phase_timing = False
-    if phase_timing and advance_execution == "eager":
-        print(
-            "[simulation] operator/GMRES host-callback timing disabled for "
-            "eager advancement; total step timing remains enabled",
-            flush=True,
-        )
-        phase_timing = False
-    if phase_timing and shard_count > 1:
-        print(
-            "[simulation] operator/GMRES host-callback timing disabled for "
-            "multi-device shard_map; total step timing remains enabled",
-            flush=True,
-        )
-        phase_timing = False
+    for disabled, reason in (
+        (advance_execution == "eager", "eager advancement"),
+        (int(np.prod(sharded_geometry.shard_counts)) > 1, "multi-device shard_map"),
+    ):
+        if phase_timing and disabled:
+            print(
+                f"[simulation] operator/GMRES host-callback timing disabled for {reason}; "
+                "total step timing remains enabled",
+                flush=True,
+            )
+            phase_timing = False
 
     def unpack_local_curvature_face_coefficients(
         cell_fields_owned: jax.Array,
@@ -1807,28 +2582,16 @@ def run_full_eb(
                 ))
                 start += 2 * width
             sparse_rows = tuple(matrices)
-        local_control_volume_geometry = (
-            None
-            if control_volume_descriptor is None
-            else control_volume_assembler(
-                control_volume_descriptor,
-                control_volume_fields_owned,
-                local_geometry,
-            )
-        )
         return build_local_eb_model(
             local_geometry,
             domain,
             parameters,
-            gmres_target_tolerance=float(gmres_target_tolerance),
-            gmres_acceptance_tolerance=float(gmres_acceptance_tolerance),
-            gmres_max_iterations=int(gmres_max_iterations),
-            gmres_restart=int(gmres_restart),
-            gmres_residual_correction_steps=int(
-                gmres_residual_correction_steps
+            **solver,
+            control_volume_geometry=control_volume_assembler(
+                control_volume_descriptor,
+                control_volume_fields_owned,
+                local_geometry,
             ),
-            gmres_preconditioner=gmres_preconditioner,
-            control_volume_geometry=local_control_volume_geometry,
             control_volume_boundary_bc=control_volume_boundary_bc,
             curvature_face_coefficients_override=(
                 local_curvature_face_coefficients
@@ -1915,14 +2678,13 @@ def run_full_eb(
         f"{initial_phi_iteration_text}",
         flush=True,
     )
-
     solve_stage_2_phi = _solves_stage_2_phi(sheath)
     phi_solve_count = 3 + solve_stage_2_phi
 
     phase_timer = (
         _JittedPhaseTimer(
             expected_markers=phi_solve_count + 2,
-            label=time_integrator,
+            label=_TIME_INTEGRATOR,
         )
         if phase_timing
         else None
@@ -1939,6 +2701,20 @@ def run_full_eb(
                 ordered=True,
             )
 
+    def mark_gmres(phi: jax.Array) -> None:
+        """Record the ordered gmres host marker of one phi solve.
+
+        ``_JittedPhaseTimer`` expects a fixed number of ordered markers per compiled step; the
+        implicit current/phi pair solve records its marker through this function as well, so the
+        count matches.
+        """
+        if gmres_marker is not None:
+            jax.debug.callback(
+                gmres_marker,
+                jnp.ravel(phi)[0],
+                ordered=True,
+            )
+
     def reconstruct_stage_phi(
         stage_state: FciDrbEBState,
         model: LocalFciDrbEBRhs,
@@ -1948,31 +2724,8 @@ def run_full_eb(
                 stage_state,
                 return_diagnostics=True,
             )
-        if gmres_marker is not None:
-            jax.debug.callback(
-                gmres_marker,
-                jnp.ravel(phi)[0],
-                ordered=True,
-            )
-        diagnostics = _format_phi_solver_diagnostics(info)
-        return phi, diagnostics
-
-    def mark_pair_solve_phi(phi: jax.Array) -> None:
-        """Record the same ordered gmres host marker ``reconstruct_stage_phi``
-        would have recorded, for the coupled current/phi pair solve.
-
-        ``_JittedPhaseTimer`` expects a fixed number of ordered markers per
-        compiled step; the implicit current/phi pair path replaces
-        ``reconstruct_stage_phi`` (which records its own marker) with
-        ``solve_implicit_current_phi_pair`` (which does not), so the marker
-        must be recorded explicitly here to keep the count matched.
-        """
-        if gmres_marker is not None:
-            jax.debug.callback(
-                gmres_marker,
-                jnp.ravel(phi)[0],
-                ordered=True,
-            )
+        mark_gmres(phi)
+        return phi, _format_phi_solver_diagnostics(info)
 
     def evaluate_operators(
         stage_state: FciDrbEBState,
@@ -2032,7 +2785,7 @@ def run_full_eb(
                 stage, pair_increment, pair_solver_info = (
                     model.solve_implicit_current_phi_pair(updated, solve_dt=solve_dt)
                 )
-            mark_pair_solve_phi(stage.phi)
+            mark_gmres(stage.phi)
             phi_info = _format_phi_solver_diagnostics(pair_solver_info)
             increment = increment.axpy(pair_increment, scale=1.0)
             return canonical(stage, increment), increment, _fold_conduction_diagnostics(
@@ -2042,117 +2795,6 @@ def run_full_eb(
         return canonical(updated.replace(phi=stage_phi), increment), increment, _fold_conduction_diagnostics(
             phi_info, conduction_infos
         )
-
-    def ssp222_stages(current, implicit, explicit, solve_phi, step_dt):
-        """IMEX-SSP222 stage algebra shared by every advance_execution mode.
-
-        ``implicit(base, gamma_dt)``, ``explicit(stage)`` and
-        ``solve_phi(state)`` are either in-kernel model calls (compiled and
-        eager) or separately compiled shard_map kernels (staged-compiled).
-        Returns the stage states, stage rates and phi diagnostics consumed by
-        ``finalize_advance``.
-        """
-
-        gamma_dt = jnp.asarray(IMEX_SSP222_GAMMA, dtype=jnp.float64) * step_dt
-        # The persisted current state already carries its consistent algebraic
-        # potential.  Solve the complete selected-wall residual before the
-        # first explicit evaluation, not after a finished timestep.
-        stage_1, increment_1, gmres_info_1 = implicit(current, gamma_dt)
-        implicit_1 = increment_1.map_fields(lambda value: value / gamma_dt)
-        explicit_1 = explicit(stage_1)
-        stage_2_base = current.axpy(explicit_1, scale=step_dt).axpy(
-            implicit_1,
-            scale=(1.0 - 2.0 * IMEX_SSP222_GAMMA) * step_dt,
-        )
-        base_infos = ()
-        if solve_stage_2_phi:
-            stage_2_base_phi, gmres_info_2_base = solve_phi(stage_2_base)
-            stage_2_base = stage_2_base.replace(phi=stage_2_base_phi)
-            base_infos = (gmres_info_2_base,)
-        stage_2, increment_2, gmres_info_2 = implicit(stage_2_base, gamma_dt)
-        implicit_2 = increment_2.map_fields(lambda value: value / gamma_dt)
-        explicit_2 = explicit(stage_2)
-        weighted_rate = explicit_1.axpy(explicit_2, scale=1.0).axpy(
-            implicit_1, scale=1.0
-        ).axpy(implicit_2, scale=1.0).map_fields(lambda value: 0.5 * value)
-        next_state = current.axpy(weighted_rate, scale=step_dt)
-        next_phi, gmres_info_next = solve_phi(next_state)
-        next_state = next_state.replace(phi=next_phi)
-        return (
-            (current, stage_1, stage_2_base, stage_2, next_state),
-            (implicit_1, explicit_1, implicit_2, explicit_2, weighted_rate),
-            (gmres_info_1, *base_infos, gmres_info_2, gmres_info_next),
-        )
-
-    def finalize_advance(
-        model: LocalFciDrbEBRhs,
-        stage_states: tuple[FciDrbEBState, ...],
-        stage_rates: tuple[FciDrbEBState, ...],
-        gmres_infos: tuple[jax.Array, ...],
-    ):
-        """Build the fixed-shape step diagnostics; the last stage is the new state.
-
-        Each reduction is local to the shard first and then made global over
-        all three shard_map mesh axes.
-        """
-
-        gmres_stage_diagnostics = jnp.stack(gmres_infos, axis=0)
-        gmres_iterations = jnp.mean(gmres_stage_diagnostics[:, 0])
-
-        def reduce_fields(states, reducer):
-            return jnp.stack(tuple(
-                jnp.stack(tuple(reducer(value) for _, value in stage.field_items()))
-                for stage in states
-            ))
-
-        def abs_max(value):
-            return jnp.max(jnp.abs(value))
-
-        diagnostic_states = tuple(
-            diagnostic_state(stage, model.control_volume_geometry)
-            for stage in stage_states
-        )
-        state_mins = reduce_fields(diagnostic_states, jnp.min)
-        state_maxs = reduce_fields(diagnostic_states, jnp.max)
-        state_abs_maxs = reduce_fields(diagnostic_states, abs_max)
-        rhs_abs_maxs = reduce_fields(stage_rates, abs_max)
-        # pmin/pmax have no JVP rule; the diagnostics are not on the gradient tape.
-        state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs = jax.lax.stop_gradient(
-            (state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs)
-        )
-        for mesh_axis_name in ("x", "y", "z"):
-            state_mins = jax.lax.pmin(state_mins, mesh_axis_name)
-            state_maxs = jax.lax.pmax(state_maxs, mesh_axis_name)
-            state_abs_maxs = jax.lax.pmax(state_abs_maxs, mesh_axis_name)
-            rhs_abs_maxs = jax.lax.pmax(rhs_abs_maxs, mesh_axis_name)
-        stage_diagnostics = jnp.stack(
-            (state_mins, state_maxs, state_abs_maxs, rhs_abs_maxs), axis=-1
-        )
-        # min/max are exact, so the new-state rows equal a separate reduction.
-        diagnostics = jnp.stack(
-            (state_mins[-1], state_maxs[-1], state_abs_maxs[-1]), axis=1
-        )
-        _, explicit_1, _, explicit_2, _ = stage_rates
-        step_ledger = model.wall_step_check(
-            (stage_states[0], stage_states[2]), (stage_states[1], stage_states[3]),
-            (explicit_1, explicit_2), IMEX_SSP222_GAMMA * dt,
-        )
-        for mesh_axis_name in ("x", "y", "z"):
-            step_ledger = jax.lax.psum(step_ledger, mesh_axis_name)
-        outputs = (
-            stage_states[-1],
-            diagnostics,
-            gmres_iterations,
-            gmres_stage_diagnostics,
-            stage_diagnostics,
-            step_ledger,
-        )
-        if recycling is not None:
-            # Owner-space applied wall loss rate of this step: the implicit
-            # density row is the wall flux alone.
-            implicit_1, _, implicit_2, _, _ = stage_rates
-            outputs = outputs + (-0.5 * (implicit_1.density + implicit_2.density),)
-        return outputs
 
     def full_imex_advance(
         current: FciDrbEBState,
@@ -2169,9 +2811,9 @@ def run_full_eb(
             map_fields_owned,
             control_volume_fields_owned,
         )
-        return finalize_advance(
+        return _finalize_advance(
             model,
-            *ssp222_stages(
+            *_ssp222_stages(
                 current,
                 lambda base, gamma_dt: implicit_solve(
                     base, model, solve_dt=gamma_dt, selection_dt=dt
@@ -2181,8 +2823,12 @@ def run_full_eb(
                 ),
                 lambda state: reconstruct_stage_phi(state, model),
                 dt,
+                solve_stage_2_phi=solve_stage_2_phi,
             ),
+            dt=dt,
+            recycling=recycling,
         )
+
     stage_description = (
         "2 explicit operator stages, 2 complete short-wall solves, "
         f"{phi_solve_count} SOLVAX FGMRES solves"
@@ -2197,7 +2843,7 @@ def run_full_eb(
         )
     )
     print(
-        f"[simulation] {advance_action} shard_map {time_integrator} advance "
+        f"[simulation] {advance_action} shard_map {_TIME_INTEGRATOR} advance "
         f"({stage_description})",
         flush=True,
     )
@@ -2239,7 +2885,7 @@ def run_full_eb(
             jnp.asarray(start_time, dtype=jnp.float64),
         ).compile()
         print(
-            f"[simulation] compiled sharded {time_integrator} advance in "
+            f"[simulation] compiled sharded {_TIME_INTEGRATOR} advance in "
             f"{time.perf_counter() - compile_start:.3f} s",
             flush=True,
         )
@@ -2289,8 +2935,8 @@ def run_full_eb(
             reconstruct_stage_phi, 0, (spatial_spec, replicated_spec)
         )
         staged_finalize_sharded = jax.shard_map(
-            lambda states, rates, infos, *fields: finalize_advance(
-                build_local_model(*fields), states, rates, infos
+            lambda states, rates, infos, *fields: _finalize_advance(
+                build_local_model(*fields), states, rates, infos, dt=dt, recycling=recycling
             ),
             mesh=mesh,
             in_specs=(
@@ -2364,7 +3010,7 @@ def run_full_eb(
             fields = advance_args[:3]
             dt_dynamic = jnp.asarray(float(timestep), dtype=jnp.float64)
             return staged_finalize(
-                *ssp222_stages(
+                *_ssp222_stages(
                     current,
                     lambda base, gamma_dt: staged_implicit(
                         base, *fields, gamma_dt, dt_dynamic
@@ -2372,6 +3018,7 @@ def run_full_eb(
                     lambda stage: staged_explicit(stage, *fields, dt_dynamic),
                     lambda state: staged_phi(state, *fields),
                     dt_dynamic,
+                    solve_stage_2_phi=solve_stage_2_phi,
                 ),
                 *fields,
             )
@@ -2381,14 +3028,11 @@ def run_full_eb(
     # Periodic checkpoints can be state-only.  Do not force compilation of
     # the comparatively expensive spatial inspection path unless diagnostics
     # or explicitly scheduled diagnostic snapshots already require it.
-    wall_term_count = 4
     inspection_enabled = bool(diagnostic_every > 0 or snapshot_times)
     inspection = None
     if inspection_enabled:
         wall_spec = P(None, None, "x", "y", "z")
-        owned_shape = tuple(int(value) for value in domain.layout.owned_shape)
-        global_shape = tuple(int(value) for value in sharded_geometry.global_shape)
-        halo_width = int(domain.layout.halo_width)
+
         def inspect_state(
             local_state: FciDrbEBState,
             cell_fields_owned: jax.Array,
@@ -2400,123 +3044,7 @@ def run_full_eb(
                 map_fields_owned,
                 control_volume_fields_owned,
             )
-            polarization_residual = model.polarization_residual(
-                local_state,
-                phi_owned=local_state.phi,
-            )
-            diagnostic_local_state = diagnostic_state(local_state, model.control_volume_geometry)
-            face_bc = model._face_bcs(local_state)
-            state_halo = prepare_local_fci_drb_eb_state(
-                diagnostic_local_state,
-                domain,
-                face_bc=face_bc,
-                halo_exchange=model.halo_exchange,
-                topology_filler=model.topology_filler,
-                physical_ghost_filler=model.physical_ghost_filler,
-            )
-
-            local_ve = jnp.abs(diagnostic_local_state.Ve)
-            local_max = jnp.max(local_ve)
-            local_flat = jnp.argmax(local_ve)
-            local_coords = jnp.unravel_index(local_flat, owned_shape)
-            shard_indices = tuple(
-                jax.lax.axis_index(axis_name) for axis_name in ("x", "y", "z")
-            )
-            global_coords = tuple(
-                local_coords[axis]
-                + shard_indices[axis] * owned_shape[axis]
-                for axis in range(3)
-            )
-            local_linear = (
-                global_coords[0] * global_shape[1] * global_shape[2]
-                + global_coords[1] * global_shape[2]
-                + global_coords[2]
-            )
-            global_max = jax.lax.pmax(local_max, ("x", "y", "z"))
-            candidate = jnp.where(
-                local_max == global_max,
-                local_linear,
-                jnp.asarray(np.prod(global_shape), dtype=jnp.int64),
-            )
-            global_index = jax.lax.pmin(candidate, ("x", "y", "z"))
-
-            global_coordinates = tuple(
-                jnp.arange(owned_shape[axis], dtype=jnp.int64)
-                + shard_indices[axis] * owned_shape[axis]
-                for axis in range(3)
-            )
-            # Mark only cells adjacent to runtime physical sides.  The
-            # runtime predicates are SPMD-safe scalar JAX values: on a
-            # toroidal mesh this selects only the physical outer radial side,
-            # while the axis and periodic theta/eta seams remain bulk.
-            wall_masks = jnp.zeros(owned_shape, dtype=bool)
-            for axis in range(3):
-                coordinate_shape = [1, 1, 1]
-                coordinate_shape[axis] = owned_shape[axis]
-                coordinates = global_coordinates[axis].reshape(coordinate_shape)
-                lower_physical = jnp.asarray(
-                    domain.runtime_has_physical_lower(axis),
-                    dtype=bool,
-                )
-                upper_physical = jnp.asarray(
-                    domain.runtime_has_physical_upper(axis),
-                    dtype=bool,
-                )
-                side_mask = (
-                    (coordinates < wall_term_count) & lower_physical
-                ) | (
-                    (coordinates >= global_shape[axis] - wall_term_count)
-                    & upper_physical
-                )
-                wall_masks = wall_masks | side_mask
-            bulk_masks = ~wall_masks
-            high_pass = []
-            for _, field in state_halo.field_items():
-                wall_energy = jnp.asarray(0.0, dtype=jnp.float64)
-                bulk_energy = jnp.asarray(0.0, dtype=jnp.float64)
-                for axis in range(3):
-                    center = [slice(halo_width, halo_width + size) for size in owned_shape]
-                    lower = list(center)
-                    upper = list(center)
-                    lower[axis] = slice(halo_width - 1, halo_width - 1 + owned_shape[axis])
-                    upper[axis] = slice(halo_width + 1, halo_width + 1 + owned_shape[axis])
-                    center_values = field[tuple(center)]
-                    second_difference = field[tuple(upper)] - 2.0 * center_values + field[tuple(lower)]
-                    wall_energy = wall_energy + jnp.sum(
-                        jnp.square(second_difference) * wall_masks
-                    )
-                    bulk_energy = bulk_energy + jnp.sum(
-                        jnp.square(second_difference) * bulk_masks
-                    )
-                high_pass.append(jnp.stack((wall_energy, bulk_energy)))
-            high_pass = jnp.stack(high_pass)
-            for axis_name in ("x", "y", "z"):
-                high_pass = jax.lax.psum(high_pass, axis_name)
-
-            wall_ghost_fields = []
-            for _, field in state_halo.field_items():
-                owned = jnp.zeros(owned_shape, dtype=jnp.float64)
-                lower_x = field[halo_width - 1, halo_width:halo_width + owned_shape[1], halo_width:halo_width + owned_shape[2]]
-                upper_x = field[halo_width + owned_shape[0], halo_width:halo_width + owned_shape[1], halo_width:halo_width + owned_shape[2]]
-                lower_y = field[halo_width:halo_width + owned_shape[0], halo_width - 1, halo_width:halo_width + owned_shape[2]]
-                upper_y = field[halo_width:halo_width + owned_shape[0], halo_width + owned_shape[1], halo_width:halo_width + owned_shape[2]]
-                x_lower_values = jnp.zeros_like(owned).at[0, :, :].set(lower_x)
-                x_upper_values = jnp.zeros_like(owned).at[-1, :, :].set(upper_x)
-                y_lower_values = jnp.zeros_like(owned).at[:, 0, :].set(lower_y)
-                y_upper_values = jnp.zeros_like(owned).at[:, -1, :].set(upper_y)
-                nan = jnp.asarray(jnp.nan, dtype=jnp.float64)
-                x_lower_values = jnp.where(jax.lax.axis_index("x") == 0, x_lower_values, nan)
-                x_upper_values = jnp.where(jax.lax.axis_index("x") == sharded_geometry.shard_counts[0] - 1, x_upper_values, nan)
-                y_lower_values = jnp.where(jax.lax.axis_index("y") == 0, y_lower_values, nan)
-                y_upper_values = jnp.where(jax.lax.axis_index("y") == sharded_geometry.shard_counts[1] - 1, y_upper_values, nan)
-                wall_ghost_fields.append(
-                    jnp.stack((x_lower_values, x_upper_values, y_lower_values, y_upper_values))
-                )
-            wall_ghost_fields = jnp.stack(wall_ghost_fields)
-            inspection_diagnostics = jnp.concatenate(
-                (jnp.asarray((global_max, global_index), dtype=jnp.float64), high_pass.reshape(-1))
-            )
-            return inspection_diagnostics, wall_ghost_fields, polarization_residual
+            return _inspect_local(model, local_state, sharded_geometry)
 
         inspection_out_specs = (replicated_spec, wall_spec, spatial_spec)
         inspection_sharded = jax.shard_map(
@@ -2562,146 +3090,12 @@ def run_full_eb(
         return tuple(np.asarray(value) for value in result)
 
     run_meta = run_metadata or {}
-    base_output_payload = {
-        "u": np.asarray(global_geometry.grid.x.centers, dtype=np.float64),
-        "v": np.asarray(global_geometry.grid.y.centers, dtype=np.float64),
-        "theta": np.asarray(global_geometry.grid.y.centers, dtype=np.float64),
-        "eta": np.asarray(global_geometry.grid.z.centers, dtype=np.float64),
-        "cartesian": np.asarray(cell_positions, dtype=np.float64),
-        "nfp": np.asarray(int(nfp), dtype=np.int32),
-        "simulated_field_periods": np.asarray(int(nfp), dtype=np.int32),
-        "toroidal_extent": np.asarray(2.0 * np.pi, dtype=np.float64),
-        "shard_counts": np.asarray(sharded_geometry.shard_counts, dtype=np.int32),
-        "periodic_axes": np.asarray(
-            run_meta.get("periodic_axes", PERIODIC_AXES), dtype=bool
-        ),
-        "axis_regular_axes": np.asarray(
-            run_meta.get("axis_regular_axes", AXIS_REGULAR_AXES),
-            dtype=bool,
-        ),
-        "phi_solver_space": np.asarray(solver_space),
-        "parallel_operator_scheme": np.asarray(str(parallel_operator_scheme)),
-        "fci_trace_substeps": np.asarray(
-            int(run_meta.get("fci_trace_substeps", 4)),
-            dtype=np.int64,
-        ),
-        "axis_treatment": np.asarray(
-            str(run_meta.get("axis_treatment", "none"))
-        ),
-        "angular_owner_count": np.asarray(
-            int(
-                -1
-                if run_meta.get("angular_owner_count") is None
-                else run_meta["angular_owner_count"]
-            ),
-            dtype=np.int64,
-        ),
-        "angular_alias_count": np.asarray(
-            int(
-                -1
-                if run_meta.get("angular_alias_count") is None
-                else run_meta["angular_alias_count"]
-            ),
-            dtype=np.int64,
-        ),
-        "angular_owner_profile": np.asarray(
-            str(run_meta.get("angular_owner_profile", "none"))
-        ),
-        "angular_group_sizes": np.asarray(
-            run_meta.get("angular_group_sizes") or (), dtype=np.int32
-        ),
-        "angular_profile_safety_ratio": np.asarray(
-            float(run_meta.get("angular_profile_safety_ratio") or -1.0), dtype=np.float64
-        ),
-    }
-    output_topology = topology_descriptor(
-        str(run_meta.get("topology", "square"))
+    base_output_payload = _static_output_payload(
+        global_geometry, cell_positions, nfp, sharded_geometry, run_meta
     )
-    base_output_payload.update(
-        {
-            "topology": np.asarray(output_topology.name),
-            "coordinate_names_json": np.asarray(
-                json.dumps(output_topology.coordinate_names)
-            ),
-            "logical_extents": np.asarray(
-                output_topology.logical_extents, dtype=np.float64
-            ),
-            "metric_mesh_shape": np.asarray(
-                run_meta.get("metric_mesh_shape") or (-1, -1, -1),
-                dtype=np.int64,
-            ),
-            "metric_radial_degree": np.asarray(
-                int(run_meta.get("metric_radial_degree", -1)),
-                dtype=np.int64,
-            ),
-            "metric_poloidal_modes": np.asarray(
-                int(run_meta.get("metric_poloidal_modes", -1)),
-                dtype=np.int64,
-            ),
-            "metric_toroidal_modes": np.asarray(
-                int(run_meta.get("metric_toroidal_modes", -1)),
-                dtype=np.int64,
-            ),
-            "eta_projection_iterations": np.asarray(
-                int(run_meta.get("eta_projection_iterations", -1)),
-                dtype=np.int64,
-            ),
-        }
-    )
-    base_output_payload.update(_snapshot_metric_payload(global_geometry))
     snapshot_schedule = tuple(sorted(float(value) for value in snapshot_times))
     snapshot_root = Path(snapshot_dir) if snapshot_dir is not None else output_path.parent
-    metadata = dict(run_meta)
-    metadata.update(
-        {
-            "time_integrator": str(time_integrator),
-            "resolution": list(sharded_geometry.global_shape),
-            "shard_counts": list(sharded_geometry.shard_counts),
-            "phi_solver_space": solver_space,
-            "parallel_operator_scheme": str(parallel_operator_scheme),
-            "fci_trace_substeps": int(
-                run_meta.get("fci_trace_substeps", 4)
-            ),
-            "checkpoint_every": int(checkpoint_every),
-            "field_names": list(initial_state.field_names()),
-            "ve_term_names": [
-                "poisson_bracket",
-                "parallel_self_advection",
-                "collision",
-                "electrostatic",
-                "electron_pressure",
-                "thermal_force",
-                "perpendicular_diffusion",
-                "parallel_viscosity",
-                "characteristic_leg_upwind",
-            ],
-            "rhs_term_field_names": list(RHS_TERM_FIELD_NAMES),
-            "rhs_term_names": {
-                field: list(names)
-                for field, names in zip(
-                    RHS_TERM_FIELD_NAMES, RHS_TERM_NAMES, strict=True
-                )
-            },
-            "rhs_term_statistic_names": [
-                "volume_weighted_mean",
-                "volume_weighted_rms",
-                "maximum_absolute",
-                "volume_weighted_radial_moment",
-            ],
-            "parallel_coefficient_names": [
-                "parallel_density_safe",
-                "parallel_inverse_density",
-                "parallel_electron_pressure",
-                "parallel_total_pressure",
-                "parallel_current",
-                "parallel_density_Ve_flux",
-                "parallel_Te_compression_multiplier",
-                "parallel_Ti_compression_multiplier",
-                "parallel_Ve_pressure_multiplier",
-                "parallel_vorticity_current_multiplier",
-            ],
-        }
-    )
+    metadata = _run_metadata(run_meta, sharded_geometry, initial_state, checkpoint_every)
 
     def save_snapshot(
         requested_time: float,
@@ -2715,89 +3109,16 @@ def run_full_eb(
         step = int(step) + int(start_step)
         if inspected is None:
             inspected = inspect_host(state)
-        snapshot_state = materialized_state(state)
-        payload = dict(base_output_payload)
-        payload.update(
-            {
-                name: np.asarray(value, dtype=np.float64)
-                for name, value in snapshot_state.field_items()
-            }
+        payload = _snapshot_payload(
+            base_output_payload, materialized_state(state), inspected, metadata,
+            parameters=parameters, field_names=initial_state.field_names(),
+            owner_host_geometry=owner_host_geometry, requested_time=requested_time,
+            actual_time=actual_time, step=step, failure_reason=failure_reason,
         )
-        payload.update(
-            _snapshot_parallel_coefficient_payload(
-                payload,
-                Bmag=payload["Bmag"],
-                tau=float(parameters.tau),
-                mi_over_me=float(parameters.mi_over_me),
-            )
+        checkpoint_path = _snapshot_path(
+            output_path, snapshot_root, step=step, requested_time=requested_time,
+            failure=failure_reason is not None, periodic=periodic_checkpoint,
         )
-        payload["time"] = np.asarray(actual_time, dtype=np.float64)
-        payload["requested_snapshot_time"] = np.asarray(requested_time, dtype=np.float64)
-        payload["step"] = np.asarray(step, dtype=np.int64)
-        snapshot_metadata = dict(metadata)
-        snapshot_metadata.update(
-            {
-                "actual_time": actual_time,
-                "requested_time": requested_time,
-                "step": step,
-                "failure_reason": failure_reason,
-                "diagnostic_definition": (
-                    "sum of squared three-point second differences; wall is "
-                    f"within {wall_term_count} cells of runtime physical sides"
-                ),
-            }
-        )
-        if inspected is not None:
-            (
-                diagnostic_values,
-                wall_ghost_fields,
-                polarization_residual,
-            ) = inspected
-            payload["wall_ghost_states"] = wall_ghost_fields.astype(np.float64)
-            payload["polarization_residual"] = _materialize_owner_array(
-                np.asarray(polarization_residual, dtype=np.float64)[None, ...],
-                owner_host_geometry,
-            )[0]
-            payload["grid_scale_diagnostics"] = diagnostic_values.astype(np.float64)
-            high_pass_values = diagnostic_values[2:].reshape(7, 2)
-            snapshot_metadata["grid_scale_diagnostics"] = {
-                "max_abs_Ve": float(diagnostic_values[0]),
-                "max_abs_Ve_global_linear_index": int(diagnostic_values[1]),
-                "high_pass_wall_bulk_sum_sq": {
-                    name: [float(values[0]), float(values[1])]
-                    for name, values in zip(
-                        initial_state.field_names(), high_pass_values, strict=True
-                    )
-                },
-            }
-            snapshot_metadata["polarization_residual"] = {
-                "maximum_absolute": float(
-                    np.max(np.abs(payload["polarization_residual"]))
-                ),
-                "root_mean_square": float(
-                    np.sqrt(np.mean(np.square(payload["polarization_residual"])))
-                ),
-            }
-            print(
-                _grid_scale_line(
-                    "snapshot", initial_state.field_names(), diagnostic_values
-                ),
-                flush=True,
-            )
-        payload["run_metadata_json"] = np.asarray(json.dumps(snapshot_metadata, sort_keys=True))
-        if failure_reason is not None:
-            checkpoint_path = output_path.with_name(
-                f"{output_path.stem}.failure_step{int(step):06d}.npz"
-            )
-        elif periodic_checkpoint:
-            checkpoint_path = snapshot_root / (
-                f"{output_path.stem}.checkpoint_step{int(step):06d}.npz"
-            )
-        else:
-            checkpoint_path = snapshot_root / (
-                f"{output_path.stem}.snapshot_t"
-                f"{_format_snapshot_time(requested_time)}.npz"
-            )
         _atomic_save_npz(checkpoint_path, **payload)
         if periodic_checkpoint:
             print(
@@ -2820,7 +3141,7 @@ def run_full_eb(
 
     initial_output_state = materialized_state(state)
     history: dict[str, list[np.ndarray]] = {
-        name: [np.asarray(value, dtype=history_numpy_dtype)]
+        name: [np.asarray(value, dtype=np.float32)]
         for name, value in initial_output_state.field_items()
     }
     em_rows: list[list[float]] = []
@@ -2834,7 +3155,7 @@ def run_full_eb(
               "thermal={:.9e}".format(*em_rows[-1]), flush=True)
         if frames:
             history.setdefault("apar", []).append(
-                np.asarray(materialized_owner_array(apar), dtype=history_numpy_dtype)
+                np.asarray(_owner_values(apar, owner_host_geometry), dtype=np.float32)
             )
 
     if em_view:
@@ -2851,19 +3172,12 @@ def run_full_eb(
     accumulated_gmres_iterations = 0.0
     relaxed_phi_acceptances = 0
 
-    def fail_step(message: str, reason: str, error: str) -> None:
-        """Report a rejected step, write a failure checkpoint and stop."""
-
-        print(message, flush=True)
-        _print_rk_stage_diagnostics(field_names, rk_stage_diagnostics_host)
-        save_snapshot(current_time, current_time, step, failure_reason=reason)
-        raise FloatingPointError(error)
-
     def execute_advance(*advance_args):
         with jax.disable_jit(advance_execution == "eager"):
             return compiled_advance(*advance_args)
 
     wall_ledger_rows: list[list[float]] = []
+
     def wall_ledger_kernel(local_state, cell_fields_owned, map_fields_owned, control_volume_fields_owned):
         model = build_local_model(cell_fields_owned, map_fields_owned, control_volume_fields_owned)
         totals = model.wall_flux_ledger(local_state)
@@ -2888,17 +3202,10 @@ def run_full_eb(
     def record_wall_ledger(time_value: float, step_ledger=None, split_change=None) -> None:
         """``split_change``: inventory change of the neutral split substep (removed from dN, dW, dP)."""
 
-        if wall_ledger is None:
-            return
         totals = wall_totals(state)
         step = np.zeros(10)  # the initial row: no step has been applied
         if step_ledger is not None:
-            c = np.asarray(step_ledger, dtype=np.float64)
-            half = 0.5 * float(timestep)
-            applied = half * (c[0:4] + c[8:12])
-            face = half * (c[4:8] + c[12:16])
-            step = np.concatenate((np.stack((applied, face), axis=1).ravel(), half * c[16:18].sum(keepdims=True),
-                                   half * c[18:20].sum(keepdims=True)))
+            step, applied, face = _wall_step_vector(step_ledger, timestep)
         wall_ledger_rows.append([float(time_value), *(float(v) for v in totals), *(float(v) for v in step)])
         print(
             "[wall] t={:.6e} particle={:.6e} momentum={:.6e} q_e={:.6e} q_i={:.6e} q_kin={:.6e} "
@@ -2934,83 +3241,16 @@ def run_full_eb(
 
     record_wall_ledger(float(start_time))
 
-    neutral_rows: list[list[float]] = []
-    if neutrals is not None:
-        neutral_grid = fci_neutrals.build_neutral_grid(global_geometry, owner_host_geometry)
-        x_label = np.asarray(global_geometry.grid.x.centers, dtype=np.float64)[:, None, None]
-        profile = (
-            np.exp(-(1.0 - x_label) / float(neutral_initial_decay_length))
-            if neutral_initial_decay_length > 0.0
-            else np.ones_like(x_label)
+    neutral_stage = (
+        None
+        if neutrals is None
+        else _NeutralStage(
+            neutrals, recycling, global_geometry, owner_host_geometry, state, state_sharding, dt,
+            neutral_initial_density, neutral_initial_decay_length, neutral_restart,
         )
-        owner_mask = np.asarray(neutral_grid.owner)
-        neutral_initial = (
-            neutral_restart
-            if neutral_restart is not None
-            else (
-                float(neutral_initial_density) * np.broadcast_to(profile, global_geometry.shape),
-                np.zeros(global_geometry.shape),
-                np.full(global_geometry.shape, neutrals.neutral_temperature),
-            )
-        )
-        neutral_density, neutral_velocity, neutral_temperature = (
-            jax.device_put(np.where(owner_mask, np.asarray(field, dtype=np.float64), fill), state_sharding)
-            for field, fill in zip(neutral_initial, (0.0, 0.0, neutrals.neutral_temperature))
-        )
-
-        def neutral_split_kernel(current, nn, un, tn, wall_loss_rate=None):
-            inventories = lambda c, nn_, un_, tn_: jnp.stack(fci_neutrals.inventories(
-                c.density, c.Vi, c.Te, c.Ti, nn_, neutral_grid, neutrals, tn_, un_))
-            before = inventories(current, nn, un, tn)
-            source = (
-                None
-                if wall_loss_rate is None
-                else fci_neutrals.recycled_neutral_source(
-                    wall_loss_rate, recycling.coefficient, neutral_grid.owner
-                )
-            )
-            energy = None if source is None else recycled_energy_per_atom * source
-            n, vi, te, ti, nn_new, un_new, tn_new, ledger, ionisation = fci_neutral_fluid.neutral_fluid_step(
-                current.density, current.Vi, current.Te, current.Ti, nn, un, tn, dt, neutral_grid, neutrals,
-                volume_source=source, volume_energy=energy,
-            )
-            after = inventories(current.replace(density=n, Vi=vi, Te=te, Ti=ti), nn_new, un_new, tn_new)
-            return (
-                current.replace(density=n, Vi=vi, Te=te, Ti=ti),
-                nn_new, un_new, tn_new,
-                ledger,
-                jnp.concatenate((before, after)),
-                ionisation,
-            )
-
-        neutral_split = _jit(neutral_split_kernel)
-        neutral_history = [[np.asarray(materialized_owner_array(f), dtype=history_numpy_dtype)] for f in (
-            neutral_density, neutral_velocity, neutral_temperature)]
-        ionisation_field = jnp.zeros_like(neutral_density)
-        cumulative_sinks = np.zeros(2)  # electron energy loss, wall energy loss
-        inventory0 = None
-        recycling_rows: list[list[float]] = []
-        recycled_energy_per_atom = (
-            0.0 if recycling is None else recycling.energy_per_atom(neutrals.reference_temperature_ev)
-        )
-        nuclei_previous = float(np.asarray(jax.jit(
-            lambda c, nn: fci_neutrals.inventories(c.density, c.Vi, c.Te, c.Ti, nn, neutral_grid, neutrals)[0]
-        )(state, neutral_density)))
-        ledger_columns = fci_neutral_fluid.FLUID_LEDGER_COLUMNS
-        print(
-            "[neutrals] fluid neutrals (n_n, u_n, T_n) on ("
-            + (
-                f"{'reflecting' if neutrals.wall_absorption == 0.0 else f'absorbing p={neutrals.wall_absorption:.3g}'} wall, no recycling); "
-                if recycling is None
-                else f"recycling R={recycling.coefficient:.4g} of the applied ion wall flux into the wall cells, "
-                f"energy {recycling.energy} = {recycled_energy_per_atom * neutrals.reference_temperature_ev:.4g} eV/atom); "
-            )
-            + 
-            f"Te0={neutrals.reference_temperature_ev:.3f} eV, n0={neutrals.reference_density_m3:.3e} m^-3, "
-            f"initial T_n={neutrals.neutral_temperature_ev:.3f} eV, "
-            f"time unit={fci_neutrals.time_unit_s(neutrals.reference_temperature_ev):.3e} s",
-            flush=True,
-        )
+    )
+    field_names = initial_state.field_names()
+    density_index = field_names.index("density")
 
     for step in range(1, int(num_steps) + 1):
         step_start = time.perf_counter()
@@ -3057,63 +3297,9 @@ def run_full_eb(
         accumulated_step_seconds += step_seconds
         current_time = float(start_time) + step * float(timestep)
         split_change = None
-        if neutrals is not None:
-            totals_before_split = wall_totals(state) if wall_ledger is not None else None
-            state, neutral_density, neutral_velocity, neutral_temperature, neutral_ledger, neutral_inventory, \
-                ionisation_field = neutral_split(state, neutral_density, neutral_velocity, neutral_temperature,
-                                                 *wall_loss_output)
-            state = state.map_fields(lambda value: jax.device_put(value, state_sharding))
-            neutral_density, neutral_velocity, neutral_temperature = (
-                jax.device_put(f, state_sharding) for f in (neutral_density, neutral_velocity, neutral_temperature))
-            if totals_before_split is not None:
-                split_change = wall_totals(state) - totals_before_split
-            neutral_ledger = np.asarray(neutral_ledger, dtype=np.float64)
-            neutral_inventory = np.asarray(neutral_inventory, dtype=np.float64)
-            cumulative_sinks += neutral_ledger[3:5]
-            if inventory0 is None:
-                inventory0 = neutral_inventory[:3]
-            nuclei_b, plasma_b, neutral_b, nuclei_a, plasma_a, neutral_a = neutral_inventory
-            recycled = float(neutral_ledger[7]) if recycling is not None else 0.0
-            absorbed = float(neutral_ledger[14])  # nuclei the wall takes from the neutrals
-            recycled_thermal = float(neutral_ledger[13])
-            particle_error = (nuclei_a - nuclei_b - recycled + absorbed) / max(abs(nuclei_b), 1.0e-300)
-            energy_error = (
-                (plasma_a + neutral_a + neutral_ledger[3] + neutral_ledger[4]) - (plasma_b + neutral_b)
-                - recycled_thermal
-            ) / max(abs(neutral_ledger[3]) + abs(neutral_ledger[4]), 1.0e-300)
-            if recycling is not None:
-                check = np.asarray(step_ledger)
-                half = 0.5 * float(timestep)
-                wall_loss = -half * (check[4] + check[12])  # from the wall-face states of the stage states
-                recycled_energy = recycled_energy_per_atom * recycled
-                change = nuclei_a - nuclei_previous
-                expected = half * (check[16] + check[17]) - (1.0 - recycling.coefficient) * wall_loss - absorbed
-                recycling_rows.append([
-                    current_time, wall_loss, recycled, recycled_energy, recycled_thermal,
-                    recycled_energy - recycled_thermal, nuclei_a, change, expected,
-                ])
-                print(
-                    "[recycling] t={:.6e} wall_ion_loss={:.6e} recycled={:.6e} E_rec={:.4e} "
-                    "d(nuclei)={:.6e} expected={:.6e} rel={:.2e}".format(
-                        current_time, wall_loss, recycled, recycled_energy, change, expected,
-                        (change - expected) / max(abs(wall_loss), 1.0e-300),
-                    ),
-                    flush=True,
-                )
-                nuclei_previous = nuclei_a
-            neutral_rows.append([
-                current_time, *neutral_ledger, *neutral_inventory,
-                *(split_change[8:11] if split_change is not None else (np.nan,) * 3),
-            ])
-            print(
-                "[neutrals] t={:.6e} iz={:.4e} rec={:.4e} cx={:.4e} E_loss_e={:.4e} E_wall={:.4e} "
-                "W_n={:.6e} nuclei={:.9e} split: dN/N={:.2e} dE/sinks={:.2e} diff_relres={:.1e} "
-                "max_dt_nu={:.2e} out_of_range(Te,ne,Tcx)=({:.0f},{:.0f},{:.0f})".format(
-                    current_time, *neutral_ledger[:5], neutral_a,
-                    nuclei_a, particle_error, energy_error, neutral_ledger[8], neutral_ledger[9],
-                    *neutral_ledger[10:13],
-                ),
-                flush=True,
+        if neutral_stage is not None:
+            state, split_change = neutral_stage.step(
+                state, wall_loss_output, step_ledger, timestep, current_time, wall_totals
             )
         record_wall_ledger(current_time, step_ledger, split_change)
 
@@ -3121,14 +3307,11 @@ def run_full_eb(
             saved_times.append(current_time)
             output_state = materialized_state(state)
             for name, value in output_state.field_items():
-                history[name].append(
-                    np.asarray(value, dtype=history_numpy_dtype)
-                )
+                history[name].append(np.asarray(value, dtype=np.float32))
             if em_view:
                 record_em(current_time, frames=True)
-            if neutrals is not None:
-                for frames, field in zip(neutral_history, (neutral_density, neutral_velocity, neutral_temperature)):
-                    frames.append(np.asarray(materialized_owner_array(field), dtype=history_numpy_dtype))
+            if neutral_stage is not None:
+                neutral_stage.record()
 
         diagnostics_host = np.asarray(diagnostics)
         gmres_stage_diagnostics_host = np.asarray(gmres_stage_diagnostics)
@@ -3137,9 +3320,6 @@ def run_full_eb(
         gmres_relative_residual_host = float(
             np.max(gmres_stage_diagnostics_host[:, 1])
         )
-        gmres_failed_host = bool(
-            np.any(gmres_stage_diagnostics_host[:, 2] > 0.5)
-        )
         accumulated_gmres_iterations += gmres_iterations_host
         relaxed_phi_acceptances += int(
             np.sum(
@@ -3147,80 +3327,18 @@ def run_full_eb(
                 & (gmres_stage_diagnostics_host[:, 4] < 0.5)
             )
         )
-        field_names = initial_state.field_names()
-        density_index = field_names.index("density")
-        Te_index = field_names.index("Te")
-        Ti_index = field_names.index("Ti")
-        density_min = float(diagnostics_host[density_index, 0])
-        density_max = float(diagnostics_host[density_index, 1])
-        Te_min = float(diagnostics_host[Te_index, 0])
-        Te_max = float(diagnostics_host[Te_index, 1])
-        Ti_min = float(diagnostics_host[Ti_index, 0])
-        Ti_max = float(diagnostics_host[Ti_index, 1])
-        temperature_min = min(Te_min, Ti_min)
+        density_min, density_max = (float(value) for value in diagnostics_host[density_index, :2])
         state_diagnostics = _format_state_diagnostics(field_names, diagnostics_host)
-        stage_finite = bool(
-            np.all(np.isfinite(rk_stage_diagnostics_host[:, :, :3]))
+        failure = _step_failure(
+            step, field_names, diagnostics_host, rk_stage_diagnostics_host,
+            gmres_stage_diagnostics_host, state_diagnostics,
         )
-        stage_density_min = float(
-            np.min(rk_stage_diagnostics_host[:, density_index, 0])
-        )
-        stage_Te_min = float(
-            np.min(rk_stage_diagnostics_host[:, Te_index, 0])
-        )
-        stage_Ti_min = float(
-            np.min(rk_stage_diagnostics_host[:, Ti_index, 0])
-        )
-        if (
-            not stage_finite
-            or stage_density_min <= 0.0
-            or stage_Te_min <= 0.0
-            or stage_Ti_min <= 0.0
-        ):
-            fail_step(
-                f"[diagnostics] step={step} invalid "
-                f"{time_integrator} stage: "
-                f"finite={stage_finite}, n_min={stage_density_min:.6e}, "
-                f"Te_min={stage_Te_min:.6e}, Ti_min={stage_Ti_min:.6e}",
-                f"invalid-{time_integrator}-stage",
-                f"invalid {time_integrator} stage after step {step}",
-            )
-        if gmres_failed_host:
-            stage_text = ", ".join(
-                (
-                    f"{name}:iters={int(values[0])},"
-                    f"relres={values[1]:.3e},accepted={bool(values[3] > 0.5)}"
-                )
-                for name, values in zip(
-                    ("imex1", "stage2-base", "imex2", "next"),
-                    gmres_stage_diagnostics_host,
-                    strict=True,
-                )
-            )
-            fail_step(
-                f"[diagnostics] step={step} rejected phi inversion: "
-                f"{stage_text}; state={state_diagnostics}",
-                "unaccepted-phi-inversion",
-                f"unaccepted phi inversion after step {step}",
-            )
-        density_finite = np.isfinite(density_min) and np.isfinite(density_max)
-        temperature_finite = all(
-            np.isfinite(value) for value in (Te_min, Te_max, Ti_min, Ti_max)
-        )
-        if not density_finite or not temperature_finite:
-            fail_step(
-                f"[diagnostics] step={step} nonfinite: {state_diagnostics}",
-                "nonfinite-eb-state",
-                f"nonfinite EB state after step {step}",
-            )
-        if density_min <= 0.0 or temperature_min <= 0.0:
-            fail_step(
-                f"[diagnostics] step={step} positivity failure: "
-                f"{state_diagnostics}",
-                "nonpositive-eb-state",
-                f"nonpositive density/temperature after step {step}: "
-                f"n_min={density_min:.6e}, T_min={temperature_min:.6e}",
-            )
+        if failure is not None:
+            message, reason, error = failure
+            print(message, flush=True)
+            _print_rk_stage_diagnostics(field_names, rk_stage_diagnostics_host)
+            save_snapshot(current_time, current_time, step, failure_reason=reason)
+            raise FloatingPointError(error)
         inspection_host = None
         snapshot_due = (
             next_snapshot < len(snapshot_schedule)
@@ -3284,141 +3402,14 @@ def run_full_eb(
         else:
             print(line, flush=True)
 
-    def neutral_output() -> dict[str, np.ndarray]:
-        mfp, kn_cell, kn_grad = jax.jit(
-            lambda n, te, ti, nn, tn: fci_neutrals.knudsen_map(n, te, ti, nn, neutral_grid, neutrals, tn)
-        )(state.density, state.Te, state.Ti, neutral_density, neutral_temperature)
-        kn_grad = np.asarray(kn_grad)
-        fractions = [float(np.mean(kn_grad < 0.1)), float(np.mean((kn_grad >= 0.1) & (kn_grad < 1.0))), float(np.mean(kn_grad >= 1.0))]
-        print(
-            "[neutrals] Knudsen (mfp / min(L_N, L_n)) fractions of cells: "
-            f"diffusive<0.1={fractions[0]:.3f}, transitional={fractions[1]:.3f}, kinetic>=1={fractions[2]:.3f}, "
-            f"fluid-valid<0.3={float(np.mean(kn_grad < 0.3)):.3f}; "
-            f"mfp in [{float(np.min(mfp)):.3e}, {float(np.max(mfp)):.3e}] m; "
-            f"mfp/cell in [{float(np.min(kn_cell)):.2e}, {float(np.max(kn_cell)):.2e}]; "
-            f"cumulative electron energy loss={cumulative_sinks[0]:.6e}, wall={cumulative_sinks[1]:.6e}",
-            flush=True,
-        )
-        return {
-            "neutral_density": np.stack(neutral_history[0], axis=0),
-            "neutral_velocity": np.stack(neutral_history[1], axis=0),
-            "neutral_temperature": np.stack(neutral_history[2], axis=0),
-            "neutral_ionisation_rate": np.asarray(materialized_owner_array(ionisation_field), dtype=np.float64),
-            "neutral_mean_free_path": np.asarray(mfp, dtype=np.float64),
-            "neutral_knudsen_cell": np.asarray(kn_cell, dtype=np.float64),
-            "neutral_knudsen_gradient": kn_grad,
-            "neutral_ledger": np.asarray(neutral_rows, dtype=np.float64).reshape(-1, 1 + len(ledger_columns) + 9),
-            "neutral_ledger_columns": np.asarray(
-                ("time", *ledger_columns, "nuclei_before", "plasma_energy_before",
-                 "neutral_energy_before", "nuclei_after", "plasma_energy_after", "neutral_energy_after",
-                 # the split's change of the wall ledger's (N, W_e, W_i) inventories (nan without sheath)
-                 "split_wall_particle_inventory", "split_wall_electron_energy_inventory",
-                 "split_wall_ion_energy_inventory")
-            ),
-            **(
-                {
-                    "recycling_ledger": np.asarray(recycling_rows, dtype=np.float64).reshape(
-                        -1, len(fci_neutrals.RECYCLING_LEDGER_COLUMNS)
-                    ),
-                    "recycling_ledger_columns": np.asarray(fci_neutrals.RECYCLING_LEDGER_COLUMNS),
-                }
-                if recycling is not None
-                else {}
-            ),
-        }
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         output_path,
         times=np.asarray(saved_times, dtype=np.float64),
-        u=np.asarray(global_geometry.grid.x.centers, dtype=np.float64),
-        v=np.asarray(global_geometry.grid.y.centers, dtype=np.float64),
-        theta=np.asarray(global_geometry.grid.y.centers, dtype=np.float64),
-        eta=np.asarray(global_geometry.grid.z.centers, dtype=np.float64),
-        jacobian=np.asarray(
-            global_geometry.cell_metric.J,
-            dtype=np.float64,
+        **_history_geometry_payload(
+            global_geometry, cell_positions, nfp, sharded_geometry, metadata, owner_host_geometry
         ),
-        **(
-            {
-                # These are output-only owner measures.  They let a
-                # login-node analyzer compare final production histories at
-                # fixed resolution without rebuilding geometry or replacing
-                # the production advance with a test-specific operator.
-                "owner_active": np.asarray(
-                    owner_host_geometry.topology.is_active_owner,
-                    dtype=bool,
-                ),
-                "owner_aggregate_volume": np.asarray(
-                    owner_host_geometry.aggregate_chart_volume,
-                    dtype=np.float64,
-                ),
-            }
-            if owner_host_geometry is not None
-            else {}
-        ),
-        Bmag=np.asarray(
-            global_geometry.cell_bfield.Bmag,
-            dtype=np.float64,
-        ),
-        B_contravariant=np.asarray(
-            global_geometry.cell_bfield.B_contra,
-            dtype=np.float64,
-        ),
-        cartesian=np.asarray(cell_positions, dtype=np.float64),
-        nfp=np.asarray(int(nfp), dtype=np.int32),
-        simulated_field_periods=np.asarray(int(nfp), dtype=np.int32),
-        toroidal_extent=np.asarray(2.0 * np.pi, dtype=np.float64),
-        shard_counts=np.asarray(sharded_geometry.shard_counts, dtype=np.int32),
-        periodic_axes=np.asarray(
-            metadata.get("periodic_axes", PERIODIC_AXES), dtype=bool
-        ),
-        axis_regular_axes=np.asarray(
-            metadata.get("axis_regular_axes", AXIS_REGULAR_AXES),
-            dtype=bool,
-        ),
-        topology=np.asarray(str(metadata.get("topology", "square"))),
-        coordinate_names_json=np.asarray(
-            json.dumps(
-                metadata.get(
-                    "coordinate_names", ("u", "v", "eta")
-                )
-            )
-        ),
-        logical_extents=np.asarray(
-            metadata.get(
-                "logical_extents", ((0.0, 1.0), (0.0, 1.0), (0.0, 2.0 * np.pi))
-            ),
-            dtype=np.float64,
-        ),
-        metric_mesh_shape=np.asarray(
-            metadata.get("metric_mesh_shape") or (-1, -1, -1),
-            dtype=np.int64,
-        ),
-        metric_radial_degree=np.asarray(
-            int(metadata.get("metric_radial_degree", -1)),
-            dtype=np.int64,
-        ),
-        metric_poloidal_modes=np.asarray(
-            int(metadata.get("metric_poloidal_modes", -1)),
-            dtype=np.int64,
-        ),
-        metric_toroidal_modes=np.asarray(
-            int(metadata.get("metric_toroidal_modes", -1)),
-            dtype=np.int64,
-        ),
-        eta_projection_iterations=np.asarray(
-            int(metadata.get("eta_projection_iterations", -1)),
-            dtype=np.int64,
-        ),
-        parallel_operator_scheme=np.asarray(
-            str(metadata.get("parallel_operator_scheme", parallel_operator_scheme))
-        ),
-        fci_trace_substeps=np.asarray(
-            int(metadata.get("fci_trace_substeps", 4)),
-            dtype=np.int64,
-        ),
-        history_dtype=np.asarray(history_dtype),
+        history_dtype=np.asarray("float32"),
         **(
             {
                 "wall_ledger": np.asarray(wall_ledger_rows, dtype=np.float64),
@@ -3431,7 +3422,7 @@ def run_full_eb(
             name: np.stack(values, axis=0)
             for name, values in history.items()
         },
-        **(neutral_output() if neutrals is not None else {}),
+        **(neutral_stage.output(state) if neutral_stage is not None else {}),
         **(
             {
                 "em_energy": np.asarray(em_rows, dtype=np.float64),
@@ -3462,7 +3453,7 @@ def run_full_eb(
             flush=True,
         )
     print(
-        f"[simulation] average {time_integrator} GMRES iterations: "
+        f"[simulation] average {_TIME_INTEGRATOR} GMRES iterations: "
         f"{accumulated_gmres_iterations / num_steps:.2f} "
         f"({phi_solve_count} solves per timestep)",
         flush=True,
@@ -3474,6 +3465,7 @@ def run_full_eb(
         flush=True,
     )
     return materialized_state(state)
+
 
 
 def _parallel_characteristic_wall_metadata() -> dict[str, object]:
@@ -3838,7 +3830,6 @@ def run(
         periodic_axes=descriptor.periodic_axes,
         axis_regular_axes=descriptor.axis_regular_axes,
     )
-    control_volume_field_count = RLP_PACKED_FIELD_COUNT
     owner_host_geometry = simulation_geometry.polar_angular_geometry
     # None when the topology stage checkpoint was reused (the ratio is not stored)
     angular_profile_safety_ratio = float(
@@ -4125,8 +4116,6 @@ def run(
             args.gmres_residual_correction_steps
         ),
         gmres_preconditioner=str(args.gmres_preconditioner),
-        parallel_operator_scheme="fci",
-        time_integrator="imex-ssp222",
         advance_execution=str(args.advance_execution),
         num_steps=int(args.num_steps),
         timestep=timestep,
@@ -4307,7 +4296,6 @@ def run(
         control_volume_fields_host=control_volume_fields,
         control_volume_boundary_bc=control_volume_boundary_bc,
         control_volume_assembler=control_volume_assembler,
-        control_volume_field_count=control_volume_field_count,
         owner_host_geometry=owner_host_geometry,
     )
 

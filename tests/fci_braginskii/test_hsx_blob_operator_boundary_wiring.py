@@ -72,15 +72,12 @@ def test_build_local_model_materializes_layer_paired_h2_weights(monkeypatch):
     domain = SimpleNamespace(
         mesh_axis_names=(None, None, None),
         periodic_axes=(False, True, True),
-        axis_regular_axes=(False, False, False),
+        axis_regular_axes=(True, False, False),
     )
+    monkeypatch.setattr(driver, "make_default_topology_halo_filler_3d", lambda **kwargs: None)
     monkeypatch.setattr(
         driver, "build_local_perp_laplacian_face_projectors",
         lambda *args, **kwargs: (),
-    )
-    monkeypatch.setattr(
-        driver, "build_local_curvature_face_coefficients",
-        lambda *args, **kwargs: SimpleNamespace(),
     )
     monkeypatch.setattr(
         driver, "LocalFciDrbEBRhs", lambda **kwargs: SimpleNamespace(**kwargs)
@@ -97,6 +94,7 @@ def test_build_local_model_materializes_layer_paired_h2_weights(monkeypatch):
         gmres_target_tolerance=1.0e-8,
         gmres_acceptance_tolerance=1.0e-8,
         gmres_max_iterations=4,
+        curvature_face_coefficients_override=SimpleNamespace(),
     )
     filler = model.physical_ghost_filler
     dirichlet = filler.dirichlet[0]
