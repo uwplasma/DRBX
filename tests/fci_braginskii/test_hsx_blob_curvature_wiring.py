@@ -80,14 +80,14 @@ def test_hsx_imex_returns_replicated_solvax_diagnostics():
     assert "info.num_steps" in source
     assert "info.final_residual_rel_l2" in source
     assert "info.failed" in source
-    assert "gmres_info_2" in run_source
-    assert "gmres_info_next" in run_source
+    assert "gmres_info_2" in source
+    assert "gmres_info_next" in source
     assert "gmres_stage_diagnostics" in run_source
     assert "gmres_iterations =" in run_source
     assert "replicated_spec" in run_source
     assert "gmres_iterations=gmres_iterations_host" in run_source
     assert "gmres_relative_residual=gmres_relative_residual_host" in run_source
-    assert "rejected phi inversion" in run_source
+    assert "rejected phi inversion" in source
     assert "gmres-iters(avg4)=" in source
     assert "gmres-relres(max4)=" in source
 
@@ -110,3 +110,48 @@ def test_full_eb_keeps_centered_conservative_compatibility_mode():
     assert helper_source is not None
     assert "local_curvature_conservative_op(" in helper_source
     assert 'inflow_closure="equilibrium"' not in helper_source
+
+
+def test_step_failure_reports_the_first_rejected_property():
+    import numpy as np
+
+    from drbx.fci_braginskii import run
+
+    names = ("density", "phi", "Te", "Ti", "Vi", "Ve", "vorticity")
+    healthy = np.zeros((7, 3))
+    healthy[[0, 2, 3], 0], healthy[[0, 2, 3], 1] = 0.9, 1.1  # min, max of n, Te, Ti
+    stages = np.zeros((4, 7, 4))
+    stages[:, [0, 2, 3], 0] = 0.9
+    gmres = np.zeros((4, 6))
+
+    def failure(diagnostics=healthy, rk=stages, solves=gmres):
+        return run._step_failure(3, names, diagnostics, rk, solves, "state")
+
+    assert failure() is None
+    bad = stages.copy()
+    bad[1, 2, 0] = -1.0e-3
+    assert failure(rk=bad)[1] == "invalid-imex-ssp222-stage"
+    rejected = gmres.copy()
+    rejected[2, 2] = 1.0
+    assert failure(solves=rejected)[1] == "unaccepted-phi-inversion"
+    nonfinite = healthy.copy()
+    nonfinite[3, 1] = np.inf
+    assert failure(diagnostics=nonfinite)[1] == "nonfinite-eb-state"
+    negative = healthy.copy()
+    negative[0, 0] = 0.0
+    assert failure(diagnostics=negative)[1] == "nonpositive-eb-state"
+
+
+def test_wall_step_vector_pairs_applied_and_wall_face_increments():
+    import numpy as np
+
+    from drbx.fci_braginskii import run
+
+    ledger = np.arange(20.0)
+    step, applied, face = run._wall_step_vector(ledger, 0.5)
+    assert step.shape == (10,)
+    np.testing.assert_allclose(applied, 0.25 * (ledger[0:4] + ledger[8:12]))
+    np.testing.assert_allclose(face, 0.25 * (ledger[4:8] + ledger[12:16]))
+    np.testing.assert_allclose(step[0:8:2], applied)  # (applied, face) interleaved per conserved quantity
+    np.testing.assert_allclose(step[1:8:2], face)
+    np.testing.assert_allclose(step[8:], 0.25 * np.array([ledger[16] + ledger[17], ledger[18] + ledger[19]]))
