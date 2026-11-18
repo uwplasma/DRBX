@@ -18,7 +18,6 @@ from .dispersion import (
 )
 from .eigen import (
     LinearModes,
-    dominant_mode,
     eigenmodes,
     jacobian_operator,
 )
@@ -27,7 +26,6 @@ __all__ = [
     "LinearModes",
     "jacobian_operator",
     "eigenmodes",
-    "dominant_mode",
     "shear_alfven_operator",
     "shear_alfven_frequency",
     "resistive_drift_wave_operator",

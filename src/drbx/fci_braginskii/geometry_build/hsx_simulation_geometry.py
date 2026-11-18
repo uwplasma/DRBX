@@ -1047,25 +1047,9 @@ def build_hsx_simulation_geometry(
         raise
 
 
-def validate_hsx_simulation_geometry(geometry: Any) -> Mapping[str, Any]:
-    """Apply the frozen HSX producer qualification contract."""
-
-    _, _, validator, _ = _artifact_api()
-    shape = tuple(int(value) for value in geometry.global_geometry.shape)
-    closure_tolerance = OVERLAP_CLOSURE_TOLERANCE
-    return validator(
-        geometry,
-        require_vertex_traces=True,
-        require_owner_overlap=True,
-        closure_tolerance=closure_tolerance,
-        require_trace_qualification=False,
-    )
-
-
 __all__ = [
     "HsxSimulationGeometryConfig",
     "TRACE_SUBSTEPS",
     "OVERLAP_CLOSURE_TOLERANCE",
     "build_hsx_simulation_geometry",
-    "validate_hsx_simulation_geometry",
 ]
