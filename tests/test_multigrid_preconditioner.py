@@ -165,7 +165,7 @@ def _smooth_neumann_exact(geometry) -> jnp.ndarray:
     return radial_envelope * jnp.cos(float(M) * theta) * jnp.sin(float(N) * phi)
 
 
-def _passing_reference_build_perp_laplacian_mg_hierarchy_builds_regular_face_levels() -> None:
+def test_build_perp_laplacian_mg_hierarchy_builds_regular_face_levels() -> None:
     geometry = build_test_fci_geometry((17, 16, 16), rho_min=0.2, construct_fci_maps=False)
     face_bc = _make_dirichlet_face_bc(geometry)
     hierarchy = _make_hierarchy(geometry, face_bc, max_levels=3)
@@ -185,7 +185,7 @@ def _passing_reference_build_perp_laplacian_mg_hierarchy_builds_regular_face_lev
         assert coarse_level.face_projectors[2].shape == coarse_level.regular_face_geometry.z_area.shape + (3, 3)
 
 
-def _passing_reference_mg_apply_preconditioner_returns_finite_same_shape_values() -> None:
+def test_mg_apply_preconditioner_returns_finite_same_shape_values() -> None:
     geometry = build_test_fci_geometry((9, 8, 8), rho_min=0.2, construct_fci_maps=False)
     hierarchy = _make_hierarchy(geometry, _make_dirichlet_face_bc(geometry), max_levels=2)
     rhs = jax.random.normal(jax.random.PRNGKey(0), geometry.shape, dtype=jnp.float64)
@@ -196,7 +196,7 @@ def _passing_reference_mg_apply_preconditioner_returns_finite_same_shape_values(
     assert bool(jnp.all(jnp.isfinite(correction)))
 
 
-def _passing_reference_multigrid_preconditioner_is_linear_on_regular_faces() -> None:
+def test_multigrid_preconditioner_is_linear_on_regular_faces() -> None:
     geometry = build_test_fci_geometry((9, 8, 8), rho_min=0.2, construct_fci_maps=False)
     hierarchy = _make_hierarchy(geometry, _make_dirichlet_face_bc(geometry), max_levels=2)
     key1, key2 = jax.random.split(jax.random.PRNGKey(1))
@@ -211,7 +211,7 @@ def _passing_reference_multigrid_preconditioner_is_linear_on_regular_faces() -> 
     np.testing.assert_allclose(lhs, rhs, rtol=1.0e-11, atol=1.0e-11)
 
 
-def _passing_reference_dirichlet_preconditioner_correction_zeroes_dirichlet_adjacent_planes() -> None:
+def test_dirichlet_preconditioner_correction_zeroes_dirichlet_adjacent_planes() -> None:
     geometry = build_test_fci_geometry((9, 8, 8), rho_min=0.2, construct_fci_maps=False)
     hierarchy = _make_hierarchy(geometry, _make_dirichlet_face_bc(geometry), max_levels=2)
     rhs = jax.random.normal(jax.random.PRNGKey(2), geometry.shape, dtype=jnp.float64)
@@ -222,7 +222,7 @@ def _passing_reference_dirichlet_preconditioner_correction_zeroes_dirichlet_adja
     np.testing.assert_allclose(correction[-1], 0.0, rtol=0.0, atol=1.0e-14)
 
 
-def _passing_reference_neumann_preconditioner_correction_is_weighted_mean_zero() -> None:
+def test_neumann_preconditioner_correction_is_weighted_mean_zero() -> None:
     geometry = build_test_fci_geometry((9, 8, 8), rho_min=0.2, construct_fci_maps=False)
     hierarchy = _make_hierarchy(geometry, _make_neumann_face_bc(geometry), max_levels=2)
     rhs = jax.random.normal(jax.random.PRNGKey(3), geometry.shape, dtype=jnp.float64)
@@ -234,7 +234,7 @@ def _passing_reference_neumann_preconditioner_correction_is_weighted_mean_zero()
     assert abs(float(_weighted_mean(correction, geometry))) < 1.0e-12
 
 
-def _passing_reference_one_v_cycle_reduces_dirichlet_residual_for_smooth_error() -> None:
+def test_one_v_cycle_reduces_dirichlet_residual_for_smooth_error() -> None:
     geometry = build_test_fci_geometry((9, 8, 8), rho_min=0.2, construct_fci_maps=False)
     hierarchy = _make_hierarchy(geometry, _make_dirichlet_face_bc(geometry), max_levels=2)
     level0 = hierarchy.levels[0]
@@ -250,7 +250,7 @@ def _passing_reference_one_v_cycle_reduces_dirichlet_residual_for_smooth_error()
     assert final_norm < initial_norm
 
 
-def _passing_reference_preconditioned_gmres_accepts_multigrid_hierarchy_on_discrete_mms() -> None:
+def test_preconditioned_gmres_accepts_multigrid_hierarchy_on_discrete_mms() -> None:
     pytest.importorskip("lineax")
 
     geometry = build_test_fci_geometry((9, 8, 8), rho_min=0.2, construct_fci_maps=False)
@@ -279,7 +279,7 @@ def _passing_reference_preconditioned_gmres_accepts_multigrid_hierarchy_on_discr
     assert float(jnp.linalg.norm(residual)) / (float(jnp.linalg.norm(rhs)) + 1.0e-30) < 1.0e-6
 
 
-def _passing_reference_build_hierarchy_rejects_nonempty_cut_wall_payloads() -> None:
+def test_build_hierarchy_rejects_nonempty_cut_wall_payloads() -> None:
     geometry = build_test_fci_geometry((9, 8, 8), rho_min=0.2, construct_fci_maps=False)
     face_bc = _make_dirichlet_face_bc(geometry)
     cut_wall_geometry = CutWallGeometry3D(
@@ -522,8 +522,6 @@ def test_diagnostic_shifted_torus_preconditioned_gmres_comparison() -> None:
 
 if __name__ == "__main__":
     tests = [
-        # The earlier green tests are kept above as _passing_reference_* helpers,
-        # but are intentionally not run here while diagnosing shifted-torus MG.
         test_diagnostic_shifted_torus_dirichlet_vcycle_residual_ratio,
         test_diagnostic_shifted_torus_neumann_vcycle_residual_ratio,
         test_diagnostic_shifted_torus_coarse_operator_restriction_defects,
