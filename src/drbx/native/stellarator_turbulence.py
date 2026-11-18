@@ -27,7 +27,8 @@ Used by ``tests/test_stellarator_turbulence.py`` and
 
 from __future__ import annotations
 
-from typing import NamedTuple
+import time
+from typing import Callable, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -67,6 +68,7 @@ __all__ = [
     "SHEATH_DENSITY_FLOOR",
     "FourFieldBoundaryConditions",
     "TurbulenceRun",
+    "advance_checked",
     "apply_sheath_sink",
     "build_free_decay_boundary_conditions",
     "build_four_field_phi_solver",
@@ -234,7 +236,7 @@ def apply_sheath_sink(
     dt: float,
     *,
     temperature: float = TEMPERATURE,
-) -> tuple[Fci4FieldState, float]:
+) -> tuple[Fci4FieldState, jnp.ndarray]:
     """Bohm sheath density sink on the open-endpoint cells (explicit Euler).
 
     Returns the drained state and the total ion particle loss rate of the
@@ -249,7 +251,58 @@ def apply_sheath_sink(
         v_ion_parallel=state.v_ion_parallel,
         v_electron_parallel=state.v_electron_parallel,
     )
-    return drained, float(sheath.total_ion_particle_loss)
+    return drained, sheath.total_ion_particle_loss
+
+
+def _state_is_valid(state: Fci4FieldState, phi: jnp.ndarray) -> jnp.ndarray:
+    fields = [value for _name, value in state.field_items()] + [phi]
+    finite = jnp.all(jnp.stack([jnp.all(jnp.isfinite(field)) for field in fields]))
+    return finite & (jnp.min(state.density) > 0.0)
+
+
+def advance_checked(
+    step: Callable[[Fci4FieldState, jnp.ndarray], tuple[Fci4FieldState, jnp.ndarray]],
+    state: Fci4FieldState,
+    phi: jnp.ndarray,
+    steps: jnp.ndarray | int,
+) -> tuple[Fci4FieldState, jnp.ndarray, jnp.ndarray]:
+    """Take up to ``steps`` steps of ``step(state, phi) -> (state, phi)`` in one ``while_loop``.
+
+    The loop stops at the first step whose result has a non-finite field or a
+    non-positive density and returns the last valid state, its potential and
+    the number of steps completed. ``steps`` may be traced, so one compiled
+    chunk serves every chunk length. Jit it and compare the count with
+    ``steps`` on the host to detect a failure.
+    """
+
+    def cond(carry):
+        done, _state, _phi, ok = carry
+        return ok & (done < steps)
+
+    def body(carry):
+        done, current, current_phi, _ok = carry
+        candidate, candidate_phi = step(current, current_phi)
+        ok = _state_is_valid(candidate, candidate_phi)
+        keep = lambda new, old: jnp.where(ok, new, old)  # noqa: E731
+        return (done + ok.astype(done.dtype), jax.tree_util.tree_map(keep, candidate, current),
+                keep(candidate_phi, current_phi), ok)
+
+    done, state, phi, _ok = jax.lax.while_loop(cond, body, (jnp.asarray(0), state, phi, jnp.asarray(True)))
+    return state, phi, done
+
+
+def _summary(state: Fci4FieldState) -> str:
+    return (f"min n = {float(jnp.min(state.density)):.3e}, max|omega| = {float(jnp.max(jnp.abs(state.omega))):.3e}, "
+            f"max|V_e| = {float(jnp.max(jnp.abs(state.v_electron_parallel))):.3e}")
+
+
+def _invalid_step_message(last_valid: Fci4FieldState, failed: Fci4FieldState, failed_phi: jnp.ndarray,
+                          step_index: int, dt: float) -> str:
+    fields = [*failed.field_items(), ("phi", failed_phi)]
+    bad = [name for name, field in fields if not bool(jnp.all(jnp.isfinite(field)))]
+    reason = f"non-finite {', '.join(bad)}" if bad else f"min density {float(jnp.min(failed.density)):.3e} <= 0"
+    return (f"four-field run stopped at step {step_index} (t = {step_index * dt:.6g}, dt = {dt:.3g}): {reason}. "
+            f"Last valid step: {_summary(last_valid)}. Reduce dt.")
 
 
 def multi_mode_state(
@@ -318,18 +371,21 @@ def run_stellarator_turbulence(geometry: FciGeometry3D, *, steps: int, dt: float
     phi_guess = jnp.zeros(geometry.shape, dtype=jnp.float64)
     density_frames, omega_frames, times, content, flux = [], [], [], [], []
 
-    # The whole RK4 step (four RHS evaluations, each with a GMRES phi
-    # inversion) is sync-free, so compile it once and run it as a single
-    # XLA program.
-    jitted_step = jax.jit(
-        lambda current, guess: four_field_rk4_step(
+    def step(current, guess):
+        # The whole RK4 step (four RHS evaluations, each with a GMRES phi
+        # inversion) and the sheath sink are sync-free.
+        current, guess = four_field_rk4_step(
             current, geometry=geometry, timestep=dt, parameters=parameters,
             curvature_coefficients=curvature, stencil_builder=stencil_builder,
             conservative_stencil_builder=conservative_builder,
             boundary_conditions=boundary_conditions, phi_face_projectors=projectors,
             phi_inverse_solver=phi_solver, phi_guess=guess, electromagnetic=closure,
         )
-    )
+        return (apply_sheath_sink(current, geometry, dt)[0], guess) if sheath_sink else (current, guess)
+
+    # One compiled chunk of up to frame_stride steps; between chunks the host
+    # checks the step count, records a frame and prints progress.
+    chunk = jax.jit(lambda current, guess, count: advance_checked(step, current, guess, count))
     apar_frames, energies = [], []
 
     def record(step_index, current):
@@ -351,12 +407,21 @@ def run_stellarator_turbulence(geometry: FciGeometry3D, *, steps: int, dt: float
             energies.append([float(e) for e in em_energies(closure, current, phi, apar, jacobian)])
 
     record(0, state)
-    for step_index in range(1, steps + 1):
-        state, phi_guess = jitted_step(state, phi_guess)
-        if sheath_sink:
-            state, _loss = apply_sheath_sink(state, geometry, dt)
-        if step_index % frame_stride == 0 or step_index == steps:
-            record(step_index, state)
+    start, last_print, step_index = time.perf_counter(), 0.0, 0
+    while step_index < steps:
+        count = min(frame_stride, steps - step_index)
+        state_next, phi_next, done = chunk(state, phi_guess, count)
+        if int(done) < count:
+            failed, failed_phi = jax.jit(step)(state_next, phi_next)
+            raise FloatingPointError(_invalid_step_message(state_next, failed, failed_phi,
+                                                           step_index + int(done) + 1, dt))
+        state, phi_guess, step_index = state_next, phi_next, step_index + count
+        record(step_index, state)
+        elapsed = time.perf_counter() - start
+        if step_index in (count, steps) or elapsed - last_print >= 10.0:
+            print(f"[turbulence] step {step_index}/{steps} t = {step_index * dt:.4g} {_summary(state)} "
+                  f"({elapsed:.1f} s)", flush=True)
+            last_print = elapsed
 
     return TurbulenceRun(np.stack(density_frames), np.stack(omega_frames),
                          np.asarray(times), np.asarray(content), np.asarray(flux),
