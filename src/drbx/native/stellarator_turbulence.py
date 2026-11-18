@@ -195,37 +195,23 @@ def four_field_rk4_step(
         electromagnetic=electromagnetic,
     )
 
-    rhs_1, _timings, phi_1 = compute_4field_blob_rhs(state, phi_guess=phi_guess, **common_kwargs)
-    k1 = rhs_1.rhs
-    stage_1 = state.axpy(k1, scale=0.5 * timestep)
+    # The four stages run in a fori_loop so the RHS and its GMRES solve are
+    # traced once, and on GPU compiled once. XLA:CPU compiles the rolled loop
+    # 4x slower with 4x the memory at 24x32x16 (272 s, 26 GB), so it is
+    # unrolled there.
+    stage_offset = jnp.array([0.5, 0.5, 1.0, 0.0])
+    stage_weight = jnp.array([1.0, 2.0, 2.0, 1.0]) / 6.0
 
-    rhs_2, _timings, phi_2 = compute_4field_blob_rhs(stage_1, phi_guess=phi_1, **common_kwargs)
-    k2 = rhs_2.rhs
-    stage_2 = state.axpy(k2, scale=0.5 * timestep)
+    def stage(index, carry):
+        stage_state, increment, guess = carry
+        rhs, _timings, phi = compute_4field_blob_rhs(stage_state, phi_guess=guess, **common_kwargs)
+        return (state.axpy(rhs.rhs, scale=stage_offset[index] * timestep),
+                increment.axpy(rhs.rhs, scale=stage_weight[index]), phi)
 
-    rhs_3, _timings, phi_3 = compute_4field_blob_rhs(stage_2, phi_guess=phi_2, **common_kwargs)
-    k3 = rhs_3.rhs
-    stage_3 = state.axpy(k3, scale=timestep)
-
-    rhs_4, _timings, phi_4 = compute_4field_blob_rhs(stage_3, phi_guess=phi_3, **common_kwargs)
-    k4 = rhs_4.rhs
-
-    increment = Fci4FieldState(
-        density=(k1.density + 2.0 * k2.density + 2.0 * k3.density + k4.density) / 6.0,
-        omega=(k1.omega + 2.0 * k2.omega + 2.0 * k3.omega + k4.omega) / 6.0,
-        v_ion_parallel=(
-            k1.v_ion_parallel + 2.0 * k2.v_ion_parallel + 2.0 * k3.v_ion_parallel + k4.v_ion_parallel
-        )
-        / 6.0,
-        v_electron_parallel=(
-            k1.v_electron_parallel
-            + 2.0 * k2.v_electron_parallel
-            + 2.0 * k3.v_electron_parallel
-            + k4.v_electron_parallel
-        )
-        / 6.0,
-    )
-    return state.axpy(increment, scale=timestep), phi_4
+    guess = jnp.zeros_like(state.density) if phi_guess is None else phi_guess
+    unroll = 4 if jax.default_backend() == "cpu" else 1
+    _stage, increment, phi = jax.lax.fori_loop(0, 4, stage, (state, state.zeros_like(), guess), unroll=unroll)
+    return state.axpy(increment, scale=timestep), phi
 
 
 def apply_sheath_sink(
