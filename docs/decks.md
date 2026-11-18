@@ -324,7 +324,7 @@ Density, vorticity and parallel velocities with a GMRES potential inversion on a
 | `physics.ampere_iterations` | `int` | `2` | Defect-correction passes for the density variation (one pass is exact for uniform density). |
 | `physics.ampere_tol` | `float` | `1e-08` | Relative residual of each Ampere solve. |
 | `run.steps` | `int` | `required` | Number of RK4 steps (required). (steps) |
-| `run.dt` | `float` | `required` | RK4 time step (required). (time) |
+| `run.dt` | `float` | `required` | Largest RK4 time step (required); capped before every frame at the explicit limit of the current state (parallel electron wave, E x B, diffusion). (time) |
 | `run.amplitude` | `float` | `0.08` | Peak relative density perturbation of the seeded multi-mode state. |
 | `run.seed` | `int` | `0` | RNG seed of the initial noise (Hasegawa-Wakatani) or of the seeded mode phases (turbulence). |
 | `run.sheath_sink` | `bool` | `False` | Drain the open (SOL) endpoints with the Bohm sheath sink each step. |

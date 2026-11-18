@@ -13,7 +13,7 @@ sigma = 0.0             # poloidal shear; non-zero breaks axisymmetry
 
 [run]
 steps = 4               # RK4 steps
-dt = 1.0e-3             # normalized time step (limited by the fastest parallel wave)
+dt = 1.0e-3             # largest normalized time step; the run caps it at the parallel electron wave limit
 amplitude = 0.08        # peak relative density seed
 
 [output]

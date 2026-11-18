@@ -79,6 +79,7 @@ def test_checked_advance_stops_at_the_first_invalid_step() -> None:
     assert np.allclose(final.density, 0.2) and np.allclose(phi, 2.0)
 
 
-def test_driver_reports_the_failing_step() -> None:
-    with pytest.raises(FloatingPointError, match=r"stopped at step \d+ .*Reduce dt"):
-        run_stellarator_turbulence(build_rotating_ellipse_geometry((6, 8, 4)), steps=4, dt=0.5, seed=1)
+def test_driver_caps_dt_at_the_explicit_limit(capsys) -> None:
+    run = run_stellarator_turbulence(build_rotating_ellipse_geometry((6, 8, 4)), steps=3, dt=0.5, seed=1)
+    assert "RK4 limits: parallel electron wave" in capsys.readouterr().out
+    assert 0.0 < run.times[-1] < 0.5 and np.all(np.isfinite(run.density_frames))
