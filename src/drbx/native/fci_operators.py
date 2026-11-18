@@ -6,6 +6,7 @@ from typing import Literal
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from solvax import gmres as solvax_gmres
 from solvax.implicit import linear_solve as solvax_linear_solve
@@ -2934,6 +2935,52 @@ def mg_apply_preconditioner(rhs: jnp.ndarray, hierarchy: PerpLaplacianMgHierarch
     return _mg_vcycle(0, jnp.zeros_like(rhs_values), rhs_values, hierarchy)
 
 
+def build_plane_block_preconditioner(
+    apply_operator,
+    shape: tuple[int, int, int],
+    *,
+    max_factor_bytes: float = 2.0e9,
+):
+    """Exact solves of the toroidal-plane blocks of a linear operator, as a flat preconditioner.
+
+    The perpendicular Laplacian of a field-aligned grid couples cells within a
+    toroidal (z) plane strongly and across planes only weakly, so the block
+    diagonal of one dense LU per plane is a near inverse: GMRES then needs 3-4
+    iterations independent of the grid. The blocks are probed once, colouring
+    planes with a stride that divides ``nz`` (at least 3, so only planes
+    k +- 1 can couple). The factors take 8 nz (nx ny)^2 bytes (24x32x16: 75 MB,
+    32^3: 268 MB); this returns ``None`` above ``max_factor_bytes``. Jit the
+    step with ``jit_with_array_arguments`` so they are passed as arguments
+    instead of compiled in as constants.
+    """
+
+    nx, ny, nz = (int(v) for v in shape)
+    plane = nx * ny
+    if 8.0 * nz * plane * plane > max_factor_bytes:
+        return None
+    stride = next(s for s in range(min(3, nz), nz + 1) if nz % s == 0)
+    probe = jax.jit(jax.vmap(apply_operator))
+    blocks = np.zeros((nz, plane, plane))
+    for colour in range(stride):
+        planes = np.arange(colour, nz, stride)
+        for start in range(0, plane, 256):
+            columns = np.arange(start, min(plane, start + 256))
+            basis = np.zeros((columns.size, nx, ny, nz))
+            ix, iy = np.unravel_index(columns, (nx, ny))
+            basis[np.arange(columns.size)[:, None], ix[:, None], iy[:, None], planes[None, :]] = 1.0
+            response = np.asarray(probe(jnp.asarray(basis)))
+            for k in planes:
+                blocks[k][:, columns] = response[..., k].reshape(columns.size, plane).T
+    factors = jax.vmap(jax.scipy.linalg.lu_factor)(jnp.asarray(blocks))
+    solve_planes = jax.vmap(jax.scipy.linalg.lu_solve, in_axes=((0, 0), 0))
+
+    def precondition(flat: jnp.ndarray) -> jnp.ndarray:
+        planes_first = jnp.moveaxis(jnp.reshape(flat, shape), 2, 0).reshape(nz, plane)
+        return jnp.ravel(jnp.moveaxis(solve_planes(factors, planes_first).reshape(nz, nx, ny), 0, 2))
+
+    return precondition
+
+
 class PerpLaplacianInverseSolver:
     """Reusable Lineax solve adapter for repeated perpendicular-Laplacian inversions.
 
@@ -3009,6 +3056,9 @@ class PerpLaplacianInverseSolver:
                         f"got {self.pin_point} for shape {self.geometry.shape}"
                     )
         self.mg_hierarchy = mg_hierarchy
+        # Optional right preconditioner on the flattened field (see
+        # build_plane_block_preconditioner); set it before the first solve.
+        self.plane_preconditioner = None
         self.gmres_debug = bool(gmres_debug)
         self.check_residual = bool(check_residual)
         self.stagnation_iters = int(stagnation_iters)
@@ -3074,7 +3124,7 @@ class PerpLaplacianInverseSolver:
         def matvec(flat: jnp.ndarray) -> jnp.ndarray:
             return jnp.ravel(apply_A(jnp.reshape(flat, shape)))
 
-        precond = None
+        precond = self.plane_preconditioner
         if self.mg_hierarchy is not None:
             def precond(flat: jnp.ndarray) -> jnp.ndarray:
                 return jnp.ravel(mg_apply_preconditioner(jnp.reshape(flat, shape), self.mg_hierarchy))
@@ -3529,7 +3579,11 @@ class PerpLaplacianInverseSolver:
                 self._mg_validated_bc_ids.add(bc_key)
         if not return_diagnostics and not self.check_residual and not self.gmres_debug:
             # Hot-loop path: phi only, no diagnostic matvecs, no host syncs.
-            # Safe to call from inside jit-compiled code.
+            # Inside an outer jit, trace the body directly: a nested jit of
+            # this bound method would compile the solver's arrays in as
+            # constants instead of letting the caller pass them in.
+            if isinstance(rhs, jax.core.Tracer):
+                return self._solve_fast_impl(rhs, phi_guess, face_bc, cut_wall_bc, throw)
             return self._solve_fast_jit(rhs, phi_guess, face_bc, cut_wall_bc, throw)
         (
             phi,

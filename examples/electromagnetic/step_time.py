@@ -18,7 +18,8 @@ from drbx.native.electromagnetic import EmPhysics, build_fci_em_closure
 from drbx.native.fci_4_field_rhs import Fci4FieldBlobParameters
 from drbx.native.fci_operators import build_perp_laplacian_face_projectors
 from drbx.native.stellarator_turbulence import (
-    build_four_field_phi_solver, build_free_decay_boundary_conditions, four_field_rk4_step, multi_mode_state,
+    build_four_field_phi_solver, build_free_decay_boundary_conditions, four_field_rk4_step, jit_with_array_arguments,
+    multi_mode_state,
 )
 
 jax.config.update("jax_enable_x64", True)
@@ -39,15 +40,16 @@ for shape in SHAPES:
     for electromagnetic in (False, True):
         closure = build_fci_em_closure(geometry, EmPhysics(electromagnetic=electromagnetic, beta=BETA),
                                        conservative_stencil_builder=conservative, face_projectors=projectors)
-        step = jax.jit(lambda state, guess: four_field_rk4_step(
-            state, geometry=geometry, timestep=DT, parameters=parameters,
-            curvature_coefficients=build_curvature_coefficients(geometry, periodic_axes=(False, True, True)),
-            stencil_builder=local, conservative_stencil_builder=conservative,
-            boundary_conditions=build_free_decay_boundary_conditions(geometry), phi_face_projectors=projectors,
-            phi_inverse_solver=build_four_field_phi_solver(geometry, parameters, conservative_stencil_builder=conservative,
-                                                           face_projectors=projectors),
-            phi_guess=guess, electromagnetic=closure))
+        curvature = build_curvature_coefficients(geometry, periodic_axes=(False, True, True))
+        boundary_conditions = build_free_decay_boundary_conditions(geometry)
+        phi_solver = build_four_field_phi_solver(geometry, parameters, conservative_stencil_builder=conservative,
+                                                 face_projectors=projectors)
         state, guess, times = multi_mode_state(geometry), jnp.zeros(shape), []
+        step = jit_with_array_arguments(lambda state, guess: four_field_rk4_step(
+            state, geometry=geometry, timestep=DT, parameters=parameters, curvature_coefficients=curvature,
+            stencil_builder=local, conservative_stencil_builder=conservative,
+            boundary_conditions=boundary_conditions, phi_face_projectors=projectors,
+            phi_inverse_solver=phi_solver, phi_guess=guess, electromagnetic=closure), state, guess)
         state, guess = jax.block_until_ready(step(state, guess))
         for _ in range(REPEATS):
             start = time.perf_counter()

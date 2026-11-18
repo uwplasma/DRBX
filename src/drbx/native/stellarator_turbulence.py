@@ -16,6 +16,8 @@ Public pieces, each reusable on its own:
   inverter used by the phi inversion;
 - :func:`four_field_rk4_step` -- one classic RK4 step of the four-field blob
   RHS (``compute_4field_blob_rhs``), carrying the phi guess between stages;
+- :func:`jit_with_array_arguments` -- ``jax.jit`` that passes the arrays a
+  step closes over (geometry, stencils, solver data) as runtime arguments;
 - :func:`multi_mode_state` -- the seeded multi-mode initial state;
 - :func:`run_stellarator_turbulence` -- the full loop, returning a
   :class:`TurbulenceRun` with frames and particle/sheath-flux traces.
@@ -27,6 +29,7 @@ Used by ``tests/test_stellarator_turbulence.py`` and
 
 from __future__ import annotations
 
+from functools import partial
 from typing import NamedTuple
 
 import jax
@@ -55,7 +58,11 @@ from .fci_boundaries import (
     CutWallGeometry3D,
     FourFieldBoundaryConditions,
 )
-from .fci_operators import PerpLaplacianInverseSolver, build_perp_laplacian_face_projectors
+from .fci_operators import (
+    PerpLaplacianInverseSolver,
+    build_perp_laplacian_face_projectors,
+    build_plane_block_preconditioner,
+)
 from .electromagnetic import EmPhysics, FciEmClosure, build_fci_em_closure, em_energies
 from .fci_sheath_recycling import compute_fci_sheath_recycling
 
@@ -71,6 +78,7 @@ __all__ = [
     "build_free_decay_boundary_conditions",
     "build_four_field_phi_solver",
     "four_field_rk4_step",
+    "jit_with_array_arguments",
     "multi_mode_state",
     "radial_dirichlet_face_bc",
     "radial_neumann_face_bc",
@@ -134,7 +142,7 @@ def build_four_field_phi_solver(
 ) -> PerpLaplacianInverseSolver:
     """GMRES inverter for the perpendicular Laplacian used by the phi inversion."""
 
-    return PerpLaplacianInverseSolver(
+    solver = PerpLaplacianInverseSolver(
         geometry,
         conservative_stencil_builder,
         tol=float(parameters.phi_inversion_tol),
@@ -157,6 +165,12 @@ def build_four_field_phi_solver(
         # check_residual=True.
         check_residual=False,
     )
+    # Plane-block preconditioner: the perpendicular Laplacian is nearly block
+    # diagonal over toroidal planes, so GMRES needs 3-4 iterations at any grid.
+    face_bc = radial_dirichlet_face_bc(geometry)
+    solver.plane_preconditioner = build_plane_block_preconditioner(
+        lambda phi: solver._apply_A(phi, face_bc, CutWallBC3D.empty(), False), geometry.shape)
+    return solver
 
 
 def four_field_rk4_step(
@@ -226,6 +240,32 @@ def four_field_rk4_step(
         / 6.0,
     )
     return state.axpy(increment, scale=timestep), phi_4
+
+
+def jit_with_array_arguments(fn, *example_args, min_size: int = 1024):
+    """``jax.jit(fn)`` with the floating-point arrays ``fn`` closes over passed as runtime arguments.
+
+    Plain ``jax.jit`` compiles the arrays a closure captures (geometry, metric
+    and solver data) into the program as constants: 19 M characters of HLO
+    for the four-field step at 24x32x16. Tracing once with ``example_args``
+    and evaluating that jaxpr under ``jax.jit`` makes the floating-point ones
+    with at least ``min_size`` entries arguments instead. Returns a
+    ``functools.partial`` of the jitted function over those arrays.
+    """
+
+    closed, out_shape = jax.make_jaxpr(fn, return_shape=True)(*example_args)
+    out_tree = jax.tree.structure(out_shape)
+    # Integer and boolean tables (stencil indices, masks) stay constants:
+    # passing them as arguments made the CPU step 1.6x slower at 24x32x16.
+    hoist = [jnp.issubdtype(jnp.result_type(c), jnp.floating) and jnp.size(c) >= min_size for c in closed.consts]
+    hoisted = [c for c, h in zip(closed.consts, hoist) if h]
+
+    def evaluate(values, *args):
+        values = iter(values)
+        consts = [next(values) if h else c for c, h in zip(closed.consts, hoist)]
+        return jax.tree.unflatten(out_tree, jax.core.eval_jaxpr(closed.jaxpr, consts, *jax.tree.leaves(args)))
+
+    return partial(jax.jit(evaluate), hoisted)
 
 
 def apply_sheath_sink(
@@ -321,14 +361,15 @@ def run_stellarator_turbulence(geometry: FciGeometry3D, *, steps: int, dt: float
     # The whole RK4 step (four RHS evaluations, each with a GMRES phi
     # inversion) is sync-free, so compile it once and run it as a single
     # XLA program.
-    jitted_step = jax.jit(
+    jitted_step = jit_with_array_arguments(
         lambda current, guess: four_field_rk4_step(
             current, geometry=geometry, timestep=dt, parameters=parameters,
             curvature_coefficients=curvature, stencil_builder=stencil_builder,
             conservative_stencil_builder=conservative_builder,
             boundary_conditions=boundary_conditions, phi_face_projectors=projectors,
             phi_inverse_solver=phi_solver, phi_guess=guess, electromagnetic=closure,
-        )
+        ),
+        state, phi_guess,
     )
     apar_frames, energies = [], []
 
