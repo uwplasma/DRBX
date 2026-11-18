@@ -69,6 +69,8 @@ from ...native.fci_sharding import (  # noqa: F401
     _uniform_axis_meta,
     _axis_slice,
     _lift_cell_halo_to_faces,
+    _empty_local_fci_maps,
+    _local_axis_grid,
 )
 from ...fci._shared import (  # noqa: F401  (definitions shared by both FCI families)
     _MESH_AXIS_NAMES,
@@ -288,31 +290,6 @@ def build_local_fci_geometries(
         axis_meta=axis_meta,
         map_fields=map_fields,
         maps_valid=maps_valid,
-    )
-
-
-def _empty_local_fci_maps(layout: HaloLayout3D) -> LocalFciMaps3D:
-    """Inactive local-halo-only FCI maps for models that use direct stencils."""
-
-    empty = LocalFciLocalDependencyTable(
-        target_flat=jnp.zeros((1,), dtype=jnp.int32),
-        source_i=jnp.zeros((1,), dtype=jnp.int32),
-        source_j=jnp.zeros((1,), dtype=jnp.int32),
-        source_k=jnp.zeros((1,), dtype=jnp.int32),
-        weight=jnp.zeros((1,), dtype=jnp.float64),
-        active=jnp.zeros((1,), dtype=bool),
-    )
-    direction = LocalFciDirectionMap(
-        layout=layout,
-        local=empty,
-        target_valid=jnp.ones(layout.owned_shape, dtype=bool),
-        connection_length=jnp.ones(layout.owned_shape, dtype=jnp.float64),
-    )
-    return LocalFciMaps3D(
-        layout=layout,
-        forward=direction,
-        backward=direction,
-        mode="local_halo_only",
     )
 
 
@@ -593,28 +570,6 @@ def _lower_local_fci_maps(
         forward=_direction("forward", +1),
         backward=_direction("backward", -1),
         mode=("remote_dependencies" if math.prod(domain.shard_spec.shard_counts) > 1 else "local_halo_only"),
-    )
-
-
-def _local_axis_grid(
-    layout: HaloLayout3D,
-    *,
-    axis: int,
-    meta: _UniformAxisMeta,
-    shard_id,
-) -> LocalGrid1D:
-    local_size = layout.owned_shape[axis]
-    h = layout.halo_width
-    start = jnp.asarray(shard_id, dtype=jnp.int32) * local_size
-    center_indices = start + jnp.arange(-h, local_size + h)
-    face_indices = start + jnp.arange(-h, local_size + h + 1)
-    return LocalGrid1D(
-        layout=layout,
-        axis=axis,
-        centers_halo=meta.center0 + center_indices * meta.spacing,
-        faces_halo=meta.face0 + face_indices * meta.spacing,
-        owned_start_global=0,
-        owned_stop_global=local_size,
     )
 
 
