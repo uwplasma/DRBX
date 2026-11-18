@@ -62,3 +62,19 @@ def test_turbulence_grows_closed_and_drains_open() -> None:
     closed_loss = closed.particle_content[0] - closed.particle_content[-1]
     open_loss = open_run.particle_content[0] - open_run.particle_content[-1]
     assert open_loss > 2.0 * max(closed_loss, 0.0)
+
+
+def test_jit_with_array_arguments_matches_jit_without_constants() -> None:
+    """Closed-over arrays become arguments of the compiled step; results match jax.jit."""
+
+    from drbx.native.stellarator_turbulence import jit_with_array_arguments
+
+    table = jax.numpy.asarray(np.linspace(0.0, 1.0, 4096))
+    fn = lambda x, y: (jax.numpy.sin(table) * x + table * y, table * y)  # noqa: E731
+    x, y = jax.numpy.ones(4096), jax.numpy.full(4096, 2.0)
+    hoisted = jit_with_array_arguments(fn, x, y)
+    for got, want in zip(hoisted(x, y), jax.jit(fn)(x, y)):
+        np.testing.assert_array_equal(np.asarray(got), np.asarray(want))
+    plain = jax.jit(fn).lower(x, y).as_text()
+    lowered = hoisted.func.lower(*hoisted.args, x, y).as_text()
+    assert len(lowered) < len(plain) / 10
