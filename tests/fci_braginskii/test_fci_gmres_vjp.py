@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -91,15 +93,13 @@ def test_float32_gradient_is_finite_and_close_to_finite_difference():
 
 @pytest.mark.slow
 @pytest.mark.parametrize("neutrals", [False, True])
-def test_driver_gradient_over_steps_matches_finite_difference_on_hsx_16_cubed(neutrals, tmp_path, monkeypatch):
+def test_driver_gradient_over_steps_matches_finite_difference_on_hsx_bundle(neutrals, tmp_path, monkeypatch):
     """``jax.grad`` through three steps of the production sharded advance against central differences,
     with and without the fluid neutrals (ionisation, charge exchange and the neutral solves on the tape).
 
     The advance is captured when the driver lowers it for the deck, so the diagnostic reductions of
     ``finalize_advance`` (``pmin``/``pmax``, cut from the tape with ``stop_gradient``) are on the path.
     """
-    from pathlib import Path
-
     from drbx.cli import main
 
     cap = {}
@@ -133,16 +133,13 @@ def test_driver_gradient_over_steps_matches_finite_difference_on_hsx_16_cubed(ne
         if getattr(f, "__name__", "") == "neutral_split_kernel":  # the split substep that follows each advance
             cap["split"] = f
             raise _Captured
-        return _JitSpy(f) if not (a or k) else real_jit(f, *a, **k)
+        return _JitSpy(f)  # the driver's ``_jit`` passes compiler_options
 
     monkeypatch.setattr(jax, "jit", jit_spy)
     deck = tmp_path / "hsx.toml"
     deck.write_text(
         '[model]\nbackend = "fci_braginskii"\n'
-        "[geometry]\nresolution = [16, 16, 16]\nmetric_mesh_shape = [16, 16, 16]\n"
-        "metric_poloidal_modes = 6\nmetric_toroidal_modes = 3\ntoroidal_modes = 3\n"
-        f'cache_dir = "{Path(__file__).resolve().parents[2] / "output" / "hsx_geometry"}"\n'
-        f'[fci_braginskii]\noutput = "{tmp_path / "hsx"}"\nfinal_time = 0.00075\nnum_steps = 1\n'
+        f'[fci_braginskii]\ngeometry = "{os.environ["DRBX_TEST_GEOMETRY_BUNDLE"]}"\noutput = "{tmp_path / "hsx"}"\nfinal_time = 0.00075\nnum_steps = 1\n'
         f"neutrals = {str(neutrals).lower()}\n"
     )
     with pytest.raises(_Captured):

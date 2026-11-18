@@ -213,7 +213,7 @@ def test_hsx_recycling_ledger_closes(tmp_path):
         np.testing.assert_allclose(rec["recycled_particles"], coefficient * wall, rtol=5e-3)
         np.testing.assert_allclose(rec["nuclei_change"], rec["nuclei_change_expected"], rtol=0, atol=5e-3 * wall.max())
         neutral = {name: data["neutral_ledger"][:, k] for k, name in enumerate(data["neutral_ledger_columns"])}
-        np.testing.assert_allclose(neutral["wall_influx"], rec["recycled_particles"], rtol=1e-12)
+        np.testing.assert_allclose(neutral["particle_source"], rec["recycled_particles"], rtol=1e-12)
 
 
 @pytest.mark.slow

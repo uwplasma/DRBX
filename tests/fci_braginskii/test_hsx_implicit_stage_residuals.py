@@ -5,7 +5,7 @@ import os
 import jax
 import pytest
 
-from drbx.fci_braginskii import run as driver
+from drbx.cli import main
 from drbx.fci_braginskii.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
 
 
@@ -26,11 +26,13 @@ def test_hsx_stage_residuals_from_returned_state(tmp_path, monkeypatch, precondi
         return tuple(result)
 
     monkeypatch.setattr(LocalFciDrbEBRhs, "solve_implicit_current_phi_pair", recording_solve)
-    driver.main([
-        "--geometry", bundle, "--final-time", "0.0015", "--num-steps", "2",
-        "--output", str(tmp_path / "history.npz"),
-        "--gmres-preconditioner", preconditioner,
-    ])
+    deck = tmp_path / "hsx.toml"
+    deck.write_text(
+        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
+        f'geometry = "{bundle}"\noutput = "{tmp_path / "history"}"\nfinal_time = 0.0015\nnum_steps = 2\n'
+        f'gmres_preconditioner = "{preconditioner}"\n'
+    )
+    main(["run", str(deck)])
     assert len(records) >= 4
     for r in records:
         scale = max(float(r["omega_norm"]), 1.0e-300)
