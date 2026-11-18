@@ -233,13 +233,4 @@ class CoilFieldTable:
         return (r >= sp.R[0]) & (r <= sp.R[-1]) & (xyz[..., 2] >= sp.Z[0]) & (xyz[..., 2] <= sp.Z[-1])
 
 
-def provider_bfield_evaluator(
-    provider: Any,
-    *,
-    R_bounds: tuple[float, float],
-    Z_bounds: tuple[float, float],
-) -> ProviderBFieldEvaluator:
-    return ProviderBFieldEvaluator(provider, R_bounds=R_bounds, Z_bounds=Z_bounds)
-
-
-__all__ = ["CoilFieldTable", "JaxProviderBFieldEvaluator", "ProviderBFieldEvaluator", "provider_bfield_evaluator"]
+__all__ = ["CoilFieldTable", "JaxProviderBFieldEvaluator", "ProviderBFieldEvaluator"]

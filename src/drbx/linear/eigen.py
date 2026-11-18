@@ -28,7 +28,6 @@ __all__ = [
     "LinearModes",
     "jacobian_operator",
     "eigenmodes",
-    "dominant_mode",
 ]
 
 
@@ -83,9 +82,3 @@ def eigenmodes(operator) -> LinearModes:
         eigenvectors=eigenvectors,
     )
 
-
-def dominant_mode(operator) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Return ``(growth_rate, frequency)`` of the fastest-growing eigenmode."""
-
-    modes = eigenmodes(operator)
-    return modes.dominant_growth_rate, modes.dominant_frequency

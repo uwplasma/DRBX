@@ -894,18 +894,6 @@ def _capped_signed_norm(values: np.ndarray, *, cap: float):
     return colors.TwoSlopeNorm(vcenter=0.0, vmin=-cap_value, vmax=cap_value)
 
 
-def _sequential_norm(values: np.ndarray):
-    import matplotlib.colors as colors
-
-    vmin = float(np.nanmin(values))
-    vmax = float(np.nanmax(values))
-    if not np.isfinite(vmin) or not np.isfinite(vmax):
-        raise ValueError("cannot build a movie from non-finite history values")
-    if np.isclose(vmin, vmax):
-        vmax = vmin + 1.0
-    return colors.Normalize(vmin=vmin, vmax=vmax)
-
-
 def _load_eb_blob_history(
     history_path: Path,
 ) -> tuple[

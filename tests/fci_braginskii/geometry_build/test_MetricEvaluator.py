@@ -637,16 +637,6 @@ class SyntheticEtaEvaluator:
         return np.stack((-points[..., 1] / radius_squared, points[..., 0] / radius_squared, np.zeros_like(radius_squared)), axis=-1)
 
 
-class FiniteOnlyEtaEvaluator(SyntheticEtaEvaluator):
-    """Synthetic evaluator used to catch accidental NaN plot queries."""
-
-    def evaluate_cartesian(self, points, *, wrapped=False):
-        points = np.asarray(points, dtype=float)
-        if not np.all(np.isfinite(points)):
-            raise AssertionError("plot passed nonfinite points to eta evaluator")
-        return super().evaluate_cartesian(points, wrapped=wrapped)
-
-
 class SyntheticWallEvaluator:
     nfp = 1
     period = 2.0 * np.pi

@@ -54,4 +54,4 @@ jobs:
             tests/test_fci_operators_domain_decomp.py \
             tests/test_mms_shifted_torus_EB.py \
             tests/test_shifted_torus_EB_blob.py
-          uv run coverage report
+          uv run coverage report --fail-under=58

@@ -92,7 +92,6 @@ __all__ = [
     "detachment_diagnostics",
     "detachment_initial_state",
     "detachment_ledger",
-    "detachment_rhs",
     "detachment_sol_run",
     "detachment_target_outputs",
     "sd1d_charge_exchange_rate",
@@ -506,12 +505,6 @@ def _theta(params: DetachmentSolParameters):
 def _residual(u, s, theta, params, grid):
     ddt = _terms(u, s, theta, params, grid).ddt
     return ddt, u[0, 0] - theta[0] / params.Nnorm
-
-
-def detachment_rhs(state: DetachmentSolState, source_scale, params: DetachmentSolParameters):
-    """SD1D time derivatives of the six fields (normalised), shape ``(ny, 6)``."""
-    u = jnp.stack(state, axis=1)
-    return _terms(u, source_scale, _theta(params), params, _grid(params)).ddt
 
 
 def _scales(u):

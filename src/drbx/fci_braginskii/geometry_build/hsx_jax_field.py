@@ -58,15 +58,6 @@ class JaxHsxMagneticField:
         return b_contravariant, magnitude
 
 
-def jax_hsx_magnetic_field_from_evaluators(
-    metric_evaluator: Any, bfield_evaluator: Any
-) -> JaxHsxMagneticField:
-    """Construct the compiled tracing callback from producer evaluators."""
-
-    return JaxHsxMagneticField.from_evaluators(metric_evaluator, bfield_evaluator)
-
-
 __all__ = [
     "JaxHsxMagneticField",
-    "jax_hsx_magnetic_field_from_evaluators",
 ]
