@@ -1,0 +1,106 @@
+{
+  "checksums": {
+    "base_geometry": {
+      "file": "base_geometry.npz",
+      "sha256": "3d0dfd6f0a1d2193d406ea3ec5274d621e60a5b00c7d19f8c46dd17c1162d02d"
+    },
+    "cell_positions": {
+      "file": "cell_positions.npz",
+      "sha256": "501a2f65b6f01f005f70b31a66ab952faf042ba53d9136264b3862e9cdff5f57"
+    },
+    "center_maps": {
+      "file": "center_maps.npz",
+      "sha256": "b1204e7f73dc83a4c592c06d3bc2a4c7090ee85ad57f89fcd987af6ffb7fb511"
+    },
+    "owner_overlap": {
+      "file": "owner_overlap.npz",
+      "sha256": "945b3595f606e9fd06bd80aca82d0d5bc4f57eaaaad645355bb1923755397489"
+    },
+    "producer_validation_report": {
+      "file": "producer_validation_report.json",
+      "sha256": "0cc6925a634f658006c535db05737b95b04f7c5f497e05d9166da18fd3114cdd"
+    },
+    "rlp_topology": {
+      "file": "rlp_topology.npz",
+      "sha256": "303b14533f7c278ff7f8826e57e611592b722026deb6233d5d45d86b0b826ab4"
+    },
+    "vertex_traces": {
+      "file": "vertex_traces.npz",
+      "sha256": "45a181d4d6bb91d3e0d53dc6b049a9f71989cccdb7f3a84857732372e1015450"
+    }
+  },
+  "components": {
+    "base_geometry": "base_geometry.npz",
+    "cell_positions": "cell_positions.npz",
+    "center_maps": "center_maps.npz",
+    "owner_overlap": "owner_overlap.npz",
+    "producer_validation_report": "producer_validation_report.json",
+    "rlp_topology": "rlp_topology.npz",
+    "vertex_traces": "vertex_traces.npz"
+  },
+  "metadata": {
+    "angular_profile_safety_ratio": 1.1018881662586049,
+    "axis_core_radius": 0.03,
+    "coils_path": "coils.hsx",
+    "eta_projection_iterations": 0,
+    "fit_sample_shape": [
+      8,
+      9,
+      8
+    ],
+    "format_version": 1,
+    "include_curvature_edge_one_form": false,
+    "makegrid_currents": [
+      10722.0,
+      10722.0,
+      10722.0,
+      10722.0,
+      10722.0,
+      10722.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "makegrid_path": null,
+    "metric_mesh_shape": [
+      8,
+      8,
+      8
+    ],
+    "metric_poloidal_modes": 3,
+    "metric_radial_degree": 6,
+    "metric_spline_degree": 1,
+    "metric_toroidal_modes": 2,
+    "mmpde_iterations": 0,
+    "owner_boundary_mode": "lean_second_order",
+    "producer": "hsx_simulation_geometry",
+    "producer_metric_checkpoint": null,
+    "radial_degree": 3,
+    "reference_magnetic_field": null,
+    "resolution": [
+      8,
+      8,
+      8
+    ],
+    "toroidal_modes": 2,
+    "trace_backend": "jax",
+    "trace_batch_size": 2048,
+    "trace_device_count_requested": null,
+    "trace_substeps": 64,
+    "vertex_trace_mode": "complete_canonical_transverse_raw_vertices",
+    "vertical_degree": 3,
+    "vessel_path": "vessel_hsx_flare.txt"
+  },
+  "nfp": 4,
+  "schema": "drbx.fci_simulation_geometry",
+  "schema_version": 1,
+  "shape": [
+    8,
+    8,
+    8
+  ],
+  "topology_name": "toroidal"
+}
