@@ -317,22 +317,6 @@ def _shifted_torus_phi(geometry: FciGeometry3D, time: float) -> jnp.ndarray:
     return float(A_phi) * f_phi * jnp.cos(float(M_phi) * theta_shift) * jnp.sin(float(N_phi) * zeta) * ct
 
 
-def _shifted_torus_phi_scalar(x: float, theta: float, zeta: float, time: float) -> jnp.ndarray:
-    theta_shift, _, _, _, _, _, _, _ = _shifted_torus_geometry_quantities_scalar(x, theta)
-    xi = x - float(x_min)
-    kx = jnp.pi / (float(x_max) - float(x_min))
-    f_phi = 1.0 + float(a_phi) * jnp.cos(kx * xi)
-    ct = jnp.cos(float(Omega) * time)
-    return float(A_phi) * f_phi * jnp.cos(float(M_phi) * theta_shift) * jnp.sin(float(N_phi) * zeta) * ct
-
-
-def _shifted_torus_phi_t(geometry: FciGeometry3D, time: float) -> jnp.ndarray:
-    _, theta_shift, _, zeta = _shifted_torus_coordinates(geometry)
-    f_phi, _, _, _ = _shifted_torus_envelopes(geometry)
-    st = jnp.sin(float(Omega) * time)
-    return -float(A_phi) * float(Omega) * f_phi * jnp.cos(float(M_phi) * theta_shift) * jnp.sin(float(N_phi) * zeta) * st
-
-
 def _dirichlet_x_boundary_face_bc_from_values(
     lower_value: jnp.ndarray,
     upper_value: jnp.ndarray,
@@ -352,11 +336,6 @@ def _dirichlet_x_boundary_face_bc_from_values(
         mask_y=jnp.zeros_like(regular_face_geometry.y_open_mask, dtype=bool),
         mask_z=jnp.zeros_like(regular_face_geometry.z_open_mask, dtype=bool),
     )
-
-
-def _dirichlet_x_boundary_face_bc(field: jnp.ndarray, geometry: FciGeometry3D) -> BoundaryFaceBC3D:
-    values = jnp.asarray(field, dtype=jnp.float64)
-    return _dirichlet_x_boundary_face_bc_from_values(values[0], values[-1], geometry)
 
 
 def _shifted_torus_density(geometry: FciGeometry3D, time: float) -> jnp.ndarray:
@@ -1125,129 +1104,6 @@ def _report_exact_phi_term_breakdown(
         expected_source = getattr(exact_derivative, field_name) - getattr(_sum_rhs_terms(continuous_terms), field_name)
         l2, linf, rel_l2 = _field_error_statistics(source_value, expected_source)
         print(f"    source_cancellation: term_error_l2={l2:.6e}, linf={linf:.6e}, rel_l2={rel_l2:.6e}")
-
-
-def _report_rhs_consistency(
-    geometry: FciGeometry3D,
-    *,
-    time: float,
-    rho_star_value: float,
-    use_multigrid_preconditioner: bool = False,
-    gmres_debug: bool = False,
-) -> None:
-    """Compare discrete RHS plus MMS source against exact time derivatives."""
-
-    parameters = Fci4FieldRhsParameters(
-        rho_star=rho_star_value,
-        Te=float(Te),
-        mi_over_me=float(mi_over_me),
-        phi_inversion_tol=1.0e-4,
-    )
-    stencil_builder = LocalStencilBuilder(build_local_stencil_from_field.build_fn)
-    conservative_stencil_builder = ConservativeStencilBuilder(build_conservative_stencil_from_field.build_fn)
-    boundary_builder = BoundaryConditionBuilder(_build_dirichlet_boundary_condition_builder("density"))
-    empty_cut_wall_geometry = CutWallGeometry3D.empty()
-    empty_cut_wall_bc = CutWallBC3D.empty()
-    periodic_axes = (False, True, True)
-
-    curvature_coefficients = build_curvature_coefficients(geometry, periodic_axes=periodic_axes)
-    face_projectors = build_perp_laplacian_face_projectors(geometry)
-    exact_state = _shifted_torus_exact_state(geometry, time)
-    exact_derivative = _shifted_torus_exact_time_derivative_state(geometry, time)
-    source = _shifted_torus_mms_source_state(
-        geometry,
-        time,
-        parameters=parameters,
-        curvature_coefficients=curvature_coefficients,
-    )
-    exact_phi = _shifted_torus_phi(geometry, time)
-
-    phi_face_bc, density_face_bc, omega_face_bc, v_ion_face_bc, v_electron_face_bc = _shifted_torus_exact_x_face_bcs(
-        geometry,
-        time,
-    )
-
-    mg_hierarchy = None
-    if use_multigrid_preconditioner:
-        mg_hierarchy = build_perp_laplacian_mg_hierarchy(
-            geometry,
-            conservative_stencil_builder,
-            face_bc=_homogeneous_boundary_face_bc(phi_face_bc),
-            regular_face_geometry=RegularFaceGeometry3D.unit(geometry),
-            cut_wall_geometry=empty_cut_wall_geometry,
-            cut_wall_bc=empty_cut_wall_bc,
-            periodic_axes=periodic_axes,
-        )
-    _report_phi_inversion_consistency(
-        geometry,
-        time=time,
-        parameters=parameters,
-        conservative_stencil_builder=conservative_stencil_builder,
-        boundary_builder=boundary_builder,
-        face_projectors=face_projectors,
-        mg_hierarchy=mg_hierarchy,
-        gmres_debug=gmres_debug,
-    )
-    phi_inverse_solver = PerpLaplacianInverseSolver(
-        geometry,
-        conservative_stencil_builder,
-        tol=float(parameters.phi_inversion_tol),
-        maxiter=int(parameters.phi_inversion_maxiter),
-        restart=int(parameters.phi_inversion_restart),
-        face_projectors=face_projectors,
-        regular_face_geometry=RegularFaceGeometry3D.unit(geometry),
-        cut_wall_geometry=empty_cut_wall_geometry,
-        cut_wall_bc=empty_cut_wall_bc,
-        periodic_axes=periodic_axes,
-        regularization_epsilon=float(parameters.phi_inversion_regularization),
-        mg_hierarchy=mg_hierarchy,
-        gmres_debug=gmres_debug,
-    )
-
-    rhs_result, _timings = compute_4field_rhs(
-        exact_state,
-        geometry=geometry,
-        stencil_builder=stencil_builder,
-        conservative_stencil_builder=conservative_stencil_builder,
-        parameters=parameters,
-        curvature_coefficients=curvature_coefficients,
-        phi_face_bc=phi_face_bc,
-        density_face_bc=density_face_bc,
-        omega_face_bc=omega_face_bc,
-        v_ion_parallel_face_bc=v_ion_face_bc,
-        v_electron_parallel_face_bc=v_electron_face_bc,
-        phi_cut_wall_geometry=empty_cut_wall_geometry,
-        phi_cut_wall_bc=empty_cut_wall_bc,
-        density_cut_wall_geometry=empty_cut_wall_geometry,
-        density_cut_wall_bc=empty_cut_wall_bc,
-        omega_cut_wall_geometry=empty_cut_wall_geometry,
-        omega_cut_wall_bc=empty_cut_wall_bc,
-        v_ion_parallel_cut_wall_geometry=empty_cut_wall_geometry,
-        v_ion_parallel_cut_wall_bc=empty_cut_wall_bc,
-        v_electron_parallel_cut_wall_geometry=empty_cut_wall_geometry,
-        v_electron_parallel_cut_wall_bc=empty_cut_wall_bc,
-        phi_face_projectors=face_projectors,
-        phi_mg_hierarchy=mg_hierarchy,
-        phi_inverse_solver=phi_inverse_solver,
-        gmres_debug=gmres_debug,
-    )
-    computed_derivative = _add_state(rhs_result.rhs, source, scale=1.0)
-    print(f"shifted_torus_4field RHS consistency at t={time:.6e}, shape={geometry.shape}")
-    for field_name, actual, expected in (
-        ("density", computed_derivative.density, exact_derivative.density),
-        ("omega", computed_derivative.omega, exact_derivative.omega),
-        ("v_ion_parallel", computed_derivative.v_ion_parallel, exact_derivative.v_ion_parallel),
-        ("v_electron_parallel", computed_derivative.v_electron_parallel, exact_derivative.v_electron_parallel),
-    ):
-        error = jnp.asarray(actual - expected, dtype=jnp.float64)
-        expected_norm = float(jnp.linalg.norm(jnp.asarray(expected, dtype=jnp.float64)))
-        error_l2 = float(jnp.sqrt(jnp.mean(jnp.square(error))))
-        error_linf = float(jnp.max(jnp.abs(error)))
-        rel_l2 = float(jnp.linalg.norm(error) / (jnp.linalg.norm(jnp.asarray(expected, dtype=jnp.float64)) + 1.0e-30))
-        print(
-            f"  {field_name}: l2={error_l2:.6e}, linf={error_linf:.6e}, "
-            f"rel_l2={rel_l2:.6e}, expected_l2={expected_norm:.6e}"
-        )
 
 
 def _report_phi_inversion_consistency(
