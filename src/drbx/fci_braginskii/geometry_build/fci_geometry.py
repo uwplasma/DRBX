@@ -38,7 +38,6 @@ from ...geometry.fci_geometry import (  # noqa: F401
     _extend_values_z,
     _interpolate_scalar_cell_centered,
     _interpolate_B_contravariant_cell_centered,
-    _rk4_step_cell_centered,
     _bracket_axis,
     _trilinear_sample,
     _logical_coordinate_to_index,

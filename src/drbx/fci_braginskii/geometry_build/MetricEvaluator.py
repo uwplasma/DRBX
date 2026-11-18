@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 import numpy as np
-from scipy.interpolate import BSpline, PchipInterpolator, RectBivariateSpline
+from scipy.interpolate import BSpline, RectBivariateSpline
 from scipy.linalg import null_space
 from scipy.special import eval_jacobi
 from scipy.sparse import lil_matrix
@@ -2726,83 +2726,6 @@ def _eta_value_gradient(
     return value, gradient
 
 
-def reparameterize_centerline(
-    wall_evaluator: Any,
-    eta_evaluator: Any,
-    target_eta: Any,
-    *,
-    period: float,
-    phi_samples: int = 2049,
-    eta_is_normalized: bool = False,
-) -> np.ndarray:
-    """Return fixed physical centerline points at endpoint-exclusive eta values."""
-    target = np.asarray(target_eta, dtype=float)
-    if target.ndim != 1 or target.size < 2 or not np.all(np.isfinite(target)):
-        raise ValueError("target_eta must be a finite one-dimensional array")
-    if phi_samples < 17:
-        raise ValueError("phi_samples is too small")
-    phi0 = float(getattr(wall_evaluator, "phi0", 0.0))
-    phi_period = float(getattr(wall_evaluator, "period", period))
-    phi = phi0 + np.linspace(0.0, phi_period, int(phi_samples), endpoint=True)
-    rz = wall_evaluator.centerline(phi)
-    rz = np.stack(rz[:2], axis=-1)
-    axis = np.stack((rz[:, 0] * np.cos(phi), rz[:, 0] * np.sin(phi), rz[:, 1]), axis=-1)
-    eta_values = _call_eta(eta_evaluator, axis)
-    if eta_is_normalized:
-        eta_values = eta_values * period
-    eta_unwrapped = np.unwrap(_TWO_PI * eta_values / period) * period / _TWO_PI
-    delta = eta_unwrapped[-1] - eta_unwrapped[0]
-    if abs(abs(delta) - period) > max(2e-3 * period, 2e-8):
-        raise ValueError(f"centerline eta covers {delta:g}, expected one period {period:g}")
-    if delta < 0:
-        eta_unwrapped = eta_unwrapped[::-1]
-        axis = axis[::-1]
-        phi = phi[::-1]
-    if np.any(np.diff(eta_unwrapped) <= 0):
-        raise ValueError("eta is not strictly monotone along the centerline")
-    target_unwrapped = target + eta_unwrapped[0] - target[0]
-    target_phi = PchipInterpolator(eta_unwrapped, phi)(target_unwrapped)
-
-    def centerline_cartesian(query_phi: np.ndarray) -> np.ndarray:
-        query_rz = wall_evaluator.centerline(query_phi)
-        return np.stack(
-            (
-                query_rz[0] * np.cos(query_phi),
-                query_rz[0] * np.sin(query_phi),
-                query_rz[1],
-            ),
-            axis=-1,
-        )
-
-    # Refine the inverse parameterization while remaining exactly on the
-    # existing physical centerline.
-    for _ in range(5):
-        candidate = centerline_cartesian(target_phi)
-        value = _call_eta(eta_evaluator, candidate)
-        if eta_is_normalized:
-            value *= period
-        residual = (value - target + 0.5 * period) % period - 0.5 * period
-        if np.max(np.abs(residual)) <= 2.0e-11 * max(1.0, period):
-            break
-        step = 1.0e-6
-        plus = _call_eta(
-            eta_evaluator, centerline_cartesian(target_phi + step)
-        )
-        minus = _call_eta(
-            eta_evaluator, centerline_cartesian(target_phi - step)
-        )
-        if eta_is_normalized:
-            plus *= period
-            minus *= period
-        derivative = (
-            (plus - minus + 0.5 * period) % period - 0.5 * period
-        ) / (2.0 * step)
-        if np.any(np.abs(derivative) < 1.0e-10):
-            raise ValueError("eta is locally stationary along the centerline")
-        target_phi -= residual / derivative
-    return centerline_cartesian(target_phi)
-
-
 def cartesian_to_channels(
     values: Any, eta: Any, *, eta_axis: int = -1
 ) -> np.ndarray:
@@ -3090,10 +3013,8 @@ def _build_toroidal_topology(
     supplied.  When no axis is supplied, the default axis is the poloidal
     centroid of those already aligned wall curves in cylindrical
     ``(R, Z, delta_phi)`` channels, followed by a wrapped Newton projection
-    onto the requested eta surfaces.  ``reparameterize_centerline`` remains
-    available as a standalone helper, but is not used for this default
-    because the wall curves are the authoritative, phase-aligned topology.
-    The returned object uses the toroidal topology of ``MetricEvaluator``
+    onto the requested eta surfaces, because the wall curves are the
+    authoritative, phase-aligned topology.  The returned object uses the toroidal topology of ``MetricEvaluator``
     directly.
     """
     u = np.asarray(u, dtype=float)

@@ -499,37 +499,4 @@ class FciTraceExecutor:
         }
 
 
-def trace_fci_points_batched(
-    grid_bounds: Any,
-    field_evaluator: Callable,
-    seed_points: Any,
-    eta_step: Any,
-    *,
-    batch_size: int,
-    devices: int | Sequence[Any] | None = None,
-    device_count: int | None = None,
-    substeps: int = 4,
-    periodic_axes: tuple[bool, bool, bool] = (False, True, True),
-    axis_regular_axes: tuple[bool, bool, bool] = (False, False, False),
-    min_abs_bz: float = 1.0e-30,
-    axis_epsilon: float | None = None,
-    valid_mask: Any | None = None,
-) -> TraceExecutionResult:
-    """Functional convenience wrapper around :class:`FciTraceExecutor`."""
-
-    executor = FciTraceExecutor(
-        field_evaluator,
-        batch_size,
-        devices=devices,
-        device_count=device_count,
-        grid_bounds=grid_bounds,
-        substeps=substeps,
-        periodic_axes=periodic_axes,
-        axis_regular_axes=axis_regular_axes,
-        min_abs_bz=min_abs_bz,
-        axis_epsilon=axis_epsilon,
-    )
-    return executor.trace(seed_points, eta_step, valid_mask=valid_mask)
-
-
-__all__ = ["TraceExecutionResult", "FciTraceExecutor", "trace_fci_points_batched"]
+__all__ = ["TraceExecutionResult", "FciTraceExecutor"]
