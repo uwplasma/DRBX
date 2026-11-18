@@ -382,6 +382,7 @@ def _build_or_load_hsx_fci_maps(
     fci_trace_batch_size: int = 2048,
     fci_trace_device_count: int | None = None,
     field_identity: object | None = None,
+    field_periods: int = 1,
 ) -> tuple[
     FciMaps3D | None,
     dict[str, np.ndarray] | None,
@@ -579,6 +580,7 @@ def _build_or_load_hsx_fci_maps(
         trace_batch=trace_batch,
         trace_backend_identity=trace_backend_identity,
         max_trace_batch_seeds=int(fci_trace_batch_size),
+        field_periods=int(field_periods),
     )
     missing = [name for name in FCI_MAP_FIELDS if name not in map_payload]
     if missing:
@@ -2443,6 +2445,7 @@ def build_hsx_fci_geometry(
         field_identity=_hsx_field_identity(
             makegrid_path, provider_bfield, makegrid_current_array
         ),
+        field_periods=int(nfp),
     )
     if maps is None:  # pragma: no cover - guarded by construct_fci_maps above
         raise RuntimeError("mapped HSX geometry construction returned no FCI maps")

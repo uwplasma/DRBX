@@ -4234,8 +4234,13 @@ def build_fci_maps_from_callbacks(
     trace_batch: Callable[[np.ndarray, float], Mapping[str, object]] | None = None,
     trace_backend_identity: str = "numpy-callback",
     max_trace_batch_seeds: int = 2048,
+    field_periods: int = 1,
 ) -> dict[str, jnp.ndarray]:
     """Build FCI maps by evaluating the magnetic field at arbitrary points.
+
+    ``field_periods`` is the toroidal periodicity ``nfp`` of the callback.  When
+    the eta planes span the full ``2 pi`` torus and divide evenly into periods,
+    only the first period is traced and the others are copies rotated in eta.
 
     ``field_evaluator`` receives an ``(n, 3)`` NumPy array and returns either
     a ``MagneticFieldEvaluation``-like object with ``B_contravariant`` and
@@ -4665,9 +4670,30 @@ def build_fci_maps_from_callbacks(
     # independent, so batching changes only peak memory.  Permit a batch to
     # split a logical eta plane as well: one 48x48 plane is already large
     # enough to trigger transient multi-gigabyte evaluator allocations.
+    nfp = int(field_periods)
+    traced_planes = nz
+    if nfp > 1 and nz % nfp == 0 and periodic_axes[2] and np.isclose(z_period, 2.0 * np.pi):
+        per = nz // nfp
+        if all(
+            np.allclose(z_axis[p * per : (p + 1) * per] - z_axis[:per], p * z_period / nfp)
+            for p in range(1, nfp)
+        ):
+            traced_planes = per
+
+    def replicate_field_periods(prefix: str) -> None:
+        if traced_planes == nz:
+            return
+        for name in _direction_output_names(prefix):
+            first = outputs[name][:, :, :traced_planes]
+            for p in range(1, nfp):
+                block = outputs[name][:, :, p * traced_planes : (p + 1) * traced_planes]
+                block[...] = first
+                if name.endswith("endpoint_z"):
+                    block[...] = z_lower + np.mod(first + p * z_period / nfp - z_lower, z_period)
+
     def step_groups(direction: int) -> list[tuple[float, list[int]]]:
         grouped: dict[float, list[int]] = {}
-        for index in range(nz):
+        for index in range(traced_planes):
             step = plane_step(index, direction)
             key = round(float(step), 14)
             grouped.setdefault(key, []).append(index)
@@ -4747,6 +4773,7 @@ def build_fci_maps_from_callbacks(
         if prefix in completed_directions:
             continue
         fill_direction(direction)
+        replicate_field_periods(prefix)
         completed_directions.add(prefix)
         _write_direction_checkpoint()
     for index in range(nz):

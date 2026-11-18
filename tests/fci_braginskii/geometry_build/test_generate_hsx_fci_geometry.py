@@ -189,3 +189,93 @@ def test_trace_qualification_includes_paths_entering_physical_core(monkeypatch) 
     assert report["passed"] is True
     assert report["core_entry_paths"]["forward"] >= 1
     assert report["core_entry_paths"]["backward"] >= 1
+
+
+def test_trace_atlas_one_field_period_matches_full_torus() -> None:
+    nx, ny, nz, nfp = 3, 6, 8, 4
+    x_faces = np.linspace(0.0, 1.0, nx + 1)
+    y_faces = np.linspace(0.0, 2 * np.pi, ny + 1)
+    z_faces = np.linspace(0.0, 2 * np.pi, nz + 1)
+
+    def axis(faces):
+        return SimpleNamespace(
+            faces=faces, centers=0.5 * (faces[1:] + faces[:-1]), widths=np.diff(faces)
+        )
+
+    geometry = SimpleNamespace(
+        shape=(nx, ny, nz),
+        grid=SimpleNamespace(
+            shape=(nx, ny, nz), x=axis(x_faces), y=axis(y_faces), z=axis(z_faces)
+        ),
+    )
+
+    calls = []
+
+    def field(points):
+        calls.append(len(points))
+        x, y, z = points.T
+        b = np.stack(
+            [
+                0.2 * x * np.sin(nfp * z),
+                0.3 + 0.1 * np.cos(nfp * z) * np.cos(y),
+                1.0 + 0.2 * np.cos(nfp * z + y),
+            ],
+            axis=-1,
+        )
+        return b, np.linalg.norm(b, axis=-1)
+
+    full = producer._trace_atlas(geometry, field, substeps=8)
+    full_work, calls[:] = sum(calls), []
+    period = producer._trace_atlas(geometry, field, substeps=8, field_periods=nfp)
+    assert sum(calls) * nfp == full_work
+    for name in ("forward_endpoint", "backward_endpoint", "forward_length", "backward_length"):
+        np.testing.assert_allclose(
+            getattr(period, name), getattr(full, name), rtol=0.0, atol=1.0e-12, err_msg=name
+        )
+    for name in ("forward_boundary", "backward_boundary"):
+        np.testing.assert_array_equal(getattr(period, name), getattr(full, name))
+
+
+def test_center_maps_one_field_period_match_full_torus() -> None:
+    from drbx.fci_braginskii.geometry_build.fci_geometry import (
+        CellCenteredGrid3D,
+        Grid1D,
+        build_fci_maps_from_callbacks,
+    )
+
+    nfp = 4
+
+    def axis(lower, upper, n):
+        faces = np.linspace(lower, upper, n + 1)
+        return Grid1D(centers=0.5 * (faces[1:] + faces[:-1]), faces=faces)
+
+    grid = CellCenteredGrid3D(
+        x=axis(0.0, 1.0, 3), y=axis(0.0, 2 * np.pi, 6), z=axis(0.0, 2 * np.pi, 8)
+    )
+    calls = []
+
+    def field(points):
+        calls.append(len(points))
+        x, y, z = points.T
+        b = np.stack(
+            [
+                0.2 * x * np.sin(nfp * z),
+                0.3 + 0.1 * np.cos(nfp * z) * np.cos(y),
+                1.0 + 0.2 * np.cos(nfp * z + y),
+            ],
+            axis=-1,
+        )
+        return b, np.linalg.norm(b, axis=-1)
+
+    kwargs = dict(substeps=8, axis_regular_axes=(True, False, False))
+    full = build_fci_maps_from_callbacks(grid, field, **kwargs)
+    full_rows, calls[:] = sum(calls), []
+    period = build_fci_maps_from_callbacks(grid, field, field_periods=nfp, **kwargs)
+    assert sum(calls) * nfp == full_rows
+    assert set(period) == set(full)
+    for name in full:
+        a, b = np.asarray(period[name]), np.asarray(full[name])
+        if a.dtype == bool:
+            np.testing.assert_array_equal(a, b, err_msg=name)
+        else:
+            np.testing.assert_allclose(a, b, rtol=0.0, atol=1.0e-12, err_msg=name)
