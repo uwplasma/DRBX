@@ -122,17 +122,6 @@ def _axis_regular_lower_x_face(values: jnp.ndarray) -> jnp.ndarray:
     return 0.5 * (values[0] + jnp.roll(values[0], shift=-half_turn, axis=0))
 
 
-def _axis_name(axis: int) -> str:
-    axis = int(axis)
-    if axis == 0:
-        return "x"
-    if axis == 1:
-        return "y"
-    if axis == 2:
-        return "z"
-    raise ValueError(f"axis must be 0, 1, or 2, got {axis}")
-
-
 def _validate_axis(axis: int) -> int:
     axis = int(axis)
     if axis < 0 or axis > 2:
@@ -148,28 +137,6 @@ def _local_cell_halo_array(value: jnp.ndarray, layout: HaloLayout3D, name: str) 
         raise ValueError(
             f"{name} must have shape {layout.cell_halo_shape}, got {array.shape}"
         )
-    return array
-
-
-def _local_face_halo_array(value: jnp.ndarray, layout: HaloLayout3D, axis: int, name: str) -> jnp.ndarray:
-    """Validate a halo-padded local face array."""
-
-    axis = _validate_axis(axis)
-    array = jnp.asarray(value, dtype=jnp.float64)
-    expected_shape = layout.face_halo_shape(axis)
-    if array.shape != expected_shape:
-        raise ValueError(f"{name} must have shape {expected_shape}, got {array.shape}")
-    return array
-
-
-def _local_control_face_array(value: jnp.ndarray, layout: HaloLayout3D, axis: int, name: str) -> jnp.ndarray:
-    """Validate a local owned/control-face array."""
-
-    axis = _validate_axis(axis)
-    array = jnp.asarray(value, dtype=jnp.float64)
-    expected_shape = layout.face_control_shape(axis)
-    if array.shape != expected_shape:
-        raise ValueError(f"{name} must have shape {expected_shape}, got {array.shape}")
     return array
 
 

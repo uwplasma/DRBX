@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from jax import grad, jit
 
 from drbx.config.boutinp import parse_bout_input
@@ -8,6 +9,7 @@ from drbx.native.expression import ArrayExpressionEvaluator
 from drbx.native.mesh import broadcast_to_field_shape, build_structured_mesh
 from drbx.native.metrics import build_structured_metrics
 from drbx.native.vorticity import (
+    advance_vorticity_history,
     apply_vorticity_boundaries,
     build_vorticity_operator,
     compute_vorticity_rhs,
@@ -120,3 +122,21 @@ def test_vorticity_potential_supports_jit_and_grad() -> None:
 
     assert np.isfinite(float(value))
     assert np.isfinite(float(derivative))
+
+
+def test_advance_vorticity_history_conserves_total_vorticity() -> None:
+    # The upwinded scheme is a pure flux difference with zero outer-x flux and periodic z,
+    # so the integrated vorticity telescopes to zero (flux-form conservation law).
+    mesh, metrics, operator, vorticity = _initial_vorticity()
+    result = advance_vorticity_history(
+        vorticity, mesh=mesh, metrics=metrics, operator=operator, timestep=0.5, steps=3
+    )
+    interior = slice(mesh.xstart, mesh.xend + 1)
+    totals = np.asarray(result.vorticity_history[:, interior, 0, :]).sum(axis=(1, 2))
+
+    np.testing.assert_allclose(totals, totals[0], rtol=1e-9)
+    np.testing.assert_allclose(result.vorticity_history[0], vorticity, atol=1e-14)
+    assert not np.any(np.asarray(result.potential_history[0]))
+    assert np.any(np.asarray(result.potential_history[-1]))
+    with pytest.raises(ValueError, match="non-negative"):
+        advance_vorticity_history(vorticity, mesh=mesh, metrics=metrics, operator=operator, timestep=0.5, steps=-1)
