@@ -722,18 +722,6 @@ def _mms_exact_time_derivative_state(context: ShiftedTorusEbMmsContext, time: fl
     )
 
 
-def _mms_exact_state_from_data(data: _AnalyticMmsData) -> FciDrbEBState:
-    return FciDrbEBState(
-        density=data.density,
-        phi=data.phi,
-        Te=data.Te,
-        Ti=data.Ti,
-        Vi=data.Vi,
-        Ve=data.Ve,
-        vorticity=data.vorticity,
-    )
-
-
 def _mms_exact_time_derivative_state_from_data(data: _AnalyticMmsData) -> FciDrbEBState:
     return FciDrbEBState(
         density=data.density_t,
