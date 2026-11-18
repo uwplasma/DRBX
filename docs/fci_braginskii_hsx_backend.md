@@ -432,6 +432,27 @@ with resolution: on Perlmutter it peaked at 29 GiB for 48-cubed and 65 GiB for
 bundle by 1.4 to 3.5 mm in cell positions and by up to 0.7% in |B|, most likely
 because of the vessel file; the backend runs on either.
 
+### Test bundle
+
+`tests/data/hsx_8x8x8` (0.4 MB) is an 8-cubed bundle built from the shipped coils and vessel. The
+`tests/fci_braginskii` tests use it by default, so the compiled time step runs in CI; set
+`DRBX_TEST_GEOMETRY_BUNDLE` to use a larger bundle instead. It is too coarse for physics (the producer's
+closure check is out of tolerance); it only has to contain the axis, the wall legs and the agglomerated rings. To rebuild it, run a deck
+with this `[geometry]` table and copy the resulting `cache_dir/hsx_8x8x8_*` directory, then replace the
+absolute `vessel_path` and `producer_checkpoint_directory` entries in its `manifest.json` metadata:
+
+```toml
+[geometry]
+resolution = [8, 8, 8]
+metric_mesh_shape = [8, 8, 8]
+metric_radial_degree = 6
+metric_poloidal_modes = 3
+metric_toroidal_modes = 2
+toroidal_modes = 2
+coil_table_shape = [24, 24, 24]
+cache_dir = "build"
+```
+
 ### Building from coils (default)
 
 The HSX coil file ships with DRBX at `examples/inputs/hsx/coils.hsx`

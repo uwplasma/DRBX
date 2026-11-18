@@ -9,7 +9,6 @@ heat source, to steady state.
 from __future__ import annotations
 
 import math
-import os
 import sys
 from functools import partial
 from types import SimpleNamespace
@@ -198,14 +197,10 @@ def test_conservative_parallel_rates_are_sum_free_with_reported_sources():
     np.testing.assert_allclose(np.sum(mass * (vi * dn + n * dvi)), np.sum(mass * sources[:, 2]), atol=1e-11)
 
 
-@pytest.mark.slow
-def test_hsx_sheath_step_check_is_independent_of_the_update(tmp_path):
-    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): the implicit stages remove what the wall faces say."""
+def test_hsx_sheath_step_check_is_independent_of_the_update(hsx_run):
+    """HSX test bundle: the implicit stages remove what the wall faces say."""
 
-    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
-    if bundle is None:
-        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX sheath ledger")
-    col = _hsx_ledger(tmp_path, bundle)
+    col = _hsx_ledger(hsx_run)
     applied, face = col["step_particle_applied"][1:], col["step_particle_face"][1:]
     assert np.all(face < 0.0)
     # the explicit bulk density rate is sum-free on its own (perpendicular flux through the radial edge only)
@@ -221,12 +216,9 @@ def test_hsx_sheath_step_check_is_independent_of_the_update(tmp_path):
 
 
 @pytest.mark.slow
-def test_hsx_step_check_fails_when_the_update_removes_the_wrong_amount(tmp_path, monkeypatch):
+def test_hsx_step_check_fails_when_the_update_removes_the_wrong_amount(hsx_run, monkeypatch):
     """Mutation: the wall block removes 5% too many particles; the check must see it."""
 
-    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
-    if bundle is None:
-        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX mutation check")
     original = LocalFciDrbEBRhs._sheath_wall_backward_euler
 
     def too_strong(self, *args, **kwargs):
@@ -234,23 +226,13 @@ def test_hsx_step_check_fails_when_the_update_removes_the_wrong_amount(tmp_path,
         return increment.at[..., 0].multiply(1.05), info
 
     monkeypatch.setattr(LocalFciDrbEBRhs, "_sheath_wall_backward_euler", too_strong)
-    col = _hsx_ledger(tmp_path, bundle)
+    col = _hsx_ledger(hsx_run, fresh=True)
     mismatch = balance_mismatch(col["step_particle_applied"][1:], col["step_particle_face"][1:])
     assert np.all(np.abs(mismatch) > 1e-2), mismatch
 
 
-def _hsx_ledger(tmp_path, bundle, extra=""):
-    from drbx.cli import main
-
-    deck = tmp_path / "hsx.toml"
-    deck.write_text(
-        '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
-        f'geometry = "{bundle}"\noutput = "{tmp_path / "out" / "hsx"}"\n'
-        "final_time = 0.0015\nnum_steps = 2\nsave_every = 2\n" + extra
-    )
-    assert main(["run", str(deck)]) in (0, None)
-    data = np.load(tmp_path / "out" / "hsx.npz")
-    return {name: data["wall_ledger"][:, k] for k, name in enumerate(data["wall_ledger_columns"])}
+def _hsx_ledger(hsx_run, extra="", **options):
+    return hsx_run(extra, **options)["columns"]
 
 
 def flux_tube_bulk_rates(cells: int, dx: float, mu: float, epsilon: float = 0.1, slave_ve: bool = True,
@@ -352,14 +334,10 @@ def test_wall_balance_is_independent_and_fails_on_a_leak_or_a_wrong_wall_flux(mo
     assert np.all(np.abs(mismatch) > 5e-3), mismatch
 
 
-@pytest.mark.slow
-def test_hsx_zero_flow_wall_is_a_closed_box_for_particles_and_thermal_energy(tmp_path):
-    """Real HSX (set DRBX_TEST_GEOMETRY_BUNDLE): no wall flux, parallel bulk sum-free."""
+def test_hsx_zero_flow_wall_is_a_closed_box_for_particles_and_thermal_energy(hsx_run):
+    """HSX test bundle: no wall flux, parallel bulk sum-free."""
 
-    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
-    if bundle is None:
-        pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to run the HSX zero-flow ledger")
-    col = _hsx_ledger(tmp_path, bundle, 'wall_closure = "zero-flow"\n')
+    col = _hsx_ledger(hsx_run, 'wall_closure = "zero-flow"\n')
     inventory = col["particle_inventory"]
     # no wall flux from the wall faces, none applied, and the inventory moves only by the perpendicular edge flux
     assert np.all(np.abs(col["step_particle_face"][1:]) <= 1e-12 * inventory[0])
