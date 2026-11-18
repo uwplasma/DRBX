@@ -17,8 +17,7 @@ stage. The solver is `PerpLaplacianInverseSolver` in
   payload), solved with `solvax.gmres` (restarted flexible GMRES, fully
   jit-able) using `rtol = atol = tol` (default `1e-6`) on the **true**
   residual, a Krylov cycle of `min(restart, maxiter)`, and a total iteration
-  budget of `maxiter`; the multigrid V-cycle enters as a right
-  preconditioner;
+  budget of `maxiter`;
 - nonzero regular-face and cut-wall boundary values are **lifted out of the
   operator** (a one-time boundary-source application) so the GMRES matvec
   stays linear; Dirichlet lifts get a homogeneous correction solve;
@@ -59,26 +58,6 @@ one-time ~9 s compile). On the `(24, 32, 8)` rotating-ellipse case this took
 the single-CPU step from 1.200 s (eager, host-synced diagnostics) to
 0.623 s (1.9x); the measurement and its context are on
 [Performance and Differentiability](performance_and_differentiability.md).
-
-### Multigrid V-cycle preconditioner
-
-For larger grids the GMRES solve takes an optional geometric-multigrid
-preconditioner: `build_perp_laplacian_mg_hierarchy` coarsens the geometry,
-face BCs, and face metrics by factors of two into a
-`PerpLaplacianMgHierarchy` of `PerpLaplacianMgLevel`s, applied as a V-cycle
-(`pre_smooth=2`, `post_smooth=2`) with a Chebyshev smoother by default
-(`smoother="chebyshev"`, order 2; weighted-Jacobi `omega_jacobi=0.65` is the
-alternative). The hierarchy is a pytree, so it passes through `jit`
-unchanged.
-
-When the coarsest level has at most `direct_coarse_size=512` cells, the dense
-coarse operator is assembled **once at build time** and LU-factorized with
-`jax.scipy.linalg.lu_factor`; each V-cycle then does a cheap triangular
-`lu_solve` instead of smoothing (or re-factorizing) at the coarsest level
-(new in July 2026, stored as `coarse_lu_and_piv` on the hierarchy).
-Cut-wall payloads are not coarsened (`NotImplementedError`), and hierarchies
-exclude pinned rows and Tikhonov regularization by construction. Gate:
-`tests/test_multigrid_preconditioner.py`.
 
 ## solvax structured solves
 
@@ -219,7 +198,7 @@ The codebase follows a small set of deliberate rules:
   validation harnesses, not inside kernels. The phi-solver fast path exists
   precisely to keep the RK4 hot loop free of device round-trips.
 - **Pytree dataclasses.** Model states (`Fci4FieldState`, `FciDrbState`,
-  …), parameter bundles, boundary payloads, and even the multigrid hierarchy
+  …), parameter bundles, and boundary payloads
   are frozen dataclasses registered with
   `jax.tree_util.register_pytree_node_class`, so whole model configurations
   pass through `jit`, `grad`, and `shard_map` as ordinary arguments and

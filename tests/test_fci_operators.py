@@ -54,8 +54,6 @@ from drbx.geometry.fci_geometry import _bmag_from_contravariant_components
 from drbx.native.fci_operators import (
     _take_stencil_finite_difference,
     build_conservative_stencil_from_field,
-    build_perp_laplacian_mg_hierarchy,
-    build_perp_laplacian_solver_mg_hierarchy,
     curvature_op,
     grad_parallel_op_direct,
     grad_parallel_op_fci,
@@ -1612,157 +1610,6 @@ def _smooth_zero_dirichlet_field(geometry: FciGeometry3D) -> jnp.ndarray:
     return jnp.sin(jnp.pi * xi) * (1.0 + 0.2 * jnp.cos(theta) * jnp.sin(zeta))
 
 
-def test_perp_laplacian_inverse_rejects_mismatched_nonzero_dirichlet_mg_hierarchy() -> None:
-    pytest.importorskip("lineax")
-    geometry = build_test_fci_geometry((5, 4, 3), construct_fci_maps=False)
-    regular_face_geometry = RegularFaceGeometry3D.unit(geometry)
-    face_bc = _constant_dirichlet_x_face_bc(geometry, 1.75)
-    stencil_builder = ConservativeStencilBuilder(build_conservative_stencil_from_field.build_fn)
-    bad_hierarchy = build_perp_laplacian_mg_hierarchy(
-        geometry,
-        stencil_builder,
-        face_bc=face_bc,
-        regular_face_geometry=regular_face_geometry,
-        cut_wall_bc=CutWallBC3D.empty(),
-        periodic_axes=(False, True, True),
-        max_levels=2,
-    )
-    solver = PerpLaplacianInverseSolver(
-        geometry,
-        stencil_builder,
-        regular_face_geometry=regular_face_geometry,
-        periodic_axes=(False, True, True),
-        mg_hierarchy=bad_hierarchy,
-    )
-
-    try:
-        solver(jnp.zeros(geometry.shape, dtype=jnp.float64), face_bc=face_bc)
-    except ValueError as error:
-        assert "mg_hierarchy face_bc must match" in str(error)
-    else:
-        raise AssertionError("nonzero physical Dirichlet MG hierarchy should be rejected")
-
-
-def test_perp_laplacian_inverse_accepts_solver_mg_hierarchy_for_homogeneous_dirichlet() -> None:
-    pytest.importorskip("lineax")
-    geometry = build_test_fci_geometry((5, 4, 3), construct_fci_maps=False)
-    regular_face_geometry = RegularFaceGeometry3D.unit(geometry)
-    face_bc = _constant_dirichlet_x_face_bc(geometry, 0.0)
-    stencil_builder = ConservativeStencilBuilder(build_conservative_stencil_from_field.build_fn)
-    hierarchy = build_perp_laplacian_solver_mg_hierarchy(
-        geometry,
-        stencil_builder,
-        face_bc=face_bc,
-        regular_face_geometry=regular_face_geometry,
-        cut_wall_bc=CutWallBC3D.empty(),
-        periodic_axes=(False, True, True),
-        max_levels=2,
-    )
-    solver = PerpLaplacianInverseSolver(
-        geometry,
-        stencil_builder,
-        regular_face_geometry=regular_face_geometry,
-        periodic_axes=(False, True, True),
-        mg_hierarchy=hierarchy,
-        tol=1.0e-8,
-        maxiter=50,
-        restart=20,
-    )
-    exact = _smooth_zero_dirichlet_field(geometry)
-    rhs = solver._apply_A(exact, face_bc, CutWallBC3D.empty(), False)
-
-    phi, diagnostics = solver(rhs, face_bc=face_bc, return_diagnostics=True)
-
-    assert diagnostics["final_residual_rel_l2"] < 1.0e-6
-    assert bool(jnp.all(jnp.isfinite(phi)))
-
-
-def test_perp_laplacian_inverse_dirichlet_lift_with_solver_mg_hierarchy() -> None:
-    pytest.importorskip("lineax")
-    geometry = build_test_fci_geometry((5, 4, 3), construct_fci_maps=False)
-    regular_face_geometry = RegularFaceGeometry3D.unit(geometry)
-    wall_value = 1.75
-    face_bc = _constant_dirichlet_x_face_bc(geometry, wall_value)
-    stencil_builder = ConservativeStencilBuilder(build_conservative_stencil_from_field.build_fn)
-    hierarchy = build_perp_laplacian_solver_mg_hierarchy(
-        geometry,
-        stencil_builder,
-        face_bc=face_bc,
-        lifted=True,
-        regular_face_geometry=regular_face_geometry,
-        cut_wall_bc=CutWallBC3D.empty(),
-        periodic_axes=(False, True, True),
-        max_levels=2,
-    )
-    solver = PerpLaplacianInverseSolver(
-        geometry,
-        stencil_builder,
-        regular_face_geometry=regular_face_geometry,
-        periodic_axes=(False, True, True),
-        mg_hierarchy=hierarchy,
-        project_mean_zero=False,
-        check_residual=True,
-    )
-
-    rhs_physical = jnp.zeros(geometry.shape, dtype=jnp.float64)
-    phi_lift = jnp.full(geometry.shape, wall_value, dtype=jnp.float64)
-    phi, diagnostics = solver(
-        rhs_physical,
-        face_bc=face_bc,
-        cut_wall_bc=CutWallBC3D.empty(),
-        phi_lift=phi_lift,
-        return_diagnostics=True,
-    )
-
-    assert diagnostics["lifted"] is True
-    assert diagnostics["correction_residual_l2"] < 1.0e-8
-    np.testing.assert_allclose(np.asarray(phi), np.asarray(phi_lift), rtol=1.0e-10, atol=1.0e-10)
-
-
-def test_perp_laplacian_inverse_solver_mg_preconditioner_not_worse_on_smooth_dirichlet() -> None:
-    pytest.importorskip("lineax")
-    geometry = build_test_fci_geometry((5, 4, 3), construct_fci_maps=False)
-    regular_face_geometry = RegularFaceGeometry3D.unit(geometry)
-    face_bc = _constant_dirichlet_x_face_bc(geometry, 0.0)
-    stencil_builder = ConservativeStencilBuilder(build_conservative_stencil_from_field.build_fn)
-    hierarchy = build_perp_laplacian_solver_mg_hierarchy(
-        geometry,
-        stencil_builder,
-        face_bc=face_bc,
-        regular_face_geometry=regular_face_geometry,
-        cut_wall_bc=CutWallBC3D.empty(),
-        periodic_axes=(False, True, True),
-        max_levels=2,
-    )
-    unpreconditioned_solver = PerpLaplacianInverseSolver(
-        geometry,
-        stencil_builder,
-        regular_face_geometry=regular_face_geometry,
-        periodic_axes=(False, True, True),
-        tol=1.0e-8,
-        maxiter=80,
-        restart=20,
-    )
-    preconditioned_solver = PerpLaplacianInverseSolver(
-        geometry,
-        stencil_builder,
-        regular_face_geometry=regular_face_geometry,
-        periodic_axes=(False, True, True),
-        mg_hierarchy=hierarchy,
-        tol=1.0e-8,
-        maxiter=80,
-        restart=20,
-    )
-    exact = _smooth_zero_dirichlet_field(geometry)
-    rhs = unpreconditioned_solver._apply_A(exact, face_bc, CutWallBC3D.empty(), False)
-
-    _, unpreconditioned = unpreconditioned_solver(rhs, face_bc=face_bc, return_diagnostics=True)
-    _, preconditioned = preconditioned_solver(rhs, face_bc=face_bc, return_diagnostics=True)
-
-    assert preconditioned["final_residual_rel_l2"] < 1.0e-6
-    assert preconditioned["num_steps"] <= unpreconditioned["num_steps"] + 2
-
-
 def test_poisson_bracket_on_identity_metric_matches_cross_product_form() -> None:
     geometry = build_identity_fci_geometry((4, 5, 6))
     f_stencil = _build_local_stencil_dirichlet_boundaries(
@@ -1797,9 +1644,6 @@ def test_curvature_op_vanishes_for_constant_field_on_identity_metric() -> None:
     )
 
     assert jnp.allclose(actual, 0.0)
-
-
-
 
 
 def test_parallel_laplacian_conservative_op_returns_zero_for_constant_field() -> None:
@@ -1957,8 +1801,4 @@ if __name__ == "__main__":
     #test_invert_perp_laplacian_neumann_target_mean()
     #test_invert_perp_laplacian_neumann_boundary_source_is_rhs_only()
     #test_apply_A_is_linear_for_dirichlet_and_neumann_cases()
-    #test_prepare_perp_laplacian_mg_builds_coarse_hierarchy()
-    #test_restriction_and_prolongation_preserve_constants_and_smooth_modes()
-    #test_mg_vcycle_reduces_residual_on_a_smooth_dirichlet_problem()
-    #test_preconditioned_gmres_reduces_iteration_count()
     pass

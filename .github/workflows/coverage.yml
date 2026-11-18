@@ -46,7 +46,6 @@ jobs:
             --ignore-glob=tests/test_fci_*.py \
             --ignore-glob=tests/test_mms_shifted_torus_*.py \
             --ignore-glob=tests/test_mms_slab_*.py \
-            --ignore-glob=tests/test_multigrid_*.py \
             --ignore-glob=tests/test_shifted_torus_*.py
           uv run pytest -q -m "not slow" --cov=drbx --cov-branch --cov-append \
             tests/test_fci_halo.py \
@@ -54,6 +53,5 @@ jobs:
             tests/test_fci_operators.py \
             tests/test_fci_operators_domain_decomp.py \
             tests/test_mms_shifted_torus_EB.py \
-            tests/test_multigrid_preconditioner.py \
             tests/test_shifted_torus_EB_blob.py
           uv run coverage report --fail-under=58

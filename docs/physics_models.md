@@ -257,8 +257,7 @@ structured-solver library. The electrostatic vorticity lane
 potential with that operator; the compact FCI vorticity component inverts the
 metric-weighted perpendicular operator with conjugate gradient; and the
 4-field/DRB lanes invert the conservative perpendicular Laplacian with the
-solvax GMRES `PerpLaplacianInverseSolver` (optionally multigrid-preconditioned
-with a prefactored LU coarse solve) — see
+solvax GMRES `PerpLaplacianInverseSolver` — see
 [Solvers and Design Decisions](solvers_and_design.md).
 
 ## Linear Stability And Dispersion

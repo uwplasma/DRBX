@@ -22,7 +22,6 @@ from drbx.native import (
     Fci4FieldFreeDecayParameters,
     Fci4FieldState,
     build_perp_laplacian_face_projectors,
-    build_perp_laplacian_mg_hierarchy,
     compute_4field_curvature,
     compute_4field_diffusion,
     compute_4field_free_decay_rhs,
@@ -358,7 +357,6 @@ def shifted_torus_4field_free_decay_rk4(
     conservative_stencil_builder: ConservativeStencilBuilder = build_conservative_stencil_from_field,
     boundary_conditions: FreeDecayBoundaryConditions,
     phi_face_projectors: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None = None,
-    phi_mg_hierarchy: object | None = None,
     phi_inverse_solver: PerpLaplacianInverseSolver | None = None,
     gmres_debug: bool = False,
     phi_guess: jnp.ndarray | None = None,
@@ -382,7 +380,6 @@ def shifted_torus_4field_free_decay_rk4(
         project_mean_zero=False,
         target_mean_phi=None,
         regularization_epsilon=0.0,
-        mg_hierarchy=phi_mg_hierarchy,
         gmres_debug=gmres_debug,
     )
     rhs_1, timings_1, phi_1 = rhs_function(
@@ -409,7 +406,6 @@ def shifted_torus_4field_free_decay_rk4(
         v_electron_parallel_cut_wall_geometry=boundary_conditions.v_electron_parallel_cut_wall_geometry,
         v_electron_parallel_cut_wall_bc=boundary_conditions.v_electron_parallel_cut_wall_bc,
         phi_face_projectors=phi_face_projectors,
-        phi_mg_hierarchy=phi_mg_hierarchy,
         phi_inverse_solver=phi_inverse_solver,
         gmres_debug=gmres_debug,
         phi_guess=phi_guess,
@@ -444,7 +440,6 @@ def shifted_torus_4field_free_decay_rk4(
         v_electron_parallel_cut_wall_geometry=boundary_conditions.v_electron_parallel_cut_wall_geometry,
         v_electron_parallel_cut_wall_bc=boundary_conditions.v_electron_parallel_cut_wall_bc,
         phi_face_projectors=phi_face_projectors,
-        phi_mg_hierarchy=phi_mg_hierarchy,
         phi_inverse_solver=phi_inverse_solver,
         gmres_debug=gmres_debug,
         phi_guess=phi_guess,
@@ -479,7 +474,6 @@ def shifted_torus_4field_free_decay_rk4(
         v_electron_parallel_cut_wall_geometry=boundary_conditions.v_electron_parallel_cut_wall_geometry,
         v_electron_parallel_cut_wall_bc=boundary_conditions.v_electron_parallel_cut_wall_bc,
         phi_face_projectors=phi_face_projectors,
-        phi_mg_hierarchy=phi_mg_hierarchy,
         phi_inverse_solver=phi_inverse_solver,
         gmres_debug=gmres_debug,
         phi_guess=phi_guess,
@@ -514,7 +508,6 @@ def shifted_torus_4field_free_decay_rk4(
         v_electron_parallel_cut_wall_geometry=boundary_conditions.v_electron_parallel_cut_wall_geometry,
         v_electron_parallel_cut_wall_bc=boundary_conditions.v_electron_parallel_cut_wall_bc,
         phi_face_projectors=phi_face_projectors,
-        phi_mg_hierarchy=phi_mg_hierarchy,
         phi_inverse_solver=phi_inverse_solver,
         gmres_debug=gmres_debug,
         phi_guess=phi_guess,
@@ -569,8 +562,6 @@ def simulate_shifted_torus_4field_free_decay(
     rho_star_value: float = rho_star,
     te_value: float = Te,
     mi_over_me_value: float = mi_over_me,
-    use_multigrid_preconditioner: bool = False,
-    disable_multigrid_on_failure: bool = True,
     gmres_debug: bool = False,
     show_progress: bool = False,
     parameters: Fci4FieldFreeDecayParameters | None = None,
@@ -600,51 +591,6 @@ def simulate_shifted_torus_4field_free_decay(
     empty_cut_wall_geometry = CutWallGeometry3D.empty()
     empty_cut_wall_bc = CutWallBC3D.empty()
 
-    phi_mg_hierarchy = None
-    mg_build_time = 0.0
-    if use_multigrid_preconditioner:
-        mg_start = time_module.perf_counter()
-        phi_mg_hierarchy = build_perp_laplacian_mg_hierarchy(
-            geometry,
-            conservative_stencil_builder,
-            face_bc=boundary_conditions.phi_face_bc,
-            regular_face_geometry=RegularFaceGeometry3D.unit(geometry),
-            cut_wall_geometry=empty_cut_wall_geometry,
-            cut_wall_bc=empty_cut_wall_bc,
-            periodic_axes=(False, True, True),
-        )
-        mg_build_time = time_module.perf_counter() - mg_start
-        try:
-            phi_check_solver = PerpLaplacianInverseSolver(
-                geometry,
-                conservative_stencil_builder,
-                tol=float(params.phi_inversion_tol),
-                maxiter=int(params.phi_inversion_maxiter),
-                restart=int(params.phi_inversion_restart),
-                face_projectors=face_projectors,
-                regular_face_geometry=RegularFaceGeometry3D.unit(geometry),
-                cut_wall_geometry=empty_cut_wall_geometry,
-                cut_wall_bc=empty_cut_wall_bc,
-                periodic_axes=(False, True, True),
-                pin_point=None,
-                pin_value=0.0,
-                project_mean_zero=False,
-                target_mean_phi=None,
-                regularization_epsilon=0.0,
-                mg_hierarchy=phi_mg_hierarchy,
-                gmres_debug=gmres_debug,
-            )
-            phi_check = phi_check_solver(-initial_state.omega, face_bc=boundary_conditions.phi_face_bc)
-            jax.block_until_ready(phi_check)
-        except RuntimeError as error:
-            if not disable_multigrid_on_failure:
-                raise
-            print(
-                "shifted_torus_4field_free_decay multigrid preconditioner failed initial solve; "
-                f"disabling for this run. Reason: {error}"
-            )
-            phi_mg_hierarchy = None
-
     phi_inverse_solver = PerpLaplacianInverseSolver(
         geometry,
         conservative_stencil_builder,
@@ -661,7 +607,6 @@ def simulate_shifted_torus_4field_free_decay(
         project_mean_zero=False,
         target_mean_phi=None,
         regularization_epsilon=0.0,
-        mg_hierarchy=phi_mg_hierarchy,
         gmres_debug=gmres_debug,
     )
 
@@ -696,7 +641,6 @@ def simulate_shifted_torus_4field_free_decay(
                 conservative_stencil_builder=conservative_stencil_builder,
                 boundary_conditions=boundary_conditions,
                 phi_face_projectors=face_projectors,
-                phi_mg_hierarchy=phi_mg_hierarchy,
                 phi_inverse_solver=phi_inverse_solver,
                 gmres_debug=gmres_debug,
                 phi_guess=current_phi_guess,
@@ -776,18 +720,6 @@ def simulate_shifted_torus_4field_free_decay(
             f"project_mean_zero={bool(phi_inversion_project_mean_zero)}, "
             f"pin_point_enabled={phi_pin_point is not None}"
         )
-        if use_multigrid_preconditioner and phi_mg_hierarchy is not None:
-            print(
-                "shifted_torus_4field_free_decay multigrid hierarchy build time: "
-                f"{mg_build_time:.6e} s, levels={len(phi_mg_hierarchy.levels) if phi_mg_hierarchy is not None else 0}"
-            )
-        elif use_multigrid_preconditioner:
-            print(
-                "shifted_torus_4field_free_decay multigrid preconditioner: "
-                f"disabled after initial solve check, hierarchy_build_time={mg_build_time:.6e} s"
-            )
-        else:
-            print("shifted_torus_4field_free_decay multigrid preconditioner: disabled")
         print(
             "shifted_torus_4field_free_decay mean timings per RK step: "
             f"phi_inverse={float(np.mean(timing_array[:, 0])):.6e} s, "
@@ -1054,7 +986,6 @@ def main() -> None:
             boundary_conditions,
             final_time=tf,
             timestep=tf / float(num_steps),
-            use_multigrid_preconditioner=False,
             gmres_debug=False,
             show_progress=True,
             parameters=parameters,
