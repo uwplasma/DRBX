@@ -3852,40 +3852,6 @@ def _interpolate_B_contravariant_cell_centered(
     return result[0] if squeeze else result
 
 
-def _rk4_step_cell_centered(
-    grid: CellCenteredGrid3D,
-    B_contra_cell: jnp.ndarray,
-    point: jnp.ndarray,
-    step: float,
-    *,
-    periodic_axes: tuple[bool, bool, bool],
-    min_abs_bz: float,
-    boundary_value: float,
-) -> jnp.ndarray:
-    state = jnp.asarray(point, dtype=jnp.float64)
-    if state.shape != (3,):
-        raise ValueError(f"point must have shape (3,), got {state.shape}")
-    h = float(step)
-    
-    def rhs(value: jnp.ndarray) -> jnp.ndarray:
-        b = _interpolate_B_contravariant_cell_centered(
-            grid,
-            B_contra_cell,
-            value,
-            periodic_axes=periodic_axes,
-            boundary_value=boundary_value,
-        )
-        bz = jnp.asarray(b[2], dtype=jnp.float64)
-        safe_bz = jnp.where(jnp.abs(bz) < min_abs_bz, jnp.where(bz < 0.0, -1.0, 1.0) * (min_abs_bz), bz)
-        return jnp.stack((b[0] / safe_bz, b[1] / safe_bz, jnp.array(1.0, dtype=jnp.float64)))
-
-    k1 = rhs(state)
-    k2 = rhs(state + 0.5 * h * k1)
-    k3 = rhs(state + 0.5 * h * k2)
-    k4 = rhs(state + h * k3)
-    return state + (h / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-
-
 def build_fci_maps_from_b_contravariant(
     grid: CellCenteredGrid3D,
     B_contra_cell: jnp.ndarray,
