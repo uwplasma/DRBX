@@ -1899,10 +1899,14 @@ class LocalFciDrbEBRhs:
 
         leg = self._fci_leg_mask()
         stencil = self._fci_leg_stencil(face_bc=face_bc, context=context)
+        active = self._fci_pair_active_mask().astype(jnp.float64)
+        # Cells outside the pairs carry no leg flux: the endpoint reads only active cells, and the weight
+        # it puts on the others is moved to the centre, so constants stay exact and G has no column there.
+        reach = stencil(active).plus
 
         def gradient(values):
-            st = stencil(values)
-            return jnp.where(leg, (st.plus - st.center) / jnp.maximum(jnp.abs(st.dx_plus), 1.0e-30), 0.0)
+            st = stencil(values * active)
+            return jnp.where(leg, (st.plus - reach * values) / jnp.maximum(jnp.abs(st.dx_plus), 1.0e-30), 0.0)
 
         length = jnp.abs(stencil(jnp.zeros(self.geometry.owned_shape, dtype=jnp.float64)).dx_plus)
         if self.sparse_rows is not None:

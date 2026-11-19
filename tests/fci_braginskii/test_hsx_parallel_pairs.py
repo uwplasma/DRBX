@@ -20,7 +20,8 @@ import scipy.sparse.linalg as ssl
 from jax.sharding import PartitionSpec as P
 
 BUNDLE = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
-pytestmark = [pytest.mark.slow, pytest.mark.skipif(BUNDLE is None, reason="set DRBX_TEST_GEOMETRY_BUNDLE")]
+pytestmark = pytest.mark.skipif(BUNDLE is None, reason="set DRBX_TEST_GEOMETRY_BUNDLE")
+slow = pytest.mark.slow
 EPSILONS = (0.0, 0.1, 0.25, 0.5, 1.0, 2.0)
 
 
@@ -51,8 +52,38 @@ def _capture(tmp_path):
 
 
 @pytest.fixture(scope="module")
-def operators(tmp_path_factory):
-    cap = _capture(tmp_path_factory.mktemp("hsx"))
+def captured(tmp_path_factory):
+    return _capture(tmp_path_factory.mktemp("hsx"))
+
+
+def test_leg_pair_conserves_and_is_adjoint_on_pair_active_cells(captured):
+    """Matrix-free probes of the leg pair: sum V D+(x) = 0 and <D+x, y>_V = -<x, G+y>_V for x, y on active cells."""
+    cap = captured
+    shape = tuple(int(n) for n in cap["state"].density.shape)
+
+    def probes(state, cell, maps, control):
+        model = cap["build_local_model"](cell, maps, control)
+        face_bc, ctx = model._face_bcs(state), model._stencil_builder_context()
+        grad, div, _ = model._fci_leg_pair(face_bc=face_bc, context=ctx)
+        act, vol = model._fci_pair_active_mask().astype(jnp.float64), model._fci_pair_cell_mass()
+        inner = lambda a, b: jnp.sum(vol * act * a * b)
+        out = []
+        for key in jax.random.split(jax.random.PRNGKey(0), 4):
+            x, y = (act * jax.random.normal(k, shape) for k in jax.random.split(key))
+            dx = div(x)
+            out.append((inner(1.0, dx) / inner(1.0, jnp.abs(dx)), inner(dx, y) + inner(x, grad(y)), inner(jnp.abs(dx), jnp.abs(y)) + inner(jnp.abs(x), jnp.abs(grad(y)))))
+        return jnp.array(out)
+
+    geo = cap["geometry_spec"]
+    mapped = jax.shard_map(probes, mesh=cap["mesh"], in_specs=(cap["state_spec"], geo, geo, geo), out_specs=P(), check_vma=False)
+    res = np.asarray(jax.jit(mapped)(cap["state"], cap["cell_fields"], cap["map_fields"], cap["control_volume_fields"]))
+    assert np.max(np.abs(res[:, 0])) <= 1e-12  # sum-free: no flux is lost to excluded cells
+    assert np.max(np.abs(res[:, 1]) / res[:, 2]) <= 1e-12  # adjoint on active inputs
+
+
+@pytest.fixture(scope="module")
+def operators(captured):
+    cap = captured
     state = cap["state"]
     shape = tuple(int(n) for n in state.density.shape)
 
@@ -83,6 +114,7 @@ def operators(tmp_path_factory):
     return out
 
 
+@slow
 def test_every_pair_is_an_exact_adjoint(operators):
     v = operators["vol"]
     f = np.random.default_rng(0).standard_normal((len(v), 8))
@@ -110,6 +142,7 @@ def _blob(operators):
     return dict(profile=profile, dist2=dist2, u=u, eta=eta, valid=valid, act=act)
 
 
+@slow
 def test_step_advection_along_b_is_bounded_with_face_flux_dissipation(operators, capsys):
     """Wiesenberger: step-modulated aligned blob advected 8 legs; report -D alone and with eps."""
     b, v, act = _blob(operators), operators["vol"], operators["act"]
@@ -130,6 +163,7 @@ def test_step_advection_along_b_is_bounded_with_face_flux_dissipation(operators,
     assert rows[2.0][2] < 1.0 + 1e-6
 
 
+@slow
 def test_anisotropic_heat_blob_reports_perpendicular_leakage(operators, capsys):
     """Stegmeir heat blob (eps_perp = 0): L1 error vs the aligned steady state, central and compact."""
     b, v, act = _blob(operators), operators["vol"], operators["act"]
