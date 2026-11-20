@@ -35,9 +35,13 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Select the job environment
+        run: |
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/venv" >> "$GITHUB_ENV"
+          echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/venv" >> "$GITHUB_ENV"
       - name: Install package and test tools
         run: |
-          uv venv
+          uv venv "$VIRTUAL_ENV"
           uv pip install -e . pytest pytest-cov
       - name: Run full fast test suite
         env:
