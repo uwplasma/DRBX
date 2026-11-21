@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 from jax.sharding import PartitionSpec as P
 
-from drbx.fci_braginskii.native.fci_drb_EB_rhs import LocalFciDrbEBRhs
+from drbx.fci_braginskii.native.fci_drb_EB_rhs import LocalFciDrbEBRhs, _mask_inactive_owned
 from drbx.fci_braginskii.native.fci_electromagnetic import FciEm, flutter_pair
 from drbx.fci_braginskii.native.fci_support_pair import build_support_pair
 
@@ -339,3 +339,41 @@ def test_electromagnetic_step_gradient_matches_finite_difference(tmp_path, monke
     print(f"[gradient] loss {float(value):.6e} jax.grad {float(grad):.6e} central difference {fd:.6e} rel {abs(float(grad) / fd - 1.0):.2e}")
     assert np.isfinite(float(value)) and np.isfinite(float(grad)) and abs(fd) > 0.0
     assert float(grad) == pytest.approx(fd, rel=1.0e-3)
+
+
+@hsx
+def test_hsx_stage_rhs_responds_linearly_to_apar(tmp_path):
+    """Every RHS row of the production stage moves with ``A_par``, linearly (flutter and ``Ve = w + mu A``), and
+    the Ampere solve inverts ``(-L_perp + beta mu n) A = beta n (Vi - w)`` (checked through ``-L_perp A = beta n (Vi - Ve)``)."""
+
+    cap = _capture(tmp_path, 1.0e-2)
+    names = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")
+
+    def probe(model, state):
+        bump = state.density - jnp.mean(state.density)
+        bump = bump / jnp.max(jnp.abs(bump))
+        # one-signed flows keep the upwinding away from its kinks at V = 0
+        state = state.replace(Vi=0.02 * (1.0 + 0.5 * bump), Ve=0.01 * (1.0 - 0.5 * bump))
+        shape = state.density.shape
+        a = jax.random.normal(jax.random.PRNGKey(0), shape)
+        a = jnp.fft.irfftn(jnp.fft.rfftn(a) * jnp.exp(-0.5 * sum(k**2 for k in jnp.meshgrid(
+            *(jnp.fft.fftfreq(s) * s for s in shape[:-1]), jnp.fft.rfftfreq(shape[-1]) * shape[-1], indexing="ij"))), shape)
+        a = model._owner_field(_mask_inactive_owned(1.0e-4 * a / jnp.max(jnp.abs(a)), model.geometry))
+        phi = state.phi
+        stacked = jax.lax.map(lambda s: dataclasses.replace(model, apar=s * a).evaluate_stage(state, phi_owned=phi), jnp.array([0.0, 1.0, 10.0]))
+        rhs = [jax.tree.map(lambda x, k=k: x[k], stacked) for k in range(3)]  # one traced stage, three A_par
+        d1 = jnp.stack([jnp.max(jnp.abs(getattr(rhs[1], f) - getattr(rhs[0], f))) for f in names])
+        d10 = jnp.stack([jnp.max(jnp.abs(getattr(rhs[2], f) - getattr(rhs[0], f))) for f in names])
+        scale = jnp.stack([jnp.max(jnp.abs(getattr(rhs[0], f))) for f in names])
+        ratio = jnp.stack([jnp.max(jnp.abs(getattr(rhs[2], f) - getattr(rhs[0], f) - 10.0 * (getattr(rhs[1], f) - getattr(rhs[0], f))))
+                           for f in names]) / d10
+        tight = dataclasses.replace(model, gmres_config=dataclasses.replace(
+            model.gmres_config, tol=1e-13, atol=1e-30, acceptance_tol=1e-10, acceptance_atol=1e-30, maxiter=2000, restart=200))
+        physical, em = tight.em_physical(state)
+        back = em.em_canonical(physical)
+        return d1, scale, ratio, jnp.max(jnp.abs(back.Ve - state.Ve)) / jnp.max(jnp.abs(state.Ve)), jnp.max(jnp.abs(em.apar))
+
+    d1, scale, ratio, round_trip, apar_max = jax.tree.map(np.asarray, _on_model(cap, probe))
+    assert np.all(d1 > 1e-12 * np.maximum(scale, 1.0))  # every row sees A_par
+    assert np.all(ratio < 1e-6)  # change(10 A) = 10 change(A)
+    assert round_trip < 1e-10 and apar_max > 0.0
