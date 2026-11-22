@@ -50,7 +50,7 @@ def bind(context, plane_mesh, clip_plane_seeded_wall):
         for stem,folder,ext in [('geometry','checkpoints','json'),('geometry','arrays','npz'),('interpolation','checkpoints','json')]:
          p=OUT/f'{folder}/{stem}_{k}.{ext}'
          if p.exists():p.rename(HISTORY/f'base_polygon_pre_refine_{stem}_{k}_{time.time_ns()}.{ext}')
-     dump(done,dict(complete=True,criterion='positive residual/Phi>1% and no plane_seeded_wall_rows; one level only',units=rows,rebuild_planes=planes,ledger=book()['new_rays']));log(f'one-level refinement complete; {len(requested)} first-period cellsides; ledger {book()["new_rays"]}/{book()["cap"]}')
+     dump(done,dict(complete=True,criterion='positive residual/Phi>1% and no plane_seeded_wall_rows; one level only',units=rows,rebuild_planes=planes));log(f'one-level refinement complete; {len(requested)} first-period cellsides')
 
 
     return main

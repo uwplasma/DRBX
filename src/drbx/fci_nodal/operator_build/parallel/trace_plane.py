@@ -47,7 +47,7 @@ def bind(context, midpoint_mesh, plane_mesh, midpoint_observe, clip_class, clip_
      path=OUT/f'checkpoints/wall_quad_{k}.npz'
      if not path.exists():
       q,ww,sg,delta=wall_quad_requests(k,ev);z=trace_cached(ev,q,delta,f'base polygon and wall classification wall quad strip{k}');z['weight']=np.array(ww);z['sign']=sg;save(path,**z)
-     rec=dict(complete=True,plane=k,new_rays=plane_charged(k,'base polygon and wall classification'),cumulative_rays=book()['new_rays'],seconds=time.time()-start,N=N,midpoint_class_counts=np.bincount(load(OUT/f'checkpoints/midpoint_trace_vertices_{k}.npz')['classes'],minlength=4).tolist());dump(dest,rec);log(f'plane {k} trace checkpoint complete: {rec}')
+     rec=dict(complete=True,plane=k,new_rays=plane_charged(k,'base polygon and wall classification'),seconds=time.time()-start,N=N,midpoint_class_counts=np.bincount(load(OUT/f'checkpoints/midpoint_trace_vertices_{k}.npz')['classes'],minlength=4).tolist());dump(dest,rec);log(f'plane {k} trace checkpoint complete: {rec}')
 
 
     def wall_quad_requests(k,ev):

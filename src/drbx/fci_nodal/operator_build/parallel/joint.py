@@ -106,7 +106,7 @@ def bind(context):
        for f in lv:lv[f][same]=obs[f][same];rv[f][~same]=obs[f][~same]
       save(cp,left=left,right=right,**{'left_'+f:v for f,v in lv.items()},**{'right_'+f:v for f,v in rv.items()})
      save(OUT/f'arrays/joint_edges_N{N}_{k}.npz',jobs=jobs,left=left,right=right,**{'left_'+f:v for f,v in lv.items()},**{'right_'+f:v for f,v in rv.items()})
-     dump(dest,dict(complete=True,N=N,plane=k,jobs=len(jobs),iterations=BISECT,new_rays=plane_charged(k,'repaired polygon and merged wall rows joint'),cumulative_ledger=book()['new_rays']));log(f'N{N} joint plane{k} bisections complete; ledger {book()["new_rays"]}/{book()["cap"]}')
+     dump(dest,dict(complete=True,N=N,plane=k,jobs=len(jobs),iterations=BISECT,new_rays=plane_charged(k,'repaired polygon and merged wall rows joint')));log(f'N{N} joint plane{k} bisections complete')
 
 
     def partition(k):

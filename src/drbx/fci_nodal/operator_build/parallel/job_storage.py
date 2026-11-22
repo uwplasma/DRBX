@@ -39,7 +39,7 @@ def peak_rss():
     return size if sys.platform == 'darwin' else size * 1024
 
 
-def guard_rss(limit):
+def guard_rss(limit, *, label='Q build'):
     if limit is None:
         return
 
@@ -47,7 +47,7 @@ def guard_rss(limit):
         while True:
             current = peak_rss()
             if current >= limit:
-                os.write(2, f'Q build PID {os.getpid()} exceeded its peak RSS cap: {current} bytes\n'.encode())
+                os.write(2, f'{label} PID {os.getpid()} exceeded its peak RSS cap: {current} bytes\n'.encode())
                 os._exit(86)
             time.sleep(0.05)
 

@@ -85,10 +85,14 @@ metric differentiation in geometry and parallel construction. MMS preparation
 evaluates its divergence.
 
 Set `geometry.workers` for polygon ray tracing and indexed geometry construction.
-Polygon ray batches keep their original sizes and order. One worker traces in
-the stage process. Higher counts use spawned processes with one library thread
-each. Set `parallel.workers` for indexed parallel construction. Both settings
-default to one. `fci_nodal.threads` sets the library thread limit per process in
+Polygon ray batches keep their original sizes and order. One worker runs the
+planes serially in the stage process. Higher counts use up to one spawned
+process per source plane in each phase and publish in plane order. When each
+plane process can be assigned at least two tracer children, it reuses that pool
+across phases. Plane processes and their tracer children share the
+`geometry.workers` limit. Global balance, projection, tiling, assembly and
+merge run in the stage process. Set `parallel.workers` for indexed parallel
+construction. Both settings default to one. `fci_nodal.threads` sets the library thread limit per process in
 the other build stages and in MMS preparation and execution. Polygon and geometry
 keep one thread per process. A run can select a different thread count using the
 existing build. Each producer receipt records that stage's settings.

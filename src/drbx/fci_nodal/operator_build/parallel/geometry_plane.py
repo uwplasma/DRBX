@@ -14,7 +14,6 @@ def bind(context):
     EVALUATOR = context.evaluator
     gu = context.gu
     Lookup = context.Lookup
-    book = context.book
     load = context.load
     save = context.save
     dump = context.dump
@@ -84,7 +83,7 @@ def bind(context):
      wall=np.array(walls).reshape(-1,10);met=metric_chunks(ev,wall[:,1:4]);wall[:,6]/=met['M'];wall[:,7]=np.sign(met['B'][:,0])
      for r,w in zip(validation,wall):r['sg_side_mismatch']=bool(w[7]!=r['side'])
      save(OUT/f'arrays/geometry_{k}.npz',faces=np.asarray(faces).reshape(-1,11),face_flux=np.asarray(fpsi),wall=wall,wall_flux=np.asarray(wp),wall_kind=np.asarray(kinds),wall_side=np.asarray(sides),grazing_flag=np.array([r['grazing_flag'] for r in validation]),used_traced_barycentre=np.array([r['used_traced_barycentre'] for r in validation]))
-     dump(OUT/f'checkpoints/interpolation_{k}.json',validation);rec=dict(complete=True,plane=k,seconds=time.time()-start,classes=classes,faces=len(faces),wall_rows=len(wall),plane_seeded_wall_rows_quadrature=quadchecks,ledger=book()['new_rays']);dump(path,rec);log(f'plane {k} geometry checkpoint complete; {rec["seconds"]:.1f}s; ledger {book()["new_rays"]}/{book()["cap"]}')
+     dump(OUT/f'checkpoints/interpolation_{k}.json',validation);rec=dict(complete=True,plane=k,seconds=time.time()-start,classes=classes,faces=len(faces),wall_rows=len(wall),plane_seeded_wall_rows_quadrature=quadchecks);dump(path,rec);log(f'plane {k} geometry checkpoint complete; {rec["seconds"]:.1f}s')
 
 
     return main

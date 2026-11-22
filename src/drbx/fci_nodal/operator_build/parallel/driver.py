@@ -5,7 +5,8 @@ from ...geometry_build.dual_cells import build as build_cells
 from functools import lru_cache, partial
 from pathlib import Path
 import json
-from types import SimpleNamespace
+import pickle
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
 from scipy.special import roots_legendre
@@ -17,6 +18,7 @@ from . import geometry_plane, joint, merge, mesh, partition_baseline, gap_centro
 from . import footprint_repair, prepare_children, project, quadrature_plane, refine, trace_plane
 from ._io import dump, load, save
 from ._case import case_inputs, finish_case_record, open_case_record
+from ._plane_execution import log_plane_completion, plane_pool, run_plane_phase
 from ._rays import RayCache, key, sample
 from ...options import PolygonBuildOptions
 from . import _geometry
@@ -67,6 +69,7 @@ def _context(root, ev, options, layout_builder, shared_polygon, rays, prior_ledg
         root=root, history=root/'history', evaluator=ev, gu=gu,
         Lookup=Lookup, book=rays.book, trace_cached=rays.trace_cached,
         trace_sides=rays.trace_sides, plane_charged=rays.plane_charged,
+        check_projection_budget=rays.check_projection_budget,
         load=load, save=save, dump=dump, log=log, relative=relative,
         key=key, sample=sample, seeds=seeds, edges=edges,
         BITS=BITS, FIELDS=FIELDS, BQ8=BQ8, WQ8=WQ8, stats=stats,
@@ -109,19 +112,42 @@ def _bind_stages(context):
         assemble_joint=lane('polygon_repair', assemble_joint)['main'],
         diagnostics_joint=lane('polygon_repair', diagnostics_joint, post['stats'])['main'],
         merge=lane('polygon_repair', merge)['main'], repaired_tiling_audit=post['main'], ray_ledger=context.book,
+        log=context.log,
     )
+
+
+def _run_phase(stages, name, planes=None, do_planes=None, **kwargs):
+    stage = getattr(stages, name)
+    if planes is None:
+        stage(**kwargs)
+    elif do_planes is None:
+        for plane in planes:
+            stage(plane)
+            log_plane_completion(stages.log, stages.ray_ledger, name, plane)
+    else:
+        do_planes(name, planes, stage)
+
+
+def _can_spawn(layout_builder, shared_polygon, archive):
+    if archive is not None or not isinstance(shared_polygon, ModuleType):
+        return False
+    try:
+        pickle.dumps(layout_builder)
+    except (AttributeError, TypeError, pickle.PicklingError):
+        return False
+    return True
 
 
 def open_route(root, *, metric_cache, field_table, layout_builder, shared_polygon,
                options=PolygonBuildOptions(), archive=None, prior_ledgers=(), log=print,
-               field_table_path=None):
+               field_table_path=None, rss_limit_bytes=None):
     """Bind local stages to a saved metric and its loaded ETA table.
 
     The layout builder is the package Zernike core-ring layout function. The shared
     polygon module is the staged polywall numerical module. A supplied
     archive must match the continuous inputs, exact key and dense kernel.
     Prior ledgers carry the archived ray charges into the supplied budget.
-    Spawned trace workers load the same field table from field_table_path.
+    Spawned workers load the field table from field_table_path.
     """
     root = Path(root)
     table_sha256 = field_table.archive_sha256
@@ -146,43 +172,37 @@ def open_route(root, *, metric_cache, field_table, layout_builder, shared_polygo
     context = _context(root, ev, options, layout_builder, shared_polygon, rays, prior_ledgers, log)
     stages = _bind_stages(context)
 
-    def run_stages():
+    def run_stages(do_planes=None):
         """Run the ordered base polygon and wall classification/repaired polygon and merged wall rows stages."""
         open_case_record(root, inputs)
         for directory in (root/'base_polygon'/'checkpoints', root/'polygon_repair'/'checkpoints', context.history):
             directory.mkdir(parents=True, exist_ok=True)
         planes = range(options.source_planes)
-        for stage in (stages.trace_plane, stages.geometry_plane, stages.quadrature_plane):
-            for k in planes:
-                stage(k)
-        stages.diagnostics()
-        for k in planes:
-            stages.refine(k)
+        for phase in ('trace_plane', 'geometry_plane', 'quadrature_plane'):
+            _run_phase(stages, phase, planes, do_planes)
+        _run_phase(stages, 'diagnostics')
+        _run_phase(stages, 'refine', planes, do_planes)
         reports = [json.loads((root/'base_polygon'/f'refinement_{k}.json').read_text()) for k in planes]
         rebuilt = [k for report in reports for k in report['rebuild_planes']]
         dump(root/'base_polygon'/'refinement.json', dict(
             complete=True, criterion=reports[0]['criterion'],
             units=[row for report in reports for row in report['units']],
             rebuild_planes=rebuilt, ledger=stages.ray_ledger()['new_rays']))
-        for k in rebuilt:
-            stages.geometry_plane(k)
         if rebuilt:
-            stages.diagnostics()
-        stages.partition_baseline()
-        for stage in (stages.gap_centroid_trace_audit, stages.prepare_children):
-            for k in planes:
-                stage(k)
-        stages.joint_project()
-        for stage in (stages.joint_bisect, stages.joint_partition):
-            for k in planes:
-                stage(k)
-        stages.audit_tiling(discover=True)
-        stages.close_tiny_gaps()
-        stages.audit_tiling()
-        for k in planes:
-            stages.build_joint_geometry(k)
-        for stage in (stages.assemble_joint, stages.diagnostics_joint, stages.merge, stages.repaired_tiling_audit):
-            stage()
+            _run_phase(stages, 'geometry_plane', rebuilt, do_planes)
+            _run_phase(stages, 'diagnostics')
+        _run_phase(stages, 'partition_baseline')
+        for phase in ('gap_centroid_trace_audit', 'prepare_children'):
+            _run_phase(stages, phase, planes, do_planes)
+        _run_phase(stages, 'joint_project')
+        for phase in ('joint_bisect', 'joint_partition'):
+            _run_phase(stages, phase, planes, do_planes)
+        _run_phase(stages, 'audit_tiling', discover=True)
+        _run_phase(stages, 'close_tiny_gaps')
+        _run_phase(stages, 'audit_tiling')
+        _run_phase(stages, 'build_joint_geometry', planes, do_planes)
+        for phase in ('assemble_joint', 'diagnostics_joint', 'merge', 'repaired_tiling_audit'):
+            _run_phase(stages, phase)
         arrays = root/'polygon_repair'/'arrays'
         products = dict(geometry=arrays/f'polygon_geometry_N{options.resolution}.npz',
                         merged=arrays/f'merged_N{options.resolution}_c{options.merge_fraction:g}.npz',
@@ -191,6 +211,11 @@ def open_route(root, *, metric_cache, field_table, layout_builder, shared_polygo
         return dict(products, case_record=finish_case_record(receipt, inputs, products))
 
     def run():
+        if (options.workers > 1 and options.source_planes > 1
+                and _can_spawn(layout_builder, shared_polygon, archive)):
+            with plane_pool(options.workers, options.source_planes, metric_cache, field_table_path,
+                            options, layout_builder, shared_polygon, rss_limit_bytes) as pool:
+                return run_stages(partial(run_plane_phase, pool, root, rays, ev, log))
         with rays.tracing(partial(Evaluator, metric_cache, field_table_path, options)):
             return run_stages()
 

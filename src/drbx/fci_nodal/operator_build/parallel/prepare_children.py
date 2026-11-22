@@ -41,7 +41,7 @@ def bind(context, remainder):
         r_area+=moment(poly[:3],np.eye(3),'half')[0] if len(poly)==3 else sum(moment(poly[[0,j,j+1]],np.eye(3),'half')[0] for j in range(1,len(poly)-1));rpolys.extend(poly);offset.append(len(rpolys));rparent.append(int(parent))
       error=abs(garea+r_area-total)/total;errors.append(error);rows.append(dict(parent=int(parent),subdivided=bool(gap_centroid_trace_audit['subdivide'][ii]),both_planes_reached_area=garea,remainder_area=r_area,parent_area=total,relative_reach_plus_repair_error=error))
      assert max(errors)<1e-12,max(errors)
-     save(OUT/f'arrays/remainders_N{N}_{k}.npz',xy=np.array(rpolys),offset=np.array(offset),parent=np.array(rparent));rec=dict(complete=True,N=N,plane=k,subdivided_parents=len(ids),unique_midpoints=len(edges),new_rays=plane_charged(k,'repaired polygon and merged wall rows child midpoints'),cumulative_ledger=book()['new_rays'],G_plus_R_tiling_max=max(errors),G_preserved=True,remainder_classified=False,parents=rows,seconds=time.time()-start);dump(dest,rec);log(f'N{N} child midpoint plane{k} complete; G+R tiling max {max(errors):.3g}; ledger {book()["new_rays"]}/{book()["cap"]}; ready for authorized four-class joint partition')
+     save(OUT/f'arrays/remainders_N{N}_{k}.npz',xy=np.array(rpolys),offset=np.array(offset),parent=np.array(rparent));rec=dict(complete=True,N=N,plane=k,subdivided_parents=len(ids),unique_midpoints=len(edges),new_rays=plane_charged(k,'repaired polygon and merged wall rows child midpoints'),G_plus_R_tiling_max=max(errors),G_preserved=True,remainder_classified=False,parents=rows,seconds=time.time()-start);dump(dest,rec);log(f'N{N} child midpoint plane{k} complete; G+R tiling max {max(errors):.3g}; ready for authorized four-class joint partition')
 
 
     return main

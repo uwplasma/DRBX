@@ -41,9 +41,11 @@ def polygon(options, out, inputs):
     from ..operators.nodal.nodal_layout_specs import build_zernike_core_ring_layout
 
     table = EtaFilterTable.load(inputs["field_table"])
+    limit = os.environ.get("DRBX_FCI_NODAL_WORKER_RSS_BYTES")
     route = open_route(out, metric_cache=inputs["metric_cache"], field_table=table,
                        field_table_path=inputs["field_table"], layout_builder=build_zernike_core_ring_layout,
-                       shared_polygon=shared_polygon, options=options)
+                       shared_polygon=shared_polygon, options=options,
+                       rss_limit_bytes=None if limit is None else int(limit))
     products = route.run()
     return {"polygon_geometry": products["geometry"], "polygon_merged": products["merged"],
             "polygon_case": products["case_record"], "polygon_route": out}, route.ray_ledger()["new_rays"]

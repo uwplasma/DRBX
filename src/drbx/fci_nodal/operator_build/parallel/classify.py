@@ -13,6 +13,7 @@ def bind(context):
     OUT = context.out
     gu = context.gu
     book = context.book
+    check_projection_budget = context.check_projection_budget
     trace_cached = context.trace_cached
     trace_sides = context.trace_sides
     dump = context.dump
@@ -53,8 +54,8 @@ def bind(context):
 
     def clip_plane_seeded_wall(ev,mesh,k,sg,p):
      xy=mesh['plane_xy'];tri=mesh['plane_tri'];ow=mesh['plane_owner'];good=p['hit'];ee=edges(tri);ee=ee[good[ee[:,0]]!=good[ee[:,1]]];ii=np.where(good[ee[:,0]],ee[:,0],ee[:,1]);oo=np.where(good[ee[:,0]],ee[:,1],ee[:,0]);inside=xy[ii].copy();outside=xy[oo].copy();wh=p['wall'][ii].copy();ell=p['wall_length'][ii].copy()
-     budget=dict(plane=k,side=sg,charged=book()['new_rays'],boundary_edges=len(ee),maximum_additional_bisection_rays=WALL_BISECT*len(ee),cap=book()['cap']);dump(OUT/f'checkpoints/{PLANE_WALL_STEM}_projection_{k}_{sg}.json',budget)
-     if budget['charged']+budget['maximum_additional_bisection_rays']>budget['cap']:raise RuntimeError('plane_seeded_wall_rows unit projection exceeds cap before bisection')
+     budget=dict(plane=k,side=sg,boundary_edges=len(ee),maximum_additional_bisection_rays=WALL_BISECT*len(ee),cap=book()['cap']);dump(OUT/f'checkpoints/{PLANE_WALL_STEM}_projection_{k}_{sg}.json',budget)
+     check_projection_budget(budget['maximum_additional_bisection_rays'])
      for it in range(WALL_BISECT):
       if not len(ee):break
       mid=(inside+outside)/2;actual,_=transform(mid,'plane');z=trace_cached(ev,seeds(actual,(k+.5)*HOP),sg*.5*HOP,f'base polygon and wall classification plane_seeded_wall_rows plane{k} side{sg} bisect{it}');hit=z['hit'];inside[hit]=mid[hit];outside[~hit]=mid[~hit];wh[hit]=z['wall'][hit];ell[hit]=z['wall_length'][hit]

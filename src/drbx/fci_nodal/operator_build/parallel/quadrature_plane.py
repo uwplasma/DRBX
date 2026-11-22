@@ -13,7 +13,6 @@ def bind(context, midpoint_mesh):
     OUT = context.out
     EVALUATOR = context.evaluator
     gu = context.gu
-    book = context.book
     load = context.load
     save = context.save
     dump = context.dump
@@ -56,7 +55,7 @@ def bind(context, midpoint_mesh):
       ratio[ids]=np.exp(zz['delta']*extent*exponent)
      slentry=float(sf[ids].sum());slexit=float((sf[ids]*ratio[ids]).sum());qref=z['endpoint'].copy();qref[:,2]%=TAU
      save(OUT/f'arrays/wall_reference_{k}.npz',seed=z['seed'],endpoint=qref,wall=z['wall'],hit=z['hit'],source_flux=sf,transport_ratio=ratio,canonical=canonical,sign=z['sign'],delta=z['delta'])
-     rec=dict(complete=True,plane=k,seconds=time.time()-start,phi_ladder=ladder,flux_density_identity=err,surface_influx=incoming,surface_outflux=outgoing,surface_absolute_flux=incoming+outgoing,signed_inward_flux=incoming-outgoing,sliver_entry_flux=slentry,sliver_exit_flux=slexit,physical_reference=incoming+outgoing-slentry-slexit,plane_reaching_surface_flux=float(sf[~z['hit']].sum()),canonical_slivers=len(ids),surface_rule='q3 on 3N/2 x 6 strip patches; canonical sliver exit uses unchanged 8-point divergence transport; legacy gathered geometry products-anchor completion unavailable',ledger=book()['new_rays']);dump(dest,rec);log(f'plane {k} quadrature checkpoint {rec["seconds"]:.1f}s; no traces; ledger {book()["new_rays"]}/{book()["cap"]}')
+     rec=dict(complete=True,plane=k,seconds=time.time()-start,phi_ladder=ladder,flux_density_identity=err,surface_influx=incoming,surface_outflux=outgoing,surface_absolute_flux=incoming+outgoing,signed_inward_flux=incoming-outgoing,sliver_entry_flux=slentry,sliver_exit_flux=slexit,physical_reference=incoming+outgoing-slentry-slexit,plane_reaching_surface_flux=float(sf[~z['hit']].sum()),canonical_slivers=len(ids),surface_rule='q3 on 3N/2 x 6 strip patches; canonical sliver exit uses unchanged 8-point divergence transport; legacy gathered geometry products-anchor completion unavailable');dump(dest,rec);log(f'plane {k} quadrature checkpoint {rec["seconds"]:.1f}s; no traces')
 
 
     return {'Flux': Flux, 'phi': phi, 'main': main}

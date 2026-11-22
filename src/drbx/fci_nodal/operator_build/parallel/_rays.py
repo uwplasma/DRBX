@@ -35,11 +35,25 @@ def _initialize_trace_worker(tracer, evaluator_factory):
     _trace, _evaluator = tracer, evaluator_factory()
 
 
+def trace_pool(workers, tracer, evaluator_factory):
+    return ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context('spawn'),
+                               initializer=_initialize_trace_worker, initargs=(tracer, evaluator_factory))
+
+
 def _trace_batch(seeds, delta, size, extrema):
     _evaluator.trace_batch_size = size
     _evaluator.beta_min, _evaluator.beta_max, _evaluator.max_u = extrema
     result = _trace(_evaluator, seeds, delta, steps=STEPS)
     return result, (_evaluator.beta_min, _evaluator.beta_max, _evaluator.max_u)
+
+
+def merge_extrema(ev, extrema):
+    beta_min, beta_max, max_u = extrema
+    ev.beta_min = min(ev.beta_min, beta_min)
+    ev.beta_max = max(ev.beta_max, beta_max)
+    ev.max_u = max(ev.max_u, max_u)
+    if ev.beta_min * ev.beta_max <= 0:
+        raise ValueError('B^eta zero or sign change')
 
 
 class RayCache:
@@ -67,9 +81,23 @@ class RayCache:
                     or self.ledger.get('inherited_count', 0) != inherited):
                 raise ValueError('The saved route and its ray-budget inputs differ')
             for call in self.ledger['calls']:
-                for item in call['batches']:
-                    for index, cache_key in enumerate(item['keys']):
-                        self.entries[cache_key] = (item['file'], index)
+                self._index_call(call)
+
+    def _index_call(self, call):
+        for batch in call['batches']:
+            for index, cache_key in enumerate(batch['keys']):
+                self.entries[cache_key] = (batch['file'], index)
+
+    def _write_ledger(self, ledger):
+        dump(self.root / 'ledger.json', ledger)
+
+    def append_call(self, call):
+        ledger = self.ledger
+        replacement = dict(ledger, new_rays=ledger['new_rays'] + call['rays'],
+                           calls=[*ledger['calls'], call])
+        self._write_ledger(replacement)
+        self.ledger = replacement
+        self._index_call(call)
 
     @contextmanager
     def tracing(self, evaluator_factory):
@@ -77,10 +105,7 @@ class RayCache:
         if self.options.workers == 1:
             yield
             return
-        pool = ProcessPoolExecutor(max_workers=self.options.workers,
-                                   mp_context=multiprocessing.get_context('spawn'),
-                                   initializer=_initialize_trace_worker,
-                                   initargs=(self.tracer, evaluator_factory))
+        pool = trace_pool(self.options.workers, self.tracer, evaluator_factory)
         self._pool = pool
         try:
             yield
@@ -112,16 +137,22 @@ class RayCache:
     @staticmethod
     def _collect_batch(ev, batch):
         lo, ids, future = batch
-        result, (beta_min, beta_max, max_u) = future.result()
-        ev.beta_min = min(ev.beta_min, beta_min)
-        ev.beta_max = max(ev.beta_max, beta_max)
-        ev.max_u = max(ev.max_u, max_u)
-        if ev.beta_min * ev.beta_max <= 0:
-            raise ValueError('B^eta zero or sign change')
+        result, extrema = future.result()
+        merge_extrema(ev, extrema)
         return lo, ids, result
 
     def book(self):
         return self.ledger
+
+    def check_call_budget(self, count):
+        budget = self.book()
+        assert budget['new_rays'] + count <= budget['cap'], (
+            'ray cap', budget['new_rays'], count, budget['cap'])
+
+    def check_projection_budget(self, count):
+        budget = self.book()
+        if budget['new_rays'] + count > budget['cap']:
+            raise RuntimeError('plane_seeded_wall_rows unit projection exceeds cap before bisection')
 
     def plane_charged(self, k, prefix=''):
         return sum(c['rays'] for c in self.book()['calls'] if c['label'].startswith(prefix)
@@ -129,7 +160,10 @@ class RayCache:
 
     @lru_cache(maxsize=8)
     def _file(self, filename):
-        return load(self.root / filename)
+        return load(self._file_path(filename))
+
+    def _file_path(self, filename):
+        return self.root / filename
 
     def lookup(self, seed, delta):
         q = np.array(seed, float)
@@ -156,8 +190,7 @@ class RayCache:
                     missing.append(i)
         budget = self.book()
         if missing:
-            assert budget['new_rays'] + len(missing) <= budget['cap'], (
-                'ray cap', budget['new_rays'], len(missing), budget['cap'])
+            self.check_call_budget(len(missing))
             workers = self.options.trace_sizing_workers
             size = batch_size(len(missing), workers)
             width = size * max(1, min(4, math.ceil(math.ceil(len(missing) / size) / workers)))
@@ -173,13 +206,7 @@ class RayCache:
                     found[cache_key] = {name: data[index] for name, data in actual.items()}
             call = dict(label=label, rays=len(missing), batch_size=size, batches=batches,
                         identity_segment=None)
-            replacement = dict(budget, new_rays=budget['new_rays'] + len(missing),
-                               calls=[*budget['calls'], call])
-            dump(self.root / 'ledger.json', replacement)
-            self.ledger = replacement
-            for batch in batches:
-                for index, cache_key in enumerate(batch['keys']):
-                    self.entries[cache_key] = (batch['file'], index)
+            self.append_call(call)
         return {name: np.array([found[k][name] for k in keys]) for name in found[keys[0]]}
 
     def trace_sides(self, ev, seeds, deltas, labels):
