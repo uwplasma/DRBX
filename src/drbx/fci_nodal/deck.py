@@ -16,6 +16,7 @@ class NodalConfig:
     field_periods: int
     initial_state: Path | None = None
     owners: int = 1
+    threads: int = 2
 
     def __post_init__(self):
         if self.initial_state is not None:
@@ -25,6 +26,8 @@ class NodalConfig:
             raise ValueError("resolution and field_periods must be positive")
         if self.owners < 1:
             raise ValueError("[fci_nodal] owners must be a positive integer")
+        if type(self.threads) is not int or self.threads < 1:
+            raise ValueError("[fci_nodal] threads must be a positive integer")
 
 
 @dataclass(frozen=True)
@@ -125,7 +128,8 @@ def resolve_case_options(config):
                      map_periods=run.field_periods, covered_periods=run.field_periods)
     runtime = RuntimeOptions(**layout, owner_count=run.owners, cpu_device_count=run.owners)
     options = CaseOptions(metric=metric, polygon=polygon, geometry=partitioned,
-                          parallel=q, perpendicular=p, runtime=runtime, owners=run.owners)
+                          parallel=q, perpendicular=p, runtime=runtime, owners=run.owners,
+                          stage_threads=run.threads)
     runtime.check_cpu_device_capacity(runtime.cpu_device_count)
     runtime.check_mms_owner_count(run.resolution, runtime.owner_count)
     if mms.stop_after_first:
@@ -210,6 +214,6 @@ def run(config, say):
                        run_timeout_seconds=mms.run_timeout_seconds)
     if mms.launch_mode == "scheduler":
         run_options.update({key: getattr(mms, key) for key in SCHEDULER_OPTIONS})
-    result = run_mms(case_dir, run_options)
+    result = run_mms(case_dir, run_options, stage_threads=options.stage_threads)
     stage = "mms_run"
     say(f"advanced {result['steps']} MMS steps to t={result['time']:.6g} in {case_dir / stage}")

@@ -136,3 +136,26 @@ def test_runtime_resolution_limits_and_overrides(runtime_module):
     varied.check_cpu_device_capacity(2)
     with pytest.raises(ValueError, match='needs that many CPU devices'):
         varied.check_cpu_device_capacity(1)
+
+
+@pytest.mark.parametrize('override, expected', [({}, '2'), ({'stage_threads': 8}, '8')])
+def test_stage_thread_environment(runtime_module, override, expected):
+    driver = runtime_module('case.case')
+    for stage in driver.PREDECESSORS:
+        threads = '1' if stage in ('polygon', 'geometry') else expected
+        assert driver._settings(stage, **override) == {
+            'NPROC': threads,
+            'OMP_NUM_THREADS': threads,
+            'OPENBLAS_NUM_THREADS': threads,
+            'MKL_NUM_THREADS': threads,
+            'VECLIB_MAXIMUM_THREADS': threads,
+            'NUMEXPR_NUM_THREADS': threads,
+            'TF_NUM_INTRAOP_THREADS': threads,
+            'TF_NUM_INTEROP_THREADS': '1',
+            'JAX_PLATFORMS': 'cpu',
+            'JAX_ENABLE_X64': 'true',
+            'JAX_ENABLE_COMPILATION_CACHE': 'false',
+            'DRBX_DISABLE_COMPILATION_CACHE': '1',
+            'CUDA_VISIBLE_DEVICES': '',
+            'XLA_FLAGS': '--xla_force_host_platform_device_count=1',
+        }

@@ -7,6 +7,7 @@ import pytest
 from drbx.cli import main
 from drbx.fci_nodal import case
 from drbx.fci_nodal.case._receipts import PREDECESSORS, code_files, stage
+from drbx.fci_nodal.case.case import _settings
 
 
 def write_deck(tmp_path, owner_setting="", tables=""):
@@ -45,6 +46,7 @@ table_grid = [257, 256, 1.02]
     [
         ("", "", 1, "local", None, None),
         ("", "[parallel]\nworkers = 2", 1, "local", None, None),
+        ("threads = 4", "", 1, "local", None, None),
         ("owners = 1", "", 1, "local", None, None),
         ("owners = 2", "", 2, "local", None, None),
         (
@@ -60,7 +62,7 @@ table_grid = [257, 256, 1.02]
             2, "scheduler", 1073741824, 120.5,
         ),
     ],
-    ids=("default-owner", "q-workers-are-independent", "one-owner",
+    ids=("default-owner", "q-workers-are-independent", "different-build-and-run-threads", "one-owner",
          "two-local-owners", "one-process-per-owner", "scheduler"),
 )
 def test_owner_count_reaches_case_driver(tmp_path, monkeypatch, owner_setting, tables, parts,
@@ -71,6 +73,7 @@ def test_owner_count_reaches_case_driver(tmp_path, monkeypatch, owner_setting, t
     def build_case(options, directory):
         calls["build"] = options
         assert directory == tmp_path / "case"
+        stage_threads = options.stage_threads
         receipts = {}
         stage_options = {
             name: asdict(getattr(options, attr))
@@ -81,7 +84,8 @@ def test_owner_count_reaches_case_driver(tmp_path, monkeypatch, owner_setting, t
         def record(name, options, products=None):
             products = {} if products is None else products
             receipts[name] = stage(
-                directory, name, settings={}, options=options, inputs=(), expected=products,
+                directory, name, settings=_settings(name, stage_threads=stage_threads),
+                options=options, inputs=(), expected=products,
                 dependencies=[receipts[item] for item in PREDECESSORS[name]],
                 action=lambda out: (products, 0, 0, code_files(name)),
             )
@@ -93,18 +97,27 @@ def test_owner_count_reaches_case_driver(tmp_path, monkeypatch, owner_setting, t
                                         "build_receipts": [stamp for _, stamp in receipts.values()]})
                 return directory / "owner_inputs/receipt.json"
 
-    def run_mms(directory, options):
+    def run_mms(directory, options, *, stage_threads):
         calls["run"] = options
+        calls["run_threads"] = stage_threads
         assert directory == tmp_path / "case"
         return {"steps": 3, "time": 0.001}
 
     monkeypatch.setattr(case, "build_case", build_case)
     monkeypatch.setattr(case, "run_mms", run_mms)
     assert main(["build", str(deck)]) == 0
+    publication = tmp_path / "case/owner_inputs/receipt.json"
+    built_receipt = publication.read_bytes()
+    build_threads = 4 if owner_setting == "threads = 4" else 2
+    if build_threads == 4:
+        deck.write_text(deck.read_text().replace("threads = 4", "threads = 8"))
     assert main(["build", str(deck), "--verify-only"]) == 0
     assert main(["run", str(deck)]) == 0
+    assert publication.read_bytes() == built_receipt
 
     options = calls["build"]
+    assert options.stage_threads == build_threads
+    assert calls["run_threads"] == (8 if build_threads == 4 else 2)
     assert options.owners == options.owner_parts == parts
     assert options.parallel.owners == parts
     assert calls["run"]["runtime"] == options.runtime
@@ -127,6 +140,10 @@ def test_owner_count_reaches_case_driver(tmp_path, monkeypatch, owner_setting, t
     "owner_setting, tables, error",
     [
         ("owners = 0", "", "owners must be a positive integer"),
+        ("threads = 0", "", "threads must be a positive integer"),
+        ("threads = -1", "", "threads must be a positive integer"),
+        ("threads = true", "", "threads"),
+        ("threads = 1.5", "", "threads"),
         ("owners = 5", "", "at least four eta planes per owner"),
         ("owners = 2", "[parallel]\nowners = 1", "owners"),
         ("owners = 2", "[parallel]\nexport_owner_q = true", "export_owner_q"),

@@ -29,6 +29,7 @@ class CaseOptions:
     perpendicular: "PerpendicularBuildOptions"
     runtime: "RuntimeOptions"
     owners: int = 1
+    stage_threads: int = 2
 
     def __post_init__(self):
         n = self.geometry.resolution
@@ -43,6 +44,8 @@ class CaseOptions:
         parts = self.owner_parts
         if type(parts) is not int or parts < 1:
             raise ValueError("owners must be a positive integer")
+        if type(self.stage_threads) is not int or self.stage_threads < 1:
+            raise ValueError("stage_threads must be a positive integer")
         if self.parallel.owners not in (None, parts):
             raise ValueError("q.owners must match owners when specified")
         if self.runtime.owner_count not in (1, parts):
@@ -86,8 +89,8 @@ def _case_lock(case):
         yield
 
 
-def _settings(name, *, host_cpu_devices=1):
-    threads = "1" if name in ("polygon", "geometry") else "2"
+def _settings(name, *, stage_threads=2, host_cpu_devices=1):
+    threads = "1" if name in ("polygon", "geometry") else str(stage_threads)
     return {
         **{key: threads for key in ("NPROC", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
                                   "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
@@ -127,7 +130,7 @@ def _run_parallel_build_stage(case, options, dependencies, *, adopt=None):
     """Run or adopt Q against the case's four receipted direct inputs."""
     q = replace(options.parallel, owners=options.owner_parts)
     inputs = {role: path for receipt, _ in dependencies for role, path in receipt_products(receipt).items()}
-    settings = _settings("parallel_operators")
+    settings = _settings("parallel_operators", stage_threads=options.stage_threads)
     return stage(
         case, "parallel_operators", settings=settings, options=asdict(q),
         inputs=(), expected=("parallel_construction",), dependencies=dependencies, adopt=adopt,
@@ -148,7 +151,7 @@ def build_case(options: CaseOptions, case_dir, *, adopt=None):
     def run(name, stage_options, expected, *, raw=(), payload=None):
         deps = tuple(stages[key] for key in PREDECESSORS[name])
         inputs = {role: path for receipt, _ in stages.values() for role, path in receipt_products(receipt).items()}
-        settings = _settings(name)
+        settings = _settings(name, stage_threads=options.stage_threads)
         stages[name] = stage(
             case, name, settings=settings, options=stage_options, inputs=raw, expected=expected,
             dependencies=deps, adopt=adopt.get(name),
@@ -201,7 +204,7 @@ def _publish_owner_inputs(case, options, *, adopt=None, stages=None):
         config["build_receipts"] = [stamp for _,stamp in stages.values()]
         inputs = {role:path for receipt,_ in stages.values() for role,path in receipt_products(receipt).items()}
         inputs["manufactured_ion_flow_fit"] = _flow()
-    settings = _settings("owner_inputs")
+    settings = _settings("owner_inputs", stage_threads=options.stage_threads)
     def verify(origin):
         adopted = {role:Path(path) for role,path in origin["products"].items()}
         if set(adopted) != set(ROLES):
@@ -214,7 +217,7 @@ def _publish_owner_inputs(case, options, *, adopt=None, stages=None):
     return Path(stamp["receipt"])
 
 
-def _run_owner_mms(case, mms_options):
+def _run_owner_mms(case, mms_options, *, stage_threads):
     initial = verify_chain(case,"owner_inputs")["owner_inputs"]
     parts = binding(initial[0])["options"]["owner_count"]
     requested = mms_options["runtime"]
@@ -230,7 +233,7 @@ def _run_owner_mms(case, mms_options):
 
     def run_stage(name, opts, payload, roles, deps):
         ranked = name=="mms_run" and launch in ("per_owner","scheduler")
-        settings = _settings(name,host_cpu_devices=1 if ranked else parts)
+        settings = _settings(name, stage_threads=stage_threads, host_cpu_devices=1 if ranked else parts)
         if ranked:
             from ._rank_launch import launch_rank_run
             action = lambda out:launch_rank_run(payload,out,inputs,settings,checksums=checksums)
@@ -253,14 +256,17 @@ def _run_owner_mms(case, mms_options):
     return dict(owner_state=products["owner_state"],**read_json(products["summary"]))
 
 
-def run_mms(case_dir, mms_options):
+def run_mms(case_dir, mms_options, *, stage_threads=2):
     """Prepare and advance the manufactured case, returning the staged runner's result.
 
     mms_options supplies runtime (RuntimeOptions), field_profile, wall_law and optionally
     max_steps and stop_after_first, as in the integrated MMS entry points.
+    stage_threads sets the worker thread limit for wall data, preparation and advance.
     """
     from ._rank_launch import scheduler_options
 
+    if type(stage_threads) is not int or stage_threads < 1:
+        raise ValueError("stage_threads must be a positive integer")
     case = Path(case_dir).resolve()
     launch = mms_options.get("launch_mode","local")
     if launch not in ("local","per_owner","scheduler"):
@@ -271,4 +277,4 @@ def run_mms(case_dir, mms_options):
         if limits and launch == "local":
             raise ValueError("Owner rank RSS and timeout options require launch_mode=per_owner")
         scheduler_options(mms_options, owners=True)
-        return _run_owner_mms(case,mms_options)
+        return _run_owner_mms(case, mms_options, stage_threads=stage_threads)

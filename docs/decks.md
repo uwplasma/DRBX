@@ -391,6 +391,7 @@ The example is `examples/inputs/fci_nodal_mms.toml`. See [FCI nodal manufactured
 | `fci_nodal.field_periods` | `int` | `required` | Number of physical field periods, shared by the filter and map. |
 | `fci_nodal.initial_state` | `Path | None` | `None` | A supplied path is refused with a missing physical-state loader and layout validation error. |
 | `fci_nodal.owners` | `int` | `1` | Number of owner slabs for the build and MMS. Each slab requires at least four eta planes. |
+| `fci_nodal.threads` | `int` | `2` | Positive library thread limit per process for build and MMS stages other than polygon and geometry, which use one thread. |
 | `geometry.makegrid_path` | `Path` | `required` | MAKEGRID magnetic field archive. |
 | `geometry.vessel_path` | `Path` | `required` | Material vessel data. |
 | `geometry.makegrid_currents` | `tuple[float, ...]` | `required` | Currents in the archive's coil-group order. |

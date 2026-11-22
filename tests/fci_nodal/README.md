@@ -4,8 +4,10 @@ Run `pytest -m fast tests/fci_nodal` for data-free checks. Both resolution 16 pr
 
 Set `DRBX_FCI_NODAL_REFERENCE_CASE` to a complete current-format, one-owner
 resolution 16 case with current source receipts. Use a reference built on the
-same machine and with the same JAX version as the test. The reference must stay
-where it was built because its stage receipts store absolute product paths.
+same machine, with the same JAX version and stage thread counts as the test.
+The rebuild and pinned checks use the default thread counts (one for polygon
+and geometry, two for the other stages). The reference must stay where it was
+built because its stage receipts store absolute product paths.
 
 | Layer | Profile |
 |---|---|
