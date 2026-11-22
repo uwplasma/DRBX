@@ -215,7 +215,7 @@ The supported runtime-profiling workflow for those campaigns is now:
 The final automated gate should be tiered rather than one monolithic slow job:
 
 - fast PR gate: packaging, release surface, unit/operator tests, runtime
-  precision/import checks on Python 3.10, 3.11, and 3.12
+  precision/import checks on Python 3.12
 - research-fast gate: the default slices in
   [scripts/run_fast_research_checks.py](../scripts/run_fast_research_checks.py)
 - coverage gate: promoted solver and public-surface slice with the meaningful

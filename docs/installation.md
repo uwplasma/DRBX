@@ -11,8 +11,7 @@ pip install drbx
 
 This installs the runtime dependencies used by the public solver, geometry,
 and plotting paths: `jax`, `diffrax`, `scipy`, `equinox`, `matplotlib`,
-`netCDF4`, `rich`, and `tomli` on Python versions that do not provide
-`tomllib`.
+`netCDF4` and `rich`. Python 3.12 or newer and JAX 0.12 are required.
 
 ## Editable Checkout
 

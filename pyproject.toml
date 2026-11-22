@@ -7,22 +7,19 @@ name = "drbx"
 version = "2.2.0"
 description = "JAX-first edge and scrape-off-layer plasma code with differentiable, hardware-agnostic solver infrastructure."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "jax",
+    "jax>=0.12,<0.13",
     "scipy",
     "matplotlib",
     "netCDF4",
     "rich",
     "solvax>=0.36.1",
-    "tomli; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]

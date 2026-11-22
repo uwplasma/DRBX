@@ -29,7 +29,7 @@ pip install drbx
 git clone https://github.com/uwplasma/drbx && cd drbx && pip install -e .
 ```
 
-Python 3.10 or newer. CPU JAX is installed by default; for a GPU, install the
+Python 3.12 or newer with JAX 0.12. CPU JAX is installed by default; for a GPU, install the
 matching JAX wheel following the
 [JAX guide](https://docs.jax.dev/en/latest/installation.html). ESSOS coil
 imports need `pip install "drbx[essos]"`; the 3D (PyVista, offscreen) renders in
@@ -383,7 +383,7 @@ pip install -e ".[dev]"   # or: pip install pytest pytest-xdist
 pytest -n 2 -q -m "not slow"
 ```
 
-CI runs the fast suite on Python 3.10-3.12 (CPU). Policy:
+CI runs the fast suite on Python 3.12 (CPU). Policy:
 [docs/testing_strategy.md](docs/testing_strategy.md).
 
 ## More
