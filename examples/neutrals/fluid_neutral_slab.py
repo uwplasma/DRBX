@@ -29,8 +29,8 @@ import jax.numpy as jnp  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-from drbx.fci_braginskii.native import fci_neutral_fluid as FL  # noqa: E402
-from drbx.fci_braginskii.native import fci_neutrals as F  # noqa: E402
+from drbx.neutrals import fci_neutral_fluid as FL  # noqa: E402
+from drbx.neutrals import fci_neutrals as F  # noqa: E402
 
 # PARAMETERS
 NX, NY, NZ = 96, 4, 4  # cells (the slab is uniform in y and z)

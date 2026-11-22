@@ -53,19 +53,6 @@ def test_gallery_lists_every_example_deck_and_shows_one_in_full():
     assert (INPUTS / "hasegawa_wakatani.toml").read_text().strip() in page
 
 
-def test_hsx_example_deck_resolves_and_inspect_prints_it(capsys):
-    assert drbx_main(["inspect", str(INPUTS / "hsx_fci_blob.toml")]) == 0
-    out = capsys.readouterr().out
-    assert "fci_braginskii.gmres_preconditioner = 'auto'" in out and "geometry.resolution = (16, 16, 16)" in out
-
-
-def test_hsx_gmres_preconditioner_is_a_deck_key(tmp_path):
-    body = '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\ngeometry = "g"\n'
-    assert load_deck(deck(tmp_path, body + 'gmres_preconditioner = "none"\n'))[1]["fci_braginskii"].gmres_preconditioner == "none"
-    with pytest.raises(ValueError, match="gmres_preconditioner must be one of"):
-        load_deck(deck(tmp_path, body + 'gmres_preconditioner = "jacobi"\n'))
-
-
 @pytest.mark.parametrize(
     "body, message",
     [
@@ -89,22 +76,9 @@ def test_cli_reports_deck_errors_without_a_traceback(tmp_path):
         drbx_main(["run", str(path)])
 
 
-def test_hsx_geometry_table_defaults_to_the_shipped_coils_and_vessel(tmp_path):
-    body = '[model]\nbackend = "fci_braginskii"\n[geometry]\nresolution = [16, 16, 16]\ncache_dir = "c"\n'
-    geometry = load_deck(deck(tmp_path, body))[1]["geometry"]
-    assert geometry.coils_path.name == "coils.hsx" and geometry.vessel_path.name == "vessel_hsx_flare.txt"
-    assert geometry.coils_path.is_file() and geometry.vessel_path.is_file()
-    assert geometry.cache_dir == tmp_path / "c" and geometry.makegrid_path is None
-
-
 def test_essos_geometry_is_a_turbulence_geometry_table(tmp_path):
     body = '[model]\nbackend = "stellarator_turbulence"\n[essos]\nnx = 4\nlimiter_rho = 0.4\n[run]\nsteps = 1\ndt = 1e-3\n'
     assert load_deck(deck(tmp_path, body))[1]["essos"].limiter_rho == 0.4
-
-
-@pytest.mark.slow
-def test_hsx_example_deck_builds_geometry_and_runs(tmp_path):
-    assert drbx_main(["run", str(INPUTS / "hsx_fci_blob.toml")]) == 0
 
 
 def test_set_override_and_python_api_match_cli(tmp_path, capsys):

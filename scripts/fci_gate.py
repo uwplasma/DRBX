@@ -1,42 +1,29 @@
 #!/usr/bin/env python3
-"""FCI unification gate (issue #41): record one checkout, compare two records.
+"""Record and compare deterministic reduced FCI cases.
 
-    python scripts/fci_gate.py record OUT [--skip-pytest] [--skip-hsx] [--cases a,b] [--hsx-set KEY=JSON]
+    python scripts/fci_gate.py record OUT [--skip-pytest] [--cases a,b]
     python scripts/fci_gate.py compare BASE NEW
 
-``record`` runs from the checkout that is on ``PYTHONPATH`` (or installed) and
-writes into ``OUT``:
-
-* ``summary.json``: pytest ``-m "not slow" -n 2`` counts, source line counts,
-  HSX GMRES log values and per-case wall times;
-* ``<case>.npz``: every array a case produced (reduced FCI models, HSX state).
-
-HSX cases need ``DRBX_TEST_GEOMETRY_BUNDLE`` (an HSX FCI geometry directory)
-and are skipped with a message when it is unset.  ``compare`` exits non-zero
-unless every array is bitwise equal (``np.array_equal``), the GMRES log values
-match and the pytest counts are unchanged; otherwise it prints max abs/rel
-differences per array.
+``record`` runs from the checkout on ``PYTHONPATH`` and writes pytest counts,
+source line counts and case times to ``summary.json``. Each case writes its
+arrays to a separate ``.npz``. ``compare`` checks the saved arrays for bitwise
+equality and compares pytest counts when recorded.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
 import sys
-import tempfile
 import time
 
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
-LINE_COUNT_PACKAGES = ("geometry", "native", "fci_braginskii")
-HSX_FINAL_TIME = 0.00375
-HSX_STEPS = 5
-HSX_EXTRA: dict = {}  # extra deck keys from ``record --hsx-set KEY=JSON``
+LINE_COUNT_PACKAGES = ("geometry", "native", "fci_nodal")
 
 
 # ---------------------------------------------------------------- reduced cases
@@ -164,87 +151,6 @@ def _run_case(name: str, out: Path) -> None:
     (out / f"{name}.time").write_text(f"{time.perf_counter() - start:.3f}\n")
 
 
-# ---------------------------------------------------------------- HSX via drbx run
-def _drbx(deck: Path, log: Path) -> float:
-    start = time.perf_counter()
-    with log.open("w") as handle:
-        code = subprocess.call(
-            [sys.executable, "-c", "import sys; from drbx.cli import main; sys.exit(main())", "run", str(deck)],
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-        )
-    if code:
-        raise SystemExit(f"drbx run {deck} failed ({code}); see {log}")
-    return time.perf_counter() - start
-
-
-def _deck(path: Path, bundle: str, output: Path, **keys) -> Path:
-    lines = ['[model]', 'backend = "fci_braginskii"', "[fci_braginskii]"]
-    keys = {"geometry": bundle, "output": str(output), **keys}
-    lines += [f"{k} = {json.dumps(v if not isinstance(v, Path) else str(v))}" for k, v in keys.items()]
-    path.write_text("\n".join(lines) + "\n")
-    return path
-
-
-def _gmres_values(log: Path) -> dict[str, list[float]]:
-    """GMRES log values (compared) and per-step step/op/gmres seconds (reported)."""
-    text = log.read_text()
-    values = {
-        key: [float(v) for v in re.findall(re.escape(key) + r"=([-+0-9.eE]+)", text)]
-        for key in ("gmres-iters(avg4)", "gmres-relres(max4)")
-    }
-    for key in ("step", "op", "gmres"):
-        values[f"{key}_s"] = [float(v) for v in re.findall(rf" {key}=([0-9.]+)s", text)]
-    return values
-
-
-def _npz_arrays(directory: Path) -> dict[str, np.ndarray]:
-    arrays = {}
-    for path in sorted(directory.rglob("*.npz")):
-        with np.load(path, allow_pickle=False) as data:
-            # run metadata carries wall times and paths, so it is not compared
-            arrays.update({f"{path.stem}/{k}": data[k] for k in data.files if "metadata" not in k})
-    return arrays
-
-
-def _record_hsx(out: Path, summary: dict) -> None:
-    bundle = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
-    if not bundle:
-        print("[gate] HSX skipped: set DRBX_TEST_GEOMETRY_BUNDLE to an HSX FCI geometry bundle")
-        summary["hsx"] = "skipped (DRBX_TEST_GEOMETRY_BUNDLE unset)"
-        return
-    work = Path(tempfile.mkdtemp(prefix="fci_gate_hsx_"))
-    common = dict(final_time=HSX_FINAL_TIME, num_steps=HSX_STEPS, save_every=HSX_STEPS, **HSX_EXTRA)
-    runs = {
-        # five steps in one go
-        "hsx": _deck(work / "hsx.toml", bundle, work / "hsx" / "hsx", **common),
-        # restart round trip: 2 steps, then restart from that history for 3 more
-        "hsx_restart_a": _deck(
-            work / "ra.toml", bundle, work / "ra" / "hsx",
-            final_time=HSX_FINAL_TIME * 2 / 5, num_steps=2, save_every=2, checkpoint_every=2, **HSX_EXTRA,
-        ),
-    }
-    hsx = {}
-    for name, deck in runs.items():
-        log = out / f"{name}.log"
-        hsx[name] = {"wall_s": _drbx(deck, log), **_gmres_values(log)}
-    # restart from the full-precision checkpoint (the history file is float32)
-    first = sorted((work / "ra").rglob("*checkpoint_step*.npz")) or sorted((work / "ra").glob("*.npz"))
-    restart = _deck(
-        work / "rb.toml", bundle, work / "rb" / "hsx", restart_from=first[0], final_time=HSX_FINAL_TIME, num_steps=3, save_every=3,
-        **HSX_EXTRA,
-    )
-    hsx["hsx_restart_b"] = {"wall_s": _drbx(restart, out / "hsx_restart_b.log"), **_gmres_values(out / "hsx_restart_b.log")}
-    for name in ("hsx", "ra", "rb"):
-        np.savez(out / f"{'hsx' if name == 'hsx' else 'hsx_restart_' + name[1]}.npz", **_npz_arrays(work / name))
-    straight, restarted = _npz_arrays(work / "hsx"), _npz_arrays(work / "rb")
-    hsx["restart_vs_straight_max_abs"] = {
-        field: float(np.max(np.abs(straight[f"hsx/{field}"][-1] - restarted[f"hsx/{field}"][-1])))
-        for field in ("density", "phi", "Te", "Ti", "Vi", "Ve", "vorticity")
-    }
-    summary["hsx"] = hsx
-
-
 # ---------------------------------------------------------------- pytest + lines
 def _record_pytest(summary: dict) -> None:
     proc = subprocess.run(
@@ -278,8 +184,6 @@ def record(args: argparse.Namespace) -> int:
         summary["cases"][name] = (
             float((out / f"{name}.time").read_text()) if code == 0 else f"failed ({code})"
         )
-    if not args.skip_hsx:
-        _record_hsx(out, summary)
     if not args.skip_pytest:
         print("[gate] pytest -m 'not slow' -n 2", flush=True)
         _record_pytest(summary)
@@ -323,18 +227,15 @@ def compare(args: argparse.Namespace) -> int:
                 else:
                     print(f"DIFFERENT {name}:{key}  {_diff(da[key], db[key])}")
                     ok = False
-    runs = sa.get("hsx") if isinstance(sa.get("hsx"), dict) else {}
-    for name in sorted(k for k, v in runs.items() if "gmres-iters(avg4)" in v):
-        for key in ("gmres-iters(avg4)", "gmres-relres(max4)"):
-            a, b = sa["hsx"][name].get(key), (sb.get("hsx") or {}).get(name, {}).get(key)
-            same = a == b
-            ok &= same
-            print(f"{'same     ' if same else 'DIFFERENT'} {name} {key}: {a} vs {b}")
     pa, pb = (s.get("pytest", {}).get("counts") for s in (sa, sb))
     if pa is not None or pb is not None:
         ok &= pa == pb
         print(f"pytest counts: {pa} vs {pb}")
-    print("lines:", {k: f"{sa['lines'][k]} -> {sb['lines'][k]} ({sb['lines'][k] - sa['lines'][k]:+d})" for k in sa["lines"]})
+    line_deltas = {}
+    for package in sorted(sa["lines"].keys() | sb["lines"].keys()):
+        before, after = (summary["lines"].get(package, 0) for summary in (sa, sb))
+        line_deltas[package] = f"{before} -> {after} ({after - before:+d})"
+    print("lines:", line_deltas)
     print("case wall s:", {k: (sa["cases"].get(k), sb["cases"].get(k)) for k in sa["cases"]})
     print("GATE PASS (bitwise)" if ok else "GATE FAIL")
     return 0 if ok else 1
@@ -349,19 +250,11 @@ def main() -> int:
     rec = sub.add_parser("record")
     rec.add_argument("out")
     rec.add_argument("--skip-pytest", action="store_true")
-    rec.add_argument("--skip-hsx", action="store_true")
     rec.add_argument("--cases", help=f"comma-separated subset of {','.join(CASES)}")
-    rec.add_argument(
-        "--hsx-set", action="append", default=[], metavar="KEY=JSON",
-        help='extra [fci_braginskii] deck key for every HSX run, e.g. wall_closure=\'"zero-flow"\'',
-    )
     cmp_ = sub.add_parser("compare")
     cmp_.add_argument("base")
     cmp_.add_argument("new")
     args = parser.parse_args()
-    for item in getattr(args, "hsx_set", []):
-        key, _, value = item.partition("=")
-        HSX_EXTRA[key] = json.loads(value)
     return record(args) if args.command == "record" else compare(args)
 
 

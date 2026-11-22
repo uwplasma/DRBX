@@ -1,5 +1,7 @@
 # DRBX plan
 
+The HSX Braginskii backend, paths and results in this plan describe the historical implementation. See the [nodal case guide](fci_nodal.md) for the current manufactured-solution workflow.
+
 This is the single plan and logbook for DRBX. It replaces the earlier handoff
 note. Every merged batch updates the status table; every PR description is a
 self-contained handoff. Revisions add lines, they do not remove history.

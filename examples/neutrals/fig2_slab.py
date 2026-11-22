@@ -1,5 +1,5 @@
-"""README figure 2: slab penetration of fluid neutrals against the analytic exp(-x/lambda), and lambda_fit/lambda against Kn
-(plasma temperature sweep). Same slab as tests/fci_braginskii/test_fci_neutral_fluid.py::_penetration, returning the profiles.
+"""Slab figure: slab penetration of fluid neutrals against the analytic exp(-x/lambda), and lambda_fit/lambda against Kn
+(plasma temperature sweep). Same slab as tests/neutrals/test_fci_neutral_fluid.py::_penetration, returning the profiles.
 
 Run from the repository root:
 
@@ -34,8 +34,8 @@ def save(fig, name):
 import numpy as np
 import jax, jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
-from drbx.fci_braginskii.native import fci_neutral_fluid as FL, fci_neutrals as F
-from tests.fci_braginskii.test_fci_neutrals import PARAMS, _geometry
+from drbx.neutrals import fci_neutral_fluid as FL, fci_neutrals as F
+from tests.neutrals.test_fci_neutrals import PARAMS, _geometry
 
 def slab(Te_v, steps=121):
     shape = (96, 4, 4)

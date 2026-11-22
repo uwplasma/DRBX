@@ -1,7 +1,7 @@
-"""README figure 1: fluid neutrals on the phi = 0 (bean) poloidal section of the 32^3 HSX artifact.
+"""Archived figure 1: fluid neutrals on the phi = 0 (bean) poloidal section of the 32^3 HSX artifact.
 
 Input: the history of a 240-step run (t = 0.18) of the default fluid-neutral deck with recycling, saved as
-output/neutral_figures/hsx_neutrals_run.npz (examples/inputs/hsx_fci_neutrals.toml with geometry = the 32^3 bundle,
+output/neutral_figures/hsx_neutrals_run.npz (archived HSX 32^3 run,
 final_time = 0.18, num_steps = 240, save_every = 12, neutral_wall_absorption = 0.1, recycling_coefficient = 0.9).
 Reference density n0 = 1e19 m^-3. Fields are interpolated linearly along the toroidal index to the cylindrical angle PHI0.
 

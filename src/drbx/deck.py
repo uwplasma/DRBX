@@ -21,9 +21,6 @@ import numpy as np
 
 from .config.boutinp import tomllib
 
-HSX_INPUTS = Path(__file__).resolve().parents[2] / "examples" / "inputs" / "hsx"
-
-
 def from_signature(name: str, *functions: Callable, exclude: tuple[str, ...] = ()) -> type:
     """Dataclass whose fields are the parameters of ``functions`` (annotations, defaults)."""
 
@@ -206,23 +203,6 @@ class FciDiffRun:
     n_steps: int = 24
     dt: float = 1.0e-3
     fd_step: float = 1.0e-5
-
-
-def _hsx_geometry_table() -> type:
-    """``HsxSimulationGeometryConfig`` with the shipped coils and vessel as defaults, plus a cache dir."""
-
-    from .fci_braginskii.geometry_build.hsx_simulation_geometry import HsxSimulationGeometryConfig as C
-
-    default = {"makegrid_path": None, "vessel_path": HSX_INPUTS / "vessel_hsx_flare.txt",
-               "coils_path": HSX_INPUTS / "coils.hsx"}
-    hints = typing.get_type_hints(C)
-    items = [(f.name, Path | None if f.name in default else hints[f.name],
-              dataclasses.field(default=default[f.name]) if f.name in default else
-              (dataclasses.field() if f.default is dataclasses.MISSING else dataclasses.field(default=f.default)))
-             for f in dataclasses.fields(C) if f.name != "output"]
-    items.sort(key=lambda item: item[2].default is not dataclasses.MISSING)
-    items.append(("cache_dir", Path, dataclasses.field(default=Path("output") / "hsx_geometry")))
-    return dataclasses.make_dataclass("HsxGeometry", items, frozen=True)
 
 
 def _geometry_tables() -> dict[str, type]:
@@ -424,32 +404,6 @@ def _fci_differentiable(cfg: dict, say: Callable[[str], None]):
     return report, {"density": state.density, "v_parallel": state.v_parallel}
 
 
-def _hsx(cfg: dict, say: Callable[[str], None]):
-    import hashlib
-
-    from .fci_braginskii.geometry_build.fci_simulation_geometry import audit_fci_simulation_geometry_checksums
-    from .fci_braginskii.geometry_build.hsx_simulation_geometry import (
-        HsxSimulationGeometryConfig, build_hsx_simulation_geometry,
-    )
-    from .fci_braginskii.run import run
-
-    config = cfg["fci_braginskii"]
-    if "geometry" in cfg:
-        if config.geometry is not None:
-            raise ValueError("give either [fci_braginskii] geometry or a [geometry] table, not both")
-        table = vars_of(cfg["geometry"])
-        cache = table.pop("cache_dir")
-        table["metric_mesh_shape"] = table["metric_mesh_shape"] or table["resolution"]
-        table["coils_path"] = None if table["makegrid_path"] else table["coils_path"]
-        key = hashlib.sha256(json.dumps(table, default=str, sort_keys=True).encode()).hexdigest()[:10]
-        artifact = cache / f"hsx_{'x'.join(map(str, table['resolution']))}_{key}"
-        if not (artifact.is_dir() and audit_fci_simulation_geometry_checksums(artifact)["valid"]):
-            say(f"building HSX geometry in {artifact} (several minutes at 16^3)")
-            build_hsx_simulation_geometry(HsxSimulationGeometryConfig(**table, output=artifact))
-        config = replace(config, geometry=artifact)
-    run(config, physics=cfg.get("physics", _lazy(".fci_braginskii.run", "HsxPhysics")()))
-
-
 @dataclass(frozen=True)
 class Backend:
     tables: Callable[[], dict[str, type]]  # table name -> dataclass (lazy: imports JAX modules)
@@ -467,11 +421,6 @@ def _lazy(module: str, name: str) -> type:
 
 def _sig(table: str) -> type:
     return _geometry_tables()[table]
-
-
-def _hsx_tables() -> dict[str, type]:
-    return {"fci_braginskii": _lazy(".fci_braginskii.run", "HsxBlobConfig"), "geometry": _hsx_geometry_table(),
-            "physics": _lazy(".fci_braginskii.run", "HsxPhysics")}
 
 
 def _nodal_tables() -> dict[str, type]:
@@ -523,7 +472,6 @@ BACKENDS: dict[str, Backend] = {
     "fci_differentiable": Backend(
         lambda: {"fci_differentiable": from_signature("FciDifferentiable", _lazy(".native.fci_differentiable_case", "build_context")),
                  "run": FciDiffRun}, _fci_differentiable),
-    "fci_braginskii": Backend(_hsx_tables, _hsx, required=("fci_braginskii",), generic=False),
     "fci_nodal": Backend(_nodal_tables, _nodal, required=("fci_nodal", "geometry", "field_filter"), generic=False),
 }
 
@@ -582,8 +530,6 @@ def load_deck(path: str | Path | Mapping[str, Any], overrides: Mapping[str, Mapp
             config[table] = build_table(cls, data.get(table, {}), f"[{table}]", source.resolve().parent)
     if backend.one_of and sum(table in config for table in backend.one_of) != 1:
         raise ValueError(f"exactly one of {['[' + t + ']' for t in backend.one_of]} must be given")
-    if name == "fci_braginskii" and config["fci_braginskii"].geometry is None and "geometry" not in config:
-        raise ValueError("[fci_braginskii] geometry is required (or give a [geometry] table)")
     return name, config
 
 

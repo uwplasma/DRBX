@@ -376,9 +376,8 @@ through `v_e = w + (mi/me) A_par`. With the switch off the electrostatic code
 path is unchanged bit for bit. The linear waves are the shear-Alfven wave
 `omega = k_par v_A / sqrt(1 + k_perp^2 d_e^2)` and, with a density gradient, the
 drift-Alfven wave; `tests/test_electromagnetic_fci.py` checks both against their
-analytic dispersion relations. The `fci_braginskii` (HSX) backend and
-`native/fci_drb_EB_rhs.py` are electrostatic Boussinesq models and do not yet
-carry A_par.
+analytic dispersion relations. `native/fci_drb_EB_rhs.py` implements the
+electrostatic Boussinesq model.
 
 ## Differentiable Analysis Surface
 

@@ -194,7 +194,7 @@ def _backend_deck_command(args: argparse.Namespace, *, inspect_only: bool) -> in
             print(f"case options: {case_options}")
         return 0
     given = [n for n in _DECK_ONLY_OPTIONS if getattr(args, n, None) is not None]
-    if name in ("fci_braginskii", "fci_nodal"):
+    if name == "fci_nodal":
         given += [n for n in ("output_dir", "case_name") if getattr(args, n, None) is not None]
     if given:
         raise SystemExit(
