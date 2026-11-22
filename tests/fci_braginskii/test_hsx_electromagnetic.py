@@ -343,8 +343,9 @@ def test_electromagnetic_step_gradient_matches_finite_difference(tmp_path, monke
 
 @hsx
 def test_hsx_stage_rhs_responds_linearly_to_apar(tmp_path):
-    """Every RHS row of the production stage moves with ``A_par``, linearly (flutter and ``Ve = w + mu A``), and
-    the Ampere solve inverts ``(-L_perp + beta mu n) A = beta n (Vi - w)`` (checked through ``-L_perp A = beta n (Vi - Ve)``)."""
+    """Every RHS row of the production stage moves with ``A_par``, linearly (flutter and ``Ve = w + mu A``).
+
+    The Ampere round trip is checked at tight tolerance in the slow test above."""
 
     cap = _capture(tmp_path, 1.0e-2)
     names = ("density", "Te", "Ti", "Vi", "Ve", "vorticity")
@@ -367,13 +368,8 @@ def test_hsx_stage_rhs_responds_linearly_to_apar(tmp_path):
         scale = jnp.stack([jnp.max(jnp.abs(getattr(rhs[0], f))) for f in names])
         ratio = jnp.stack([jnp.max(jnp.abs(getattr(rhs[2], f) - getattr(rhs[0], f) - 10.0 * (getattr(rhs[1], f) - getattr(rhs[0], f))))
                            for f in names]) / d10
-        tight = dataclasses.replace(model, gmres_config=dataclasses.replace(
-            model.gmres_config, tol=1e-13, atol=1e-30, acceptance_tol=1e-10, acceptance_atol=1e-30, maxiter=2000, restart=200))
-        physical, em = tight.em_physical(state)
-        back = em.em_canonical(physical)
-        return d1, scale, ratio, jnp.max(jnp.abs(back.Ve - state.Ve)) / jnp.max(jnp.abs(state.Ve)), jnp.max(jnp.abs(em.apar))
+        return d1, scale, ratio
 
-    d1, scale, ratio, round_trip, apar_max = jax.tree.map(np.asarray, _on_model(cap, probe))
+    d1, scale, ratio = jax.tree.map(np.asarray, _on_model(cap, probe))
     assert np.all(d1 > 1e-12 * np.maximum(scale, 1.0))  # every row sees A_par
     assert np.all(ratio < 1e-6)  # change(10 A) = 10 change(A)
-    assert round_trip < 1e-10 and apar_max > 0.0
