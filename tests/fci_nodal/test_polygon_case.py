@@ -7,6 +7,42 @@ import numpy as np
 import pytest
 
 
+def _stub_trace(evaluator, seeds, delta, *, steps):
+    evaluator.beta_min = min(evaluator.beta_min, float(seeds[:, 0].min()))
+    evaluator.beta_max = max(evaluator.beta_max, float(seeds[:, 0].max()))
+    evaluator.max_u = max(evaluator.max_u, float(seeds[:, 0].max()))
+    return {'endpoint': seeds + delta[:, None],
+            'batch_size': np.full(len(seeds), evaluator.trace_batch_size),
+            'steps': np.full(len(seeds), steps)}
+
+
+def test_polygon_trace_dispatch_keeps_batch_and_ledger_order(runtime_module, tmp_path):
+    from functools import partial
+    from types import SimpleNamespace
+
+    ray_cache = runtime_module('operator_build.parallel._rays').RayCache
+    option_type = runtime_module().PolygonBuildOptions
+    make_evaluator = partial(SimpleNamespace, beta_min=np.inf, beta_max=-np.inf, max_u=0.)
+    seeds = np.column_stack((np.arange(1., 41.) / 50., np.zeros((40, 2))))
+    roots = [tmp_path/'serial', tmp_path/'parallel']
+    observations = []
+    for root, workers in zip(roots, (1, 3), strict=True):
+        cache = ray_cache(root, option_type(workers=workers), _stub_trace)
+        evaluator = make_evaluator()
+        with cache.tracing(make_evaluator):
+            first = cache.trace_cached(evaluator, seeds[:29], .1, 'first')
+            second = cache.trace_cached(evaluator, seeds[20:], .1, 'second')
+        observations.append((first, second, cache.book(), vars(evaluator)))
+    for before, after in zip(observations[0][:2], observations[1][:2], strict=True):
+        assert before.keys() == after.keys()
+        for name in before:
+            np.testing.assert_array_equal(before[name], after[name])
+    assert observations[0][2:] == observations[1][2:]
+    serial, parallel = ({path.name: path.read_bytes() for path in (root/'rays').iterdir()}
+                        for root in roots)
+    assert serial == parallel
+
+
 def test_polygon_case_binds_splice_files(runtime_module, tmp_path):
     from dataclasses import asdict
     from dataclasses import replace

@@ -2,8 +2,7 @@
 
 from ...geometry_build.clipping_primitives import area_centroid, cross, inpoly, tiles as build_tiles
 from ...geometry_build.dual_cells import build as build_cells
-from dataclasses import asdict
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 import json
 from types import SimpleNamespace
@@ -11,7 +10,7 @@ from types import SimpleNamespace
 import numpy as np
 from scipy.special import roots_legendre
 
-from ..._hashing import sha256_stream
+from ..._hashing import sha256_file, sha256_stream
 from . import assemble_joint, audit_tiling, build_joint_geometry, classify
 from . import close_tiny_gaps, diagnostics, diagnostics_joint
 from . import geometry_plane, joint, merge, mesh, partition_baseline, gap_centroid_trace_audit
@@ -30,9 +29,7 @@ BITS = np.array([[1, 1], [1, 0], [0, 1], [0, 0]], bool)
 FIELDS = ['maps', 'arcs', 'wallhit', 'hitell']
 
 
-def _context(root, ev, options, layout_builder, shared_polygon, archive,
-             prior_ledgers, log):
-    rays = RayCache(root, options, shared_polygon.trace, archive, prior_ledgers)
+def _context(root, ev, options, layout_builder, shared_polygon, rays, prior_ledgers, log):
     shared = shared_polygon.bind(options, rays.trace_sides)
     N = options.resolution
     TAU = _geometry.TAU
@@ -116,22 +113,26 @@ def _bind_stages(context):
 
 
 def open_route(root, *, metric_cache, field_table, layout_builder, shared_polygon,
-               options=PolygonBuildOptions(), archive=None, prior_ledgers=(), log=print):
+               options=PolygonBuildOptions(), archive=None, prior_ledgers=(), log=print,
+               field_table_path=None):
     """Bind local stages to a saved metric and its loaded ETA table.
 
     The layout builder is the package Zernike core-ring layout function. The shared
     polygon module is the staged polywall numerical module. A supplied
     archive must match the continuous inputs, exact key and dense kernel.
     Prior ledgers carry the archived ray charges into the supplied budget.
+    Spawned trace workers load the same field table from field_table_path.
     """
     root = Path(root)
     table_sha256 = field_table.archive_sha256
     if table_sha256 is None:
         raise ValueError('repaired polygon and merged wall rows requires a field table loaded from a saved archive')
+    if options.workers > 1 and (field_table_path is None or sha256_file(field_table_path) != table_sha256):
+        raise ValueError('Polygon trace workers need the same saved field table as the route')
     from ...evaluators.metric_evaluator import MetricEvaluator
     from ...evaluators.jax_metric_evaluator import JaxMetricEvaluator
 
-    settings = asdict(options)
+    settings = options.numerical_options()
     settings['field_filter'] = field_table.spec.as_dict()
     with Path(metric_cache).open('rb') as stream:
         inputs = case_inputs(settings, table_sha256, sha256_stream(stream))
@@ -140,11 +141,12 @@ def open_route(root, *, metric_cache, field_table, layout_builder, shared_polygo
         with np.load(stream, allow_pickle=False) as payload:
             metric = MetricEvaluator.from_cache_payload(payload, prefix='metric_evaluator_')
     ev = Evaluator.from_objects(JaxMetricEvaluator.from_metric_evaluator(metric), field_table, options)
-    context = _context(root, ev, options, layout_builder, shared_polygon,
-                       archive, tuple(prior_ledgers), log)
+    prior_ledgers = tuple(prior_ledgers)
+    rays = RayCache(root, options, shared_polygon.trace, archive, prior_ledgers)
+    context = _context(root, ev, options, layout_builder, shared_polygon, rays, prior_ledgers, log)
     stages = _bind_stages(context)
 
-    def run():
+    def run_stages():
         """Run the ordered base polygon and wall classification/repaired polygon and merged wall rows stages."""
         open_case_record(root, inputs)
         for directory in (root/'base_polygon'/'checkpoints', root/'polygon_repair'/'checkpoints', context.history):
@@ -187,6 +189,10 @@ def open_route(root, *, metric_cache, field_table, layout_builder, shared_polygo
                         face_flux=arrays/f'face_flux_N{options.resolution}.npz',
                         wall_rows=arrays/f'wall_rows_N{options.resolution}.npz')
         return dict(products, case_record=finish_case_record(receipt, inputs, products))
+
+    def run():
+        with rays.tracing(partial(Evaluator, metric_cache, field_table_path, options)):
+            return run_stages()
 
     stages.run = run
     return stages

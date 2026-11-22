@@ -174,7 +174,7 @@ def build_case(options: CaseOptions, case_dir, *, adopt=None):
         run("metric", asdict(metric), ("metric_cache",),
             raw=(metric.makegrid_path, metric.vessel_path), payload=metric)
         run("field_table", asdict(metric), ("field_table",), payload=metric)
-        run("polygon", asdict(options.polygon), ("polygon_geometry", "polygon_merged", "polygon_case"),
+        run("polygon", options.polygon.numerical_options(), ("polygon_geometry", "polygon_merged", "polygon_case"),
             payload=options.polygon)
         run("geometry", asdict(geometry), ("indexed_geometry",), payload=geometry,
             raw=(geometry.geometry_reference_key_table,))

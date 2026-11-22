@@ -33,7 +33,7 @@ Use a TOML deck with `[model] backend = "fci_nodal"`. The
 | Deck table | Settings |
 | --- | --- |
 | `[fci_nodal]` | `case_dir` holds build and run products. `resolution` sets the nodal resolution and number of eta planes. `symmetry` and `field_periods` set the geometry layout. `owners` sets the number of owner slabs and defaults to one. |
-| `[geometry]` | Device paths and currents, polygon `rings`, dense metric `resolution`, fixed map and fit settings and geometry build `workers`. |
+| `[geometry]` | Device paths and currents, polygon `rings`, dense metric `resolution`, fixed map and fit settings and polygon trace and geometry build `workers`. |
 | `[parallel]` | Build `workers` for indexed parallel construction. |
 | `[field_filter]` | `max_harmonic_per_period`, `samples_per_period` and `table_grid` set the shared field table. |
 | `[mms]` | `wall_law` selects `conducting_wall` or `floating_wall`. `field_profile` selects `wall_flat_temperature` or `prescribed_wall_heat_flux`. `max_steps` caps the advance. `capture_static_rhs` records the initial RHS. Owner launch options configure CPU execution. |
@@ -84,8 +84,11 @@ field direction through `evaluators/magnetic_field.py`, also used for
 metric differentiation in geometry and parallel construction. MMS preparation
 evaluates its divergence.
 
-Set `geometry.workers` and `parallel.workers` to control local build concurrency.
-Both default to one. MMS execution uses the owner count independently.
+Set `geometry.workers` for polygon ray tracing and indexed geometry construction.
+Polygon ray batches keep their original sizes and order. One worker traces in
+the stage process. Higher counts use spawned processes with one library thread
+each. Set `parallel.workers` for indexed parallel construction. Both settings
+default to one. MMS execution uses the owner count independently.
 
 ## Owner-sharded builds and MMS
 

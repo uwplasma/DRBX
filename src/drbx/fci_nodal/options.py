@@ -1,5 +1,5 @@
 """Caller-owned settings for the supported runtime and builders."""
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -112,6 +112,7 @@ class PolygonBuildOptions:
     supplemental_ray_budget: int = 2000
     merge_fraction: float = .1
     trace_sizing_workers: int = 127
+    workers: int = 1
 
     def __post_init__(self):
         if self.symmetry not in ("nfp", "none") or self.field_periods < 1:
@@ -122,6 +123,13 @@ class PolygonBuildOptions:
             raise ValueError("Eta planes must divide into whole copies")
         if self.trace_sizing_workers < 1:
             raise ValueError("Trace sizing needs a positive worker count")
+        if type(self.workers) is not int or self.workers < 1:
+            raise ValueError("Polygon workers must be a positive integer")
+
+    def numerical_options(self):
+        settings = asdict(self)
+        settings.pop("workers")
+        return settings
 
     @property
     def copies(self):

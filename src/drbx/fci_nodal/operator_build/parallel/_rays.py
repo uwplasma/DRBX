@@ -1,9 +1,14 @@
-"""Local exact-key lookup and serial dispatch of the dense field-line tracing kernel used by the scheme-locked build."""
+"""Local exact-key lookup and ordered dispatch of dense field-line tracing."""
 
+from collections import deque
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
 from functools import lru_cache
 from hashlib import sha256
+from itertools import islice
 import json
 import math
+import multiprocessing
 import re
 
 import numpy as np
@@ -25,6 +30,18 @@ def batch_size(n, workers):
     return next((s for s in SIZES if s >= math.ceil(n / workers)), 128)
 
 
+def _initialize_trace_worker(tracer, evaluator_factory):
+    global _trace, _evaluator
+    _trace, _evaluator = tracer, evaluator_factory()
+
+
+def _trace_batch(seeds, delta, size, extrema):
+    _evaluator.trace_batch_size = size
+    _evaluator.beta_min, _evaluator.beta_max, _evaluator.max_u = extrema
+    result = _trace(_evaluator, seeds, delta, steps=STEPS)
+    return result, (_evaluator.beta_min, _evaluator.beta_max, _evaluator.max_u)
+
+
 class RayCache:
     """Use a caller-owned work directory and optional matching-archive lookup.
 
@@ -38,6 +55,7 @@ class RayCache:
         self.options = options
         self.tracer = tracer
         self.archive = archive
+        self._pool = None
         self.entries = {}
         inherited = max((ledger['new_rays'] for ledger in prior_ledgers), default=0)
         self.ledger = dict(new_rays=inherited, inherited_count=inherited,
@@ -52,6 +70,55 @@ class RayCache:
                 for item in call['batches']:
                     for index, cache_key in enumerate(item['keys']):
                         self.entries[cache_key] = (item['file'], index)
+
+    @contextmanager
+    def tracing(self, evaluator_factory):
+        """Keep each spawned worker's evaluator and compiled kernels for the route."""
+        if self.options.workers == 1:
+            yield
+            return
+        pool = ProcessPoolExecutor(max_workers=self.options.workers,
+                                   mp_context=multiprocessing.get_context('spawn'),
+                                   initializer=_initialize_trace_worker,
+                                   initargs=(self.tracer, evaluator_factory))
+        self._pool = pool
+        try:
+            yield
+        finally:
+            self._pool = None
+            pool.shutdown(cancel_futures=True)
+
+    def _trace_missing(self, ev, seeds, delta, missing, size, width):
+        batches = ((lo, missing[lo:lo + width]) for lo in range(0, len(missing), width))
+        if self._pool is None:
+            for lo, ids in batches:
+                yield lo, ids, self.tracer(ev, seeds[ids], delta[ids], steps=STEPS)
+            return
+
+        # These accumulators affect validation only. Merge worker extrema in
+        # serial batch order to retain the sign check across worker boundaries.
+        extrema = ev.beta_min, ev.beta_max, ev.max_u
+
+        def submit(lo, ids):
+            return lo, ids, self._pool.submit(_trace_batch, seeds[ids], delta[ids], size, extrema)
+
+        pending = deque(submit(lo, ids) for lo, ids in islice(batches, self.options.workers))
+        for lo, ids in batches:
+            pending.append(submit(lo, ids))
+            yield self._collect_batch(ev, pending.popleft())
+        while pending:
+            yield self._collect_batch(ev, pending.popleft())
+
+    @staticmethod
+    def _collect_batch(ev, batch):
+        lo, ids, future = batch
+        result, (beta_min, beta_max, max_u) = future.result()
+        ev.beta_min = min(ev.beta_min, beta_min)
+        ev.beta_max = max(ev.beta_max, beta_max)
+        ev.max_u = max(ev.max_u, max_u)
+        if ev.beta_min * ev.beta_max <= 0:
+            raise ValueError('B^eta zero or sign change')
+        return lo, ids, result
 
     def book(self):
         return self.ledger
@@ -96,9 +163,7 @@ class RayCache:
             width = size * max(1, min(4, math.ceil(math.ceil(len(missing) / size) / workers)))
             ev.trace_batch_size = size
             batches = []
-            for lo in range(0, len(missing), width):
-                ids = missing[lo:lo + width]
-                actual = self.tracer(ev, seeds[ids], delta[ids], steps=STEPS)
+            for lo, ids, actual in self._trace_missing(ev, seeds, delta, missing, size, width):
                 actual.update(seed=seeds[ids], delta=delta[ids])
                 filename = f"{len(budget['calls']):08d}_{lo}.npz"
                 save(self.root / filename, **actual)

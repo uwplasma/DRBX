@@ -105,7 +105,8 @@ def resolve_case_options(config):
                            makegrid_currents=geometry.makegrid_currents, resolution=geometry.resolution,
                            field_filter=spec, table_grid=field.table_grid)
     layout = dict(resolution=run.resolution, symmetry=run.symmetry, field_periods=run.field_periods)
-    polygon = PolygonBuildOptions(**layout, rings=geometry.rings, field_filter=spec)
+    polygon = PolygonBuildOptions(**layout, rings=geometry.rings, field_filter=spec,
+                                  workers=geometry.workers)
     case_dir = run.case_dir.resolve()
     # The case driver replaces these output/input slots with receipt-bound products.
     cache, table = case_dir / "metric", case_dir / "field_table"
@@ -144,7 +145,8 @@ def _check_case_options(case_dir, options, stages=None):
     ):
         receipt, _ = stage_receipt(case_dir, name) if stages is None else stages[name]
         recorded = binding(receipt)["options"]
-        requested = asdict(requested_options)
+        requested = (requested_options.numerical_options() if name == "polygon"
+                     else asdict(requested_options))
         requested = json.loads(json.dumps(requested, default=str))
         differing = sorted(key for key in requested if requested[key] != recorded.get(key))
         if differing:
