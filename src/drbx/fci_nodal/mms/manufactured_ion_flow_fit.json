@@ -1,0 +1,67 @@
+{
+  "modes": [
+    [
+      0,
+      4
+    ],
+    [
+      1,
+      -4
+    ],
+    [
+      1,
+      0
+    ],
+    [
+      1,
+      4
+    ],
+    [
+      2,
+      -4
+    ],
+    [
+      2,
+      0
+    ],
+    [
+      2,
+      4
+    ]
+  ],
+  "unscaled_coefficients": [
+    0.05299329857788384,
+    -0.3096505309316856,
+    -0.029089163523541697,
+    -0.14751547415156102,
+    -0.11117603487471436,
+    -0.4907013856690972,
+    0.5815075463609389
+  ],
+  "normalised_coefficients": [
+    0.0808290315404645,
+    -0.4723003323602178,
+    -0.04436879716922073,
+    -0.22500076864207985,
+    -0.1695733511705267,
+    -0.7484515748893195,
+    0.8869553899677893
+  ],
+  "rounded_coefficients": [
+    0.0808,
+    -0.4723,
+    -0.0444,
+    -0.225,
+    -0.1696,
+    -0.7485,
+    0.887
+  ],
+  "normalised_before_rounding": true,
+  "rounded_weighted_rms": 1.0000359146910471,
+  "weighted_sign_agreement": 0.8441978762565736,
+  "continuum_conducting_wall_weighted_fast_share": 0.30002254077642165,
+  "continuum_conducting_wall_weighted_near_Bohm_share": 0.11957445599751204,
+  "max_abs_ion_parallel_flow_at_unit_amplitude": 2.6552214911070577,
+  "physical_hits": 33692,
+  "description": "Seven-mode weighted least squares on physical resolution 16 hits, then scaling to unit weighted RMS and rounding coefficients to four decimals; constants frozen for all N."
+}
