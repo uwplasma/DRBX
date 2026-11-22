@@ -34,6 +34,18 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_parser.add_argument("input_file", type=Path)
     inspect_parser.set_defaults(command=_inspect_command)
 
+    build_parser = subparsers.add_parser("build", help="Build or verify a nodal FCI case from a TOML deck.")
+    build_parser.add_argument("input_file", type=Path)
+    build_parser.add_argument(
+        "--set", action="append", default=[], metavar="TABLE.KEY=VALUE",
+        help="Override a TOML deck key (repeatable; value in TOML syntax).",
+    )
+    build_parser.add_argument(
+        "--verify-only", action="store_true",
+        help="Check the published receipt chain without building or updating the case.",
+    )
+    build_parser.set_defaults(command=_build_command)
+
     run_parser = subparsers.add_parser(
         "run",
         help="Run a supported native input, write result artifacts, and optionally continue from a restart bundle.",
@@ -120,6 +132,7 @@ def _normalize_cli_argv(argv: list[str]) -> list[str]:
         return argv
     known_subcommands = {
         "inspect",
+        "build",
         "run",
     }
     head = argv[0]
@@ -144,6 +157,22 @@ def _is_backend_deck(path: Path) -> bool:
     return isinstance(model, dict) and "backend" in model
 
 
+def _build_command(args: argparse.Namespace) -> int:
+    from .deck import load_deck, parse_set
+    from .fci_nodal.deck import build
+
+    if not _is_backend_deck(args.input_file):
+        raise SystemExit("drbx build requires a TOML deck with [model] backend = 'fci_nodal'")
+    try:
+        name, config = load_deck(args.input_file, parse_set(args.set))
+        if name != "fci_nodal":
+            raise ValueError("drbx build requires [model] backend = 'fci_nodal'")
+        build(config, print, verify_only=args.verify_only)
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"{args.input_file}: {error}") from None
+    return 0
+
+
 def _backend_deck_command(args: argparse.Namespace, *, inspect_only: bool) -> int:
     """Inspect or run a ``[model] backend`` deck: the same models as the Python API."""
 
@@ -152,21 +181,32 @@ def _backend_deck_command(args: argparse.Namespace, *, inspect_only: bool) -> in
     try:
         overrides = parse_set(getattr(args, "set", []))
         name, config = load_deck(args.input_file, overrides)
+        if inspect_only and name == "fci_nodal":
+            from .fci_nodal.deck import resolve_case_options
+
+            case_options = resolve_case_options(config)
     except ValueError as error:
         raise SystemExit(f"{args.input_file}: {error}") from None
     if inspect_only:
         print(f"input: {args.input_file}")
         print(describe(name, config))
+        if name == "fci_nodal":
+            print(f"case options: {case_options}")
         return 0
     given = [n for n in _DECK_ONLY_OPTIONS if getattr(args, n, None) is not None]
-    if name == "fci_braginskii":
+    if name in ("fci_braginskii", "fci_nodal"):
         given += [n for n in ("output_dir", "case_name") if getattr(args, n, None) is not None]
     if given:
         raise SystemExit(
             f"{', '.join('--' + n.replace('_', '-') for n in given)} not supported for {name} decks; "
             "set the deck keys instead"
         )
-    run_deck(args.input_file, output_dir=args.output_dir, case_name=args.case_name, quiet=args.quiet, overrides=overrides)
+    try:
+        run_deck(args.input_file, output_dir=args.output_dir, case_name=args.case_name, quiet=args.quiet, overrides=overrides)
+    except (OSError, ValueError) as error:
+        if name != "fci_nodal":
+            raise
+        raise SystemExit(f"{args.input_file}: {error}") from None
     return 0
 
 

@@ -21,13 +21,13 @@ print(out["results"], out["paths"])
 `--set` and keyword overrides are validated by the same schema, so unknown keys are errors. (`--set` applies to `[model] backend` decks, not BOUT-style ones.)
 
 - Unknown tables and keys are errors that list the valid ones; `required` keys have no default. Relative paths resolve against the deck. Decks without `backend` are the BOUT-style format ([Inputs And Outputs](input_output_reference.md)).
-- Every backend except `fci_braginskii` accepts `[runtime] precision` (`float64`/`float32`) and `[output] directory` (default `./output/<case_name>`), `case_name` (default: deck name), and writes `<case_name>_summary.json` (`case_name`, `backend`, resolved `config`, `results`) and `<case_name>_arrays.npz`.
+- Every backend except `fci_braginskii` and `fci_nodal` accepts `[runtime] precision` (`float64`/`float32`) and `[output] directory` (default `./output/<case_name>`), `case_name` (default: deck name), and writes `<case_name>_summary.json` (`case_name`, `backend`, resolved `config`, `results`) and `<case_name>_arrays.npz`.
 - Example decks: `examples/inputs/<backend>.toml` (`hsx_fci_blob.toml` for `fci_braginskii`).
 - Not available from a deck: optimization and inverse-design scripts (`hasegawa_wakatani_optimization.py`, `autodiff_diffusion_*.py`, `detachment_control.py`; the Hasegawa-Wakatani gradient is `[autodiff]`), VMEC/VMEX/VMEC-extender imports, and figure/movie scripts.
 
 ## Example decks
 
-Every deck in `examples/inputs/` is commented key by key (what to change, units, typical ranges) and runs in under a minute except the HSX one (about 4 min, mostly the one-time geometry build). Run one with `drbx run examples/inputs/<deck>.toml`; the results go to the deck's `[output] directory`. The decks are run by the test suite.
+The reduced examples use `drbx run` and write to the deck's `[output] directory`. The test suite exercises those decks. The two HSX examples require a geometry build. The nodal deck uses `drbx build` with separate device inputs before `drbx run`.
 
 | Deck | Case | Time | What you get |
 | --- | --- | --- | --- |
@@ -43,6 +43,7 @@ Every deck in `examples/inputs/` is commented key by key (what to change, units,
 | [`detachment_sd1d.toml`](../examples/inputs/detachment_sd1d.toml) | SD1D detachment, density scan | 30 s | target temperature 15.5 eV at 2e19 m^-3, 7.2 eV at 3e19 m^-3 |
 | [`fci_differentiable.toml`](../examples/inputs/fci_differentiable.toml) | Autodiff versus finite difference through an FCI rollout | 12 s | gradient and finite difference agree to about 1e-10 |
 | [`restartable_diffusion.toml`](../examples/inputs/restartable_diffusion.toml) | Restart (BOUT-style deck) | 5 s | summary, arrays and a restart file; `--restart-in` continues it |
+| [`fci_nodal_mms.toml`](../examples/inputs/fci_nodal_mms.toml) | N16 HSX manufactured solution | Separate case build | Receipts, final nodal state and optional static RHS |
 
 The Hasegawa-Wakatani deck in full:
 
@@ -500,3 +501,54 @@ Written to `[fci_braginskii] output` (the `.npz` suffix is added; shapes below a
 
 Snapshot and checkpoint files (`<stem>.snapshot_t<time>.npz`, `<stem>.checkpoint_step<step>.npz`, `<stem>.failure_step<step>.npz`) hold one frame: the seven fields without the time axis, `time`, `requested_snapshot_time`, `step`, the `metric_*` arrays, `jacobian`, `Bmag`, `B_contravariant`, parallel-coefficient diagnostics, `wall_ghost_states`, `polarization_residual`, `grid_scale_diagnostics` and `run_metadata_json`. Any of them, or a history file, is valid for `restart_from`.
 
+## Nodal FCI manufactured cases
+
+`[model] backend = "fci_nodal"`
+
+Build a receipt-bound case and run a manufactured solution from the publication.
+The example is `examples/inputs/fci_nodal_mms.toml`. See [FCI nodal manufactured solutions](fci_nodal.md).
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `fci_nodal.case_dir` | `Path` | `required` | Build products, receipts and MMS artifacts. |
+| `fci_nodal.resolution` | `int` | `required` | Nodal resolution and total number of eta planes. |
+| `fci_nodal.symmetry` | `str` | `required` | `nfp` replicates the source period. `none` builds the full turn. |
+| `fci_nodal.field_periods` | `int` | `required` | Number of physical field periods, shared by the filter and map. |
+| `fci_nodal.initial_state` | `Path | None` | `None` | A supplied path is refused with a missing physical-state loader and layout validation error. |
+| `fci_nodal.owners` | `int` | `1` | Number of owner slabs for the build and MMS. Each slab requires at least four eta planes. |
+| `geometry.makegrid_path` | `Path` | `required` | MAKEGRID magnetic field archive. |
+| `geometry.vessel_path` | `Path` | `required` | Material vessel data. |
+| `geometry.makegrid_currents` | `tuple[float, ...]` | `required` | Currents in the archive's coil-group order. |
+| `geometry.rings` | `int` | `required` | Number of rings in the polygon band. |
+| `geometry.resolution` | `tuple[int, int, int]` | `required` | Dense metric output grid. |
+| `geometry.workers` | `int` | `1` | Local geometry build workers. |
+| `field_filter.max_harmonic_per_period` | `int` | `required` | Retained field-table harmonic cutoff. |
+| `field_filter.samples_per_period` | `int` | `required` | Samples of each column per field period. |
+| `field_filter.table_grid` | `tuple[int, int, float]` | `required` | Radial samples, poloidal samples and maximum logical radius. |
+| `parallel.workers` | `int` | `1` | Local workers for indexed parallel construction. |
+| `mms.field_profile` | `str` | `'wall_flat_temperature'` | Manufactured field profile `wall_flat_temperature` or `prescribed_wall_heat_flux`. |
+| `mms.wall_law` | `str` | `'floating_wall'` | Wall law `conducting_wall` or `floating_wall`. |
+| `mms.max_steps` | `int | None` | `None` | Positive step cap. With the cap omitted, advance to the native final milestone. |
+| `mms.stop_after_first` | `bool` | `False` | Use the first native milestone at its supported resolution. |
+| `mms.capture_static_rhs` | `bool` | `False` | Record static raw and manufactured RHS arrays. |
+| `mms.launch_mode` | `str` | `'local'` | Owner MMS launch. `local` uses one process, `per_owner` uses one process per owner on one host, and `scheduler` delegates task placement. |
+| `mms.rank_rss_limit_bytes` | `int | None` | `None` | Optional positive RSS limit per process. Requires a ranked mode. |
+| `mms.run_timeout_seconds` | `float | None` | `None` | Optional positive, finite wall-clock timeout. Requires a ranked mode. |
+| `mms.rank_command` | `tuple[str, ...] | None` | `None` | Required in scheduler mode. Supply a TOML list of nonempty strings. The backend appends the rank entry and invokes the command once. |
+| `mms.rank_index_env` | `str | None` | `None` | Scheduler-only environment variable naming the zero-based owner index. When omitted, the launcher uses `SLURM_PROCID`. |
+| `mms.collectives_interface` | `str | None` | `None` | Scheduler-only CPU collectives interface. Omit it to use the collectives library's default. |
+
+With scheduler launch, run the driver outside a scheduler step on the host where
+task 0 will run. The command starts exactly one task per owner, forwards the
+appended argv to every task, and waits for all tasks. The case path and Python
+environment must be available on every host. See the
+[nodal backend guide](fci_nodal.md) for launch evidence.
+
+**Outputs** in the case driver artifacts.
+
+| Array | Meaning |
+| --- | --- |
+| `U` | Final nodal state in `nodal_state.npy`. |
+| `rhs`, `rhs_manufactured` | Optional static RHS arrays in `static_rhs.npz`. |
+
+`results` keys: `time`, `steps`, `dt`, `positivity_bound`, `field_profile` in `result.json`.

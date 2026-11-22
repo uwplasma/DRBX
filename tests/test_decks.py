@@ -11,7 +11,7 @@ from drbx.deck import BACKENDS, load_deck
 from tests.docs.test_deck_reference import documented_outputs
 
 INPUTS = Path(__file__).resolve().parents[1] / "examples" / "inputs"
-REDUCED = set(BACKENDS) - {"fci_braginskii"}
+REDUCED = {name for name, backend in BACKENDS.items() if backend.generic}
 
 
 def _backend(path):

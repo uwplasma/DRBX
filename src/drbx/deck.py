@@ -474,6 +474,18 @@ def _hsx_tables() -> dict[str, type]:
             "physics": _lazy(".fci_braginskii.run", "HsxPhysics")}
 
 
+def _nodal_tables() -> dict[str, type]:
+    from .fci_nodal.deck import tables
+
+    return tables()
+
+
+def _nodal(config: dict, say: Callable[[str], None]):
+    from .fci_nodal.deck import run
+
+    return run(config, say)
+
+
 def _turbulence_tables() -> dict[str, type]:
     from .native.stellarator_turbulence import run_stellarator_turbulence
 
@@ -512,6 +524,7 @@ BACKENDS: dict[str, Backend] = {
         lambda: {"fci_differentiable": from_signature("FciDifferentiable", _lazy(".native.fci_differentiable_case", "build_context")),
                  "run": FciDiffRun}, _fci_differentiable),
     "fci_braginskii": Backend(_hsx_tables, _hsx, required=("fci_braginskii",), generic=False),
+    "fci_nodal": Backend(_nodal_tables, _nodal, required=("fci_nodal", "geometry", "field_filter"), generic=False),
 }
 
 

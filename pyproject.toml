@@ -43,11 +43,15 @@ where = ["src"]
 [tool.setuptools.package-data]
 "drbx.data.atomic_rates" = ["*.json"]
 "drbx.data.essos" = ["*.json"]
+"drbx.fci_nodal.mms" = ["manufactured_ion_flow_fit.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
     "slow: longer-running solver or history tests that are excluded from the default fast research gate",
+    "fast: data-free nodal tests",
+    "pinned_case: nodal checks using pinned resolution 16 products",
+    "rebuild_case: nodal checks that rebuild a resolution 16 case",
 ]
 
 [tool.coverage.run]

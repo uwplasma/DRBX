@@ -411,6 +411,11 @@ carry alternating-sign structures confined to that layer.
 python examples/stellarator/hsx_fci_blob_render.py   # runs the backend, then renders the geometry figure and the movie (drbx[viz])
 ```
 
+## FCI nodal in HSX geometry
+
+Use `drbx build` to assemble the spline/exact HSX geometry and P and Q operators,
+then `drbx run` to evolve a manufactured solution. See the [nodal guide](docs/fci_nodal.md).
+
 ## Tests
 
 ```bash

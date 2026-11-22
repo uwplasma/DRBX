@@ -1,0 +1,34 @@
+# Supply the MAKEGRID file at the path below or override geometry.makegrid_path.
+#   drbx build examples/inputs/fci_nodal_mms.toml
+#   drbx run examples/inputs/fci_nodal_mms.toml
+[model]
+backend = "fci_nodal"
+
+[fci_nodal]
+case_dir = "../../output/nodal_mms_example"
+resolution = 16
+symmetry = "nfp"
+field_periods = 4
+# One owner is the default. Set owners = 2 for two slabs in a separate case_dir.
+
+[geometry]
+makegrid_path = "hsx/mgrid_res2p5cm_180pln.nc"
+vessel_path = "hsx/vessel_hsx_flare.txt"
+makegrid_currents = [10722.0, 10722.0, 10722.0, 10722.0, 10722.0, 10722.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+rings = 9
+resolution = [16, 16, 16]
+workers = 1
+
+[field_filter]
+max_harmonic_per_period = 3
+samples_per_period = 64
+table_grid = [257, 256, 1.02]
+
+[parallel]
+workers = 1
+
+[mms]
+field_profile = "wall_flat_temperature"
+wall_law = "floating_wall"
+max_steps = 3
+capture_static_rhs = true

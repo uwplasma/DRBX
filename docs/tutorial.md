@@ -81,6 +81,8 @@ The potential is obtained from the vorticity by the polarization solve. Closed v
 
 ## 5. Stellarator FCI: HSX from coils
 
+The [nodal guide](fci_nodal.md) covers the spline/exact HSX case build and manufactured run.
+
 `drbx.fci_braginskii` is the production seven-field backend. It runs on a
 precomputed HSX geometry bundle built from the coil file shipped in the
 repository, `examples/inputs/hsx/coils.hsx`, and the HSX vessel outline

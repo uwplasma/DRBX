@@ -21,7 +21,7 @@ drbx run path/to/input.toml
 
 ## Input Layout
 
-Decks with `[model] backend = "<name>"` (Hasegawa-Wakatani, SOL, recycling, detachment, FCI turbulence, HSX Braginskii, differentiable FCI) are documented in the [Deck Reference](decks.md); the layout below is the BOUT-style format.
+Decks with `[model] backend = "<name>"` (Hasegawa-Wakatani, SOL, recycling, detachment, FCI turbulence, HSX Braginskii, differentiable FCI, nodal MMS) are documented in the [Deck Reference](decks.md); the layout below is the BOUT-style format. See the [nodal guide](fci_nodal.md#build-and-run-a-case) for `drbx build` and `--verify-only`.
 
 The native CLI accepts organized TOML decks and also keeps compatibility with legacy `.inp` decks. The intended TOML layout is:
 

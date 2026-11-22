@@ -260,6 +260,15 @@ During the first structural phase:
 That sequencing preserves scientific trust while the software architecture is
 improved.
 
+Set `DRBX_FCI_NODAL_REFERENCE_CASE` to a complete one-owner resolution 16
+case with current source receipts. Build the reference on the same machine
+and with the same JAX version as the tests. It must stay where it was built
+because stage receipts store absolute product paths. Run
+`pytest -q -m pinned_case tests/fci_nodal` to replay from the saved products,
+or use `-m rebuild_case` to build from the original inputs. Both profiles
+compare arrays from the same owner layout byte for byte. See
+`tests/fci_nodal/README.md` for the test profiles.
+
 ## FCI Unification Gate
 
 The FCI unification (issue #41) merges `drbx.geometry.fci_geometry` +

@@ -65,6 +65,7 @@ nav:
       - Neutrals and Recycling: neutrals_recycling.md
       - Stellarator Turbulence: stellarator_turbulence.md
       - HSX FCI Braginskii Backend: fci_braginskii_hsx_backend.md
+      - FCI Nodal Manufactured Solutions: fci_nodal.md
       - VMEC Extender Edge Fields: vmec_extender_edge_fields.md
       - ESSOS Coil Fields: essos_fieldline_import.md
   - Validation:
