@@ -22,12 +22,10 @@ with the potential held fixed.
 from __future__ import annotations
 
 import dataclasses
-import importlib.util
 import math
 import os
 from pathlib import Path
 import re
-import sys
 from types import SimpleNamespace
 
 import jax
@@ -47,7 +45,6 @@ from drbx.fci_braginskii.native.fci_drb_EB_rhs import (
 jax.config.update("jax_enable_x64", True)
 
 REPOSITORY = Path(__file__).resolve().parents[2]
-DRIVER_PATH = REPOSITORY / "src" / "drbx" / "fci_braginskii" / "run.py"
 DRIVER_SOURCE = Path(__file__).resolve().parents[2] / "src" / "drbx" / "fci_braginskii" / "run.py"
 DOCS_PATH = REPOSITORY / "docs" / "fci_braginskii_hsx_backend.md"
 
@@ -55,17 +52,6 @@ DOCS_PATH = REPOSITORY / "docs" / "fci_braginskii_hsx_backend.md"
 ELEMENTARY_CHARGE = 1.602176634e-19  # C
 PROTON_MASS = 1.67262192369e-27  # kg
 ELECTRON_MASS = 9.1093837015e-31  # kg
-
-
-def _driver_module():
-    spec = importlib.util.spec_from_file_location(
-        "simulate_hsx_blob_normalization_contract", DRIVER_PATH
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def _sound_speed(te_ev: float, ion_mass: float = PROTON_MASS) -> float:
@@ -211,7 +197,8 @@ def test_evaluate_stage_term_scaling_on_hsx_geometry(monkeypatch, tmp_path):
     geometry = os.environ.get("DRBX_TEST_GEOMETRY_BUNDLE")
     if not geometry or not (Path(geometry) / "manifest.json").is_file():
         pytest.skip("set DRBX_TEST_GEOMETRY_BUNDLE to an HSX FCI geometry bundle")
-    driver = _driver_module()
+    from drbx.cli import main
+
     r1, r2 = 5.0e-4, 2.0e-3
     captured: dict[str, np.ndarray] = {}
     original = LocalFciDrbEBRhs.reconstruct_phi
@@ -239,15 +226,13 @@ def test_evaluate_stage_term_scaling_on_hsx_geometry(monkeypatch, tmp_path):
 
     monkeypatch.setattr(LocalFciDrbEBRhs, "reconstruct_phi", hooked)
     with pytest.raises(Exception):
-        driver.main([
-            "--geometry", geometry,
-            "--num-steps", "1",
-            "--final-time", "7.5e-4",
-            "--filament-cache-dir", str(tmp_path / "filament"),
-            "--advance-execution", "eager",
-            "--no-phase-timing",
-            "--output", str(tmp_path / "history.npz"),
-        ])
+        deck = tmp_path / "hsx.toml"
+        deck.write_text(
+            '[model]\nbackend = "fci_braginskii"\n[fci_braginskii]\n'
+            f'geometry = "{geometry}"\noutput = "{tmp_path / "history"}"\nfinal_time = 7.5e-4\nnum_steps = 1\n'
+            f'filament_cache_dir = "{tmp_path / "filament"}"\nadvance_execution = "eager"\nno_phase_timing = true\n'
+        )
+        main(["run", str(deck)])
     assert captured, "hook did not run"
     t1, t2 = captured["t1"], captured["t2"]
     ratio = r2 / r1
