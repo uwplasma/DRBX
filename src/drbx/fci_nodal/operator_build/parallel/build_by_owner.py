@@ -146,10 +146,11 @@ def _publish_leaves(source, destination):
 
 
 def _publish_owner(out, index, source):
-    """Expose one attempt by relative path, with global row IDs in the plane leaves."""
-    path,result = source
+    """Expose the completed plane leaves by owner, with their global row IDs."""
+    paths,result = source
     destination = out/'owners'/f'owner_{index:05d}'
-    _publish_leaves(path,destination)
+    for path in paths:
+        _publish_leaves(path,destination)
     record = dict(result, owner=index, directory=destination.relative_to(out).as_posix())
     atomic_json(out/'owners'/f'owner_{index:05d}.json',record)
     return record
@@ -208,8 +209,24 @@ def _build(options, geometry, layout, parts, root, identity):
             leaves = collect(pool,'face_leaves',_leaf,((lo,hi,fit)
                             for lo,hi in geometry.ranges('faces',options.shard_rows)))
             bounds = [(owner*layout.eta_planes+parts-1)//parts for owner in range(parts+1)]
-            owner_paths = collect(pool,'plane_windows',owner_job,
-                ((a,b,route,fit,[path for path,_ in leaves]) for a,b in zip(bounds,bounds[1:])))
+            owner_ranges = list(zip(bounds,bounds[1:]))
+            leaf_paths = [path for path,_ in leaves]
+            if pool is None:
+                owner_paths = [((path,), record) for path, record in collect(
+                    pool,'plane_windows',owner_job,
+                    ((a,b,route,fit,leaf_paths) for a,b in owner_ranges))]
+            else:
+                # Each plane owns its face windows, wall mass and complete jump
+                # groups. Keep their reductions intact and publish in plane order.
+                planes = collect(pool,'plane_windows',owner_job,
+                    ((plane,plane+1,route,fit,leaf_paths) for plane in range(layout.eta_planes)))
+                owner_paths = []
+                for begin,end in owner_ranges:
+                    owned = planes[begin:end]
+                    paths = [path for path,_ in owned]
+                    record = dict(begin=begin,end=end,pairs=sum(row['pairs'] for _,row in owned),
+                                  peak_rss_bytes=max(row['peak_rss_bytes'] for _,row in owned))
+                    owner_paths.append((paths, record))
         _export_parallel_construction(out,layout,options,geometry,fit,owner_paths,edges,identity)
     finally:
         if options.workers == 1:
