@@ -191,6 +191,11 @@ def stage(case, name, *, settings, options, inputs, expected, action, adopt=None
         products, rays, rss, sources = action(attempt)
         identity.update(code_files=sources, code_sha256=code_identity(sources))
         verify_code(name, identity)
+        if name == "mms_run":
+            from ..mms.restart import Paused
+
+            if isinstance(products, Paused):
+                return products, None
     else:
         products, rays, rss = origin["products"], 0, peak_rss()
     if not set(expected).issubset(products):
@@ -206,4 +211,13 @@ def stage(case, name, *, settings, options, inputs, expected, action, adopt=None
     pending = attempt / "receipt.pending.json"
     write_json(pending, receipt)
     pending.replace(path)
+    if (name == "mms_run" and options.get("launch_mode", "local") == "local"
+            and options.get("runtime", {}).get("owner_count") == 1):
+        from shutil import rmtree
+
+        from ..mms.restart import CHECKPOINT_DIR
+
+        checkpoint = directory/CHECKPOINT_DIR
+        if checkpoint.is_dir():
+            rmtree(checkpoint)
     return stage_receipt(case, name)

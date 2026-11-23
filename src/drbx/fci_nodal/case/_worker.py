@@ -5,6 +5,7 @@ import os
 import pickle
 import sys
 from pathlib import Path
+from time import perf_counter
 from unittest.mock import patch
 
 from ._receipts import peak_rss, read_json, worker_code_files
@@ -135,6 +136,7 @@ def execute_local(name, options, out, inputs):
 
 
 def main():
+    started = perf_counter()
     # Only the caller's pipe carries Python objects. Case and receipt files are JSON.
     name, out, reply = sys.argv[1:]
     limit = os.environ.get("DRBX_FCI_NODAL_WORKER_RSS_BYTES")
@@ -150,6 +152,8 @@ def main():
 
         Thread(target=monitor, daemon=True).start()
     options, inputs = pickle.load(sys.stdin.buffer)
+    if name == "mms_run" and "checkpoint" in options:
+        options["checkpoint"]["started"] = started
     product = execute_local(name, options, Path(out), inputs)
     if limit and peak_rss() >= int(limit):
         raise MemoryError("Case stage exceeded RSS limit")

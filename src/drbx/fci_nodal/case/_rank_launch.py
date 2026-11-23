@@ -21,6 +21,10 @@ SCHEDULER_OPTIONS = ('rank_command', 'rank_index_env', 'collectives_interface')
 
 def scheduler_options(options, *, owners):
     """Validate scheduler-only options and return their effective values."""
+    from ..mms.restart import SEGMENT_KEYS
+
+    if options.get('launch_mode', 'local') != 'local' and any(options.get(key) is not None for key in SEGMENT_KEYS):
+        raise ValueError('MMS segment and checkpoint controls require local launch mode')
     command,index_env,interface = (options.get(key) for key in SCHEDULER_OPTIONS)
     scheduler = options.get('launch_mode') == 'scheduler'
     supplied = any(value is not None for value in (command,index_env,interface))

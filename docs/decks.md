@@ -413,6 +413,9 @@ The example is `examples/inputs/fci_nodal_mms.toml`. See [FCI nodal manufactured
 | `mms.rank_command` | `tuple[str, ...] | None` | `None` | Required in scheduler mode. Supply a TOML list of nonempty strings. The backend appends the rank entry and invokes the command once. |
 | `mms.rank_index_env` | `str | None` | `None` | Scheduler-only environment variable naming the zero-based owner index. When omitted, the launcher uses `SLURM_PROCID`. |
 | `mms.collectives_interface` | `str | None` | `None` | Scheduler-only CPU collectives interface. Omit it to use the collectives library's default. |
+| `mms.segment_wall_seconds` | `float | None` | `None` | Wall-time budget for one local single-owner invocation, with time reserved for another step. |
+| `mms.segment_steps` | `int | None` | `None` | Accepted-step budget for one local single-owner invocation. |
+| `mms.checkpoint_interval_seconds` | `float | None` | `None` | Checkpoint interval for local single-owner runs. The effective default is 600 seconds. |
 
 With scheduler launch, run the driver outside a scheduler step on the host where
 task 0 will run. The command starts exactly one task per owner, forwards the

@@ -82,6 +82,12 @@ receipt and returns the owner state directory and summary fields.
 solution by field and region at each reached target. It records the first step
 wall time and the mean over subsequent steps, excluding target diagnostics.
 
+Local single-owner MMS runs checkpoint accepted states at targets and every
+600 seconds by default. In `[mms]`, `checkpoint_interval_seconds` changes that
+interval. `segment_steps` and `segment_wall_seconds` limit an invocation while
+`max_steps` remains the total limit. On exit status 3, repeat the same deck to
+resume. The segment controls are available for local single-owner runs.
+
 The parallel operator uses the absolute-flux action and its analytic derivative in
 `operators/parallel/absolute_flux.py`. Wall preparation evaluates the magnetic
 field direction through `evaluators/magnetic_field.py`, also used for

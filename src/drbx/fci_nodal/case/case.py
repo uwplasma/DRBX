@@ -217,9 +217,11 @@ def _publish_owner_inputs(case, options, *, adopt=None, stages=None):
     return Path(stamp["receipt"])
 
 
-def _run_owner_mms(case, mms_options, *, stage_threads):
+def _run_owner_mms(case, mms_options, *, stage_threads, controls):
     initial = verify_chain(case,"owner_inputs")["owner_inputs"]
     parts = binding(initial[0])["options"]["owner_count"]
+    if controls and parts != 1:
+        raise ValueError("MMS segment and checkpoint controls require one owner")
     requested = mms_options["runtime"]
     if requested.owner_count not in (1, parts):
         raise ValueError("Runtime and published owner counts differ")
@@ -250,8 +252,15 @@ def _run_owner_mms(case, mms_options, *, stage_threads):
                      dict(runtime=runtime,field_profile=field_profile),("prepared",),(initial,wall))
     inputs.update(receipt_products(prep[0]))
     checksums.update(prep[0]["output_files"])
-    run = run_stage("mms_run",dict(mms_options,runtime=asdict(runtime)),mms_options,
-                    ("owner_state","summary","mms_errors"),(initial,wall,prep))
+    dependencies = (initial,wall,prep)
+    scientific = dict(mms_options,runtime=asdict(runtime))
+    payload = mms_options
+    if launch == "local" and parts == 1:
+        payload = dict(mms_options,checkpoint=dict(controls=controls, options=scientific,
+                       input_receipts=[stamp for _, stamp in dependencies]))
+    run = run_stage("mms_run",scientific,payload,("owner_state","summary","mms_errors"),dependencies)
+    if run[1] is None:
+        return dict(paused=True, time=run[0].time, steps=run[0].steps)
     products = receipt_products(run[0])
     return dict(owner_state=products["owner_state"],**read_json(products["summary"]))
 
@@ -264,6 +273,7 @@ def run_mms(case_dir, mms_options, *, stage_threads=2):
     stage_threads sets the worker thread limit for wall data, preparation and advance.
     """
     from ._rank_launch import scheduler_options
+    from ..mms.restart import SEGMENT_KEYS, segment_controls
 
     if type(stage_threads) is not int or stage_threads < 1:
         raise ValueError("stage_threads must be a positive integer")
@@ -277,4 +287,6 @@ def run_mms(case_dir, mms_options, *, stage_threads=2):
         if limits and launch == "local":
             raise ValueError("Owner rank RSS and timeout options require launch_mode=per_owner")
         scheduler_options(mms_options, owners=True)
-        return _run_owner_mms(case, mms_options, stage_threads=stage_threads)
+        controls = segment_controls(mms_options)
+        scientific = {key: value for key, value in mms_options.items() if key not in SEGMENT_KEYS}
+        return _run_owner_mms(case, scientific, stage_threads=stage_threads, controls=controls)

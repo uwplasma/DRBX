@@ -69,6 +69,11 @@ def _write_rows(out, resolution, arrays, *, name):
 
 
 def run(options, out, inputs, *, rank=None):
+    started = perf_counter()
+
+    import json
+    import os
+
     import jax
     import jax.numpy as jnp
     import numpy as np
@@ -80,6 +85,7 @@ def run(options, out, inputs, *, rank=None):
     from ..mms.cache import OwnerPrepared, load_owner_mms
     from ..mms.error_report import merge_reports, owner_masks, owner_partials, owner_weights, target_partials
     from ..mms.evolved import owner_stage
+    from ..mms.restart import CHECKPOINT_DIR, Checkpoint, Paused
 
     runtime = options["runtime"]
     if rank is not None:
@@ -157,8 +163,38 @@ def run(options, out, inputs, *, rank=None):
     weights = owner_weights(resolution)
     report = dict(geometry=[owner_partials(h, *masks[owner]) for owner, h in weights.items()],
                   targets=[], seconds=[])
-    t, steps, m0 = 0., 0, stage(0.)
-    u = m0.exact
+    checkpoint = restored = None
+    controls = {}
+    if rank is None and p.parts == 1 and (invocation := options.get("checkpoint")) is not None:
+        controls = invocation["controls"]
+        started = invocation.get("started", started)
+        checkpoint = Checkpoint(out.parent/CHECKPOINT_DIR, dict(
+            options=invocation["options"], input_receipts=invocation["input_receipts"],
+            precision="float64" if jax.config.x64_enabled else "float32",
+            jax_version=jax.__version__, threads=os.environ.get("NPROC")))
+        restored = checkpoint.load()
+    bounds = dict(dt=dt, positivity_bound=bound)
+    if restored is None:
+        t, cache_time, steps = 0., 0., 0
+        m0 = stage(cache_time)
+        u = m0.exact
+    else:
+        saved, progress = restored
+        if json.dumps(progress["bounds"], sort_keys=True) != json.dumps(bounds, sort_keys=True):
+            raise ValueError("MMS checkpoint time step or positivity bound differs")
+        t, cache_time, steps = (progress[key] for key in ("time", "cache_time", "steps"))
+        m0 = stage(cache_time)
+        if saved.shape != m0.exact.shape or saved.dtype != m0.exact.dtype:
+            raise ValueError("MMS checkpoint state shape or precision differs")
+        u = jax.device_put(saved, m0.exact.sharding)
+        stats["stages"] = progress["stages"]
+        report.update(targets=progress["targets"], seconds=progress["seconds"])
+    start_step = steps
+    longest = max(report["seconds"], default=0.)
+    interval = controls.get("checkpoint_interval_seconds", 600.)
+    next_checkpoint = started+interval
+    wall_budget = controls.get("segment_wall_seconds", float("inf"))
+    segment_steps = controls.get("segment_steps", float("inf"))
     while t<targets[-1]-2e-15 and (max_steps is None or steps<max_steps):
         target = next(x for x in targets if x>t+2e-15)
         h = min(dt,target-t)
@@ -166,15 +202,28 @@ def run(options, out, inputs, *, rank=None):
         u,info,m0 = owner_step(rhs,u,t,h,prepare=stage,project=project,observe=observe,m0=m0)
         report["seconds"].append(perf_counter()-begin)
         t += h
+        cache_time = t
         steps += 1
         stats["stages"].append(info)
-        if abs(t-target)<2e-15:
+        reached = abs(t-target)<2e-15
+        if reached:
             milestone = m0 if t == target else stage(target)
             t = target
             _, aux = jax.block_until_ready(raw(u,milestone.wall))
             _solver_scalars(aux)
             partials = target_partials(resolution,weights,masks,u,milestone,data,t,aux)
             report["targets"].append(dict(time=t,steps=steps,partials=partials))
+        if checkpoint is not None:
+            now = perf_counter()
+            longest = max(longest, report["seconds"][-1])
+            finished = t >= targets[-1]-2e-15 or steps == max_steps
+            pause = not finished and (steps-start_step >= segment_steps or now-started+1.5*longest > wall_budget)
+            if reached or now >= next_checkpoint or pause or finished:
+                checkpoint.save(u, dict(time=t, cache_time=cache_time, steps=steps, bounds=bounds,
+                                        stages=stats["stages"], targets=report["targets"], seconds=report["seconds"]))
+                next_checkpoint = perf_counter()+interval
+            if pause:
+                return Paused(t, steps), 0
     _write_rows(outputs,resolution,dict(U=u),name="state")
     info = dict(time=t,steps=steps,dt=dt,positivity_bound=bound,
                 field_profile=options["field_profile"],solves=stats,edges=p.edges)

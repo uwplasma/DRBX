@@ -65,8 +65,14 @@ class MmsConfig:
     rank_command: tuple[str, ...] | None = None
     rank_index_env: str | None = None
     collectives_interface: str | None = None
+    segment_wall_seconds: float | None = None
+    segment_steps: int | None = None
+    checkpoint_interval_seconds: float | None = None
 
     def __post_init__(self):
+        from .mms.restart import segment_controls
+
+        segment_controls(vars(self))
         if self.field_profile not in FIELD_PROFILE_NAMES or self.wall_law not in WALL_LAW_NAMES:
             raise ValueError("[mms] requires wall_flat_temperature or prescribed_wall_heat_flux and wall_law conducting_wall or floating_wall")
         if self.max_steps is not None and self.max_steps < 1:
@@ -199,6 +205,7 @@ def build(config, say, *, verify_only=False):
 def run(config, say):
     from .case import run_mms
     from .case._rank_launch import SCHEDULER_OPTIONS
+    from .mms.restart import segment_controls
 
     case_dir = config["fci_nodal"].case_dir.resolve()
     options = resolve_case_options(config)
@@ -214,6 +221,10 @@ def run(config, say):
                        run_timeout_seconds=mms.run_timeout_seconds)
     if mms.launch_mode == "scheduler":
         run_options.update({key: getattr(mms, key) for key in SCHEDULER_OPTIONS})
+    run_options.update(segment_controls(vars(mms)))
     result = run_mms(case_dir, run_options, stage_threads=options.stage_threads)
+    if result.get("paused"):
+        say(f"paused after {result['steps']} steps at t={result['time']:.6g}; run again to resume")
+        raise SystemExit(3)
     stage = "mms_run"
     say(f"advanced {result['steps']} MMS steps to t={result['time']:.6g} in {case_dir / stage}")
