@@ -251,7 +251,7 @@ def _run_owner_mms(case, mms_options, *, stage_threads):
     inputs.update(receipt_products(prep[0]))
     checksums.update(prep[0]["output_files"])
     run = run_stage("mms_run",dict(mms_options,runtime=asdict(runtime)),mms_options,
-                    ("owner_state","summary"),(initial,wall,prep))
+                    ("owner_state","summary","mms_errors"),(initial,wall,prep))
     products = receipt_products(run[0])
     return dict(owner_state=products["owner_state"],**read_json(products["summary"]))
 

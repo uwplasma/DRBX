@@ -188,7 +188,7 @@ def _verify_replies(out, parts, edges, width, capture, rank_rss_limit):
     expected_dirs = {f'owner{i:04d}' for i in range(parts)}
     if {p.name for p in outputs.iterdir()}!=expected_dirs:
         raise ValueError('Owner output union does not cover the mesh')
-    summaries, sources, peaks = [], [], []
+    summaries, sources, peaks, reports = [], [], [], []
     names = {'nodal_state.npy','node_ids.npy'} | ({'static_rhs.npz'} if capture else set())
     for owner, (a,b) in enumerate(zip(edges[:-1],edges[1:],strict=True)):
         reply = json.loads((ranks/f'rank{owner:04d}.json').read_text())
@@ -213,6 +213,7 @@ def _verify_replies(out, parts, edges, width, capture, rank_rss_limit):
                         z[key].shape!=shape or z[key].dtype!=np.float64 for key in z.files):
                     raise ValueError(f'Invalid static owner RHS for {owner}')
         summaries.append(reply['summary'])
+        reports.append(reply['report'])
         sources.append(reply['sources'])
         peaks.append(peak)
     common = json.dumps(summaries[0],sort_keys=True,allow_nan=False)
@@ -222,7 +223,7 @@ def _verify_replies(out, parts, edges, width, capture, rank_rss_limit):
         raise ValueError('Owner rank source fingerprints differ')
     if summaries[0]['edges']!=list(edges):
         raise ValueError('Owner scalar summary edges differ')
-    return summaries[0], max(peaks), sources[0]
+    return summaries[0], max(peaks), sources[0], reports
 
 
 def launch_rank_run(options, out, inputs, settings, *, checksums):
@@ -295,12 +296,16 @@ def launch_rank_run(options, out, inputs, settings, *, checksums):
         seconds = _team(directory,payloads,env,timeout)
     else:
         seconds = _scheduler_team(directory,payloads,env,timeout,command,index_env)
-    summary,rss,sources = _verify_replies(
+    from ..mms.error_report import merge_reports
+
+    summary,rss,sources,reports = _verify_replies(
         out,parts,p.edges,q.width,options.get('capture_static_rhs'),rank_rss_limit)
     write_json(out/'result.json',summary)
+    errors = out/'mms_errors.json'
+    write_json(errors,merge_reports(reports,dt=summary['dt'],steps=summary['steps']))
     write_json(out/'launch.json',dict(seconds=seconds,peak_rss_bytes=rss,owner_count=parts,
                rank_rss_limit_bytes=rank_rss_limit,run_timeout_seconds=timeout))
-    products = dict(owner_state=out/'owners',summary=out/'result.json',
+    products = dict(owner_state=out/'owners',summary=out/'result.json',mms_errors=errors,
                     owner_rank_receipts=out/'ranks',launch_mode=out/'launch.json')
     if supplemental:
         products['owner_route_supplement'] = routes
@@ -336,9 +341,9 @@ def rank_worker(address, owner, parts, payload):
         raise ValueError('Launch arguments and rank payload disagree')
     from ._mms_stages import run
 
-    summary = run(options,out,inputs,rank=rank)
+    summary, report = run(options,out,inputs,rank=rank)
     folder = out/'owners'/f'owner{owner:04d}'
-    receipt = dict(rank=owner,pid=os.getpid(),edges=rank['edges'],summary=summary,
+    receipt = dict(rank=owner,pid=os.getpid(),edges=rank['edges'],summary=summary,report=report,
                    files=file_receipts([folder]),sources=worker_code_files('mms_run'),
                    peak_rss_bytes=peak_rss())
     jax.distributed.shutdown()

@@ -76,7 +76,11 @@ receipt and returns the owner state directory and summary fields.
 | `owner_inputs` | Receipt binding those build inputs and the owner parallel application products |
 | `wall_data` | Wall rows, limiter graph and routing by owner |
 | `mms_prepare` | Prepared parallel geometry and conducting_wall/floating_wall manufactured_field_data rows by owner |
-| `mms_run` | Final state by owner and shared run summary |
+| `mms_run` | Final state by owner, `result.json`, and `mms_errors.json` |
+
+`mms_errors.json` gives common-Hp RMS and maximum node errors against the exact
+solution by field and region at each reached target. It records the first step
+wall time and the mean over subsequent steps, excluding target diagnostics.
 
 The parallel operator uses the absolute-flux action and its analytic derivative in
 `operators/parallel/absolute_flux.py`. Wall preparation evaluates the magnetic

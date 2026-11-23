@@ -1,5 +1,7 @@
 """Case worker adapters for the existing owner MMS preparation and operator."""
 
+from time import perf_counter
+
 from ._owner_inputs import OwnerParallelInputs, field_manifest, validate_inputs
 from ._wall_data import CHI, D
 from .._hashing import sha256_file as digest
@@ -76,6 +78,7 @@ def run(options, out, inputs, *, rank=None):
     from ..drb.owner_load import load_owner_resolution
     from ..drb.owner_operator import owner_actions, owner_step, owner_timestep
     from ..mms.cache import OwnerPrepared, load_owner_mms
+    from ..mms.error_report import merge_reports, owner_masks, owner_partials, owner_weights, target_partials
     from ..mms.evolved import owner_stage
 
     runtime = options["runtime"]
@@ -150,22 +153,35 @@ def run(options, out, inputs, *, rank=None):
     dt = float(_local(dt))
     bound = {name:np.asarray(_local(value)).tolist() for name,value in bound.items()}
     targets = TARGET_TIMES[:1] if first else TARGET_TIMES
+    masks = owner_masks(resolution.q.nodes, wall, q, inputs["owner_parallel"], inputs["indexed_geometry"])
+    weights = owner_weights(resolution)
+    report = dict(geometry=[owner_partials(h, *masks[owner]) for owner, h in weights.items()],
+                  targets=[], seconds=[])
     t, steps, m0 = 0., 0, stage(0.)
     u = m0.exact
     while t<targets[-1]-2e-15 and (max_steps is None or steps<max_steps):
         target = next(x for x in targets if x>t+2e-15)
         h = min(dt,target-t)
+        begin = perf_counter()
         u,info,m0 = owner_step(rhs,u,t,h,prepare=stage,project=project,observe=observe,m0=m0)
+        report["seconds"].append(perf_counter()-begin)
         t += h
         steps += 1
         stats["stages"].append(info)
         if abs(t-target)<2e-15:
+            milestone = m0 if t == target else stage(target)
             t = target
+            _, aux = jax.block_until_ready(raw(u,milestone.wall))
+            _solver_scalars(aux)
+            partials = target_partials(resolution,weights,masks,u,milestone,data,t,aux)
+            report["targets"].append(dict(time=t,steps=steps,partials=partials))
     _write_rows(outputs,resolution,dict(U=u),name="state")
     info = dict(time=t,steps=steps,dt=dt,positivity_bound=bound,
                 field_profile=options["field_profile"],solves=stats,edges=p.edges)
     if rank is not None:
-        return info
+        return info, report
     summary = out/"result.json"
     write_json(summary,info)
-    return {"owner_state":outputs,"summary":summary}, 0
+    errors = out/"mms_errors.json"
+    write_json(errors,merge_reports([report],dt=dt,steps=steps))
+    return {"owner_state":outputs,"summary":summary,"mms_errors":errors}, 0
