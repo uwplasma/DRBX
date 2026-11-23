@@ -68,6 +68,18 @@ def _write_rows(out, resolution, arrays, *, name):
             np.savez(root/"static_rhs.npz", **rows)
 
 
+def _first_gpu(jax):
+    message = ("No GPU is visible to JAX. Select a visible GPU and use a GPU build "
+               "matching the installed JAX version.")
+    try:
+        devices = jax.devices("gpu")
+    except RuntimeError as error:
+        raise ValueError(message) from error
+    if not devices:
+        raise ValueError(message)
+    return devices[0]
+
+
 def run(options, out, inputs, *, rank=None):
     started = perf_counter()
 
@@ -77,6 +89,8 @@ def run(options, out, inputs, *, rank=None):
     import jax
     import jax.numpy as jnp
     import numpy as np
+
+    devices = (_first_gpu(jax),) if options.get("device") == "gpu" else None
 
     from ..operator_build.perp.sbp_setup import _layout
     from ..drb import Switches
@@ -110,7 +124,6 @@ def run(options, out, inputs, *, rank=None):
     with np.load(wall/"constants.npz", allow_pickle=False) as z:
         constants = {name:z[name] for name in ("Om","Bdiv","Wm","gi")}
     routes = None
-    devices = None
     if rank is not None:
         from ..drb.owner_route_store import RouteStore
         routes = RouteStore.open(rank["routes"],wall)

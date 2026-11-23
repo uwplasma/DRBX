@@ -55,8 +55,9 @@ def load_owner_parallel(path,options,*,devices=None):
     devices=jax.devices('cpu') if devices is None else devices
     options.check_cpu_device_capacity(len(devices))
     selected=tuple(devices[:md['owner_count']])
-    if len(set(selected))!=len(selected) or any(d.platform!='cpu' for d in selected):
-        raise ValueError('One distinct CPU device is required per owner')
+    platforms = {d.platform for d in selected}
+    if len(set(selected))!=len(selected) or platforms not in ({'cpu'}, {'gpu'}):
+        raise ValueError('One distinct device from the same CPU or GPU platform is required per owner')
     mesh=Mesh(np.asarray(selected),('records',))
     sh=NamedSharding(mesh,P('records'))
     local=[(p,d) for p,d in enumerate(mesh.devices.flat) if d.process_index==jax.process_index()]

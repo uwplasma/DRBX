@@ -20,6 +20,16 @@ def validate_face_record_chunk(value):
         raise ValueError("[mms] face_record_chunk must be a positive integer")
 
 
+def validate_mms_device(device, launch_mode, *, owners=1):
+    if device not in ("cpu", "gpu"):
+        raise ValueError("[mms] device must be 'cpu' or 'gpu'")
+    if device == "gpu":
+        if launch_mode != "local":
+            raise ValueError("[mms] GPU runs require local launch mode")
+        if owners != 1:
+            raise ValueError("[mms] GPU runs require exactly one owner")
+
+
 @dataclass(frozen=True)
 class RuntimeOptions:
     tau: float = 1.

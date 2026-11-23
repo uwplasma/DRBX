@@ -18,8 +18,9 @@ def build_owner_wall_plan(mesh,nodes,p_walls,q_hits,rows,*,eta_planes,nodes_per_
     from ..operators.parallel.owner_routes import pack_owner_csr
     from .walls import WallOps
     parts=mesh.size
-    if tuple(mesh.axis_names)!=('records',) or any(d.platform!='cpu' for d in mesh.devices.flat):
-        raise ValueError('The owner wall plan requires the Q CPU records mesh')
+    platforms = {d.platform for d in mesh.devices.flat}
+    if tuple(mesh.axis_names)!=('records',) or platforms not in ({'cpu'}, {'gpu'}):
+        raise ValueError('The owner wall plan requires the Q records mesh on one CPU or GPU platform')
     cuts=(np.arange(parts+1)*eta_planes+parts-1)//parts
     counts=tuple(map(int,np.diff(cuts)))
     if min(counts)<4:

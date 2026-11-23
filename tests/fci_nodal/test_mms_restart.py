@@ -64,7 +64,7 @@ def test_checkpoint_mismatch_and_corruption(tmp_path, snapshot, capsys):
         Checkpoint(tmp_path, dict(threads="3")).load()
 
 
-@pytest.mark.parametrize("settings", [{}, {"face_record_chunk": 65536}])
+@pytest.mark.parametrize("settings", [{}, {"face_record_chunk": 65536}, {"device": "cpu"}, {"device": "gpu"}])
 def test_segment_controls_stay_out_of_stage_identity(tmp_path, monkeypatch, settings):
     initial = (dict(identity=dict(options=dict(owner_count=1)), products={}, output_files={}),
                dict(stage="owner_inputs", sha256="inputs"))
@@ -72,12 +72,21 @@ def test_segment_controls_stay_out_of_stage_identity(tmp_path, monkeypatch, sett
     controls = dict(segment_steps=6, segment_wall_seconds=120., checkpoint_interval_seconds=30.)
     runtime = asdict(RuntimeOptions())
     expected = dict(runtime=runtime, field_profile="wall_flat_temperature")
+    run_options = dict(expected, **settings)
+    if run_options.get("device") == "cpu":
+        run_options.pop("device")
 
-    def fake_stage(case, name, *, options, action, **kwargs):
+    def fake_stage(case, name, *, options, settings, action, **kwargs):
         assert set(SEGMENT_KEYS).isdisjoint(options)
         if name == "mms_run":
-            assert options == dict(expected, **settings)
+            assert options == run_options
+            worker_settings = driver._settings(name)
+            if options.get("device") == "gpu":
+                worker_settings.update(JAX_PLATFORMS="cuda,cpu", XLA_PYTHON_CLIENT_PREALLOCATE="false")
+                worker_settings.pop("CUDA_VISIBLE_DEVICES")
+            assert settings == worker_settings
             return action(case)
+        assert settings == driver._settings(name)
         assert options == (expected if name == "mms_prepare" else dict(runtime=runtime))
         return dict(products={}, output_files={}), dict(stage=name, sha256=name)
 
@@ -85,7 +94,7 @@ def test_segment_controls_stay_out_of_stage_identity(tmp_path, monkeypatch, sett
         assert name == "mms_run"
         invocation = payload["checkpoint"]
         assert invocation["controls"] == controls
-        assert invocation["options"] == dict(expected, **settings)
+        assert invocation["options"] == run_options
         assert [stamp["stage"] for stamp in invocation["input_receipts"]] == [
             "owner_inputs", "wall_data", "mms_prepare"]
         return Paused(.001, 6), None

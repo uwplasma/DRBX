@@ -89,9 +89,9 @@ def _case_lock(case):
         yield
 
 
-def _settings(name, *, stage_threads=2, host_cpu_devices=1):
+def _settings(name, *, stage_threads=2, host_cpu_devices=1, device="cpu"):
     threads = "1" if name in ("polygon", "geometry") else str(stage_threads)
-    return {
+    settings = {
         **{key: threads for key in ("NPROC", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
                                   "MKL_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
                                   "TF_NUM_INTRAOP_THREADS")},
@@ -103,6 +103,10 @@ def _settings(name, *, stage_threads=2, host_cpu_devices=1):
         "CUDA_VISIBLE_DEVICES": "",
         "XLA_FLAGS": f"--xla_force_host_platform_device_count={host_cpu_devices}",
     }
+    if name == "mms_run" and device == "gpu":
+        settings.update(JAX_PLATFORMS="cuda,cpu", XLA_PYTHON_CLIENT_PREALLOCATE="false")
+        settings.pop("CUDA_VISIBLE_DEVICES")
+    return settings
 
 
 def _execute(name, options, out, inputs, settings):
@@ -218,8 +222,13 @@ def _publish_owner_inputs(case, options, *, adopt=None, stages=None):
 
 
 def _run_owner_mms(case, mms_options, *, stage_threads, controls):
+    from ..options import validate_mms_device
+
     initial = verify_chain(case,"owner_inputs")["owner_inputs"]
     parts = binding(initial[0])["options"]["owner_count"]
+    launch = mms_options.get("launch_mode", "local")
+    device = mms_options.get("device", "cpu")
+    validate_mms_device(device, launch, owners=parts)
     if controls and parts != 1:
         raise ValueError("MMS segment and checkpoint controls require one owner")
     requested = mms_options["runtime"]
@@ -229,13 +238,13 @@ def _run_owner_mms(case, mms_options, *, stage_threads, controls):
         raise ValueError("Runtime cpu_device_count must be 1 or match the published owner count")
     runtime = replace(requested,owner_count=parts,cpu_device_count=parts)
     mms_options = dict(mms_options,runtime=runtime)
-    launch = mms_options.get("launch_mode","local")
     inputs = receipt_products(initial[0])
     checksums = dict(initial[0]["output_files"])
 
     def run_stage(name, opts, payload, roles, deps):
         ranked = name=="mms_run" and launch in ("per_owner","scheduler")
-        settings = _settings(name, stage_threads=stage_threads, host_cpu_devices=1 if ranked else parts)
+        settings = _settings(name, stage_threads=stage_threads, host_cpu_devices=1 if ranked else parts,
+                             device=device)
         if ranked:
             from ._rank_launch import launch_rank_run
             action = lambda out:launch_rank_run(payload,out,inputs,settings,checksums=checksums)
@@ -274,7 +283,7 @@ def run_mms(case_dir, mms_options, *, stage_threads=2):
     """
     from ._rank_launch import scheduler_options
     from ..mms.restart import SEGMENT_KEYS, segment_controls
-    from ..options import validate_face_record_chunk
+    from ..options import validate_face_record_chunk, validate_mms_device
 
     if type(stage_threads) is not int or stage_threads < 1:
         raise ValueError("stage_threads must be a positive integer")
@@ -284,6 +293,8 @@ def run_mms(case_dir, mms_options, *, stage_threads=2):
     launch = mms_options.get("launch_mode","local")
     if launch not in ("local","per_owner","scheduler"):
         raise ValueError("launch_mode must be local, per_owner or scheduler")
+    device = mms_options.get("device", "cpu")
+    validate_mms_device(device, launch)
     limits = any(mms_options.get(key) is not None
                  for key in ("rank_rss_limit_bytes", "run_timeout_seconds"))
     with _case_lock(case):
@@ -294,4 +305,6 @@ def run_mms(case_dir, mms_options, *, stage_threads=2):
         scientific = {key: value for key, value in mms_options.items() if key not in SEGMENT_KEYS}
         if chunk is None:
             scientific.pop("face_record_chunk", None)
+        if device == "cpu":
+            scientific.pop("device", None)
         return _run_owner_mms(case, scientific, stage_threads=stage_threads, controls=controls)

@@ -155,6 +155,11 @@ def test_owner_count_reaches_case_driver(tmp_path, monkeypatch, owner_setting, t
         ("", "[mms]\nface_record_chunk = -1", "face_record_chunk"),
         ("", "[mms]\nface_record_chunk = true", "face_record_chunk"),
         ("", "[mms]\nface_record_chunk = 1.5", "face_record_chunk"),
+        ("", '[mms]\ndevice = "tpu"', "device must be"),
+        ("", "[mms]\ndevice = true", "device"),
+        ("", '[mms]\ndevice = "gpu"\nlaunch_mode = "per_owner"', "GPU runs require local"),
+        ("", '[mms]\ndevice = "gpu"\nlaunch_mode = "scheduler"', "GPU runs require local"),
+        ("owners = 2", '[mms]\ndevice = "gpu"', "GPU runs require exactly one owner"),
         ("", "[mms]\nrank_rss_limit_bytes = 1024", "require launch_mode"),
         ("", "[mms]\nrun_timeout_seconds = 120", "require launch_mode"),
         ("owners = 2", '[mms]\nlaunch_mode = "scheduler"', "rank_command must"),
@@ -172,6 +177,8 @@ def test_owner_deck_rejects_conflicting_settings(tmp_path, owner_setting, tables
 @pytest.mark.parametrize("settings, expected", [
     ("", {}),
     ("face_record_chunk = 65536", {"face_record_chunk": 65536}),
+    ('device = "cpu"', {}),
+    ('device = "gpu"', {"device": "gpu"}),
 ])
 def test_deck_forwards_only_configured_run_settings(tmp_path, monkeypatch, settings, expected):
     deck = write_deck(tmp_path, tables=f"[mms]\n{settings}")
@@ -182,7 +189,7 @@ def test_deck_forwards_only_configured_run_settings(tmp_path, monkeypatch, setti
     monkeypatch.setattr(nodal_deck, "_check_publication", lambda *_: None)
 
     def run_mms(directory, options, *, stage_threads):
-        assert {key: options[key] for key in ("face_record_chunk",) if key in options} == expected
+        assert {key: options[key] for key in ("face_record_chunk", "device") if key in options} == expected
         return {"steps": 1, "time": .001}
 
     monkeypatch.setattr(case, "run_mms", run_mms)

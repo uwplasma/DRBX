@@ -137,7 +137,11 @@ created from the residual and exterior state for each stage.
 Set `mms.face_record_chunk` to a positive integer to control the number of face
 records evaluated in each scan step of the advance. When omitted, the run uses
 the value stored in the built operators. The override is part of the run receipt
-and checkpoint identity.
+and checkpoint identity. Set `mms.device = "gpu"` to advance on the first
+visible GPU with local launch and one owner. CPU is the default, and build,
+wall data and preparation run on CPU. GPU results agree with CPU results to
+round-off, with last-bit differences expected. Supply a GPU-enabled JAX
+installation matching the installed JAX version. DRBX does not install it.
 
 With `mms.launch_mode = "local"` (default), a single process uses one JAX CPU
 device per owner. With `"per_owner"`, the advance uses one process and one CPU
