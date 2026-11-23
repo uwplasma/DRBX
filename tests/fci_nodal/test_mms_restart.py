@@ -64,31 +64,35 @@ def test_checkpoint_mismatch_and_corruption(tmp_path, snapshot, capsys):
         Checkpoint(tmp_path, dict(threads="3")).load()
 
 
-def test_segment_controls_stay_out_of_stage_identity(tmp_path, monkeypatch):
+@pytest.mark.parametrize("settings", [{}, {"face_record_chunk": 65536}])
+def test_segment_controls_stay_out_of_stage_identity(tmp_path, monkeypatch, settings):
     initial = (dict(identity=dict(options=dict(owner_count=1)), products={}, output_files={}),
                dict(stage="owner_inputs", sha256="inputs"))
     monkeypatch.setattr(driver, "verify_chain", lambda *_: {"owner_inputs": initial})
     controls = dict(segment_steps=6, segment_wall_seconds=120., checkpoint_interval_seconds=30.)
+    runtime = asdict(RuntimeOptions())
+    expected = dict(runtime=runtime, field_profile="wall_flat_temperature")
 
     def fake_stage(case, name, *, options, action, **kwargs):
         assert set(SEGMENT_KEYS).isdisjoint(options)
         if name == "mms_run":
+            assert options == dict(expected, **settings)
             return action(case)
+        assert options == (expected if name == "mms_prepare" else dict(runtime=runtime))
         return dict(products={}, output_files={}), dict(stage=name, sha256=name)
 
     def execute(name, payload, *args):
         assert name == "mms_run"
         invocation = payload["checkpoint"]
         assert invocation["controls"] == controls
-        assert invocation["options"] == dict(runtime=asdict(RuntimeOptions()),
-                                              field_profile="wall_flat_temperature")
+        assert invocation["options"] == dict(expected, **settings)
         assert [stamp["stage"] for stamp in invocation["input_receipts"]] == [
             "owner_inputs", "wall_data", "mms_prepare"]
         return Paused(.001, 6), None
 
     monkeypatch.setattr(driver, "stage", fake_stage)
     monkeypatch.setattr(driver, "_execute", execute)
-    options = dict(runtime=RuntimeOptions(), field_profile="wall_flat_temperature", **controls)
+    options = dict(runtime=RuntimeOptions(), field_profile="wall_flat_temperature", **controls, **settings)
     assert driver.run_mms(tmp_path, options) == dict(paused=True, steps=6, time=.001)
     with pytest.raises(ValueError, match="require local launch mode"):
         driver.run_mms(tmp_path, dict(options, launch_mode="per_owner"))

@@ -135,7 +135,10 @@ def run(options, out, inputs, *, rank=None):
         verify_replicas(resolution.q.mesh,(resolution.plan,resolution.q.arrays(),data),
                         metadata=(runtime,resolution.slabs,resolution.wall_grid,resolution.plan.opts))
     stage = owner_stage(resolution,data,wall_law=wall_law)
-    raw,force,project = owner_actions(resolution,switches=Switches(em="on",wall=wall_law,limiter="afc"))
+    raw,force,project = owner_actions(
+        resolution, switches=Switches(em="on",wall=wall_law,limiter="afc"),
+        face_record_chunk=options.get("face_record_chunk"),
+    )
     outputs = out/"owners"
     outputs.mkdir(exist_ok=rank is not None)
     stats = {"stages":[]}

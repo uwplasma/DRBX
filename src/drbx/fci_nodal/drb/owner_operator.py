@@ -23,7 +23,7 @@ def _sparse_local(matrix, arrays, value):
     return BCSR((data,index,ptr),shape=shape,indices_sorted=True,unique_indices=True) @ expanded
 
 
-def owner_actions(resolution, *, switches):
+def owner_actions(resolution, *, switches, face_record_chunk=None):
     """Compile raw/forced evaluation and stage projection on the shared owner mesh."""
     switches.require_implemented()
     if switches.flutter != 'off':
@@ -35,7 +35,8 @@ def owner_actions(resolution, *, switches):
     shape = (slabs.capacity, plan.ctx.nodal.structure.P)
     N = grid.wall_per_plane
     tau, mu = q.params
-    q_action = coupled_action(mesh,q.params,q.rhs_chunk)
+    chunk = q.rhs_chunk if face_record_chunk is None else face_record_chunk
+    q_action = coupled_action(mesh,q.params,chunk)
 
     def unpack(ctx):
         return jax.tree.map(lambda a,s:a[0] if s else a,ctx,spec)

@@ -134,6 +134,11 @@ constructs the conducting_wall and floating_wall wall data. `mms/cache.py` valid
 prepared manufactured_field_data rows on the owner layout. The conducting_wall and floating_wall closures are
 created from the residual and exterior state for each stage.
 
+Set `mms.face_record_chunk` to a positive integer to control the number of face
+records evaluated in each scan step of the advance. When omitted, the run uses
+the value stored in the built operators. The override is part of the run receipt
+and checkpoint identity.
+
 With `mms.launch_mode = "local"` (default), a single process uses one JAX CPU
 device per owner. With `"per_owner"`, the advance uses one process and one CPU
 device per owner, coordinated over loopback on one machine. With

@@ -5,7 +5,9 @@ from dataclasses import asdict
 import pytest
 
 from drbx.cli import main
+from drbx.deck import load_deck
 from drbx.fci_nodal import case
+from drbx.fci_nodal import deck as nodal_deck
 from drbx.fci_nodal.case._receipts import PREDECESSORS, code_files, stage
 from drbx.fci_nodal.case.case import _settings
 
@@ -149,6 +151,10 @@ def test_owner_count_reaches_case_driver(tmp_path, monkeypatch, owner_setting, t
         ("owners = 2", "[parallel]\nexport_owner_q = true", "export_owner_q"),
         ("owners = 2", "[mms]\npartitions = 3", "partitions"),
         ("owners = 2", "[mms]\nhost_cpu_devices = 3", "host_cpu_devices"),
+        ("", "[mms]\nface_record_chunk = 0", "face_record_chunk"),
+        ("", "[mms]\nface_record_chunk = -1", "face_record_chunk"),
+        ("", "[mms]\nface_record_chunk = true", "face_record_chunk"),
+        ("", "[mms]\nface_record_chunk = 1.5", "face_record_chunk"),
         ("", "[mms]\nrank_rss_limit_bytes = 1024", "require launch_mode"),
         ("", "[mms]\nrun_timeout_seconds = 120", "require launch_mode"),
         ("owners = 2", '[mms]\nlaunch_mode = "scheduler"', "rank_command must"),
@@ -161,6 +167,26 @@ def test_owner_deck_rejects_conflicting_settings(tmp_path, owner_setting, tables
     deck = write_deck(tmp_path, owner_setting, tables)
     with pytest.raises(SystemExit, match=error):
         main(["inspect", str(deck)])
+
+
+@pytest.mark.parametrize("settings, expected", [
+    ("", {}),
+    ("face_record_chunk = 65536", {"face_record_chunk": 65536}),
+])
+def test_deck_forwards_only_configured_run_settings(tmp_path, monkeypatch, settings, expected):
+    deck = write_deck(tmp_path, tables=f"[mms]\n{settings}")
+    _, config = load_deck(deck)
+    publication = tmp_path / "case/owner_inputs/receipt.json"
+    publication.parent.mkdir(parents=True)
+    publication.touch()
+    monkeypatch.setattr(nodal_deck, "_check_publication", lambda *_: None)
+
+    def run_mms(directory, options, *, stage_threads):
+        assert {key: options[key] for key in ("face_record_chunk",) if key in options} == expected
+        return {"steps": 1, "time": .001}
+
+    monkeypatch.setattr(case, "run_mms", run_mms)
+    nodal_deck.run(config, lambda _: None)
 
 
 @pytest.mark.parametrize("key, value", [

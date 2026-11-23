@@ -416,6 +416,7 @@ The example is `examples/inputs/fci_nodal_mms.toml`. See [FCI nodal manufactured
 | `mms.segment_wall_seconds` | `float | None` | `None` | Wall-time budget for one local single-owner invocation, with time reserved for another step. |
 | `mms.segment_steps` | `int | None` | `None` | Accepted-step budget for one local single-owner invocation. |
 | `mms.checkpoint_interval_seconds` | `float | None` | `None` | Checkpoint interval for local single-owner runs. The effective default is 600 seconds. |
+| `mms.face_record_chunk` | `int | None` | `None` | Positive number of face records per scan step in the manufactured advance. When omitted, use the value stored in the built operators. |
 
 With scheduler launch, run the driver outside a scheduler step on the host where
 task 0 will run. The command starts exactly one task per owner, forwards the

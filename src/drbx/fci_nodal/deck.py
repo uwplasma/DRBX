@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from .options import FIELD_PROFILE_NAMES, WALL_LAW_NAMES
+from .options import FIELD_PROFILE_NAMES, WALL_LAW_NAMES, validate_face_record_chunk
 from dataclasses import asdict, dataclass
 from math import isfinite
 from pathlib import Path
@@ -68,11 +68,13 @@ class MmsConfig:
     segment_wall_seconds: float | None = None
     segment_steps: int | None = None
     checkpoint_interval_seconds: float | None = None
+    face_record_chunk: int | None = None
 
     def __post_init__(self):
         from .mms.restart import segment_controls
 
         segment_controls(vars(self))
+        validate_face_record_chunk(self.face_record_chunk)
         if self.field_profile not in FIELD_PROFILE_NAMES or self.wall_law not in WALL_LAW_NAMES:
             raise ValueError("[mms] requires wall_flat_temperature or prescribed_wall_heat_flux and wall_law conducting_wall or floating_wall")
         if self.max_steps is not None and self.max_steps < 1:
@@ -222,6 +224,8 @@ def run(config, say):
     if mms.launch_mode == "scheduler":
         run_options.update({key: getattr(mms, key) for key in SCHEDULER_OPTIONS})
     run_options.update(segment_controls(vars(mms)))
+    if mms.face_record_chunk is not None:
+        run_options["face_record_chunk"] = mms.face_record_chunk
     result = run_mms(case_dir, run_options, stage_threads=options.stage_threads)
     if result.get("paused"):
         say(f"paused after {result['steps']} steps at t={result['time']:.6g}; run again to resume")

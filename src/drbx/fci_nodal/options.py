@@ -15,6 +15,11 @@ PRESCRIBED_WALL_HEAT_FLUX = 'prescribed_wall_heat_flux'
 FIELD_PROFILE_NAMES = (WALL_FLAT_TEMPERATURE, PRESCRIBED_WALL_HEAT_FLUX)
 
 
+def validate_face_record_chunk(value):
+    if value is not None and (type(value) is not int or value < 1):
+        raise ValueError("[mms] face_record_chunk must be a positive integer")
+
+
 @dataclass(frozen=True)
 class RuntimeOptions:
     tau: float = 1.

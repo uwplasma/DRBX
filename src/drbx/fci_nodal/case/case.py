@@ -274,9 +274,12 @@ def run_mms(case_dir, mms_options, *, stage_threads=2):
     """
     from ._rank_launch import scheduler_options
     from ..mms.restart import SEGMENT_KEYS, segment_controls
+    from ..options import validate_face_record_chunk
 
     if type(stage_threads) is not int or stage_threads < 1:
         raise ValueError("stage_threads must be a positive integer")
+    chunk = mms_options.get("face_record_chunk")
+    validate_face_record_chunk(chunk)
     case = Path(case_dir).resolve()
     launch = mms_options.get("launch_mode","local")
     if launch not in ("local","per_owner","scheduler"):
@@ -289,4 +292,6 @@ def run_mms(case_dir, mms_options, *, stage_threads=2):
         scheduler_options(mms_options, owners=True)
         controls = segment_controls(mms_options)
         scientific = {key: value for key, value in mms_options.items() if key not in SEGMENT_KEYS}
+        if chunk is None:
+            scientific.pop("face_record_chunk", None)
         return _run_owner_mms(case, scientific, stage_threads=stage_threads, controls=controls)
