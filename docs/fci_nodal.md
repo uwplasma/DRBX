@@ -143,6 +143,12 @@ wall data and preparation run on CPU. GPU results agree with CPU results to
 round-off, with last-bit differences expected. Supply a GPU-enabled JAX
 installation matching the installed JAX version. DRBX does not install it.
 
+On GPU, each right-hand-side evaluation starts with the analytic parallel
+characteristic roots, with the bracketed recovery branch omitted. If any
+face or wall record needs recovery, the worker repeats that evaluation with
+the full program and uses its result. Keep the face-record chunk at the
+stored value on GPU because the full program is slow with larger chunks.
+
 With `mms.launch_mode = "local"` (default), a single process uses one JAX CPU
 device per owner. With `"per_owner"`, the advance uses one process and one CPU
 device per owner, coordinated over loopback on one machine. With

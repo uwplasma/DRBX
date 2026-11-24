@@ -111,7 +111,7 @@ def _ordered(r, xp):
 
 
 def quartic_roots(n, t, i, d, tau, mu, psi, xp=np, robust=True):
-    """Resolve quartic roots from legacy seeds with bracketed recovery."""
+    """Return roots, validity, and a per-row mask of successful legacy seeds."""
     c, b, a = coefficients(n, t, i, d, tau, mu, psi, xp)
     leg, disc = _legacy_roots(d, c, b, a, xp)
     scale = xp.maximum(xp.abs(leg[0]), xp.abs(leg[3]))
@@ -122,8 +122,8 @@ def quartic_roots(n, t, i, d, tau, mu, psi, xp=np, robust=True):
     good = (disc > 0) & _ordered(leg, xp) & conv
     pd = _p(d, d, c, b, a)
     if not robust:
-        raise ValueError("Only the robust quartic solver is supported")
-    if xp is np:
+        roots, three = leg, good
+    elif xp is np:
         roots = [np.array(x, copy=True) for x in leg]
         bad = ~good
         if np.any(bad):
@@ -165,7 +165,7 @@ def _dq(e, d, q2, q1):
     return ((4.0 * e + 9.0 * d) * e + 2.0 * q2) * e + q1
 
 
-def eigensystem(u, tau, mu, psi, xp=np, robust=True):
+def eigensystem(u, tau, mu, psi, xp=np, robust=True, *, return_legacy_ok=False):
     """lam[k], right r[k], left l[k] (l.r = 1); k=0 contact (Vi), 1..4 = quartic roots.
 
     Roots are re-polished in the contact-shifted variable e = x - d = lam - Vi
@@ -211,7 +211,8 @@ def eigensystem(u, tau, mu, psi, xp=np, robust=True):
     norms = [150.0 * q0 / (71.0 * t * mu)]
     norms += [3.0 / mu * e * e * _dq(e, d, q2, q1) for e in es]
     out_l = [tuple(a_ / s for a_ in l) for l, s in zip(ls, norms)]
-    return lam, rs, out_l, valid
+    system = lam, rs, out_l, valid
+    return (*system, legacy_ok) if return_legacy_ok else system
 
 
 def _dot(a, b):

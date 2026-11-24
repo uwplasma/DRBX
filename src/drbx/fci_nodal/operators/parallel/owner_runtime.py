@@ -72,7 +72,7 @@ class OwnedRuntime:
 
 
 @lru_cache(None)
-def coupled_records(mesh,params,rhs_chunk):
+def coupled_records(mesh,params,rhs_chunk,*,robust=True):
     from .absolute_flux import absolute_action
     tau,mu=params
 
@@ -80,37 +80,56 @@ def coupled_records(mesh,params,rhs_chunk):
         size=len(f);pad=(-size)%rhs_chunk
         f=jnp.concatenate([f,jnp.broadcast_to(jnp.array([1.,1.,1.,0.,0.,0.]),(pad,6))])
         j=jnp.pad(j,((0,pad),(0,0)));ids=jnp.pad(ids,(0,pad),constant_values=-1)
-        def body(status,z):
+        def body(carry,z):
             ff,jj,ii=z
-            a=absolute_action(ff,jj,tau,mu)
-            _,valid,codes,_=cf.spectral(ff,jnp,tau,mu)
-            codes=codes|jnp.where(jnp.all(jnp.isfinite(a),axis=1),0,64)
+            if robust:
+                status=carry
+                a=absolute_action(ff,jj,tau,mu)
+                _,valid,codes,_=cf.spectral(ff,jnp,tau,mu)
+                codes=codes|jnp.where(jnp.all(jnp.isfinite(a),axis=1),0,64)
+            else:
+                status,recovery=carry
+                a,valid,codes,failed=cf.action(ff,jj,jnp,tau,mu,robust=False)
+                recovery=recovery|jnp.any(failed & (ii>=0))
             v=jnp.concatenate([a,(jnp.abs(ff[:,3])*jj[:,5])[:,None]],1)
-            return status_add(status,(valid&(codes==0))|(ii<0),codes,ff,ii),v
-        status,v=jax.lax.scan(body,initial_status(),(f.reshape(-1,rhs_chunk,6),
+            status=status_add(status,(valid&(codes==0))|(ii<0),codes,ff,ii)
+            return (status if robust else (status,recovery)),v
+        initial=initial_status() if robust else (initial_status(),jnp.asarray(False))
+        carry,v=jax.lax.scan(body,initial,(f.reshape(-1,rhs_chunk,6),
                              j.reshape(-1,rhs_chunk,6),ids.reshape(-1,rhs_chunk)))
-        return v.reshape(-1,6)[:size],rr.reduce_status(status)
+        values=v.reshape(-1,6)[:size]
+        if robust:
+            return values,rr.reduce_status(carry)
+        status,recovery=carry
+        return values,rr.reduce_status(status),jax.lax.pmax(recovery,'records')
     return jax.jit(jax.shard_map(apply,mesh=mesh,in_specs=(P('records'),)*3,
-                              out_specs=(P('records'),P()),check_vma=False))
+                              out_specs=(P('records'),P()) if robust else (P('records'),P(),P()),
+                              check_vma=False))
 
 
 @lru_cache(None)
-def coupled_action(mesh,params,rhs_chunk):
+def coupled_action(mesh,params,rhs_chunk,*,robust=True):
     """JIT entry for sharded physical fields, wall hits and native Q loads."""
     from .absolute_flux import absolute_action
     tau,mu=params
 
-    def apply(p,B,BT,LN,LD,L,R,meta,U,psi,g,load_N,load_D,chi,mass_ratio,dirichlet_mass_correction):
+    def apply(p,B,BT,LN,LD,L,R,meta,U,psi,g,load_N,load_D,chi,mass_ratio,dirichlet_mass_correction,
+              *,hit_active=None):
         t_A=g
         j_wall=g[:,0]*(g[:,3]-g[:,4])
         center=ops.corrected_center_wall_band(p,U,t_A,jw=j_wall)
         f,j=face_inputs(L,R,meta,U,rr.bw_action(p,B,U))
-        record,status=coupled_records(mesh,params,rhs_chunk)(f,j,meta['ids'])
+        records=coupled_records(mesh,params,rhs_chunk,robust=robust)(f,j,meta['ids'])
+        record,status=records[:2]
         acc=deposit(L,R,meta,record)
         jump=-rr.bw_transpose(p,BT,acc)/p['H'][:,None]
         t=g
         d=t-g
-        ab=absolute_action(g,d,tau,mu)
+        if robust:
+            ab=absolute_action(g,d,tau,mu)
+        else:
+            ab,_,_,wall_failed=cf.action(g,d,jnp,tau,mu,robust=False)
+            wall_failed=jnp.any(wall_failed if hit_active is None else wall_failed & hit_active)
         flux=.5*(-p['sg'][:,None]*jnp.einsum(
             'pij,pj->pi',cf.material(g,jnp,tau,mu),d[:,:5])+ab)
         flux=jnp.concatenate([flux,(.5*(-p['sg']*g[:,3]+jnp.abs(g[:,3]))*d[:,5])[:,None]],1)
@@ -120,6 +139,7 @@ def coupled_action(mesh,params,rhs_chunk):
         diffusion=chi[None,:]*jnp.where(pattern[None,:],LN@U+load_N,
                    (LD@U+load_D)*dirichlet_mass_correction[:,None])
         weight=jnp.where(jnp.asarray(FLUX_BOX_ADVECTIVE_MASS_FIELDS)[None,:],1.,mass_ratio[:,None])
-        return ((center+jump+sat+potential)*weight+diffusion*mass_ratio[:,None],status,
+        result=((center+jump+sat+potential)*weight+diffusion*mass_ratio[:,None],status,
                 diffusion*mass_ratio[:,None])
+        return result if robust else (*result,records[2]|wall_failed)
     return jax.jit(apply)

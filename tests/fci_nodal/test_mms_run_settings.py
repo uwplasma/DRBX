@@ -35,7 +35,8 @@ def test_face_record_chunk_reaches_scan(monkeypatch, override, width):
         widths.append(ids.shape[1])
         return status, faces
 
-    def coupled_action(mesh, params, chunk):
+    def coupled_action(mesh, params, chunk, *, robust):
+        assert robust
         face = jnp.ones((7, 6))
         records = owner_runtime.coupled_records(mesh, params, chunk)
         records(face, face, jnp.arange(7))

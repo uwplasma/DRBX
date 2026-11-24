@@ -23,7 +23,7 @@ def _sparse_local(matrix, arrays, value):
     return BCSR((data,index,ptr),shape=shape,indices_sorted=True,unique_indices=True) @ expanded
 
 
-def owner_actions(resolution, *, switches, face_record_chunk=None):
+def owner_actions(resolution, *, switches, face_record_chunk=None, optimistic_recovery=False):
     """Compile raw/forced evaluation and stage projection on the shared owner mesh."""
     switches.require_implemented()
     if switches.flutter != 'off':
@@ -36,7 +36,7 @@ def owner_actions(resolution, *, switches, face_record_chunk=None):
     N = grid.wall_per_plane
     tau, mu = q.params
     chunk = q.rhs_chunk if face_record_chunk is None else face_record_chunk
-    q_action = coupled_action(mesh,q.params,chunk)
+    q_action = coupled_action(mesh,q.params,chunk,robust=not optimistic_recovery)
 
     def unpack(ctx):
         return jax.tree.map(lambda a,s:a[0] if s else a,ctx,spec)
@@ -97,8 +97,12 @@ def owner_actions(resolution, *, switches, face_record_chunk=None):
                 wall.polarization_source,own,w.T.arrays,w.TT.arrays,w.K.arrays,plan.params.rho_star)
         qd = walls.parallel_wall_relations(physical,psi,plan,cl,hit_active=hit_active)
         p,bn,bd = walls.owner_wall_rows(physical,psi,plan,cl,pd,qd,br,curv,B,hit_active=hit_active)
-        parallel,status,_ = q_action(*q_arrays,physical,psi,qd['g'],bn,bd,plan.chi,
-                                     plan.mass_ratio,plan.dirichlet_mass_correction)
+        recovery_args = {"hit_active": hit_active} if optimistic_recovery else {}
+        q_result = q_action(*q_arrays,physical,psi,qd['g'],bn,bd,plan.chi,
+                            plan.mass_ratio,plan.dirichlet_mass_correction,**recovery_args)
+        parallel,status,_ = q_result[:3]
+        if optimistic_recovery:
+            aux['needs_root_recovery'] = q_result[3]
         current = physical[:,0]*(physical[:,3]-physical[:,4])
         local = jnp.zeros_like(U).at[:,4].set(mu*plan.nu*current)
         local = local.at[:,1].set(2*plan.nu*current**2/(3*physical[:,0]))

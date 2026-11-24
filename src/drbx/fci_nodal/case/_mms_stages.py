@@ -1,5 +1,6 @@
 """Case worker adapters for the existing owner MMS preparation and operator."""
 
+from functools import cache
 from time import perf_counter
 
 from ._owner_inputs import OwnerParallelInputs, field_manifest, validate_inputs
@@ -45,6 +46,16 @@ def _solver_scalars(aux):
     if any(not value["converged"] for value in result.values()):
         raise ArithmeticError("Coupled owner solve did not converge")
     return result
+
+
+def _with_root_recovery(action, recover):
+    """Discard the optimistic evaluation before inspecting its solver status if roots failed."""
+    def evaluate(*args):
+        result, aux = action(*args)
+        if bool(_local(aux["needs_root_recovery"])):
+            return recover(*args)
+        return result, aux
+    return evaluate
 
 
 def _write_rows(out, resolution, arrays, *, name):
@@ -148,10 +159,25 @@ def run(options, out, inputs, *, rank=None):
         verify_replicas(resolution.q.mesh,(resolution.plan,resolution.q.arrays(),data),
                         metadata=(runtime,resolution.slabs,resolution.wall_grid,resolution.plan.opts))
     stage = owner_stage(resolution,data,wall_law=wall_law)
+    switches = Switches(em="on",wall=wall_law,limiter="afc")
+    chunk = options.get("face_record_chunk")
+    optimistic = options.get("device") == "gpu"
     raw,force,project = owner_actions(
-        resolution, switches=Switches(em="on",wall=wall_law,limiter="afc"),
-        face_record_chunk=options.get("face_record_chunk"),
+        resolution, switches=switches, face_record_chunk=chunk, optimistic_recovery=optimistic,
     )
+    recoveries = 0
+    if optimistic:
+        @cache
+        def full_actions():
+            return owner_actions(resolution, switches=switches, face_record_chunk=chunk)
+
+        def recover(index, *args):
+            nonlocal recoveries
+            recoveries += 1
+            return full_actions()[index](*args)
+
+        raw = _with_root_recovery(raw, lambda *args: recover(0, *args))
+        force = _with_root_recovery(force, lambda *args: recover(1, *args))
     outputs = out/"owners"
     outputs.mkdir(exist_ok=rank is not None)
     stats = {"stages":[]}
@@ -239,7 +265,11 @@ def run(options, out, inputs, *, rank=None):
                                         stages=stats["stages"], targets=report["targets"], seconds=report["seconds"]))
                 next_checkpoint = perf_counter()+interval
             if pause:
+                if optimistic:
+                    print(f"MMS RHS evaluations using bracketed recovery: {recoveries}", flush=True)
                 return Paused(t, steps), 0
+    if optimistic:
+        print(f"MMS RHS evaluations using bracketed recovery: {recoveries}", flush=True)
     _write_rows(outputs,resolution,dict(U=u),name="state")
     info = dict(time=t,steps=steps,dt=dt,positivity_bound=bound,
                 field_profile=options["field_profile"],solves=stats,edges=p.edges)
