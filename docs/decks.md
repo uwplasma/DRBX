@@ -21,13 +21,13 @@ print(out["results"], out["paths"])
 `--set` and keyword overrides are validated by the same schema, so unknown keys are errors. (`--set` applies to `[model] backend` decks, not BOUT-style ones.)
 
 - Unknown tables and keys are errors that list the valid ones; `required` keys have no default. Relative paths resolve against the deck. Decks without `backend` are the BOUT-style format ([Inputs And Outputs](input_output_reference.md)).
-- Every backend except `fci_braginskii` accepts `[runtime] precision` (`float64`/`float32`) and `[output] directory` (default `./output/<case_name>`), `case_name` (default: deck name), and writes `<case_name>_summary.json` (`case_name`, `backend`, resolved `config`, `results`) and `<case_name>_arrays.npz`.
-- Example decks: `examples/inputs/<backend>.toml` (`hsx_fci_blob.toml` for `fci_braginskii`).
+- The reduced-model backends accept `[runtime] precision` (`float64`/`float32`) and `[output] directory` (default `./output/<case_name>`), `case_name` (default: deck name), and write `<case_name>_summary.json` (`case_name`, `backend`, resolved `config`, `results`) and `<case_name>_arrays.npz`.
+- Example decks are in `examples/inputs/`.
 - Not available from a deck: optimization and inverse-design scripts (`hasegawa_wakatani_optimization.py`, `autodiff_diffusion_*.py`, `detachment_control.py`; the Hasegawa-Wakatani gradient is `[autodiff]`), VMEC/VMEX/VMEC-extender imports, and figure/movie scripts.
 
 ## Example decks
 
-Every deck in `examples/inputs/` is commented key by key (what to change, units, typical ranges) and runs in under a minute except the HSX one (about 4 min, mostly the one-time geometry build). Run one with `drbx run examples/inputs/<deck>.toml`; the results go to the deck's `[output] directory`. The decks are run by the test suite.
+Most example decks run in under a minute. Reduced-model decks use `drbx run` and write to the deck's `[output] directory`. The test suite exercises those decks. The nodal example uses `drbx build` with separate device inputs before `drbx run`.
 
 | Deck | Case | Time | What you get |
 | --- | --- | --- | --- |
@@ -36,13 +36,12 @@ Every deck in `examples/inputs/` is commented key by key (what to change, units,
 | [`stellarator_turbulence.toml`](../examples/inputs/stellarator_turbulence.toml) | Four-field FCI, rotating-ellipse stellarator with limiter SOL | 20 s | frames, particle content, sheath ion loss |
 | [`electromagnetic_turbulence.toml`](../examples/inputs/electromagnetic_turbulence.toml) | Four-field FCI, tokamak-like torus with A_par, flutter and electron inertia | 20 s | frames, `apar_frames`, `energies`, particle content |
 | [`island_divertor.toml`](../examples/inputs/island_divertor.toml) | Four-field FCI, island divertor edge | 12 s | frames, particle content; open lines drain through the sheath |
-| [`hsx_fci_blob.toml`](../examples/inputs/hsx_fci_blob.toml) | HSX from the shipped coils, density filament | 4 min | geometry built and cached, then a seven-field history `.npz` |
-| [`hsx_fci_neutrals.toml`](../examples/inputs/hsx_fci_neutrals.toml) | The HSX deck with fluid neutrals and wall recycling | 4 min | seven-field history with `neutral_density`, `neutral_velocity`, `neutral_temperature`, Knudsen map, `[wall-step]` and `[neutrals]` ledgers |
 | [`sol_flux_tube.toml`](../examples/inputs/sol_flux_tube.toml) | Open SOL flux tube with Bohm sheath | 2 s | Mach profile (about 0.9 at the targets after 6000 steps), n_target/n_up about 0.49, sheath and recycling totals |
 | [`sol_recycling.toml`](../examples/inputs/sol_recycling.toml) | Recycling SOL with neutrals, detachment-onset scan | 2 s | target Mach 1.45 at n_up = 4, falling to 0.61 at n_up = 8 |
 | [`detachment_sd1d.toml`](../examples/inputs/detachment_sd1d.toml) | SD1D detachment, density scan | 30 s | target temperature 15.5 eV at 2e19 m^-3, 7.2 eV at 3e19 m^-3 |
 | [`fci_differentiable.toml`](../examples/inputs/fci_differentiable.toml) | Autodiff versus finite difference through an FCI rollout | 12 s | gradient and finite difference agree to about 1e-10 |
 | [`restartable_diffusion.toml`](../examples/inputs/restartable_diffusion.toml) | Restart (BOUT-style deck) | 5 s | summary, arrays and a restart file; `--restart-in` continues it |
+| [`fci_nodal_mms.toml`](../examples/inputs/fci_nodal_mms.toml) | N16 HSX manufactured solution | Separate case build | Receipts, final nodal state and optional static RHS |
 
 The Hasegawa-Wakatani deck in full:
 
@@ -377,126 +376,61 @@ Two-field shifted-torus rollout: reverse-mode gradient in the initial amplitude 
 
 `results` keys: `grad` (autodiff), `fd` (finite difference), `rel_error`, `fd_step`, `amp0`, `n_steps`, `dt`, `objective_value`, `finite`, `density_max`, `v_parallel_max`.
 
-## HSX FCI drift-reduced Braginskii
+## Nodal FCI manufactured cases
 
-`[model] backend = "fci_braginskii"`
+`[model] backend = "fci_nodal"`
 
-Seven-field Boussinesq model (electrostatic; `[physics] electromagnetic = true` adds A_par) on the HSX toroidal FCI geometry, IMEX-SSP222 with an FGMRES potential solve (`HsxBlobConfig`; [HSX backend](fci_braginskii_hsx_backend.md)). With a `[geometry]` table the geometry is built from the shipped HSX coils and vessel (`build_hsx_simulation_geometry`) and cached.
+Build a receipt-bound case and run a manufactured solution from the publication.
+The example is `examples/inputs/fci_nodal_mms.toml`. See [FCI nodal manufactured solutions](fci_nodal.md).
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `fci_braginskii.geometry` | `Path | None` | `None` | Directory of a prebuilt geometry artifact. Omit it and give a `[geometry]` table to build one from the shipped coils. |
-| `fci_braginskii.shard_counts` | `tuple[int, int, int]` | `[1, 1, 1]` | JAX decomposition `[su, sv, seta]`; only eta decomposition is supported, so the first two are 1. |
-| `fci_braginskii.halo_width` | `int` | `2` | Halo width exchanged between shards. (cells) |
-| `fci_braginskii.filament_cache_dir` | `Path` | `<repo>/.hsx_filament_cache` | Directory of reusable initial-filament field-line label caches. |
-| `fci_braginskii.no_filament_cache` | `bool` | `False` | Disable loading and writing filament caches. |
-| `fci_braginskii.rebuild_filament_cache` | `bool` | `False` | Ignore a matching cache and replace it after tracing. |
-| `fci_braginskii.final_time` | `float` | `0.15` | Final simulation time. (normalized time) |
-| `fci_braginskii.num_steps` | `int` | `200` | Equal IMEX-SSP222 steps to reach `final_time`. (steps) |
-| `fci_braginskii.save_every` | `int` | `1` | History is stored every this many steps. (steps) |
-| `fci_braginskii.checkpoint_every` | `int` | `0` | Atomic restartable checkpoint every N steps; 0 disables. (steps) |
-| `fci_braginskii.snapshot_times` | `tuple[float, ...]` | `[]` | Times at which snapshot files are written (first step at or after each). (normalized time) |
-| `fci_braginskii.snapshot_dir` | `Path | None` | `None` | Directory for snapshot files; default the output directory. |
-| `fci_braginskii.restart_from` | `Path | None` | `None` | Snapshot or history NPZ to restart from. |
-| `fci_braginskii.restart_frame` | `int` | `-1` | Frame loaded from a history NPZ; ignored for a snapshot. |
-| `fci_braginskii.diagnostic_every` | `int` | `0` | Print min/max diagnostics for every field every N steps; 0 disables. (steps) |
-| `fci_braginskii.blob_initialization` | `str` | `'field-aligned'` | `field-aligned` (backtraced finite filament) or `logical` (eta-copied Gaussian). |
-| `fci_braginskii.density_amplitude` | `float` | `0.05` | Relative density amplitude of the blob. (n0) |
-| `fci_braginskii.temperature_amplitude` | `float` | `0.0` | Electron-temperature perturbation (legacy logical initialization only). (T0) |
-| `fci_braginskii.blob_center` | `tuple[float, float]` | `[0.65, 0.5]` | Blob center `[u, v]`. (logical u, v) |
-| `fci_braginskii.blob_width` | `float` | `0.1` | Gaussian width of the blob. (logical u, v) |
-| `fci_braginskii.blob_reference_eta` | `float` | `3.141592653589793` | Toroidal reference plane of the filament. (rad) |
-| `fci_braginskii.blob_parallel_half_length` | `float` | `3.141592653589793` | Half-length of the cos^2 filament envelope in eta; at most pi. (rad) |
-| `fci_braginskii.fieldline_substeps_per_plane` | `int` | `4` | RK4 tracing substeps per plane spacing for the initial labels. |
-| `fci_braginskii.toroidal_perturbation_amplitude` | `float` | `0.0` | Relative cosine modulation (legacy logical blob only). |
-| `fci_braginskii.toroidal_perturbation_mode` | `int` | `1` | Full-torus integer mode number of the perturbation. |
-| `fci_braginskii.toroidal_perturbation_phase` | `float` | `0.0` | Initial toroidal perturbation phase. (rad) |
-| `fci_braginskii.tau` | `float` | `1.0` | Ion-to-electron temperature ratio. |
-| `fci_braginskii.rho_star` | `float` | `0.0005` | rho_s / L_ref (L_ref = 1 m): scales E x B and curvature drifts by rho_*, polarization by rho_*^2. |
-| `fci_braginskii.mi_over_me` | `float` | `1836.0` | Ion-to-electron mass ratio. |
-| `fci_braginskii.perp_diffusion` | `float` | `1e-05` | Perpendicular diffusion coefficient. (normalized) |
-| `fci_braginskii.parallel_diffusion` | `float` | `0.0` | Parallel diffusion coefficient. (normalized) |
-| `fci_braginskii.parallel_dissipation` | `float` | `0.1` | Conservative face-flux dissipation of the parallel transport, `eps` times the local signal speed times the leg length (Rusanov factor; 0 = central). |
-| `fci_braginskii.parallel_conduction` | `str` | `'auto'` | Implicit Spitzer-Harm parallel heat conduction of Te and Ti: `auto` (on with the Bohm wall), `spitzer` or `off`. |
-| `fci_braginskii.reference_density_m3` | `float` | `1e+19` | Reference density n0 of the density normalisation: Spitzer conductivity and neutral reaction rates. (m^-3) |
-| `fci_braginskii.coulomb_logarithm` | `float` | `15.0` | Coulomb logarithm of the Spitzer conductivity. |
-| `fci_braginskii.heat_flux_limiter` | `float` | `0.0` | Free-streaming flux limiter alpha, q_fs = alpha n T v_th; 0 disables. |
-| `fci_braginskii.electron_collision_frequency` | `float` | `0.0` | Electron-ion friction `dVe = mu nu n (Vi - Ve)` (with the matching Ohmic heating `nu n (Vi - Ve)^2` in Te). `0`: Spitzer `nu = 1.612/(kappa0 Te^1.5)` from the conduction's `kappa0`; `> 0`: constant override; `< 0`: off. (normalized) |
-| `fci_braginskii.implicit_current_phi_pair` | `bool` | `True` | Treat `mu grad_par(phi)` and the parallel current divergence implicitly through a coupled potential solve (default). |
-| `fci_braginskii.wall_closure` | `str` | `'bohm'` | Parallel wall closure: `bohm` (sheath outflow at the Bohm speed, default) or `zero-flow` (no particle or heat outflow). |
-| `fci_braginskii.electron_heat_transmission` | `float` | `0.0` | Electron sheath heat transmission coefficient; 0 derives it from the sheath potential and `secondary_electron_emission`. |
-| `fci_braginskii.ion_heat_transmission` | `float` | `2.5` | Ion sheath heat transmission coefficient. |
-| `fci_braginskii.secondary_electron_emission` | `float` | `0.0` | Secondary electron emission coefficient of the wall. |
-| `fci_braginskii.neutrals` | `bool` | `False` | Evolve fluid neutrals (density, parallel velocity, temperature) with ionization, charge exchange and recombination sources. |
-| `fci_braginskii.neutral_temperature_ev` | `float` | `3.0` | Initial neutral temperature. (eV) |
-| `fci_braginskii.neutral_initial_density` | `float` | `0.01` | Neutral density at the wall at t = 0. (normalized) |
-| `fci_braginskii.neutral_initial_decay_length` | `float` | `0.1` | Decay length of the initial neutral profile from the wall; 0 gives a uniform profile. (normalized length) |
-| `fci_braginskii.neutral_reaction_substeps` | `int` | `1` | Substeps of the stiff neutral reaction update per time step. (substeps) |
-| `fci_braginskii.neutral_wall_absorption` | `float` | `0.0` | Probability that a wall-incident atom is absorbed, in [0, 1]. |
-| `fci_braginskii.neutral_wall_energy_reflection` | `float` | `1.0` | Energy fraction kept by an atom reflected at the wall, in [0, 1]. |
-| `fci_braginskii.sheath_potential` | `str` | `'ambipolar'` | Sheath potential model used by the Bohm closure (`ambipolar` by default). |
-| `fci_braginskii.recycling` | `bool` | `False` | Return ion wall flux as neutrals; requires `neutrals = true` and `wall_closure = "bohm"`. |
-| `fci_braginskii.recycling_coefficient` | `float` | `0.99` | Fraction of the ion wall flux recycled as neutrals, in [0, 1]. |
-| `fci_braginskii.recycling_energy` | `str` | `'franck-condon'` | Energy of recycled neutrals: `franck-condon` or `wall`. |
-| `fci_braginskii.recycling_franck_condon_energy_ev` | `float` | `3.0` | Franck-Condon neutral energy. (eV) |
-| `fci_braginskii.recycling_wall_temperature_ev` | `float` | `0.025` | Wall temperature for `recycling_energy = "wall"`. (eV) |
-| `fci_braginskii.advance_execution` | `str` | `'staged-compiled'` | `compiled` (one fused executable), `staged-compiled` (reusable kernels) or `eager`. |
-| `fci_braginskii.gmres_acceptance_tolerance` | `float` | `5e-05` | Residual accepted after GMRES stops. |
-| `fci_braginskii.gmres_target_tolerance` | `float` | `0.0` | Residual target that stops GMRES; `0` ties it to the time step: `10 dt^2`, at most a fifth of the acceptance tolerance, at least `1e-8`. |
-| `fci_braginskii.gmres_max_iterations` | `int` | `500` | Maximum GMRES iterations. |
-| `fci_braginskii.gmres_restart` | `int` | `100` | GMRES restart length (capped at `gmres_max_iterations`). |
-| `fci_braginskii.gmres_residual_correction_steps` | `int` | `1` | True-residual correction solves tried when GMRES would be rejected. |
-| `fci_braginskii.gmres_preconditioner` | `str` | `'auto'` | Right preconditioner of the potential solves: `auto` (default: `line-uy-pardiag` on a single-shard angular-RLP geometry, otherwise `line-u`), `line-u` (per-eta radial-tree line solve), `line-u-pardiag`, `line-uy-pardiag` (parallel-current-aware, with theta ring lines) or `none`. |
-| `fci_braginskii.no_phase_timing` | `bool` | `False` | Disable in-executable timing markers. |
-| `fci_braginskii.geometry_only` | `bool` | `False` | Stop after loading and lowering the geometry. |
-| `fci_braginskii.output` | `Path` | `<repo>/hsx_blob_history.npz` | History NPZ written at the end of the run. |
-| `geometry.resolution` | `tuple[int, int, int]` | `required` | Toroidal cell counts `[nu, ntheta, neta]` (ntheta even). Required. (cells) |
-| `geometry.makegrid_path` | `Path | None` | `None` | MAKEGRID vacuum-field file; when set it replaces the coils. |
-| `geometry.vessel_path` | `Path | None` | `<repo>/vessel_hsx_flare.txt` | Vessel/wall boundary file. Default: the vessel shipped in `examples/inputs/hsx`. |
-| `geometry.fit_sample_shape` | `tuple[int, int, int]` | `[8, 9, 8]` | Field-fit sample grid `[nr, nphi, nz]`. (points) |
-| `geometry.radial_degree` | `int` | `3` | Radial polynomial degree of the flux-surface fit. |
-| `geometry.vertical_degree` | `int` | `3` | Vertical polynomial degree of the fit. |
-| `geometry.toroidal_modes` | `int` | `2` | Toroidal Fourier modes of the fit. |
-| `geometry.metric_spline_degree` | `int` | `1` | Spline degree of the metric. |
-| `geometry.mmpde_iterations` | `int` | `0` | Moving-mesh smoothing iterations. |
-| `geometry.axis_core_radius` | `float` | `0.03` | Radius of the axis core region. (normalized) |
-| `geometry.reference_magnetic_field` | `float | None` | `None` | Reference field; default taken from the field. (T) |
-| `geometry.makegrid_currents` | `Sequence[float] | None` | `None` | One current per coil group; default QHS (six main groups at 10722 A, six auxiliary off). (A) |
-| `geometry.metric_mesh_shape` | `tuple[int, int, int] | None` | `None` | Metric mesh `[nu, ntheta, neta_period]`; default `resolution`. (cells) |
-| `geometry.metric_radial_degree` | `int` | `17` | Radial degree of the metric fit. |
-| `geometry.metric_poloidal_modes` | `int` | `15` | Poloidal modes of the metric fit. |
-| `geometry.metric_toroidal_modes` | `int` | `16` | Toroidal modes of the metric fit. |
-| `geometry.eta_projection_iterations` | `int` | `0` | Eta-projection iterations. |
-| `geometry.metric_cache_dir` | `Path | None` | `None` | Metric cache directory. |
-| `geometry.map_cache_path` | `Path | None` | `None` | Independent FCI map cache/checkpoint. |
-| `geometry.rebuild_metric_cache` | `bool` | `False` | Ignore a cached metric and rebuild. |
-| `geometry.include_curvature_edge_one_form` | `bool` | `False` | Store the curvature edge one-form. |
-| `geometry.trace_backend` | `str` | `'jax'` | `jax` (compiled, batch-sharded) or `numpy` (reference). |
-| `geometry.trace_batch_size` | `int` | `2048` | Compiled trace batch size. (trajectories) |
-| `geometry.trace_device_count` | `int | None` | `None` | Devices sharding the trace; default all. (devices) |
-| `geometry.coils_path` | `Path | None` | `<repo>/coils.hsx` | MAKEGRID coils file (B from the coil filaments). Default: the HSX coils shipped in `examples/inputs/hsx`. |
-| `geometry.coil_table_shape` | `tuple[int, int, int] | None` | `[96, 144, 96]` | In-memory coil field table `[nr, nphi, nz]` per field period. (points) |
-| `geometry.cache_dir` | `Path` | `<repo>/hsx_geometry` | The built artifact is stored (and reused when the table is unchanged) under `cache_dir/hsx_<res>_<hash>`. |
-| `physics.electromagnetic` | `bool` | `False` | Add A_par, magnetic flutter of every parallel gradient and electron inertia ([electromagnetic model](electromagnetic.md)); the evolved `Ve` is then the canonical momentum `Ve - (mi/me) A_par`, and histories hold the physical `Ve`. Off: the electrostatic model, bitwise unchanged. |
-| `physics.beta` | `float` | `0.001` | Ampere coefficient `mu0 n0 Te0 / (rho_star^2 B0^2)` of the metre-normalized variables; Alfven speed `B / (rho_star sqrt(beta n))`, so the physical beta is `rho_star^2 beta`. Positive when `electromagnetic`. |
+| `fci_nodal.case_dir` | `Path` | `required` | Build products, receipts and MMS artifacts. |
+| `fci_nodal.resolution` | `int` | `required` | Nodal resolution and total number of eta planes. |
+| `fci_nodal.symmetry` | `str` | `required` | `nfp` replicates the source period. `none` builds the full turn. |
+| `fci_nodal.field_periods` | `int` | `required` | Number of physical field periods, shared by the filter and map. |
+| `fci_nodal.initial_state` | `Path | None` | `None` | A supplied path is refused with a missing physical-state loader and layout validation error. |
+| `fci_nodal.owners` | `int` | `1` | Number of owner slabs for the build and MMS. Each slab requires at least four eta planes. |
+| `fci_nodal.threads` | `int` | `2` | Positive library thread limit per process for build and MMS stages other than polygon and geometry, which use one thread. |
+| `geometry.makegrid_path` | `Path` | `required` | MAKEGRID magnetic field archive. |
+| `geometry.vessel_path` | `Path` | `required` | Material vessel data. |
+| `geometry.makegrid_currents` | `tuple[float, ...]` | `required` | Currents in the archive's coil-group order. |
+| `geometry.rings` | `int` | `required` | Number of rings in the polygon band. |
+| `geometry.resolution` | `tuple[int, int, int]` | `required` | Dense metric output grid. |
+| `geometry.workers` | `int` | `1` | Local geometry build workers. |
+| `field_filter.max_harmonic_per_period` | `int` | `required` | Retained field-table harmonic cutoff. |
+| `field_filter.samples_per_period` | `int` | `required` | Samples of each column per field period. |
+| `field_filter.table_grid` | `tuple[int, int, float]` | `required` | Radial samples, poloidal samples and maximum logical radius. |
+| `field_filter.filter_map` | `bool` | `False` | Also low-pass the solved map in eta for filtered verification geometry. |
+| `parallel.workers` | `int` | `1` | Local workers for indexed parallel construction. |
+| `mms.field_profile` | `str` | `'wall_flat_temperature'` | Manufactured field profile `wall_flat_temperature` or `prescribed_wall_heat_flux`. |
+| `mms.wall_law` | `str` | `'floating_wall'` | Wall law `conducting_wall` or `floating_wall`. |
+| `mms.max_steps` | `int | None` | `None` | Positive step cap. With the cap omitted, advance to the native final milestone. |
+| `mms.stop_after_first` | `bool` | `False` | Use the first native milestone at its supported resolution. |
+| `mms.capture_static_rhs` | `bool` | `False` | Record static raw and manufactured RHS arrays. |
+| `mms.launch_mode` | `str` | `'local'` | Owner MMS launch. `local` uses one process, `per_owner` uses one process per owner on one host, and `scheduler` delegates task placement. |
+| `mms.rank_rss_limit_bytes` | `int | None` | `None` | Optional positive RSS limit per process. Requires a ranked mode. |
+| `mms.run_timeout_seconds` | `float | None` | `None` | Optional positive, finite wall-clock timeout. Requires a ranked mode. |
+| `mms.rank_command` | `tuple[str, ...] | None` | `None` | Required in scheduler mode. Supply a TOML list of nonempty strings. The backend appends the rank entry and invokes the command once. |
+| `mms.rank_index_env` | `str | None` | `None` | Scheduler-only environment variable naming the zero-based owner index. When omitted, the launcher uses `SLURM_PROCID`. |
+| `mms.collectives_interface` | `str | None` | `None` | Scheduler-only CPU collectives interface. Omit it to use the collectives library's default. |
+| `mms.segment_wall_seconds` | `float | None` | `None` | Wall-time budget for one local single-owner invocation, with time reserved for another step. |
+| `mms.segment_steps` | `int | None` | `None` | Accepted-step budget for one local single-owner invocation. |
+| `mms.checkpoint_interval_seconds` | `float | None` | `None` | Checkpoint interval for local single-owner runs. The effective default is 600 seconds. |
+| `mms.face_record_chunk` | `int | None` | `None` | Positive number of face records per scan step in the manufactured advance. When omitted, use the value stored in the built operators. |
+| `mms.device` | `str` | `'cpu'` | Advance on CPU or select `gpu` for the first visible GPU, with local launch and one owner. Supply a GPU-enabled JAX installation. |
 
-**Outputs**
+With scheduler launch, run the driver outside a scheduler step on the host where
+task 0 will run. The command starts exactly one task per owner, forwards the
+appended argv to every task, and waits for all tasks. The case path and Python
+environment must be available on every host. See the
+[nodal backend guide](fci_nodal.md) for launch evidence.
 
-Written to `[fci_braginskii] output` (the `.npz` suffix is added; shapes below are from the 16^3 example deck, `n_saved` = steps/`save_every` + 1 = 5), plus snapshot/checkpoint files. `rc` = `[nu, nv, neta]`.
+**Outputs** in the case driver artifacts.
 
-| Name | Shape | Meaning |
-| --- | --- | --- |
-| `times` | `(n_saved,)` | Stored normalized times, starting with the initial state. |
-| `density`, `phi`, `Te`, `Ti`, `Vi`, `Ve`, `vorticity` | `(n_saved, 16, 16, 16)` float32 | Field histories. |
-| `u`, `v`, `theta`, `eta` | `(nu,)`, `(nv,)`, `(nv,)`, `(neta,)` | Cell-center logical coordinates (`theta` equals `v`). |
-| `jacobian`, `Bmag`, `owner_aggregate_volume`, `owner_active` | `(16, 16, 16)` | Cell Jacobian, field strength, owner volumes and mask. |
-| `B_contravariant`, `cartesian` | `(16, 16, 16, 3)` | Contravariant field and cell positions. |
-| `shard_counts`, `periodic_axes`, `axis_regular_axes`, `metric_mesh_shape` | `(3,)` | Decomposition, axis flags, metric mesh. |
-| `logical_extents` | `(3, 2)` | Logical-coordinate extents. |
-| `nfp`, `simulated_field_periods`, `toroidal_extent`, `metric_radial_degree`, `metric_poloidal_modes`, `metric_toroidal_modes`, `eta_projection_iterations`, `fci_trace_substeps` | `()` | Geometry bookkeeping. |
-| `topology`, `coordinate_names_json`, `parallel_operator_scheme`, `history_dtype` | `()` string | Geometry and storage labels. |
-| `run_metadata_json` | `()` string | JSON of the resolved run, including all solver settings. |
-| `apar`, `em_energy`, `em_energy_columns` | `(n_saved, 16, 16, 16)`, `(n_rows, 6)`, `(6,)` | With `[physics] electromagnetic`: A_par per saved frame, and the rows `(time, magnetic, exb, electron_kinetic, ion_kinetic, thermal)` of volume integrals (`<A j>/2`, `-<phi omega>/2`, `<n Ve^2>/2mu`, `<n Vi^2>/2`, `3<n (Te + tau Ti)>/2`) at every saved frame. |
+| Array | Meaning |
+| --- | --- |
+| `U` | Final nodal state in `nodal_state.npy`. |
+| `rhs`, `rhs_manufactured` | Optional static RHS arrays in `static_rhs.npz`. |
 
-Snapshot and checkpoint files (`<stem>.snapshot_t<time>.npz`, `<stem>.checkpoint_step<step>.npz`, `<stem>.failure_step<step>.npz`) hold one frame: the seven fields without the time axis, `time`, `requested_snapshot_time`, `step`, the `metric_*` arrays, `jacobian`, `Bmag`, `B_contravariant`, parallel-coefficient diagnostics, `wall_ghost_states`, `polarization_residual`, `grid_scale_diagnostics` and `run_metadata_json`. Any of them, or a history file, is valid for `restart_from`.
-
+`results` keys: `time`, `steps`, `dt`, `positivity_bound`, `field_profile` in `result.json`.

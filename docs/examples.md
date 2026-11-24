@@ -43,9 +43,9 @@ inputs, outputs, source modules, tests, and documentation page, see
 | [`examples/sol/open_sol_flux_tube.py`](../examples/sol/open_sol_flux_tube.py) | Open slab flux tube with Bohm sheath targets; relaxation to the two-point steady state; sheath/recycling accounting. [Tutorial](tutorial_open_sol.md). |
 | [`examples/sol/recycling_sol.py`](../examples/sol/recycling_sol.py) | Coupled plasma + recycled neutral with AMJUEL rates; neutral cushion; detachment-onset density scan. |
 | [`examples/neutrals/fluid_neutral_slab.py`](../examples/neutrals/fluid_neutral_slab.py) | Fluid neutrals (n_n, u_n, T_n) entering a uniform plasma slab: the fitted penetration length against `lambda_mfp / sqrt(nu_iz / nu)` and the particle balance; plot. About 10 s. [Neutrals](neutrals_recycling.md). |
-| [`examples/neutrals/fig1_hsx_neutrals.py`](../examples/neutrals/fig1_hsx_neutrals.py) | README figure: neutral density, temperature and Knudsen number on the HSX phi = 0 section of a saved 32^3 run. |
-| [`examples/neutrals/fig2_slab.py`](../examples/neutrals/fig2_slab.py) | README figure: slab penetration against exp(-x/lambda) and the fitted/analytic length ratio over a Kn sweep. About 1 min. |
-| [`examples/neutrals/fig3_conservation.py`](../examples/neutrals/fig3_conservation.py) | README figure: wall-face conservation ledger of the 16^3 HSX run, from the saved run logs. |
+| [`examples/neutrals/fig2_slab.py`](../examples/neutrals/fig2_slab.py) | Standalone example: slab penetration against exp(-x/lambda) and the fitted/analytic length ratio over a Kn sweep. About 1 min. |
+| [`examples/neutrals/fig1_hsx_neutrals.py`](../examples/neutrals/fig1_hsx_neutrals.py) | Archived figure from saved data: neutral density, temperature and Knudsen number on the HSX phi = 0 section of a saved 32^3 run. |
+| [`examples/neutrals/fig3_conservation.py`](../examples/neutrals/fig3_conservation.py) | Archived figure from saved data: wall-face conservation ledger of the 16^3 HSX run, from the saved run logs. |
 | [`examples/neutrals/fig4_rates.py`](../examples/neutrals/fig4_rates.py) | README figure: AMJUEL 2020 ionisation, charge-exchange and recombination rates against the SD1D fits. |
 
 ![Open SOL flux tube](media/open_sol_flux_tube.png)
@@ -60,6 +60,7 @@ inputs, outputs, source modules, tests, and documentation page, see
 | [`examples/stellarator/rotating_ellipse_filament.py`](../examples/stellarator/rotating_ellipse_filament.py) | Blob/filament dynamics on the rotating ellipse. |
 | [`examples/stellarator/stellarator_3d_render.py`](../examples/stellarator/stellarator_3d_render.py) | 3D rendering of turbulence on traced flux surfaces. |
 | [`examples/stellarator/fci_differentiable.py`](../examples/stellarator/fci_differentiable.py) | Gradients through the FCI geometry and reduced dynamics ([details](stellarator_fci_differentiable.md)). |
+| [`examples/stellarator/hsx_fci_blob_render.py`](../examples/stellarator/hsx_fci_blob_render.py) | Geometry plots and filament movie from archived HSX history. |
 
 ![Stellarator turbulence summary](media/stellarator_turbulence_summary.png)
 

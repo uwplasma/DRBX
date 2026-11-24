@@ -79,49 +79,12 @@ vorticity and potential on one toroidal plane. Edit the `PARAMETERS` block
 The potential is obtained from the vorticity by the polarization solve. Closed versus limiter-open field lines, with a sheath sink, are covered in
 [Stellarator FCI Turbulence](tutorial_stellarator_fci.md).
 
-## 5. Stellarator FCI: HSX from coils
+## 5. Stellarator FCI in HSX geometry
 
-`drbx.fci_braginskii` is the production seven-field backend. It runs on a
-precomputed HSX geometry bundle built from the coil file shipped in the
-repository, `examples/inputs/hsx/coils.hsx`, and the HSX vessel outline
-`examples/inputs/hsx/vessel_hsx_flare.txt`; both are used by default, so it
-builds from a fresh clone.
-
-A small bundle (16 cells per direction, about 3 min):
-
-```bash
-drbx run examples/inputs/hsx_fci_blob.toml
-```
-
-The deck's `[geometry]` table builds (and caches under `output/hsx_geometry`) the 16-cell geometry from the shipped coils and vessel, then `[fci_braginskii]` seeds a density filament and advances four IMEX steps; edit `resolution`, `num_steps` or `final_time` there. The history is written to `output/hsx_fci_blob/hsx.npz`.
-
-Each progress line gives the step time, the GMRES iterations of the implicit
-potential solve and the density range. `history.npz` holds `density`, `phi`,
-`Te`, `Ti`, `Ve`, `Vi`, `vorticity` per saved time and the grid positions
-(`cartesian`, `times`).
-
-```python
-import matplotlib.pyplot as plt
-import numpy as np
-
-h = np.load("output/hsx_fci_blob/hsx.npz")
-n, phi, xyz = h["density"], h["phi"], h["cartesian"]   # n[time, u, v, eta]; xyz[u, v, eta, 3]
-k = int(np.argmax((n[0] - 1).max(axis=(0, 1))))        # toroidal plane through the filament
-R, Z = np.hypot(xyz[:, :, k, 0], xyz[:, :, k, 1]), xyz[:, :, k, 2]
-fig, axes = plt.subplots(1, 2, figsize=(7, 3), layout="constrained")
-for ax, f, title in zip(axes, (n[-1, :, :, k], phi[-1, :, :, k]), ("density", "potential")):
-    m = ax.scatter(R, Z, c=f, s=25); fig.colorbar(m, ax=ax)
-    ax.set(title=title, xlabel="R (m)", ylabel="Z (m)", aspect="equal")
-fig.savefig("hsx.png", dpi=90)
-```
-
-![HSX filament](media/tutorial_hsx.png)
-
-Points are cell centres on the plane through the filament. The potential peaks
-on the filament and the density starts to move. The documented 32-cell bundle,
-longer runs, normalization and restarts are on the
-[backend page](fci_braginskii_hsx_backend.md); the `drbx run` form is
-`examples/inputs/hsx_fci_blob.toml`.
+The [FCI nodal guide](fci_nodal.md) shows how to build the HSX case from a TOML
+deck and run a manufactured solution. For a reduced
+stellarator model with a runnable example, see the
+[rotating-ellipse FCI tutorial](tutorial_stellarator_fci.md).
 
 ## 6. Differentiability
 

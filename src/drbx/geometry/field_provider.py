@@ -16,8 +16,8 @@ Implementations
     straight-segment Biot--Savart law, the discretisation MAKEGRID uses to
     build mgrid files. Derivatives flow to the filament nodes and currents.
 
-The MGRID compatibility path stays in
-:mod:`drbx.fci_braginskii.geometry_build.Bfield_evaluator`.
+The MAKEGRID spline evaluator lives in
+:mod:`drbx.fci_nodal.evaluators.magnetic_field_evaluator`.
 """
 
 from __future__ import annotations

@@ -29,11 +29,11 @@ pip install drbx
 git clone https://github.com/uwplasma/drbx && cd drbx && pip install -e .
 ```
 
-Python 3.10 or newer. CPU JAX is installed by default; for a GPU, install the
+Python 3.12 or newer with JAX 0.12. CPU JAX is installed by default; for a GPU, install the
 matching JAX wheel following the
 [JAX guide](https://docs.jax.dev/en/latest/installation.html). ESSOS coil
 imports need `pip install "drbx[essos]"`; the 3D (PyVista, offscreen) renders in
-the field-line and HSX examples need `pip install "drbx[viz]"`.
+the field-line, archived HSX render, and FCI-plane examples need `pip install "drbx[viz]"`.
 
 ## Quick start
 
@@ -67,7 +67,7 @@ print(jax.grad(density_energy)(1.0))   # d(energy)/d(adiabaticity) through 200 s
 
 ## Running from a TOML deck
 
-Every model also runs from a TOML deck, with no Python needed:
+The reduced models run from TOML decks:
 
 ```bash
 drbx inspect examples/inputs/hasegawa_wakatani.toml   # resolved plan, nothing runs
@@ -76,7 +76,7 @@ drbx run     examples/inputs/hasegawa_wakatani.toml   # run and write artifacts
 
 The decks in [`examples/inputs/`](examples/inputs) cover Hasegawa-Wakatani, the
 sheath SOL with recycling, the SD1D detachment leg, stellarator turbulence,
-the differentiable FCI operators, restartable diffusion and the HSX filament.
+the differentiable FCI operators and restartable diffusion.
 Keys, defaults and outputs are listed in [docs/decks.md](docs/decks.md).
 
 Examples are flat scripts: parameters at the top, then run and plot, writing
@@ -87,7 +87,7 @@ helps choose a model family, dimension and boundary conditions.
 
 <img src="docs/media/validation_overview.png" width="800" alt="Validation overview">
 
-Each panel compares a component with an analytic or published reference.
+The archived figure compares each component with an analytic or published reference.
 
 | Component | Check | Reference | Result |
 |---|---|---|---|
@@ -99,7 +99,7 @@ Each panel compares a component with an analytic or published reference.
 | HSX 16^3 with sheath and neutrals | wall-face ledger at t = 0.6 | integrated wall fluxes | particles 9e-5, energy 8e-4 of the wall loss |
 | Reverse-mode gradient | 8 directional derivatives through an FGMRES solve | central differences | 2e-10 relative |
 
-The gradient through three steps of the HSX 16^3 driver agrees with central differences to 2e-7 (`slow` test, not part of the figure). `PYTHONPATH=src:. python examples/validation_overview.py` regenerates the figure; the first run builds the HSX geometry (about 8 min) and the script takes about 6 min after that.
+The current `examples/validation_overview.py` generates the FCI operator, electromagnetic wave and SD1D panels in `output/validation_overview.png`.
 
 ## Drift-wave turbulence
 
@@ -170,10 +170,10 @@ python examples/stellarator/rotating_ellipse_fci.py
 python examples/stellarator/fci_differentiable.py     # shape derivative of the operator
 ```
 
-## Tilted planes: the FCI approach of the HSX backend
+## Tilted planes in the archived HSX geometry
 
 Classic FCI codes put the poloidal planes at fixed toroidal angles and trace
-field lines from plane to plane. The HSX backend (`drbx.fci_braginskii`) keeps
+field lines from plane to plane. The archived HSX geometry keeps
 the plane-to-plane field-line maps, but its logical planes (the `eta` index of
 the geometry bundle) are wall-fitted surfaces: the boundary of every plane is
 a vessel contour, and the planes are tilted and curved to follow the twisting
@@ -265,24 +265,23 @@ temperature and 0.15% in flux, with particle and power ledgers closed to 1e-9
 or better. The eighth SD1D point is not a steady state in its restart data and
 differs by about 10%.
 
-## Fluid neutrals in 3D
-
-The FCI backend evolves neutral density, parallel velocity and temperature
-(`n_n`, `u_n`, `T_n`) with `neutrals = true`, coupled to the plasma through
-ionisation, recombination and charge exchange from one AMJUEL 2020 rates module
-shared with the 1D models, and returns the ion wall flux as neutrals with
-`recycling = true`. The closure is valid for Knudsen number Kn <~ 0.3. Each
-figure below has its generator in [`examples/neutrals/`](examples/neutrals);
-the HSX and ledger figures read run output that the script directory does not
-contain (the docstrings list the decks).
+## Neutral reaction rates and standalone transport
 
 <img src="docs/media/fig4_rates.png" width="800" alt="AMJUEL rate coefficients against SD1D fits">
 
 Ionisation, charge-exchange and recombination rate coefficients versus T_e from the single shared AMJUEL 2020 rates module (n_e = 1e19 m^-3, CX at T_eff = T_e), with the SD1D fits dashed. At 10 eV the SD1D fits are 0.59x the AMJUEL ionisation rate, 1.18x charge exchange and 1.02x recombination.
 
+Regenerate the rates figure with `PYTHONPATH=src python examples/neutrals/fig4_rates.py`.
+
 <img src="docs/media/fig2_slab.png" width="800" alt="Neutral penetration in a plasma slab">
 
 Steady neutral profile entering a uniform plasma slab matches the analytic exp(-x/lambda), lambda = lambda_mfp / sqrt(nu_iz/nu), with a fitted/analytic length ratio of 1.002 at Kn = lambda_mfp/lambda = 0.09. A sweep over plasma temperature keeps the ratio within 0.7% for 0.003 <= Kn <= 0.24 and drops to 0.98 at Kn = 0.42 and 0.87 at Kn = 0.65, above the Kn ~ 0.3 closure limit.
+
+The [standalone fluid-neutral slab examples](docs/neutrals_recycling.md#standalone-fluid-neutrals)
+use the retained reaction and transport code on synthetic geometry.
+
+The following figures use saved runs from the retired HSX driver. The
+[neutral examples](docs/examples.md#open-field-line-sol-and-neutrals) read the archived history and ledger logs.
 
 <img src="docs/media/fig1_hsx_neutrals.png" width="800" alt="Fluid neutrals on the HSX poloidal section">
 
@@ -291,13 +290,6 @@ Neutral density, neutral temperature and Knudsen number on the phi = 0 (bean) po
 <img src="docs/media/fig3_conservation.png" width="800" alt="Wall-face conservation ledger">
 
 The independent wall-face ledger on the 16^3 HSX run (800 steps, t = 0.6) shows applied and wall-face rates agreeing per step to 1.3e-4 or better for particles, 5.7e-4 for electron energy and 1.9e-4 for ion energy (relative to the larger of the two), and particles closed to 9.5e-5 of the wall loss. Flux-form perpendicular diffusion reduces the final energy residual from 2.85e-3 to 0.76e-3 (W_e), 1.74e-3 to 0.33e-3 (W_i) and 3.98e-3 to 0.49e-3 in total (8.2x), in the run's normalised energy units.
-
-```bash
-python examples/neutrals/fig4_rates.py            # a few seconds
-PYTHONPATH=src:. python examples/neutrals/fig2_slab.py             # about 1 min
-python examples/neutrals/fig1_hsx_neutrals.py     # needs the 32^3 HSX run history
-python examples/neutrals/fig3_conservation.py     # needs the 16^3 ledger logs
-```
 
 ## Differentiable design and control
 
@@ -364,19 +356,15 @@ was contributed by Aiken Xie in [PR #3](https://github.com/uwplasma/drbx/pull/3)
 python examples/benchmarks/fci_sharded_strong_scaling.py
 ```
 
-## HSX geometry and scrape-off-layer filament
+## FCI nodal in HSX geometry
 
-*Scope:* experimental. The Bohm sheath wall closure is the default; fluid
-neutrals (`n_n`, `u_n`, `T_n`) with wall recycling are optional
-(`examples/inputs/hsx_fci_neutrals.toml`). The fluid closure needs
-`Kn <~ 0.3`, and HSX edge cells are mostly `Kn >= 1`, so the neutral fields are
-not a quantitative prediction there. Each step with the sheath on prints an
-independent wall-flux conservation check (`[wall-step]`, `[wall-run]`).
+Use `drbx build` to assemble the spline/exact HSX geometry and P and Q operators,
+then `drbx run` to evolve a manufactured solution. See the [nodal guide](docs/fci_nodal.md).
 
-The HSX geometry is built from the coils in
+The archived HSX geometry figure uses the coils in
 [`examples/inputs/hsx/coils.hsx`](examples/inputs/hsx/coils.hsx) (QHS currents)
 and the vessel outline [`vessel_hsx_flare.txt`](examples/inputs/hsx/vessel_hsx_flare.txt).
-The figure shows the coils (PyVista render), the boundary of the simulated
+It shows the coils (PyVista render), the boundary of the simulated
 domain colored by |B| and the vessel; a Poincare section at phi = 0 traced
 through the coil field (90 lines, about 320 toroidal turns each; blue points
 stay inside the vessel, red diamonds mark lines that reach the wall); and the
@@ -384,32 +372,9 @@ connection length to the wall on the same plane.
 
 <img src="docs/media/hsx_geometry.png" width="800" alt="HSX coils, Poincare section and connection length">
 
-The `drbx.fci_braginskii` backend evolves a density filament in the
-scrape-off layer up to the vessel wall. It uses a Bohm sheath wall closure by
-default, with implicit Spitzer-Harm parallel conduction
-(`parallel_conduction = "auto"`, on with the Bohm wall). Fluid neutrals (`n_n`,
-`u_n`, `T_n`) with wall recycling are the neutral model when `neutrals = true`
-and `recycling = true`; the deck keys are in [docs/decks.md](docs/decks.md) and
-the geometry bundle is described in
-[docs/fci_braginskii_hsx_backend.md](docs/fci_braginskii_hsx_backend.md). The
-first run is `drbx run examples/inputs/hsx_fci_blob.toml`, which builds a 16^3
-geometry from the shipped coils and vessel (about 4 min on a laptop). The default
-HSX deck is verified to t = 0.6 at 16^3, and at 32^3 with
-`sheath_potential = "current"` ([docs/plan.md](docs/plan.md), C3a).
+The [HSX renderer](examples/stellarator/hsx_fci_blob_render.py) reconstructs
+this figure and the filament movie from saved history, the coils and the vessel.
 
-The movie is the default 32^3 HSX deck with `sheath_potential = "current"` (800
-steps, t = 0 to 0.6 in L_ref/c_s, about 40 min on a laptop CPU). It shows
-n - 1, phi and the parallel flows Vi and Ve on four toroidal planes (rows from
-top to bottom), each row on its own fixed colour scale (99.5th percentile of
-|field| over the active cells). The seeded filament is a few percent of the
-scale at t = 0; by t = 0.3 n - 1 is depleted in the wall layer, and Vi and Ve
-carry alternating-sign structures confined to that layer.
-
-<img src="docs/media/hsx_fci_blob.gif" width="700" alt="HSX filament: n - 1, phi, Vi and Ve on four toroidal planes">
-
-```bash
-python examples/stellarator/hsx_fci_blob_render.py   # runs the backend, then renders the geometry figure and the movie (drbx[viz])
-```
 
 ## Tests
 
@@ -418,7 +383,7 @@ pip install -e ".[dev]"   # or: pip install pytest pytest-xdist
 pytest -n 2 -q -m "not slow"
 ```
 
-CI runs the fast suite on Python 3.10-3.12 (CPU). Policy:
+CI runs the fast suite on Python 3.12 (CPU). Policy:
 [docs/testing_strategy.md](docs/testing_strategy.md).
 
 ## More

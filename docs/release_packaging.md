@@ -110,7 +110,7 @@ python -m twine check dist/*
 The repository includes:
 
 - [`publish-pypi.yml`](../.github/workflows/publish-pypi.yml) for package publishing
-- [`test.yml`](../.github/workflows/test.yml) for the Python 3.10, 3.11, and 3.12 test matrix
+- [`test.yml`](../.github/workflows/test.yml) for the Python 3.12 test job
 - [`docs.yml`](../.github/workflows/docs.yml) for `tests/test_release_surface.py`
   and `mkdocs build --strict --clean`
 - [`coverage.yml`](../.github/workflows/coverage.yml) for public-surface
@@ -134,8 +134,7 @@ are ignored by the PyPI jobs.
 
 The release-readiness lanes are intentionally split:
 
-- `test.yml` runs the targeted shipping regression slice on Python 3.10, 3.11,
-  and 3.12.
+- `test.yml` runs the targeted shipping regression slice on Python 3.12.
 - `docs.yml` checks the public release surface and builds the docs strictly.
 - `coverage.yml` enforces the public-surface coverage gate.
 

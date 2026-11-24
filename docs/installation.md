@@ -11,8 +11,7 @@ pip install drbx
 
 This installs the runtime dependencies used by the public solver, geometry,
 and plotting paths: `jax`, `diffrax`, `scipy`, `equinox`, `matplotlib`,
-`netCDF4`, `rich`, and `tomli` on Python versions that do not provide
-`tomllib`.
+`netCDF4` and `rich`. Python 3.12 or newer and JAX 0.12 are required.
 
 ## Editable Checkout
 
@@ -58,7 +57,7 @@ python -m mkdocs build --clean --site-dir /tmp/drbx_docs
 Coil fields and field-line tracing use the installed ESSOS package:
 `pip install 'drbx[essos]'`. The Landreman--Paul QA coil set is bundled.
 
-The 3D renders in the field-line, HSX and FCI-plane examples use PyVista (offscreen) through
+The 3D renders in the field-line, archived HSX render, and FCI-plane examples use PyVista (offscreen) through
 `drbx.viz`; install it with `pip install 'drbx[viz]'`. It is optional and not needed by the solvers.
 Examples that need the matching VMEC `wout` read it from an ESSOS checkout
 named by `DRBX_ESSOS_ROOT`; they are not required for the basic native

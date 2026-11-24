@@ -1,6 +1,6 @@
-"""README figure 3: independent wall-face conservation ledger on the 16^3 HSX run (800 steps, t = 0.6).
+"""Archived figure 3: independent wall-face conservation ledger on the 16^3 HSX run (800 steps, t = 0.6).
 
-Input: the [wall], [wall-step] and [wall-run] lines printed by the run, saved as output/neutral_figures/<name>.wall.txt for the
+Input: archived [wall], [wall-step] and [wall-run] lines, saved as output/neutral_figures/<name>.wall.txt for the
 run with flux-form perpendicular diffusion ("perpdiff") and the run with the previous perpendicular energy diffusion ("ledger").
 Energy residual = (W_e + W_i + K_i)(t) - W(0) - integral of the wall-face energy flux, in the run's normalised energy units.
 

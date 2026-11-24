@@ -1,26 +1,14 @@
-"""HSX FCI Braginskii filament: run the backend, then render the geometry (coils, vessel, Poincare, connection length) and a movie.
+"""Render archived HSX filament history and coil-field geometry.
 
-README figures: N_POINCARE = 90 seeds x POINCARE_STEPS = 120000 (about 320 toroidal turns), CL_SHAPE = (72, 108);
-movie: the default 32^3 HSX deck with ``sheath_potential = "current"``, FINAL_TIME = 0.6, NUM_STEPS = 800,
-SAVE_EVERY = 10 (81 history frames, every MOVIE_STRIDE-th one rendered).
+Supply output/hsx_fci_blob/history.npz from a saved seven-field HSX run.
+The renderer uses its cell locations, active mask, magnetic field and history.
+The shipped coils and vessel supply the Poincare section and connection lengths.
 
-Runs ``drbx.fci_braginskii.run.run`` (the driver behind
-``drbx run examples/inputs/hsx_fci_blob.toml``) on the canonical 32^3 HSX
-geometry bundle, then renders the saved history.
-
-Run from the repository root:
+Run from the repository root with drbx[viz] installed.
 
     PYTHONPATH=src python examples/stellarator/hsx_fci_blob_render.py
 
-The driver prints the geometry, model parameters, one progress line per step
-(step, time, timings, field extrema) and where the history is written. Outputs
-go to ``output/hsx_fci_blob/``: ``history.npz``, ``hsx_geometry.png`` (coils, vessel,
-Poincare section and connection-length map, traced through the coil field) and
-``hsx_fci_blob.gif`` (n - 1, phi, Vi and Ve on four toroidal planes). The geometry figure
-needs the vessel file (``VESSEL``), the coils (``COILS``) and a few minutes of CPU.
-
-A quick preset is FINAL_TIME = 0.00375, NUM_STEPS = 5, SAVE_EVERY = 1.
-Set RUN_SIMULATION = False to only re-render an existing HISTORY_PATH.
+Writes hsx_geometry.png and hsx_fci_blob.gif beside the archived history.
 """
 
 import time
@@ -39,18 +27,12 @@ from matplotlib import cm, colors  # noqa: E402
 from matplotlib.animation import FuncAnimation, PillowWriter  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from drbx.fci_braginskii.geometry_build.provider_bfield import CoilFieldTable  # noqa: E402
-from drbx.fci_braginskii.run import HsxBlobConfig, run  # noqa: E402
+from drbx.geometry.provider_bfield import CoilFieldTable  # noqa: E402
 from drbx.geometry.field_provider import FilamentCoilField  # noqa: E402
 from drbx.viz import add_surface, add_tubes, image, scene  # noqa: E402
 
 # ---- PARAMETERS ----------------------------------------------------------
-GEOMETRY = Path("artifacts/geometry/hsx_fci_32x32x32")  # canonical geometry bundle
-FINAL_TIME = 0.6           # simulated time [L_ref / c_s]
-NUM_STEPS = 800             # time steps (dt = 7.5e-4)
-SAVE_EVERY = 10             # steps between history frames
 MOVIE_STRIDE = 4            # history frames per movie frame
-SHEATH_POTENTIAL = "current"  # sheath current closure ("ambipolar" is the backend default)
 COILS = Path("examples/inputs/hsx/coils.hsx")            # MAKEGRID filaments (QHS: six main groups, 10722 A)
 VESSEL = Path("examples/inputs/hsx/vessel_hsx_flare.txt")  # vessel outline: 161 planes over one period
 TRACE_STEP = 0.02           # field-line step [m]
@@ -58,19 +40,9 @@ N_POINCARE, POINCARE_STEPS = 90, 120000  # seeds on the midplane (R = 1.38..1.54
 CL_SHAPE, CL_MAX_STEPS = (72, 108), 15000  # connection-length grid (R, Z) at phi = 0 and step cap (300 m)
 OUTPUT_DIR = Path("output/hsx_fci_blob")
 HISTORY_PATH = OUTPUT_DIR / "history.npz"
-RUN_SIMULATION = True       # False: re-render an existing HISTORY_PATH only
 # ---------------------------------------------------------------------------
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-if RUN_SIMULATION:
-    print(f"HSX FCI blob: geometry={GEOMETRY} final_time={FINAL_TIME} "
-          f"num_steps={NUM_STEPS} save_every={SAVE_EVERY} -> {HISTORY_PATH}", flush=True)
-    start = time.perf_counter()
-    run(HsxBlobConfig(geometry=GEOMETRY, final_time=FINAL_TIME, num_steps=NUM_STEPS,
-                      save_every=SAVE_EVERY, diagnostic_every=10, output=HISTORY_PATH,
-                      sheath_potential=SHEATH_POTENTIAL))
-    print(f"simulation finished in {time.perf_counter() - start:.1f} s", flush=True)
-
 
 start = time.perf_counter()
 jax.config.update("jax_enable_x64", True)

@@ -13,7 +13,7 @@ import pytest
 
 jax.config.update("jax_enable_x64", True)
 
-from drbx.fci_braginskii.geometry_build.provider_bfield import (  # noqa: E402
+from drbx.geometry.provider_bfield import (  # noqa: E402
     CoilFieldTable,
     JaxProviderBFieldEvaluator,
     ProviderBFieldEvaluator,
@@ -119,10 +119,10 @@ def _stellsym_coils(nfp: int = 2) -> FilamentCoilField:
 
 
 def test_coil_table_prefilter_matches_the_scipy_mgrid_producer() -> None:
-    from drbx.fci_braginskii.geometry_build.Bfield_evaluator import (
+    from drbx.fci_nodal.evaluators.magnetic_field_evaluator import (
         ComponentSplineBFieldEvaluator,
     )
-    from drbx.fci_braginskii.geometry_build.jax_bfield_evaluator import (
+    from drbx.fci_nodal.evaluators.jax_magnetic_field_evaluator import (
         JaxComponentSplineBFieldEvaluator,
     )
 
@@ -217,7 +217,7 @@ def test_shipped_hsx_coils_give_the_qhs_field_symmetries() -> None:
     reason="HSX mgrid input not present (set DRBX_HSX_INPUTS)",
 )
 def test_hsx_coil_field_matches_the_mgrid_at_bundle_cell_centres() -> None:
-    from drbx.fci_braginskii.geometry_build.Bfield_evaluator import (
+    from drbx.fci_nodal.evaluators.magnetic_field_evaluator import (
         bfield_evaluator_from_makegrid,
     )
 

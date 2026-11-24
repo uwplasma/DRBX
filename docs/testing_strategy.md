@@ -215,7 +215,7 @@ The supported runtime-profiling workflow for those campaigns is now:
 The final automated gate should be tiered rather than one monolithic slow job:
 
 - fast PR gate: packaging, release surface, unit/operator tests, runtime
-  precision/import checks on Python 3.10, 3.11, and 3.12
+  precision/import checks on Python 3.12
 - research-fast gate: the default slices in
   [scripts/run_fast_research_checks.py](../scripts/run_fast_research_checks.py)
 - coverage gate: promoted solver and public-surface slice with the meaningful
@@ -260,15 +260,21 @@ During the first structural phase:
 That sequencing preserves scientific trust while the software architecture is
 improved.
 
+Set `DRBX_FCI_NODAL_REFERENCE_CASE` to a complete one-owner resolution 16
+case with current source receipts. Build the reference on the same machine
+and with the same JAX version as the tests. It must stay where it was built
+because stage receipts store absolute product paths. Run
+`pytest -q -m pinned_case tests/fci_nodal` to replay from the saved products,
+or use `-m rebuild_case` to build from the original inputs. Both profiles
+compare arrays from the same owner layout byte for byte. See
+`tests/fci_nodal/README.md` for the test profiles.
+
 ## FCI Unification Gate
 
-The FCI unification (issue #41) merges `drbx.geometry.fci_geometry` +
-`drbx.native.fci_*` and `drbx.fci_braginskii` into one stack.  Every PR in
-that series is gated by `scripts/fci_gate.py`, run once on the base commit and
-once on the PR head, each from its own clean worktree:
+Use `scripts/fci_gate.py` to record the reduced FCI models on two revisions,
+then compare their outputs. Run each record from its own worktree.
 
 ```bash
-export DRBX_TEST_GEOMETRY_BUNDLE=/path/to/hsx_fci_32x32x32   # optional; HSX skipped if unset
 PYTHONPATH=$PWD/src python scripts/fci_gate.py record gate-base   # on the base worktree
 PYTHONPATH=$PWD/src python scripts/fci_gate.py record gate-pr     # on the PR worktree
 python scripts/fci_gate.py compare gate-base gate-pr
@@ -277,19 +283,14 @@ python scripts/fci_gate.py compare gate-base gate-pr
 `record` writes `summary.json` plus one `.npz` per case:
 
 - `pytest -q -m "not slow" -n 2` pass/skip/fail counts (`--skip-pytest` to omit);
-- HSX through `drbx run`: a 5-step run (all saved state arrays, the per-step
-  `gmres-iters(avg4)` / `gmres-relres(max4)` log values and step/op/GMRES
-  seconds) and a restart round trip (2 steps with a checkpoint, then 3 steps
-  restarted from it; the summary reports the restarted-vs-straight difference);
 - reduced models touched by the unification, all small and deterministic:
   rotating-ellipse FCI `grad_parallel` (direct and traced maps, MMS field),
   shifted-torus 2-field MMS, shifted-torus EB MMS, 4-field blob on the shifted
   torus and on the rotating ellipse, the island divertor turbulence run, and
   the differentiable FCI gradient case (`--cases` selects a subset);
-- line counts of `src/drbx/{geometry,native,fci_braginskii}`.
+- line counts of `src/drbx/{geometry,native,fci_nodal}`.
 
-`compare` checks every array with `np.array_equal` and prints max abs/rel
-differences for any that differ, compares the GMRES log values and pytest
-counts, prints the line-count delta, and exits non-zero unless everything is
-bitwise identical.  Timing is reported but not gated by `compare`; per the
-plan, step time is checked separately with alternating A/B/A/B runs.
+`compare` checks matching arrays with `np.array_equal`, prints max abs/rel
+differences and compares pytest counts when recorded. It also reports
+source line-count deltas and timings. See the [nodal test guide](../tests/fci_nodal/README.md)
+for the nodal test layers.

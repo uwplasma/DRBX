@@ -153,39 +153,34 @@ SD1D comparison, and the particle/power ledger closures.
 ```bash
 PYTHONPATH=src python examples/sol/recycling_sol.py
 PYTHONPATH=src python examples/benchmarks/b6_detachment_sd1d.py
-PYTHONPATH=src python examples/neutrals/fluid_neutral_slab.py   # fluid neutral penetration length
 pytest -q tests/test_native_atomic_rates.py tests/test_native_reactions.py \
           tests/test_native_recycling_sol.py tests/test_fci_neutrals_3d.py \
           tests/test_native_detachment_sol.py
 pytest -q -m slow tests/test_native_detachment_sol.py   # SD1D scan, profiles, grid convergence
 ```
 
-## Fluid neutrals (FCI)
+## Standalone fluid neutrals
 
-[`fci_neutral_fluid.py`](../src/drbx/fci_braginskii/native/fci_neutral_fluid.py) evolves the neutral density `n_n`, the
-velocity `u_n` along `b` and the temperature `T_n` on the FCI grid (advanced fluid neutral closure of Horsten et al. 2017
+[`fci_neutrals.py`](../src/drbx/neutrals/fci_neutrals.py) provides reaction
+rates, density diffusion and a geometry adapter.
+[`fci_neutral_fluid.py`](../src/drbx/neutrals/fci_neutral_fluid.py) evolves
+neutral density `n_n`, velocity `u_n` along `b` and the temperature `T_n` (advanced fluid neutral closure of Horsten et al. 2017
 and Van Uytven et al. 2022): perpendicular pressure diffusion `Gamma = -(tau_n/m) grad_perp p_n` with
 `tau_n^-1 = n_i K_cx + n_e K_i`, parallel flow with its own momentum equation, viscosity `p_n tau_n`, conductivity
 `5 p_n tau_n / (2m)`, and the flux limiter `[1 + (|Gamma|/(3 Gamma_lim))^4]^(-1/4)` on the conductive fluxes (N6: `tau_n` carries the factor `1 + 0.8 nu_iz/nu`; both are fitted to a deterministic 1D kinetic oracle, mean ionisation depth within 2% of it for `Kn_grad` up to 0.8). Reactions
-exchange nuclei, momentum and energy with the plasma exactly (the electron loss is the only sink). Wall: reflecting with
-absorption `neutral_wall_absorption` and energy reflection `neutral_wall_energy_reflection`; recycled atoms carry the
-Franck-Condon or wall energy as thermal energy. History files carry `neutral_density`, `neutral_velocity` and
-`neutral_temperature`, and `restart_from` restores them.
+exchange nuclei, momentum and energy with the plasma exactly (the electron loss is the only sink). Wall reflection can include particle absorption and energy loss.
 
-Deck keys: `neutrals`, `neutral_temperature_ev` (initial `T_n`, evolved afterwards), `neutral_wall_absorption` (default 0),
-`neutral_wall_energy_reflection` (default 1), `neutral_initial_density`, `neutral_initial_decay_length`,
-`neutral_reaction_substeps`; the rates use the single `reference_density_m3` (default 1e19 m^-3). With `recycling = true`
-the ion wall flux is returned as atoms (`recycling_coefficient`, `recycling_energy`). Example:
-[`examples/inputs/hsx_fci_neutrals.toml`](../examples/inputs/hsx_fci_neutrals.toml); the slab check below is
-[`examples/neutrals/fluid_neutral_slab.py`](../examples/neutrals/fluid_neutral_slab.py).
+The geometry adapter consumes grid widths, face and cell metrics, magnetic fields and optional owner-cell
+data. The slab examples construct those inputs directly. They compare
+penetration with `lambda_mfp / sqrt(nu_iz / nu)`. The fluid closure applies
+in the collisional regime (Knudsen number roughly below 0.1–0.3).
 
-Conservation: each step prints `[neutrals]` (nuclei and energy split identities) and, with the sheath on, `[wall-step]` and
-`[wall-run]`, the independent check of the wall rows (what each implicit stage did to the inventory against the wall-face
-fluxes). A 1% injected neutral leak fails the check.
+```bash
+PYTHONPATH=src:. python examples/neutrals/fluid_neutral_slab.py
+PYTHONPATH=src:. python examples/neutrals/fig2_slab.py
+```
 
-Validity: the closure needs the Knudsen number `lambda / L <~ 0.1-0.3`; every run prints the fractions of cells in each
-range and saves `neutral_knudsen_gradient`. Verified: the steady penetration length of neutrals into a uniform plasma
-slab equals `lambda_mfp / sqrt(nu_iz / nu)` to 0.2 %; nuclei, momentum and energy balances close to round-off in the
-reaction step and the run ledgers close to 1e-5 on HSX. At HSX edge parameters (`n0 = 5e18 m^-3`, mean free path ~6 cm)
-almost all cells have `Kn >= 1`: the fluid model is then limiter-bound (the particle limiter drops to 1-3 % in the most limited
-cells) and should be read as an upper-density-regime model; a kinetic or hybrid neutral treatment (plan N6) is the open gap there.
+The isolated recycling tests prescribe a wall loss to exercise the neutral
+source split. The HSX sheath coupling, run ledgers and deck were part of the
+retired driver. The shared AMJUEL rates and the 1D and reduced FCI neutral
+models above remain available.

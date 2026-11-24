@@ -55,4 +55,4 @@ def test_every_backend_has_a_section_and_nav_entry():
 @pytest.mark.parametrize("backend", sorted(BACKENDS))
 def test_outputs_are_documented(backend):
     arrays, results = documented_outputs(backend)
-    assert arrays and (results or backend == "fci_braginskii")
+    assert arrays and (results or not BACKENDS[backend].generic)

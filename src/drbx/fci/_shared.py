@@ -1,11 +1,4 @@
-"""Definitions that were byte-identical in both FCI code families.
-
-``drbx.geometry.fci_geometry`` / ``drbx.native.fci_*`` and
-``drbx.fci_braginskii.{geometry,native}`` import these from here instead of
-keeping two copies (FCI unification, issue #41, PR 1).  Only definitions whose
-module-level dependencies are also identical live here, so both families
-resolve exactly the same objects as before.
-"""
+"""Shared definitions for ``drbx.geometry.fci_geometry`` and ``drbx.native.fci_*``."""
 
 from __future__ import annotations
 

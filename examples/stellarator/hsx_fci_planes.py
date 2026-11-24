@@ -5,8 +5,8 @@ trace field lines from plane to plane. In the HSX geometry bundle the 32 logical
 are surfaces fitted to the vessel whose cell centres do not share one toroidal angle: each plane is
 tilted and curved. The scene shows a short segment of the boundary (translucent), three consecutive
 bundle planes as coloured surfaces, the phi = const planes of a classic grid as flat outlines at the
-same toroidal positions, and field lines traced through the coil field. Needs the 32^3 geometry bundle
-(docs/fci_braginskii_hsx_backend.md) and ``drbx[viz]``.
+same toroidal positions, and field lines traced through the coil field. Needs the archived 32^3
+HSX geometry bundle and ``drbx[viz]``.
 
     PYTHONPATH=src python examples/stellarator/hsx_fci_planes.py
 """
