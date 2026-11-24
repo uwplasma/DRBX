@@ -105,6 +105,28 @@ class MetricOptions:
     table_grid: tuple[int, int, float] = DEFAULT_TABLE_GRID
     bfield_toroidal: str = "compact_hermite_c3"
     makegrid_sha256: str | None = None
+    filter_map: bool = False
+
+    def __post_init__(self):
+        if type(self.filter_map) is not bool:
+            raise ValueError("filter_map must be a boolean")
+        if self.filter_map and self.field_filter is None:
+            raise ValueError("filter_map requires a field filter")
+
+    def numerical_options(self):
+        settings = asdict(self)
+        if not self.filter_map:
+            del settings["filter_map"]
+        return settings
+
+    def filtered_map_identity(self):
+        from ._metric_contract import FILTERED_MAP_CONSTRUCTION
+
+        if not self.filter_map:
+            return {}
+        return dict(plane_construction=FILTERED_MAP_CONSTRUCTION,
+                    metric_toroidal_modes=self.field_filter.max_harmonic_per_period,
+                    map_filter_nfp=self.field_filter.nfp)
 
 
 def boundary_bisection_count(resolution, override=None):

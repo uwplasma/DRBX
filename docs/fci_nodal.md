@@ -63,6 +63,13 @@ The Python case API is available through `drbx.fci_nodal.case`.
 `owner_inputs/receipt.json`. `run_mms(case_dir, mms_options)` uses that
 receipt and returns the owner state directory and summary fields.
 
+Set `[field_filter].filter_map = true` only for filtered verification
+geometry. It keeps the field filter’s eta harmonics in the solved map’s
+R, Z and phi−eta channels and fits a Fourier–Zernike map to the result.
+In the resolution 16 HSX check, the raw field and plane normal had a
+tangent of their angle of about 0.03 RMS, rising to about 0.08 at the
+edge. The u = 1 surface followed the vessel to about 2 mm RMS.
+
 ## Build products
 
 | Stage | Products |

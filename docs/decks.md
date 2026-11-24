@@ -401,6 +401,7 @@ The example is `examples/inputs/fci_nodal_mms.toml`. See [FCI nodal manufactured
 | `field_filter.max_harmonic_per_period` | `int` | `required` | Retained field-table harmonic cutoff. |
 | `field_filter.samples_per_period` | `int` | `required` | Samples of each column per field period. |
 | `field_filter.table_grid` | `tuple[int, int, float]` | `required` | Radial samples, poloidal samples and maximum logical radius. |
+| `field_filter.filter_map` | `bool` | `False` | Also low-pass the solved map in eta for filtered verification geometry. |
 | `parallel.workers` | `int` | `1` | Local workers for indexed parallel construction. |
 | `mms.field_profile` | `str` | `'wall_flat_temperature'` | Manufactured field profile `wall_flat_temperature` or `prescribed_wall_heat_flux`. |
 | `mms.wall_law` | `str` | `'floating_wall'` | Wall law `conducting_wall` or `floating_wall`. |

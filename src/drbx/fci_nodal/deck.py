@@ -45,6 +45,7 @@ class FieldFilterConfig:
     max_harmonic_per_period: int
     samples_per_period: int
     table_grid: tuple[int, int, float]
+    filter_map: bool = False
 
 
 @dataclass(frozen=True)
@@ -117,7 +118,7 @@ def resolve_case_options(config):
         raise ValueError("[geometry] makegrid_currents must list the device coil currents")
     metric = MetricOptions(makegrid_path=geometry.makegrid_path, vessel_path=geometry.vessel_path,
                            makegrid_currents=geometry.makegrid_currents, resolution=geometry.resolution,
-                           field_filter=spec, table_grid=field.table_grid)
+                           field_filter=spec, table_grid=field.table_grid, filter_map=field.filter_map)
     layout = dict(resolution=run.resolution, symmetry=run.symmetry, field_periods=run.field_periods)
     polygon = PolygonBuildOptions(**layout, rings=geometry.rings, field_filter=spec,
                                   workers=geometry.workers)
@@ -160,7 +161,7 @@ def _check_case_options(case_dir, options, stages=None):
     ):
         receipt, _ = stage_receipt(case_dir, name) if stages is None else stages[name]
         recorded = binding(receipt)["options"]
-        requested = (requested_options.numerical_options() if name == "polygon"
+        requested = (requested_options.numerical_options() if name in ("metric", "polygon")
                      else asdict(requested_options))
         requested = json.loads(json.dumps(requested, default=str))
         differing = sorted(key for key in requested if requested[key] != recorded.get(key))

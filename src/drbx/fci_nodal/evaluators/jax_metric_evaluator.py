@@ -213,7 +213,11 @@ class JaxMetricEvaluator:
     def from_cache_payload(
         cls, payload: Mapping[str, Any], *, prefix: str = ""
     ) -> "JaxMetricEvaluator":
-        """Restore the exact level-set JAX metric."""
+        """Restore a tagged exact-plane or eta-filtered JAX metric."""
+        from .metric_evaluator import filtered_map_cutoff
+
+        if filtered_map_cutoff(payload, prefix) is not None:
+            return cls._from_plain_cache_payload(payload, prefix=prefix)
         from .exact_plane_metric import JaxExactPlaneMetricEvaluator
 
         return JaxExactPlaneMetricEvaluator.from_cache_payload(payload, prefix=prefix)

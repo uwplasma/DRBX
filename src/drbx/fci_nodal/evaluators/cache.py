@@ -12,7 +12,7 @@ import zipfile
 import jax.numpy as jnp
 import numpy as np
 
-from .metric_evaluator import MetricEvaluator
+from .metric_evaluator import MetricEvaluator, require_metric_construction
 from .._metric_contract import (
     BASE_MESH_SHAPE, BASE_POLOIDAL_MODES, BASE_PROJECTIONS, BASE_RADIAL_DEGREE, BASE_TOROIDAL_MODES,
     spline_cache_settings,
@@ -106,6 +106,8 @@ def build_metric_cache(options: MetricOptions) -> Path:
             else float(reference_magnetic_field)
         ),
     }
+    filtered_identity = options.filtered_map_identity()
+    cache_spec.update(filtered_identity)
     cache_spec_json = json.dumps(
         cache_spec,
         sort_keys=True,
@@ -180,6 +182,7 @@ def build_metric_cache(options: MetricOptions) -> Path:
             cached_nfp = int(cache_payload["nfp"].item())
             if cached_nfp < 1 or neta % cached_nfp:
                 raise ValueError("cached nfp is incompatible with full-torus NETA")
+            require_metric_construction(cache_payload, options)
             cached_metric_evaluator = MetricEvaluator.from_cache_payload(
                 cache_payload,
                 prefix="metric_evaluator_",
@@ -203,7 +206,7 @@ def build_metric_cache(options: MetricOptions) -> Path:
                 raise ValueError("cached evaluator radial degree is inconsistent")
             if _mode_cutoff(cached_metric_evaluator.poloidal_modes) != BASE_POLOIDAL_MODES:
                 raise ValueError("cached evaluator poloidal modes are inconsistent")
-            if _mode_cutoff(cached_metric_evaluator.toroidal_modes) != BASE_TOROIDAL_MODES:
+            if _mode_cutoff(cached_metric_evaluator.toroidal_modes) != cache_spec["metric_toroidal_modes"]:
                 raise ValueError("cached evaluator toroidal modes are inconsistent")
             for location in locations:
                 expected_shape = expected_shapes[location]
@@ -256,6 +259,10 @@ def build_metric_cache(options: MetricOptions) -> Path:
         makegrid_path=makegrid_path, vessel_path=vessel_path,
         resolution=(nu, nv, neta), makegrid_currents=makegrid_current_array,
     )
+    if filtered_identity:
+        from .map_filter import filter_solved_map
+
+        metric_evaluator, sample_fit_error = filter_solved_map(metric_evaluator, options.field_filter)
     nfp = int(nfp)
     if nfp < 1:
         raise ValueError(f"HSX nfp must be a positive integer; got {nfp}")
@@ -573,6 +580,8 @@ def build_metric_cache(options: MetricOptions) -> Path:
             prefix="metric_evaluator_"
         )
     )
+    if filtered_identity:
+        cache_payload["map_filter_fit_error_metres"] = np.asarray(json.dumps(sample_fit_error))
     for location, metric in zip(locations, metric_geometries):
         for field in METRIC_FIELDS:
             cache_payload[f"{location}_metric_{field}"] = np.asarray(

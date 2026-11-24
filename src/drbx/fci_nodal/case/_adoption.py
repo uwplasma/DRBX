@@ -67,10 +67,10 @@ def validate_adoption(name, origin, layout, inputs, metric_options):
             BASE_MESH_SHAPE, BASE_POLOIDAL_MODES, BASE_PROJECTIONS, BASE_RADIAL_DEGREE, BASE_TOROIDAL_MODES,
             spline_cache_settings,
         )
-        from ..evaluators.exact_plane_metric import require_exact_metric_payload
+        from ..evaluators.metric_evaluator import require_metric_construction
 
         with np.load(products["metric_cache"], allow_pickle=False) as archive:
-            require_exact_metric_payload(archive, "metric_evaluator_")
+            require_metric_construction(archive, metric_options)
             if "cache_spec" not in archive or "nfp" not in archive:
                 raise ValueError("Adopted metric: cache specification and map periods are required")
             match("map periods", int(archive["nfp"]), periods)
@@ -81,6 +81,7 @@ def validate_adoption(name, origin, layout, inputs, metric_options):
                 metric_poloidal_modes=BASE_POLOIDAL_MODES, metric_toroidal_modes=BASE_TOROIDAL_MODES,
                 eta_projection_iterations=BASE_PROJECTIONS,
             )
+            expected.update(metric_options.filtered_map_identity())
             for key, value in expected.items():
                 if key not in spec:
                     raise ValueError(f"Adopted metric: cache specification lacks {key}")

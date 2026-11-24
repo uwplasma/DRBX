@@ -16,6 +16,7 @@ import numpy as np
 from scipy.linalg import null_space
 from scipy.special import eval_jacobi
 
+from .._metric_contract import FILTERED_MAP_CONSTRUCTION, FILTERED_MAP_CUTOFF_KEY
 
 _METRIC_EVALUATOR_CACHE_FORMAT_VERSION = 1
 #: Required payload tag for the exact metric.
@@ -28,6 +29,32 @@ def require_exact_plane_payload(payload: Any, prefix: str = "") -> None:
     key = f"{prefix}{PLANE_CONSTRUCTION_KEY}"
     if key not in payload or str(np.asarray(payload[key]).item()) != EXACT_PLANE_CONSTRUCTION:
         raise ValueError("metric payload must describe exact level-set planes")
+
+
+def filtered_map_cutoff(payload: Any, prefix: str = "") -> int | None:
+    """Read the tagged construction and check it against its Fourier modes."""
+    tag = np.asarray(payload.get(f"{prefix}{PLANE_CONSTRUCTION_KEY}", "")).item()
+    if tag != FILTERED_MAP_CONSTRUCTION:
+        return None
+    cutoff = np.asarray(payload.get(f"{prefix}{FILTERED_MAP_CUTOFF_KEY}", -1)).item()
+    modes = np.asarray(payload.get(f"{prefix}toroidal_modes", ()))
+    if (type(cutoff) is not int or cutoff < 0 or modes.size != 2 * cutoff + 1
+            or not np.array_equal(modes, np.arange(-cutoff, cutoff + 1))):
+        raise ValueError("eta-filtered metric cutoff does not match its toroidal modes")
+    return cutoff
+
+
+def require_metric_construction(payload, options, prefix="metric_evaluator_"):
+    """Bind a metric archive to the construction requested by its case."""
+    wanted = options.filtered_map_identity()
+    if filtered_map_cutoff(payload, prefix) != wanted.get("metric_toroidal_modes"):
+        raise ValueError("metric construction or cutoff differs from options")
+    if wanted:
+        if np.asarray(payload.get(f"{prefix}nfp", -1)).item() != wanted["map_filter_nfp"]:
+            raise ValueError("eta-filtered metric periods differ from options")
+    else:
+        from .exact_plane_metric import require_exact_metric_payload
+        require_exact_metric_payload(payload, prefix)
 
 
 @dataclass(frozen=True)
@@ -519,6 +546,8 @@ class MetricEvaluator:
         return self._eta.copy()
 
 
+    _filtered_map_cutoff = None
+
     def to_cache_payload(self, *, prefix: str = "") -> dict[str, np.ndarray]:
         """Serialize the fitted Fourier/spline representation as numeric arrays.
 
@@ -530,7 +559,7 @@ class MetricEvaluator:
 
         key = lambda name: f"{prefix}{name}"
         channels = self._channels
-        return {
+        payload = {
             key("representation_version"): np.asarray(
                 _METRIC_EVALUATOR_CACHE_FORMAT_VERSION, dtype=np.int64
             ),
@@ -561,6 +590,10 @@ class MetricEvaluator:
                 [channel.coefficient_array() for channel in channels], axis=0
             ),
         }
+        if self._filtered_map_cutoff is not None:
+            payload[key(PLANE_CONSTRUCTION_KEY)] = np.asarray(FILTERED_MAP_CONSTRUCTION)
+            payload[key(FILTERED_MAP_CUTOFF_KEY)] = np.asarray(self._filtered_map_cutoff)
+        return payload
 
     @classmethod
     def from_cache_payload(
@@ -569,7 +602,12 @@ class MetricEvaluator:
         *,
         prefix: str = "",
     ) -> "MetricEvaluator":
-        """Restore the exact level-set metric and its embedded base and spline."""
+        """Restore a tagged exact-plane or eta-filtered metric."""
+        cutoff = filtered_map_cutoff(payload, prefix)
+        if cutoff is not None:
+            evaluator = cls._from_plain_cache_payload(payload, prefix=prefix)
+            evaluator._filtered_map_cutoff = cutoff
+            return evaluator
         from .exact_plane_metric import ExactPlaneMetricEvaluator
 
         return ExactPlaneMetricEvaluator.from_cache_payload(payload, prefix=prefix)
@@ -1545,34 +1583,23 @@ def _build_toroidal_topology(
         toroidal_modes=toroidal_modes,
     )
     if validate:
-        radial_validation = np.unique(
-            np.concatenate(
-                (
-                    [0.0, min(0.25 * u[1], 1.0)],
-                    0.5 * (u[:-1] + u[1:]),
-                    [1.0],
-                )
-            )
-        )
-        theta_validation = theta + 0.37 * (_TWO_PI / theta.size)
-        eta_validation = eta + 0.31 * (period / eta.size)
-        validation_points = np.stack(
-            np.meshgrid(
-                radial_validation,
-                theta_validation,
-                eta_validation,
-                indexing="ij",
-            ),
-            axis=-1,
-        )
-        regularized = evaluator.evaluate_regularized(validation_points)
-        if np.any(~regularized.valid):
-            minimum = float(np.nanmin(regularized.J_reg))
-            raise ValueError(
-                "toroidal Fourier-Zernike fit folds on the validation grid; "
-                f"minimum regularized Jacobian is {minimum:.6e}"
-            )
+        validate_fitted_map(evaluator)
     return evaluator
+
+
+def validate_fitted_map(evaluator):
+    u, theta, eta, period = evaluator.u, evaluator.v, evaluator.eta, evaluator.period
+    radial = np.unique(np.concatenate(([0.0, min(0.25 * u[1], 1.0)], 0.5 * (u[:-1] + u[1:]), [1.0])))
+    theta = theta + 0.37 * (_TWO_PI / theta.size)
+    eta = eta + 0.31 * (period / eta.size)
+    validation_points = np.stack(np.meshgrid(radial, theta, eta, indexing="ij"), axis=-1)
+    regularized = evaluator.evaluate_regularized(validation_points)
+    if np.any(~regularized.valid):
+        minimum = float(np.nanmin(regularized.J_reg))
+        raise ValueError(
+            "toroidal Fourier-Zernike fit folds on the validation grid; "
+            f"minimum regularized Jacobian is {minimum:.6e}"
+        )
 
 
 def build_metric_evaluator(

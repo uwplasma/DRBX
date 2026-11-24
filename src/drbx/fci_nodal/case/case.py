@@ -178,9 +178,9 @@ def build_case(options: CaseOptions, case_dir, *, adopt=None):
     with _case_lock(case):
         metric = options.metric
         geometry = options.geometry
-        run("metric", asdict(metric), ("metric_cache",),
+        run("metric", metric.numerical_options(), ("metric_cache",),
             raw=(metric.makegrid_path, metric.vessel_path), payload=metric)
-        run("field_table", asdict(metric), ("field_table",), payload=metric)
+        run("field_table", metric.numerical_options(), ("field_table",), payload=metric)
         run("polygon", options.polygon.numerical_options(), ("polygon_geometry", "polygon_merged", "polygon_case"),
             payload=options.polygon)
         run("geometry", asdict(geometry), ("indexed_geometry",), payload=geometry,

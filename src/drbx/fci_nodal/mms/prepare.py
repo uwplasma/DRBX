@@ -82,7 +82,12 @@ def prepare_owners(out,owner_p,read_q,field_manifest,*,flow,chi,D,
             coeff,modes=flow_inputs(flow)
             chi_local=jax.device_put(chi,devices[owner]);D_local=jax.device_put(D,devices[owner])
             if replicated is None:
-                base,spline=ev.tables[0].tree_flatten()[0]
+                # The exact-plane map replicates its in-plane series and its eta spline; the eta-filtered map
+                # is one series.
+                from ..evaluators.exact_plane_metric import JaxExactPlaneMetricEvaluator
+                metric=ev.tables[0]
+                base,spline=(metric.tree_flatten()[0] if isinstance(metric,JaxExactPlaneMetricEvaluator)
+                             else (metric,()))
                 def tables(label,pytree):
                     return {f'{label}_{i}':dict(shape=list(a.shape),dtype=str(a.dtype),bytes=a.nbytes)
                             for i,a in enumerate(jax.tree_util.tree_leaves(pytree))}
