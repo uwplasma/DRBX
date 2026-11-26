@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -62,6 +63,20 @@ def test_fci_vorticity_jacobi_preconditioner_reduces_fixed_budget_residual() -> 
 
     assert jacobi.preconditioner == "jacobi"
     assert float(jacobi.residual_l2) < 0.75 * float(unpreconditioned.residual_l2)
+
+    grad_density, grad_metric = jax.jit(
+        jax.grad(
+            lambda d, m: jnp.sum(
+                solve_fci_vorticity_potential_cg(
+                    vorticity, d, m, iterations=10, boussinesq=False, regularization=0.5, preconditioner="jacobi"
+                ).potential
+                ** 2
+            ),
+            argnums=(0, 1),
+        )
+    )(density, geometry.metric)
+    assert bool(jnp.all(jnp.isfinite(grad_density)))
+    assert float(jnp.linalg.norm(grad_metric.Bxy)) > 0.0
 
 
 def test_fci_vorticity_boussinesq_non_boussinesq_limit_and_contrast() -> None:
