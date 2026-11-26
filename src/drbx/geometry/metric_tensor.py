@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
 
+@jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class MetricTensor3D:
     """Complete 3D metric payload used by non-axisymmetric geometry kernels."""
